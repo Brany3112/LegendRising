@@ -50,6 +50,7 @@ const SKILL_SEED = {
 };
 function dailyEnsure(){
   if (!S) return;
+  const firstDay = !S.life;                         // a career from before days were lived one at a time
   S.skills = S.skills || {};
   for (const [k] of SKILLS){
     if (!(typeof S.skills[k] === "number" && isFinite(S.skills[k]))){
@@ -78,6 +79,9 @@ function dailyEnsure(){
   for (const k of TRAIT_KEYS) S.traits[k] = clamp(num(S.traits[k], 50), 0, 100);
   S.inv = S.inv || {};
   for (const k of Object.keys(FOOD)) S.inv[k] = Math.max(0, Math.round(num(S.inv[k], 0)));
+  // food did not exist before then: a few things in the fridge so the first morning is not an empty one
+  if (firstDay && !Object.keys(FOOD).some(k => FOOD[k].kind === "food" && S.inv[k] > 0))
+    Object.assign(S.inv, {sandwich:S.inv.sandwich + 2, meal:S.inv.meal + 1, fruit:S.inv.fruit + 2, water:S.inv.water + 2});
   if (!Array.isArray(S.orders)) S.orders = [];
   if (!S.today || typeof S.today !== "object") S.today = freshToday();
   const ft = freshToday();
