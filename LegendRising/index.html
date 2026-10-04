@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#060b14">
+<meta name="description" content="Legend Rising: an NSS-style football career game. Start in Romanian Liga 4 and make it to the Ballon d'Or.">
+<title>Legend Rising</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css?v=2026.10.01lt10">
+</head>
+<body>
+<!-- the stadium backdrop lives outside #app so re-drawing a screen never restarts it -->
+<div id="bg" class="title-bg"><div class="beam b1"></div><div class="beam b2"></div><div class="pitchlines"></div></div>
+<!-- the first-person world: everything here is test-build only -->
+<div id="lifeRoot" style="display:none">
+  <canvas id="lifeCanvas"></canvas>
+  <div class="lf-top"><div class="lf-left"><div id="lifeClock" class="lf-clock">Day 1 · 07:00</div><div id="lifeMoney" class="lf-money">€0</div></div>
+    <div class="lf-energy"><span>Energy</span><div class="lf-bar"><i id="lifeEnergy"></i></div></div></div>
+  <div class="lf-cross"></div>
+  <div id="lifePrompt" class="lf-prompt"><div class="lp-ring"><b>E</b></div>
+    <div class="lp-txt"><span class="lp-label"></span><span class="lp-hint"></span><span class="lp-hold">Hold E</span></div></div>
+  <div id="lifeNote" class="lf-note"></div>
+  <div id="lifeMatch" class="lf-match"><b></b><span></span><div class="lf-mbar"><i></i></div></div>
+  <div class="lf-keys">WASD move · Shift run · E use · drag doors with the mouse · Tab phone · Q hub · click to look</div>
+  <div class="lf-hand" id="lifeHandHint"></div>
+</div>
+<div id="lifeDim"></div>
+<div id="lifePhone"><div class="lp-screen"><div id="app"></div></div><div class="lp-frame"></div></div>
+<div id="lifeFade"></div>
+<script>window.FF_BUILD = "2026.10.01a";</script>
+<div id="sheetRoot"></div>
+<div id="phoneRoot" class="hidden"></div>
+<div id="tutRoot" class="tut"></div>
+<!-- Plain scripts (not modules) so the game also runs by double-clicking index.html. Order matters. -->
+<script src="js/data/clubs.js?v=2026.10.01lt10"></script>
+<script src="js/data/names.js?v=2026.10.01lt10"></script>
+<script src="js/data/game.js?v=2026.10.01lt10"></script>
+<script src="js/data/clothes.js?v=2026.10.01lt10"></script>
+<script src="js/util.js?v=2026.10.01lt10"></script>
+<script src="js/world.js?v=2026.10.01lt10"></script>
+<script src="js/firebase-config.js?v=2026.10.01lt10"></script>
+<script src="js/awards.js?v=2026.10.01lt10"></script>
+<script src="js/career.js?v=2026.10.01lt10"></script>
+<script src="js/online.js?v=2026.10.01lt10"></script>
+<script src="js/social.js?v=2026.10.01lt10"></script>
+<script src="js/social_quick.js?v=2026.10.01lt10"></script>
+<script src="js/engine/physics.js?v=2026.10.01lt10"></script>
+<script src="js/engine/render.js?v=2026.10.01lt10"></script>
+<script src="js/engine/defend.js?v=2026.10.01lt10"></script>
+<script src="js/engine/moment.js?v=2026.10.01lt10"></script>
+<script src="js/match.js?v=2026.10.01lt10"></script>
+<script src="js/ui/main.js?v=2026.10.01lt10"></script>
+<script src="js/ui/phone.js?v=2026.10.01lt10"></script>
+<script src="js/ui/smart.js?v=2026.10.01lt10"></script>
+<script src="js/ui/apps_social.js?v=2026.10.01lt10"></script>
+<script src="js/ui/apps_scout.js?v=2026.10.01lt10"></script>
+<script src="js/ui/apps_rank.js?v=2026.10.01lt10"></script>
+<script src="js/ui/apps_stats.js?v=2026.10.01lt10"></script>
+<script src="js/ui/office.js?v=2026.10.01lt10"></script>
+<script src="js/ui/odo.js?v=2026.10.01lt10"></script>
+<script src="js/ui/admin.js?v=2026.10.01lt10"></script>
+<script src="js/ui/tutorial.js?v=2026.10.01lt10"></script>
+<script src="js/life/phone.js?v=lt10"></script>
+<script type="module" src="js/life/world.js?v=lt10"></script>
+<script src="js/main.js?v=2026.10.01lt10"></script>
+</body>
+</html>
