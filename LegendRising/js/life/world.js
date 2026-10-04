@@ -253,18 +253,40 @@ function enterZone(zone, at){
   const p = typeof at === "object" && at ? at : spawns[at] || spawns[zone === "home" ? "bed" : "bus"];
   place(p);
   forceSky = true; skyStep(0);
+  hudMeters.e = hudMeters.f = null;
+  warm();
+}
+// Shaders are compiled and textures uploaded the first time something is drawn — which, with frustum culling,
+// is the first time you turn to face it: a hitch exactly while you move the mouse. Do it all up front instead.
+function warm(){
+  try {
+    renderer.compile(scene, cam);
+    const seen = new Set();
+    scene.traverse(o => { if (!o.material) return; for (const m of [].concat(o.material)) for (const k of ["map", "normalMap", "roughnessMap", "emissiveMap", "alphaMap"]){ const t = m[k]; if (t && !seen.has(t)){ seen.add(t); renderer.initTexture(t); } } });
+  } catch(e){}
 }
 
-/* ---------- you ---------- */
-const P = {x:0, z:0, feet:0, eye:1.62, yaw:0, pitch:0, vx:0, vz:0, vy:0, drillY:0, bobY:0};
+/* ---------- you ----------
+   How you move. W A S D walk (4 m/s); hold Shift to run (6 m/s); keep Shift held while going forward and,
+   once you are up to running pace, it builds into a sprint over about a second (7.6 m/s). Backwards and
+   sideways never sprint. Speed changes are acceleration-limited in world space, so turning the view while
+   moving changes your direction smoothly and never jerks your speed. The view itself is never smoothed:
+   the mouse turns the camera on the very next frame. Only the camera's position is filtered — the head bob
+   (a small, speed-scaled rise and fall once a step, a tiny sway once a stride, no roll) and the eye height,
+   which follows the ground through a critically damped spring so kerbs and stair landings never snap.
+   P.speed / P.moveMode / P.stride are the locomotion state a body or footsteps can read. */
+const P = {x:0, z:0, feet:0, eye:1.62, yaw:0, pitch:0, vx:0, vz:0, vy:0, drillY:0, bobY:0,
+  speed:0, moveMode:"idle", stride:0, sprint:0};
 const EYE = 1.62, R = .26, REACH = 2.5;
+const GAIT = {walk:4.0, run:6.0, sprint:7.6, back:.8, accel:26, brake:24, sprintIn:1.1, sprintOut:2.5};
 const keys = {};
 let held = null, grab = null, lockLost = false;
-const B = {phase:0, amt:0, fov:74, roll:0, dist:0};
-const L = {f:0, r:0};
+const B = {amt:0, y:0, yv:0, x:0, xv:0, fov:74, fovSet:74};     // head bob springs and the field of view
+const E = {a:0, av:0, b:0, bv:0};                               // the eye's offsets from your feet: slopes (a), steps (b)
 function place(p){
   P.x = p.x; P.z = p.z; P.feet = p.y || 0; P.eye = P.feet + EYE; P.yaw = p.yaw || 0; P.pitch = 0;
-  P.vx = P.vz = P.vy = 0; B.amt = 0; B.roll = 0; L.f = L.r = 0; tunnelGo = false; tunnelInfo = null;
+  P.vx = P.vz = P.vy = 0; P.speed = 0; P.sprint = 0; P.moveMode = "idle";
+  B.amt = B.y = B.yv = B.x = B.xv = 0; E.a = E.av = E.b = E.bv = 0; tunnelGo = false; tunnelInfo = null;
 }
 function hits(x, z){
   const lo = P.feet + .42, hi = P.feet + 1.75;
@@ -279,31 +301,46 @@ function moveBy(dx, dz){
   const b = DRILL && DRILL.moveBox ? DRILL.moveBox : W.bounds;
   // if something closed on you (a door), you may walk out of it rather than be pushed through it
   stuck = null; stuck = hits(P.x, P.z);
-  if (dx){
-    let nx = P.x + dx; const s = hits(nx, P.z);
-    if (s){ nx = dx > 0 ? s.x0 - R - 1e-3 : s.x1 + R + 1e-3; if (hits(nx, P.z)) nx = P.x; P.vx = 0; }
-    P.x = Math.max(b.x0, Math.min(b.x1, nx));
-  }
-  if (dz){
-    let nz = P.z + dz; const s = hits(P.x, nz);
-    if (s){ nz = dz > 0 ? s.z0 - R - 1e-3 : s.z1 + R + 1e-3; if (hits(P.x, nz)) nz = P.z; P.vz = 0; }
-    P.z = Math.max(b.z0, Math.min(b.z1, nz));
+  // long frames are split so a sprint can never carry you through a thin wall
+  const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dz))/.12));
+  dx /= n; dz /= n;
+  for (let i = 0; i < n; i++){
+    if (dx){
+      let nx = P.x + dx; const s = hits(nx, P.z);
+      if (s){ nx = dx > 0 ? s.x0 - R - 1e-3 : s.x1 + R + 1e-3; if (hits(nx, P.z)) nx = P.x; P.vx = 0; dx = 0; }
+      P.x = Math.max(b.x0, Math.min(b.x1, nx));
+    }
+    if (dz){
+      let nz = P.z + dz; const s = hits(P.x, nz);
+      if (s){ nz = dz > 0 ? s.z0 - R - 1e-3 : s.z1 + R + 1e-3; if (hits(P.x, nz)) nz = P.z; P.vz = 0; dz = 0; }
+      P.z = Math.max(b.z0, Math.min(b.z1, nz));
+    }
   }
 }
-// the highest thing under you that you could step onto
+// the highest thing under you that you could step onto; gx/gz is its slope (a stair ramp), for the eye spring
+let gx = 0, gz = 0;
 function groundAt(x, z, feet){
-  let best = 0;
-  for (const f of W.floors) if (x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1 && f.h <= feet + .5 && f.h > best) best = f.h;
+  let best = 0; gx = gz = 0;
+  for (const f of W.floors) if (x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1 && f.h <= feet + .5 && f.h > best){ best = f.h; gx = gz = 0; }
   for (const r of W.ramps){
     if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
-    const c = r.axis === "z" ? z : x, t = Math.max(0, Math.min(1, (c - r.a0)/(r.a1 - r.a0)));
+    const c = r.axis === "z" ? z : x, u = (c - r.a0)/(r.a1 - r.a0), t = Math.max(0, Math.min(1, u));
     const h = r.h0 + (r.h1 - r.h0)*t;
-    if (h <= feet + .5 && h > best) best = h;
+    if (h <= feet + .5 && h > best){
+      best = h;
+      const k = u > 0 && u < 1 ? (r.h1 - r.h0)/(r.a1 - r.a0) : 0;
+      gx = r.axis === "z" ? 0 : k; gz = r.axis === "z" ? k : 0;
+    }
   }
   return best;
 }
 const tutOn = () => { const t = document.getElementById("tutRoot"); return !!(t && t.classList.contains("on")); };
 const locked = () => !!(window.lifeMoveLocked && window.lifeMoveLocked()) || modal || tutOn();
+// exact critically damped spring of x (and its rate v) towards 0 over dt: no overshoot from rest, no frame-rate dependence
+function spring(o, kx, kv, w, dt){
+  const x = o[kx], v = o[kv], e = Math.exp(-w*dt), k = (v + w*x)*dt;
+  o[kx] = (x + k)*e; o[kv] = (v - w*k)*e;
+}
 let moving = false;
 function step(dt, real){
   let f = 0, r = 0;
@@ -314,44 +351,73 @@ function step(dt, real){
   }
   const len = Math.hypot(f, r);
   if (len){ f /= len; r /= len; }
-  const running = keys.shift && f > .3 && !DRILL;
-  // tired legs and an empty stomach slow you down a little
-  const legs = 1 - Math.max(0, (S.fatigue || 0) - 70)/200 - (S.energy < 15 ? .08 : 0);
-  let sp = (running ? 6.6 : 4.0)*legs;
-  if (f < 0) sp *= .8;
-  const k = 1 - Math.exp(-(len ? 14 : 16)*dt);
-  L.f += (f*sp - L.f)*k; L.r += (r*sp - L.r)*k;
-  if (Math.abs(L.f) < .01 && !f) L.f = 0; if (Math.abs(L.r) < .01 && !r) L.r = 0;
+  const run = !!keys.shift && !!len && !DRILL;
+  // sprint builds while you hold Shift going forward at full running pace, and falls away as soon as you don't
+  const fwd = run && f > .5;
+  if (fwd && P.speed > GAIT.run*.85*legs()) P.sprint = Math.min(1, P.sprint + dt/GAIT.sprintIn);
+  else P.sprint = Math.max(0, P.sprint - dt*GAIT.sprintOut);
+  const sb = P.sprint*P.sprint*(3 - 2*P.sprint);
+  let sp = (run ? GAIT.run + (GAIT.sprint - GAIT.run)*sb : GAIT.walk)*legs();
+  if (f < 0) sp *= GAIT.back;
+  // world-space velocity, acceleration-limited towards where you want to go
   const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
-  P.vx = L.r*cos - L.f*sin; P.vz = -L.r*sin - L.f*cos;
-  const speed = Math.hypot(P.vx, P.vz);
-  moving = speed > .5;
-  if (speed > .02){
-    const ox = P.x, oz = P.z;
-    moveBy(P.vx*dt, P.vz*dt);
-    B.dist += Math.hypot(P.x - ox, P.z - oz);
-  }
-  // stairs, kerbs and falling
-  const g = groundAt(P.x, P.z, P.feet);
+  const tx = (r*cos - f*sin)*sp, tz = (-r*sin - f*cos)*sp;
+  let dvx = tx - P.vx, dvz = tz - P.vz;
+  const dl = Math.hypot(dvx, dvz), lim = (len ? GAIT.accel : GAIT.brake)*dt;
+  if (dl > lim){ dvx *= lim/dl; dvz *= lim/dl; }
+  P.vx += dvx; P.vz += dvz;
+  if (!len && Math.hypot(P.vx, P.vz) < .02) P.vx = P.vz = 0;
+  const ox = P.x, oz = P.z;
+  if (P.vx || P.vz) moveBy(P.vx*dt, P.vz*dt);
+  // what you actually did, after walls: this drives the bob, the stride and the clock
+  const ax = dt > 0 ? (P.x - ox)/dt : 0, az = dt > 0 ? (P.z - oz)/dt : 0, actual = Math.hypot(ax, az);
+  P.speed += (actual - P.speed)*(1 - Math.exp(-14*dt));
+  if (P.speed < .01 && !actual) P.speed = 0;
+  moving = P.speed > .5;
+  P.moveMode = P.speed < .3 ? "idle" : P.sprint > .5 ? "sprint" : run && P.speed > GAIT.walk*1.08*legs() ? "run" : "walk";
+  // a step is shorter at a walk and longer at a run, so the cadence goes from ~2.3 to ~3.3 steps a second
+  P.stride = (P.stride + actual*dt/Math.max(.9, P.speed/(1.4 + .25*P.speed))) % 1e4;
+  // stairs, kerbs and falling: the feet follow the ground exactly; the eye follows the feet through two critically
+  // damped springs — a stiff one that rounds off where a slope starts and ends, a softer one that soaks up the
+  // sudden part (a kerb, a step down, a landing). Neither has any momentum of its own, so the eye can never
+  // overshoot: it rises when you go up and only then, and it comes to rest exactly at eye height.
+  const f0 = P.feet, g = groundAt(P.x, P.z, P.feet);
+  let tv = gx*ax + gz*az;                                   // how fast a stair ramp is lifting you
   if (g >= P.feet - .001){ P.feet = g; P.vy = 0; }
   else if (P.feet - g < .45 && P.vy === 0){ P.feet = g; }
-  else { P.vy -= 22*dt; P.feet = Math.max(g, P.feet + P.vy*dt); if (P.feet === g) P.vy = 0; }
-  P.eye += (P.feet + EYE - P.eye)*(1 - Math.exp(-14*dt));
-  // head bob: a soft rise and fall once a step, a slight sway every two
-  const realSpeed = dt > 0 ? Math.min(8, speed) : 0;
-  B.amt += (Math.min(1, realSpeed/4.0) - B.amt)*(1 - Math.exp(-5*dt));
-  B.phase = B.dist/(running ? 1.5 : 1.1)*Math.PI*2;
-  const bobY = Math.sin(B.phase*2)*.022*B.amt*(running ? 1.35 : 1);
-  const sway = Math.sin(B.phase)*.014*B.amt;
-  B.fov += ((running && speed > 4.6 ? 78 : 74) - B.fov)*(1 - Math.exp(-4*dt));
-  if (Math.abs(cam.fov - B.fov) > .01){ cam.fov = B.fov; cam.updateProjectionMatrix(); }
-  cam.position.set(P.x + cos*sway, P.eye + bobY + P.drillY + P.bobY, P.z - sin*sway);
-  cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
+  else { P.vy -= 22*dt; P.feet = Math.max(g, P.feet + P.vy*dt); tv = P.vy; if (P.feet === g) P.vy = 0; }
+  const df = P.feet - f0;
+  let c = tv*dt; c = df*c > 0 ? Math.sign(df)*Math.min(Math.abs(c), Math.abs(df)) : 0;
+  E.a -= c; E.b -= df - c;
+  if (Math.abs(E.a) + Math.abs(E.b) > .9) E.a = E.av = E.b = E.bv = 0;     // a teleport, not a step
+  spring(E, "a", "av", 40, dt); spring(E, "b", "bv", 16, dt);
+  P.eye = P.feet + EYE + E.a + E.b;
+  // head bob: the target is a small sine once a step (and half that, sideways, once a stride); springs carry the camera to it
+  const want = P.speed < .3 ? 0 : Math.min(.011, P.speed*.0028) + Math.max(0, P.speed - GAIT.walk)*.0034;
+  B.amt += (want - B.amt)*(1 - Math.exp(-6*dt));
+  if (B.amt < 1e-5 && !want) B.amt = 0;
+  const ph = P.stride*Math.PI*2;
+  B.y -= B.amt*Math.sin(ph); B.x -= B.amt*.45*Math.sin(ph/2);
+  spring(B, "y", "yv", 30, dt); spring(B, "x", "xv", 30, dt);
+  B.y += B.amt*Math.sin(ph); B.x += B.amt*.45*Math.sin(ph/2);
+  if (!B.amt && Math.abs(B.y) + Math.abs(B.x) < 1e-5 && Math.abs(B.yv) + Math.abs(B.xv) < 1e-4) B.y = B.yv = B.x = B.xv = 0;
+  // a slightly wider view at a sprint, eased in and out
+  const fovT = 74 + 4*sb;
+  B.fov = Math.abs(fovT - B.fov) < .005 ? fovT : B.fov + (fovT - B.fov)*(1 - Math.exp(-5*dt));
+  if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)){ B.fovSet = B.fov; cam.fov = B.fov; cam.updateProjectionMatrix(); }
   for (const a of W.anims) a(dt);
   if (DRILL && !lockLost) DRILL.update(dt);
+  // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
+  cam.position.set(P.x + cos*B.x, P.eye + B.y + P.drillY + P.bobY, P.z - sin*B.x);
+  cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
   if (LIFE.zone === "ground") tunnel();
   held = DRILL ? null : (grab || target());
   hud(held);
+}
+// tired legs and an empty stomach slow you down a little — gradually, never in a sudden step
+function legs(){
+  const s = G(); if (!s) return 1;
+  return 1 - Math.min(.15, Math.max(0, (s.fatigue || 0) - 70)/200) - Math.min(1, Math.max(0, 15 - (s.energy || 0))/10)*.08;
 }
 /* walking up to the tunnel: the match gets ready as you come, and starts when you reach it */
 let tunnelInfo = null, tunnelGo = false, tunnelAge = 0;
@@ -432,6 +498,7 @@ function use(sp){
 }
 /* ---------- the overlay ---------- */
 let lastPrompt = null, hudCtxT = 0;
+const hudMeters = {e:null, f:null};
 function hud(near){
   const s = G(); if (!s) return;
   const c = document.getElementById("lifeClock");
@@ -448,9 +515,10 @@ function hud(near){
       if (cx.textContent !== t){ cx.textContent = t; cx.classList.toggle("on", !!t); cx.classList.toggle("match", !!f); }
     }
   }
-  const en = document.getElementById("lifeEnergy"), fa = document.getElementById("lifeFatigue");
-  if (en){ en.style.width = clamp(s.energy, 0, 100).toFixed(1) + "%"; en.parentNode.parentNode.classList.toggle("low", s.energy < 25); }
-  if (fa){ fa.style.width = clamp(s.fatigue, 0, 100).toFixed(1) + "%"; fa.parentNode.parentNode.classList.toggle("low", s.fatigue > 75); }
+  // the meters are only written when what they show has changed: no style work in a frame where nothing moved
+  const ev = clamp(s.energy, 0, 100).toFixed(1), fv = clamp(s.fatigue, 0, 100).toFixed(1);
+  if (ev !== hudMeters.e){ const en = document.getElementById("lifeEnergy"); if (en){ hudMeters.e = ev; en.style.width = ev + "%"; en.parentNode.parentNode.classList.toggle("low", s.energy < 25); } }
+  if (fv !== hudMeters.f){ const fa = document.getElementById("lifeFatigue"); if (fa){ hudMeters.f = fv; fa.style.width = fv + "%"; fa.parentNode.parentNode.classList.toggle("low", s.fatigue > 75); } }
   FEED.moneySync();
   const p = document.getElementById("lifePrompt");
   if (!p) return;
@@ -473,13 +541,22 @@ function endDrillNow(){ if (DRILL && DRILL.input) DRILL.input("down", "escape");
 
 /* ---------- loop and entry ---------- */
 let last = 0, frames = 0, saveT = 0, keysT = 0;
-const Q = {scale:1, acc:0, n:0, good:0};
+// Adaptive resolution with hysteresis: it steps down only after two slow seconds in a row, steps back up only
+// after six smooth ones, and once a step up has had to be undone it stays down — the picture never pumps
+// between two sizes (every change reallocates the canvas, which is itself a hitch).
+const Q = {scale:1, acc:0, n:0, slow:0, good:0, t:0, upAt:-1e9, noUp:false};
 function quality(real){
-  Q.acc += real; Q.n++;
+  Q.acc += real; Q.n++; Q.t += real;
   if (Q.acc < 1) return;
   const fps = Q.n/Q.acc; Q.acc = 0; Q.n = 0;
-  if (fps < 50 && Q.scale > .6){ Q.scale = Math.max(.6, Q.scale - .1); Q.good = 0; resize(); }
-  else if (fps > 58 && Q.scale < 1){ if (++Q.good >= 3){ Q.scale = Math.min(1, Q.scale + .1); Q.good = 0; resize(); } }
+  Q.slow = fps < 45 ? Q.slow + 1 : 0;
+  Q.good = fps > 57 ? Q.good + 1 : 0;
+  if (Q.slow >= 2 && Q.scale > .6){
+    if (Q.t - Q.upAt < 15) Q.noUp = true;
+    Q.scale = Math.max(.6, +(Q.scale - .1).toFixed(2)); Q.slow = Q.good = 0; resize();
+  } else if (Q.good >= 6 && Q.scale < 1 && !Q.noUp){
+    Q.scale = Math.min(1, +(Q.scale + .1).toFixed(2)); Q.good = 0; Q.upAt = Q.t; resize();
+  }
 }
 function skyStep(real){
   if (!SKY) return;
@@ -560,13 +637,20 @@ function resize(){
   renderer.setPixelRatio(Math.min(1.5, devicePixelRatio || 1)*Q.scale*(typeof GFX !== "undefined" && GFX.low ? .85 : 1));
   renderer.setSize(w, h, false); cam.aspect = w/h; cam.updateProjectionMatrix();
 }
+// raw mouse counts where the browser allows it (no OS acceleration, and free of the stray jumps some browsers
+// put in accelerated pointer-lock movement); anything else falls back to an ordinary lock
+let rawMouse = false, lastMX = 0, lastMY = 0, freshLock = false;
 function lock(cv){
   if (!LIFE.running || locked() || document.pointerLockElement === cv) return;
+  const plain = () => { rawMouse = false; try { const q = cv.requestPointerLock(); if (q && q.catch) q.catch(() => {}); } catch(e){} };
   try {
     const p = cv.requestPointerLock({unadjustedMovement:true});
-    if (p && p.catch) p.catch(() => { try { cv.requestPointerLock(); } catch(e){} });
-  } catch(e){ try { cv.requestPointerLock(); } catch(e2){} }
+    if (p && p.then) p.then(() => { rawMouse = true; }, plain); else rawMouse = false;
+  } catch(e){ plain(); }
 }
+// a stray jump: only in non-raw movement, and only when one event is many times bigger than the one before it.
+// A real fast turn builds up over a frame or two, so it is never thrown away, however fast it is
+const stray = (m, prev) => !rawMouse && Math.abs(m) > 250 && Math.abs(m) > 8*(Math.abs(prev) + 12);
 const _e = new THREE.Vector3(), _h = new THREE.Vector3();
 function dragBy(mx, my){
   // which way does the free edge of the door move on screen when it opens?
@@ -586,6 +670,7 @@ function bindInput(cv){
   document.addEventListener("pointerlockchange", () => {
     const on = document.pointerLockElement === cv;
     lockLost = !on && !!DRILL;
+    freshLock = on; lastMX = lastMY = 0;
     const dh = document.getElementById("lifeDrill"); if (dh) dh.classList.toggle("paused", lockLost);
   });
   addEventListener("mousedown", e => {
@@ -596,9 +681,14 @@ function bindInput(cv){
   addEventListener("mouseup", e => { if (e.button !== 0) return; grab = null; if (DRILL && document.pointerLockElement === cv) DRILL.input("up", "mouse"); });
   addEventListener("mousemove", e => {
     if (document.pointerLockElement !== cv || locked()) return;
-    const mx = e.movementX, my = e.movementY;
-    if (Math.abs(mx) > 350 || Math.abs(my) > 350) return;
+    let mx = e.movementX || 0, my = e.movementY || 0;
+    // the first event after the lock is taken can carry the jump of the cursor into the lock
+    if (freshLock){ freshLock = false; if (Math.abs(mx) > 100 || Math.abs(my) > 100) return; }
+    const sx = stray(mx, lastMX), sy = stray(my, lastMY); lastMX = mx; lastMY = my;
+    if (sx) mx = 0; if (sy) my = 0;
     if (grab){ dragBy(mx, my); return; }
+    if (DRILL && DRILL.lockLook) return;
+    // the view turns here, once per event, with no smoothing; step() puts it on the camera before this frame is drawn
     P.yaw -= mx*.0021;
     P.pitch = Math.max(-1.35, Math.min(1.35, P.pitch - my*.0021));
   });
@@ -629,5 +719,5 @@ window.LIFE = LIFE; window.startLife = startLife; window.stopLife = stop; window
 // handles for automated tests
 window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
-  get busy(){ return busy; }, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
+  get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy};

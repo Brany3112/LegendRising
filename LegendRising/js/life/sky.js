@@ -6,7 +6,14 @@
 
    The same sky is what the shiny things reflect: an environment map is baked from it every few
    in-game minutes. Real point lights are expensive, so there are only six, and they follow you
-   between the lamps, bulbs and shop lights you are actually near. */
+   between the lamps, bulbs and shop lights you are actually near.
+
+   Frame pacing: nothing here may cost a frame. The sun's shadow map covers the whole zone from a fixed
+   centre, so walking never forces it to be redrawn — only the sun moving a visible amount does (every few
+   seconds of game time), and the sun's light direction moves in the same steps as its shadows. The
+   reflection map is a tiny cube of the sky dome filtered into one render target that is reused for good,
+   so the materials that read it never see a new texture (which would send every one of them back through
+   the shader cache). */
 import {THREE, W, poolMat} from "./build.js";
 
 // [hour, sky top, horizon, hemisphere sky, hemisphere ground, sun colour, sun strength, hemi strength,
@@ -84,6 +91,8 @@ export function createSky(renderer){
   const envScene = new THREE.Scene(), envDome = new THREE.Mesh(new THREE.SphereGeometry(50, 24, 12), skyMat);
   envScene.add(envDome);
   const pmrem = new THREE.PMREMGenerator(renderer);
+  const cubeRT = new THREE.WebGLCubeRenderTarget(64, {type:THREE.HalfFloatType, generateMipmaps:false});
+  const cubeCam = new THREE.CubeCamera(.1, 100, cubeRT);
   let envRT = null, envAt = -999;
 
   const sun = new THREE.DirectionalLight(0xffffff, 2);
@@ -94,17 +103,20 @@ export function createSky(renderer){
   const fog = new THREE.Fog(0xc8d8e8, 60, 260);
   const K = {night:0, lamps:0, exposure:1, env:.5, sunUp:1};
   const dir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmp = new THREE.Color();
-  let shadowAt = {x:1e9, z:1e9, d:new THREE.Vector3()}, assignT = 0, shadowSize = 0;
+  const shadowAt = {key:"", d:new THREE.Vector3(0, -2, 0)}, shadowDir = new THREE.Vector3(0, 1, 0), mid = {x:0, z:0, half:46};
+  let assignT = 0, shadowSize = 0;
 
+  const SAMPLE = {sunI:0, hemiI:0, stars:0, lamps:0, exposure:1, env:.5};
   function sample(h){
     let i = 0; while (i < KEYS.length - 2 && KEYS[i + 1][0] <= h) i++;
     const A = KEYS[i], B = KEYS[i + 1], t = smooth(Math.max(0, Math.min(1, (h - A[0])/(B[0] - A[0]))));
-    const n = (a, b) => a + (b - a)*t;
+    const n = (a, b) => a + (b - a)*t, o = SAMPLE;
     lerpHex(uni.uTop.value, A[1], B[1], t); lerpHex(uni.uHor.value, A[2], B[2], t);
     lerpHex(hemi.color, A[3], B[3], t); lerpHex(hemi.groundColor, A[4], B[4], t);
     lerpHex(tmp, A[5], B[5], t); uni.uSunCol.value.copy(tmp);
     lerpHex(uni.uCloud.value, A[8], B[8], t);
-    return {sunI:n(A[6], B[6]), hemiI:n(A[7], B[7]), stars:n(A[9], B[9]), lamps:n(A[10], B[10]), exposure:n(A[11], B[11]), env:n(A[12], B[12])};
+    o.sunI = n(A[6], B[6]); o.hemiI = n(A[7], B[7]); o.stars = n(A[9], B[9]); o.lamps = n(A[10], B[10]); o.exposure = n(A[11], B[11]); o.env = n(A[12], B[12]);
+    return o;
   }
   // the sun rises in the east (+x) a little after six and sets in the west before half past seven
   function sunVec(h, out){
@@ -120,9 +132,9 @@ export function createSky(renderer){
     attach(scene){
       scene.add(dome, sun, sun.target, hemi, ...pool);
       scene.fog = fog; scene.background = null;
-      shadowAt.x = 1e9; envAt = -999;
+      shadowAt.key = ""; envAt = -999;
     },
-    // h: hour of the day (fractional). focus: where you are, for the shadow frustum and the lights.
+    // h: hour of the day (fractional). real: seconds since the last frame, for the clouds and stars.
     update(h, focus, real){
       const k = sample(h);
       uni.uTime.value += real || 0;
@@ -133,14 +145,13 @@ export function createSky(renderer){
       uni.uStars.value = k.stars;
       uni.uOct.value = typeof GFX !== "undefined" && GFX.low ? 3 : 5;
       // one shadow-casting light: the sun by day, the moon by night, faded through zero as they swap
+      // (where it shines from is set in refresh(), in step with its shadow map)
       const useSun = up > -.02, L = useSun ? dir : moonDir;
       const swap = Math.max(0, Math.min(1, (useSun ? up : moonDir.y)*7));
+      shadowDir.copy(L);
       sun.intensity = k.sunI*swap;
       sun.color.copy(uni.uSunCol.value);
       hemi.intensity = k.hemiI;
-      const fx = focus ? focus.x : 0, fz = focus ? focus.z : 0;
-      sun.target.position.set(fx, 0, fz);
-      sun.position.set(fx + L.x*90, L.y*90 + 4, fz + L.z*90);
       fog.color.copy(uni.uHor.value).multiplyScalar(.92);
       fog.near = 50 + k.env*50; fog.far = 180 + k.env*130;
       K.night = k.stars; K.lamps = k.lamps; K.exposure = k.exposure; K.env = k.env; K.sunUp = uni.uSunUp.value;
@@ -154,28 +165,33 @@ export function createSky(renderer){
     },
     // called a few times a second at most: shadows, reflections and which lamps are real
     refresh(renderer, scene, h, focus, force){
-      const fx = focus ? focus.x : 0, fz = focus ? focus.z : 0;
       const size = typeof GFX !== "undefined" && GFX.low ? 1024 : 2048;
       if (size !== shadowSize){
         shadowSize = size; sun.shadow.mapSize.set(size, size);
         if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
-        const c = sun.shadow.camera; c.left = -46; c.right = 46; c.top = 46; c.bottom = -46; c.near = 1; c.far = 220; c.updateProjectionMatrix();
         force = true;
       }
-      // shadows are redrawn when you have moved a fair way, or the sun has visibly moved
-      if (force || Math.hypot(fx - shadowAt.x, fz - shadowAt.z) > 7 || shadowAt.d.angleTo(sun.position.clone().sub(sun.target.position).normalize()) > .012){
-        shadowAt.x = fx; shadowAt.z = fz; shadowAt.d.copy(sun.position).sub(sun.target.position).normalize();
+      // one shadow frustum over the whole zone (its centre, wide enough for any sun bearing), set once per zone
+      const b = W.bounds, key = b ? `${b.x0},${b.x1},${b.z0},${b.z1}` : "";
+      if (key !== shadowAt.key){
+        shadowAt.key = key;
+        if (b){ mid.x = (b.x0 + b.x1)/2; mid.z = (b.z0 + b.z1)/2; mid.half = Math.max(30, Math.ceil(Math.hypot(b.x1 - b.x0, b.z1 - b.z0)/2 + 8)); }
+        const c = sun.shadow.camera; c.left = -mid.half; c.right = mid.half; c.top = mid.half; c.bottom = -mid.half; c.near = 1; c.far = 240; c.updateProjectionMatrix();
+        force = true;
+      }
+      // redrawn only when the sun (or the moon) has visibly moved; the light turns with its shadows, never ahead of them
+      if (force || shadowAt.d.angleTo(shadowDir) > .012){
+        shadowAt.d.copy(shadowDir);
+        sun.target.position.set(mid.x, 0, mid.z);
+        sun.position.set(mid.x + shadowDir.x*100, shadowDir.y*100 + 4, mid.z + shadowDir.z*100);
         renderer.shadowMap.needsUpdate = true;
       }
-      // reflections follow the sky every quarter of an hour of game time
-      if (!(typeof GFX !== "undefined" && GFX.low) && (force || Math.abs(h - envAt) > .2)){
+      // reflections follow the sky every nine minutes of game time
+      if (!(typeof GFX !== "undefined" && GFX.low) && (force || Math.abs(h - envAt) > .15)){
         envAt = h;
-        const old = envRT;
-        const tm = renderer.toneMapping; renderer.toneMapping = THREE.NoToneMapping;
-        envRT = pmrem.fromScene(envScene, 0, .1, 100);
-        renderer.toneMapping = tm;
+        cubeCam.update(renderer, envScene);
+        envRT = pmrem.fromCubemap(cubeRT.texture, envRT);
         scene.environment = envRT.texture;
-        if (old) old.dispose();
       } else if (typeof GFX !== "undefined" && GFX.low) scene.environment = null;
       scene.environmentIntensity = K.env;
       renderer.toneMappingExposure = K.exposure;
@@ -191,7 +207,7 @@ export function createSky(renderer){
         live.sort((a, b) => a._d - b._d);
         const want = live.slice(0, pool.length);
         // keep each light on its source where possible so nothing jumps
-        const free = pool.filter(p => !want.includes(p.userData.src));
+        const free = pool.filter(p => !want.includes(p.userData.src)).sort((a, b) => a.userData.cur - b.userData.cur);
         for (const src of want){
           if (pool.some(p => p.userData.src === src)) continue;
           const p = free.shift(); if (!p) break;
