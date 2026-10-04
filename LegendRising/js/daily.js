@@ -34,6 +34,70 @@ function fmtTime(m){
 function dayName(wd){ return DOW[((num(wd, 0) % 7) + 7) % 7]; }
 function todayName(){ return dayName(S.life.wd); }
 
+/* ---------- how you look: S.player.look ----------
+   Your body in the 3D world is drawn by the same character system as everyone else (js/life/human.js); this is the
+   part of it that is yours to choose and that the save keeps. Colours are stored as numbers (0xRRGGBB). Kit colours
+   are not here: they come from your club. Every field is checked by lookSane(), so a save can never hand the world
+   a look with a hole in it. */
+const LOOK_OPT = {
+  skin:[0xf3d3bb, 0xeac2a4, 0xdcab88, 0xc9926a, 0xb07a55, 0x8f5d3f, 0x6c4531, 0x4e3226],
+  hair:[["short", "Short"], ["fade", "Fade"], ["buzz", "Buzz cut"], ["messy", "Messy"], ["curly", "Curly"], ["afro", "Afro"], ["long", "Long"],
+    ["ponytail", "Ponytail"], ["bun", "Bun"], ["braids", "Braids"], ["cornrows", "Cornrows"], ["dreads", "Dreads"], ["bald", "Shaved"]],
+  hairColor:[0x15110e, 0x2b1d15, 0x4a3122, 0x7a5537, 0xb08b58, 0x8f4628, 0x8f8b85, 0xcdcac4],
+  beard:[["", "Clean-shaven"], ["stubble", "Stubble"], ["beard", "Beard"]],
+  build:[["slim", "Slim"], ["average", "Average"], ["athletic", "Athletic"], ["stocky", "Stocky"], ["muscular", "Muscular"]],
+  eyes:[0x3b2516, 0x22160f, 0x5f4a28, 0x4c6a3e, 0x4a6f95],
+  top:[["casual", "T-shirt"], ["polo", "Polo"], ["hoodie", "Hoodie"], ["jacket", "Jacket"]],
+  legs:[["jeans", "Jeans"], ["trousers", "Chinos"], ["trackpants", "Joggers"], ["shorts", "Shorts"]],
+  topCol:[0xf2f0ea, 0x1f2125, 0x8a8f96, 0x24324a, 0x2c66b8, 0x5a6b3e, 0x6e2a2f, 0xc9a23e, 0x7fa7c9, 0xc4683a, 0x3d6f6a, 0x4a3b5e],
+  legCol:[0x2c3e5c, 0x23293a, 0x50698f, 0x1c1d21, 0x34383f, 0xa89a78, 0x6b6e72, 0x5a4a38],
+  shoeCol:[0xf0f0ec, 0x1c1d21, 0x7d8188, 0x8a6a48, 0x2b3a5a, 0xd32f3a],
+  // face shape: [key, label, min, max] — the character system works in steps of .06 either side of 1
+  face:[["jaw", "Jaw", .88, 1.12], ["chin", "Chin", .88, 1.12], ["nose", "Nose", .88, 1.12], ["brow", "Brow", .88, 1.18], ["eyes", "Eye spacing", .94, 1.06]],
+  height:[.93, 1.07]                                        // × 1.80 m: 1.67 – 1.93 m
+};
+// a tiny seeded random for classic scripts (the same sequence for the same seed)
+function lookRng(seed){
+  let s = 2166136261; const t = String(seed); for (let i = 0; i < t.length; i++) s = Math.imul(s ^ t.charCodeAt(i), 16777619);
+  s >>>= 0;
+  return () => { s = (s + 0x6D2B79F5) >>> 0; let q = s; q = Math.imul(q ^ (q >>> 15), q | 1); q ^= q + Math.imul(q ^ (q >>> 7), q | 61); return ((q ^ (q >>> 14)) >>> 0)/4294967296; };
+}
+const lookFaceStep = (v, a, b) => clamp(Math.round((num(v, 1) - 1)/.06)*.06 + 1, a, b);
+// a believable young footballer, the same one every time for the same seed
+function lookDefault(seed){
+  const r = lookRng(seed), pick = a => a[Math.floor(r()*a.length) % a.length], O = LOOK_OPT;
+  const wp = list => { let tot = 0; for (const e of list) tot += e[1]; let x = r()*tot; for (const e of list){ if ((x -= e[1]) <= 0) return e[0]; } return list[0][0]; };
+  const tone = Math.floor(r()*O.skin.length), dark = tone >= 5, mid = tone >= 3 && tone < 5;
+  const hc = dark ? wp([[0, .8], [1, .2]]) : mid ? wp([[0, .5], [1, .4], [2, .1]]) : wp([[0, .14], [1, .32], [2, .28], [3, .14], [4, .1], [5, .02]]);
+  const hair = dark ? wp([["buzz", .2], ["fade", .26], ["short", .1], ["afro", .1], ["curly", .12], ["braids", .06], ["cornrows", .06], ["dreads", .1]])
+    : wp([["short", .32], ["fade", .22], ["buzz", .12], ["messy", .16], ["curly", .1], ["long", .04], ["ponytail", .04]]);
+  const top = wp([["casual", .5], ["hoodie", .25], ["polo", .15], ["jacket", .1]]), legs = wp([["jeans", .45], ["trackpants", .3], ["trousers", .15], ["shorts", .1]]);
+  const fs = (a, b) => lookFaceStep(a + (b - a)*r(), a, b);
+  return {v:1, skin:O.skin[tone], height:+(.95 + r()*.09).toFixed(3), build:wp([["athletic", .5], ["slim", .22], ["average", .2], ["muscular", .08]]),
+    hair, hairColor:O.hairColor[hc], beard:wp([["", .7], ["stubble", .26], ["beard", .04]]), eyes:tone <= 2 ? pick(O.eyes) : pick(O.eyes.slice(0, 2)),
+    face:{jaw:fs(.94, 1.12), chin:fs(.88, 1.12), nose:fs(.88, 1.12), brow:fs(.94, 1.12), eyes:fs(.94, 1.06)},
+    top, topCol:pick(O.topCol), legs, legCol:pick(legs === "jeans" ? O.legCol.slice(0, 4) : O.legCol), shoeCol:pick(O.shoeCol)};
+}
+// a colour as a number, from a number or a "#rrggbb" string; anything else is the fallback
+function lookCol(v, d){
+  if (typeof v === "number" && isFinite(v) && v >= 0 && v <= 0xffffff) return Math.round(v);
+  if (typeof v === "string" && /^#?[0-9a-f]{6}$/i.test(v.trim())) return parseInt(v.trim().replace("#", ""), 16);
+  return d;
+}
+// every field present and in range; whatever is missing or broken comes from the seeded default
+function lookSane(L, seed){
+  const d = lookDefault(seed == null ? "player" : seed), O = LOOK_OPT, o = L && typeof L === "object" ? L : {};
+  const one = (v, list, dv) => list.some(e => e[0] === v) ? v : dv;
+  const F = o.face && typeof o.face === "object" ? o.face : {};
+  return {v:1, skin:lookCol(o.skin, d.skin), height:+clamp(num(o.height, d.height), O.height[0], O.height[1]).toFixed(3),
+    build:one(o.build, O.build, d.build), hair:one(o.hair, O.hair, d.hair), hairColor:lookCol(o.hairColor, d.hairColor),
+    beard:one(o.beard, O.beard, d.beard), eyes:lookCol(o.eyes, d.eyes),
+    face:Object.fromEntries(O.face.map(([k, , a, b]) => [k, lookFaceStep(num(F[k], d.face[k]), a, b)])),
+    top:one(o.top, O.top, d.top), topCol:lookCol(o.topCol, d.topCol), legs:one(o.legs, O.legs, d.legs), legCol:lookCol(o.legCol, d.legCol),
+    shoeCol:lookCol(o.shoeCol, d.shoeCol)};
+}
+function lookSeedOf(s){ return (s && (s.cid || (s.player && s.player.name))) || "player"; }
+
 /* ---------- making sure a save has everything, and nothing that reads "undefined" ---------- */
 const TRAIT_KEYS = ["team", "conf", "dec", "risk"];
 function freshAtt(){ return {arrived:null, min:0, status:"", settled:false, chem:0, told:false}; }
@@ -70,6 +134,8 @@ function dailyEnsure(){
   if (!(typeof S.life.wd === "number" && isFinite(S.life.wd))) S.life.wd = (S.life.day - 1) % 7;
   if (!S.life.att) S.life.att = freshAtt();
   if (!Array.isArray(S.life.miss)) S.life.miss = [];
+  S.life.view = S.life.view === "tp" ? "tp" : "fp";            // first or third person, as you last left it
+  if (S.player) S.player.look = lookSane(S.player.look, lookSeedOf(S));
   S.energy = clamp(num(S.energy, 80), 0, 100);
   S.fatigue = clamp(num(S.fatigue, 12), 0, 100);
   S.chem = clamp(num(S.chem, 20), 0, 100);

@@ -9,7 +9,9 @@ import {buildHome, homeTick, homeRefresh, resetHome, HOME, drawMail, refreshFrid
 import {buildGround, refreshGymFridge, GROUND} from "./ground.js";
 import {ensureHome, checkMail, openMail, closeMail, mailOpen} from "./rent.js";
 import {createSky} from "./sky.js";
-import {startDrill, startReps, startSession} from "./drills.js";
+import {startDrill, startReps, startSession, drillWarmup} from "./drills.js";
+import {human, animateHuman, BONE, VIEW} from "./human.js";
+import {bodyLook} from "./look.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 export const LIFE = {min:7*60, day:1, wd:0, zone:"home", running:false};
@@ -244,7 +246,7 @@ window.lifeModalSet = on => {
 };
 const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:() => LIFE.min,
   wait:where => openWait(where), reps, drill, session, computer:where => openComputer(where), shop:() => openShop("market"), vend:() => openShop("vend"),
-  water, work, bath, iceBath, warm:() => warm()};
+  water, work, bath, iceBath, warm:() => warm(), look:() => { if (typeof openLookEditor === "function") openLookEditor("mirror"); }};
 
 /* ---------- zones ---------- */
 function clearScene(){
@@ -260,9 +262,11 @@ let spawns = {};
 function enterZone(zone, at){
   if (DRILL) endDrillNow();
   LIFE.zone = zone; W.zone = zone;
-  clearScene(); begin(scene);
+  meDispose(); clearScene(); begin(scene);
   if (zone === "ground"){ resetHome(); spawns = buildGround(ctx); }
   else { GROUND.fridge = null; spawns = buildHome(ctx); }
+  camGridBuild();
+  meBuild();
   renderer.shadowMap.needsUpdate = true;
   const p = typeof at === "object" && at ? at : spawns[at] || spawns[zone === "home" ? "bed" : "bus"];
   place(p);
@@ -278,6 +282,9 @@ function enterZone(zone, at){
 // as ctx.warm() for anything they add later.
 function warm(){
   const hid = [];
+  // a drill's rings, lamp and ball are only built when it starts: draw a set of them now, so none compiles mid-play
+  const props = LIFE.zone === "ground" ? drillWarmup() : null;
+  if (props){ props.visible = false; scene.add(props); }
   try {
     scene.traverse(o => {
       if (!o.visible){ hid.push(o); o.visible = true; }
@@ -293,6 +300,7 @@ function warm(){
     renderer.shadowMap.needsUpdate = true; renderer.render(scene, cam);
   } catch(e){}
   for (const o of hid) o.visible = false;
+  if (props){ scene.remove(props); props.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   renderer.shadowMap.needsUpdate = true;                 // and the real shadows, without what is hidden, next frame
 }
 
@@ -305,9 +313,10 @@ function warm(){
    (a small, speed-scaled rise and fall once a step, a tiny sway once a stride, no roll) and the eye height,
    which follows the ground through a critically damped spring so kerbs and stair landings never snap.
    P.speed / P.moveMode / P.stride are the locomotion state a body or footsteps can read. */
-const P = {x:0, z:0, feet:0, eye:1.62, yaw:0, pitch:0, vx:0, vz:0, vy:0, drillY:0, bobY:0,
+const P = {x:0, z:0, feet:0, eye:1.62, eyeH:1.62, yaw:0, pitch:0, vx:0, vz:0, vy:0, drillY:0, bobY:0,
   speed:0, moveMode:"idle", stride:0, sprint:0};
-const EYE = 1.62, R = .26, REACH = 2.5;
+let EYE = 1.62;                                       // your eye height: set from your body's height (meBuild)
+const R = .26, REACH = 2.5;
 const GAIT = {walk:4.0, run:6.0, sprint:7.6, back:.8, accel:26, brake:24, turn:24, sprintIn:1.1, sprintOut:2.5};
 const keys = {};
 let held = null, grab = null, lockLost = false;
@@ -413,9 +422,9 @@ function step(dt, real){
   B.fov = Math.abs(fovT - B.fov) < .005 ? fovT : B.fov + (fovT - B.fov)*(1 - Math.exp(-5*dt));
   if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)){ B.fovSet = B.fov; cam.fov = B.fov; cam.updateProjectionMatrix(); }
   // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
-  const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
-  cam.position.set(P.x + cos*B.x, P.eye + B.y + P.drillY + P.bobY, P.z - sin*B.x);
   cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
+  viewStep(dt);
+  meStep(dt);
   if (LIFE.zone === "ground") tunnel();
   held = DRILL ? null : (grab || target());
   hud(held);
@@ -505,6 +514,249 @@ function legs(){
   const s = G(); if (!s) return 1;
   return 1 - Math.min(.15, Math.max(0, (s.fatigue || 0) - 70)/200) - Math.min(1, Math.max(0, 15 - (s.energy || 0))/10)*.08;
 }
+/* ---------- your body ----------
+   You are drawn by the same character system as everybody else (human.js), dressed from your look (S.player.look,
+   see look.js): your own clothes at home and in the street, the club's training kit with your number at the ground.
+   Two bodies are kept: the first-person one (no head — the body ends at the shoulders) and the whole you for third
+   person; only one is ever shown. Both are animated every frame from what you actually did (P.speed, after walls).
+   First person: the body faces where you look, and the camera sits a little in front of its neck — further forward
+   as you look down, as a real head bends over, so you see your chest, legs and shoes and never the inside of a neck.
+   Walking sideways the hips turn towards where you are going and the chest stays with the view (no feet sliding
+   sideways); walking backwards the stride runs backwards. Its height follows the camera's own smoothed eye, so on a
+   kerb or a stair landing the body can never rise into the view. */
+const ME = {fp:null, tp:null, kind:"", scale:1, yaw:0, tw:0, back:false, dph:0, act:null, hide:false, camT:0, dist:0, sh:0, tpShown:false, look:0};
+const TPV = {dist:2.65, sprint:.35, up:.12, side:.36, margin:.16, minShow:.62};    // the third-person camera
+const meKind = () => LIFE.zone === "ground" ? "training" : "casual";
+function meDispose(){ for (const k of ["fp", "tp"]) if (ME[k]){ ME[k].dispose(); ME[k] = null; } }
+function meBuild(){
+  meDispose();
+  const s = G(); if (!s || !s.player || !scene) return;
+  ME.kind = meKind();
+  let look;
+  try { look = bodyLook(s.player.look, ME.kind); } catch(e){ console.error(e); return; }
+  ME.fp = human(look, {noHead:true, lod:false, track:true}); ME.fp.near.frustumCulled = false;
+  ME.tp = human(look, {lod:false, track:true});
+  ME.fp.g.name = "me-fp"; ME.tp.g.name = "me-tp";
+  scene.add(ME.fp.g, ME.tp.g);
+  ME.scale = ME.fp.scale;
+  // the eyes of a 1.80 m body are at 1.685: yours, at your height
+  const eye = Math.round(1.685*ME.scale*1000)/1000, d = eye - EYE;
+  EYE = P.eyeH = eye; P.eye += d;
+  ME.yaw = P.yaw; ME.tw = 0; ME.back = false; ME.act = null;
+  meStep(0);
+}
+const wrapA = a => a - Math.round(a/(2*Math.PI))*2*Math.PI;
+const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
+// the state a body walks with, from what you actually did (look: where the head turns)
+const _gs = {mode:"idle", speed:0, look:0};
+function gaitState(look){
+  if (ME.act) return ME.act;
+  _gs.mode = P.speed > .05 ? "move" : "idle"; _gs.speed = P.speed; _gs.look = look;
+  return _gs;
+}
+// a stride played backwards: the phase is stepped back by what it would have gone forward (human.js keeps it in h.ph)
+function animateDir(h, dt, st, back){
+  const p0 = h.ph;
+  if (back && typeof p0 === "number") h.ph = ((p0 - 2*ME.dph) % 1 + 1) % 1;
+  const p1 = h.ph;
+  animateHuman(h, dt, st);
+  if (typeof h.ph === "number"){ let d = h.ph - p1; if (d < 0) d += 1; ME.dph = d < .25 ? d : 0; }
+}
+function meStep(dt){
+  if (!ME.fp || !ME.tp) return;
+  const tp = ME.tpShown, s = ME.scale;
+  ME.fp.g.visible = !tp && !ME.hide && !(DRILL && DRILL.hideBody);
+  ME.tp.g.visible = tp;
+  const mv = Math.atan2(-P.vx, -P.vz), going = P.speed > .3 && (P.vx || P.vz);
+  if (tp){
+    // third person: the body turns to face the way you are going, quickly but never in one frame
+    if (going){ const d = wrapA(mv - ME.yaw), k = d*(1 - Math.exp(-11*dt)); ME.yaw = wrapA(ME.yaw + clamp(k, -9*dt, 9*dt)); }
+    // the head turns to where the camera looks, as far as a neck goes, and lets go when you look back at yourself
+    const rel = wrapA(P.yaw - ME.yaw), lk = clamp(rel, -1.1, 1.1)*(1 - sstep(1.7, 2.3, Math.abs(rel)));
+    ME.look += (lk - ME.look)*(1 - Math.exp(-6*dt));
+    const h = ME.tp;
+    h.g.position.set(P.x, P.feet, P.z); h.g.rotation.y = ME.yaw + Math.PI;
+    animateDir(h, dt, gaitState(ME.look), false);
+    return;
+  }
+  ME.yaw = P.yaw;
+  // first person: the hips towards where you are going, the chest with the view; backwards, the stride runs back
+  let tw = 0, back = false;
+  if (going && !ME.act){
+    let rel = wrapA(mv - P.yaw);
+    if (Math.abs(rel) > 1.75){ back = true; rel = wrapA(rel - Math.PI); }
+    tw = clamp(rel, -1.05, 1.05);
+  }
+  if (back !== ME.back && P.speed > .3){ ME.back = back; } else if (P.speed <= .3) ME.back = false;
+  ME.tw += (tw - ME.tw)*(1 - Math.exp(-10*dt));
+  // the body stands where you stand (the camera is the head, ahead of the neck: see viewStep)
+  const h = ME.fp, sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
+  h.g.position.set(P.x, P.eye - EYE + P.drillY, P.z); h.g.rotation.y = P.yaw + Math.PI;
+  animateDir(h, dt, gaitState(0), ME.back);
+  const bn = h.bones;
+  if (Math.abs(ME.tw) > 1e-3){ bn[BONE.hips].rotation.y += ME.tw; bn[BONE.spine].rotation.y -= ME.tw*.55; bn[BONE.chest].rotation.y -= ME.tw*.45; }
+  // whatever the body is doing (a lean into a sprint, a kick, a header), the neck stays below and behind the eye:
+  // the body gives way, the camera never ends up inside it
+  h.g.updateMatrixWorld(true);
+  bn[BONE.neck].getWorldPosition(_nk);
+  const c = cam.position, over = _nk.y - (c.y - .15*s), ahead = (_nk.x - c.x)*-sin + (_nk.z - c.z)*-cos + .06*s;
+  if (over > 0) h.g.position.y -= over;
+  if (ahead > 0){ h.g.position.x += sin*ahead; h.g.position.z += cos*ahead; }
+}
+const _nk = new THREE.Vector3();
+window.lifeLookChanged = () => { if (scene && renderer) meBuild(); };
+
+/* ---------- the camera: first person, or third person behind you ----------
+   V switches between them (kept in the save, S.life.view). Third person orbits behind and above you over the right
+   shoulder; the mouse turns it at once, exactly as in first person, and W A S D go the way it looks. Whatever is
+   between you and the camera pulls it in at once — walls, doors, furniture, ceilings, stairs, glass — tested against
+   the real drawn geometry of the place (camGrid) and the collision boxes (doors that open); it eases back out when
+   the way is clear. Drills, panels, the bus and the tunnel are lived in first person; third person comes back after. */
+const viewPref = () => { const s = G(); return s && s.life && s.life.view === "tp" ? "tp" : "fp"; };
+const fadeOn = () => { const f = document.getElementById("lifeFade"); return !!(f && (f.dataset.tun || +f.style.opacity > .02)); };
+const forcedFP = () => !!(DRILL || modal || busy || tutOn() || tunnelGo || fadeOn());
+function toggleView(){
+  const s = G(); if (!s || !s.life) return;
+  s.life.view = viewPref() === "tp" ? "fp" : "tp"; persist();
+  if (forcedFP()) note(s.life.view === "tp" ? "Third person comes back when you're done here." : "First person.");
+}
+const _cp = new THREE.Vector3(), _cd = new THREE.Vector3();
+function viewStep(dt){
+  const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
+  // first person: the eye, with the bob, a little ahead of your neck — further as you look down, as a head bends
+  // over the chest (so you see your legs and shoes) — and never closer than a hand's width to a wall in front
+  let ahead = (.1 + .12*sstep(.2, 1.2, -P.pitch))*ME.scale;
+  if (ahead > 0) ahead = Math.max(0, Math.min(ahead, camCast(P.x, P.eye, P.z, -sin, 0, -cos, ahead + .17) - .17));
+  const fx = P.x + cos*B.x - sin*ahead, fy = P.eye + B.y + P.drillY + P.bobY - .035*sstep(.3, 1.2, -P.pitch), fz = P.z - sin*B.x - cos*ahead;
+  const want = viewPref() === "tp" && !forcedFP() ? 1 : 0;
+  // a panel, the bus, a drill: straight into first person; V: a short glide either way
+  if (!want && (modal || busy || DRILL || fadeOn())) ME.camT = 0;
+  else ME.camT = want ? Math.min(1, ME.camT + dt/.38) : Math.max(0, ME.camT - dt/.28);
+  const e = sstep(0, 1, ME.camT);
+  if (e <= 0){ cam.position.set(fx, fy, fz); ME.tpShown = false; ME.dist = 0; ME.sh = 0; return; }
+  // the pivot: the top of your head, then out over the right shoulder as far as the room allows
+  const hx = P.x, hy = P.eye + TPV.up, hz = P.z, rx = cos, rz = -sin;
+  const sw = TPV.side*e, sh = Math.max(0, Math.min(sw, camCast(hx, hy, hz, rx, 0, rz, sw + TPV.margin) - TPV.margin));
+  ME.sh = sh;
+  const px = hx + rx*sh, py = hy, pz = hz + rz*sh;
+  // back along the view, the orbit's own pitch limited so it neither digs into the floor nor goes over the top
+  const po = clamp(P.pitch, -1.15, .75), cp = Math.cos(po);
+  _cd.set(sin*cp, -Math.sin(po), cos*cp);                      // from the pivot towards the camera (behind the view)
+  const want0 = (TPV.dist + TPV.sprint*P.sprint)*e;
+  // the near plane is not a point: four rays to its corners as well, and the camera stops short of the nearest hit
+  let lim = camCast(px, py, pz, _cd.x, _cd.y, _cd.z, want0 + TPV.margin);
+  const qx = rx*.13, qz = rz*.13, qy = .09;
+  for (const [ax, ay, az] of [[qx, qy, qz], [-qx, qy, -qz], [qx, -qy, qz], [-qx, -qy, -qz]]){
+    const ex = _cd.x*want0 + ax, ey = _cd.y*want0 + ay, ez = _cd.z*want0 + az, L = Math.hypot(ex, ey, ez) || 1;
+    lim = Math.min(lim, camCast(px, py, pz, ex/L, ey/L, ez/L, L + TPV.margin)*want0/L);
+  }
+  const d = Math.max(0, Math.min(want0, lim - TPV.margin));
+  // pulled in at once; out again gently
+  ME.dist = d < ME.dist || !ME.tpShown ? d : ME.dist + (d - ME.dist)*(1 - Math.exp(-4.5*dt));
+  _cp.set(px + _cd.x*ME.dist, py + _cd.y*ME.dist, pz + _cd.z*ME.dist);
+  // gliding between the eye and the orbit
+  if (e < 1) _cp.set(fx + (_cp.x - fx)*e, fy + (_cp.y - fy)*e, fz + (_cp.z - fz)*e);
+  cam.position.copy(_cp);
+  // too close to the head to show it (backed into a corner): the first-person body until there is room again
+  const away = Math.hypot(_cp.x - P.x, _cp.y - (P.eye + .05), _cp.z - P.z);
+  const show = ME.tpShown ? away > TPV.minShow - .06 : away > TPV.minShow;
+  ME.tpShown = show;
+}
+
+/* the camera's collision: every triangle of the place's fixed geometry (the big batched meshes), sorted once into
+   1 m cells when the place is built, and a ray walks the cells it passes through (Amanatides–Woo). Doors and other
+   things that move are not in it: their collision boxes are tested instead. */
+const CG = {tri:null, n:0, x0:0, y0:0, z0:0, nx:0, ny:0, nz:0, start:null, items:null, stamp:null, mark:0};
+const CS = 1;
+function camGridBuild(){
+  CG.tri = CG.start = CG.items = CG.stamp = null; CG.n = 0;
+  try {
+    scene.updateMatrixWorld(true);
+    const list = [];
+    let n = 0;
+    for (const o of scene.children){
+      if (!o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || (o.userData && o.userData.keep) || !o.geometry || !o.geometry.attributes.position) continue;
+      const m = o.material;
+      if (!m || Array.isArray(m) || m.isMeshBasicMaterial || m.isShaderMaterial || m.blending === THREE.AdditiveBlending) continue;
+      const g = o.geometry; n += (g.index ? g.index.count : g.attributes.position.count)/3 | 0; list.push(o);
+    }
+    const b = W.bounds;
+    CG.x0 = b.x0 - 8; CG.z0 = b.z0 - 8; CG.y0 = -2;
+    CG.nx = Math.ceil((b.x1 - b.x0 + 16)/CS); CG.nz = Math.ceil((b.z1 - b.z0 + 16)/CS); CG.ny = 44;
+    const T = new Float32Array(n*9), v = new THREE.Vector3();
+    let k = 0;
+    for (const o of list){
+      const g = o.geometry, pos = g.attributes.position, idx = g.index, cnt = idx ? idx.count : pos.count, M = o.matrixWorld, id = M.equals(_I4);
+      for (let i = 0; i < cnt; i++){
+        v.fromBufferAttribute(pos, idx ? idx.getX(i) : i); if (!id) v.applyMatrix4(M);
+        T[k++] = v.x; T[k++] = v.y; T[k++] = v.z;
+      }
+    }
+    CG.tri = T; CG.n = n;
+    const NX = CG.nx, NY = CG.ny, NZ = CG.nz, cells = NX*NY*NZ, cnt = new Int32Array(cells + 1);
+    const span = (i, f) => {
+      const a = i*9;
+      let x0 = Math.min(T[a], T[a + 3], T[a + 6]), x1 = Math.max(T[a], T[a + 3], T[a + 6]), y0 = Math.min(T[a + 1], T[a + 4], T[a + 7]), y1 = Math.max(T[a + 1], T[a + 4], T[a + 7]);
+      let z0 = Math.min(T[a + 2], T[a + 5], T[a + 8]), z1 = Math.max(T[a + 2], T[a + 5], T[a + 8]);
+      const cx0 = Math.max(0, Math.floor((x0 - CG.x0)/CS)), cx1 = Math.min(NX - 1, Math.floor((x1 - CG.x0)/CS));
+      const cy0 = Math.max(0, Math.floor((y0 - CG.y0)/CS)), cy1 = Math.min(NY - 1, Math.floor((y1 - CG.y0)/CS));
+      const cz0 = Math.max(0, Math.floor((z0 - CG.z0)/CS)), cz1 = Math.min(NZ - 1, Math.floor((z1 - CG.z0)/CS));
+      for (let z = cz0; z <= cz1; z++) for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) f((z*NY + y)*NX + x);
+    };
+    for (let i = 0; i < n; i++) span(i, c => cnt[c + 1]++);
+    for (let c = 0; c < cells; c++) cnt[c + 1] += cnt[c];
+    const items = new Int32Array(cnt[cells]), fill = cnt.slice(0, cells);
+    for (let i = 0; i < n; i++) span(i, c => { items[fill[c]++] = i; });
+    CG.start = cnt; CG.items = items; CG.stamp = new Uint32Array(n); CG.mark = 0;
+  } catch(e){ console.error(e); CG.tri = null; CG.n = 0; }
+}
+const _I4 = new THREE.Matrix4();
+// the distance along a ray (unit direction) to the first thing it meets, up to len
+function camCast(ox, oy, oz, dx, dy, dz, len){
+  let best = len;
+  // things that move (doors) and anything solid: the collision boxes
+  const ix = 1/(dx || 1e-12), iy = 1/(dy || 1e-12), iz = 1/(dz || 1e-12);
+  for (const s of W.solids){
+    if (s.off) continue;
+    if (ox > s.x0 && ox < s.x1 && oy > s.y0 && oy < s.y1 && oz > s.z0 && oz < s.z1) continue;
+    let a = (s.x0 - ox)*ix, b = (s.x1 - ox)*ix, t0 = Math.min(a, b), t1 = Math.max(a, b);
+    a = (s.y0 - oy)*iy; b = (s.y1 - oy)*iy; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
+    a = (s.z0 - oz)*iz; b = (s.z1 - oz)*iz; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
+    if (t0 <= t1 && t1 > 0 && t0 >= 0 && t0 < best) best = t0;
+  }
+  if (!CG.tri) return best;
+  // the drawn geometry: walk the cells along the ray
+  const T = CG.tri, NX = CG.nx, NY = CG.ny, NZ = CG.nz, st = CG.start, it = CG.items, stamp = CG.stamp;
+  if (++CG.mark > 4e9){ stamp.fill(0); CG.mark = 1; }
+  const mark = CG.mark;
+  let cx = Math.floor((ox - CG.x0)/CS), cy = Math.floor((oy - CG.y0)/CS), cz = Math.floor((oz - CG.z0)/CS);
+  const sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
+  const tdx = Math.abs(CS/(dx || 1e-12)), tdy = Math.abs(CS/(dy || 1e-12)), tdz = Math.abs(CS/(dz || 1e-12));
+  const nb = (c, o, d, s0) => { const edge = s0 + (c + (d > 0 ? 1 : 0))*CS; return Math.abs(d) < 1e-12 ? Infinity : (edge - o)/d; };
+  let tx = nb(cx, ox, dx, CG.x0), ty = nb(cy, oy, dy, CG.y0), tz = nb(cz, oz, dz, CG.z0), t = 0;
+  for (let guard = 0; guard < 64 && t <= best; guard++){
+    if (cx >= 0 && cx < NX && cy >= 0 && cy < NY && cz >= 0 && cz < NZ){
+      const c = (cz*NY + cy)*NX + cx;
+      for (let j = st[c], e = st[c + 1]; j < e; j++){
+        const i = it[j]; if (stamp[i] === mark) continue; stamp[i] = mark;
+        const a = i*9;
+        // Möller–Trumbore, both faces
+        const e1x = T[a + 3] - T[a], e1y = T[a + 4] - T[a + 1], e1z = T[a + 5] - T[a + 2], e2x = T[a + 6] - T[a], e2y = T[a + 7] - T[a + 1], e2z = T[a + 8] - T[a + 2];
+        const px = dy*e2z - dz*e2y, py = dz*e2x - dx*e2z, pz = dx*e2y - dy*e2x, det = e1x*px + e1y*py + e1z*pz;
+        if (Math.abs(det) < 1e-10) continue;
+        const inv = 1/det, qx = ox - T[a], qy = oy - T[a + 1], qz = oz - T[a + 2], u = (qx*px + qy*py + qz*pz)*inv;
+        if (u < 0 || u > 1) continue;
+        const rx = qy*e1z - qz*e1y, ry = qz*e1x - qx*e1z, rz = qx*e1y - qy*e1x, w = (dx*rx + dy*ry + dz*rz)*inv;
+        if (w < 0 || u + w > 1) continue;
+        const h = (e2x*rx + e2y*ry + e2z*rz)*inv;
+        if (h > 1e-4 && h < best) best = h;
+      }
+    }
+    if (tx <= ty && tx <= tz){ t = tx; tx += tdx; cx += sx; } else if (ty <= tz){ t = ty; ty += tdy; cy += sy; } else { t = tz; tz += tdz; cz += sz; }
+  }
+  return best;
+}
+
 /* walking up to the tunnel: the match gets ready as you come, and starts when you reach it */
 let tunnelInfo = null, tunnelGo = false, tunnelAge = 0;
 // " · 2–1" for a game already played today, from the world's results
@@ -558,6 +810,8 @@ function target(){
   if (locked()) return null;
   cam.updateMatrixWorld();
   cam.getWorldPosition(_o); cam.getWorldDirection(_d);
+  // in third person you aim with the crosshair, but reach from where you stand: the ray starts level with your head
+  if (ME.tpShown || ME.camT > 0){ const k = (P.x - _o.x)*_d.x + (P.eye - _o.y)*_d.y + (P.z - _o.z)*_d.z; if (k > 0) _o.addScaledVector(_d, k); }
   let best = null, bt = REACH;
   for (const sp of W.spots){
     if (!sp.aim || (sp.when && !sp.when())) continue;
@@ -700,6 +954,8 @@ function loop(t){
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; renderer.shadowMap.needsUpdate = true; }
   gpuBegin(); renderer.render(scene, cam); gpuEnd();
+  // people step out of YOUR way, wherever the camera is (human.js reads VIEW; drawing set it to the camera)
+  VIEW.x = P.x; VIEW.y = P.eye; VIEW.z = P.z;
   if (real > 0 && real < .5) quality(real, performance.now() - t0);
   // a save every 45 s or so, but only at a quiet moment (see persist); after two minutes of never stopping, anyway
   if ((saveT += real) > 45){ saveDue = true; saveT = 0; }
@@ -866,6 +1122,7 @@ function bindInput(cv){
     }
     keys[k === " " ? "space" : k] = true;
     if (k === "h" && !e.repeat){ const el = document.getElementById("lifeKeys"); el.classList.toggle("faded"); keysT = -999; }
+    if (k === "v" && !e.repeat) toggleView();
     if (k === "e" && !e.repeat && !locked()){ const t = held || target(); if (t) use(t); }
   });
   addEventListener("keyup", e => {
@@ -879,4 +1136,4 @@ window.LIFE = LIFE; window.startLife = startLife; window.stopLife = stop; window
 window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
-  drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy};
+  drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep};

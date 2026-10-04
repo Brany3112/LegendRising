@@ -100,7 +100,9 @@ const BUILDS = {
 // body measurements for a 1.80 m frame; height is a uniform scale on top
 function dims(look){
   const b = BUILDS[look.build] || BUILDS.average, f = look.sex === "f", old = Math.round(sstep(45, 78, look.age || 25)*4)/4;
-  const hs = f ? .955 : 1;
+  // the head is a little over 1/7.3 of the height (a touch larger than life, the way stylised figures read best), its
+  // crown at the full height, so a bigger head brings the chin down and shortens the neck rather than adding height
+  const hs = (f ? .955 : 1)*1.055;
   return {f, old, hs, hipY:.93, kneeY:.5, ankY:.085, hipX:f ? .087 : .09, hipsY:.96, spineY:1.08, chestY:1.26, neckY:1.5, headY:1.62,
     shY:f ? 1.425 : 1.435, shX:(f ? .166 : .18)*b.sh, elbowL:.285, foreL:.245,
     sh:b.sh*(f ? .9 : 1), ch:b.ch*(f ? .9 : 1), wa:b.wa*(f ? .86 : 1) + old*.05, hp:b.hp*(f ? 1.09 : 1), arm:b.arm*(f ? .86 : 1), leg:b.leg*(f ? 1.02 : 1),
@@ -374,7 +376,7 @@ function headFn(D, F){
   const hc = D.hc, hs = D.hs, jaw = F.jaw || 1, chin = F.chin || 1;
   return (lat, lon, off = 0) => {
     const cl = Math.cos(lat), x0 = cl*Math.sin(lon), y = Math.sin(lat), z0 = cl*Math.cos(lon);
-    let rx = .077, ry = y > 0 ? .117 : .118, rzF = .097, rzB = .103, xm = 1, zs = 0;
+    let rx = .079, ry = y > 0 ? .117 : .118, rzF = .097, rzB = .103, xm = 1, zs = 0;
     if (y < 0){
       const t = -y;
       xm *= 1 - Math.pow(t, 1.9)*(.4 - .26*(jaw - 1));                  // the jaw narrows to the chin
@@ -398,7 +400,7 @@ function build(look, det, noHead){
   const D = dims(look), g = garb(look.outfit), G = new Geo(), F = look.face || {};
   const near = det > 0, n = near ? 10 : 6, nl = near ? 8 : 5;
   const topOff = {kit:.01, tee:.008, shirt:.008, track:.014, hoodie:.02, jacket:.022, suit:.016}[g.top] || .01;
-  const botOff = {kitshorts:.013, shorts:.012, trousers:.009, jeans:.008, trackpants:.012}[g.legwear] || .01;
+  const botOff = {kitshorts:.011, shorts:.011, trousers:.009, jeans:.008, trackpants:.012}[g.legwear] || .01;
   const shorts = g.legwear === "kitshorts" || g.legwear === "shorts";
   D.thighCloth = shorts ? botOff + .016 : botOff + .002;          // how far the cloth stands off the top of the thigh
   const jacketish = g.top === "jacket" || g.top === "suit";
@@ -418,10 +420,10 @@ function build(look, det, noHead){
     ts(1.37, .172*(ch + sh)/2, .102 + mus*.006 + bust*.01, .102, -.004, wt(C)),
     ts(1.425, .17*sh, .088, .092, -.008, wt(C)),
     ts(1.465, .136*sh, .072, .078, -.012, wt(C)),
-    ts(1.505, .072*nk, .06, .066, -.012, wt(C, .6, N, .4)),
-    ts(1.54, .061*nk, .056*nk, .06*nk, -.008, wt(N)),
-    ts(1.6, .056*nk, .052*nk, .054*nk, -.004, wt(N, .7, HD, .3)),
-    ts(1.645, .046, .04, .046, 0, wt(HD, .7, N, .3))
+    ts(1.505, .08*nk, .063, .07, -.01, wt(C, .6, N, .4)),            // the trapezius running into a neck of real thickness
+    ts(1.54, .067*nk, .059*nk, .065*nk, -.006, wt(N)),
+    ts(1.6, .061*nk, .055*nk, .06*nk, -.002, wt(N, .7, HD, .3)),
+    ts(1.645, .05, .044, .05, .002, wt(HD, .7, N, .3))
   ];
   if (!near) tst = tst.filter(s => [.83, .94, 1.07, 1.22, 1.37, 1.425, 1.465, 1.505, 1.6, 1.645].includes(s.y));
   if (noHead) tst = tst.filter(s => s.y <= 1.425);
@@ -437,7 +439,8 @@ function build(look, det, noHead){
   // collars
   if (g.collar === "crew" || g.collar === "v") TL.push({lo:1.49, hi:1.515, slot:S.trim, off:topOff + .004});
   else if (g.collar === "zip") TL.push({lo:1.49, hi:1.56, slot:S.top, off:topOff + .006});
-  else if (g.collar === "lapel" || g.collar === "open") TL.push({lo:1.49, hi:1.51, slot:S.inner, off:topOff + .002});
+  else if (g.collar === "lapel") TL.push({lo:1.505, hi:1.537, slot:S.inner, off:.009, fl:topOff - .009});   // a shirt collar standing up round the neck, flush with the jacket at its foot
+  else if (g.collar === "open") TL.push({lo:1.49, hi:1.51, slot:S.inner, off:topOff + .002});
   else if (g.collar === "polo" || g.collar === "shirt") TL.push({lo:1.49, hi:1.505, slot:S.top, off:topOff + .002});
   else if (g.collar === "hood") TL.push({lo:1.49, hi:1.51, slot:S.top, off:topOff + .004});
   // a thick top (jacket, hoodie, track top) carries its shoulder seam out over the top of the arm, so the sleeve
@@ -531,7 +534,8 @@ function build(look, det, noHead){
     } else if (g.legs === "ankle") LL.push({lo:.04, hi:.11, slot:S.socks, off:.004});
     if (shorts){
       const end = g.legwear === "kitshorts" ? .7 : .6;
-      LL.push({lo:end, hi:1.1, slot:S.bottom, off:botOff + .002, fl:.012});
+      // a hem that stands only a little off the thigh: sitting, the thigh points at you and a loose hem reads as a flared tube
+      LL.push({lo:end, hi:1.1, slot:S.bottom, off:botOff, fl:.004});
     } else {
       const tp = g.legwear === "trackpants", jn = g.legwear === "jeans";
       LL.push({lo:.05, hi:1.1, slot:S.bottom, off:botOff, fl:tp ? 0 : .004, sf:(tp || jn) && near ? (k, nn, y, sl) => (y < 1.0 && k === (s > 0 ? Math.round(nn/4) - 1 : nn - Math.round(nn/4))) ? (tp ? S.trim : S.btrim) : sl : null});
@@ -566,14 +570,21 @@ function build(look, det, noHead){
   if (g.apron){
     const top = g.apron === "bib" ? 1.38 : 1.08, bot = g.apron === "bib" ? .6 : .62, wHalf = g.apron === "bib" ? .15 : .17, cols = near ? 6 : 3, rows = near ? 8 : 4;
     const Rf = [], Rb = [];
-    let zTop = .12;
+    // where the cloth lies on the body: each column's own depth (a waist the cloth follows in, a belly it rides over),
+    // never wider than the body at that height (it wraps round to the side seam instead of standing off it in a flap)
+    const halfAt = y => { let x = 0; while (x < .3 && ray(torsoHit, [x + .005, y, 2], [0, 0, -1]) > 0) x += .005; return x; };
+    const zOn = (x, y) => { const t = ray(torsoHit, [x, y, 2], [0, 0, -1]); return t < 0 ? null : 2 - t + .012; };
+    const HANG = .92, zHang = [];
     for (let r = 0; r <= rows; r++){
       const y = lerp(top, bot, r/rows), vf = [], vb = [];
+      const yb = Math.max(y, HANG), hw = Math.min(wHalf, halfAt(yb) - .004);
+      // below the hips it hangs free: from the line it had there, straightening into one sheet in front of the thighs
+      const k = sstep(HANG, HANG - .14, y), front = Math.max(...zHang.length ? zHang : [.12]);
       for (let c = 0; c <= cols; c++){
-        const xx = lerp(-wHalf, wHalf, c/cols) * (y > 1.0 ? 1 : 1 + (1 - y)*.25);
+        const u = c/cols, xx = lerp(-1, 1, u)*(y >= HANG ? hw : hw*(1 + (HANG - y)*.25));
         let z;
-        if (y >= .92){ const t = ray(torsoHit, [xx, y, 2], [0, 0, -1]); z = t < 0 ? .12 : 2 - t + .012; if (y >= .9) zTop = z; }
-        else z = zTop + (.92 - y)*.06;
+        if (y >= HANG){ z = zOn(xx, y) ?? zOn(xx*.9, y) ?? .12; if (r === rows || lerp(top, bot, (r + 1)/rows) < HANG) zHang[c] = z; }
+        else z = lerp(zHang[c], front, k) + (HANG - y)*.06;
         const side = xx >= 0 ? 1 : -1, lw = sstep(.95, .62, y)*(.45 + .25*Math.min(1, Math.abs(xx)/.08));
         const ww = y >= .95 ? wTorso(y) : wt(B.hips, 1 - lw, LEG(side)[0], lw);
         vf.push([xx, y, z, ww]); vb.push([xx, y, z - .003, ww]);
@@ -736,6 +747,32 @@ function face(G, D, F, look, hit, hf){
   const up = [[-mw, my + .0015], [-mw*.45, my + .0005], [0, my + .0018], [mw*.45, my + .0005], [mw, my + .0015]];
   for (const [a, b, c] of stroke(up, .0045)){ const A = onF(a[0], a[1], .002 + beardLift), Bq = onF(b[0], b[1], .002 + beardLift), Cq = onF(c[0], c[1], .002 + beardLift); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lips, 1, 1, 1, [0, 0, 1]); }
   poly([[-mw*.7, my - .003], [0, my - .0065], [mw*.7, my - .003], [0, my - .0018]], .0018 + beardLift, S.lips, 1.1);
+  // glasses: two softly squared rims in one plane a little in front of the eyes, a bridge over the nose, and arms that
+  // run back along the side of the head to the ears
+  if ((look.props || []).includes("glasses")){
+    const gy = .005, hw = .0235, hh = .0145, lw = .0034, rim = [];
+    for (const s of [1, -1]) for (let k = 0; k <= 14; k++){ const a = k/14*TAU, c = Math.cos(a), q = Math.sin(a);
+      rim.push([s*es + Math.sign(c)*Math.pow(Math.abs(c), .55)*hw, gy + Math.sign(q)*Math.pow(Math.abs(q), .55)*hh, s]); }
+    let zp = -1; for (const [x, y] of [...rim, [0, gy + .006]]){ const q = onF(x, y, 0); if (q) zp = Math.max(zp, q[2]); }
+    if (zp > 0){
+      zp += .006;
+      const P3 = ([x, y]) => [hc[0] + x*hs, hc[1] + y*hs, zp, HEADW];
+      const flat = (tris, z = zp, n = 1) => { for (const [a, b, c] of tris){ const A = P3(a), Bq = P3(b), Cq = P3(c); A[2] = Bq[2] = Cq[2] = z; G.tri(A, Bq, Cq, S.dark, 1, 1, 1, [0, 0, n]); } };
+      for (const s of [1, -1]){
+        const loop = rim.filter(p => p[2] === s).map(p => [p[0], p[1]]);
+        flat(stroke(loop, lw)); flat(stroke(loop, lw), zp - .0025, -1);      // a rim with a back to it
+        // the arm: from the rim's outer edge along the side of the head, a few millimetres off it, to over the ear
+        const P = [], W_ = [];
+        for (const f of [0, .25, .55, 1]){
+          const z = lerp(zp - .004, hc[2] - .004*hs, f), y = hc[1] + lerp(gy + hh*.55, .02, f)*hs, t = ray(hit, [s*.3, y, z], [-s, 0, 0]);
+          const x = t < 0 ? s*(es + hw)*hs : s*.3 - s*t + s*.004;
+          P.push([f ? x : s*Math.max(Math.abs(x), (es + hw)*hs), y, z]); W_.push(HEADW);
+        }
+        tube(G, P, [.0022, .0022, .0022, .002], 4, W_, S.dark, 1);
+      }
+      flat(stroke([[-(es - hw*.95), gy + .004], [0, gy + .0085], [es - hw*.95, gy + .004]], lw));
+    }
+  }
 }
 
 /* hair: a shell over the scalp out to a hairline, with each style's own thickness, plus whatever hangs */
@@ -1555,13 +1592,20 @@ const ROLES = {
   footballer:{age:[18, 33], fem:0, builds:[["athletic", .45], ["slim", .2], ["average", .2], ["muscular", .1], ["stocky", .05]]},
   goalkeeper:{age:[19, 35], fem:0, tall:.03, builds:[["athletic", .5], ["average", .25], ["slim", .1], ["muscular", .15]]},
   coach:{age:[36, 62], fem:.1, builds:[["average", .4], ["stocky", .35], ["athletic", .15], ["slim", .1]]},
-  manager:{age:[44, 66], fem:0, builds:[["average", .5], ["stocky", .3], ["slim", .2]]},
+  manager:{age:[54, 66], fem:0, builds:[["average", .5], ["stocky", .35], ["slim", .15]]},
   shopkeeper:{age:[19, 62], fem:.55, builds:[["average", .45], ["stocky", .25], ["slim", .3]]},
   barista:{age:[18, 34], fem:.55, builds:[["slim", .45], ["average", .45], ["athletic", .1]]},
   customer:{age:[16, 80], fem:.5, builds:[["slim", .25], ["average", .4], ["stocky", .25], ["athletic", .1]]},
   office:{age:[23, 60], fem:.45, builds:[["slim", .3], ["average", .45], ["stocky", .2], ["athletic", .05]]},
   courier:{age:[19, 45], fem:.25, builds:[["slim", .35], ["average", .35], ["athletic", .3]]},
-  gym:{age:[20, 40], fem:.4, builds:[["athletic", .5], ["muscular", .25], ["slim", .15], ["average", .1]]}
+  gym:{age:[20, 40], fem:.4, builds:[["athletic", .5], ["muscular", .25], ["slim", .15], ["average", .1]]},
+  physio:{age:[27, 52], fem:.45, builds:[["athletic", .4], ["average", .4], ["slim", .2]]},
+  kitman:{age:[46, 66], fem:0, builds:[["stocky", .5], ["average", .4], ["slim", .1]]},
+  receptionist:{age:[21, 55], fem:.6, builds:[["slim", .35], ["average", .5], ["stocky", .15]]},
+  clerk:{age:[18, 50], fem:.5, builds:[["slim", .35], ["average", .45], ["stocky", .2]]},
+  dispatcher:{age:[26, 55], fem:.3, builds:[["average", .45], ["stocky", .35], ["slim", .2]]},
+  photographer:{age:[24, 48], fem:.45, builds:[["slim", .45], ["average", .45], ["athletic", .1]]},
+  editor:{age:[21, 38], fem:.4, builds:[["slim", .5], ["average", .4], ["stocky", .1]]}
 };
 ROLES.pedestrian = ROLES.customer;
 const CASUAL = {tee:[0xf2f0ea, 0x1f2125, 0x8a8f96, 0x24324a, 0x5a6b3e, 0x6e2a2f, 0xc9a23e, 0x7fa7c9, 0xc4683a, 0x3d6f6a],
@@ -1606,9 +1650,11 @@ export function lookFor(role = "pedestrian", seed = 1, x = {}){
     outfit = {type:"tracksuit", shirt:mixHex(club, 0x10141c, .55), trousers:mixHex(club, 0x10141c, .7), trim:mixHex(club, 0xffffff, .2), shoes:pick([0x1c1d21, 0xf0f0ec])};
     props = ["clipboard"];
   } else if (role === "manager"){
+    // the one man at the club you know from across the room: an older face, a dark suit or a long coat, a tie, glasses
     const coat = r() < .5;
-    outfit = {type:coat ? "coat" : "suit", shirt:pick(coat ? [0x2a2c30, 0x1d2430, 0x6e5a44] : [0x1d2430, 0x2a2c30, 0x3a3f46]), trousers:pick([0x23262b, 0x1d2430, 0x34383f]), inner:pick([0xf2f2ee, 0xc9d8ea, 0xe9e4da]),
-      tie:r() < .65 ? pick([0x7a1f2b, 0x1d2a4a, 0x2f3a2f, 0x5a2a5a]) : false, shoes:pick([0x15161a, 0x3b2618])};
+    outfit = {type:coat ? "coat" : "suit", shirt:pick(coat ? [0x2a2c30, 0x1d2430, 0x4a3b2e] : [0x1d2430, 0x2a2c30, 0x33373d]), trousers:pick([0x23262b, 0x1d2430, 0x2b2e33]), inner:pick([0xf2f2ee, 0xc9d8ea, 0xe9e4da]),
+      tie:pick([0x7a1f2b, 0x1d2a4a, 0x5a2a5a, 0x8a6a2a]), shoes:pick([0x15161a, 0x3b2618])};
+    props = ["glasses"];
   } else if (role === "shopkeeper" || role === "barista"){
     const ba = role === "barista";
     outfit = {type:"apron", apronCut:ba ? "bib" : "waist", collar:ba ? "crew" : (r() < .5 ? "polo" : "crew"), shirt:ba ? pick([0x1f2125, 0xf2f0ea, 0x6b6e72]) : pick([0xf2f0ea, 0x2f7d4a, 0x24324a, 0x8a8f96]),
@@ -1620,7 +1666,26 @@ export function lookFor(role = "pedestrian", seed = 1, x = {}){
   } else if (role === "courier"){
     outfit = {type:"polo", shirt:0x1b6f9a, trim:0xf2c230, legwear:r() < .5 ? "shorts" : "trackpants", shorts:0x23262b, trousers:0x23262b, socks:0x1c1d21, shoes:pick([0x1c1d21, 0xf0f0ec])};
   } else if (role === "gym"){
-    outfit = {type:"casual", shirt:pick([0x1f2125, 0x2c66b8, 0xd32f3a, 0x8a8f96, 0x2f9e44, 0xf2f0ea]), legwear:"shorts", shorts:pick([0x1f2125, 0x24304a, 0x6b6e72]), socks:0xf2f2ee, shoes:pick(CASUAL.shoes)};
+    // the sports centre's staff polo, shorts or track trousers
+    const tp = r() < .45;
+    outfit = {type:"polo", shirt:pick([0x2f4a6a, 0x1f2125, 0x2c66b8]), trim:0xc8f060, legwear:tp ? "trackpants" : "shorts", shorts:pick([0x1f2125, 0x24304a]), trousers:0x1f2125, socks:0xf2f2ee, shoes:pick([0xf0f0ec, 0x1c1d21])};
+  } else if (role === "physio" || role === "kitman"){
+    // club staff: a polo (the physio) or a training top (the kit man) in the club's dark colour, track trousers
+    const club = mixHex(hex(kit[0]), 0x10141c, .55), ph = role === "physio";
+    outfit = ph ? {type:"polo", shirt:club, trim:mixHex(hex(kit[0]), 0xffffff, .25), legwear:"trackpants", trousers:0x1d2027, shoes:pick([0xf0f0ec, 0x1c1d21])}
+      : {type:"tracksuit", shirt:club, trousers:mixHex(hex(kit[0]), 0x10141c, .72), trim:mixHex(hex(kit[0]), 0xffffff, .2), shoes:0x1c1d21};
+  } else if (role === "receptionist"){
+    outfit = {type:"office", shirt:pick([0xf2f2ee, 0xc9d8ea, 0xe8dfe8]), trousers:pick([0x23262b, 0x24304a]), shoes:0x15161a, belt:0x231a14};
+  } else if (role === "clerk"){
+    // the store's own polo and a dark waist apron
+    outfit = {type:"apron", apronCut:"waist", collar:"polo", shirt:pick([0x8a2d2d, 0x6e2a2f]), apron:0x23262b, trousers:pick([0x23262b, 0x34383f]), shoes:0x1c1d21};
+  } else if (role === "dispatcher"){
+    outfit = {type:"polo", sleeves:"long", shirt:0x1b6f9a, trim:0xf2c230, legwear:"trousers", trousers:pick([0x3a3f46, 0x23262b]), shoes:0x1c1d21};
+  } else if (role === "photographer"){
+    outfit = {type:r() < .5 ? "jacket" : "casual", shirt:pick([0x1f2125, 0x2a2c30, 0x3d3a36]), inner:pick([0x1f2125, 0x8a8f96, 0xf2f0ea]), legwear:"jeans", trousers:pick(CASUAL.jeans), shoes:pick([0x1c1d21, 0x8a6a48])};
+  } else if (role === "editor"){
+    outfit = {type:"hoodie", shirt:pick([0x24324a, 0x38513a, 0x4a3b5e, 0x1f2125]), legwear:"jeans", trousers:pick(CASUAL.jeans), shoes:pick([0xf0f0ec, 0x1c1d21])};
+    if (r() < .5) props = ["glasses"];
   } else {
     const kind = wpick(r, [["casual", .4], ["polo", .15], ["hoodie", .22], ["jacket", .23 + old*.2]]);
     const legwear = wpick(r, [["jeans", .5], ["trousers", .35 + old*.3], ["shorts", .15 - old*.12]]);

@@ -4,6 +4,7 @@
    run of reps you time. Everything is worth more fresh and fed, and less when you are spent. */
 import {THREE, W} from "./build.js";
 import {DRILLS, RINGS, PITCH, ballMesh} from "./ground.js";
+import {CONTACT} from "./human.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 const GRAV = 9.81;
@@ -58,15 +59,39 @@ function stepBall(b, dt){
   }
   b.m.rotation.x += v.z*dt*5; b.m.rotation.z -= v.x*dt*5;
 }
+/* The drills' own materials are made once and kept (never disposed), and the world draws a set of these props when
+   you arrive at the ground (drillWarmup) — so starting a drill never compiles a shader in the middle of play. */
+let MATS = null;
+function mats(){
+  if (MATS) return MATS;
+  const keep = m => { m.userData.keep = true; return m; };
+  const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"), gr = x.createRadialGradient(32, 32, 1, 32, 32, 31);
+  gr.addColorStop(0, "rgba(0,0,0,.6)"); gr.addColorStop(.6, "rgba(0,0,0,.25)"); gr.addColorStop(1, "rgba(0,0,0,0)"); x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+  const st = new THREE.CanvasTexture(c); st.userData.per = 1;
+  MATS = {ring:keep(new THREE.MeshBasicMaterial({color:0xc8f060, toneMapped:false})),
+    disc:keep(new THREE.MeshBasicMaterial({color:0xc8f060, transparent:true, opacity:.22, depthWrite:false, toneMapped:false})),
+    lamp:keep(new THREE.MeshBasicMaterial({color:0xff5a4a, toneMapped:false})),
+    shadow:keep(new THREE.MeshBasicMaterial({map:st, transparent:true, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2}))};
+  return MATS;
+}
 // a glowing target ring
 function ringMesh(r = .45, flat = false){
-  const g = new THREE.Group();
-  const m1 = new THREE.MeshBasicMaterial({color:0xc8f060, toneMapped:false}), m2 = new THREE.MeshBasicMaterial({color:0xc8f060, transparent:true, opacity:.22, depthWrite:false, toneMapped:false});
-  const t = new THREE.Mesh(new THREE.TorusGeometry(r, .04, 8, 40), m1), d = new THREE.Mesh(new THREE.CircleGeometry(r, 32), m2);
+  const g = new THREE.Group(), M = mats();
+  const t = new THREE.Mesh(new THREE.TorusGeometry(r, .04, 8, 40), M.ring), d = new THREE.Mesh(new THREE.CircleGeometry(r, 32), M.disc);
   g.add(t, d);
   if (flat){ g.rotation.x = -Math.PI/2; }
   return g;
 }
+// the ball's shadow: a soft disc that follows it over the grass (the sun's shadow map is not redrawn for a ball in flight)
+function ballShadow(){ const m = new THREE.Mesh(new THREE.PlaneGeometry(.42, .42).rotateX(-Math.PI/2), mats().shadow); m.renderOrder = 1; return m; }
+function shadowFollow(sh, b){ const y = b.position.y; sh.position.set(b.position.x, .012, b.position.z); const k = 1/(1 + Math.max(0, y - .11)*.6); sh.scale.setScalar(1.6 - k*.6); sh.visible = b.visible; sh.material.opacity = .9*k; }
+export function drillWarmup(){
+  const g = new THREE.Group();
+  g.add(ringMesh(.42), ringMesh(.9, true), new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), mats().lamp), ballShadow());
+  return g;
+}
+// where the ball sits at your feet: in front of the right boot, where the instep meets it (metres, scaled by your height)
+const AT_FOOT = {ahead:.42, right:.13};
 
 /* =============================== the drills =============================== */
 export function startDrill(kind, H){
@@ -78,10 +103,26 @@ export function startDrill(kind, H){
   H.P.pitch = kind === "head" ? .12 : kind === "pass" ? -.12 : -.02;
   const add = o => { W.scene.add(o); D.objs.push(o); return o; };
   D.ball = {m:add(ballMesh()), v:new THREE.Vector3()};
+  D.ball.m.castShadow = false;
+  const bsh = add(ballShadow());
+  const sc = () => (H.scale ? H.scale() : 1);
   const resetBall = () => {
-    const f = fwd(H.P.yaw, 0);
-    D.ball.m.position.set(H.P.x + f.x*.7, .11, H.P.z + f.z*.7); D.ball.v.set(0, 0, 0);
+    const f = fwd(H.P.yaw, 0), a = AT_FOOT.ahead*sc(), r = AT_FOOT.right*sc();
+    D.ball.m.position.set(H.P.x + f.x*a - f.z*r, .11, H.P.z + f.z*a + f.x*r); D.ball.v.set(0, 0, 0);
   };
+  /* your body strikes the ball: while you hold for power the leg draws back; on release the strike plays and the ball
+     leaves the boot at the moment of contact (human.js CONTACT), with the aim and power you released with */
+  const strike = (mode, dur) => ({
+    charge(p){ if (!D.kick) H.act({mode, t:.3*Math.min(1, p*1.6)}); },
+    go(launch){ D.kick = {mode, t:H.actT ? Math.max(.12, Math.min(.3, H.actT())) : .3, dur, launch, done:false}; },
+    step(dt){
+      const k = D.kick; if (!k) return;
+      k.t = Math.min(1, k.t + dt/k.dur); H.act({mode, t:k.t});
+      if (!k.done && k.t >= CONTACT[mode]){ k.done = true; k.launch(); }
+      if (k.t >= 1){ D.kick = null; H.act(null); }
+    },
+    idle(){ if (!D.kick) H.act(null); }
+  });
   const award = (list, q) => { let x = 0; for (const [k, base, per] of list) x += trainXP(k, base + per*q); D.xp += x; return x; };
   const finishRep = (q, text, sub) => {
     D.scores.push(q); D.phase = "result"; D.t = 0;
@@ -90,6 +131,7 @@ export function startDrill(kind, H){
   };
   const setHint = h => hudSet(D, {hint:h});
 
+  const KICK = strike(kind === "pass" ? "pass" : "kick", kind === "pass" ? .75 : .9);
   /* ----- shooting ----- */
   if (kind === "shoot"){
     const gx = PITCH.x0, cz = PITCH.cz, hw = PITCH.goalW/2, gh = PITCH.goalH;
@@ -105,7 +147,9 @@ export function startDrill(kind, H){
       const sw = Math.sin(D.t*1.7)*amp + Math.sin(D.t*2.9 + 1)*amp*.5, swp = Math.cos(D.t*1.3)*amp*.6;
       H.P.yaw += sw - (D.sw || 0); H.P.pitch += swp - (D.swp || 0); D.sw = sw; D.swp = swp;
       ring.children[0].scale.setScalar(1 + Math.sin(D.t*5)*.04);
-      if (D.phase === "aim" && D.charging){ D.power = Math.min(1, D.power + dt/0.95); hudPower(D.power); }
+      if (D.phase === "aim" && D.charging){ D.power = Math.min(1, D.power + dt/0.95); hudPower(D.power); KICK.charge(D.power); }
+      else if (D.phase === "aim") KICK.idle();
+      KICK.step(dt); shadowFollow(bsh, D.ball.m);
       if (D.phase === "flight"){
         const b = D.ball, px = b.m.position.x;
         stepBall(b, dt);
@@ -126,11 +170,11 @@ export function startDrill(kind, H){
       if (D.phase === "result" && D.t > 1.4) nextRep();
     };
     D.shoot = () => {
-      if (D.phase !== "aim" || D.power < .06){ D.charging = false; D.power = 0; hudPower(null); return; }
+      if (D.phase !== "aim" || D.power < .06){ D.charging = false; D.power = 0; hudPower(null); KICK.idle(); return; }
       D.charging = false; hudPower(null);
-      const dir = fwd(H.P.yaw, H.P.pitch + .06), sp = 11 + D.power*19;
-      D.ball.v.copy(dir).multiplyScalar(sp); D.shotPower = D.power;
-      D.phase = "flight"; D.t = 0;
+      const dir = fwd(H.P.yaw, H.P.pitch + .06), sp = 11 + D.power*19, pw = D.power;
+      D.phase = "strike";
+      KICK.go(() => { D.ball.v.copy(dir).multiplyScalar(sp); D.shotPower = pw; D.phase = "flight"; D.t = 0; });
     };
   }
 
@@ -146,7 +190,9 @@ export function startDrill(kind, H){
       const amp = (1 - s.skills.passacc/120)*.01*(1 + s.fatigue/90), sw = Math.sin(D.t*1.5)*amp;
       H.P.yaw += sw - (D.sw || 0); D.sw = sw;
       ring.scale.setScalar(1 + Math.sin(D.t*4)*.05);
-      if (D.phase === "aim" && D.charging){ D.power = Math.min(1, D.power + dt/1.25); hudPower(D.power); }
+      if (D.phase === "aim" && D.charging){ D.power = Math.min(1, D.power + dt/1.25); hudPower(D.power); KICK.charge(D.power); }
+      else if (D.phase === "aim") KICK.idle();
+      KICK.step(dt); shadowFollow(bsh, D.ball.m);
       if (D.phase === "flight"){
         const b = D.ball; stepBall(b, dt);
         const stopped = b.v.lengthSq() < .04 && b.m.position.y <= .111;
@@ -163,12 +209,12 @@ export function startDrill(kind, H){
       if (D.phase === "result" && D.t > 1.2) nextRep();
     };
     D.shoot = () => {
-      if (D.phase !== "aim" || D.power < .06){ D.charging = false; D.power = 0; hudPower(null); return; }
+      if (D.phase !== "aim" || D.power < .06){ D.charging = false; D.power = 0; hudPower(null); KICK.idle(); return; }
       D.charging = false; hudPower(null);
       // the rings sit 9–13 m out: about a third to a half of the bar along the ground
       const loft = Math.max(0, Math.min(.75, H.P.pitch + .12)), dir = fwd(H.P.yaw, loft), sp = 4 + D.power*11;
-      D.ball.v.copy(dir).multiplyScalar(sp); D.from = D.ball.m.position.clone();
-      D.phase = "flight"; D.t = 0;
+      D.phase = "strike";
+      KICK.go(() => { D.ball.v.copy(dir).multiplyScalar(sp); D.from = D.ball.m.position.clone(); D.phase = "flight"; D.t = 0; });
     };
   }
 
@@ -181,21 +227,25 @@ export function startDrill(kind, H){
     const zones = [[-2, .6], [2, .6], [-1.8, 1.6], [1.8, 1.6], [0, 1.2]].sort(() => Math.random() - .5);
     const newRep = () => {
       const [z, y] = zones[D.rep % zones.length]; D.tgt = new THREE.Vector3(gx - .05, y, cz + z); ring.position.copy(D.tgt);
-      D.phase = "wait"; D.t = 0; D.charge = 0; D.jump = null; D.hit = false; D.contact = null;
+      D.phase = "wait"; D.t = 0; D.charge = 0; D.jump = null; D.hit = false; D.contact = null; H.act(null);
       D.ball.m.position.copy(machine); D.ball.v.set(0, 0, 0); D.ball.m.visible = true;
       setHint("Hold Space or the left button to load the jump · let go to leap · look where you want to head it");
     };
     D.newRep = newRep;
-    const head = () => 1.72 + (D.jump ? D.jump.h : 0);
+    const head = () => (H.P.eyeH || 1.62) + .1 + (D.jump ? D.jump.h : 0);
     D.update = dt => {
       D.t += dt;
       if (D.charging && !D.jump) D.charge = Math.min(1, D.charge + dt/.6);
       hudPower(D.charging && !D.jump ? D.charge : null);
+      shadowFollow(bsh, D.ball.m);
+      // the body: crouches as you load the jump, then the header itself, timed to the leap (contact near the top)
       if (D.jump){
         const j = D.jump; j.t += dt; j.h = Math.max(0, j.v0*j.t - .5*GRAV*j.t*j.t);
         if (j.t > .1 && j.h <= 0){ j.h = 0; if (!D.hit && D.phase !== "fly") j.done = true; }
         H.jump(j.h);
-      }
+        const air = 2*j.v0/GRAV, k = Math.min(1, j.t/(air + .25));
+        H.act(k < 1 ? {mode:"header", t:.25 + .75*k} : null);
+      } else H.act(D.charging ? {mode:"header", t:.2*Math.min(1, D.charge*1.5)} : null);
       if (D.phase === "wait" && D.t > .9){
         // lobbed in from the corner to land on your head if you get up for it
         const T = 1.35, tgt = new THREE.Vector3(H.P.x, 2.28, H.P.z), dx = tgt.clone().sub(machine);
@@ -238,7 +288,7 @@ export function startDrill(kind, H){
   if (kind === "intercept"){
     const machine = new THREE.Vector3(12.1, .11, -7.6);
     const gates = [-5.6, -7.6, -9.6];
-    const lamp = add(new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), new THREE.MeshBasicMaterial({color:0xff5a4a, toneMapped:false})));
+    const lamp = add(new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), mats().lamp));
     D.moveBox = {x0:3.6, x1:6.4, z0:-10.6, z1:-4.6};
     const newRep = () => {
       D.phase = "tell"; D.t = 0; D.gate = gates[Math.floor(Math.random()*3)] + rand(-.3, .3);
@@ -250,6 +300,8 @@ export function startDrill(kind, H){
     D.update = dt => {
       D.t += dt;
       lamp.material.color.setHex(Math.sin(D.t*16) > 0 ? 0xff5a4a : 0x6a1f1a);
+      shadowFollow(bsh, D.ball.m);
+      if (D.trap != null){ D.trap = Math.min(1, D.trap + dt/.6); H.act(D.trap < 1 ? {mode:"trap", t:D.trap} : null); if (D.trap >= 1) D.trap = null; }
       if (D.phase === "tell" && D.t > .75 - Math.min(.3, D.rep*.04)){
         const sp = rand(8.5, 11) + D.rep*.4, dx = new THREE.Vector3(-1.5 - machine.x, 0, D.gate - machine.z).normalize();
         D.ball.v.copy(dx).multiplyScalar(sp); D.phase = "pass"; D.t = 0; lamp.visible = false;
@@ -260,7 +312,8 @@ export function startDrill(kind, H){
           const d = Math.abs(b.m.position.z - H.P.z), reach = .72 + s.skills.interception*.005;
           if (d < reach){
             const q = Math.max(.35, 1 - d/reach*.65);
-            b.v.set(0, 0, 0); b.m.position.set(H.P.x - .5, .11, H.P.z);
+            // cut out at your feet: the ball dies under your boot on the side it came
+            b.v.set(0, 0, 0); b.m.position.set(H.P.x - .42, .11, H.P.z + Math.max(-.2, Math.min(.2, b.m.position.z - H.P.z))); D.trap = 0;
             const x = award([["interception", 6, 14], ["tackling", 1, 3], ["pace", 1, 1]], q);
             finishRep(q, q > .8 ? "Read it perfectly" : "Got a foot to it", `+${x} XP`);
           } else {
@@ -303,7 +356,7 @@ export function startDrill(kind, H){
 function endDrill(D){
   hudPower(null); hudTiming(false); hudClose();
   for (const o of D.objs){ W.scene.remove(o); o.traverse(n => { if (n.geometry) n.geometry.dispose(); }); }
-  D.H.jump(0);
+  D.H.jump(0); D.H.act(null);
   D.H.endDrill();
 }
 // leaving early: you keep what you earned, and the time you spent
@@ -327,7 +380,8 @@ const SETS = {
 };
 export function startReps(kind, H){
   const s = G(), set = SETS[kind];
-  const D = {kind, H, rep:0, reps:6, scores:[], xp:0, phase:"go", t:0, title:set.title, objs:[], allowMove:false, lockLook:true};
+  // the set is lived through the camera (a dip, a hop, a run on the spot): your own body would only get in the way of it
+  const D = {kind, H, rep:0, reps:6, scores:[], xp:0, phase:"go", t:0, title:set.title, objs:[], allowMove:false, lockLook:true, hideBody:true};
   const sk = s.skills[set.main] || 30;
   const zone = () => ({c:.5 + Math.sin(D.rep*1.9)*.18, w:Math.max(.09, .2 + sk/700 - D.rep*.012)*(.7 + .3*trainEff())});
   D.z = zone(); D.m = 0; D.dir = 1;

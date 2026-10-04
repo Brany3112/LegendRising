@@ -1312,6 +1312,47 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
 .ds-row b.good{color:#9df07a} .ds-row b.bad{color:#ffadb0}
 .ds-next{margin:12px 0 14px;font-size:.86rem;color:#d5e1ec}
 .ds-btns{display:flex;gap:8px;justify-content:center}
+/* ---------- your look: the appearance editor (a panel in the world, a card on the creation screen) ---------- */
+.lf-panel.look .lpn{width:min(940px,100%);height:min(700px,100%);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
+.pc-look{display:flex;align-items:center;justify-content:space-between;gap:12px} .pc-look .pc-tip{margin:0}
+.lk{display:contents}
+.lk-main{display:grid;grid-template-columns:minmax(230px,38%) minmax(0,1fr);gap:16px;min-height:0}
+.lk-side{display:grid;grid-template-rows:minmax(0,1fr) auto;gap:8px;min-height:0}
+.lk-stage{position:relative;min-height:260px;border-radius:14px;overflow:hidden;border:1px solid var(--line);
+  background:radial-gradient(90% 70% at 50% 38%,rgba(78,168,255,.2),rgba(78,168,255,0) 70%),radial-gradient(60% 30% at 50% 96%,rgba(200,240,96,.14),rgba(200,240,96,0)),linear-gradient(180deg,#1a2b44,#0b1422)}
+.lk-stage.off::after{content:"Preview unavailable";position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:.85rem}
+.lk-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none;outline:none}
+.lk-canvas:active{cursor:grabbing} .lk-canvas:focus-visible{box-shadow:inset 0 0 0 2px var(--lime)}
+.lk-drag{position:absolute;left:10px;bottom:8px;z-index:1;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:rgba(238,243,248,.5);pointer-events:none}
+.lk-bar{display:flex;flex-wrap:wrap;gap:6px;justify-content:space-between}
+.lk-bar .seg button{padding:.38em .7em;font-size:.84rem}
+.lk-ctl{overflow:auto;min-height:0;padding-right:6px;scrollbar-width:thin;display:grid;align-content:start;gap:10px}
+.lk-sec{padding:10px 12px 4px;border-radius:12px;background:rgba(255,255,255,.035);border:1px solid var(--line)}
+.lk-sec h4{margin:0 0 6px;font-size:.78rem;letter-spacing:.14em;color:var(--lime)}
+.lk-row{display:grid;gap:6px;padding:4px 0 10px}
+.lk-lab{display:flex;justify-content:space-between;align-items:baseline;font-size:.8rem;color:var(--muted);font-weight:600}
+.lk-lab b{color:var(--ink);font-variant-numeric:tabular-nums}
+.lk-chips{display:flex;width:fit-content;max-width:100%} .lk-chips button{padding:.36em .66em;font-size:.84rem}
+.lk-sw{display:flex;flex-wrap:wrap;gap:7px}
+.lk-sw button{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.18);background:var(--c);padding:0;box-shadow:inset 0 -3px 6px rgba(0,0,0,.25);transition:transform .15s var(--ease),border-color .15s}
+.lk-sw button:hover{transform:scale(1.1)}
+.lk-sw button[aria-pressed="true"]{border-color:var(--lime);box-shadow:0 0 0 2px rgba(200,240,96,.35),inset 0 -3px 6px rgba(0,0,0,.25);transform:scale(1.08)}
+.lk-slide{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px}
+.lk-slide em{font-style:normal;font-size:.7rem;color:var(--muted);min-width:44px} .lk-slide em:last-child{text-align:right}
+.lk-range{width:100%;accent-color:var(--lime);height:22px;margin:0}
+.lk-note{margin:0 0 8px;font-size:.76rem;color:var(--muted)}
+.lk-foot{display:flex;align-items:center;gap:8px;padding-top:12px;margin-top:4px;border-top:1px solid var(--line)}
+.lk-create{margin:16px 0}
+.lk-create .lk-main{margin:8px 0 12px;grid-template-columns:minmax(220px,300px) minmax(0,1fr)}
+.lk-create .lk-stage{min-height:360px}
+.lk-create .lk-ctl{max-height:470px}
+@media (max-width:700px){
+  .lf-panel.look .lpn{padding:14px 14px 12px}
+  .lk-main,.lk-create .lk-main{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  .lk-stage{min-height:0;height:clamp(190px,34vh,280px)} .lk-create .lk-stage{min-height:0;height:300px}
+  .lk-create .lk-ctl{max-height:none}
+  .lk-foot .btn.sm{padding:.5em .7em}
+}
 @media (max-width:760px){
   .pc-main{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   .pc-nav{grid-auto-flow:column;grid-auto-columns:max-content;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}

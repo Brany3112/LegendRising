@@ -365,7 +365,10 @@ function newsFromMatch(res){
 /* ---------- new career ---------- */
 function newCareer(cr){
   const skills = {}; SKILLS.forEach(([k]) => skills[k] = 24 + (POS[cr.pos].bonus[k] || 0) + cr.alloc[k]);
-  S = {v:2, cid:"c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), player:{name:cr.name, number:cr.number, pos:cr.pos, foot:cr.foot, nat:cr.nat, age:17}, skills, sp:0, xp:0, level:1,
+  const cid = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  // how you look: what you chose on the creation screen, or a default of your own, the same for the same name
+  const look = lookSane(cr.look, cr.look ? cid : "p:" + (cr.name || "") + ":" + (cr.nat || ""));
+  S = {v:2, cid, player:{name:cr.name, number:cr.number, pos:cr.pos, foot:cr.foot, nat:cr.nat, age:17, look}, skills, sp:0, xp:0, level:1,
     energy:85, fatigue:10, chem:0, money:100, workrate:2, tutDone:false, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0, v2:true},
     inv:{drink:2, max:0, sandwich:3, meal:2, fruit:3, water:4, pasta:1}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
     contract:null, trust:0, raise:null, ban:0, cards:{y:0, r:0, run:0}, seasonMy:blankMy(), careerMy:blankMy(), ratings:[], awards:[], trophies:[], news:[], msgs:[], requests:[],

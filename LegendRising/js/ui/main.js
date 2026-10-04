@@ -213,6 +213,9 @@ function screenTitle(){
 let CR = null;
 function screenCreate(){
   CR = CR || {name:"", number:9, pos:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
+  // how you look: a default of your own until you change it (the 3D preview needs the world's modules, so not on file://)
+  const looks = typeof lookCreateHTML === "function" && location.protocol !== "file:";
+  if (looks) CR.look = lookSane(CR.look, "p::" + CR.nat);
   const baseOf = k => 24 + (POS[CR.pos].bonus[k] || 0);
   render(`<section class="page create"><div class="page-inner">
     <div class="eyebrow">Step 1</div><h1>Create your player</h1>
@@ -239,8 +242,10 @@ function screenCreate(){
           <div class="row gap6"><button class="btn sm ghost" onclick="A.alloc('${k}',-1)">−</button><button class="btn sm ghost" onclick="A.alloc('${k}',1)">+</button></div></div>`).join("")}
       </div>
     </div>
+    ${looks ? lookCreateHTML(CR.look) : ""}
     <div class="row gap10"><button class="btn lg" onclick="A.startCareer()">Find a club →</button><button class="btn lg ghost" onclick="screenTitle()">Back</button></div>
   </div></section>`, "create");
+  if (looks) lookCreateMount();
 }
 function screenOffers(){
   setPhoneVisible(false);
