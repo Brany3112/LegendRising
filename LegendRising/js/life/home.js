@@ -1,7 +1,7 @@
 /* ============ LIFE: the neighbourhood ============
    A few streets of brick blocks. Only one door in the whole street is yours: the block on the near
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
-import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, part, boxPart, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway} from "./build.js";
+import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
 import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, PC} from "./props.js";
 import {miniMarket, workplace} from "./shops.js";
@@ -15,7 +15,7 @@ const C = {
   wood:0x8b5a2b, wood2:0x6b4422, blanket:0x2f6a3b, white:0xf3f3ef, fridge:0xe9ddb0, handle:0x4a3324, fabric:0x8b8273
 };
 // the reds are brick; the sand and the grey are rendered
-const wallTex = c => c === C.brick[4] || c === C.brick[5] ? "plaster" : "brick";
+const wallTex = c => c === C.brick[4] || c === C.brick[5] ? "paint" : "brick";
 const BLD = {x0:-14, x1:0, z0:-9, z1:3};
 const H4 = 4*LH;
 const G0 = .27;                   // the ground floor of your block: one step up from the pavement
@@ -23,7 +23,7 @@ const G0 = .27;                   // the ground floor of your block: one step up
 export const APT = {
   1:{x0:-13.75, x1:-7.1,  door:-10.4, wz:-2.1, ext:2.75,  s:1},
   2:{x0:-6.9,   x1:-0.25, door:-3.6,  wz:-2.1, ext:2.75,  s:1},
-  3:{x0:-9.625, x1:-5.1,  door:-6.0,  wz:-4.2, ext:-8.75, s:-1},
+  3:{x0:-9.625, x1:-5.1,  door:-6.4,  wz:-4.2, ext:-8.75, s:-1},   // the narrow one: the door kept clear of the fridge
   4:{x0:-4.9,   x1:-0.25, door:-1.5,  wz:-4.2, ext:-8.75, s:-1}
 };
 const winsOf = d => { const a = APT[d], w = a.x1 - a.x0; return [a.x0 + w*.3, a.x0 + w*.7]; };
@@ -115,8 +115,8 @@ export function downpipe(f, s, h){
 /* the flat roof: a membrane, a parapet in the wall's own finish, a metal coping overhanging both faces, and the
    things that live on roofs — the stair hut, a lift room, air-con units, vents, maybe a dish */
 export function roofTop(b, h, o = {}){
-  const wc = o.wall == null ? C.stone : o.wall, wt = o.tex || "plaster", p = o.parapet || .7, t = .25;
-  box(b.x0 + t, h, b.z0 + t, b.x1 - t, h + .06, b.z1 - t, C.roof, {tex:"rubber", ao:false, jit:0});
+  const wc = o.wall == null ? C.stone : o.wall, wt = o.tex || "paint", p = o.parapet || .7, t = .25;
+  box(b.x0 + t, h, b.z0 + t, b.x1 - t, h + .06, b.z1 - t, C.roof, {tex:"concrete", ao:false, jit:0});
   const W_ = {tex:wt, ao:false, jit:0};
   box(b.x0, h, b.z0, b.x1, h + p, b.z0 + t, wc, W_); box(b.x0, h, b.z1 - t, b.x1, h + p, b.z1, wc, W_);
   box(b.x0, h, b.z0 + t, b.x0 + t, h + p, b.z1 - t, wc, W_); box(b.x1 - t, h, b.z0 + t, b.x1, h + p, b.z1 - t, wc, W_);
@@ -129,7 +129,7 @@ export function roofTop(b, h, o = {}){
   const cx = (b.x0 + b.x1)/2, cz = (b.z0 + b.z1)/2, big = (b.x1 - b.x0) > 9 && (b.z1 - b.z0) > 7;
   if (big){
     // the stair hut: rendered, a flat lid, a door and a little light
-    rbox(cx - .3, h, cz - .1, 2.0, 2.3, 1.9, .06, C.stone, {tex:"plaster"});
+    rbox(cx - .3, h, cz - .1, 2.0, 2.3, 1.9, .06, C.stone, {tex:"paint"});
     rbox(cx - .3, h + 2.3, cz - .1, 2.2, .12, 2.1, .04, C.coping, {key:"metal"});
     box(cx - .7, h, cz + .85, cx + .05, h + 1.95, cz + .87, C.door, {ao:false});
     box(cx - .55, h + 2.05, cz + .85, cx - .2, h + 2.12, cz + .9, 0xfff3d6, {key:"lamp", ao:false});
@@ -208,8 +208,8 @@ function facadeDeco(f, len, h, o){
 function balcony(f, s, y){
   const w = 2.4, d = 1.05, O = {ao:false, jit:0};
   f.box(s - w/2, s + w/2, y - .06, y + .1, 0, d, C.stone, O);
-  f.box(s - w/2, s + w/2, y + .1, y + .95, d - .06, d, 0xe9e4d8, {tex:"plaster", ao:false, jit:0});
-  for (const e of [-1, 1]) f.box(s + e*w/2 - (e > 0 ? .06 : 0), s + e*w/2 + (e < 0 ? .06 : 0), y + .1, y + .95, 0, d - .06, 0xe9e4d8, {tex:"plaster", ao:false, jit:0});
+  f.box(s - w/2, s + w/2, y + .1, y + .95, d - .06, d, 0xe9e4d8, {tex:"paint", ao:false, jit:0});
+  for (const e of [-1, 1]) f.box(s + e*w/2 - (e > 0 ? .06 : 0), s + e*w/2 + (e < 0 ? .06 : 0), y + .1, y + .95, 0, d - .06, 0xe9e4d8, {tex:"paint", ao:false, jit:0});
   const R = {key:"metal", ao:false, jit:0};
   f.box(s - w/2 - .02, s + w/2 + .02, y + .95, y + 1.0, d - .08, d + .02, C.coping, R);
   f.box(s - w/2 - .02, s - w/2 + .08, y + .95, y + 1.0, 0, d - .08, C.coping, R); f.box(s + w/2 - .08, s + w/2 + .02, y + .95, y + 1.0, 0, d - .08, C.coping, R);
@@ -233,13 +233,13 @@ function myBlock(F, D){
   // the stairwell windows sit at landing height, half a storey up
   const stairWin = L => [0, 1, 2].map(k => [-13.3, -12.2, k*LH + 1.6 + 1.0, k*LH + 1.6 + 2.45]);
   const ENT = [-10.25, -8.75, G0, G0 + 2.35];
-  for (let L = 0; L < 4; L++){
-    const y0 = L*LH, y1 = y0 + LH;
-    wall("x", 2.875, -14, 0, y0, y1, .25, brick, [...(L === 0 ? [ENT] : []), ...winHoles(L, "front")], BT);
-    wall("x", -8.875, -14, 0, y0, y1, .25, brick, [...winHoles(L, "back"), ...stairWin(L)], BT);
-    wall("z", -13.875, -8.75, 2.75, y0, y1, .25, brick, [], BT);
-    wall("z", -0.125, -8.75, 2.75, y0, y1, .25, brick, [], BT);
-  }
+  // each outer wall in one piece from the ground to the roof: a joint at every storey would be a face seen edge-on
+  // right behind the paint inside, and would show through it as a dashed line
+  const Ls = [0, 1, 2, 3];
+  wall("x", 2.875, -14, 0, 0, H4, .25, brick, [ENT, ...Ls.flatMap(L => winHoles(L, "front"))], BT);
+  wall("x", -8.875, -14, 0, 0, H4, .25, brick, [...Ls.flatMap(L => winHoles(L, "back")), ...stairWin(0)], BT);
+  wall("z", -13.875, -8.75, 2.75, 0, H4, .25, brick, [], BT);
+  wall("z", -0.125, -8.75, 2.75, 0, H4, .25, brick, [], BT);
   // outside: the same dress as every other block, minus the windows that are really yours
   const ff = facer("+z", BLD), fb = facer("-z", BLD);
   const myWin = new Set(winsOf(D).map(x => x.toFixed(2)));
@@ -264,9 +264,8 @@ function myBlock(F, D){
   // slabs: a hole in each one for the stairs; the underside is the ceiling of the storey below
   for (let L = 1; L <= 4; L++){
     const y = L*LH, CL = {ao:false, jit:0, tex:"paint"};
-    box(-13.75, y - .25, -4, -0.25, y, 2.75, C.ceiling, CL);
-    box(-9.875, y - .25, -8.75, -0.25, y, -4, C.ceiling, CL);
-    if (L === 4) box(-13.75, y - .25, -8.75, -9.875, y, -4, C.ceiling, CL);
+    slab(L === 4 ? [[-13.75, -8.75], [-0.25, -8.75], [-0.25, 2.75], [-13.75, 2.75]]
+      : [[-9.875, -8.75], [-0.25, -8.75], [-0.25, 2.75], [-13.75, 2.75], [-13.75, -4], [-9.875, -4]], y - .25, y, C.ceiling, CL);
     if (L < 4){ floor(-13.75, -0.25, -4, 2.75, y + .02); floor(-9.875, -0.25, -8.75, -4, y + .02); }   // you stand on the lino and the boards, not under them
   }
   // the lobby: one step up from the street, terrazzo, the walls painted
@@ -290,7 +289,7 @@ function myBlock(F, D){
     const base = L*LH, top = base + LH - .25;
     box(-13.75, base, -4, -0.25, base + .02, -2.3, C.lino, {ao:false, jit:0});
     twoTone("z", -13.74, -4, -2.31, base, top);
-    const hf = [[-10.4], [-3.6]].map(([x]) => [x - .5, x + .5, base, base + 2.1]), hb = [[-6.0], [-1.5]].map(([x]) => [x - .5, x + .5, base, base + 2.1]);
+    const hf = [1, 2].map(d => [APT[d].door - .5, APT[d].door + .5, base, base + 2.1]), hb = [3, 4].map(d => [APT[d].door - .5, APT[d].door + .5, base, base + 2.1]);
     wall("x", -2.2, -13.75, -0.25, base, top, .2, C.cream, hf, {tex:"paint"});
     wall("x", -4.1, -9.625, -0.25, base, top, .2, C.cream, hb, {tex:"paint"});
     wall("z", -7, -2.1, 2.75, base, top, .2, C.cream, [], {tex:"paint"});
@@ -358,7 +357,7 @@ function stairs(){
     box(S_.w, land - .25, S_.back, S_.e, land - .02, S_.mid, C.ceiling, {tex:"paint", ao:false, jit:0});
     box(S_.w, land - .02, S_.back, S_.e, land, S_.mid, 0xffffff, {tex:"terrazzo", ao:false, jit:0});
     floor(S_.w, S_.e, S_.back, S_.mid, land);
-    box(S_.well[0], land - .035, S_.mid, S_.well[1], land + .002, S_.mid + .03, 0xe4dfd6, {tex:"stone", ao:false, jit:0});
+    box(S_.well[0], land - .035, S_.mid, S_.well[1], land + .002, S_.mid + .03, 0xe4dfd6, {tex:"terrazzo", ao:false, jit:0});
     // the two flights
     // the same going (.375) on every flight; the ground floor is a step higher, so its first flight is a tread shorter
     const o1 = {axis:"z", a0:L ? S_.front : S_.mid + 7*.375, a1:S_.mid, s0:S_.f1[0], s1:S_.f1[1], y0, y1:land, n:L ? 9 : 8, solidBase:L === 0};
@@ -370,7 +369,7 @@ function stairs(){
     stringer(o1, f1, S_.f1[1], S_.f1[1] + .05, steel, .1, .03, {key:"metal"});
     stringer(o2, f2, S_.f2[0] - .05, S_.f2[0], steel, .1, .03, {key:"metal"});
     // the green dado follows each flight up the wall it runs along, and runs level round the landing
-    dado(o1, f1, S_.w + .01, S_.w + .016, land); dado(o2, f2, S_.e - .016, S_.e - .01, land);
+    dado(o1, f1, S_.w + .01, S_.w + .016, land, L ? null : {a:S_.front, y:G0 + 1.15}); dado(o2, f2, S_.e - .016, S_.e - .01, land);
     box(S_.w, land - .2, S_.back + .01, S_.e, land + 1.0, S_.back + .016, C.green, {tex:"paint", ao:false, jit:0});
     box(S_.w, land + .98, S_.back + .016, S_.e, land + 1.02, S_.back + .02, 0x4c6a57, gray);
     // balustrades on the well side, rails on the walls
@@ -384,10 +383,14 @@ function stairs(){
     rbox(-10.6, land + 2.2, S_.back + .07, .5, .12, .12, .04, 0xfff3d6, {key:"lamp"});
     lightSrc({x:-11.8, y:land + 2.1, z:-8.0, color:0xffe8c8, intensity:5, distance:8, indoor:true});
   }
-  // under the first flight: a store cupboard with a door, closed off from the well
+  // under the second flight: a store cupboard with a door, closed off from the well
   const P = [[S_.mid, 0], [S_.mid, 1.6 + .178 - .32], [S_.front, LH - .32], [S_.front, 0]];
   extrude("z", P, S_.well[0] + .05, S_.f2[0], C.cream, {tex:"paint", jit:0});
   wall("x", S_.front - .05, S_.well[0] + .05, S_.e, 0, LH - .36, .1, C.cream, [[-11.25, -10.45, G0, G0 + 1.95]], {tex:"paint"});
+  // its lobby face painted and skirted like the rest of the lobby
+  const CB = [[-11.25, -10.45, G0, G0 + 1.95]];
+  twoTone("x", S_.front + .01, S_.well[0] + .05, S_.e, G0, LH - .36, CB);
+  skirting("x", S_.front + .02, S_.well[0] + .05, S_.e, G0, 1, [[CB[0][0] - .08, CB[0][1] + .08]]);
   doorway("x", S_.front - .05, -11.25, -10.45, G0, 1.95, .1, {faces:[1], color:0xf0eee8});
   box(-11.22, G0, S_.front - .07, -10.48, G0 + 1.92, S_.front - .03, 0x8a7a64, {solid:true, ao:false, jit:0});
   box(-10.62, G0 + .95, S_.front - .03, -10.56, G0 + 1.05, S_.front - .0, C.metal, {key:"metal", ao:false});
@@ -396,14 +399,17 @@ function stairs(){
   railAcross(S_.w + .04, S_.f2[0] - .025, S_.front + .03, top, rail, steel, true);
   solid(S_.w, S_.well[1], S_.front - .02, S_.front + .08, top, top + 1.1);
 }
-// the green band that climbs with a flight, from below its string to a metre over the nosings
-function dado(o, f, s0, s1, land){
-  const P = [[f.A(-.3), f.pitch(-.3) - .35], [f.A(-.3), f.pitch(-.3) + 1.0], [f.A(f.L), o.y1 + 1.0], [f.A(f.L), o.y1 - .35]];
-  if (o.a1 === ST.mid) P.splice(3, 0, [ST.back + .01, land + 1.0], [ST.back + .01, land - .35]);
+// the green band that climbs with a flight, from below its string to a metre over the nosings. foot: {a, y} carries
+// the lobby's level band (top at y) on from a, and the band turns up the stair where the slope rises past it
+function dado(o, f, s0, s1, land, foot){
+  const uq = foot ? Math.max(-.3, (foot.y - 1.0 - o.y0 - f.r)*f.g/f.r) : -.3;
+  const edge = dy => foot ? [[foot.a, foot.y - 1.0 + dy], [f.A(uq), foot.y - 1.0 + dy]] : [[f.A(-.3), f.pitch(-.3) + dy]];
+  const P = [foot ? [foot.a, o.y0] : [f.A(-.3), f.pitch(-.3) - .35], ...edge(1.0), [f.A(f.L), o.y1 + 1.0], [f.A(f.L), o.y1 - .35]];
+  if (o.a1 === ST.mid) P.splice(P.length - 1, 0, [ST.back + .01, land + 1.0], [ST.back + .01, land - .35]);
   else P.unshift([ST.back + .01, land - .35], [ST.back + .01, land + 1.0]);
   extrude("z", P, s0, s1, C.green, {tex:"paint", jit:0});
-  const Q = (dy, t) => [[f.A(-.3), f.pitch(-.3) + dy], [f.A(-.3), f.pitch(-.3) + dy + t], [f.A(f.L), o.y1 + dy + t], [f.A(f.L), o.y1 + dy]];
-  extrude("z", Q(.98, .04), s0 + (s0 < -11 ? .006 : -.004), s1 + (s0 < -11 ? .004 : -.006), 0x4c6a57, {jit:0});
+  const Q = [...edge(.98), [f.A(f.L), o.y1 + .98], [f.A(f.L), o.y1 + 1.02], ...edge(1.02).reverse()];
+  extrude("z", Q, s0 + (s0 < -11 ? .006 : -.004), s1 + (s0 < -11 ? .004 : -.006), 0x4c6a57, {jit:0});
 }
 // balusters on the stringer, a timber handrail on top, newel posts at both ends
 function balustrade(o, f, x, rail, steel){
@@ -491,15 +497,16 @@ function plateTex(text){
 export function hingedDoor(o){
   const dir = o.dir || 1, T = .05;
   const g = new THREE.Group(); g.position.set(o.hingeX, o.base, o.z);
-  const leaf = boxPart(o.width, o.height, T, o.color, o.width/2, o.height/2, 0, {cast:false});
-  g.add(leaf);
-  if (o.glass){ g.add(boxPart(o.width - .3, o.height*.55, T + .004, 0x9fb7c6, o.width/2, o.height*.6, 0, {mat:{transparent:true, opacity:.45}})); }
-  else { for (const dz of [-1, 1]) for (const [h0, h1] of [[.12, .45], [.55, .9]]) g.add(boxPart(o.width - .24, o.height*(h1 - h0), .008, o.color, o.width/2, o.height*(h0 + h1)/2, dz*(T/2 + .004), {mat:{color:o.color, roughness:.6}})); }
-  // a rose and a lever on each face, touching the leaf
+  // the leaf and its raised panels are one mesh, the roses and levers on both faces another
+  const wood = [boxGeo(o.width, o.height, T, o.width/2, o.height/2, 0)], brass = [];
+  if (!o.glass) for (const dz of [-1, 1]) for (const [h0, h1] of [[.12, .45], [.55, .9]]) wood.push(boxGeo(o.width - .24, o.height*(h1 - h0), .008, o.width/2, o.height*(h0 + h1)/2, dz*(T/2 + .004)));
   for (const dz of [-1, 1]){
-    g.add(boxPart(.05, .16, .012, C.metal, o.width - .12, 1.02, dz*(T/2 + .006), {mat:{metalness:.7, roughness:.35}}));
-    g.add(boxPart(.13, .024, .024, C.metal, o.width - .17, 1.06, dz*(T/2 + .012 + .012), {mat:{metalness:.7, roughness:.35}}));
+    brass.push(boxGeo(.05, .16, .012, o.width - .12, 1.02, dz*(T/2 + .006)));
+    brass.push(boxGeo(.13, .024, .024, o.width - .17, 1.06, dz*(T/2 + .012 + .012)));
   }
+  const leaf = part(mergeGeos(wood), o.color, {cast:false});
+  g.add(leaf, part(mergeGeos(brass), C.metal, {mat:{metalness:.7, roughness:.35}}));
+  if (o.glass){ g.add(boxPart(o.width - .3, o.height*.55, T + .004, 0x9fb7c6, o.width/2, o.height*.6, 0, {mat:{transparent:true, opacity:.45}})); }
   if (o.plate){
     const pm = new THREE.Mesh(new THREE.PlaneGeometry(.16, .08), new THREE.MeshLambertMaterial({map:plateTex(o.plate)}));
     pm.position.set(o.width/2, 1.62, -o.into*dir*(T/2 + .003)); pm.rotation.y = o.into*dir > 0 ? Math.PI : 0;
@@ -508,19 +515,24 @@ export function hingedDoor(o){
   W.scene.add(g);
   const xa = dir > 0 ? o.hingeX : o.hingeX - o.width, xb = dir > 0 ? o.hingeX + o.width : o.hingeX;
   const sol = solid(xa, xb, o.z - .06, o.z + .06, o.base, o.base + o.height);
-  const open = solid(0, 0, 0, 0, o.base, o.base + o.height); open.off = true;
+  // the leaf, once it leaves the frame, as three short boxes from the hinge to its free edge: a leaf standing at an
+  // angle blocks only where it really is, at every angle it can be dragged to
+  const leafSols = [0, 1, 2].map(() => { const q = solid(0, 0, 0, 0, o.base, o.base + o.height); q.off = true; return q; });
   const base = dir > 0 ? 0 : Math.PI, spin = dir > 0 ? -o.into : o.into;
   const D = {g, a:0, target:0, sol, leaf, dragging:false, get open(){ return D.a > .4; },
     toggle(){ D.target = D.a > .4 ? 0 : 1.65; }};
   W.anims.push(dt => {
     D.a += (D.target - D.a)*(1 - Math.exp(-6*dt));
     g.rotation.y = base + spin*D.a;
-    sol.off = D.a > .25;
-    // the leaf where it stands now, as a thin box from the hinge to its free edge
-    if (D.a > .9){
-      const r = g.rotation.y, ex = o.hingeX + Math.cos(r)*o.width, ez = o.z - Math.sin(r)*o.width;
-      open.x0 = Math.min(o.hingeX, ex) - .04; open.x1 = Math.max(o.hingeX, ex) + .04; open.z0 = Math.min(o.z, ez) - .04; open.z1 = Math.max(o.z, ez) + .04; open.off = false;
-    } else open.off = true;
+    // the closed box stays until the leaf is clear of the frame; the leaf's own boxes take over as soon as it moves
+    const swung = D.a > .01;
+    sol.off = D.a > .08;
+    const r = g.rotation.y, cx = Math.cos(r)*o.width/3, cz = -Math.sin(r)*o.width/3;
+    leafSols.forEach((q, i) => {
+      q.off = !swung; if (!swung) return;
+      const ax = o.hingeX + cx*i, az = o.z + cz*i, bx = ax + cx, bz = az + cz;
+      q.x0 = Math.min(ax, bx) - .04; q.x1 = Math.max(ax, bx) + .04; q.z0 = Math.min(az, bz) - .04; q.z1 = Math.max(az, bz) + .04;
+    });
   });
   const box3 = new THREE.Box3();
   spot({kind:"drag", label:o.label || "Door", get hint(){ return D.open ? "Close the door" : "Open the door"; }, y:o.base + 1.2,
@@ -753,9 +765,7 @@ function fridge(X, Z, base, Wd, s){
     const leaf = boxPart(.05, h, wv, C.fridge, -.025, y0 + h/2, -s*wv/2, {cast:false}); g.add(leaf);
     g.add(boxPart(.008, h - .04, wv - .04, 0xf2f2ee, .002, y0 + h/2, -s*wv/2));            // the inside of the door
     const hy = name === "Fridge" ? y1 - .4 : y0 + .22;
-    g.add(boxPart(.035, .3, .045, C.handle, -.07, hy, -s*(wv - .08)));
-    g.add(boxPart(.03, .03, .045, C.handle, -.04, hy + .14, -s*(wv - .08)));
-    g.add(boxPart(.03, .03, .045, C.handle, -.04, hy - .14, -s*(wv - .08)));
+    g.add(part(mergeGeos([boxGeo(.035, .3, .045, -.07, hy, -s*(wv - .08)), boxGeo(.03, .03, .045, -.04, hy + .14, -s*(wv - .08)), boxGeo(.03, .03, .045, -.04, hy - .14, -s*(wv - .08))]), C.handle));
     W.scene.add(g);
     const Dd = {g, leaf, a:0, target:0, name};
     const box3 = new THREE.Box3();
@@ -855,7 +865,7 @@ function streets(){
   // far away blocks so the sky has an edge: a mass, rows of dark windows, a coping
   for (const [x, z, w, d, h] of [[-50, -30, 14, 12, 15], [-20, -32, 16, 12, 18], [10, -34, 14, 12, 15], [40, -30, 14, 12, 21], [-48, 40, 14, 12, 18], [0, 44, 18, 12, 15], [62, 18, 12, 18, 18], [-52, 10, 12, 18, 15]]){
     const c = pick([0x9b6a58, 0xb0a490, 0x8a96a1, 0xb3694c]);
-    rbox(x + w/2, 0, z + d/2, w, h, d, .1, c, {tex:"plaster", jit:.05});
+    rbox(x + w/2, 0, z + d/2, w, h, d, .1, c, {tex:"paint", jit:.05});
     for (let y = 3.9; y < h - 1; y += LH){
       box(x - .02, y, z + .8, x + w + .02, y + 1.3, z + d - .8, 0x3a4652, {key:"gloss", ao:false, jit:.1});
       box(x + .8, y, z - .02, x + w - .8, y + 1.3, z + d + .02, 0x3a4652, {key:"gloss", ao:false, jit:.1});
@@ -864,7 +874,7 @@ function streets(){
   }
   // timber fences closing the gaps between blocks and the ends of the streets: boards, a capping rail, posts
   const fence = (x0, z0, x1, z1, y = .12) => {
-    box(x0, y, z0, x1, y + 1.8, z1, 0x8c7458, {solid:true, ao:false, tex:"panel", jit:.04});
+    box(x0, y, z0, x1, y + 1.8, z1, 0x8c7458, {solid:true, ao:false, tex:"planks", jit:.04});
     const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len/2)), ax = Math.abs(x1 - x0) > Math.abs(z1 - z0);
     for (let i = 0; i <= n; i++){ const t = i/n, x = x0 + (x1 - x0)*t, z = z0 + (z1 - z0)*t; rbox(x, y, z, .1, 1.95, .1, .012, 0x4a3a2a, {jit:0}); }
     box(x0 - (ax ? 0 : .03), y + 1.8, z0 - (ax ? .03 : 0), x1 + (ax ? 0 : .03), y + 1.85, z1 + (ax ? .03 : 0), 0x4a3a2a, {ao:false, jit:0});
@@ -936,8 +946,9 @@ export function busStop(x, z, o = {}){
     g.fillStyle = "#1d6fc4"; g.beginPath(); g.arc(64, 64, 60, 0, 7); g.fill();
     g.strokeStyle = "#fff"; g.lineWidth = 6; g.stroke(); g.fillStyle = "#fff"; g.font = "bold 42px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("BUS", 64, 66);
   });
-  label(t, sx, y + 2.68, z - dz*.06, .55, .55, o.flip ? 0 : Math.PI);
-  label(t, sx, y + 2.68, z + dz*.06, .55, .55, o.flip ? Math.PI : 0);
+  cyl(sx, y + 2.68, z, .262, .11, 0x2a2f33, {seg:20, rx:Math.PI/2, key:"metal"});                // the disc's rim, between its two faces
+  label(t, sx, y + 2.68, z - dz*.06, .55, .55, o.flip ? 0 : Math.PI, {transparent:true, alphaTest:.5});
+  label(t, sx, y + 2.68, z + dz*.06, .55, .55, o.flip ? Math.PI : 0, {transparent:true, alphaTest:.5});
   solid(sx - .1, sx + .1, z - .1, z + .1, y, y + 3);
 }
 
@@ -966,7 +977,7 @@ export function buildHome(c){
   const base = H.floor*LH;
   return {
     bed:{x:A.x0 + Wd - (HOME.bed.w || 1) - .65, z:A.wz + A.s*(Dp - 1.5), y:base, yaw:A.s > 0 ? 0 : Math.PI},
-    bus:{x:3, z:15.6, y:.12, yaw:0}
+    bus:{x:3, z:15.3, y:.12, yaw:0}            // under the shelter roof, clear of the bench behind
   };
 }
 export function homeTick(){ drawClock(); }

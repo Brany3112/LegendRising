@@ -25,14 +25,17 @@ function goods(f, lx, lz, w, levels, seed){
 }
 // the shop sign: lettering sized to the board it sits on (h defaults to the old 1024×192 proportion)
 function fascia(text, sub, x, y, z, w, color, ry = 0, h = w*192/1024){
-  const ch = Math.max(48, Math.round(1024*h/w)), k = ch/192;
-  const t = textTex(1024, ch, g => {
-    g.fillStyle = color; g.fillRect(0, 0, 1024, ch);
-    g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(0, 0, 1024, Math.max(3, 10*k));
-    let fs = Math.round((sub ? 108 : 120)*Math.min(1, k*1.25)); g.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`;
-    const tw = g.measureText(text).width; if (tw > 900){ fs = Math.floor(fs*900/tw); g.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; }
-    g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, 512, sub ? ch*.42 : ch*.52);
-    if (sub){ g.font = `700 ${Math.round(34*Math.min(1, k*1.4))}px "Barlow", sans-serif`; g.fillStyle = "rgba(255,255,255,.85)"; g.fillText(sub, 512, ch*.81); }
+  // drawn at a fixed resolution along the board, so a long, low fascia keeps crisp letters; the name and the line
+  // under it each get their own band of the height, and both shrink to fit the width
+  const cw = 2048, ch = Math.max(96, Math.round(cw*h/w));
+  const fit = (g, s, px, wt, fam, max) => { let fs = px; g.font = `${wt} ${fs}px ${fam}`; const tw = g.measureText(s).width; if (tw > max){ fs = Math.floor(fs*max/tw); g.font = `${wt} ${fs}px ${fam}`; } };
+  const t = textTex(cw, ch, g => {
+    g.fillStyle = color; g.fillRect(0, 0, cw, ch);
+    g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(0, 0, cw, Math.max(3, ch*.05));
+    g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+    fit(g, text, Math.round(ch*(sub ? .52 : .66)), 800, `"Barlow Condensed", "Arial Narrow", sans-serif`, cw*.88);
+    g.fillText(text, cw/2, ch*(sub ? .37 : .53));
+    if (sub){ fit(g, sub, Math.round(ch*.2), 700, `"Barlow", sans-serif`, cw*.8); g.fillStyle = "rgba(255,255,255,.85)"; g.fillText(sub, cw/2, ch*.8); }
   });
   return label(t, x, y, z, w, h, ry, {glow:.75, rough:.4});
 }

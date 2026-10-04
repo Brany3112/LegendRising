@@ -290,10 +290,10 @@ function stand(clubName){
   label(t, 0, 6.55, -28.35, 16, 1.0, 0, {glow:.4});
   solid(-26, 26, -35, -28.6, 0, 7);
   // the tunnel comes out of the middle of the stand: two cheeks and a lintel round a lit recess, double doors at the back
-  const TN = 0x2c3238, TC = {tex:"concrete", ao:false, jit:0};
+  const TN = 0x6e747a, TC = {tex:"concrete", ao:false, jit:0};
   box(-3.6, 0, -31.5, -2.4, 3.9, -27.4, TN, Object.assign({solid:true}, TC)); box(2.4, 0, -31.5, 3.6, 3.9, -27.4, TN, Object.assign({solid:true}, TC));
   box(-2.4, 2.8, -31.5, 2.4, 3.9, -27.4, TN, TC);
-  box(-2.4, 0, -31.5, 2.4, 2.8, -28.6, 0x23282d, Object.assign({solid:true}, TC));
+  box(-2.4, 0, -31.5, 2.4, 2.8, -28.6, 0x5c6268, Object.assign({solid:true}, TC));
   box(-2.4, 0, -28.6, 2.4, .02, -27.4, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
   box(-1.5, .02, -28.6, 1.5, 2.4, -28.56, 0x1b1f23, {ao:false, jit:0});
   for (const s_ of [-1, 1]){
@@ -302,6 +302,7 @@ function stand(clubName){
     box(s_ > 0 ? .2 : -1.3, 1.5, -28.54, s_ > 0 ? 1.3 : -.2, 2.2, -28.535, 0x9fb7c6, {key:"glass", ao:false, jit:0});
   }
   rbox(0, 2.74, -28.0, 3.6, .05, .14, .02, 0xfff1c8, {key:"lamp"});
+  lightSrc({x:0, y:2.3, z:-27.8, color:0xfff1c8, intensity:7, distance:6, indoor:true});            // the strip really lights the recess
   rbox(0, 3.9, -29.35, 7.6, .25, 4.5, .08, 0x1c2126);
   rbox(0, 2.9, -27.36, 4.0, .05, .06, .02, 0xfff1c8, {key:"lamp"});
   sign("PLAYERS' TUNNEL", 0, 3.4, -27.33, 0, 3.4);
@@ -312,9 +313,9 @@ function stand(clubName){
 /* ---------- the clubhouse: dressing room, staff office and the stats computer ---------- */
 function clubhouse(clubName){
   const b = {x0:18, x1:30, z0:3, z1:17}, H = 6.4, g0 = 3.2;
-  const outer = 0xe4ddd0, inner = 0xe9e4d8, PL = {tex:"plaster"}, PT = {tex:"paint"};
+  const outer = 0xe4ddd0, inner = 0xe9e4d8, PL = {tex:"paint"}, PT = PL;
   // the outside: two floors, the upstairs offices are not yours to go in
-  box(b.x0, g0, b.z0, b.x1, H, b.z1, outer, {solid:true, tex:"plaster", ao:false});
+  box(b.x0, g0, b.z0, b.x1, H, b.z1, outer, {solid:true, tex:"paint", ao:false});
   wall("z", b.x0 + .125, b.z0, b.z1, 0, g0, .25, outer, [[9.3, 10.9, 0, 2.5], [4.6, 7.2, .9, 2.4], [12.6, 15.2, .9, 2.4]], PL);
   wall("z", b.x1 - .125, b.z0, b.z1, 0, g0, .25, outer, [], PL);
   wall("x", b.z0 + .125, b.x0, b.x1, 0, g0, .25, outer, [[25, 28, .9, 2.4]], PL);
@@ -339,7 +340,7 @@ function clubhouse(clubName){
   for (const z of [8.85, 11.35]) rbox(b.x0 - 1.4, 0, z, .08, 2.62, .08, .03, 0x3b4249, {key:"metal", solid:true});
   box(b.x0 - .85, 2.6, 9.6, b.x0 - .65, 2.62, 10.6, 0xfff1d0, {key:"lamp", ao:false, jit:0});
   lightSrc({x:b.x0 - .8, y:2.45, z:10.1, color:0xffe8c8, intensity:4, distance:6});
-  roofTop(b, H, {wall:outer, tex:"plaster", parapet:.6});
+  roofTop(b, H, {wall:outer, tex:"paint", parapet:.6});
   sign("CLUBHOUSE", b.x0 - .05, 3.0, 6.0, -Math.PI/2, 2.4);
   // inside
   box(b.x0 + .25, 0, b.z0 + .25, b.x1 - .25, .02, b.z1 - .25, 0xffffff, {tex:"terrazzo", ao:false, jit:0});

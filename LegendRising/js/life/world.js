@@ -40,10 +40,11 @@ function pass(mins, act = "idle"){
 let saveDue = false, saveDueT = 0, mouseT = 0;
 function saveNowIf(){ saveDue = false; saveDueT = 0; const s = G(); if (!s) return; if (typeof saveNow === "function") saveNow(); else if (typeof save === "function") save(); }
 const persist = (now) => { if (!G()) return; if (now) saveNowIf(); else saveDue = true; };
-// while you are out in the world, every other save() (a drill finishing, the day's bookkeeping) waits for that moment too
+// while you are out walking about (pointer held, no panel up), every other save() — a drill finishing, the day's
+// bookkeeping — waits for that moment too; anywhere else it is the ordinary save
 const save0 = typeof save === "function" ? save : null;
 if (save0) window.save = function(){
-  if (LIFE.running && !document.body.classList.contains("in-match")){ saveDue = true; return true; }
+  if (LIFE.running && !modal && !busy && document.pointerLockElement && !document.body.classList.contains("in-match")){ saveDue = true; return true; }
   return save0.apply(this, arguments);
 };
 addEventListener("pagehide", () => { if (saveDue) saveNowIf(); });
@@ -298,9 +299,9 @@ function warm(){
 /* ---------- you ----------
    How you move. W A S D walk (4 m/s); hold Shift to run (6 m/s); keep Shift held while going forward and,
    once you are up to running pace, it builds into a sprint over about a second (7.6 m/s). Backwards and
-   sideways never sprint. Speed changes are acceleration-limited in world space, so turning the view while
-   moving changes your direction smoothly and never jerks your speed. The view itself is never smoothed:
-   the mouse turns the camera on the very next frame. Only the camera's position is filtered — the head bob
+   sideways never sprint. Speeding up and slowing down are acceleration-limited; the direction you move in
+   follows the view almost at once (see step). The view itself is never smoothed: the mouse turns the camera
+   in the frame it moved in. Only the camera's position is filtered — the head bob
    (a small, speed-scaled rise and fall once a step, a tiny sway once a stride, no roll) and the eye height,
    which follows the ground through a critically damped spring so kerbs and stair landings never snap.
    P.speed / P.moveMode / P.stride are the locomotion state a body or footsteps can read. */
@@ -403,21 +404,27 @@ function step(dt, real){
   const sb = P.sprint*P.sprint*(3 - 2*P.sprint);
   let sp = (run ? GAIT.run + (GAIT.sprint - GAIT.run)*sb : GAIT.walk)*legs();
   if (f < 0) sp *= GAIT.back;
-  // world-space velocity towards where you want to go. While you hold a direction, the way you are moving swings round
-  // onto it at once (a full quarter turn in about 1/15 s) without losing speed, so you go where you look the moment you
-  // turn; only the speed itself, and a reversal (more than 140°: it brakes through a stop), are acceleration-limited. With no key
-  // held you coast to a stop along the way you were going, whichever way you then look.
+  // world-space velocity towards where you want to go. While you hold a direction, the way you are moving swings
+  // round onto it at once (a quarter turn in about 1/15 s) without losing speed, so you go where you look the moment
+  // you turn; only the speed itself, and a reversal (over 140°: it brakes through a stop), are acceleration-limited.
+  // With no key held you coast to a stop along the way you were going, whichever way you then look.
   const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
   const tx = (r*cos - f*sin)*sp, tz = (-r*sin - f*cos)*sp, v0 = Math.hypot(P.vx, P.vz);
+  let turned = false;
   if (len && v0 > .05){
     const hv = Math.atan2(P.vz, P.vx);
     let d = Math.atan2(tz, tx) - hv; d -= Math.round(d/(2*Math.PI))*2*Math.PI;
-    if (Math.abs(d) < 2.45){ const a = hv + Math.max(-GAIT.turn*dt, Math.min(GAIT.turn*dt, d)); P.vx = Math.cos(a)*v0; P.vz = Math.sin(a)*v0; }
+    if (Math.abs(d) < 2.45){
+      const a = hv + Math.max(-GAIT.turn*dt, Math.min(GAIT.turn*dt, d)), s1 = v0 + Math.max(-GAIT.brake*dt, Math.min(GAIT.accel*dt, sp - v0));
+      P.vx = Math.cos(a)*s1; P.vz = Math.sin(a)*s1; turned = true;
+    }
   }
-  let dvx = tx - P.vx, dvz = tz - P.vz;
-  const dl = Math.hypot(dvx, dvz), lim = (len ? GAIT.accel : GAIT.brake)*dt;
-  if (dl > lim){ dvx *= lim/dl; dvz *= lim/dl; }
-  P.vx += dvx; P.vz += dvz;
+  if (!turned){
+    let dvx = tx - P.vx, dvz = tz - P.vz;
+    const dl = Math.hypot(dvx, dvz), lim = (len ? GAIT.accel : GAIT.brake)*dt;
+    if (dl > lim){ dvx *= lim/dl; dvz *= lim/dl; }
+    P.vx += dvx; P.vz += dvz;
+  }
   if (!len && Math.hypot(P.vx, P.vz) < .02) P.vx = P.vz = 0;
   const ox = P.x, oz = P.z;
   if (P.vx || P.vz) moveBy(P.vx*dt, P.vz*dt);

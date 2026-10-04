@@ -88,17 +88,10 @@ const MAKERS = {
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++){ const v = 214 + Math.random()*20; g.fillStyle = `rgb(${v},${v + 3},${v + 6})`; g.fillRect(x*32 + 1.5, y*32 + 1.5, 29, 29); }
     noise(g, 256, 256, 500, .1); return finish(c, 1.2); },
   terrazzo(){ const [c, g] = canvas(256, 256);
-    // fine chips in a warm grey ground, a joint every slab
+    // fine chips in a warm grey ground, poured without joints, so the same stone serves floors, landings and treads
     g.fillStyle = "#b3ada3"; g.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 2600; i++){ const v = 120 + Math.random()*110, sz = 1 + Math.random()*2.2; g.fillStyle = `rgba(${v},${v - 5},${v - 12},.55)`; g.fillRect(Math.random()*256, Math.random()*256, sz, sz); }
-    noise(g, 256, 256, 1500, .06);
-    g.strokeStyle = "rgba(60,55,48,.28)"; g.lineWidth = 1.5; g.strokeRect(0, 0, 256, 256);
-    return finish(c, 1.6); },
-  stone(){ const [c, g] = canvas(256, 256);
-    // the polished mosaic of stair treads: the same chips, finer, and no joints
-    g.fillStyle = "#c2bcb1"; g.fillRect(0, 0, 256, 256);
-    for (let i = 0; i < 3200; i++){ const v = 135 + Math.random()*100, sz = .8 + Math.random()*1.6; g.fillStyle = `rgba(${v},${v - 4},${v - 10},.5)`; g.fillRect(Math.random()*256, Math.random()*256, sz, sz); }
-    noise(g, 256, 256, 1200, .05); return finish(c, 1.2); },
+    noise(g, 256, 256, 1500, .06); return finish(c, 1.6); },
   asphalt(){ const [c, g] = canvas(256, 256);
     g.fillStyle = "#3a3e43"; g.fillRect(0, 0, 256, 256);
     noise(g, 256, 256, 5000, .3); noise(g, 256, 256, 2500, .08, false);
@@ -144,14 +137,8 @@ const MAKERS = {
     for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++){ const v = (x + y) % 2 ? 222 : 206; g.fillStyle = `rgb(${v},${v - 2},${v - 8})`; g.fillRect(x*64, y*64, 64, 64); }
     g.strokeStyle = "rgba(90,90,90,.25)"; for (let i = 0; i <= 4; i++){ g.beginPath(); g.moveTo(i*64, 0); g.lineTo(i*64, 256); g.moveTo(0, i*64); g.lineTo(256, i*64); g.stroke(); }
     noise(g, 256, 256, 900, .06); return finish(c, 2.4); },
-  plaster(){ const [c, g] = canvas(256, 256);
-    // exterior render: a fine sand finish with a few soft clouds, near white so the vertex colour shows through
-    g.fillStyle = "#f1eee8"; g.fillRect(0, 0, 256, 256);
-    blots(g, 256, 22, 24, 70, "110,100,85", .06); blots(g, 256, 14, 20, 60, "255,255,255", .08);
-    noise(g, 256, 256, 5200, .07); noise(g, 256, 256, 2000, .08, false);
-    return finish(c, 3.2); },
   paint(){ const [c, g] = canvas(256, 256);
-    // painted plaster indoors: the faint stipple and clouding a roller leaves, nothing more
+    // painted plaster, indoors and out: the faint stipple and clouding a roller leaves, nothing more
     g.fillStyle = "#f4f3ef"; g.fillRect(0, 0, 256, 256);
     blots(g, 256, 24, 20, 64, "120,110,95", .04); blots(g, 256, 16, 16, 50, "255,255,255", .06);
     noise(g, 256, 256, 2600, .04); noise(g, 256, 256, 1200, .05, false);
@@ -309,6 +296,13 @@ export function extrude(axis, pts, s0, s1, color, o = {}){
   g.applyMatrix4(_bm);
   addGeo(g, color, Object.assign({ao:false}, o));
 }
+/* a slab cut to a plan outline (pts: [x, z] corners), y0 → y1: one piece with no inner seams, where boxes laid side by
+   side would leave a joint across a ceiling */
+export function slab(pts, y0, y1, color, o = {}){
+  const g = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z))), {depth:y1 - y0, bevelEnabled:false, curveSegments:1});
+  g.rotateX(-Math.PI/2); g.translate(0, y0, 0);
+  addGeo(g, color, Object.assign({ao:false}, o));
+}
 /* a flight of stairs as it is really built: a sloped concrete flight (soffit underneath), treads with a nosing,
    risers, a non-slip strip — and under it all the ramp you actually walk on, laid just below the nosings.
    o: axis ("z"/"x", the way it climbs), a0 (foot of the first riser) → a1 (the last riser, at the top),
@@ -323,11 +317,11 @@ export function flight(o){
   if (o.solidBase) P.push([A(L), o.y0]); else P.push([A(L), o.y1 - th], [A(us), o.y0]);
   extrude(o.axis, P, o.s0, o.s1, o.body || 0xe9e4d8, {tex:o.bodyTex || "paint", jit:0});
   const B = (u0, u1, y0, y1, c, op) => o.axis === "z" ? box(o.s0, y0, A(u0), o.s1, y1, A(u1), c, op) : box(A(u0), y0, o.s0, A(u1), y1, o.s1, c, op);
-  const T = {tex:o.treadTex || "stone", ao:false, jit:.02};
+  const T = {tex:o.treadTex || "terrazzo", ao:false, jit:.02};
   for (let k = 0; k < n; k++){
     const top = o.y0 + (k + 1)*r;
     // the riser under this tread, a thin facing plate, and the tread itself with its nosing proud of it
-    B(k*g - .012, k*g, top - r, top - tt, o.riser || 0xe4dfd6, {tex:o.treadTex || "stone", ao:false, jit:.02});
+    B(k*g - .012, k*g, top - r, top - tt, o.riser || 0xe4dfd6, {tex:o.treadTex || "terrazzo", ao:false, jit:.02});
     if (k < n - 1){
       B(k*g - no, (k + 1)*g, top - tt, top, o.tread || 0xffffff, T);
       B(k*g - no + .025, k*g - no + .065, top, top + .003, o.strip || 0x4a4f55, {ao:false, jit:0});
@@ -362,8 +356,9 @@ export function doorway(axis, fixed, a0, a1, base, h, t, o = {}){
   const c = o.color == null ? 0xf0eee8 : o.color, ar = o.arch == null ? .07 : o.arch, d = o.proud || .035, T = {ao:false, jit:0, key:o.key};
   const B = (s0, s1, y0, y1, f0, f1, col) => axis === "x" ? box(s0, y0, fixed + f0, s1, y1, fixed + f1, col, T) : box(fixed + f0, y0, s0, fixed + f1, y1, s1, col, T);
   const lt = o.lining == null ? .03 : o.lining;
-  // the lining runs on through any paint or paper skin, up to just inside the architraves, so no cut edge shows
-  const e = t/2 + (ar ? d - .004 : .025);
+  // the lining runs on through any paint or paper skin to a clear step (9 mm) inside the architraves: a hairline step
+  // breaks up into dashes at a distance, a real one reads as a crisp return
+  const e = t/2 + (ar ? d - .009 : .025);
   if (lt){ B(a0, a0 + lt, base, base + h, -e, e, c); B(a1 - lt, a1, base, base + h, -e, e, c); B(a0 + lt, a1 - lt, base + h - lt, base + h, -e, e, c); }
   for (const s of o.faces || [-1, 1]){
     if (!ar) break;
@@ -409,21 +404,64 @@ export function spot(o){
 /* a wall with holes in it (doors, windows): along x or z, from a to b, between heights y0 and y1. Each piece is
    one flat colour: a contact shadow per piece would show every window as a patch */
 export function wall(axis, fixed, a, b, y0, y1, t, color, holes = [], o = {}){
-  const seg = (s0, s1, h0, h1) => {
-    if (s1 - s0 < .005 || h1 - h0 < .005) return;
-    if (axis === "x") box(s0, h0, fixed - t/2, s1, h1, fixed + t/2, color, Object.assign({solid:true, ao:false}, o));
-    else box(fixed - t/2, h0, s0, fixed + t/2, h1, s1, color, Object.assign({solid:true, ao:false}, o));
-  };
+  // the whole wall takes one tone, and every piece reaches 2 mm past each inner cut into its neighbour: where pieces
+  // meet there is no hairline crack for whatever is behind to show through, and since the texture is laid by world
+  // position and the colour is the same, the overlap draws exactly like one surface
+  const j = 1 + (rnd() - .5)*(o.jit == null ? .07 : o.jit), O = Object.assign({ao:false}, o, {jit:0, shade:(o.shade || 1)*j}), e = .002;
+  const ai = axis === "x" ? 0 : 2;
   // cut the wall into columns at every hole edge; each column is solid except where some hole passes through it,
   // so holes may share a column (windows stacked up a stairwell) or reach past this storey
   const xs = [...new Set([a, b, ...holes.flatMap(h => [h[0], h[1]])].map(x => Math.max(a, Math.min(b, x))))].sort((p, q) => p - q);
+  const cols = [];
   for (let i = 0; i < xs.length - 1; i++){
-    const s0 = xs[i], s1 = xs[i + 1], m = (s0 + s1)/2;
+    const s0 = xs[i], s1 = xs[i + 1], m = (s0 + s1)/2, run = [];
+    if (s1 - s0 < .005) continue;
     const cut = holes.filter(h => h[0] < m && h[1] > m).map(h => [Math.max(y0, h[2]), Math.min(y1, h[3])]).filter(h => h[1] > h[0]).sort((p, q) => p[0] - q[0]);
     let y = y0;
-    for (const [c0, c1] of cut){ seg(s0, s1, y, c0); y = Math.max(y, c1); }
-    seg(s0, s1, y, y1);
+    for (const [c0, c1] of cut){ if (c0 - y >= .005) run.push([y, c0]); y = Math.max(y, c1); }
+    if (y1 - y >= .005) run.push([y, y1]);
+    cols.push({s0, s1, run});
   }
+  // the end of a piece is closed only where the next column has a hole beside it (the jamb you see in the opening):
+  // anywhere else an end face is seen edge-on right behind a thin skin of paint or paper, wins the depth test along
+  // its line and shows through as a dashed seam. A skin (3 cm or less) is never closed at all: its cut edges are
+  // always under a lining, an architrave or a window board, where the same thing happens, so a skin is left open
+  // along its cuts at the heads and sills of its holes too
+  const open = (c, h0, h1) => { let L = [[h0, h1]];
+    if (c) for (const [r0, r1] of c.run) L = L.flatMap(([u0, u1]) => r1 <= u0 || r0 >= u1 ? [[u0, u1]] : [[u0, r0], [r1, u1]].filter(([v0, v1]) => v1 - v0 > 1e-4));
+    return L; };
+  cols.forEach((c, i) => {
+    const nLo = cols[i - 1] && cols[i - 1].s1 === c.s0 ? cols[i - 1] : null, nHi = cols[i + 1] && cols[i + 1].s0 === c.s1 ? cols[i + 1] : null;
+    for (const [h0, h1] of c.run){
+      const p0 = c.s0 > a ? c.s0 - e : c.s0, p1 = c.s1 < b ? c.s1 + e : c.s1, q0 = h0 > y0 ? h0 - e : h0, q1 = h1 < y1 ? h1 + e : h1;
+      const g = new THREE.BoxGeometry(p1 - p0, q1 - q0, t);
+      if (axis === "z") g.rotateY(-Math.PI/2);
+      g.translate(axis === "x" ? (p0 + p1)/2 : fixed, (q0 + q1)/2, axis === "x" ? fixed : (p0 + p1)/2);
+      const drop = [nLo && [ai, -1], nHi && [ai, 1], t <= .03 && h0 > y0 && [1, -1], t <= .03 && h1 < y1 && [1, 1]].filter(Boolean);
+      addGeo(drop.length ? openEnds(g, drop) : g, color, O);
+      for (const [nb, at, sg] of [[nLo, p0, -1], [nHi, p1, 1]]) if (nb && t > .03) for (const [u0, u1] of open(nb, h0, h1)){
+        const f = new THREE.PlaneGeometry(t, u1 - u0).rotateY(sg*Math.PI/2);
+        if (axis === "z") f.rotateY(-Math.PI/2);
+        f.translate(axis === "x" ? at : fixed, (u0 + u1)/2, axis === "x" ? fixed : at);
+        addGeo(f, color, O);
+      }
+      if (o.solid !== false) axis === "x" ? solid(c.s0, c.s1, fixed - t/2, fixed + t/2, h0, h1) : solid(fixed - t/2, fixed + t/2, c.s0, c.s1, h0, h1);
+    }
+  });
+}
+// a box without the faces that look along the given directions: [[axis index (0 x, 1 y, 2 z), sign], ...]
+function openEnds(geo, drop){
+  const g = geo.toNonIndexed(); geo.dispose();
+  const P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array, p = [], n = [], u = [];
+  for (let k = 0; k < P.length/9; k++){
+    if (drop.some(([ax, sg]) => N[k*9 + ax]*sg > .5)) continue;
+    for (let q = 0; q < 9; q++){ p.push(P[k*9 + q]); n.push(N[k*9 + q]); }
+    for (let q = 0; q < 6; q++) u.push(U[k*6 + q]);
+  }
+  g.dispose();
+  const r = new THREE.BufferGeometry();
+  r.setAttribute("position", new THREE.Float32BufferAttribute(p, 3)); r.setAttribute("normal", new THREE.Float32BufferAttribute(n, 3)); r.setAttribute("uv", new THREE.Float32BufferAttribute(u, 2));
+  return r;
 }
 
 /* ---------- writing on things ---------- */
@@ -451,6 +489,21 @@ export function part(geo, color, o = {}){
   m.castShadow = !!o.cast; m.receiveShadow = true;
   return m;
 }
+/* several small geometries, already placed, as one: a door's leaf and its mouldings, or its handles, cost one draw
+   call between them instead of one each */
+export function mergeGeos(list){
+  const A = {position:[], normal:[], uv:[]};
+  for (const g0 of list){
+    const g = g0.index ? g0.toNonIndexed() : g0;
+    for (const k in A) if (g.attributes[k]) for (const v of g.attributes[k].array) A[k].push(v);
+    if (g !== g0) g.dispose(); g0.dispose();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(A.position, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(A.normal, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(A.uv, 2));
+  g.computeBoundingSphere(); g.computeBoundingBox();
+  return g;
+}
+export const boxGeo = (w, h, d, x = 0, y = 0, z = 0) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
 export function boxPart(w, h, d, color, x = 0, y = 0, z = 0, o = {}){
   const m = part(new THREE.BoxGeometry(w, h, d), color, o); m.position.set(x, y, z); return m;
 }
@@ -462,7 +515,7 @@ export function begin(scene){
   W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = [];
   batches.clear();
 }
-const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber", "t:stone"]);
+const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber"]);
 export function finishBatches(){
   for (const [key, b] of batches){
     if (!b.pos.length) continue;
