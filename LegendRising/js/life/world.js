@@ -33,7 +33,21 @@ function pass(mins, act = "idle"){
   if (s.life.day !== day0) forceSky = true;
   if (mins >= 5) hudCtxT = 0;                       // a jump in time: refresh the line under the clock straight away
 }
-const persist = () => { const s = G(); if (s && typeof save === "function") save(); };
+/* Saving serialises the whole career (over a megabyte) and writes it in one go: 40–120 ms in which nothing can be
+   drawn. So the world never saves while you are on the move. persist(true) is for when the screen is covered (a fade,
+   the bus, sleep) — it saves there and then; persist() only marks the save as due, and the loop writes it at the next
+   quiet moment: you standing still with the mouse at rest, a panel or the hub up, or the pointer released. */
+let saveDue = false, saveDueT = 0, mouseT = 0;
+function saveNowIf(){ saveDue = false; saveDueT = 0; const s = G(); if (!s) return; if (typeof saveNow === "function") saveNow(); else if (typeof save === "function") save(); }
+const persist = (now) => { if (!G()) return; if (now) saveNowIf(); else saveDue = true; };
+// while you are out in the world, every other save() (a drill finishing, the day's bookkeeping) waits for that moment too
+const save0 = typeof save === "function" ? save : null;
+if (save0) window.save = function(){
+  if (LIFE.running && !document.body.classList.contains("in-match")){ saveDue = true; return true; }
+  return save0.apply(this, arguments);
+};
+addEventListener("pagehide", () => { if (saveDue) saveNowIf(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && saveDue) saveNowIf(); });
 window.lifePass = (m, act) => pass(m, act);
 // news from the day as it happens
 function onDaily(type, d){
@@ -67,15 +81,14 @@ function fade(fn, ms = 620){
 function sleep(){
   const s = G(); if (!s || busy) return;
   if (isNight()){ openDaySummary(doSleep); return; }
-  fade(() => { const r = nap(bedTier()); sync(); forceSky = true; note(`A two-hour nap · fatigue ${r.fatigue} · it's ${clockText()}`); persist(); }, 1600);
+  fade(() => { const r = nap(bedTier()); sync(); forceSky = true; note(`A two-hour nap · fatigue ${r.fatigue} · it's ${clockText()}`); persist(true); }, 1600);
 }
 function doSleep(){
   const s = G();
   fade(() => {
     const r = sleepNight(bedTier());
     startNewDay(); sync(); forceSky = true;
-    if (HOME.curtains) {}
-    persist();
+    persist(true);
     morning(r);
   }, 2000);
 }
@@ -115,7 +128,7 @@ function bus(to){
         setTimeout(() => FEED.center(`Team Chemistry +${a.chem.toFixed(1)}`, `From today with the squad · now ${Math.round(S.chem)} · ${chemLabel()}`, {kind:"chem", icon:"◆"}), 900);
       }
     }
-    persist();
+    persist(true);
   }, 1100);
 }
 // a stretch of time passing on screen: the clock runs fast and you watch it
@@ -230,7 +243,7 @@ window.lifeModalSet = on => {
 };
 const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:() => LIFE.min,
   wait:where => openWait(where), reps, drill, session, computer:where => openComputer(where), shop:() => openShop("market"), vend:() => openShop("vend"),
-  water, work, bath, iceBath};
+  water, work, bath, iceBath, warm:() => warm()};
 
 /* ---------- zones ---------- */
 function clearScene(){
@@ -257,13 +270,29 @@ function enterZone(zone, at){
   warm();
 }
 // Shaders are compiled and textures uploaded the first time something is drawn — which, with frustum culling,
-// is the first time you turn to face it: a hitch exactly while you move the mouse. Do it all up front instead.
+// is the first time you turn to face it: a hitch exactly while you move the mouse. Do it all up front instead —
+// including what is built but hidden for now (the squad before training, a drill's props), which would otherwise
+// compile the moment it appears. compile() does not cover the shadow pass's own depth shaders or a skinned figure's
+// bone texture, so one real frame is drawn here too, behind the fade, with everything showing. Exposed to the zones
+// as ctx.warm() for anything they add later.
 function warm(){
+  const hid = [];
   try {
+    scene.traverse(o => {
+      if (!o.visible){ hid.push(o); o.visible = true; }
+      if (o.isSkinnedMesh && o.skeleton && !o.skeleton.boneTexture) o.skeleton.computeBoneTexture();
+    });
     renderer.compile(scene, cam);
-    const seen = new Set();
-    scene.traverse(o => { if (!o.material) return; for (const m of [].concat(o.material)) for (const k of ["map", "normalMap", "roughnessMap", "emissiveMap", "alphaMap"]){ const t = m[k]; if (t && !seen.has(t)){ seen.add(t); renderer.initTexture(t); } } });
+    const seen = new Set(), init = t => { if (t && t.isTexture && !seen.has(t)){ seen.add(t); renderer.initTexture(t); } };
+    scene.traverse(o => {
+      if (o.isSkinnedMesh && o.skeleton) init(o.skeleton.boneTexture);
+      if (o.material) for (const m of [].concat(o.material)) for (const k of ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "bumpMap", "emissiveMap", "alphaMap"]) init(m[k]);
+    });
+    cam.position.set(P.x, P.eye, P.z); cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
+    renderer.shadowMap.needsUpdate = true; renderer.render(scene, cam);
   } catch(e){}
+  for (const o of hid) o.visible = false;
+  renderer.shadowMap.needsUpdate = true;                 // and the real shadows, without what is hidden, next frame
 }
 
 /* ---------- you ----------
@@ -278,15 +307,15 @@ function warm(){
 const P = {x:0, z:0, feet:0, eye:1.62, yaw:0, pitch:0, vx:0, vz:0, vy:0, drillY:0, bobY:0,
   speed:0, moveMode:"idle", stride:0, sprint:0};
 const EYE = 1.62, R = .26, REACH = 2.5;
-const GAIT = {walk:4.0, run:6.0, sprint:7.6, back:.8, accel:26, brake:24, sprintIn:1.1, sprintOut:2.5};
+const GAIT = {walk:4.0, run:6.0, sprint:7.6, back:.8, accel:26, brake:24, turn:24, sprintIn:1.1, sprintOut:2.5};
 const keys = {};
 let held = null, grab = null, lockLost = false;
 const B = {amt:0, y:0, yv:0, x:0, xv:0, fov:74, fovSet:74};     // head bob springs and the field of view
-const E = {a:0, av:0, b:0, bv:0};                               // the eye's offsets from your feet: slopes (a), steps (b)
+const E = {g:0, a:0, av:0, b:0, bv:0};                          // the ground the eye rides on (g), and its offsets from it: slopes (a), steps (b)
 function place(p){
   P.x = p.x; P.z = p.z; P.feet = p.y || 0; P.eye = P.feet + EYE; P.yaw = p.yaw || 0; P.pitch = 0;
   P.vx = P.vz = P.vy = 0; P.speed = 0; P.sprint = 0; P.moveMode = "idle";
-  B.amt = B.y = B.yv = B.x = B.xv = 0; E.a = E.av = E.b = E.bv = 0; tunnelGo = false; tunnelInfo = null;
+  B.amt = B.y = B.yv = B.x = B.xv = 0; E.g = P.feet; E.a = E.av = E.b = E.bv = 0; tunnelGo = false; tunnelInfo = null;
 }
 function hits(x, z){
   const lo = P.feet + .42, hi = P.feet + 1.75;
@@ -317,10 +346,13 @@ function moveBy(dx, dz){
     }
   }
 }
-// the highest thing under you that you could step onto; gx/gz is its slope (a stair ramp), for the eye spring
-let gx = 0, gz = 0;
+/* the highest thing under you that you could step onto. Also the ground your eye rides on (eg, with its slope
+   egx/egz): the same, except that a flight's slope is carried on past its foot down to the floor in front of it.
+   A stair ramp starts a whole riser up (it runs along the nosings), so the feet hop onto it — but the eye should
+   already be on its way up as you reach the first step, as yours is, not get kicked up by the riser and lag. */
+let eg = 0, egx = 0, egz = 0;
 function groundAt(x, z, feet){
-  let best = 0; gx = gz = 0;
+  let best = 0, gx = 0, gz = 0;
   for (const f of W.floors) if (x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1 && f.h <= feet + .5 && f.h > best){ best = f.h; gx = gz = 0; }
   for (const r of W.ramps){
     if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
@@ -330,6 +362,17 @@ function groundAt(x, z, feet){
       best = h;
       const k = u > 0 && u < 1 ? (r.h1 - r.h0)/(r.a1 - r.a0) : 0;
       gx = r.axis === "z" ? 0 : k; gz = r.axis === "z" ? k : 0;
+    }
+  }
+  eg = best; egx = gx; egz = gz;
+  for (const r of W.ramps){
+    const ax = r.axis === "z", s = ax ? x : z;
+    if (s < (ax ? r.x0 : r.z0) || s > (ax ? r.x1 : r.z1)) continue;
+    const c = ax ? z : x, u = (c - r.a0)/(r.a1 - r.a0);
+    if (r.h0 <= r.h1 ? u >= 0 : u <= 1) continue;                     // only beyond the low end
+    const h = r.h0 + (r.h1 - r.h0)*u;
+    if (h > eg && h >= Math.min(r.h0, r.h1) - .3 && h <= feet + .5){
+      eg = h; const k = (r.h1 - r.h0)/(r.a1 - r.a0); egx = ax ? 0 : k; egz = ax ? k : 0;
     }
   }
   return best;
@@ -345,6 +388,7 @@ let moving = false;
 function step(dt, real){
   let f = 0, r = 0;
   const canMove = !locked() && (!DRILL || DRILL.allowMove);
+  if (!locked()) mouseFrame(); else MA.x.hold = MA.y.hold = 0;
   if (canMove){
     f = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
     r = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
@@ -359,9 +403,17 @@ function step(dt, real){
   const sb = P.sprint*P.sprint*(3 - 2*P.sprint);
   let sp = (run ? GAIT.run + (GAIT.sprint - GAIT.run)*sb : GAIT.walk)*legs();
   if (f < 0) sp *= GAIT.back;
-  // world-space velocity, acceleration-limited towards where you want to go
+  // world-space velocity towards where you want to go. While you hold a direction, the way you are moving swings round
+  // onto it at once (a full quarter turn in about 1/15 s) without losing speed, so you go where you look the moment you
+  // turn; only the speed itself, and a reversal (more than 140°: it brakes through a stop), are acceleration-limited. With no key
+  // held you coast to a stop along the way you were going, whichever way you then look.
   const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
-  const tx = (r*cos - f*sin)*sp, tz = (-r*sin - f*cos)*sp;
+  const tx = (r*cos - f*sin)*sp, tz = (-r*sin - f*cos)*sp, v0 = Math.hypot(P.vx, P.vz);
+  if (len && v0 > .05){
+    const hv = Math.atan2(P.vz, P.vx);
+    let d = Math.atan2(tz, tx) - hv; d -= Math.round(d/(2*Math.PI))*2*Math.PI;
+    if (Math.abs(d) < 2.45){ const a = hv + Math.max(-GAIT.turn*dt, Math.min(GAIT.turn*dt, d)); P.vx = Math.cos(a)*v0; P.vz = Math.sin(a)*v0; }
+  }
   let dvx = tx - P.vx, dvz = tz - P.vz;
   const dl = Math.hypot(dvx, dvz), lim = (len ? GAIT.accel : GAIT.brake)*dt;
   if (dl > lim){ dvx *= lim/dl; dvz *= lim/dl; }
@@ -381,17 +433,17 @@ function step(dt, real){
   // damped springs — a stiff one that rounds off where a slope starts and ends, a softer one that soaks up the
   // sudden part (a kerb, a step down, a landing). Neither has any momentum of its own, so the eye can never
   // overshoot: it rises when you go up and only then, and it comes to rest exactly at eye height.
-  const f0 = P.feet, g = groundAt(P.x, P.z, P.feet);
-  let tv = gx*ax + gz*az;                                   // how fast a stair ramp is lifting you
+  const g = groundAt(P.x, P.z, P.feet);
+  let tv = egx*ax + egz*az;                                 // how fast the slope under the eye is lifting you
   if (g >= P.feet - .001){ P.feet = g; P.vy = 0; }
   else if (P.feet - g < .45 && P.vy === 0){ P.feet = g; }
   else { P.vy -= 22*dt; P.feet = Math.max(g, P.feet + P.vy*dt); tv = P.vy; if (P.feet === g) P.vy = 0; }
-  const df = P.feet - f0;
+  const base = Math.max(P.feet, eg), df = base - E.g; E.g = base;
   let c = tv*dt; c = df*c > 0 ? Math.sign(df)*Math.min(Math.abs(c), Math.abs(df)) : 0;
   E.a -= c; E.b -= df - c;
   if (Math.abs(E.a) + Math.abs(E.b) > .9) E.a = E.av = E.b = E.bv = 0;     // a teleport, not a step
   spring(E, "a", "av", 40, dt); spring(E, "b", "bv", 16, dt);
-  P.eye = P.feet + EYE + E.a + E.b;
+  P.eye = base + EYE + E.a + E.b;
   // head bob: the target is a small sine once a step (and half that, sideways, once a stride); springs carry the camera to it
   const want = P.speed < .3 ? 0 : Math.min(.011, P.speed*.0028) + Math.max(0, P.speed - GAIT.walk)*.0034;
   B.amt += (want - B.amt)*(1 - Math.exp(-6*dt));
@@ -534,17 +586,19 @@ function hud(near){
 /* ---------- the host a drill drives the world through ---------- */
 const host = {
   P, place:p => place(p), note, pass:(m, act) => pass(m, act),
-  jump(h){ P.drillY = h; }, bob(y){ P.bobY = y; },
+  jump(h){ P.drillY = h; }, bob(y){ P.bobY = y; }, warm:() => warm(),
   endDrill(){ DRILL = null; P.drillY = 0; P.bobY = 0; }
 };
 function endDrillNow(){ if (DRILL && DRILL.input) DRILL.input("down", "escape"); DRILL = null; P.drillY = 0; P.bobY = 0; }
 
 /* ---------- loop and entry ---------- */
-let last = 0, frames = 0, saveT = 0, keysT = 0;
+let last = 0, frames = 0, saveT = 0, keysT = 0, shadowT = 0;
 // Adaptive resolution with hysteresis: it steps down only after two slow seconds in a row, steps back up only
 // after six smooth ones, and once a step up has had to be undone it stays down — the picture never pumps
-// between two sizes (every change reallocates the canvas, which is itself a hitch).
-const Q = {scale:1, acc:0, n:0, slow:0, good:0, t:0, upAt:-1e9, noUp:false};
+// between two sizes (every change reallocates the canvas, which is itself a hitch). A new size is only ever applied
+// at the top of a frame, before it is drawn: resizing the canvas clears it, and done after the render it would put
+// one blank frame on screen.
+const Q = {scale:1, acc:0, n:0, slow:0, good:0, t:0, upAt:-1e9, noUp:false, pending:false};
 function quality(real){
   Q.acc += real; Q.n++; Q.t += real;
   if (Q.acc < 1) return;
@@ -553,9 +607,9 @@ function quality(real){
   Q.good = fps > 57 ? Q.good + 1 : 0;
   if (Q.slow >= 2 && Q.scale > .6){
     if (Q.t - Q.upAt < 15) Q.noUp = true;
-    Q.scale = Math.max(.6, +(Q.scale - .1).toFixed(2)); Q.slow = Q.good = 0; resize();
+    Q.scale = Math.max(.6, +(Q.scale - .1).toFixed(2)); Q.slow = Q.good = 0; Q.pending = true;
   } else if (Q.good >= 6 && Q.scale < 1 && !Q.noUp){
-    Q.scale = Math.min(1, +(Q.scale + .1).toFixed(2)); Q.good = 0; Q.upAt = Q.t; resize();
+    Q.scale = Math.min(1, +(Q.scale + .1).toFixed(2)); Q.good = 0; Q.upAt = Q.t; Q.pending = true;
   }
 }
 function skyStep(real){
@@ -570,15 +624,24 @@ function loop(t){
   if (!LIFE.running) return;
   frames++;
   const real = Math.max(0, (t - last)/1000 || 0), dt = Math.min(.05, real); last = t;
+  if (Q.pending) resize();
   step(dt, Math.min(real, .5));
   // the clock runs on its own, faster while you are on the move; it stops while a panel or the hub is up
   if (busy) stepBusy(Math.min(real, .1));
   else if (!modal && !DRILL && !tutOn() && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
   skyStep(Math.min(real, .1));
   if (LIFE.zone === "home") homeTick();
+  // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
+  if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; renderer.shadowMap.needsUpdate = true; }
   renderer.render(scene, cam);
   if (real > 0 && real < .5) quality(real);
-  saveT += real; if (saveT > 45){ saveT = 0; persist(); }
+  // a save every 45 s or so, but only at a quiet moment (see persist); after two minutes of never stopping, anyway
+  if ((saveT += real) > 45){ saveDue = true; saveT = 0; }
+  if (saveDue){
+    saveDueT += real;
+    const still = !P.speed && !Object.keys(keys).some(k => keys[k]) && performance.now() - mouseT > 1200 && !grab;
+    if (!busy && ((still && !DRILL) || modal || !document.pointerLockElement) || saveDueT > 120) saveNowIf();
+  }
   keysT += real; if (keysT > 22) document.getElementById("lifeKeys").classList.add("faded");
   if (DAILY.seasonPending && !busy && !modal && !DRILL) seasonOver();
   raf = requestAnimationFrame(loop);
@@ -599,7 +662,7 @@ function boot(){
   scene = new THREE.Scene();
   cam = new THREE.PerspectiveCamera(74, 1, .05, 600);
   SKY = createSky(renderer);
-  resize(); addEventListener("resize", resize);
+  resize(); addEventListener("resize", () => { Q.pending = true; });
   bindInput(cv);
 }
 function mailNews(){
@@ -624,7 +687,7 @@ export function startLife(opts = {}){
     : f ? `${todayName()}, ${clockText()}. Match day — kick-off at ${clockText(fixtureSlot(f).min)}.` : `${todayName()}, ${clockText()}. ${trainingDay() ? `Training is at ${clockText(SESSION.start)} — the bus takes ${BUS_MIN} minutes.` : todayLine() + "."}`));
   mailNews();
 }
-export function stop(){ LIFE.running = false; if (raf) cancelAnimationFrame(raf); raf = null; grab = null; document.exitPointerLock && document.exitPointerLock(); }
+export function stop(){ if (saveDue) saveNowIf(); LIFE.running = false; if (raf) cancelAnimationFrame(raf); raf = null; grab = null; document.exitPointerLock && document.exitPointerLock(); }
 export function resumeLife(){
   if (!document.body.classList.contains("life") || !renderer) return;
   if (LIFE.zone === "home") homeRefresh(); else refreshGymFridge();
@@ -633,13 +696,14 @@ export function resumeLife(){
   if (!LIFE.running){ document.getElementById("lifeRoot").style.display = "block"; LIFE.running = true; last = performance.now(); raf = requestAnimationFrame(loop); }
 }
 function resize(){
+  Q.pending = false;
   const w = innerWidth, h = innerHeight;
   renderer.setPixelRatio(Math.min(1.5, devicePixelRatio || 1)*Q.scale*(typeof GFX !== "undefined" && GFX.low ? .85 : 1));
   renderer.setSize(w, h, false); cam.aspect = w/h; cam.updateProjectionMatrix();
 }
 // raw mouse counts where the browser allows it (no OS acceleration, and free of the stray jumps some browsers
 // put in accelerated pointer-lock movement); anything else falls back to an ordinary lock
-let rawMouse = false, lastMX = 0, lastMY = 0, freshLock = false;
+let rawMouse = false, freshLock = false;
 function lock(cv){
   if (!LIFE.running || locked() || document.pointerLockElement === cv) return;
   const plain = () => { rawMouse = false; try { const q = cv.requestPointerLock(); if (q && q.catch) q.catch(() => {}); } catch(e){} };
@@ -648,9 +712,41 @@ function lock(cv){
     if (p && p.then) p.then(() => { rawMouse = true; }, plain); else rawMouse = false;
   } catch(e){ plain(); }
 }
-// a stray jump: only in non-raw movement, and only when one event is many times bigger than the one before it.
-// A real fast turn builds up over a frame or two, so it is never thrown away, however fast it is
-const stray = (m, prev) => !rawMouse && Math.abs(m) > 250 && Math.abs(m) > 8*(Math.abs(prev) + 12);
+/* Stray jumps. Ordinary (non-raw) pointer lock in some browsers now and then reports one event with a jump in it
+   (the cursor being warped back to the centre). Chrome also adds up a whole frame's movement into one event, so the
+   first event of a real flick from rest looks just as sudden — size alone cannot tell them apart; what comes next
+   can. So in non-raw input an event far bigger than the movement just before it is held back for one frame: the
+   next event confirms it (same way, not tiny next to it: a hand slows down, it does not stop dead) and both turn
+   the view; an event the other way, or a tiny one, shows it was a jump, and it is dropped; no event on that axis
+   at all (a single quick flick, then stillness) and it is applied on the next frame. Raw input never jumps, and
+   nothing in it is ever held. */
+const MA = {x:{prev:0, hold:0, age:0}, y:{prev:0, hold:0, age:0}, t:0};
+function mouseAxis(a, m){
+  let out = 0;
+  if (a.hold && m){
+    if (Math.sign(m) === Math.sign(a.hold) && Math.abs(m) >= Math.abs(a.hold)/8){ out += a.hold; a.prev = a.hold; }
+    a.hold = 0;
+  }
+  if (!m) return out;
+  if (!rawMouse && Math.abs(m) > 250 && Math.abs(m) > 8*(Math.abs(a.prev) + 12)){ a.hold = m; a.age = 0; }
+  else out += m;
+  a.prev = m;
+  return out;
+}
+// once a frame, before the camera is set: a held event that nothing contradicted is let through
+function mouseFrame(){
+  if (performance.now() - MA.t > 60) MA.x.prev = MA.y.prev = 0;          // a flick from rest is judged from rest
+  let mx = 0, my = 0;
+  if (MA.x.hold && ++MA.x.age >= 2){ mx = MA.x.hold; MA.x.hold = 0; }
+  if (MA.y.hold && ++MA.y.age >= 2){ my = MA.y.hold; MA.y.hold = 0; }
+  if (mx || my) look(mx, my);
+}
+function look(mx, my){
+  if (grab){ dragBy(mx, my); return; }
+  if (DRILL && DRILL.lockLook) return;
+  P.yaw -= mx*.0021;
+  P.pitch = Math.max(-1.35, Math.min(1.35, P.pitch - my*.0021));
+}
 const _e = new THREE.Vector3(), _h = new THREE.Vector3();
 function dragBy(mx, my){
   // which way does the free edge of the door move on screen when it opens?
@@ -670,7 +766,7 @@ function bindInput(cv){
   document.addEventListener("pointerlockchange", () => {
     const on = document.pointerLockElement === cv;
     lockLost = !on && !!DRILL;
-    freshLock = on; lastMX = lastMY = 0;
+    freshLock = on; MA.x.prev = MA.y.prev = MA.x.hold = MA.y.hold = 0;
     const dh = document.getElementById("lifeDrill"); if (dh) dh.classList.toggle("paused", lockLost);
   });
   addEventListener("mousedown", e => {
@@ -684,13 +780,10 @@ function bindInput(cv){
     let mx = e.movementX || 0, my = e.movementY || 0;
     // the first event after the lock is taken can carry the jump of the cursor into the lock
     if (freshLock){ freshLock = false; if (Math.abs(mx) > 100 || Math.abs(my) > 100) return; }
-    const sx = stray(mx, lastMX), sy = stray(my, lastMY); lastMX = mx; lastMY = my;
-    if (sx) mx = 0; if (sy) my = 0;
-    if (grab){ dragBy(mx, my); return; }
-    if (DRILL && DRILL.lockLook) return;
+    mouseT = MA.t = performance.now();
+    mx = mouseAxis(MA.x, mx); my = mouseAxis(MA.y, my);
     // the view turns here, once per event, with no smoothing; step() puts it on the camera before this frame is drawn
-    P.yaw -= mx*.0021;
-    P.pitch = Math.max(-1.35, Math.min(1.35, P.pitch - my*.0021));
+    if (mx || my) look(mx, my);
   });
   addEventListener("keydown", e => {
     const t = e.target, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);

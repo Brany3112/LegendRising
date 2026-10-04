@@ -9,8 +9,10 @@
    between the lamps, bulbs and shop lights you are actually near.
 
    Frame pacing: nothing here may cost a frame. The sun's shadow map covers the whole zone from a fixed
-   centre, so walking never forces it to be redrawn — only the sun moving a visible amount does (every few
-   seconds of game time), and the sun's light direction moves in the same steps as its shadows. The
+   centre, so walking never forces it to be redrawn — only the sun moving does, in steps of a third of a degree
+   (every 2 s or so of play, as the clock runs: one depth pass of the zone, about 30 draw calls), and the sun's light
+   direction moves in the same steps as its shadows, so a shadow never creeps away from what casts it. Things that
+   move and throw a shadow can ask for a redraw with W.shadowDirty = true (the world does it at most 5× a second). The
    reflection map is a tiny cube of the sky dome filtered into one render target that is reused for good,
    so the materials that read it never see a new texture (which would send every one of them back through
    the shader cache). */
@@ -180,7 +182,7 @@ export function createSky(renderer){
         force = true;
       }
       // redrawn only when the sun (or the moon) has visibly moved; the light turns with its shadows, never ahead of them
-      if (force || shadowAt.d.angleTo(shadowDir) > .012){
+      if (force || shadowAt.d.angleTo(shadowDir) > .006){
         shadowAt.d.copy(shadowDir);
         sun.target.position.set(mid.x, 0, mid.z);
         sun.position.set(mid.x + shadowDir.x*100, shadowDir.y*100 + 4, mid.z + shadowDir.z*100);

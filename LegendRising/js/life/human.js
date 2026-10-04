@@ -1,0 +1,1386 @@
+/* ============ LIFE: humans ============
+   Everybody you meet — team-mates, the coach, the manager, the woman behind the till — and your own body.
+   Each person is ONE skinned mesh: a faceted, vertex-coloured low-poly body (lathed elliptical rings for the
+   torso and limbs, a shaped head with a face, hair with a real silhouette, clothes that are part of the body's
+   own surface rather than painted on) bound to a 20-bone rig, drawn with one shared material. Bodies are
+   cached by shape, so team-mates with the same build/kit cut/hair share the same buffers and only carry their
+   own colours. A far LOD (a few hundred triangles, no face) takes over at distance, and a single instanced
+   blob under everyone grounds them without redrawing the sun's shadow map.
+
+   ---- the API ----
+   lookFor(role, seed, extras) → look            a believable, seeded person for a role:
+       "footballer" "goalkeeper" "coach" "manager" "shopkeeper" "barista" "customer" "office" "courier" "gym" "pedestrian"
+       extras are merged over the result (outfit fields merge into outfit); also extras.kit = [shirt, shorts], extras.number.
+   look = {
+     sex:"m"|"f", age, skin (hex), height (≈.92–1.08, scales the whole body), build:"slim"|"average"|"athletic"|"stocky"|"muscular",
+     hair:"short"|"fade"|"buzz"|"curly"|"afro"|"long"|"ponytail"|"bun"|"braids"|"cornrows"|"dreads"|"messy"|"bald"|"horseshoe",
+     hairColor (hex), beard:""|"stubble"|"beard", eyes (iris hex), receding (0..1),
+     face:{jaw, nose, brow, eyes}  (each ≈ .9–1.12, eyes = spacing),
+     outfit:{type:"kit"|"training"|"gk"|"tracksuit"|"casual"|"polo"|"hoodie"|"jacket"|"suit"|"coat"|"apron"|"office",
+             shirt, trim, shorts, trousers, socks, sockTrim, shoes, sole, stripe, number, numCol, bib (colour or false),
+             glove, inner, tie (colour or false), apron (colour), apronCut:"bib"|"waist", belt,
+             sleeves:"short"|"long", collar:"crew"|"v"|"polo"|"shirt"|"zip"|"hood"|"lapel"|"open",
+             legwear:"kitshorts"|"shorts"|"trousers"|"jeans"|"trackpants", footwear:"boots"|"trainers"|"dress"},
+     props:["clipboard"], seed }
+   human(look, {cast, lod, track}) → h        h.g is a Group with the feet at its origin, facing +z. Add it anywhere.
+       h.dispose() frees it (done for you when the place is rebuilt). cast:true lets it throw a real sun shadow
+       (only for people who stand still — the sun's shadow map is not redrawn every frame).
+   animateHuman(h, dt, state)     state is a mode string or {mode, speed, t, ...}; changes of mode are blended.
+       "idle" (breathing, weight shift, looking about; {arms:"hips"|"behind"|"folded"})
+       "move" {speed: m/s} — walk → jog → run → sprint from one speed value; stride length and cadence follow
+              the speed so the planted foot stays put (also "walk" "jog" "run" "sprint" as presets)
+       "kick" "pass" "trap" {t:0..1, amp}  — the ball leaves/meets the foot at t = CONTACT[mode]
+       "header" {t}  "tackle" {t}  "dive" {t, dir:±1}  "gkready"  "celebrate"  "stretch" (cycles four stretches)
+       "sit" {seat:.45}  — SEAT CONTRACT: put the group on the floor under the middle of the seat, facing the way
+              the person looks; seat = seat-top height (chairs .45–.48, benches .42–.45). Feet land ~.45 m ahead.
+       "typing" {seat:.47, desk:.74, reach:.4} (sitting, hands on a desk in front)
+       "counter" {counter:1.0, reach:.34} (standing, hands resting on a counter in front)
+       "clipboard" (the coach: board in the left hand, writing now and then, watching)
+       Any state may carry look:yaw to turn the head.
+   playerRig(look, {firstPerson:true}) → h     your own body for first person: no head or hair, same art style,
+       same rig and animateHuman(); not tracked for LOD/blobs (one mesh, always near). h.bones[BONE.haR] etc. are
+       the bones (BONE maps names → index) if a held object or a camera needs to follow a hand or the chest.
+   CONTACT = {kick, pass, trap, header}: the t at which foot (or head) meets the ball.
+   Budget: ~3.2k triangles near / ~1k far, ONE draw call per person (+1 for the shirt number within 9.5 m),
+   one more for all the blobs together. Bodies switch to the far LOD beyond 15 m.
+*/
+import {THREE, W} from "./build.js";
+
+/* ---------- small maths ---------- */
+const TAU = Math.PI*2, D2R = Math.PI/180;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a)*t;
+const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
+const wrap = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
+// eased keyframes: [[t, v], ...]
+function kf(t, K){
+  if (t <= K[0][0]) return K[0][1];
+  for (let i = 1; i < K.length; i++) if (t <= K[i][0]) return lerp(K[i-1][1], K[i][1], sstep(K[i-1][0], K[i][0], t));
+  return K[K.length - 1][1];
+}
+export function rng(seed){
+  let s = (seed >>> 0) || 0x9e3779b9;
+  return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0)/4294967296; };
+}
+const wpick = (r, list) => { let tot = 0; for (const e of list) tot += e[1]; let x = r()*tot; for (const e of list){ if ((x -= e[1]) <= 0) return e[0]; } return list[list.length - 1][0]; };
+const hash3 = (a, b, c) => { let h = Math.imul((a | 0) ^ Math.imul(b | 0, 0x27d4eb2d) ^ Math.imul(c | 0, 0x165667b1), 0x9e3779b1) >>> 0; h ^= h >>> 15; h = Math.imul(h, 0x85ebca6b) >>> 0; h ^= h >>> 13; return (h >>> 0)/4294967296; };
+export const hashStr = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+const hex = c => c == null || c === false ? null : typeof c === "number" ? c : new THREE.Color().setStyle(String(c)).getHex();
+function mixHex(a, b, t){ const A = new THREE.Color(a), B = new THREE.Color(b); return A.lerp(B, t).getHex(); }
+function shadeHex(a, f){ const c = new THREE.Color(a); c.r *= f; c.g *= f; c.b *= f; return c.getHex(); }
+
+/* ---------- the rig ---------- */
+const BN = ["root", "hips", "spine", "chest", "neck", "head", "uaL", "faL", "haL", "uaR", "faR", "haR", "thL", "shL", "ftL", "toL", "thR", "shR", "ftR", "toR"];
+const PAR = [-1, 0, 1, 2, 3, 4, 3, 6, 7, 3, 9, 10, 1, 12, 13, 14, 1, 16, 17, 18];
+export const BONE = Object.fromEntries(BN.map((n, i) => [n, i]));
+const B = BONE;
+const ARM = s => s > 0 ? [6, 7, 8] : [9, 10, 11], LEG = s => s > 0 ? [12, 13, 14, 15] : [16, 17, 18, 19];
+const NP = 63;                                     // pose: 20 bones × 3 rotations + the hips' offset
+
+const BUILDS = {
+  slim:     {sh:.95, ch:.92, wa:.9,  hp:.94, arm:.87, leg:.9,  belly:0,  mus:0,  nk:.94},
+  average:  {sh:1,   ch:1,   wa:1,   hp:1,   arm:1,   leg:1,   belly:.3, mus:.2, nk:1},
+  athletic: {sh:1.05, ch:1.05, wa:.95, hp:.98, arm:1.06, leg:1.06, belly:0, mus:.6, nk:1.04},
+  stocky:   {sh:1.04, ch:1.1, wa:1.18, hp:1.08, arm:1.1, leg:1.1, belly:1,  mus:.2, nk:1.1},
+  muscular: {sh:1.09, ch:1.12, wa:1.0, hp:1.0, arm:1.16, leg:1.12, belly:0, mus:1,  nk:1.1}
+};
+// body measurements for a 1.80 m frame; height is a uniform scale on top
+function dims(look){
+  const b = BUILDS[look.build] || BUILDS.average, f = look.sex === "f", old = Math.round(sstep(45, 78, look.age || 25)*4)/4;
+  const hs = f ? .955 : 1;
+  return {f, old, hs, hipY:.93, kneeY:.5, ankY:.085, hipX:f ? .087 : .09, hipsY:.96, spineY:1.08, chestY:1.26, neckY:1.5, headY:1.62,
+    shY:f ? 1.425 : 1.435, shX:(f ? .166 : .18)*b.sh, elbowL:.285, foreL:.245,
+    sh:b.sh*(f ? .9 : 1), ch:b.ch*(f ? .9 : 1), wa:b.wa*(f ? .86 : 1) + old*.05, hp:b.hp*(f ? 1.09 : 1), arm:b.arm*(f ? .86 : 1), leg:b.leg*(f ? 1.02 : 1),
+    belly:b.belly*(f ? .3 : 1) + old*.5, mus:b.mus*(f ? .3 : 1), bust:f ? 1 : 0, nk:b.nk*(f ? .84 : 1),
+    hc:[0, 1.80 - .117*hs, .012]};
+}
+function restPos(D){
+  const P = [];
+  P[B.root] = [0, 0, 0]; P[B.hips] = [0, D.hipsY, 0]; P[B.spine] = [0, D.spineY, .004]; P[B.chest] = [0, D.chestY, 0];
+  P[B.neck] = [0, D.neckY, -.012]; P[B.head] = [0, D.headY, -.004];
+  for (const s of [1, -1]){
+    const [u, f, h] = ARM(s), x = s*D.shX;
+    P[u] = [x, D.shY, -.005]; P[f] = [x, D.shY - D.elbowL, -.005]; P[h] = [x, D.shY - D.elbowL - D.foreL, -.005];
+    const [t, k, a, o] = LEG(s), lx = s*D.hipX;
+    P[t] = [lx, D.hipY, 0]; P[k] = [lx, D.kneeY, 0]; P[a] = [lx, D.ankY, 0]; P[o] = [lx, .025, .11];
+  }
+  return P;
+}
+
+/* ---------- palette slots: every vertex knows which colour of the person it is ---------- */
+const SLOTS = ["skin", "lips", "hair", "brow", "white", "iris", "top", "trim", "bottom", "btrim", "socks", "strim", "shoe", "sole", "stripe", "bib",
+  "glove", "gtrim", "inner", "tie", "prop", "paper", "num", "stubble", "fade", "lash", "lace", "apron", "metal", "belt", "dark"];
+const S = Object.fromEntries(SLOTS.map((n, i) => [n, i]));
+const ROUGH = {skin:.62, lips:.5, hair:.74, brow:.8, white:.3, iris:.22, shoe:.48, sole:.7, stripe:.45, glove:.62, gtrim:.6, prop:.55, paper:.9,
+  metal:.32, lash:.6, stubble:.8, fade:.8, tie:.55, belt:.5, num:.8};
+
+/* ---------- geometry: every triangle has its own corners (faceted), a slot, a shade, and up to two bone weights ---------- */
+const wt = (b0, w0 = 1, b1 = b0, w1 = 0) => { const s = w0 + w1 || 1; return [b0, w0/s, b1, w1/s]; };
+function wmix(a, b, t){
+  const m = new Map(), add = (bn, w) => { if (w > 1e-5) m.set(bn, (m.get(bn) || 0) + w); };
+  add(a[0], a[1]*(1 - t)); add(a[2], a[3]*(1 - t)); add(b[0], b[1]*t); add(b[2], b[3]*t);
+  const e = [...m].sort((p, q) => q[1] - p[1]);
+  return e.length > 1 ? wt(e[0][0], e[0][1], e[1][0], e[1][1]) : wt(e[0][0]);
+}
+class Geo {
+  constructor(){ this.p = []; this.sl = []; this.sh = []; this.bi = []; this.bw = []; this.hit = null; }
+  tri(a, b, c, slot, sa = 1, sb = sa, sc = sa, out = null){
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+    if (nx*nx + ny*ny + nz*nz < 1e-15) return;
+    if (out && nx*out[0] + ny*out[1] + nz*out[2] < 0){ const t = b; b = c; c = t; const q = sb; sb = sc; sc = q; }
+    for (const [v, s] of [[a, sa], [b, sb], [c, sc]]){
+      this.p.push(v[0], v[1], v[2]); this.sl.push(slot); this.sh.push(s);
+      const w = v[3] || ROOTW; this.bi.push(w[0], w[2], 0, 0); this.bw.push(w[1], w[3], 0, 0);
+    }
+    if (this.hit) this.hit.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  }
+  quad(a, b, c, d, slot, sh = 1, out = null){ this.tri(a, b, c, slot, sh, sh, sh, out); this.tri(a, c, d, slot, sh, sh, sh, out); }
+}
+const ROOTW = wt(0);
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const cross = (a, b) => [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
+const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+const addv = (a, b, k = 1) => [a[0] + b[0]*k, a[1] + b[1]*k, a[2] + b[2]*k];
+
+// a ring of points round c in the plane of U and V; prof(a) gives the offsets along U and V (angle 0 points along V)
+function ring(c, U, V, prof, n, w, extra){
+  const v = [];
+  for (let k = 0; k < n; k++){
+    const a = k/n*TAU, [u, q] = prof(a), ww = typeof w === "function" ? w(a, u, q) : w;
+    v.push([c[0] + U[0]*u + V[0]*q, c[1] + U[1]*u + V[1]*q, c[2] + U[2]*u + V[2]*q, ww]);
+  }
+  return Object.assign({v, c}, extra);
+}
+const ell = (rx, rf, rb = rf) => a => { const s = Math.sin(a), c = Math.cos(a); return [s*rx, c*(c > 0 ? rf : rb)]; };
+/* stitch rings into a tube. The faces all wind the same way round the sheet (decided once from a long band),
+   so hems and ledges where the surface folds back on itself still face the right way. ring.s is the slot of
+   the band that ends at that ring. */
+function loft(G, R, o = {}){
+  const n = R[0].v.length, closed = !o.open;
+  let flip = false, found = false;
+  if (o.out) { const a = R[0].v[0], b = R[0].v[1], c = R[1].v[1]; flip = dot(cross(sub(b, a), sub(c, a)), o.out) < 0; found = true; }
+  for (let i = 0; i < R.length - 1 && !found; i++) for (let k = 0; k < n - 1 && !found; k++){
+    const a = R[i].v[k], b = R[i].v[k + 1], c = R[i + 1].v[k + 1], nn = cross(sub(b, a), sub(c, a));
+    if (Math.hypot(...nn) < 1e-7 || Math.abs(R[i].c[1] - R[i + 1].c[1]) + Math.hypot(R[i].c[0] - R[i + 1].c[0], R[i].c[2] - R[i + 1].c[2]) < 1e-3) continue;
+    const ax = [(R[i].c[0] + R[i + 1].c[0])/2, (R[i].c[1] + R[i + 1].c[1])/2, (R[i].c[2] + R[i + 1].c[2])/2];
+    const m = sub([(a[0] + b[0] + c[0])/3, (a[1] + b[1] + c[1])/3, (a[2] + b[2] + c[2])/3], ax);
+    if (o.radial === "xz") m[1] = 0;
+    if (Math.hypot(...m) < 1e-4) continue;
+    flip = dot(nn, m) < 0; found = true;
+  }
+  if (o.inside) flip = !flip;
+  for (let i = 0; i < R.length - 1; i++){
+    const A = R[i], Bq = R[i + 1];
+    for (let k = 0; k < (closed ? n : n - 1); k++){
+      const k1 = (k + 1) % n, s = o.sf ? o.sf(i, k, Bq) : Bq.s;
+      if (s == null || s < 0) continue;
+      const p0 = A.v[k], p1 = A.v[k1], p2 = Bq.v[k1], p3 = Bq.v[k], sa = A.sh == null ? 1 : A.sh, sb = Bq.sh == null ? 1 : Bq.sh;
+      if (!flip){ G.tri(p0, p1, p2, s, sa, sa, sb); G.tri(p0, p2, p3, s, sa, sb, sb); }
+      else { G.tri(p0, p2, p1, s, sa, sb, sa); G.tri(p0, p3, p2, s, sa, sb, sb); }
+    }
+  }
+}
+function cap(G, R, apex, slot, sh = 1, sa = sh){
+  const n = R.v.length, out = sub(apex, R.c);
+  for (let k = 0; k < n; k++) G.tri(R.v[k], R.v[(k + 1) % n], apex, slot, sh, sh, sa, out);
+}
+// a box (props): centre, three half-axes
+function boxG(G, c, ax, ay, az, slot, w, sh = 1){
+  const P = (i, j, k) => [c[0] + ax[0]*i + ay[0]*j + az[0]*k, c[1] + ax[1]*i + ay[1]*j + az[1]*k, c[2] + ax[2]*i + ay[2]*j + az[2]*k, w];
+  const faces = [[ax, [[1, -1, -1], [1, 1, -1], [1, 1, 1], [1, -1, 1]]], [ax.map(v => -v), [[-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1]]],
+    [ay, [[-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, 1, -1]]], [ay.map(v => -v), [[-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1]]],
+    [az, [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]]], [az.map(v => -v), [[-1, -1, -1], [-1, 1, -1], [1, 1, -1], [1, -1, -1]]]];
+  for (const [o, q] of faces){ const v = q.map(p => P(...p)); G.quad(v[0], v[1], v[2], v[3], slot, sh, o); }
+}
+// a tube along a path of points with radii (hair tails, locks, braids)
+function tube(G, pts, radii, n, ws, slot, sh = 1, tipCap = true){
+  const R = [];
+  for (let i = 0; i < pts.length; i++){
+    const t = norm(sub(pts[Math.min(pts.length - 1, i + 1)], pts[Math.max(0, i - 1)]));
+    let U = norm(cross(t, [0, 0, 1])); if (Math.hypot(...cross(t, [0, 0, 1])) < .2) U = norm(cross(t, [1, 0, 0]));
+    const V = cross(U, t), r = radii[i];
+    R.push(ring(pts[i], U, V, a => [Math.sin(a)*r, Math.cos(a)*r], n, ws[i], {s:slot, sh}));
+  }
+  loft(G, R);
+  if (tipCap){ const L = R[R.length - 1], d = norm(sub(pts[pts.length - 1], pts[pts.length - 2])); cap(G, L, [...addv(L.c, d, radii[radii.length - 1]*.8), ws[ws.length - 1]], slot, sh); }
+  return R;
+}
+// interpolate a list of stations {y, rx, rf, rb, x, z, w} at height y
+function at(st, y){
+  for (let i = 0; i < st.length - 1; i++){
+    const a = st[i], b = st[i + 1], lo = Math.min(a.y, b.y), hi = Math.max(a.y, b.y);
+    if (y >= lo - 1e-9 && y <= hi + 1e-9){
+      const t = hi - lo < 1e-9 ? 0 : (y - a.y)/(b.y - a.y);
+      return {y, rx:lerp(a.rx, b.rx, t), rf:lerp(a.rf, b.rf, t), rb:lerp(a.rb, b.rb, t), x:lerp(a.x, b.x, t), z:lerp(a.z, b.z, t), w:wmix(a.w, b.w, t)};
+    }
+  }
+  return st[y > st[0].y === st[st.length - 1].y > st[0].y ? st.length - 1 : 0];
+}
+/* a vertical tube dressed in layers. Each layer {lo, hi, slot, off, fl, pad, sf} covers a span of height;
+   later layers sit outside earlier ones. Where one layer gives way to another the surface steps in or out
+   (a hem, a cuff, a collar), with the underside shaded. fl flares a layer's lower edge. */
+function dressed(G, st, layers, n, o = {}){
+  const asc = st[st.length - 1].y > st[0].y, lo = Math.min(st[0].y, st[st.length - 1].y), hi = Math.max(st[0].y, st[st.length - 1].y);
+  const skin = {slot:o.skin == null ? S.skin : o.skin, off:0};
+  const cuts = new Set(st.map(s => s.y));
+  for (const L of layers){ if (L.lo > lo + 1e-6 && L.lo < hi - 1e-6) cuts.add(L.lo); if (L.hi > lo + 1e-6 && L.hi < hi - 1e-6) cuts.add(L.hi); }
+  const ys = [...cuts].sort((a, b) => asc ? a - b : b - a);
+  const layerAt = y => { let r = skin; for (const L of layers) if (y > L.lo && y < L.hi) r = L; return r; };
+  const offAt = (L, y) => L.off + (L.fl && Math.abs(y - L.lo) < 1e-6 ? L.fl : 0);
+  const prof = o.prof || ((b, off, pad) => ell(b.rx + off, b.rf + off + pad, b.rb + off));
+  const mk = (y, off, L, slot, sh) => {
+    const b = at(st, y), pad = L && L.pad && y > L.pad[0] && y < L.pad[1] ? L.pad[2]*Math.sin((y - L.pad[0])/(L.pad[1] - L.pad[0])*Math.PI) : 0;
+    const r = ring([b.x, y, b.z], [1, 0, 0], [0, 0, 1], prof(b, off, pad), n, b.w, {s:slot, sh, y, L});
+    if (o.fit) for (const p of r.v) o.fit(p, y);
+    return r;
+  };
+  const R = [];
+  for (let j = 0; j < ys.length; j++){
+    const y = ys[j], Lp = j ? layerAt((ys[j - 1] + y)/2) : null, Ln = j < ys.length - 1 ? layerAt((y + ys[j + 1])/2) : null;
+    const op = Lp ? offAt(Lp, y) : 0, on = Ln ? offAt(Ln, y) : 0;
+    if (Lp && Ln && Math.abs(op - on) > 1e-5){
+      const outer = op > on ? Lp : Ln;
+      R.push(mk(y, op, Lp, Lp.slot, op > on ? 1 : .62));
+      R.push(mk(y, on, outer, outer.slot, on > op ? 1 : .62));
+    } else { const L = Lp || Ln; R.push(mk(y, Lp ? op : on, L, L.slot, 1)); }
+  }
+  loft(G, R, {sf:(i, k, r) => r.L && r.L.sf ? r.L.sf(k, n, r.y, r.s) : r.s});
+  return R;
+}
+// ray against a triangle list (Möller–Trumbore): the nearest hit distance or -1
+function ray(T, o, d){
+  let best = -1;
+  for (let i = 0; i < T.length; i += 9){
+    const e1x = T[i + 3] - T[i], e1y = T[i + 4] - T[i + 1], e1z = T[i + 5] - T[i + 2], e2x = T[i + 6] - T[i], e2y = T[i + 7] - T[i + 1], e2z = T[i + 8] - T[i + 2];
+    const px = d[1]*e2z - d[2]*e2y, py = d[2]*e2x - d[0]*e2z, pz = d[0]*e2y - d[1]*e2x, det = e1x*px + e1y*py + e1z*pz;
+    if (Math.abs(det) < 1e-12) continue;
+    const inv = 1/det, tx = o[0] - T[i], ty = o[1] - T[i + 1], tz = o[2] - T[i + 2], u = (tx*px + ty*py + tz*pz)*inv;
+    if (u < 0 || u > 1) continue;
+    const qx = ty*e1z - tz*e1y, qy = tz*e1x - tx*e1z, qz = tx*e1y - ty*e1x, v = (d[0]*qx + d[1]*qy + d[2]*qz)*inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2x*qx + e2y*qy + e2z*qz)*inv;
+    if (t > 0 && (best < 0 || t < best)) best = t;
+  }
+  return best;
+}
+/* a flat shape laid onto a surface along z: side +1 from the front, -1 from behind. Triangles are split small
+   so they hug the facets, then each corner is cast onto the surface and lifted a little. */
+function decal(G, hit, tris, side, lift, slot, wf, sh = 1){
+  const out = [];
+  const split = (a, b, c) => {
+    const l1 = Math.hypot(a[0] - b[0], a[1] - b[1]), l2 = Math.hypot(b[0] - c[0], b[1] - c[1]), l3 = Math.hypot(c[0] - a[0], c[1] - a[1]), m = Math.max(l1, l2, l3);
+    if (m < .022) { out.push([a, b, c]); return; }
+    if (m === l1){ const p = [(a[0] + b[0])/2, (a[1] + b[1])/2]; split(a, p, c); split(p, b, c); }
+    else if (m === l2){ const p = [(b[0] + c[0])/2, (b[1] + c[1])/2]; split(a, b, p); split(a, p, c); }
+    else { const p = [(c[0] + a[0])/2, (c[1] + a[1])/2]; split(a, b, p); split(p, b, c); }
+  };
+  for (const t of tris) split(...t);
+  const cache = new Map(), cast = p => {
+    const k = p[0].toFixed(5) + "," + p[1].toFixed(5); if (cache.has(k)) return cache.get(k);
+    const o = [p[0], p[1], side*2], d = [0, 0, -side], t = ray(hit, o, d);
+    const r = t < 0 ? null : [p[0], p[1], side*2 - side*(t - lift), wf(p[1], p[0])];
+    cache.set(k, r); return r;
+  };
+  for (const [a, b, c] of out){ const A = cast(a), Bv = cast(b), C = cast(c); if (A && Bv && C) G.tri(A, Bv, C, slot, sh, sh, sh, [0, 0, side]); }
+}
+// a polygon in the plane as a fan, and a polyline as a ribbon of quads with filled joints
+const fan = pts => { const c = pts.reduce((s, p) => [s[0] + p[0]/pts.length, s[1] + p[1]/pts.length], [0, 0]); return pts.map((p, i) => [c, p, pts[(i + 1) % pts.length]]); };
+function stroke(pts, w){
+  const T = [];
+  for (let i = 0; i < pts.length - 1; i++){
+    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy/l*w/2, ny = dx/l*w/2;
+    const p = [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]];
+    T.push([p[0], p[1], p[2]], [p[0], p[2], p[3]]);
+    if (i){ const r = w*.5; T.push(...fan([0, 1, 2, 3, 4, 5].map(k => [a[0] + Math.cos(k/6*TAU)*r, a[1] + Math.sin(k/6*TAU)*r]))); }
+  }
+  return T;
+}
+
+/* ---------- the outfit, resolved into garment pieces ---------- */
+function garb(o = {}){
+  const t = o.type || "casual";
+  const g = {top:"tee", sleeves:"short", collar:"crew", legwear:"jeans", footwear:"trainers", legs:"", tuck:false, belt:false, gloves:false,
+    bib:!!o.bib, apron:"", tie:false, coat:false, hood:false, zip:false, crest:false, placket:false, number:o.number | 0};
+  const set = x => Object.assign(g, x);
+  if (t === "kit" || t === "training") set({top:"kit", collar:t === "kit" ? "v" : "crew", legwear:"kitshorts", footwear:"boots", legs:"socks", crest:t === "kit"});
+  else if (t === "gk") set({top:"kit", sleeves:"long", collar:"crew", legwear:"kitshorts", footwear:"boots", legs:"socks", gloves:true, crest:true});
+  else if (t === "tracksuit") set({top:"track", sleeves:"long", collar:"zip", legwear:"trackpants", zip:true, crest:true});
+  else if (t === "hoodie") set({top:"hoodie", sleeves:"long", collar:"hood", hood:true});
+  else if (t === "jacket") set({top:"jacket", sleeves:"long", collar:"open"});
+  else if (t === "suit") set({top:"suit", sleeves:"long", collar:"lapel", legwear:"trousers", footwear:"dress", tie:o.tie !== false});
+  else if (t === "coat") set({top:"suit", sleeves:"long", collar:"lapel", legwear:"trousers", footwear:"dress", coat:true, tie:!!o.tie});
+  else if (t === "apron") set({collar:o.collar || "crew", apron:o.apronCut || "bib", legwear:"trousers"});
+  else if (t === "office") set({top:"shirt", sleeves:"long", collar:"shirt", legwear:"trousers", footwear:"dress", tuck:true, belt:true, tie:!!o.tie, placket:true});
+  else if (t === "polo") set({collar:"polo"});
+  for (const k of ["sleeves", "collar", "legwear", "footwear"]) if (o[k]) g[k] = o[k];
+  if (o.tie != null && t !== "suit") g.tie = !!o.tie;
+  if (g.legwear === "shorts" && !g.legs) g.legs = "ankle";
+  if (g.collar === "polo" || g.collar === "shirt") g.placket = true;
+  return g;
+}
+
+/* ---------- the head: a deformed sphere (cranium, forehead, cheekbones, jaw, chin) ---------- */
+function headFn(D, F){
+  const hc = D.hc, hs = D.hs, jaw = F.jaw || 1, chin = F.chin || 1;
+  return (lat, lon, off = 0) => {
+    const cl = Math.cos(lat), x0 = cl*Math.sin(lon), y = Math.sin(lat), z0 = cl*Math.cos(lon);
+    let rx = .077, ry = y > 0 ? .117 : .118, rzF = .097, rzB = .103, xm = 1, zs = 0;
+    if (y < 0){
+      const t = -y;
+      xm *= 1 - Math.pow(t, 1.9)*(.4 - .26*(jaw - 1));                  // the jaw narrows to the chin
+      rzB *= 1 - .5*t*t;                                                // the skull tucks into the neck behind
+      zs += .036*Math.pow(t, 1.5)*chin*sstep(-.25, .55, z0);            // the chin comes forward
+    } else {
+      xm *= 1 + .05*y*sstep(.2, -.6, z0);                              // a fuller crown behind
+      if (y > .35) rzF *= 1 - .1*(y - .35);                             // the forehead slopes back
+    }
+    if (y < .2 && y > -.55) xm *= 1 + .05*Math.sin((y + .55)/.75*Math.PI)*sstep(.1, .7, z0);   // cheekbones
+    const px = x0*rx*xm, py = y*ry, pz = z0*(z0 > 0 ? rzF : rzB) + zs;
+    let ox = 0, oy = 0, oz = 0;
+    if (off){ const nn = norm([px/(rx*rx), py/(ry*ry), (pz - zs)/((z0 > 0 ? rzF : rzB)**2) + (y < 0 ? -.2 : 0)]); ox = nn[0]*off; oy = nn[1]*off; oz = nn[2]*off; }
+    return [hc[0] + (px + ox)*hs, hc[1] + (py + oy)*hs, hc[2] + (pz + oz)*hs];
+  };
+}
+const HEADW = wt(B.head);
+
+/* ---------- building a body ---------- */
+function build(look, det, noHead){
+  const D = dims(look), g = garb(look.outfit), G = new Geo(), F = look.face || {};
+  const near = det > 0, n = near ? 10 : 6, nl = near ? 8 : 5;
+  const topOff = {kit:.01, tee:.008, shirt:.008, track:.014, hoodie:.02, jacket:.022, suit:.016}[g.top] || .01;
+  const botOff = {kitshorts:.013, shorts:.012, trousers:.009, jeans:.008, trackpants:.012}[g.legwear] || .01;
+  const shorts = g.legwear === "kitshorts" || g.legwear === "shorts";
+  const jacketish = g.top === "jacket" || g.top === "suit";
+  /* torso: pelvis → waist → chest → shoulders → neck */
+  const {hp, wa, ch, sh, belly, bust, mus, nk} = D;
+  const H = B.hips, SP = B.spine, C = B.chest, N = B.neck, HD = B.head;
+  const ts = (y, rx, rf, rb, z, w) => ({y, rx, rf, rb, x:0, z, w});
+  let tst = [
+    ts(.80, .035*hp, .03, .03, 0, wt(H)),
+    ts(.835, .12*hp, .075, .08, 0, wt(H)),
+    ts(.88, .15*hp, .09, .1, 0, wt(H)),
+    ts(.94, .162*hp, .096, .108, 0, wt(H)),
+    ts(1.0, .157*(hp + wa)/2, .094 + belly*.008, .1, .003, wt(H, .6, SP, .4)),
+    ts(1.07, .146*wa, .093 + belly*.022, .09, .006, wt(SP)),
+    ts(1.14, .147*(wa*.6 + ch*.4), .095 + belly*.022, .088, .006, wt(SP, .7, C, .3)),
+    ts(1.22, .157*ch, .101 + belly*.01 + bust*.01, .09, .004, wt(SP, .25, C, .75)),
+    ts(1.30, .166*ch, .107 + mus*.008 + bust*.024, .098, 0, wt(C)),
+    ts(1.37, .172*(ch + sh)/2, .102 + mus*.006 + bust*.01, .102, -.004, wt(C)),
+    ts(1.425, .17*sh, .088, .092, -.008, wt(C)),
+    ts(1.465, .136*sh, .072, .078, -.012, wt(C)),
+    ts(1.505, .072*nk, .06, .066, -.012, wt(C, .6, N, .4)),
+    ts(1.54, .061*nk, .056*nk, .06*nk, -.008, wt(N)),
+    ts(1.6, .056*nk, .052*nk, .054*nk, -.004, wt(N, .7, HD, .3)),
+    ts(1.645, .046, .04, .046, 0, wt(HD, .7, N, .3))
+  ];
+  if (!near) tst = tst.filter((s, i) => [0, 2, 4, 6, 8, 10, 11, 12, 14, 15].includes(i));
+  if (noHead) tst = tst.filter(s => s.y <= 1.425);
+  const TL = [];                                             // torso layers, inside → out
+  const bottomSlot = S.bottom;
+  TL.push({lo:.7, hi:g.tuck ? 1.04 : 1.02, slot:bottomSlot, off:botOff});
+  if (g.belt || g.tuck) TL.push({lo:1.0, hi:1.035, slot:S.belt, off:botOff + .004});
+  const hem = {kit:.955, tee:.93, shirt:1.035, track:.96, hoodie:.9, jacket:.88, suit:.86}[g.top] || .94;
+  if (g.top === "hoodie" || g.top === "track") TL.push({lo:hem, hi:hem + .04, slot:S.trim, off:topOff - .002});
+  TL.push({lo:g.top === "hoodie" || g.top === "track" ? hem + .04 : hem, hi:1.505, slot:S.top, off:topOff, fl:g.tuck || g.top === "hoodie" || g.top === "track" ? 0 : .006});
+  if (g.apron) TL.push({lo:1.065, hi:1.09, slot:S.apron, off:topOff + .006});
+  if (g.bib) TL.push({lo:.93, hi:1.46, slot:S.bib, off:topOff + .008, fl:.004, sf:(k, nn, y, s) => (y > 1.3 && Math.abs(Math.sin((k + .5)/nn*TAU)) > .8) ? S.top : s});
+  // collars
+  if (g.collar === "crew" || g.collar === "v") TL.push({lo:1.49, hi:1.515, slot:S.trim, off:topOff + .004});
+  else if (g.collar === "zip") TL.push({lo:1.49, hi:1.56, slot:S.top, off:topOff + .006});
+  else if (g.collar === "lapel" || g.collar === "open") TL.push({lo:1.49, hi:1.51, slot:S.inner, off:topOff + .002});
+  else if (g.collar === "polo" || g.collar === "shirt") TL.push({lo:1.49, hi:1.505, slot:S.top, off:topOff + .002});
+  else if (g.collar === "hood") TL.push({lo:1.49, hi:1.51, slot:S.top, off:topOff + .004});
+  const torsoProf = (b, off, pad) => a => { const s = Math.sin(a), c = Math.cos(a), us = Math.sign(s)*Math.pow(Math.abs(s), .86), vc = Math.sign(c)*Math.pow(Math.abs(c), .92);
+    return [us*(b.rx + off), vc*(c > 0 ? b.rf + off + pad : b.rb + off)]; };
+  G.hit = [];
+  const TR = dressed(G, tst, TL, n, {prof:torsoProf});
+  const torsoHit = G.hit; G.hit = null;
+  // the crotch: a short gusset that drops between the thighs, steep enough to catch the light like the rest of the cloth
+  cap(G, TR[0], [0, .755, -.012, wt(H)], bottomSlot, .95);
+  // first person: the body stops at the shoulders, a low dome of shirt you look down past
+  if (noHead) cap(G, TR[TR.length - 1], [0, 1.44, -.01, wt(C)], S.top, .9);
+  // the inside of the waist, as an ellipse a little smaller than the trousers there: the legs' tops stay within it
+  const waistIn = (y, k) => { const b = at(tst, y); return [b.rx + botOff, b.rf + botOff, b.rb + botOff, b.z, k]; };
+  const wTorso = y => at(tst, clamp(y, tst[0].y, tst[tst.length - 1].y)).w;
+
+  /* arms */
+  for (const s of [1, -1]){
+    const [U, Fa, Hd] = ARM(s), x = s*D.shX, y0 = D.shY, a = D.arm, eY = y0 - D.elbowL, wY = eY - D.foreL;
+    const st = (y, rx, rf, rb, dx, w, dz = 0) => ({y, rx, rf, rb, x:x + s*dx, z:-.005 + dz, w});
+    let ast = [
+      st(y0 + .028, .018, .022, .021, -.014, wt(C, .55, U, .45)),
+      st(y0 + .016, .031*a, .037*a, .035*a, -.009, wt(C, .4, U, .6)),
+      st(y0 - .006, .043*a, .047*a, .045*a, -.003, wt(U, .85, C, .15)),
+      st(y0 - .05, .05*a, .049*a, .048*a, .003, wt(U)),
+      st(y0 - .12, (.045 + .004*mus)*a, (.049 + .006*mus)*a, .046*a, .004, wt(U)),
+      st(y0 - .2, .041*a, .042*a, .043*a, .002, wt(U)),
+      st(eY + .03, .037*a, .036*a, .038*a, 0, wt(U, .85, Fa, .15)),
+      st(eY, .036*a, .035*a, .04*a, 0, wt(U, .5, Fa, .5)),
+      st(eY - .03, .039*a, .038*a, .04*a, 0, wt(Fa, .85, U, .15)),
+      st(eY - .08, .04*a, .039*a, .038*a, 0, wt(Fa)),
+      st(eY - .16, .031*a, .032*a, .031*a, 0, wt(Fa)),
+      st(wY + .02, .025, .029, .027, 0, wt(Fa)),
+      st(wY, .023, .03, .028, 0, wt(Fa, .5, Hd, .5)),
+      st(wY - .03, .021, .036, .03, -.002, wt(Hd), .002),
+      st(wY - .075, .019, .043, .037, -.004, wt(Hd), .004),
+      st(wY - .115, .0165, .04, .034, -.008, wt(Hd), .004),
+      st(wY - .143, .015, .034, .029, -.012, wt(Hd), .003),
+      st(wY - .16, .0125, .025, .021, -.014, wt(Hd), .002)
+    ];
+    if (!near) ast = ast.filter((q, i) => [0, 2, 4, 6, 7, 9, 11, 12, 14, 17].includes(i));
+    const AL = [];
+    const sleeveEnd = g.sleeves === "long" ? wY + .012 : y0 - (g.top === "kit" ? .135 : .15);
+    AL.push({lo:sleeveEnd, hi:y0 + .1, slot:S.top, off:topOff - .003, fl:g.sleeves === "long" ? .002 : .005});
+    if (g.top === "kit" || g.top === "track" || g.top === "hoodie") AL.push({lo:sleeveEnd, hi:sleeveEnd + (g.sleeves === "long" ? .035 : .018), slot:S.trim, off:topOff - .002, fl:g.sleeves === "long" ? 0 : .005});
+    if (g.top === "track") AL.push({lo:sleeveEnd + .04, hi:y0 + .02, slot:S.top, off:topOff, sf:(k, nn, y, sl) => k === (s > 0 ? Math.round(nn/4) - 1 : nn - Math.round(nn/4)) ? S.trim : sl});
+    if (jacketish && g.sleeves === "long") AL.push({lo:wY - .002, hi:wY + .012, slot:S.inner, off:.006});
+    if (g.gloves) { AL.push({lo:wY - .2, hi:wY + .005, slot:S.glove, off:.009}); AL.push({lo:wY - .01, hi:wY + .03, slot:S.gtrim, off:.013}); }
+    // the sleeve hugs the shoulder rather than standing off it like a pad (and a tailored shoulder sits square)
+    const capK = y => 1 - (jacketish ? .75 : .6)*sstep(y0 - .05, y0 + .015, y);
+    const AR = dressed(G, ast, AL, nl, {prof:(b, off, pad) => { const o2 = off*capK(b.y); return ell(b.rx + o2, b.rf + o2 + pad, b.rb + o2); }});
+    const last = ast[ast.length - 1], tipY = wY - .168, gl = g.gloves ? .009 : 0;
+    cap(G, AR[0], [x - s*.02, y0 + .034, -.005, wt(C, .6, U, .4)], S.top);
+    // fingertips: a blunt, rounded end rather than a point
+    cap(G, AR[AR.length - 1], [last.x - s*.002, tipY - gl*.6, last.z + .002, wt(Hd)], g.gloves ? S.glove : S.skin, .95);
+    // the thumb: a short tapered digit rooted in the heel of the hand, lying forward along the palm side
+    if (near){
+      const P = [[x - s*.006, wY - .02, .006], [x - s*.011, wY - .045, .026], [x - s*.015, wY - .068, .034], [x - s*.017, wY - .086, .035]];
+      tube(G, P, [.0135 + gl, .0125 + gl, .0105 + gl, .0085 + gl], 6, P.map(() => wt(Hd)), g.gloves ? S.glove : S.skin, .95);
+    }
+  }
+
+  /* legs */
+  for (const s of [1, -1]){
+    const [TH, SH, FT] = LEG(s), x = s*D.hipX, l = D.leg;
+    const st = (y, rx, rf, rb, dx, dz, w) => ({y, rx:rx*l, rf:rf*l, rb:rb*l, x:x + s*dx, z:dz, w});
+    let lst = [
+      st(.99, .055, .06, .065, -.018, 0, wt(H, .6, TH, .4)),
+      st(.92, .074, .086, .094, -.008, 0, wt(TH, .7, H, .3)),
+      st(.85, .08, .086, .09, -.002, 0, wt(TH)),
+      st(.74, .073, .078, .075, 0, .004, wt(TH)),
+      st(.62, .061, .066, .061, -.004, .004, wt(TH)),
+      st(.545, .052, .058, .052, -.006, .004, wt(TH, .85, SH, .15)),
+      st(.5, .05, .056, .05, -.006, .004, wt(TH, .5, SH, .5)),
+      st(.46, .048, .052, .055, -.006, 0, wt(SH, .85, TH, .15)),
+      st(.38, .05, .047, .067, -.004, -.004, wt(SH)),
+      st(.28, .043, .043, .055, -.002, -.004, wt(SH)),
+      st(.18, .033, .036, .04, 0, -.002, wt(SH)),
+      st(.11, .029, .033, .033, 0, 0, wt(SH, .7, FT, .3)),
+      st(.06, .03, .036, .034, 0, .006, wt(FT, .7, SH, .3))
+    ];
+    if (!near) lst = lst.filter((q, i) => [0, 1, 3, 4, 6, 8, 10, 12].includes(i));
+    const LL = [];
+    if (g.legs === "socks"){
+      LL.push({lo:.04, hi:.47, slot:S.socks, off:.006, pad:[.17, .43, near ? .012 : .008]});
+      LL.push({lo:.425, hi:.47, slot:S.strim, off:.008});
+    } else if (g.legs === "ankle") LL.push({lo:.04, hi:.11, slot:S.socks, off:.004});
+    if (shorts){
+      const end = g.legwear === "kitshorts" ? .7 : .6;
+      LL.push({lo:end, hi:1.1, slot:S.bottom, off:botOff + .002, fl:.012});
+    } else {
+      const tp = g.legwear === "trackpants", jn = g.legwear === "jeans";
+      LL.push({lo:.05, hi:1.1, slot:S.bottom, off:botOff, fl:tp ? 0 : .004, sf:tp || jn ? (k, nn, y, sl) => (y < 1.0 && k === (s > 0 ? Math.round(nn/4) - 1 : nn - Math.round(nn/4))) ? (tp ? S.trim : S.btrim) : sl : null});
+      if (tp) LL.push({lo:.05, hi:.09, slot:S.trim, off:botOff - .003});
+    }
+    // trousers fall straight from the knee rather than following the calf
+    const prof = shorts ? null : (b, off, pad) => { const below = b.y < .5, rx = below ? Math.max(b.rx + off, .052*l) : b.rx + off, rf = below ? Math.max(b.rf + off, .056*l) : b.rf + off, rb = below ? Math.max(b.rb + off, .058*l) : b.rb + off; return ell(rx, rf + pad, rb); };
+    dressed(G, lst, LL, nl, prof ? {prof:(b, off, pad) => off > .001 ? prof(b, off, pad) : ell(b.rx + off, b.rf + off + pad, b.rb + off)} : {});
+    shoe(G, D, s, g, near);
+  }
+
+  /* bits of clothing that stand off the body */
+  if (near && (g.collar === "polo" || g.collar === "shirt")){
+    // a turned-down collar, open at the front
+    const R = [[1.495, .0, 1], [1.53, -.004, 1], [1.528, .01, .9], [1.5, .024, .8]].map(([y, d, sh]) => {
+      const b = at(tst, Math.min(y, 1.505)); return ring([0, y, b.z], [1, 0, 0], [0, 0, 1], ell(b.rx*.82 + topOff + .006 + d, b.rf*.92 + topOff + .006 + d, b.rb*.92 + topOff + .006 + d), 10, wTorso(y), {s:S.top, sh});
+    });
+    loft(G, R, {sf:(i, k, r) => (k === 0 || k === 9) ? -1 : r.s, radial:"xz"});
+    loft(G, R, {sf:(i, k, r) => (k === 0 || k === 9) ? -1 : r.s, radial:"xz", inside:true});
+  }
+  if (g.hood){
+    const pts = [], rs = [], ws = [];
+    for (let i = 0; i <= 6; i++){ const a = (-110 + i*220/6)*D2R; pts.push([Math.sin(a)*.1, 1.5 + .01*Math.cos(a), -Math.cos(a)*.085 - .02]); rs.push(i === 0 || i === 6 ? .02 : .036 + .01*Math.cos(a)); ws.push(wt(C, .7, N, .3)); }
+    tube(G, pts, rs, near ? 6 : 4, ws, S.top, .9);
+  }
+  if (g.apron){
+    const top = g.apron === "bib" ? 1.38 : 1.08, bot = g.apron === "bib" ? .6 : .62, wHalf = g.apron === "bib" ? .15 : .17, cols = near ? 6 : 3, rows = near ? 8 : 4;
+    const Rf = [], Rb = [];
+    let zTop = .12;
+    for (let r = 0; r <= rows; r++){
+      const y = lerp(top, bot, r/rows), vf = [], vb = [];
+      for (let c = 0; c <= cols; c++){
+        const xx = lerp(-wHalf, wHalf, c/cols) * (y > 1.0 ? 1 : 1 + (1 - y)*.25);
+        let z;
+        if (y >= .92){ const t = ray(torsoHit, [xx, y, 2], [0, 0, -1]); z = t < 0 ? .12 : 2 - t + .012; if (y >= .9) zTop = z; }
+        else z = zTop + (.92 - y)*.06;
+        const side = xx >= 0 ? 1 : -1, lw = sstep(.95, .62, y)*(.45 + .25*Math.min(1, Math.abs(xx)/.08));
+        const ww = y >= .95 ? wTorso(y) : wt(B.hips, 1 - lw, LEG(side)[0], lw);
+        vf.push([xx, y, z, ww]); vb.push([xx, y, z - .003, ww]);
+      }
+      Rf.push({v:vf, c:[0, y, 0], s:S.apron, sh:1}); Rb.push({v:vb, c:[0, y, 0], s:S.apron, sh:.6});
+    }
+    loft(G, Rf, {open:true, out:[0, 0, 1]}); loft(G, Rb, {open:true, out:[0, 0, -1]});
+    if (g.apron === "bib"){
+      decal(G, torsoHit, [...stroke([[-.12, 1.38], [-.06, 1.5]], .022), ...stroke([[.12, 1.38], [.06, 1.5]], .022)], 1, .006, S.apron, wTorso);
+      const R = [1.495, 1.52].map(y => { const b = at(tst, y); return ring([0, y, b.z], [1, 0, 0], [0, 0, 1], ell(b.rx + .012, b.rf + .012, b.rb + .012), 10, wTorso(y), {s:S.apron}); });
+      loft(G, R, {sf:(i, k, r) => (k < 2 || k > 7) ? -1 : r.s, radial:"xz"});
+    }
+  }
+  if (g.coat){
+    const R = [];
+    for (const [y, fl] of [[.9, 0], [.82, .012], [.74, .03]]){
+      const b = at(tst, Math.max(y, .835)), off = topOff + .004 + fl;
+      const w = a => { const sd = Math.sin(a) >= 0 ? 1 : -1, k = (1 - y)*2.2*(.4 + .4*Math.abs(Math.cos(a))); return y > .89 ? wt(B.hips) : wt(B.hips, 1 - k, LEG(sd)[0], k); };
+      R.push(ring([0, y, b.z], [1, 0, 0], [0, 0, 1], ell(Math.max(b.rx, .16*hp) + off, Math.max(b.rf, .1) + off, Math.max(b.rb, .11) + off), n, w, {s:S.top}));
+    }
+    R.unshift(ring([0, .95, 0], [1, 0, 0], [0, 0, 1], ell(.162*hp + topOff + .002, .096 + topOff + .002, .108 + topOff + .002), n, wt(B.hips), {s:S.top}));
+    loft(G, R, {sf:(i, k, r) => k === 0 || k === n - 1 ? S.dark : r.s});
+  }
+  /* things printed or sewn on the front and back */
+  if (near){
+    if (g.collar === "v"){
+      decal(G, torsoHit, [[[-.045, 1.505], [.045, 1.505], [0, 1.43]]], 1, .004, S.skin, wTorso);
+      decal(G, torsoHit, [...stroke([[-.05, 1.51], [0, 1.425], [.05, 1.51]], .014)], 1, .005, S.trim, wTorso);
+    }
+    if (g.crest) decal(G, torsoHit, fan([[.06, 1.385], [.09, 1.385], [.09, 1.36], [.075, 1.345], [.06, 1.36]]), 1, .004, S.trim, wTorso);
+    if (g.zip) decal(G, torsoHit, stroke([[0, 1.5], [0, hem + .05]], .007), 1, .004, S.trim, wTorso);
+    if (g.placket){ const bot = g.collar === "polo" ? 1.38 : g.tuck ? 1.05 : 1.0; decal(G, torsoHit, stroke([[0, 1.5], [0, bot]], .016), 1, .003, S.trim, wTorso);
+      for (let y = 1.46; y > bot + .02; y -= .075) decal(G, torsoHit, fan([0, 1, 2, 3, 4].map(k => [Math.cos(k/5*TAU)*.0045, y + Math.sin(k/5*TAU)*.0045])), 1, .0045, S.dark, wTorso); }
+    if (g.tie && !jacketish) decal(G, torsoHit, [...fan([[-.009, 1.495], [.009, 1.495], [.006, 1.47], [-.006, 1.47]]), ...fan([[-.008, 1.47], [.008, 1.47], [.02, 1.19], [0, 1.165], [-.02, 1.19]])], 1, .006, S.tie, wTorso);
+    if (jacketish){
+      const vb = g.top === "suit" ? 1.24 : .9;
+      decal(G, torsoHit, [[[-.075, 1.5], [.075, 1.5], [0, vb]]], 1, .004, S.inner, wTorso);
+      if (g.tie) decal(G, torsoHit, [...fan([[-.009, 1.495], [.009, 1.495], [.006, 1.47], [-.006, 1.47]]), ...fan([[-.008, 1.47], [.008, 1.47], [.018, 1.27], [0, 1.25], [-.018, 1.27]])], 1, .0055, S.tie, wTorso);
+      decal(G, torsoHit, [...stroke([[-.085, 1.5], [-.012, vb + .02]], .022), ...stroke([[.085, 1.5], [.012, vb + .02]], .022)], 1, .006, S.top, wTorso, .82);
+      if (g.top === "suit") for (const y of [1.2, 1.1]) decal(G, torsoHit, fan([0, 1, 2, 3, 4].map(k => [Math.cos(k/5*TAU)*.007, y + Math.sin(k/5*TAU)*.007])), 1, .005, S.dark, wTorso);
+    }
+    if (g.hood){
+      decal(G, torsoHit, [...stroke([[-.03, 1.49], [-.032, 1.37]], .007), ...stroke([[.03, 1.49], [.032, 1.37]], .007)], 1, .005, S.trim, wTorso);
+      decal(G, torsoHit, fan([[-.1, 1.15], [.1, 1.15], [.115, 1.0], [-.115, 1.0]]), 1, .005, S.top, wTorso, .8);
+    }
+    if (g.belt || g.tuck) decal(G, torsoHit, fan([[-.016, 1.03], [.016, 1.03], [.016, 1.005], [-.016, 1.005]]), 1, .006, S.metal, wTorso);
+  }
+  /* props */
+  if ((look.props || []).includes("clipboard")){
+    const s = 1, [, , Hd] = ARM(s), hx = s*D.shX, hy = D.shY - D.elbowL - D.foreL;
+    const T = norm([0, -.45, 1]), X = [1, 0, 0], N = cross(X, T);   // board plane in the hand's own frame (rest pose)
+    const c = [hx - s*.1, hy - .06, -.005 + .09], hw = wt(Hd);
+    boxG(G, c, [.115, 0, 0], T.map(v => v*.155), N.map(v => v*.006), S.prop, hw);
+    boxG(G, addv(c, N, -.007), [.1, 0, 0], T.map(v => v*.135), N.map(v => v*.0015), S.paper, hw);
+    boxG(G, addv(addv(c, T, .14), N, -.008), [.03, 0, 0], T.map(v => v*.012), N.map(v => v*.004), S.metal, hw);
+  }
+  /* the head */
+  let headHit = null;
+  if (!noHead){
+    const hf = headFn(D, F);
+    const lats = (near ? [-90, -74, -57, -41, -27, -13, 0, 14, 30, 48, 68, 90] : [-90, -52, -18, 18, 55, 90]).map(v => v*D2R), nh = near ? 14 : 8;
+    const stub = look.beard === "stubble";
+    G.hit = [];
+    const HR = lats.map((lat, i) => {
+      const v = []; for (let k = 0; k < nh; k++) v.push([...hf(lat, k/nh*TAU), HEADW]);
+      return {v, c:[D.hc[0], hf(lat, 0)[1], D.hc[2]], s:S.skin, lat};
+    });
+    loft(G, HR, {sf:(i, k, r) => {
+      if (!stub) return S.skin;
+      const lat = (HR[i].lat + r.lat)/2/D2R, lon = Math.abs(wrap((k + .5)/nh*TAU))/D2R;
+      return lon < 112 && (lat < -24 || (lon > 55 && lat < -8)) ? S.stubble : S.skin; }});
+    headHit = G.hit; G.hit = null;
+    if (near) face(G, D, F, look, headHit, hf);
+    hair(G, D, F, look, hf, near);
+    if (look.beard === "beard") beard(G, D, hf, near);
+  }
+  return {G, torsoHit, D, hem};
+}
+
+/* shoes: a lofted last with a sole you can see, a toe, a heel, a stripe — and studs on football boots */
+function shoe(G, D, s, g, near){
+  const [, , FT, TO] = LEG(s), lx = s*D.hipX, type = g.footwear, boot = type === "boots", dress = type === "dress";
+  const sole = boot ? .011 : dress ? .012 : .024, lift = boot ? .008 : 0, Wm = boot ? .94 : dress ? .96 : 1.06, Lm = dress ? 1.05 : 1;
+  const sta = [[-.074, .027, .04], [-.06, .036, .058], [-.03, .041, .07], [.02, .044, .066], [.07, .046, .052], [.115, .045, .036], [.16, .039, .027], [.195, .027, .019]];
+  const S0 = near ? sta : [sta[0], sta[2], sta[4], sta[6], sta[7]];
+  const prof = (w, h) => near
+    ? [[0, h], [.62*w, .86*h], [.95*w, .45*h], [w, .1*h], [1.03*w, 0], [1.03*w, -sole], [-1.03*w, -sole], [-1.03*w, 0], [-w, .1*h], [-.95*w, .45*h], [-.62*w, .86*h]]
+    : [[0, h], [w, .5*h], [1.03*w, -sole], [-1.03*w, -sole], [-w, .5*h]];
+  const R = S0.map(([z, w, h]) => {
+    const zz = z*Lm, ww = z > .09 ? (z > .14 ? wt(TO) : wt(FT, .5, TO, .5)) : wt(FT);
+    const pts = prof(w*Wm, h), c = [lx - s*.004*(z > .1 ? 1 : 0), lift + sole, zz];
+    return {v:pts.map(([u, v]) => [c[0] + u, c[1] + v, c[2], ww]), c, s:S.shoe, z};
+  });
+  const nP = R[0].v.length, outerK = near ? (s > 0 ? 2 : 8) : (s > 0 ? 1 : 3);
+  const soleK = near ? [4, 5, 6] : [2];
+  loft(G, R, {sf:(i, k, r) => {
+    if (soleK.includes(k)) return S.sole;
+    const z = (R[i].z + r.z)/2;
+    if (near && (k === outerK || (boot && k === (s > 0 ? 1 : 9))) && z > -.05 && z < .1 && !dress) return S.stripe;
+    if (near && !boot && !dress && (k === 0 || k === nP - 1) && z > -.01 && z < .08) return S.lace;
+    return S.shoe; }});
+  const back = R[0], front = R[R.length - 1];
+  cap(G, back, [back.c[0], back.c[1] + .012, back.c[2] - .008, wt(FT)], S.shoe, .85);
+  cap(G, front, [front.c[0], front.c[1] - .002, front.c[2] + .012, wt(TO)], S.shoe);
+  if (boot && near){
+    // six screw-in studs under the sole
+    for (const [sx, sz, b] of [[.02, .135, TO], [-.02, .135, TO], [0, .175, TO], [.022, .06, FT], [-.022, .06, FT], [.016, -.05, FT], [-.016, -.05, FT]]){
+      const c = [lx + sx, lift/2, sz], w = wt(b), a = .006, bb = .0035;
+      const T = [[-a, lift, -a], [a, lift, -a], [a, lift, a], [-a, lift, a]].map(p => [c[0] + p[0], p[1], c[2] + p[2], w]);
+      const Bt = [[-bb, 0, -bb], [bb, 0, -bb], [bb, 0, bb], [-bb, 0, bb]].map(p => [c[0] + p[0], p[1], c[2] + p[2], w]);
+      for (let k = 0; k < 4; k++){ const k1 = (k + 1) % 4, mid = [(T[k][0] + T[k1][0])/2 - c[0], 0, (T[k][2] + T[k1][2])/2 - c[2]]; G.quad(T[k], T[k1], Bt[k1], Bt[k], S.sole, .8, mid); }
+      G.quad(Bt[0], Bt[1], Bt[2], Bt[3], S.sole, .7, [0, -1, 0]);
+    }
+  }
+}
+
+/* the face: eyes (whites, irises, a lid line), brows, a nose, a mouth, ears — cast onto the faceted head */
+function face(G, D, F, look, hit, hf){
+  const hc = D.hc, hs = D.hs, es = .031*(F.eyes || 1), nose = F.nose || 1, brow = F.brow || 1;
+  const onF = (x, y, lift) => { const o = [hc[0] + x*hs, hc[1] + y*hs, 2], t = ray(hit, o, [0, 0, -1]); return t < 0 ? null : [o[0], o[1], 2 - t + lift, HEADW]; };
+  const poly = (pts, lift, slot, sh = 1, out = [0, 0, 1]) => { const P = pts.map(p => onF(p[0], p[1], lift)); if (P.some(p => !p)) return; const c = P.reduce((s, p) => [s[0] + p[0]/P.length, s[1] + p[1]/P.length, s[2] + p[2]/P.length], [0, 0, 0]); c.push(HEADW);
+    for (let i = 0; i < P.length; i++) G.tri(c, P[i], P[(i + 1) % P.length], slot, sh, sh, sh, out); };
+  const beardLift = look.beard === "beard" ? .008 : 0;
+  for (const s of [1, -1]){
+    const ex = s*es, ey = .004;
+    const white = [], iris = [], lid = [];
+    for (let k = 0; k < 8; k++){ const a = k/8*TAU; white.push([ex + Math.cos(a)*.0125, ey + Math.sin(a)*.0068 + s*Math.cos(a)*.0008]); }
+    for (let k = 0; k < 7; k++){ const a = k/7*TAU; iris.push([ex - s*.0006 + Math.cos(a)*.006, ey - .0004 + Math.sin(a)*.006]); }
+    poly(white, .0014, S.white);
+    poly(iris, .0026, S.iris);
+    for (let k = 0; k <= 4; k++){ const a = (20 + k*35)*D2R; lid.push([ex + Math.cos(a)*.0128, ey + Math.sin(a)*.0074 + s*Math.cos(a)*.0008]); }
+    const lidTri = stroke(lid, .0028); for (const [a, b, c] of lidTri){ const A = onF(a[0], a[1], .003), Bq = onF(b[0], b[1], .003), Cq = onF(c[0], c[1], .003); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lash, 1, 1, 1, [0, 0, 1]); }
+    // brow
+    const by = .03 + (brow - 1)*.004, bw = .006*brow;
+    const bpts = [[ex - s*.013, by - .002], [ex + s*.001, by + .0035], [ex + s*.016, by - .0015]];
+    for (const [a, b, c] of stroke(bpts, bw)){ const A = onF(a[0], a[1], .003), Bq = onF(b[0], b[1], .003), Cq = onF(c[0], c[1], .003); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.brow, 1, 1, 1, [0, 0, 1]); }
+    // ear: a flattened shell standing off the side of the head
+    const ey2 = .006, ez = -.006, side = [hc[0] + s*.2, hc[1] + ey2*hs, hc[2] + ez*hs], t = ray(hit, side, [-s, 0, 0]);
+    if (t > 0){
+      const sx = side[0] - s*t, R = [];
+      for (const [dx, ry, rz, sh] of [[-.006, .026, .016, .9], [.007, .027, .016, .9], [.011, .022, .012, .8]])
+        R.push(ring([sx + s*dx*hs, side[1] + .002, side[2] - .004], [0, 0, 1], [0, 1, 0], a => [Math.sin(a)*rz*hs, Math.cos(a)*ry*hs], 6, HEADW, {s:S.skin, sh}));
+      loft(G, R);
+      cap(G, R[2], [sx + s*.013*hs, side[1] + .002, side[2] - .006, HEADW], S.skin, .78);
+    }
+  }
+  // nose: a little faceted wedge
+  const nl = .022*nose, nw = .015*Math.sqrt(nose);
+  const Bn = onF(0, .004, .001), T = onF(0, -.04, 0), L = onF(-nw, -.046, .002), Rn = onF(nw, -.046, .002), Cb = onF(0, -.05, .002);
+  if (Bn && T && L && Rn && Cb){
+    T[2] += nl; Cb[2] += nl*.35;
+    G.tri(Bn, L, T, S.skin, 1, .92, 1, [-.6, 0, 1]); G.tri(Bn, T, Rn, S.skin, 1, 1, .92, [.6, 0, 1]);
+    G.tri(L, Cb, T, S.skin, .8, .72, .9, [-.3, -1, .4]); G.tri(T, Cb, Rn, S.skin, .9, .72, .8, [.3, -1, .4]);
+  }
+  // mouth: a lip line with a softer lower lip
+  const mw = .02, my = -.071;
+  const up = [[-mw, my + .0015], [-mw*.45, my + .0005], [0, my + .0018], [mw*.45, my + .0005], [mw, my + .0015]];
+  for (const [a, b, c] of stroke(up, .0045)){ const A = onF(a[0], a[1], .002 + beardLift), Bq = onF(b[0], b[1], .002 + beardLift), Cq = onF(c[0], c[1], .002 + beardLift); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lips, 1, 1, 1, [0, 0, 1]); }
+  poly([[-mw*.7, my - .003], [0, my - .0065], [mw*.7, my - .003], [0, my - .0018]], .0018 + beardLift, S.lips, 1.1);
+}
+
+/* hair: a shell over the scalp out to a hairline, with each style's own thickness, plus whatever hangs */
+const HAIRLINE = [[0, 40], [35, 31], [55, 20], [70, -14], [80, -16], [92, 6], [104, 8], [118, -12], [150, -32], [180, -38]];
+const HAIRLINE_F = [[0, 42], [35, 32], [60, 14], [80, -4], [100, -6], [130, -22], [180, -30]];
+function hairline(lonDeg, rc, fem){
+  const T = fem ? HAIRLINE_F : HAIRLINE, x = Math.abs(lonDeg);
+  for (let i = 1; i < T.length; i++) if (x <= T[i][0]){
+    const t = (x - T[i - 1][0])/(T[i][0] - T[i - 1][0]); let v = lerp(T[i - 1][1], T[i][1], t);
+    if (x < 65) v += rc*(38 - x*.35)*(1 - x/80);                 // a receding hairline lifts the front and temples
+    return v;
+  }
+  return T[T.length - 1][1];
+}
+function hair(G, D, F, look, hf, near){
+  const st = look.hair || "short", rc = look.receding || 0, fem = look.sex === "f";
+  if (st === "bald") return;
+  const nh = near ? 14 : 8, rows = near ? 6 : 3, hs = D.hs, hc = D.hc;
+  const bump = (r, j, k = 1) => (hash3(r*31 + 7, j*17 + 3, hashStr(st)) - .5)*2*k;
+  const longish = st === "long";
+  let latTop = () => 90;
+  if (st === "horseshoe") latTop = lon => Math.abs(lon) < 70 ? -999 : lerp(18, 36, sstep(70, 160, Math.abs(lon)));
+  const edgeOf = lon => {
+    let e = hairline(lon, rc, fem);
+    if (st === "afro") e -= 4;
+    if (longish && Math.abs(lon) > 75) e = Math.min(e, -6);
+    return e;
+  };
+  const thick = (t, lon, r, j) => {
+    const al = Math.abs(lon), front = al < 40;
+    switch (st){
+      case "buzz": return .0028;
+      case "fade": return t < .45 ? .017 + .003*bump(r, j) : lerp(.017, .0025, sstep(.45, .62, t));
+      case "curly": return t > .97 ? .008 : .024 + .012*bump(r, j);
+      case "afro": return t > .97 ? .02 : .066 - .02*t*t + .004*bump(r, j);
+      case "messy": return t > .97 ? (front ? .012 : .005) : .014 + .011*Math.abs(bump(r, j));
+      case "ponytail": case "bun": return t > .97 ? .004 : .008;
+      case "braids": case "cornrows": return .0025;
+      case "dreads": return t > .97 ? .007 : .016 + .005*bump(r, j);
+      case "long": return t > .97 ? (front ? .009 : .006) : .014 - .004*t;
+      case "horseshoe": return t > .97 ? .003 : .008;
+      default: return t > .97 ? (front ? .011 : .004) : lerp(.017, .009, t) + (front && t > .6 ? .004 : 0);
+    }
+  };
+  const fade = st === "fade";
+  // the shell, crown to hairline
+  const R = [];
+  for (let r = 0; r <= rows; r++){
+    const t = r/rows, v = [];
+    for (let j = 0; j < nh; j++){
+      const lon = j/nh*360 > 180 ? j/nh*360 - 360 : j/nh*360, top = latTop(lon), e = edgeOf(lon);
+      if (top < e){ v.push(null); continue; }
+      const lat = lerp(top, e, Math.pow(t, .9));
+      v.push([...hf(lat*D2R, lon*D2R, .0035 + thick(t, lon, r, j)), HEADW]);
+    }
+    R.push({v, c:hc, s:fade && t > .6 ? S.fade : S.hair, sh:1, t});
+  }
+  const ok = (i, k) => R[i].v[k] && R[i].v[(k + 1) % nh] && R[i + 1].v[k] && R[i + 1].v[(k + 1) % nh];
+  // a hairline the scalp shows up to: stitch rows, skipping holes (a horseshoe has none on top)
+  for (let i = 0; i < rows; i++) for (let k = 0; k < nh; k++){
+    if (!ok(i, k)) continue;
+    const a = R[i].v[k], b = R[i].v[(k + 1) % nh], c = R[i + 1].v[(k + 1) % nh], d = R[i + 1].v[k];
+    const m = [(a[0] + c[0])/2 - hc[0], (a[1] + c[1])/2 - hc[1], (a[2] + c[2])/2 - hc[2]], s = R[i + 1].s;
+    G.tri(a, b, c, s, 1, 1, 1, m); G.tri(a, c, d, s, 1, 1, 1, m);
+  }
+  // the edge folds back down to the scalp so the hair has thickness, not a paper edge
+  const edges = [rows]; if (st === "horseshoe") edges.push(0);
+  for (const r of edges) for (let j = 0; j < nh; j++){
+    const a = R[r].v[j], b = R[r].v[(j + 1) % nh]; if (!a || !b) continue;
+    const lonA = j/nh*360, lonB = (j + 1)/nh*360, la = r ? edgeOf(wrap(lonA*D2R)/D2R) : latTop(wrap(lonA*D2R)/D2R), lb = r ? edgeOf(wrap(lonB*D2R)/D2R) : latTop(wrap(lonB*D2R)/D2R);
+    const A2 = [...hf(la*D2R, lonA*D2R, .0008), HEADW], B2 = [...hf(lb*D2R, lonB*D2R, .0008), HEADW];
+    const inner = r ? R[r - 1].v[j] : R[1].v[j]; if (!inner) continue;
+    const out = sub(a, inner);
+    G.quad(a, b, B2, A2, R[r].s, .62, out);
+  }
+  const lowW = (y) => y > hc[1] - .1 ? HEADW : wt(B.head, .55, B.chest, .45);
+  if (longish){
+    // a curtain falling behind the shoulders, double sided
+    const len = fem ? .3 : .19, Rr = [], Ri = [];
+    const cols = []; for (let j = 0; j < nh; j++){ const lon = j/nh*360; if (lon >= 75 && lon <= 285) cols.push(j); }
+    const drop = near ? [0, .3, .6, 1] : [0, 1];
+    for (const f of drop){
+      const vo = [], vi = [];
+      for (const j of cols){
+        const p = R[rows].v[j]; if (!p) continue;
+        const lon = j/nh*TAU, out = [Math.sin(lon), 0, Math.cos(lon)];
+        const y = p[1] - f*len, spread = f*.018, back = -f*.035;
+        const q = [p[0] + out[0]*spread, y, p[2] + out[2]*spread + back + (f > 0 ? -.006 : 0)];
+        vo.push([...q, lowW(y)]); vi.push([q[0] - out[0]*.005, q[1], q[2] - out[2]*.005, lowW(y)]);
+      }
+      Rr.push({v:vo, c:[hc[0], p0y(R, rows) - f*len, hc[2] + .01], s:S.hair, sh:1 - f*.15}); Ri.push({v:vi, c:[hc[0], p0y(R, rows) - f*len, hc[2] + .01], s:S.hair, sh:.55});
+    }
+    loft(G, Rr, {open:true, radial:"xz"}); loft(G, Ri, {open:true, radial:"xz", inside:true});
+  }
+  if (st === "ponytail"){
+    const P = [[0, .045, -.1], [0, -.005, -.135], [0, -.08, -.15], [0, -.16, -.14], [0, -.22, -.12]].map(p => [hc[0] + p[0]*hs, hc[1] + p[1]*hs, hc[2] + p[2]*hs]);
+    tube(G, P, [.026, .03, .027, .02, .01], near ? 6 : 4, P.map(p => lowW(p[1])), S.hair, .95);
+    tube(G, [P[0], addv(P[0], norm(sub(P[1], P[0])), .012)], [.029, .029], near ? 6 : 4, [HEADW, HEADW], S.dark, 1, false);
+  }
+  if (st === "bun"){
+    const c = [hc[0], hc[1] + .06*hs, hc[2] - .085*hs], Rr = [];
+    for (const la of [-60, -20, 20, 60]){ const y = Math.sin(la*D2R)*.03, r = Math.cos(la*D2R)*.036; Rr.push(ring([c[0], c[1] + y, c[2] - y*.4], [1, 0, 0], [0, 0, 1], a => [Math.sin(a)*r, Math.cos(a)*r], near ? 7 : 5, HEADW, {s:S.hair, sh:.95})); }
+    loft(G, Rr); cap(G, Rr[0], [c[0], c[1] - .034, c[2] + .014, HEADW], S.hair, .8); cap(G, Rr[3], [c[0], c[1] + .036, c[2] - .014, HEADW], S.hair);
+  }
+  if ((st === "braids" || st === "cornrows") && near){
+    // cornrows running back over the scalp, and a few braids hanging behind
+    for (const ph of [-.6, -.36, -.12, .12, .36, .6]){
+      const P = [];
+      for (let i = 0; i <= 8; i++){ const ps = (38 + i*(205 - 38)/8)*D2R, d = [0, Math.sin(ps), Math.cos(ps)], c = Math.cos(ph), s = Math.sin(ph);
+        const dd = [d[0]*c - d[1]*s, d[0]*s + d[1]*c, d[2]], lat = Math.asin(clamp(dd[1], -1, 1)), lon = Math.atan2(dd[0], dd[2]); P.push(hf(lat, lon, .0065)); }
+      const hang = st === "braids" && Math.abs(ph) < .4;
+      if (hang){ const e = P[P.length - 1]; P.push([e[0], e[1] - .06, e[2] - .012], [e[0], e[1] - .13, e[2] - .01]); }
+      tube(G, P, P.map((p, i) => i > 8 ? .0065 : .0058), 4, P.map(p => lowW(p[1])), S.hair, .9, hang);
+    }
+  }
+  if (st === "dreads"){
+    const cnt = near ? 13 : 6;
+    for (let i = 0; i < cnt; i++){
+      const lon = (62 + i*(236/(cnt - 1)))*D2R, la = (edgeOf(lon/D2R) + 6)*D2R, p0 = hf(la, lon, .012), out = [Math.sin(lon), 0, Math.cos(lon)], L = .15 + .08*hash3(i, 3, 9);
+      const P = [p0, [p0[0] + out[0]*.012, p0[1] - L*.45, p0[2] + out[2]*.012 - .01], [p0[0] + out[0]*.02, p0[1] - L, p0[2] + out[2]*.02 - .018]];
+      tube(G, P, [.012, .011, .008], near ? 4 : 3, P.map(p => lowW(p[1])), S.hair, .9);
+    }
+  }
+}
+const p0y = (R, rows) => { let y = 0, n = 0; for (const p of R[rows].v) if (p){ y += p[1]; n++; } return n ? y/n : 0; };
+// a short beard over the jaw and chin, with the moustache; the mouth is lifted above it
+const BEARDLINE = [[0, -27], [16, -29], [30, -38], [52, -31], [72, -12], [100, -2]];
+function beard(G, D, hf, near){
+  const cols = near ? 12 : 6, rows = near ? 4 : 2, R = [];
+  const top = lon => { const x = Math.abs(lon); for (let i = 1; i < BEARDLINE.length; i++) if (x <= BEARDLINE[i][0]) return lerp(BEARDLINE[i - 1][1], BEARDLINE[i][1], (x - BEARDLINE[i - 1][0])/(BEARDLINE[i][0] - BEARDLINE[i - 1][0])); return -2; };
+  for (let r = 0; r <= rows; r++){
+    const t = r/rows, v = [];
+    for (let j = 0; j <= cols; j++){ const lon = -100 + j*200/cols, lat = lerp(top(lon), -88, Math.pow(t, .8));
+      v.push([...hf(lat*D2R, lon*D2R, r === 0 ? .0018 : .0065 + .002*t), HEADW]); }
+    R.push({v, sh:r === 0 ? .85 : 1});
+  }
+  for (let i = 0; i < rows; i++) for (let k = 0; k < cols; k++){
+    const a = R[i].v[k], b = R[i].v[k + 1], c = R[i + 1].v[k + 1], d = R[i + 1].v[k], m = sub([(a[0] + c[0])/2, (a[1] + c[1])/2, (a[2] + c[2])/2], D.hc);
+    G.tri(a, b, c, S.hair, R[i].sh, R[i].sh, 1, m); G.tri(a, c, d, S.hair, R[i].sh, 1, 1, m);
+  }
+}
+
+/* ---------- caching: bodies by shape, colours per person ---------- */
+const SHAPES = new Map();
+function shapeKey(look, det, noHead){
+  const g = garb(look.outfit), F = look.face || {}, q = v => Math.round(((v || 1) - 1)/.06);
+  return [det, noHead ? 1 : 0, look.sex, look.build, look.hair, look.beard || "", Math.round((look.receding || 0)*4), q(F.jaw), q(F.nose), q(F.brow), q(F.eyes), q(F.chin),
+    g.top, g.sleeves, g.collar, g.legwear, g.footwear, g.legs, g.tuck, g.belt, g.gloves, g.bib, g.apron, g.tie, g.coat, g.hood, g.zip, g.crest, g.placket,
+    (look.props || []).join("+"), Math.round(sstep(45, 78, look.age || 25)*4)].join("|");
+}
+function shape(look, det, noHead){
+  const key = shapeKey(look, det, noHead);
+  let sp = SHAPES.get(key);
+  if (sp) return sp;
+  const {G, torsoHit, D} = build(look, det, noHead), n = G.sl.length;
+  const pos = new Float32Array(G.p), nor = new Float32Array(n*3);
+  for (let i = 0; i < n; i += 3){
+    const a = i*3, ux = pos[a + 3] - pos[a], uy = pos[a + 4] - pos[a + 1], uz = pos[a + 5] - pos[a + 2], vx = pos[a + 6] - pos[a], vy = pos[a + 7] - pos[a + 1], vz = pos[a + 8] - pos[a + 2];
+    const [nx, ny, nz] = norm([uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx]);
+    for (let k = 0; k < 3; k++){ nor[a + k*3] = nx; nor[a + k*3 + 1] = ny; nor[a + k*3 + 2] = nz; }
+  }
+  const g = garb(look.outfit), rough = new Uint8Array(n);
+  for (let i = 0; i < n; i++){ const nm = SLOTS[G.sl[i]]; let r = ROUGH[nm] == null ? .92 : ROUGH[nm]; if (nm === "shoe" && g.footwear === "dress") r = .3; if (nm === "shoe" && g.footwear === "trainers") r = .7; rough[i] = Math.round(r*255); }
+  sp = {key, n, D, torsoHit, slot:new Uint8Array(G.sl), shade:new Float32Array(G.sh), attr:{
+    position:new THREE.BufferAttribute(pos, 3), normal:new THREE.BufferAttribute(nor, 3),
+    skinIndex:new THREE.Uint8BufferAttribute(G.bi, 4), skinWeight:new THREE.BufferAttribute(new Float32Array(G.bw), 4),
+    rough:new THREE.BufferAttribute(rough, 1, true)}, nums:new Map()};
+  SHAPES.set(key, sp);
+  return sp;
+}
+const SHARED = ["position", "normal", "skinIndex", "skinWeight", "rough"];
+const _c = new THREE.Color();
+function colours(sp, pal){
+  const n = sp.n, a = new Uint16Array(n*3);
+  for (let i = 0; i < n; i++){ const s = sp.slot[i]*3, f = sp.shade[i]*65535; a[i*3] = Math.min(65535, pal[s]*f); a[i*3 + 1] = Math.min(65535, pal[s + 1]*f); a[i*3 + 2] = Math.min(65535, pal[s + 2]*f); }
+  return new THREE.BufferAttribute(a, 3, true);
+}
+function palette(look){
+  const o = look.outfit || {}, skin = hex(look.skin) ?? 0xd9a882, hair = hex(look.hairColor) ?? 0x2e2018;
+  const top = hex(o.shirt) ?? 0x2c66b8, legs = (garb(o).legwear === "kitshorts" || garb(o).legwear === "shorts") ? (hex(o.shorts) ?? hex(o.trousers)) : (hex(o.trousers) ?? hex(o.shorts));
+  const bottom = legs ?? 0x2f3540, lum = new THREE.Color(top), L = .3*lum.r + .59*lum.g + .11*lum.b;
+  const C = {skin, hair, lips:mixHex(shadeHex(skin, .82), 0x9a4a46, .3), brow:shadeHex(hair, .8), white:0xeeeae2, iris:hex(look.eyes) ?? 0x3a2618,
+    top, trim:hex(o.trim) ?? (L > .6 ? shadeHex(top, .55) : mixHex(top, 0xffffff, .75)), bottom, btrim:hex(o.btrim) ?? shadeHex(bottom, .7),
+    socks:hex(o.socks) ?? top, strim:hex(o.sockTrim) ?? hex(o.trim) ?? 0xf2f2f0, shoe:hex(o.shoes) ?? 0x18191c, sole:hex(o.sole) ?? (garb(o).footwear === "trainers" ? 0xeeeeea : 0x2a2a2a),
+    stripe:hex(o.stripe) ?? 0xf2f2f0, bib:hex(o.bib) ?? 0xd8ff3a, glove:hex(o.glove) ?? 0xe8e8e2, gtrim:hex(o.gloveTrim) ?? 0x1c1c22, inner:hex(o.inner) ?? 0xf2f2ee,
+    tie:hex(o.tie) ?? 0x7a1f2b, prop:0x5b4330, paper:0xf2f0e8, num:hex(o.numCol) ?? (L > .55 ? 0x1b1d22 : 0xf4f4f0), stubble:mixHex(skin, hair, .32), fade:mixHex(skin, hair, .62),
+    lash:mixHex(hair, 0x0b0908, .6), lace:hex(o.lace) ?? 0xf0f0ec, apron:hex(o.apron) ?? 0x3b2a20, metal:0xb9bec4, belt:hex(o.belt) ?? 0x2a1e16, dark:0x17181b};
+  const pal = new Float32Array(SLOTS.length*3);
+  SLOTS.forEach((nm, i) => { _c.setHex(C[nm] ?? 0xff00ff); pal[i*3] = _c.r; pal[i*3 + 1] = _c.g; pal[i*3 + 2] = _c.b; });
+  return pal;
+}
+
+/* ---------- the shared material: matte cloth, soft skin, glossier boots — roughness rides on each vertex ---------- */
+let MAT = null, MATLOW = null;
+const lowGfx = () => typeof GFX !== "undefined" && GFX.low;
+export function humanMaterial(){
+  if (lowGfx()){ if (!MATLOW){ MATLOW = new THREE.MeshLambertMaterial({vertexColors:true, flatShading:true}); MATLOW.userData.keep = true; } return MATLOW; }
+  if (!MAT){
+    MAT = new THREE.MeshStandardMaterial({vertexColors:true, flatShading:true, roughness:1, metalness:0, envMapIntensity:.5});
+    MAT.userData.keep = true;
+    MAT.onBeforeCompile = sh => {
+      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute float rough;\nvarying float vRough;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvRough = rough;");
+      sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vRough;").replace("#include <roughnessmap_fragment>", "float roughnessFactor = vRough;");
+    };
+    MAT.customProgramCacheKey = () => "human-rough-1";
+  }
+  return MAT;
+}
+
+/* ---------- shirt numbers: stroked digits cast onto the back, one tiny extra mesh seen only up close ---------- */
+const arcP = (cx, cy, rx, ry, a0, a1, n = 10) => { const p = []; for (let i = 0; i <= n; i++){ const a = (a0 + (a1 - a0)*i/n)*D2R; p.push([cx + Math.cos(a)*rx, cy + Math.sin(a)*ry]); } return p; };
+const DIGITS = {
+  0: [arcP(.5, .5, .4, .46, 90, 450, 16)],
+  1: [[[.2, .78], [.56, 1], [.56, 0]]],
+  2: [[...arcP(.5, .7, .4, .3, 165, -25, 9), [.06, 0], [.96, 0]]],
+  3: [arcP(.48, .74, .37, .26, 155, -90, 8), arcP(.48, .27, .43, .27, 90, -160, 9)],
+  4: [[[.72, 0], [.72, 1], [.04, .3], [.98, .3]]],
+  5: [[[.9, 1], [.2, 1], [.13, .56], ...arcP(.5, .33, .43, .33, 125, -160, 9)]],
+  6: [[...arcP(.58, .58, .4, .42, 75, 180, 6), ...arcP(.5, .3, .42, .3, 180, 540, 14)]],
+  7: [[[.04, 1], [.96, 1], [.36, 0]]],
+  8: [arcP(.5, .76, .34, .24, -90, 270, 14), arcP(.5, .28, .42, .28, 90, 450, 14)],
+  9: [[...arcP(.5, .7, .42, .3, 0, 360, 14), ...arcP(.42, .42, .5, .42, 0, -100, 6)]]
+};
+function numberMesh(sp, num, pal, chestY){
+  const k = num + "|" + Array.from(pal.slice(S.num*3, S.num*3 + 3)).join(",");
+  let geo = sp.nums.get(k);
+  if (!geo){
+    const G = new Geo(), str = String(num).slice(0, 2), h = .19, w = h*.6, gap = .03, total = str.length*w + (str.length - 1)*gap, cy = 1.155;
+    const tris = [];
+    [...str].forEach((ch, i) => { const x0 = -total/2 + i*(w + gap);
+      for (const line of DIGITS[ch] || []) for (const t of stroke(line.map(([u, v]) => [x0 + u*w, cy + v*h]), .026)) tris.push(t.map(p => [-p[0], p[1]])); });
+    decal(G, sp.torsoHit, tris, -1, .006, S.num, () => wt(B.chest));
+    const n = G.sl.length, pos = new Float32Array(G.p), col = new Uint16Array(n*3), rough = new Uint8Array(n).fill(200);
+    for (let i = 0; i < n; i++){ pos[i*3 + 1] -= chestY; for (let c = 0; c < 3; c++) col[i*3 + c] = pal[S.num*3 + c]*65535; }
+    geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3)); geo.setAttribute("color", new THREE.BufferAttribute(col, 3, true)); geo.setAttribute("rough", new THREE.BufferAttribute(rough, 1, true));
+    geo.computeVertexNormals(); geo.computeBoundingSphere();
+    sp.nums.set(k, geo);
+  }
+  const m = new THREE.Mesh(geo, humanMaterial()); m.userData.keep = true; m.receiveShadow = true;
+  return m;
+}
+
+/* ---------- people ---------- */
+const LIVE = new Set();
+const IDENT = new THREE.Matrix4();
+function normLook(look){
+  const L = Object.assign({sex:"m", age:26, skin:0xd9a882, height:1, build:"average", hair:"short", hairColor:0x2e2018, beard:"", eyes:0x3a2618, receding:0, face:{}, props:[], seed:1}, look);
+  L.outfit = Object.assign({type:"casual"}, look.outfit || {});
+  // face, age and hairline are snapped to a few steps, so people who look alike share one cached body
+  const F = Object.assign({jaw:1, nose:1, brow:1, eyes:1, chin:1}, look.face || {}), q = v => Math.round(((+v || 1) - 1)/.06)*.06 + 1;
+  L.face = {jaw:q(F.jaw), nose:q(F.nose), brow:q(F.brow), eyes:q(F.eyes), chin:q(F.chin)};
+  L.receding = Math.round(clamp(+L.receding || 0, 0, 1)*4)/4;
+  return L;
+}
+export function human(look = {}, opts = {}){
+  look = normLook(look);
+  const noHead = !!opts.noHead, spN = shape(look, 1, noHead), spF = opts.lod === false ? null : shape(look, 0, noHead), D = spN.D;
+  const g = new THREE.Group(); g.name = "person";
+  const rest = restPos(D), bones = rest.map((r, i) => { const b = new THREE.Bone(); b.name = BN[i]; return b; });
+  bones.forEach((b, i) => { const p = PAR[i], r = rest[i], pr = p < 0 ? [0, 0, 0] : rest[p]; b.position.set(r[0] - pr[0], r[1] - pr[1], r[2] - pr[2]); if (p >= 0) bones[p].add(b); });
+  g.add(bones[0]);
+  const skel = new THREE.Skeleton(bones, rest.map(r => new THREE.Matrix4().makeTranslation(-r[0], -r[1], -r[2])));
+  const pal = palette(look);
+  const mk = sp => {
+    const geo = new THREE.BufferGeometry();
+    for (const k of SHARED) geo.setAttribute(k, sp.attr[k]);
+    geo.setAttribute("color", colours(sp, pal));
+    const m = new THREE.SkinnedMesh(geo, humanMaterial());
+    m.bind(skel, IDENT);
+    m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, .9, 0), 2.1);
+    m.userData.keep = true; m.receiveShadow = true; m.castShadow = !!opts.cast;
+    g.add(m); return m;
+  };
+  const near = mk(spN), far = spF ? mk(spF) : null;
+  if (far) far.visible = false;
+  const og = garb(look.outfit);
+  let num = null;
+  if (og.number && !og.bib && !noHead){ num = numberMesh(spN, og.number, pal, D.chestY); bones[B.chest].add(num); }
+  const r = rng((look.seed | 0) + 77);
+  const h = {g, look, D, bones, skel, near, far, num, isHuman:true, pose:new Float32Array(NP), from:new Float32Array(NP), tgt:new Float32Array(NP),
+    rest:rest.map((p, i) => { const q = PAR[i] < 0 ? [0, 0, 0] : rest[PAR[i]]; return new THREE.Vector3(p[0] - q[0], p[1] - q[1], p[2] - q[2]); }),
+    bw:1, mode:"", at:0, t:r()*100, ph:r(), v:0, lod:1, seed:r(), stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1};
+  g.scale.setScalar(h.scale);
+  h.dispose = () => {
+    LIVE.delete(h);
+    for (const m of [near, far]) if (m){ for (const k of SHARED) m.geometry.deleteAttribute(k); m.geometry.dispose(); }
+    skel.dispose();
+    if (g.parent) g.parent.remove(g);
+  };
+  if (opts.track !== false){ LIVE.add(h); hook(W.scene); }
+  animateHuman(h, 0, "idle"); h.bw = 1;
+  return h;
+}
+// your own body, for first person: no head, no hair; arms, hands, legs and feet in the same style
+export function playerRig(look = {}, o = {}){
+  const h = human(look, {noHead:o.firstPerson !== false, lod:false, track:false, cast:!!o.cast});
+  h.near.frustumCulled = false;
+  return h;
+}
+
+/* ---------- once a frame, before drawing: near or far body, numbers up close, and the blobs underfoot ---------- */
+let BLOBS = null;
+const _cam = new THREE.Vector3(), _mx = new THREE.Matrix4(), _q0 = new THREE.Quaternion(), _sc = new THREE.Vector3(), _ps = new THREE.Vector3();
+function blobs(){
+  if (BLOBS) return BLOBS;
+  const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"), gr = x.createRadialGradient(32, 32, 2, 32, 32, 31);
+  gr.addColorStop(0, "rgba(0,0,0,.62)"); gr.addColorStop(.55, "rgba(0,0,0,.34)"); gr.addColorStop(1, "rgba(0,0,0,0)"); x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.userData.per = 1;
+  const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI/2);
+  const m = new THREE.MeshBasicMaterial({map:t, transparent:true, depthWrite:false, opacity:.55, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
+  m.userData.keep = true;
+  BLOBS = new THREE.InstancedMesh(geo, m, 96); BLOBS.frustumCulled = false; BLOBS.renderOrder = 1; BLOBS.userData.keep = true; BLOBS.count = 0;
+  return BLOBS;
+}
+function hook(scene){
+  if (!scene || scene.userData.humans) return;
+  scene.userData.humans = true;
+  const prev = scene.onBeforeRender;
+  scene.onBeforeRender = function(renderer, sc, camera, rt){
+    prev.call(this, renderer, sc, camera, rt);
+    camera.getWorldPosition(_cam);
+    let n = 0;
+    const bl = blobs();
+    for (const h of LIVE){
+      // where is it: in this scene, and shown?
+      let o = h.g, vis = true;
+      while (o.parent){ if (!o.visible) vis = false; o = o.parent; }
+      if (o !== sc){ if (h.gen !== W.ticks) h.dispose(); continue; }
+      if (!vis || !h.g.visible) continue;
+      const e = h.g.matrixWorld.elements, d = Math.hypot(e[12] - _cam.x, e[13] - _cam.y, e[14] - _cam.z);
+      if (h.far){ if (h.lod && d > 15) h.lod = 0; else if (!h.lod && d < 13.5) h.lod = 1; h.near.visible = !!h.lod; h.far.visible = !h.lod; }
+      if (h.num) h.num.visible = !!h.lod && d < 9.5;
+      if (n < bl.instanceMatrix.count){
+        const hb = h.bones[B.hips].matrixWorld.elements, s = .5*h.scale*(1 + Math.max(0, h.pose[61])*.2);
+        _ps.set(hb[12], e[13] + .012, hb[14]); _sc.set(s*1.05, 1, s*1.3); _q0.setFromAxisAngle(_up, Math.atan2(e[8], e[10]));
+        bl.setMatrixAt(n++, _mx.compose(_ps, _q0, _sc));
+      }
+    }
+    bl.count = n;
+    if (n){ if (bl.parent !== sc) sc.add(bl); bl.instanceMatrix.needsUpdate = true; }
+  };
+}
+const _up = new THREE.Vector3(0, 1, 0);
+
+/* ---------- animation ---------- */
+export const CONTACT = {kick:.42, pass:.44, trap:.42, header:.5};
+const PRESET = {walk:1.4, jog:3.2, run:5, sprint:7.6};
+const _A = new Float32Array(NP), _B = new Float32Array(NP);
+const _M = new THREE.Matrix4(), _M2 = new THREE.Matrix4(), _E = new THREE.Euler(), _Q = new THREE.Quaternion(), _V = new THREE.Vector3(), _P = new THREE.Vector3(), _ONE = new THREE.Vector3(1, 1, 1);
+const R3 = (T, b, x, y = 0, z = 0) => { T[b*3] = x; T[b*3 + 1] = y; T[b*3 + 2] = z; };
+// the body-space matrix of a bone under pose T (rest rotations are all identity)
+function frameOf(h, T, b, out){
+  const chain = []; for (let i = b; i > 0; i = PAR[i]) chain.unshift(i);
+  out.identity();
+  for (const i of chain){
+    _P.copy(h.rest[i]); if (i === B.hips){ _P.x += T[60]; _P.y += T[61]; _P.z += T[62]; }
+    _E.set(T[i*3], T[i*3 + 1], T[i*3 + 2], "XYZ"); _Q.setFromEuler(_E);
+    out.multiply(_M2.compose(_P, _Q, _ONE));
+  }
+  return out;
+}
+// two-bone IK in the parent's frame: the limb hangs along -y at rest; bend = +1 (knee, shin folds back) or -1 (elbow)
+function twoBone(T, b0, b1, v, L1, L2, bend){
+  let d = v.length(); const dc = clamp(d, Math.abs(L1 - L2) + .02, L1 + L2 - 1e-4); if (d < 1e-6){ v.set(0, -1, 0); d = 1; } v.multiplyScalar(dc/d); d = dc;
+  const k = Math.acos(clamp((d*d - L1*L1 - L2*L2)/(2*L1*L2), -1, 1)), a = -(L1 + L2*Math.cos(k)), bb = bend*-L2*Math.sin(k);
+  const phi = Math.asin(clamp(v.x/(-a), -1, 1)), p = a*Math.cos(phi);
+  const th = wrap(Math.atan2(v.z, v.y) - Math.atan2(bb, p));
+  T[b0*3] = th; T[b0*3 + 1] = 0; T[b0*3 + 2] = phi; T[b1*3] = bend*k;
+  return th;
+}
+function legIK(h, T, s, x, y, z, pitch = 0, toe = 0){
+  const [th, sh, ft, to] = LEG(s), D = h.D;
+  frameOf(h, T, B.hips, _M).invert();
+  _V.set(x, y, z).applyMatrix4(_M).sub(h.rest[th]);
+  const t = twoBone(T, th, sh, _V, D.hipY - D.kneeY, D.kneeY - D.ankY, 1);
+  R3(T, ft, pitch - t - T[sh*3] - T[B.hips*3]); R3(T, to, toe);
+}
+function armIK(h, T, s, x, y, z, twist = 0, wrist = 0){
+  const [ua, fa, hd] = ARM(s), D = h.D;
+  frameOf(h, T, B.chest, _M).invert();
+  _V.set(x, y, z).applyMatrix4(_M).sub(h.rest[ua]);
+  twoBone(T, ua, fa, _V, D.elbowL, D.foreL, -1);
+  T[fa*3 + 1] = twist; R3(T, hd, wrist);
+}
+function idle(h, T, st){
+  const t = h.t, D = h.D, sd = h.seed*10, old = D.old;
+  const w = Math.sin(t*.42 + sd)*.8 + Math.sin(t*.17 + sd*2)*.2, br = Math.sin(t*1.5 + sd);
+  T[60] = .014*w; T[61] = -.004 + .0025*br - old*.01; T[62] = 0;
+  R3(T, B.hips, .0, .04*Math.sin(t*.13 + sd), -.022*w);
+  R3(T, B.spine, .02 + old*.06 + .006*br, -.02*Math.sin(t*.13 + sd), .012*w);
+  R3(T, B.chest, .01 - .01*br + old*.04, 0, .01*w);
+  const look = st.look != null ? st.look : .3*Math.sin(t*.11 + sd*3) + .2*Math.sin(t*.29 + sd);
+  R3(T, B.neck, -.02 - old*.05, look*.45, 0); R3(T, B.head, .03*Math.sin(t*.23 + sd), look*.55, .02*Math.sin(t*.19));
+  for (const s of [1, -1]){
+    const [ua, fa, hd] = ARM(s);
+    R3(T, ua, .04 + .02*Math.sin(t*.5 + s + sd) - .03*h.arm, 0, s*(.11 + .02*h.arm)); R3(T, fa, -.16 - .06*h.arm, -s*.2, 0); R3(T, hd, .08, 0, -s*.04);
+  }
+  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0);
+  const arms = st.arms;
+  if (arms === "hips") for (const s of [1, -1]) armIK(h, T, s, s*.2, 1.0, .03, -s*.6, -.3);
+  else if (arms === "behind") for (const s of [1, -1]) armIK(h, T, s, s*.05, .96, -.15, -s*1.2, .2);
+  else if (arms === "folded"){ armIK(h, T, 1, -.11, 1.2, .17, -1.4, .1); armIK(h, T, -1, .11, 1.225, .155, 1.4, .1); }
+}
+// walking to sprinting. The stance foot pivots heel → flat → ball and moves back at exactly ground speed.
+function gait(v){
+  const R = sstep(1.9, 3.1, v);
+  const tab = [[0, .55], [1.4, .92], [2.2, 1.06], [3, 1.28], [5, 1.42], [7.5, 1.62], [10, 1.76]];
+  let f = tab[tab.length - 1][1]; for (let i = 1; i < tab.length; i++) if (v <= tab[i][0]){ f = lerp(tab[i - 1][1], tab[i][1], (v - tab[i - 1][0])/(tab[i][0] - tab[i - 1][0])); break; }
+  return {R, f, duty:lerp(.61, lerp(.4, .3, sstep(3, 8, v)), R), lift:lerp(.075 + .01*v, Math.min(.5, .1 + .055*v), R)};
+}
+function stancePose(u, zc, R){
+  const pw = u < .12 ? -.28*(1 - u/.12) : u < .55 ? 0 : .78*Math.pow((u - .55)/.45, 1.6);
+  const pr = u < .45 ? .02 : 1.0*Math.pow((u - .45)/.55, 1.4);
+  const ps = lerp(pw, pr, R);
+  if (ps < 0) return [zc + .085*Math.sin(ps) + .05*Math.cos(ps), .085*Math.cos(ps) - .05*Math.sin(ps), ps, 0];
+  return [zc + .16 + .085*Math.sin(ps) - .11*Math.cos(ps), .085*Math.cos(ps) + .11*Math.sin(ps), ps, -ps];
+}
+function loco(h, T, st, dt){
+  const D = h.D, v = h.v/h.scale, G = gait(v), R = G.R, duty = G.duty;
+  h.ph = (h.ph + G.f*dt) % 1;
+  const L = v/G.f, Ds = L*duty, zc0 = Ds/2 - .05 + lerp(.01, -.03, R);
+  const pL = h.ph, yaw = lerp(.1, .15, R)*Math.min(1, v/1.2), cL = Math.cos(TAU*pL), mid = Math.cos(TAU*2*(pL - duty/2));
+  // pelvis: swings with the legs, drops onto the swing side, bobs (up at mid-stance walking, down running)
+  let dy = lerp(-.012 + .012*mid, -.035 - .006*Math.min(v, 8) - .022*mid, R);
+  const feet = [];
+  for (const s of [1, -1]){
+    const p = s > 0 ? pL : (pL + .5) % 1, x = s*(D.hipX - .004 - .022*R);
+    let z, y, pitch, toe;
+    if (p < duty){ [z, y, pitch, toe] = stancePose(p/duty, zc0 - p/duty*Ds, R); }
+    else {
+      const u = (p - duty)/(1 - duty), A = stancePose(1, zc0 - Ds, R), Bp = stancePose(0, zc0, R);
+      const e = lerp(sstep(0, 1, u), sstep(0, 1, Math.pow(u, 1.35)), R);
+      z = lerp(A[0], Bp[0], e);
+      y = lerp(A[1], Bp[1], u) + G.lift*lerp(Math.sin(Math.PI*u), Math.sin(Math.PI*Math.pow(u, .72)), R);
+      pitch = lerp(A[2], Bp[2], sstep(0, 1, u)) + lerp(-.18, .35, R)*Math.sin(Math.PI*u);
+      toe = lerp(-A[2], 0, sstep(0, .4, u))*.6;
+    }
+    feet.push([x, y, z, pitch, toe]);
+  }
+  // keep both feet reachable: the hips sink rather than the foot sliding
+  const Lm = (D.hipY - D.ankY)*.995;
+  for (const [x, y, z] of feet){ const hx = x*.98, hz = 0, dh = Math.hypot(x - hx, z - hz); const maxY = y + Math.sqrt(Math.max(0, Lm*Lm - dh*dh)) - D.hipY; if (dy > maxY) dy = maxY; }
+  T[60] = .012*(1 - R)*Math.cos(TAU*(pL - duty/2)); T[61] = dy; T[62] = 0;
+  R3(T, B.hips, .04*R, -yaw*cL, .035*(1 - R)*Math.cos(TAU*(pL - duty/2)));
+  const lean = .03 + .09*R + .05*sstep(4.5, 8, v);
+  R3(T, B.spine, lean, yaw*.5*cL, 0); R3(T, B.chest, .02*R - .01, yaw*.8*cL, 0);
+  R3(T, B.neck, -lean*.5, -yaw*.6*cL, 0); R3(T, B.head, -lean*.25 - .02, -yaw*.35*cL, 0);
+  for (let i = 0; i < 2; i++){ const s = i ? -1 : 1, f = feet[i]; legIK(h, T, s, f[0], f[1], f[2], f[3], f[4]); }
+  // arms swing against the legs; elbows fold as the pace rises
+  const A = lerp(.22 + .14*Math.min(1, v/1.4), Math.min(1.05, .55 + .07*(v - 3)), R), e0 = lerp(.22, 1.3 + .12*sstep(5, 8, v), R);
+  for (const s of [1, -1]){
+    const [ua, fa, hd] = ARM(s), p = s > 0 ? pL : (pL + .5) % 1, c = Math.cos(TAU*p);
+    R3(T, ua, A*c - .08*R, -s*.1*R*c, s*(.1 + .05*R));
+    R3(T, fa, -(e0 + .25*R*(1 - c)/2 + .1*(1 - R)*(1 - c)/2), -s*(.25 + .2*R), 0);
+    R3(T, hd, lerp(.1, -.05, R), 0, 0);
+  }
+}
+function moveMode(h, T, st, dt){
+  idle(h, _A, st);
+  const m = sstep(.04, .55, h.v);
+  if (m <= 0){ T.set(_A); h.ph = (h.ph + .5*dt) % 1; return; }
+  loco(h, _B, st, dt);
+  for (let i = 0; i < NP; i++) T[i] = lerp(_A[i], _B[i], m);
+}
+// ---- actions ----
+function stand(h, T, st){ idle(h, T, Object.assign({}, st, {look:0})); }
+function kickLike(h, T, st, kind){
+  const t = st.t != null ? st.t : Math.min(1, h.at/(kind === "kick" ? .9 : .75)), D = h.D, amp = st.amp || 1, s = -1;   // right foot
+  stand(h, T, st);
+  const big = kind === "kick", tr = kind === "trap";
+  const [th, sh, ft, to] = LEG(s);
+  const thighX = tr ? kf(t, [[0, 0], [.3, -.32], [.55, -.35], [1, 0]])
+    : big ? kf(t, [[0, 0], [.3, .7], [.42, -.75], [.55, -1.2], [.75, -.6], [1, 0]]) : kf(t, [[0, 0], [.3, .45*amp], [.44, -.5*amp], [.6, -.75*amp], [1, 0]]);
+  const knee = tr ? kf(t, [[0, .1], [.3, .5], [.55, .45], [1, .05]])
+    : big ? kf(t, [[0, .15], [.3, 1.85], [.42, .25], [.55, .1], [.8, .5], [1, .1]]) : kf(t, [[0, .15], [.3, 1.05], [.44, .3], [.6, .2], [1, .1]]);
+  const rot = big ? 0 : kf(t, [[0, 0], [.2, -.75], [.7, -.75], [1, 0]]);
+  T[60] = kf(t, [[0, 0], [.35, .03], [.6, .02], [1, 0]]); T[61] = big ? kf(t, [[0, -.01], [.35, -.07], [.6, -.04], [1, -.005]]) : -.03;
+  R3(T, B.hips, 0, big ? kf(t, [[0, 0], [.3, .25], [.55, -.25], [1, 0]]) : .1*Math.sin(t*Math.PI), big ? kf(t, [[0, 0], [.4, .12], [1, 0]]) : .05);
+  legIK(h, T, 1, D.hipX + .05, D.ankY, kind === "kick" ? -.08 : -.02, 0);
+  R3(T, th, thighX, rot, big ? -.05 : 0); R3(T, sh, knee); R3(T, ft, big ? .55 : tr ? -.2 : -.12); R3(T, to, 0);
+  R3(T, B.spine, big ? kf(t, [[0, .05], [.3, .18], [.45, -.08], [.6, -.18], [1, .03]]) : kf(t, [[0, .05], [.4, .2], [1, .05]]), 0, big ? kf(t, [[0, 0], [.42, .15], [1, 0]]) : .06); R3(T, B.chest, .02);
+  R3(T, B.neck, .1, 0, 0); R3(T, B.head, .2, 0, 0);
+  const ao = big ? kf(t, [[0, .2], [.3, 1.0], [.6, 1.15], [1, .2]]) : kf(t, [[0, .2], [.4, .55], [1, .2]]);
+  R3(T, ARM(1)[0], big ? -.5 : -.2, 0, ao); R3(T, ARM(-1)[0], big ? kf(t, [[0, .1], [.42, .6], [1, .1]]) : .25, 0, -ao*.7); R3(T, ARM(1)[1], -.4, 0, 0); R3(T, ARM(-1)[1], -.4, 0, 0);
+}
+function header(h, T, st){
+  const t = st.t != null ? st.t : Math.min(1, h.at/1.1), D = h.D;
+  const up = kf(t, [[0, 0], [.2, -.16], [.3, .1], [.48, .42], [.62, .3], [.75, -.12], [.9, -.04], [1, 0]]);
+  T[61] = up; T[60] = 0; T[62] = 0;
+  R3(T, B.hips, kf(t, [[0, 0], [.2, .2], [.4, -.1], [.5, .1], [1, 0]]), 0, 0);
+  R3(T, B.spine, kf(t, [[0, .05], [.2, .35], [.42, -.3], [.52, .35], [.7, .15], [1, .03]]));
+  R3(T, B.chest, kf(t, [[0, 0], [.42, -.15], [.52, .2], [1, 0]]));
+  R3(T, B.neck, kf(t, [[0, 0], [.42, -.3], [.52, .35], [1, 0]])); R3(T, B.head, kf(t, [[0, 0], [.42, -.2], [.52, .2], [1, 0]]));
+  const fy = Math.max(0, up - .02)*kf(t, [[0, 0], [.3, .8], [.6, .8], [.8, 0], [1, 0]]);
+  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .02), D.ankY + fy + (t > .3 && t < .7 ? .12*Math.sin((t - .3)/.4*Math.PI) : 0), s > 0 ? .03 : -.06, t > .25 && t < .75 ? .5 : 0);
+  for (const s of [1, -1]){ const [ua, fa] = ARM(s); R3(T, ua, kf(t, [[0, .1], [.2, .7], [.42, -1.6], [.55, -.9], [1, .05]]), 0, s*kf(t, [[0, .12], [.42, .7], [.6, .5], [1, .12]])); R3(T, fa, kf(t, [[0, -.2], [.42, -.9], [1, -.2]])); }
+}
+function tackle(h, T, st){
+  const t = st.t != null ? st.t : Math.min(1, h.at/1.2), D = h.D, k = kf(t, [[0, 0], [.18, 1], [.8, 1], [1, .9]]);
+  T[61] = -.66*k; T[62] = .12*k; T[60] = -.08*k;
+  R3(T, B.hips, -.55*k, .25*k, -.45*k);
+  R3(T, B.spine, .35*k, -.15*k, .3*k); R3(T, B.chest, .1*k, 0, .1*k); R3(T, B.neck, .2*k); R3(T, B.head, .1*k);
+  const [tR, sR, fR, oR] = LEG(-1), [tL, sL, fL, oL] = LEG(1);
+  R3(T, tR, lerp(0, -1.15, k), 0, lerp(0, .15, k)); R3(T, sR, lerp(.1, .08, k)); R3(T, fR, lerp(0, -.3, k)); R3(T, oR, 0);  // the sliding leg out in front
+  R3(T, tL, lerp(0, -.25, k), 0, lerp(0, .35, k)); R3(T, sL, lerp(.1, 1.9, k)); R3(T, fL, lerp(0, .5, k)); R3(T, oL, 0);   // the other folded under
+  R3(T, ARM(1)[0], lerp(.05, .55, k), 0, lerp(.1, 1.0, k)); R3(T, ARM(1)[1], lerp(-.15, -.2, k));
+  R3(T, ARM(-1)[0], lerp(.05, -1.3, k), 0, lerp(-.1, -.5, k)); R3(T, ARM(-1)[1], lerp(-.15, -.5, k));
+}
+function gkReady(h, T, st){
+  const D = h.D, t = h.t, b = Math.sin(t*6.5)*.012;
+  T[61] = -.13 + b; T[60] = 0; T[62] = 0;
+  R3(T, B.hips, .2, 0, 0); R3(T, B.spine, .22); R3(T, B.chest, .08); R3(T, B.neck, -.25); R3(T, B.head, -.15);
+  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .1), D.ankY + Math.max(0, b)*.5, .02, .1);
+  for (const s of [1, -1]) armIK(h, T, s, s*.3, 1.02, .34, s*1.25, -.5);
+}
+function dive(h, T, st){
+  const t = st.t != null ? st.t : Math.min(1, h.at/1.3), dir = st.dir || 1, D = h.D;
+  const air = kf(t, [[0, 0], [.18, 0], [.45, 1], [.62, .65], [.75, .25], [1, .22]]), side = kf(t, [[0, 0], [.15, -.05], [.55, 1], [1, 1.05]]), roll = kf(t, [[0, 0], [.15, .05], [.5, 1.3], [.75, 1.45], [1, 1.45]]);
+  T[60] = dir*1.05*side; T[61] = -.12*(1 - side) + .3*air - .52*sstep(.55, .8, t); T[62] = .05*side;
+  R3(T, B.hips, .1, 0, -dir*roll);
+  R3(T, B.spine, .1*(1 - side), 0, -dir*.15*side); R3(T, B.chest, 0, dir*.15*side, -dir*.1*side); R3(T, B.neck, 0, 0, dir*.25*side); R3(T, B.head, -.1*side, 0, dir*.2*side);
+  for (const s of [1, -1]){
+    const [ua, fa, hd] = ARM(s), lead = s === dir;
+    R3(T, ua, lerp(-.7, lead ? -2.7 : -2.9, side), 0, s*lerp(.35, lead ? .15 : -.1, side)); R3(T, fa, lerp(-.7, -.15, side), s*1.2, 0); R3(T, hd, -.3);
+    const [th, sh, ft, to] = LEG(s);
+    R3(T, th, lerp(-.15, lead ? -.35 : .15, side), 0, s*lerp(.05, lead ? .25 : .05, side)); R3(T, sh, lerp(.6, lead ? .9 : .25, side)); R3(T, ft, .3); R3(T, to, 0);
+  }
+  if (t < .15) for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .1), D.ankY, .02, .1);
+}
+function celebrate(h, T, st){
+  const t = h.at, D = h.D, hop = Math.abs(Math.sin(t*5.2)), up = .08*hop;
+  T[61] = -.05 + up; T[60] = 0; T[62] = 0;
+  R3(T, B.hips, -.05); R3(T, B.spine, -.15); R3(T, B.chest, -.1); R3(T, B.neck, -.15); R3(T, B.head, -.2, .2*Math.sin(t*1.3), 0);
+  for (const s of [1, -1]){
+    const [ua, fa, hd] = ARM(s), pump = s > 0 ? Math.sin(t*5.2) : Math.sin(t*5.2 + 1);
+    R3(T, ua, -2.75 + .15*pump, 0, s*.38); R3(T, fa, -.35 - .45*Math.max(0, pump), 0, 0); R3(T, hd, -.2);
+    legIK(h, T, s, s*(D.hipX + .05), D.ankY + Math.max(0, up - .03)*1.2, 0, .1);
+  }
+}
+const STRETCHES = [
+  (h, T) => {                                                                       // quad: heel to the backside
+    const D = h.D; T[61] = -.01; R3(T, B.spine, .06); legIK(h, T, 1, D.hipX - .02, D.ankY, 0, 0);
+    const [th, sh, ft] = LEG(-1); R3(T, th, .2, 0, -.03); R3(T, sh, 2.25); R3(T, ft, .7);
+    R3(T, ARM(-1)[0], .62, 0, -.18); R3(T, ARM(-1)[1], -.4, 0, 0); R3(T, ARM(1)[0], -.1, 0, .55); R3(T, ARM(1)[1], -.3);
+  },
+  (h, T) => {                                                                       // hamstring: heel out, fold forward
+    const D = h.D; T[61] = -.12; R3(T, B.hips, .35); R3(T, B.spine, .45); R3(T, B.chest, .15); R3(T, B.neck, -.3);
+    legIK(h, T, 1, D.hipX + .02, D.ankY, -.12, 0); legIK(h, T, -1, -D.hipX, D.ankY + .03, .42, -.55);
+    for (const s of [1, -1]){ R3(T, ARM(s)[0], -.75, 0, s*.05); R3(T, ARM(s)[1], -.15); }
+  },
+  (h, T) => {                                                                       // reach overhead and lean
+    const D = h.D, k = Math.sin(h.at*.9); T[60] = -.02*k; R3(T, B.spine, 0, 0, .22*k); R3(T, B.chest, 0, 0, .18*k);
+    for (const s of [1, -1]){ legIK(h, T, s, s*(D.hipX + .07), D.ankY, 0, 0); R3(T, ARM(s)[0], -2.85, 0, s*.15); R3(T, ARM(s)[1], -.25); }
+  },
+  (h, T) => {                                                                       // lunge, hands on hips
+    const D = h.D; T[61] = -.2; T[62] = .05; R3(T, B.spine, -.04);
+    legIK(h, T, -1, -D.hipX - .01, D.ankY, .5, 0); legIK(h, T, 1, D.hipX + .01, D.ankY + .05, -.48, .7, -.7);
+    for (const s of [1, -1]) armIK(h, T, s, s*.2, 1.0, .02, -s*.6, -.3);
+  }
+];
+function stretch(h, T, st){
+  idle(h, T, Object.assign({}, st, {look:0}));
+  const per = 6, i = Math.floor(h.at/per) % STRETCHES.length, f = h.at % per;
+  const a = _A; a.set(T); STRETCHES[(i + STRETCHES.length - 1) % STRETCHES.length](h, a);
+  const b = _B; b.set(T); STRETCHES[i](h, b);
+  const w = h.at < per ? 1 : sstep(0, 1.1, f);
+  for (let k = 0; k < NP; k++) T[k] = lerp(a[k], b[k], w);
+}
+function sit(h, T, st, typing){
+  const D = h.D, seat = st.seat != null ? st.seat : typing ? .47 : .45, t = h.t;
+  T[61] = seat + .125 - D.hipsY; T[62] = 0; T[60] = 0;
+  R3(T, B.hips, -.12); R3(T, B.spine, typing ? .2 : .1 + .01*Math.sin(t*1.5)); R3(T, B.chest, .04);
+  R3(T, B.neck, typing ? .05 : -.05, typing ? 0 : .25*Math.sin(t*.12), 0); R3(T, B.head, typing ? .1 : .02);
+  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .03), D.ankY, .46 + (s > 0 ? .02 : -.02), 0);
+  if (typing){
+    const desk = st.desk || .74, reach = st.reach || .4;
+    for (const s of [1, -1]){ const tap = .006*Math.sin(t*(17 + s*3)); armIK(h, T, s, s*.15, desk + .04 + tap, reach, -s*1.45, -.15 + tap*8); }
+  } else for (const s of [1, -1]) armIK(h, T, s, s*(D.hipX + .06), seat + .2, .3, -s*.9, .1);
+}
+function counter(h, T, st){
+  idle(h, T, st);
+  const ht = st.counter || 1.0, reach = st.reach || .34;
+  T[60] *= .3; R3(T, B.spine, .07 + Math.max(0, .95 - ht)*.5, T[B.spine*3 + 1]*.5, 0);
+  for (const s of [1, -1]) armIK(h, T, s, s*.2, ht + .045, reach, -s*1.3, -.1);
+}
+function clipboard(h, T, st){
+  idle(h, T, st);
+  const t = h.t, write = sstep(.2, .6, Math.sin(t*.35 + h.seed*6)), [ua, fa, hd] = ARM(-1);
+  R3(T, ARM(1)[0], -.18, 0, .1); R3(T, ARM(1)[1], -1.45, 0, 0); R3(T, ARM(1)[2], 0, 0, 0);      // the board, held in the left hand
+  if (write > .01){
+    const keep = [ua, fa, hd].flatMap(b => [T[b*3], T[b*3 + 1], T[b*3 + 2]]);
+    armIK(h, T, -1, .03 + .02*Math.sin(t*3), 1.2 + .012*Math.sin(t*5), .3, 1.2, -.2);                // and now and then, a note
+    [ua, fa, hd].forEach((b, i) => { for (let c = 0; c < 3; c++) T[b*3 + c] = lerp(keep[i*3 + c], T[b*3 + c], write); });
+  }
+  const look = lerp(.35*Math.sin(t*.13 + h.seed*4), .1, write);
+  R3(T, B.neck, lerp(-.02, .25, write), look*.5, 0); R3(T, B.head, lerp(0, .2, write), look*.5, 0);
+}
+const MODES = {
+  idle:(h, T, st) => idle(h, T, st), move:moveMode, stand,
+  kick:(h, T, st) => kickLike(h, T, st, "kick"), pass:(h, T, st) => kickLike(h, T, st, "pass"), trap:(h, T, st) => kickLike(h, T, st, "trap"),
+  header, tackle, dive, gkready:gkReady, celebrate, stretch, sit:(h, T, st) => sit(h, T, st, false), typing:(h, T, st) => sit(h, T, st, true), counter, clipboard
+};
+const _st = {mode:"idle"};
+export function animateHuman(h, dt, state = "idle"){
+  let st = state;
+  if (typeof st === "string"){ _st.mode = st; _st.speed = PRESET[st]; st = _st; for (const k of ["t", "look", "arms", "dir", "seat", "desk", "counter", "reach", "amp"]) delete _st[k]; }
+  let mode = st.mode || "idle";
+  if (PRESET[mode] != null){ const target = st.speed != null ? st.speed : PRESET[mode]; h.v += (target - h.v)*(1 - Math.exp(-6*dt)); mode = "move"; }
+  else if (mode === "move"){ const target = st.speed || 0; h.v = Math.abs(target - h.v) < .05 ? target : h.v + (target - h.v)*(1 - Math.exp(-12*dt)); }
+  else if (mode === "idle"){ h.v += (0 - h.v)*(1 - Math.exp(-6*dt)); mode = "move"; }
+  if (!MODES[mode]) mode = "move";
+  if (mode !== h.mode){ h.from.set(h.pose); h.bw = 0; h.mode = mode; h.at = 0; }
+  h.at += dt; h.t += dt;
+  h.bw = Math.min(1, h.bw + dt/(st.blend || .3));
+  const T = h.tgt; T.fill(0);
+  MODES[mode](h, T, st, dt);
+  const e = sstep(0, 1, h.bw), P = h.pose;
+  for (let i = 0; i < NP; i++) P[i] = e >= 1 ? T[i] : lerp(h.from[i], T[i], e);
+  const bn = h.bones;
+  for (let i = 1; i < 20; i++) bn[i].rotation.set(P[i*3], P[i*3 + 1], P[i*3 + 2]);
+  const hp = bn[B.hips].position, r = h.rest[B.hips]; hp.set(r.x + P[60], r.y + P[61], r.z + P[62]);
+}
+
+/* ---------- looks: seeded, believable people for each role ---------- */
+const SKINS = [0xf3d3bb, 0xeac2a4, 0xdcab88, 0xc9926a, 0xb07a55, 0x8f5d3f, 0x6c4531, 0x4e3226];
+const HC = {black:0x15110e, dark:0x2b1d15, brown:0x4a3122, light:0x7a5537, blond:0xb08b58, ginger:0x8f4628, grey:0x8f8b85, white:0xcdcac4};
+const IRIS = {brown:0x3b2516, dark:0x22160f, hazel:0x5f4a28, green:0x4c6a3e, blue:0x4a6f95};
+const ROLES = {
+  footballer:{age:[18, 33], fem:0, builds:[["athletic", .45], ["slim", .2], ["average", .2], ["muscular", .1], ["stocky", .05]]},
+  goalkeeper:{age:[19, 35], fem:0, tall:.03, builds:[["athletic", .5], ["average", .25], ["slim", .1], ["muscular", .15]]},
+  coach:{age:[36, 62], fem:.1, builds:[["average", .4], ["stocky", .35], ["athletic", .15], ["slim", .1]]},
+  manager:{age:[44, 66], fem:0, builds:[["average", .5], ["stocky", .3], ["slim", .2]]},
+  shopkeeper:{age:[19, 62], fem:.55, builds:[["average", .45], ["stocky", .25], ["slim", .3]]},
+  barista:{age:[18, 34], fem:.55, builds:[["slim", .45], ["average", .45], ["athletic", .1]]},
+  customer:{age:[16, 80], fem:.5, builds:[["slim", .25], ["average", .4], ["stocky", .25], ["athletic", .1]]},
+  office:{age:[23, 60], fem:.45, builds:[["slim", .3], ["average", .45], ["stocky", .2], ["athletic", .05]]},
+  courier:{age:[19, 45], fem:.25, builds:[["slim", .35], ["average", .35], ["athletic", .3]]},
+  gym:{age:[20, 40], fem:.4, builds:[["athletic", .5], ["muscular", .25], ["slim", .15], ["average", .1]]}
+};
+ROLES.pedestrian = ROLES.customer;
+const CASUAL = {tee:[0xf2f0ea, 0x1f2125, 0x8a8f96, 0x24324a, 0x5a6b3e, 0x6e2a2f, 0xc9a23e, 0x7fa7c9, 0xc4683a, 0x3d6f6a],
+  jeans:[0x2c3e5c, 0x23293a, 0x50698f, 0x1c1d21], trousers:[0x34383f, 0xa89a78, 0x24304a, 0x1c1d21, 0x6b6e72, 0x5a4a38],
+  hoodie:[0x8a8f96, 0x1f2125, 0x24324a, 0x38513a, 0x8e2b2b, 0xc8b89a, 0x4a3b5e], jacket:[0x1f2125, 0x4a5236, 0x24304a, 0x8a6a48, 0x5b3b2a],
+  shoes:[0xf0f0ec, 0x1c1d21, 0x7d8188, 0x8a6a48, 0x2b3a5a]};
+const BOOTS = [[0x15161a, 0xf2f2f0], [0xf2f2f0, 0x15161a], [0xd8ff3a, 0x15161a], [0xf06a1e, 0x15161a], [0x2a64d8, 0xf2f2f0], [0xd32f3a, 0xf2f2f0], [0x15161a, 0xd8ff3a]];
+export function lookFor(role = "pedestrian", seed = 1, x = {}){
+  const R = ROLES[role] || ROLES.customer, r = rng(hashStr(role) ^ Math.imul(seed | 0, 2654435761));
+  const pick = a => a[Math.floor(r()*a.length) % a.length], rr = (a, b) => a + (b - a)*r();
+  const sex = x.sex || (r() < R.fem ? "f" : "m"), f = sex === "f";
+  const age = x.age || Math.round(rr(R.age[0], R.age[1])), old = sstep(40, 75, age);
+  // a given skin tone still steers hair and eyes: find the nearest of the eight
+  const lumOf = c => { const k = new THREE.Color(hex(c)); return .3*k.r + .59*k.g + .11*k.b; };
+  const tone = x.skin != null ? SKINS.reduce((bi, c, i) => Math.abs(lumOf(c) - lumOf(x.skin)) < Math.abs(lumOf(SKINS[bi]) - lumOf(x.skin)) ? i : bi, 0) : Math.floor(r()*SKINS.length);
+  const skin = x.skin != null ? hex(x.skin) : SKINS[tone], dark = tone >= 5, mid = tone >= 3 && tone < 5;
+  let hairColor = HC[wpick(r, dark ? [["black", .8], ["dark", .2]] : mid ? [["black", .5], ["dark", .4], ["brown", .1]] : [["black", .12], ["dark", .3], ["brown", .26], ["light", .15], ["blond", .13], ["ginger", .04]])];
+  if (r() < old*1.1) hairColor = old > .6 && r() < .5 ? HC.white : HC.grey;
+  else if (age > 38 && r() < .4) hairColor = mixHex(hairColor, HC.grey, .3 + .3*r());
+  const styles = f ? (dark ? [["braids", .25], ["afro", .15], ["ponytail", .25], ["bun", .2], ["curly", .1], ["short", .05]] : [["long", .38], ["ponytail", .3], ["bun", .17], ["short", .08], ["curly", .07]])
+    : dark ? [["buzz", .2], ["fade", .24], ["short", .08], ["afro", .1], ["curly", .12], ["braids", .05], ["cornrows", .06], ["dreads", .1], ["bald", .05]]
+    : [["short", .32], ["fade", .2], ["buzz", .12], ["messy", .14], ["curly", .08], ["long", .05], ["bald", .04], ["dreads", .02], ["ponytail", .03]];
+  let hair = wpick(r, styles), receding = 0;
+  if (!f && age > 32 && r() < (age - 30)/40){ receding = Math.min(1, (age - 30)/30*r() + .2); if (age > 50 && r() < .4) hair = r() < .5 ? "horseshoe" : "bald"; else if (!["short", "buzz", "fade", "messy"].includes(hair)) hair = "short"; }
+  const beard = f ? "" : wpick(r, [["", .55 - old*.1], ["stubble", .3], ["beard", .15 + old*.15]]);
+  const eyes = IRIS[tone <= 2 ? wpick(r, [["brown", .45], ["hazel", .15], ["blue", .28], ["green", .12]]) : wpick(r, [["brown", .55], ["dark", .45]])];
+  const build = x.build || wpick(r, R.builds);
+  const height = x.height || +(f ? rr(.9, .97) : rr(.95, 1.06) + (R.tall || 0)).toFixed(3);
+  const face = {jaw:f ? rr(.9, 1) : rr(.94, 1.12), nose:f ? rr(.84, 1) : rr(.9, 1.16), brow:f ? rr(.8, .95) : rr(.9, 1.2), eyes:rr(.95, 1.05), chin:rr(.88, 1.12)};
+  const mute = c => mixHex(c, 0x7c7a76, old*.45);
+  const kit = x.kit || ["#2c66b8", "#ffffff"];
+  let outfit, props = [];
+  if (role === "footballer"){
+    const [bc, bs] = pick(BOOTS);
+    outfit = {type:x.training ? "training" : "kit", shirt:kit[0], shorts:kit[1], socks:kit[2] || kit[0], sockTrim:kit[1], trim:kit[1], number:x.number || 0, bib:x.bib || false, shoes:bc, stripe:bs, sole:bc === 0xf2f2f0 ? 0xd8d8d4 : 0x24262a};
+  } else if (role === "goalkeeper"){
+    const team = new THREE.Color(hex(kit[0])), opts = [0x2f9e44, 0xf2c230, 0xf07a1a, 0x24262b, 0x7a3fb0, 0x1fa2c4].filter(c => { const k = new THREE.Color(c); return Math.abs(k.r - team.r) + Math.abs(k.g - team.g) + Math.abs(k.b - team.b) > .5; });
+    const c = pick(opts), [bc, bs] = pick(BOOTS);
+    outfit = {type:"gk", shirt:c, trim:0x1c1d21, shorts:0x1c1d21, socks:c, sockTrim:0x1c1d21, number:x.number || 1, glove:pick([0xf2f2ee, 0xd8ff3a, 0xf06a1e]), gloveTrim:0x1c1d21, shoes:bc, stripe:bs};
+  } else if (role === "coach"){
+    const club = hex(kit[0]);
+    outfit = {type:"tracksuit", shirt:mixHex(club, 0x10141c, .55), trousers:mixHex(club, 0x10141c, .7), trim:mixHex(club, 0xffffff, .2), shoes:pick([0x1c1d21, 0xf0f0ec])};
+    props = ["clipboard"];
+  } else if (role === "manager"){
+    const coat = r() < .5;
+    outfit = {type:coat ? "coat" : "suit", shirt:pick(coat ? [0x2a2c30, 0x1d2430, 0x6e5a44] : [0x1d2430, 0x2a2c30, 0x3a3f46]), trousers:pick([0x23262b, 0x1d2430, 0x34383f]), inner:pick([0xf2f2ee, 0xc9d8ea, 0xe9e4da]),
+      tie:r() < .65 ? pick([0x7a1f2b, 0x1d2a4a, 0x2f3a2f, 0x5a2a5a]) : false, shoes:pick([0x15161a, 0x3b2618])};
+  } else if (role === "shopkeeper" || role === "barista"){
+    const ba = role === "barista";
+    outfit = {type:"apron", apronCut:ba ? "bib" : "waist", collar:ba ? "crew" : (r() < .5 ? "polo" : "crew"), shirt:ba ? pick([0x1f2125, 0xf2f0ea, 0x6b6e72]) : pick([0xf2f0ea, 0x2f7d4a, 0x24324a, 0x8a8f96]),
+      apron:ba ? pick([0x3b2a20, 0x1f2125, 0x4a5236]) : pick([0x2f7d4a, 0x24324a, 0x8e2b2b]), trousers:pick(CASUAL.trousers.slice(0, 4)), shoes:pick([0x1c1d21, 0xf0f0ec])};
+  } else if (role === "office"){
+    outfit = {type:"office", shirt:pick([0xf2f2ee, 0xc9d8ea, 0xe8dfe8, 0xdfe8d8, 0x9fb7d4]), trousers:pick([0x23262b, 0x24304a, 0x4a4d52, 0xa89a78]), tie:r() < .3 ? pick([0x7a1f2b, 0x1d2a4a]) : false,
+      shoes:pick([0x15161a, 0x3b2618]), belt:0x231a14};
+    if (r() < .3) outfit.sleeves = "short";
+  } else if (role === "courier"){
+    outfit = {type:"polo", shirt:0x1b6f9a, trim:0xf2c230, legwear:r() < .5 ? "shorts" : "trackpants", shorts:0x23262b, trousers:0x23262b, socks:0x1c1d21, shoes:pick([0x1c1d21, 0xf0f0ec])};
+  } else if (role === "gym"){
+    outfit = {type:"casual", shirt:pick([0x1f2125, 0x2c66b8, 0xd32f3a, 0x8a8f96, 0x2f9e44, 0xf2f0ea]), legwear:"shorts", shorts:pick([0x1f2125, 0x24304a, 0x6b6e72]), socks:0xf2f2ee, shoes:pick(CASUAL.shoes)};
+  } else {
+    const kind = wpick(r, [["casual", .4], ["polo", .15], ["hoodie", .22], ["jacket", .23 + old*.2]]);
+    const legwear = wpick(r, [["jeans", .5], ["trousers", .35 + old*.3], ["shorts", .15 - old*.12]]);
+    outfit = {type:kind, shirt:mute(pick(kind === "hoodie" ? CASUAL.hoodie : kind === "jacket" ? CASUAL.jacket : CASUAL.tee)), inner:mute(pick(CASUAL.tee)), legwear,
+      trousers:mute(pick(legwear === "jeans" ? CASUAL.jeans : CASUAL.trousers)), shorts:mute(pick(CASUAL.trousers)), socks:0xf2f2ee, shoes:mute(pick(CASUAL.shoes))};
+    if (kind === "jacket" && old > .5 && r() < .6) outfit.footwear = "dress";
+  }
+  const look = {role, sex, age, skin, height, build, hair, hairColor, beard, eyes, receding, face, outfit, props, seed:seed | 0};
+  for (const k in x) if (!["kit", "number", "bib", "training", "outfit"].includes(k)) look[k] = x[k];
+  if (x.outfit) look.outfit = Object.assign(look.outfit, x.outfit);
+  return look;
+}

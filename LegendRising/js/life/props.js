@@ -82,7 +82,7 @@ export function mannequin(x, z, ry = 0, color = PC.yellow){
   fsolid(f, 0, 0, .5, .5, 0, 1.85);
 }
 export function bench(x, z, ry = 0, len = 2.4, o = {}){
-  const f = frame(x, z, ry), wood = o.wood || PC.wood, legs = o.legs || PC.darkSteel;
+  const f = frame(x, z, ry, o.y || 0), wood = o.wood || PC.wood, legs = o.legs || PC.darkSteel;
   for (let i = 0; i < 3; i++) rb(f, 0, .42, -.16 + i*.13, len, .045, .11, .02, wood, {jit:.06});
   if (o.back !== false){ for (let i = 0; i < 2; i++) rb(f, 0, .62 + i*.16, .3, len, .11, .04, .018, wood, {jit:.06, rx:-.12}); }
   for (const s of [-1, 1]){
@@ -314,8 +314,8 @@ export function tree(x, z, s = 1, tint = 0){
   sph(f, .1*s, 3.6*s, -.15*s, .72*s, c, {detail:1, flat:true});
   solid(x - .2*s, x + .2*s, z - .2*s, z + .2*s, 0, 2.5*s);
 }
-export function bush(x, z, s = 1){
-  const f = frame(x, z), c = [0x3f7a3a, 0x4a8740, 0x527f3c][Math.floor(Math.abs(x*3 + z*5)) % 3];
+export function bush(x, z, s = 1, y = 0){
+  const f = frame(x, z, 0, y), c = [0x3f7a3a, 0x4a8740, 0x527f3c][Math.floor(Math.abs(x*3 + z*5)) % 3];
   sph(f, 0, .35*s, 0, .55*s, c, {detail:1, flat:true, sy:.75});
   sph(f, .45*s, .3*s, .1*s, .38*s, c, {detail:1, flat:true, sy:.8});
   sph(f, -.4*s, .28*s, -.1*s, .4*s, c, {detail:1, flat:true, sy:.8});
@@ -338,18 +338,19 @@ export function streetLamp(x, z, dir = 1, y = 0){
   pool(lx, lz, 3.6, y + .03);
   solid(x - .14, x + .14, z - .14, z + .14, y, y + 5);
 }
-export function bollard(x, z){ const f = frame(x, z); cy(f, 0, 0, 0, .09, .11, .9, 0x2f3438, {seg:10}); cy(f, 0, .72, 0, .1, .1, .06, 0xd8dcd6, {seg:10}); solid(x - .12, x + .12, z - .12, z + .12, 0, .9); }
-export function bin(x, z, ry = 0){
-  const f = frame(x, z, ry);
+export function bollard(x, z, y = 0){ const f = frame(x, z, 0, y); cy(f, 0, 0, 0, .09, .11, .9, 0x2f3438, {seg:10}); cy(f, 0, .72, 0, .1, .1, .06, 0xd8dcd6, {seg:10}); solid(x - .12, x + .12, z - .12, z + .12, y, y + .9); }
+export function bin(x, z, ry = 0, y = 0){
+  const f = frame(x, z, ry, y);
   rb(f, 0, 0, 0, .5, .9, .45, .08, 0x2f5d3a, {seg:2, key:"paint"});
   rb(f, 0, .9, 0, .54, .06, .49, .03, 0x1f3a25);
   fsolid(f, 0, 0, .54, .49, 0, .96);
 }
-export function planter(x, z, w = 1.4){
-  const f = frame(x, z);
-  rb(f, 0, 0, 0, w, .5, .6, .06, 0x8a8780, {seg:1, flat:false});
-  bush(x, z, .7*w/1.4);
-  solid(x - w/2, x + w/2, z - .3, z + .3, 0, .5);
+export function planter(x, z, w = 1.4, y = 0){
+  const f = frame(x, z, 0, y);
+  rb(f, 0, 0, 0, w, .5, .6, .06, 0x8a8780, {seg:1, flat:false, tex:"concrete"});
+  rb(f, 0, .44, 0, w - .1, .05, .5, .02, 0x4a3a2c);
+  bush(x, z, .7*w/1.4, y + .2);
+  solid(x - w/2, x + w/2, z - .3, z + .3, y, y + .5);
 }
 export function car(x, z, ry, color){
   const f = frame(x, z, ry);
@@ -410,7 +411,7 @@ export function wireFence(x0, z0, x1, z1, h = 2.2){
 export function parkingBays(x0, z0, n, w = 2.6, d = 5, dirZ = 1){
   for (let i = 0; i <= n; i++){
     const x = x0 + i*w;
-    addGeo(new THREE.BoxGeometry(.1, .01, d).translate(x, .015, z0 + dirZ*d/2), 0xeeeeea, {ao:false, jit:0});
+    addGeo(new THREE.BoxGeometry(.1, .01, d).translate(x, .025, z0 + dirZ*d/2), 0xeeeeea, {ao:false, jit:0});
   }
-  addGeo(new THREE.BoxGeometry(n*w, .01, .1).translate(x0 + n*w/2, .015, z0), 0xeeeeea, {ao:false, jit:0});
+  addGeo(new THREE.BoxGeometry(n*w, .01, .1).translate(x0 + n*w/2, .025, z0), 0xeeeeea, {ao:false, jit:0});
 }

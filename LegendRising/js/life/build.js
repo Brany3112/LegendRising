@@ -47,6 +47,17 @@ function noise(g, w, h, n, a, dark = true){
     g.fillRect(Math.random()*w, Math.random()*h, 1 + Math.random()*2, 1 + Math.random()*2);
   }
 }
+// soft blots drawn at every wrapped position, so the picture tiles without a seam
+function blots(g, s, n, r0, r1, rgb, a){
+  for (let i = 0; i < n; i++){
+    const x = Math.random()*s, y = Math.random()*s, r = r0 + Math.random()*(r1 - r0), al = Math.random()*a;
+    for (const ox of [-s, 0, s]) for (const oy of [-s, 0, s]){
+      const cx = x + ox, cy = y + oy; if (cx + r < 0 || cx - r > s || cy + r < 0 || cy - r > s) continue;
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, r); gr.addColorStop(0, `rgba(${rgb},${al})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      g.fillStyle = gr; g.fillRect(cx - r, cy - r, 2*r, 2*r);
+    }
+  }
+}
 function finish(c, per){
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
@@ -65,21 +76,29 @@ const MAKERS = {
     g.fillStyle = "rgba(30,20,10,.18)"; g.beginPath(); g.ellipse(170, 130, 60, 34, .3, 0, 7); g.fill();   // worn
     noise(g, 256, 256, 900, .18); return finish(c, 2.2); },
   paper(){ const [c, g] = canvas(256, 256);
-    g.fillStyle = "#a9a888"; g.fillRect(0, 0, 256, 256);
-    for (let x = 0; x < 256; x += 32){ g.fillStyle = "rgba(70,72,50,.16)"; g.fillRect(x, 0, 3, 256); g.fillStyle = "rgba(255,250,220,.08)"; g.fillRect(x + 14, 0, 4, 256); }
-    for (let y = 8; y < 256; y += 32) for (let x = 16; x < 256; x += 32){ g.fillStyle = "rgba(90,88,60,.18)"; g.beginPath(); g.ellipse(x, y + (x % 64 ? 16 : 0), 3, 6, 0, 0, 7); g.fill(); }
-    for (let i = 0; i < 3; i++){ const gr = g.createRadialGradient(40 + i*90, 30 + i*50, 4, 40 + i*90, 30 + i*50, 50);
-      gr.addColorStop(0, "rgba(120,90,40,.22)"); gr.addColorStop(1, "rgba(120,90,40,0)"); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); }
-    noise(g, 256, 256, 1600, .12); return finish(c, 2.4); },
+    // a quiet striped wallpaper with a small sprig in the light stripes: warm, clean, no stains
+    g.fillStyle = "#ece4cf"; g.fillRect(0, 0, 256, 256);
+    for (let x = 0; x < 256; x += 64){ g.fillStyle = "rgba(170,145,100,.09)"; g.fillRect(x, 0, 32, 256);
+      g.fillStyle = "rgba(140,112,68,.2)"; g.fillRect(x + 31, 0, 1.5, 256); g.fillRect(x + 62.5, 0, 1.5, 256); }
+    g.fillStyle = "rgba(150,120,76,.13)";
+    for (let y = 16; y < 256; y += 32) for (let x = 48; x < 256; x += 64){ const yy = y + (x % 128 > 64 ? 16 : 0); g.beginPath(); g.moveTo(x, yy - 4); g.lineTo(x + 3, yy); g.lineTo(x, yy + 4); g.lineTo(x - 3, yy); g.fill(); }
+    noise(g, 256, 256, 1200, .05); return finish(c, 1.6); },
   tiles(){ const [c, g] = canvas(256, 256);
     g.fillStyle = "#8b9299"; g.fillRect(0, 0, 256, 256);
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++){ const v = 214 + Math.random()*20; g.fillStyle = `rgb(${v},${v + 3},${v + 6})`; g.fillRect(x*32 + 1.5, y*32 + 1.5, 29, 29); }
     noise(g, 256, 256, 500, .1); return finish(c, 1.2); },
   terrazzo(){ const [c, g] = canvas(256, 256);
-    g.fillStyle = "#a59f95"; g.fillRect(0, 0, 256, 256);
-    for (let i = 0; i < 900; i++){ const v = 60 + Math.random()*170; g.fillStyle = `rgba(${v},${v - 6},${v - 14},.8)`; g.fillRect(Math.random()*256, Math.random()*256, 2 + Math.random()*3, 2 + Math.random()*3); }
-    g.strokeStyle = "rgba(40,35,30,.35)"; g.lineWidth = 2; g.strokeRect(0, 0, 256, 256);
+    // fine chips in a warm grey ground, a joint every slab
+    g.fillStyle = "#b3ada3"; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2600; i++){ const v = 120 + Math.random()*110, sz = 1 + Math.random()*2.2; g.fillStyle = `rgba(${v},${v - 5},${v - 12},.55)`; g.fillRect(Math.random()*256, Math.random()*256, sz, sz); }
+    noise(g, 256, 256, 1500, .06);
+    g.strokeStyle = "rgba(60,55,48,.28)"; g.lineWidth = 1.5; g.strokeRect(0, 0, 256, 256);
     return finish(c, 1.6); },
+  stone(){ const [c, g] = canvas(256, 256);
+    // the polished mosaic of stair treads: the same chips, finer, and no joints
+    g.fillStyle = "#c2bcb1"; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 3200; i++){ const v = 135 + Math.random()*100, sz = .8 + Math.random()*1.6; g.fillStyle = `rgba(${v},${v - 4},${v - 10},.5)`; g.fillRect(Math.random()*256, Math.random()*256, sz, sz); }
+    noise(g, 256, 256, 1200, .05); return finish(c, 1.2); },
   asphalt(){ const [c, g] = canvas(256, 256);
     g.fillStyle = "#3a3e43"; g.fillRect(0, 0, 256, 256);
     noise(g, 256, 256, 5000, .3); noise(g, 256, 256, 2500, .08, false);
@@ -126,9 +145,46 @@ const MAKERS = {
     g.strokeStyle = "rgba(90,90,90,.25)"; for (let i = 0; i <= 4; i++){ g.beginPath(); g.moveTo(i*64, 0); g.lineTo(i*64, 256); g.moveTo(0, i*64); g.lineTo(256, i*64); g.stroke(); }
     noise(g, 256, 256, 900, .06); return finish(c, 2.4); },
   plaster(){ const [c, g] = canvas(256, 256);
-    g.fillStyle = "#d9d3c4"; g.fillRect(0, 0, 256, 256); noise(g, 256, 256, 2500, .08);
-    const gr = g.createLinearGradient(0, 200, 0, 256); gr.addColorStop(0, "rgba(80,70,50,0)"); gr.addColorStop(1, "rgba(80,70,50,.25)"); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
-    return finish(c, 3); }
+    // exterior render: a fine sand finish with a few soft clouds, near white so the vertex colour shows through
+    g.fillStyle = "#f1eee8"; g.fillRect(0, 0, 256, 256);
+    blots(g, 256, 22, 24, 70, "110,100,85", .06); blots(g, 256, 14, 20, 60, "255,255,255", .08);
+    noise(g, 256, 256, 5200, .07); noise(g, 256, 256, 2000, .08, false);
+    return finish(c, 3.2); },
+  paint(){ const [c, g] = canvas(256, 256);
+    // painted plaster indoors: the faint stipple and clouding a roller leaves, nothing more
+    g.fillStyle = "#f4f3ef"; g.fillRect(0, 0, 256, 256);
+    blots(g, 256, 24, 20, 64, "120,110,95", .04); blots(g, 256, 16, 16, 50, "255,255,255", .06);
+    noise(g, 256, 256, 2600, .04); noise(g, 256, 256, 1200, .05, false);
+    return finish(c, 2.2); },
+  brick(){ const [c, g] = canvas(256, 256);
+    // stretcher bond: light mortar, each brick a slightly different tone, a shaded lower edge
+    g.fillStyle = "#f3f0ea"; g.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 16; y++){
+      const tones = [0, 1, 2, 3].map(() => [200 + Math.random()*28, (Math.random() - .5)*12]);
+      for (let x = -1; x < 4; x++){
+        const bx = x*64 + (y % 2 ? 32 : 0), by = y*16, [v, t] = tones[(x + 4) % 4];
+        g.fillStyle = `rgb(${v + t},${v - 2},${v - 4 - t})`; g.fillRect(bx + 1.5, by + 1.5, 61, 13);
+        g.fillStyle = "rgba(0,0,0,.08)"; g.fillRect(bx + 1.5, by + 12.5, 61, 2);
+        g.fillStyle = "rgba(255,255,255,.07)"; g.fillRect(bx + 1.5, by + 1.5, 61, 1.5);
+      }
+    }
+    noise(g, 256, 256, 3000, .07); return finish(c, 1.1); },
+  panel(){ const [c, g] = canvas(256, 256);
+    // tongue-and-groove boards, oiled, with a little grain
+    for (let i = 0; i < 8; i++){
+      const v = 202 + Math.random()*26; g.fillStyle = `rgb(${v},${v - 20},${v - 44})`; g.fillRect(i*32, 0, 32, 256);
+      for (let k = 0; k < 10; k++){ g.fillStyle = `rgba(90,58,26,${Math.random()*.1})`; g.fillRect(i*32 + Math.random()*30, 0, 1, 256); }
+      g.fillStyle = "rgba(40,24,10,.42)"; g.fillRect(i*32, 0, 2, 256); g.fillStyle = "rgba(255,240,220,.14)"; g.fillRect(i*32 + 2, 0, 1, 256);
+    }
+    noise(g, 256, 256, 800, .05); return finish(c, 1.6); },
+  cladding(){ const [c, g] = canvas(256, 256);
+    // standing-seam metal sheet: a crisp rib every half metre
+    g.fillStyle = "#e9eaea"; g.fillRect(0, 0, 256, 256);
+    for (let x = 0; x < 256; x += 64){
+      g.fillStyle = "rgba(255,255,255,.75)"; g.fillRect(x, 0, 3, 256); g.fillStyle = "rgba(0,0,0,.24)"; g.fillRect(x + 3, 0, 4, 256);
+      g.fillStyle = "rgba(0,0,0,.06)"; g.fillRect(x + 7, 0, 12, 256);
+    }
+    noise(g, 256, 256, 1200, .035); return finish(c, 2); }
 };
 export function tex(name){ return TEX[name] || (TEX[name] = MAKERS[name]()); }
 // a goal net or a wire fence: lines on a clear background, cut out with alphaTest
@@ -203,7 +259,8 @@ export function blob(x, y, z, r, color, o = {}){        // a low-poly ball: tree
    out onto quarter circles, so it costs a few dozen triangles and reads as a soft, made object. */
 export function roundedBoxGeo(w, h, d, r, seg = 1){
   r = Math.max(0, Math.min(r, w/2 - 1e-3, h/2 - 1e-3, d/2 - 1e-3));
-  if (r <= 2e-3) return new THREE.BoxGeometry(w, h, d);
+  // a rounding under a couple of centimetres is invisible past arm's length: a plain box is 12 triangles, not 108
+  if (r < .016) return new THREE.BoxGeometry(w, h, d);
   const s = seg*2 + 1, g = new THREE.BoxGeometry(1, 1, 1, s, s, s);
   const p = g.attributes.position, n = g.attributes.normal;
   const half = [w/2, h/2, d/2], inner = [w/2 - r, h/2 - r, d/2 - r], P = [0, 0, 0], Q = [0, 0, 0];
@@ -228,6 +285,94 @@ export function rbox(x, y0, z, w, h, d, r, color, o = {}){
   g.translate(x, y0 + h/2, z);
   addGeo(g, color, Object.assign({ao:false}, o));
   if (o.solid) solid(x - w/2, x + w/2, z - d/2, z + d/2, y0, y0 + h);
+}
+/* a bar from one point to another — a handrail, a pipe, a bracket — w wide and h deep, its sides kept level
+   (o.round: a round bar of diameter w; o.r: rounded edges) */
+const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _bm = new THREE.Matrix4(), _up = new THREE.Vector3(0, 1, 0);
+export function beam(x0, y0, z0, x1, y1, z1, w, h, color, o = {}){
+  _bz.set(x1 - x0, y1 - y0, z1 - z0); const L = _bz.length(); if (L < 1e-4) return; _bz.divideScalar(L);
+  if (Math.abs(_bz.y) > .999) _bx.set(1, 0, 0); else _bx.crossVectors(_up, _bz).normalize();
+  _by.crossVectors(_bz, _bx);
+  const g = o.round ? new THREE.CylinderGeometry(w/2, w/2, L, o.seg || 8).rotateX(Math.PI/2) : o.r ? roundedBoxGeo(w, h, L, o.r) : new THREE.BoxGeometry(w, h, L);
+  g.applyMatrix4(_bm.makeBasis(_bx, _by, _bz).setPosition((x0 + x1)/2, (y0 + y1)/2, (z0 + z1)/2));
+  addGeo(g, color, Object.assign({ao:false}, o));
+}
+/* a side profile pushed out sideways: pts are [a, y] in world units, where a runs along `axis` ("z" or "x");
+   the shape is extruded across the other horizontal axis from s0 to s1. Stairs, stringers, sloped dados. */
+export function extrude(axis, pts, s0, s1, color, o = {}){
+  const sh = new THREE.Shape(pts.map(([a, y]) => new THREE.Vector2(a, y)));
+  const g = new THREE.ExtrudeGeometry(sh, {depth:Math.abs(s1 - s0), bevelEnabled:false, curveSegments:1});
+  const lo = Math.min(s0, s1), hi = Math.max(s0, s1);
+  // local x → along the profile, local y → up, local z → across (kept right-handed so no face turns inside out)
+  if (axis === "z") _bm.makeBasis(_bx.set(0, 0, 1), _by.set(0, 1, 0), _bz.set(-1, 0, 0)).setPosition(hi, 0, 0);
+  else _bm.makeBasis(_bx.set(1, 0, 0), _by.set(0, 1, 0), _bz.set(0, 0, 1)).setPosition(0, 0, lo);
+  g.applyMatrix4(_bm);
+  addGeo(g, color, Object.assign({ao:false}, o));
+}
+/* a flight of stairs as it is really built: a sloped concrete flight (soffit underneath), treads with a nosing,
+   risers, a non-slip strip — and under it all the ramp you actually walk on, laid just below the nosings.
+   o: axis ("z"/"x", the way it climbs), a0 (foot of the first riser) → a1 (the last riser, at the top),
+   s0 → s1 (across), y0 → y1, n risers, solidBase (sits on the ground: no soffit). Returns the pitch helpers. */
+export function flight(o){
+  const n = o.n, r = (o.y1 - o.y0)/n, L = Math.abs(o.a1 - o.a0), g = L/(n - 1), dir = Math.sign(o.a1 - o.a0);
+  const tt = .035, no = .03, th = o.th || .3, A = u => o.a0 + dir*u;
+  const pitch = u => o.y0 + r + u*r/g;                          // the line through the nosings
+  const us = Math.max(.01, (th - r)*g/r);                       // where the soffit meets the floor below
+  const P = [[A(0), o.y0]];
+  for (let i = 0; i < n; i++){ P.push([A(i*g), o.y0 + (i + 1)*r - tt]); if (i < n - 1) P.push([A((i + 1)*g), o.y0 + (i + 1)*r - tt]); }
+  if (o.solidBase) P.push([A(L), o.y0]); else P.push([A(L), o.y1 - th], [A(us), o.y0]);
+  extrude(o.axis, P, o.s0, o.s1, o.body || 0xe9e4d8, {tex:o.bodyTex || "paint", jit:0});
+  const B = (u0, u1, y0, y1, c, op) => o.axis === "z" ? box(o.s0, y0, A(u0), o.s1, y1, A(u1), c, op) : box(A(u0), y0, o.s0, A(u1), y1, o.s1, c, op);
+  const T = {tex:o.treadTex || "stone", ao:false, jit:.02};
+  for (let k = 0; k < n; k++){
+    const top = o.y0 + (k + 1)*r;
+    // the riser under this tread, a thin facing plate, and the tread itself with its nosing proud of it
+    B(k*g - .012, k*g, top - r, top - tt, o.riser || 0xe4dfd6, {tex:o.treadTex || "stone", ao:false, jit:.02});
+    if (k < n - 1){
+      B(k*g - no, (k + 1)*g, top - tt, top, o.tread || 0xffffff, T);
+      B(k*g - no + .025, k*g - no + .065, top, top + .003, o.strip || 0x4a4f55, {ao:false, jit:0});
+    } else B(k*g - no, k*g, top - tt, top, o.tread || 0xffffff, T);
+  }
+  if (o.ramp !== false){
+    const [x0, x1] = [o.s0, o.s1];
+    if (o.axis === "z") ramp(x0, x1, A(0), A(L), "z", A(0), A(L), o.y0 + r - .02, o.y1 - .02);
+    else ramp(A(0), A(L), x0, x1, "x", A(0), A(L), o.y0 + r - .02, o.y1 - .02);
+  }
+  return {r, g, L, n, A, pitch, us, th, no};
+}
+/* a stringer, a wall string or a dado band that follows a flight (f from flight()): a plate between `below`
+   under the soffit and `above` over the nosing line, at s0 → s1 across */
+export function stringer(o, f, s0, s1, color, above = .1, below = .03, op = {}){
+  const P = [[f.A(-f.no - .04), o.y0], [f.A(-f.no - .04), f.pitch(-f.no - .04) + above], [f.A(f.L), o.y1 + above]];
+  if (o.solidBase || op.toFloor) P.push([f.A(f.L), o.y0]);
+  else P.push([f.A(f.L), o.y1 - f.th - below], [f.A(Math.max(.01, (f.th + below - f.r)*f.g/f.r)), o.y0]);
+  extrude(o.axis, P, s0, s1, color, Object.assign({jit:0}, op));
+}
+/* the reveal of a window opening: the cut edges of the wall lined all round (sides, head and a sill board) */
+export function reveal(axis, fixed, a0, a1, y0, y1, t, color, o = {}){
+  const e = t/2 + (o.over || .02), T = {ao:false, jit:0, key:o.key}, lt = .03;
+  const B = (s0, s1, h0, h1, f0, f1, c) => axis === "x" ? box(s0, h0, fixed + f0, s1, h1, fixed + f1, c, T) : box(fixed + f0, h0, s0, fixed + f1, h1, s1, c, T);
+  B(a0, a0 + lt, y0, y1, -e, e, color); B(a1 - lt, a1, y0, y1, -e, e, color);
+  B(a0, a1, y1 - lt, y1, -e, e, color); B(a0 - .04, a1 + .04, y0, y0 + lt, -e - .03, e + .03, o.sill || color);
+}
+/* the lining of a door opening: jambs and a head over the cut edges of the wall, an architrave on each face that
+   stands proud of any wallpaper or paint skin, and a flush threshold — nothing across the opening that sticks up.
+   axis/fixed/t describe the wall (as for wall()); a0 → a1 the hole, base → base + h its height */
+export function doorway(axis, fixed, a0, a1, base, h, t, o = {}){
+  const c = o.color == null ? 0xf0eee8 : o.color, ar = o.arch == null ? .07 : o.arch, d = o.proud || .035, T = {ao:false, jit:0, key:o.key};
+  const B = (s0, s1, y0, y1, f0, f1, col) => axis === "x" ? box(s0, y0, fixed + f0, s1, y1, fixed + f1, col, T) : box(fixed + f0, y0, s0, fixed + f1, y1, s1, col, T);
+  const lt = o.lining == null ? .03 : o.lining;
+  // the lining runs on through any paint or paper skin, up to just inside the architraves, so no cut edge shows
+  const e = t/2 + (ar ? d - .004 : .025);
+  if (lt){ B(a0, a0 + lt, base, base + h, -e, e, c); B(a1 - lt, a1, base, base + h, -e, e, c); B(a0 + lt, a1 - lt, base + h - lt, base + h, -e, e, c); }
+  for (const s of o.faces || [-1, 1]){
+    if (!ar) break;
+    const f0 = s*t/2, f1 = s*(t/2 + d);
+    B(a0 - ar, a0, base, base + h + ar, f0, f1, c); B(a1, a1 + ar, base, base + h + ar, f0, f1, c);
+    B(a0 - ar, a1 + ar, base + h, base + h + ar, f0, f1, c);
+  }
+  if (o.sill != null) B(a0 + lt, a1 - lt, base, o.sill, -t/2, t/2, o.sillColor || 0x8d8a84);
+  return {a0:a0 + lt, a1:a1 - lt, h:h - lt};
 }
 // a light source: the nearest few to you are real lights, the rest just glow
 export function lightSrc(o){ const l = Object.assign({color:0xfff0d8, intensity:6, distance:12, decay:1.6, indoor:false}, o); W.lights.push(l); return l; }
@@ -261,22 +406,24 @@ export function spot(o){
   W.spots.push(o); return o;
 }
 
-/* a wall with holes in it (doors, windows): along x or z, from a to b, between heights y0 and y1 */
+/* a wall with holes in it (doors, windows): along x or z, from a to b, between heights y0 and y1. Each piece is
+   one flat colour: a contact shadow per piece would show every window as a patch */
 export function wall(axis, fixed, a, b, y0, y1, t, color, holes = [], o = {}){
-  holes = holes.slice().sort((p, q) => p[0] - q[0]);
   const seg = (s0, s1, h0, h1) => {
     if (s1 - s0 < .005 || h1 - h0 < .005) return;
-    if (axis === "x") box(s0, h0, fixed - t/2, s1, h1, fixed + t/2, color, Object.assign({solid:true}, o));
-    else box(fixed - t/2, h0, s0, fixed + t/2, h1, s1, color, Object.assign({solid:true}, o));
+    if (axis === "x") box(s0, h0, fixed - t/2, s1, h1, fixed + t/2, color, Object.assign({solid:true, ao:false}, o));
+    else box(fixed - t/2, h0, s0, fixed + t/2, h1, s1, color, Object.assign({solid:true, ao:false}, o));
   };
-  let cur = a;
-  for (const [h0a, h1a, hy0, hy1] of holes){
-    seg(cur, h0a, y0, y1);
-    seg(h0a, h1a, y0, hy0);          // under the hole
-    seg(h0a, h1a, hy1, y1);          // over it
-    cur = h1a;
+  // cut the wall into columns at every hole edge; each column is solid except where some hole passes through it,
+  // so holes may share a column (windows stacked up a stairwell) or reach past this storey
+  const xs = [...new Set([a, b, ...holes.flatMap(h => [h[0], h[1]])].map(x => Math.max(a, Math.min(b, x))))].sort((p, q) => p - q);
+  for (let i = 0; i < xs.length - 1; i++){
+    const s0 = xs[i], s1 = xs[i + 1], m = (s0 + s1)/2;
+    const cut = holes.filter(h => h[0] < m && h[1] > m).map(h => [Math.max(y0, h[2]), Math.min(y1, h[3])]).filter(h => h[1] > h[0]).sort((p, q) => p[0] - q[0]);
+    let y = y0;
+    for (const [c0, c1] of cut){ seg(s0, s1, y, c0); y = Math.max(y, c1); }
+    seg(s0, s1, y, y1);
   }
-  seg(cur, b, y0, y1);
 }
 
 /* ---------- writing on things ---------- */
@@ -315,7 +462,7 @@ export function begin(scene){
   W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = [];
   batches.clear();
 }
-const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber"]);
+const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber", "t:stone"]);
 export function finishBatches(){
   for (const [key, b] of batches){
     if (!b.pos.length) continue;
@@ -338,6 +485,8 @@ export function finishBatches(){
     else if (key === "gloss") m = mat({vertexColors:true, roughness:.42});
     else if (key.startsWith("t:")) m = mat({vertexColors:true, map:tex(key.slice(2)), roughness:key === "t:shopfloor" ? .5 : .92});
     else m = mat({vertexColors:true});
+    // screens, signs and neon glow in their own colour: the emissive light is tinted by the vertex colour
+    if (key === "screen" || key === "neon") m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor.rgb;"); };
     W.mats[key] = m;
     const mesh = new THREE.Mesh(g, m);
     // floors and ground never throw a shadow onto anything, so they are left out of the shadow pass
