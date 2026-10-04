@@ -474,7 +474,8 @@ function finishMatch(){
   if (f.kind === "N") addNews("intl", `${S.player.name} wins a cap for ${NAMES[me.nat].n}`, `${sideName(f,"h")} ${MT.home ? us : th}–${MT.home ? th : us} ${sideName(f,"a")}. Rated ${rating}.`, "me");
   // XP, trust, personal stats
   const xp = Math.max(10, 25 + my.goals*30 + my.assists*22 + my.dribbles*6 + (my.spass + my.lpass)*4 + (rating - 6)*20); addXP(xp);
-  S.trust = clamp(S.trust + (rating - 6.5)*8, -30, 80);
+  // a pre-season friendly is a look, not a verdict: the manager notices, but less
+  S.trust = clamp(S.trust + (rating - 6.5)*8*(f.kind === "F" ? .5 : 1), -30, 80);
   for (const st of [S.careerMy, S.seasonMy]){
     st.apps++; st.goals += my.goals; st.assists += my.assists; st.longGoals += my.long; st.fkGoals += my.fk; st.curlGoals += my.curl; st.penGoals += my.pen;
     st.dribbles += my.dribbles; st.spass += my.spass; st.lpass += my.lpass; st.passAtt += my.passAtt; st.shots += my.shots; st.onTarget += my.onTarget;

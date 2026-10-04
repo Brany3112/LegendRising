@@ -1149,7 +1149,7 @@ body.life #phoneRoot .phone-back{background:rgba(3,7,12,.3)}
 .lf-hand{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;padding:6px 12px;border-radius:10px;background:rgba(8,14,22,.6);font-size:.72rem;color:rgba(255,255,255,.7);pointer-events:none;
   opacity:0;transition:opacity .3s}
 body.life.hand .lf-hand{opacity:1}
-body.life.hand .lf-keys{opacity:0}
+body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,body.life.hub-out .lf-prompt{opacity:0}
 .lf-mail{position:absolute;inset:0;z-index:6;display:grid;place-items:center;background:rgba(4,8,14,.55);opacity:0;pointer-events:none;
   transition:opacity .25s ease}
 .lf-mail.on{opacity:1;pointer-events:auto}
@@ -1327,6 +1327,7 @@ body.life.hand .lf-keys{opacity:0}
 .decide{position:absolute;left:50%;bottom:clamp(70px,13vh,130px);transform:translateX(-50%) translateY(10px);width:min(760px,94vw);display:grid;gap:8px;opacity:0;pointer-events:none;
   transition:opacity .2s,transform .3s var(--ease);z-index:6}
 .decide.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
+.decide.top{bottom:auto;top:calc(var(--sb-bottom,84px) + 34px)}
 .dc-head{display:flex;align-items:center;gap:12px;justify-content:center}
 .dc-head b{font-family:var(--display);font-weight:800;font-size:1.1rem;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 2px 10px #000}
 .dc-timer{width:140px;height:5px;border-radius:4px;background:rgba(255,255,255,.18);overflow:hidden}

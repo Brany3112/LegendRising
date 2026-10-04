@@ -51,7 +51,9 @@ function stepBall(b, dt){
   b.m.position.addScaledVector(v, dt);
   if (b.m.position.y < .11){
     b.m.position.y = .11;
-    if (v.y < 0){ v.y = -v.y*.42; if (v.y < .8) v.y = 0; v.x *= .86; v.z *= .86; }
+    // a real landing bounces and loses some pace; a ball already rolling just keeps rolling
+    if (v.y < -1.2){ v.y = -v.y*.42; v.x *= .86; v.z *= .86; if (v.y < .8) v.y = 0; }
+    else if (v.y < 0) v.y = 0;
     if (v.y === 0){ const hs = Math.hypot(v.x, v.z); if (hs > 0){ const k = Math.max(0, hs - 2.4*dt)/hs; v.x *= k; v.z *= k; } }
   }
   b.m.rotation.x += v.z*dt*5; b.m.rotation.z -= v.x*dt*5;
@@ -144,7 +146,7 @@ export function startDrill(kind, H){
       const amp = (1 - s.skills.passacc/120)*.01*(1 + s.fatigue/90), sw = Math.sin(D.t*1.5)*amp;
       H.P.yaw += sw - (D.sw || 0); D.sw = sw;
       ring.scale.setScalar(1 + Math.sin(D.t*4)*.05);
-      if (D.phase === "aim" && D.charging){ D.power = Math.min(1, D.power + dt/1.1); hudPower(D.power); }
+      if (D.phase === "aim" && D.charging){ D.power = Math.min(1, D.power + dt/1.25); hudPower(D.power); }
       if (D.phase === "flight"){
         const b = D.ball; stepBall(b, dt);
         const stopped = b.v.lengthSq() < .04 && b.m.position.y <= .111;
@@ -163,7 +165,8 @@ export function startDrill(kind, H){
     D.shoot = () => {
       if (D.phase !== "aim" || D.power < .06){ D.charging = false; D.power = 0; hudPower(null); return; }
       D.charging = false; hudPower(null);
-      const loft = Math.max(0, Math.min(.75, H.P.pitch + .12)), dir = fwd(H.P.yaw, loft), sp = 5 + D.power*20;
+      // the rings sit 9–13 m out: about a third to a half of the bar along the ground
+      const loft = Math.max(0, Math.min(.75, H.P.pitch + .12)), dir = fwd(H.P.yaw, loft), sp = 4 + D.power*11;
       D.ball.v.copy(dir).multiplyScalar(sp); D.from = D.ball.m.position.clone();
       D.phase = "flight"; D.t = 0;
     };

@@ -416,6 +416,7 @@ function joinClub(o){
   S.contract = Object.assign({}, o, {start:gw(), startSnap:snapMy(), deadline:o.promised ? gw() + Math.round(o.years*CAL.W/2) : gw() + o.years*CAL.W});
   S.trust = trustFor(o.role); S.money += o.sign || 0;
   if (old !== c.id) S.chem = 18;                    // a new dressing room: you start again with these lads
+  if (S.today){ S.today.chem0 = S.chem; S.today.trust0 = S.trust; }   // signing is not something the day summary should count
   S.requests = S.requests.filter(r => r.club !== c.id);
   S.msgs.forEach(m => { if (m.offer && m.offer.club === c.id) m.done = true; });
   indexSquads();

@@ -162,7 +162,16 @@ function showDecide(){
   el.innerHTML = `<div class="dc-head"><b>${M.cross ? "Where does it go?" : "Your call"}</b><div class="dc-timer"><i></i></div></div>
     <div class="dc-opts">${M.opt.opts.map((o, i) => `<button class="dc-opt ${o.kind} ${o.st ? MATE_STATE[o.st].cls : ""}" onclick="chooseOption(${i})">
       <kbd>${i + 1}</kbd><b>${o.label}</b><span>${esc(o.sub || "")}</span></button>`).join("")}</div>`;
+  placeDecide(el);
   el.classList.add("on");
+}
+// the choices sit along the bottom unless that is where the play is; then they move up under the score
+function placeDecide(el){
+  el.classList.remove("top");
+  if (typeof cv === "undefined" || !cv || typeof worldToScreen !== "function") return;
+  const r = cv.getBoundingClientRect(), k = r.height/(cv.height || 1), box = el.getBoundingClientRect();
+  const ys = [M.ball, M.p].concat(M.mates || []).map(o => r.top + worldToScreen(o.x, o.y, o.z || BR).y*k);
+  if (ys.some(y => y > box.top - 44 && y < box.bottom + 14)) el.classList.add("top");
 }
 function hideDecide(){ const el = document.getElementById("decide"); if (el){ el.classList.remove("on"); el.innerHTML = ""; } }
 function chooseOption(i, timedOut){
@@ -171,7 +180,7 @@ function chooseOption(i, timedOut){
   hideDecide();
   const best = M.opt.best;
   M.dec = {choice:o.kind, chosenQ:o.q, shotQ:M.opt.shotQ, bestQ:best ? best.q : 0, bestOpen:best ? OPEN_STATES.has(best.m.st) : false,
-    bestName:best ? best.m.name : "", chosenState:o.st || "", ctx:M.cross ? "cross" : "open", hes:!!timedOut};
+    bestName:best ? best.m.name : "", chosenState:o.st || "", chosenName:o.m ? o.m.name : "", ctx:M.cross ? "cross" : "open", hes:!!timedOut};
   if (o.kind === "shoot"){ M.shooting = true; M.isPass = false; beginAim(true, M.type === "edge" ? 3.5 : 3.2); return; }
   M.isPass = true; M.shooting = false; M.call = o.m.role; M.callOriginal = M.callOriginal || o.m.role;
   M.info = `${o.label.toLowerCase().replace(/^./, c => c.toUpperCase())} · ${o.m.name}`;
@@ -230,14 +239,20 @@ function judgeMoment(){
     if (r === "miss" && dec.shotQ > .3 && margin > 3){ chem -= .8; T.push(["conf", -.5]); if (!say || base >= 0) say = "A big chance, badly missed."; }
     if (dec.hes) T.push(["conf", -.2]);
   } else if (dec && dec.choice === "pass"){
-    if (dec.chosenQ >= dec.shotQ - .05){
+    // picking the wrong man: someone held or marked when a team-mate was clearly free
+    const wrongMan = dec.bestOpen && dec.bestName && dec.chosenName && dec.chosenName !== dec.bestName && dec.chosenQ < dec.bestQ*.6;
+    if (wrongMan){
+      chem += M.passTo ? (r === "goal" ? .6 : .3) : -.3; T.push(["dec", -.4], ["team", .2]);
+      const why = dec.chosenState === "held" ? "being held" : dec.chosenState === "marked" ? "marked" : "";
+      say = M.passTo ? (r === "goal" ? `It came off — but ${dec.bestName} was in more space.` : `${dec.bestName} was in more space.`)
+        : why ? `${dec.chosenName} was ${why} — ${dec.bestName} was free.` : `${dec.bestName} was the better ball.`;
+    } else if (dec.chosenQ >= dec.shotQ - .05){
       chem += M.passTo ? 1 + (r === "goal" ? 1 : 0) : .2; T.push(["team", .9], ["dec", .4]);
       say = r === "goal" ? "Unselfish — the lads love that." : M.passTo ? "Right ball." : "Right idea, the execution let you down.";
     } else if (dec.shotQ > dec.chosenQ + .15){
       chem += M.passTo ? .4 : 0; T.push(["conf", -.5], ["dec", -.3], ["team", .3]);
       say = "You had the shot on there.";
     } else { chem += M.passTo ? .5 : -.2; T.push(["team", .4]); }
-    if (dec.chosenState === "held" && dec.bestOpen){ T.push(["dec", -.4]); if (!M.passTo) chem -= .4; }
     if (dec.hes) T.push(["conf", -.2]);
   } else if (M.isPass && !M.shooting && !M.myShot){
     // an ordinary moment of building the play

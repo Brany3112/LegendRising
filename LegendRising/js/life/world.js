@@ -31,6 +31,7 @@ function pass(mins, act = "idle"){
   if (s.home && s.home.light && LIFE.zone === "home") s.home.lightMin = (s.home.lightMin || 0) + mins;
   sync();
   if (s.life.day !== day0) forceSky = true;
+  if (mins >= 5) hudCtxT = 0;                       // a jump in time: refresh the line under the clock straight away
 }
 const persist = () => { const s = G(); if (s && typeof save === "function") save(); };
 window.lifePass = (m, act) => pass(m, act);
@@ -354,10 +355,16 @@ function step(dt, real){
 }
 /* walking up to the tunnel: the match gets ready as you come, and starts when you reach it */
 let tunnelInfo = null, tunnelGo = false, tunnelAge = 0;
+// " · 2–1" for a game already played today, from the world's results
+function playedScore(f){ const w = typeof gameWorld === "function" ? gameWorld() : null, d = w && w.done && w.done[f.key]; return d && d.hg != null ? ` · ${d.hg}–${d.ag}` : ""; }
 function matchToday(){
   try {
     const me = meP(), f = todaysFixture();
-    if (!f){ const n = nextFixture(); return {ok:false, why:n ? `No match today. Next: ${dayName(fixtureSlot(n).wd)} ${clockText(fixtureSlot(n).min)} vs ${oppName(n)}.` : "No match today."}; }
+    if (!f){
+      const done = todaysFixture(true), n = nextFixture();
+      if (done) return {ok:false, why:`Today's game is done${playedScore(done)}. ${n ? `Next: ${dayName(fixtureSlot(n).wd)} ${clockText(fixtureSlot(n).min)} vs ${oppName(n)}.` : "The bus home is by the gate."}`};
+      return {ok:false, why:n ? `No match today. Next: ${dayName(fixtureSlot(n).wd)} ${clockText(fixtureSlot(n).min)} vs ${oppName(n)}.` : "No match today."};
+    }
     const ko = fixtureSlot(f).min, label = `${sideName(f, "h")}  vs  ${sideName(f, "a")}`;
     if (me.inj > 0) return {ok:false, why:"You're injured — you'll watch this one from the stand.", label};
     if ((G().ban || 0) > 0) return {ok:false, why:`Suspended — ${G().ban} match${G().ban === 1 ? "" : "es"} to sit out.`, label};

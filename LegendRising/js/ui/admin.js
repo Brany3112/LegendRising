@@ -239,7 +239,7 @@ function adminSet(field, value){
     case "moneyAdd": S.money = Math.max(0, Math.round(S.money + n)); break;
     case "wage": if (S.contract) S.contract.wage = Math.max(0, Math.round(n)); break;
     case "years": if (S.contract) S.contract.years = Math.max(0, Math.round(n)); break;
-    case "trust": S.trust = clamp(Math.round(n), -10, 10); break;
+    case "trust": S.trust = clamp(Math.round(n), -30, 80); break;
     case "rep": me.rep = Math.max(0, Math.round(n)); break;
     case "wrep": me.wrep = Math.max(0, Math.round(n)); break;
     case "fame": me.rep = Math.max(0, Math.round(n)); me.wrep = Math.round(n*.6); break;
