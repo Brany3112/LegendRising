@@ -1,7 +1,7 @@
 /* ============ LIFE: the neighbourhood ============
    A few streets of brick blocks. Only one door in the whole street is yours: the block on the near
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
-import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab} from "./build.js";
+import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
 import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, PC} from "./props.js";
 import {miniMarket, workplace} from "./shops.js";
@@ -218,11 +218,13 @@ function balcony(f, s, y){
 
 /* ================= your block ================= */
 // a painted wall skin: a green oil-paint dado and cream above, the way every Romanian stairwell is painted
-function twoTone(axis, fixed, a, b, base, top, holes = []){
-  const lo = base + 1.15, P = {solid:false, jit:0, ao:false, tex:"paint"};
+// side (±1, the room's side): the 3 cm line stands proud of the skins on the room side and is buried 5 mm in the wall
+// behind; given the side, that buried face is left out, so it never shows through a thin wall seen edge-on
+function twoTone(axis, fixed, a, b, base, top, holes = [], ends, side){
+  const lo = base + 1.15, P = {solid:false, jit:0, ao:false, tex:"paint", ends};
   wall(axis, fixed, a, b, base, lo, .02, C.green, holes, P);
   wall(axis, fixed, a, b, lo, top, .02, C.cream, holes, P);
-  wall(axis, fixed, a, b, lo - .02, lo + .02, .03, 0x4c6a57, holes, {solid:false, jit:0, ao:false});   // the line between them
+  wall(axis, fixed, a, b, lo - .02, lo + .02, .03, 0x4c6a57, holes, {solid:false, jit:0, ao:false, ends, back:side ? -side : 0});   // the line between them
 }
 // the stairwell: x from the west wall to the east wall, the open well between the flights
 const ST = {w:-13.75, e:-9.875, f1:[-13.73, -11.99], well:[-11.99, -11.64], f2:[-11.64, -9.895], front:-4, mid:-7, back:-8.75};
@@ -273,12 +275,12 @@ function myBlock(F, D){
   box(-9.625, 0, -8.75, -6.1, G0, -4, 0xffffff, {tex:"terrazzo", ao:false, jit:0}); floor(-9.625, -6.1, -8.75, -4, G0);
   box(-13.75, 0, -8.75, -9.625, G0 - .01, -4, C.step, {ao:false, jit:0});
   box(ST.w, 0, ST.mid + 7*.375, ST.f1[1], G0, ST.front, 0xffffff, {tex:"terrazzo", ao:false, jit:0}); floor(ST.w, ST.f1[1], ST.mid + 7*.375, ST.front, G0);
-  twoTone("x", 2.74, -13.75, -6.1, G0, 2.95, [ENT]);
-  twoTone("z", -13.74, -4, 2.75, G0, 2.95);
-  twoTone("z", -6.11, -8.75, 2.75, G0, 2.95);
-  twoTone("x", -8.74, -9.625, -6.1, G0, 2.95);
-  twoTone("z", -9.615, -8.75, -4, G0, 2.95);
-  box(-6.1, 0, -8.75, -5.9, LH, 2.75, C.cream, {solid:true, tex:"paint", ao:false});          // the garage behind the lobby
+  twoTone("x", 2.74, -13.75, -6.1, G0, 2.95, [ENT], 0, -1);
+  twoTone("z", -13.74, -4, 2.75, G0, 2.95, [], -1, 1);          // closed at -4: the stair's thinner skin carries on from there
+  twoTone("z", -6.11, -8.75, 2.75, G0, 2.95, [], 0, -1);
+  twoTone("x", -8.74, -9.625, -6.1, G0, 2.95, [], 0, 1);
+  twoTone("z", -9.615, -8.75, -4, G0, 2.95, [], 0, 1);
+  solid(-6.1, -5.9, -8.75, 2.75, 0, LH);          // the garage behind the lobby: the lobby's skin is its face, so no faces of its own
   skirting("x", 2.74 - .01, -13.75, -6.1, G0, -1, [[ENT[0] - .1, ENT[1] + .1]]);
   skirting("z", -13.74 + .01, -4, 2.75, G0, 1); skirting("z", -6.11 - .01, -8.75, 2.75, G0, -1);
   skirting("x", -8.74 + .01, -9.625, -6.1, G0, 1); skirting("z", -9.615 + .01, -8.75, -4, G0, 1);
@@ -288,17 +290,17 @@ function myBlock(F, D){
   for (let L = 1; L < 4; L++){
     const base = L*LH, top = base + LH - .25;
     box(-13.75, base, -4, -0.25, base + .02, -2.3, C.lino, {ao:false, jit:0});
-    twoTone("z", -13.74, -4, -2.31, base, top);
+    twoTone("z", -13.74, -4, -2.31, base, top, [], -1, 1);
     const hf = [1, 2].map(d => [APT[d].door - .5, APT[d].door + .5, base, base + 2.1]), hb = [3, 4].map(d => [APT[d].door - .5, APT[d].door + .5, base, base + 2.1]);
     wall("x", -2.2, -13.75, -0.25, base, top, .2, C.cream, hf, {tex:"paint"});
     wall("x", -4.1, -9.625, -0.25, base, top, .2, C.cream, hb, {tex:"paint"});
     wall("z", -7, -2.1, 2.75, base, top, .2, C.cream, [], {tex:"paint"});
     wall("z", -5, -8.75, -4.2, base, top, .2, C.cream, [], {tex:"paint"});
-    twoTone("x", -2.31, -13.75, -0.25, base, top, hf);
-    twoTone("x", -3.99, -9.625, -0.25, base, top, hb);
-    twoTone("z", -0.26, -3.99, -2.31, base, top);
+    twoTone("x", -2.31, -13.75, -0.25, base, top, hf, 0, -1);
+    twoTone("x", -3.99, ST.e - .016, -0.25, base, top, hb, -1, 1);          // on round the end of the stairwell wall to the stair
+    twoTone("z", -0.26, -3.99, -2.31, base, top, [], 0, -1);
     skirting("x", -2.32, -13.75, -0.25, base + .02, -1, hf.map(h => [h[0] - .08, h[1] + .08]));
-    skirting("x", -3.98, -9.625, -0.25, base + .02, 1, hb.map(h => [h[0] - .08, h[1] + .08]));
+    skirting("x", -3.98, ST.e - .016, -0.25, base + .02, 1, hb.map(h => [h[0] - .08, h[1] + .08]));
     skirting("z", -0.27, -3.99, -2.31, base + .02, -1); skirting("z", -13.73, -3.99, -2.31, base + .02, 1);
     for (const x of [-11.5, -6.5, -2]){ rbox(x, top - .05, -3.15, .6, .05, .3, .02, 0xfff3d6, {key:"lamp"}); rbox(x, top - .02, -3.15, .66, .02, .36, .01, C.darkMetal); }
     lightSrc({x:-7, y:top - .3, z:-3.1, color:0xfff0d0, intensity:5, distance:9, indoor:true});
@@ -387,13 +389,15 @@ function stairs(){
   const P = [[S_.mid, 0], [S_.mid, 1.6 + .178 - .32], [S_.front, LH - .32], [S_.front, 0]];
   extrude("z", P, S_.well[0] + .05, S_.f2[0], C.cream, {tex:"paint", jit:0});
   wall("x", S_.front - .05, S_.well[0] + .05, S_.e, 0, LH - .36, .1, C.cream, [[-11.25, -10.45, G0, G0 + 1.95]], {tex:"paint"});
-  // its lobby face painted and skirted like the rest of the lobby
+  // its lobby face painted and skirted like the rest of the lobby, on across the end of the stairwell wall and round
+  // the corner, where the side wall's skin and skirting butt into it
   const CB = [[-11.25, -10.45, G0, G0 + 1.95]];
-  twoTone("x", S_.front + .01, S_.well[0] + .05, S_.e, G0, LH - .36, CB);
-  skirting("x", S_.front + .02, S_.well[0] + .05, S_.e, G0, 1, [[CB[0][0] - .08, CB[0][1] + .08]]);
+  twoTone("x", S_.front + .01, S_.well[0] + .05, -9.605, G0, LH - .36, CB, true, 1);
+  skirting("x", S_.front + .02, S_.well[0] + .05, -9.587, G0, 1, [[CB[0][0] - .08, CB[0][1] + .08]]);
   doorway("x", S_.front - .05, -11.25, -10.45, G0, 1.95, .1, {faces:[1], color:0xf0eee8});
   box(-11.22, G0, S_.front - .07, -10.48, G0 + 1.92, S_.front - .03, 0x8a7a64, {solid:true, ao:false, jit:0});
-  box(-10.62, G0 + .95, S_.front - .03, -10.56, G0 + 1.05, S_.front - .0, C.metal, {key:"metal", ao:false});
+  box(-10.61, G0 + .92, S_.front - .03, -10.56, G0 + 1.06, S_.front - .018, C.metal, {key:"metal", ao:false, jit:0});   // a rose and a lever
+  box(-10.72, G0 + .975, S_.front - .018, -10.565, G0 + 1.0, S_.front + .006, C.metal, {key:"metal", ao:false, jit:0});
   // the top floor: the stairs stop, so a balustrade closes the hole over the last flight
   const top = 3*LH;
   railAcross(S_.w + .04, S_.f2[0] - .025, S_.front + .03, top, rail, steel, true);
@@ -406,7 +410,7 @@ function dado(o, f, s0, s1, land, foot){
   const edge = dy => foot ? [[foot.a, foot.y - 1.0 + dy], [f.A(uq), foot.y - 1.0 + dy]] : [[f.A(-.3), f.pitch(-.3) + dy]];
   const P = [foot ? [foot.a, o.y0] : [f.A(-.3), f.pitch(-.3) - .35], ...edge(1.0), [f.A(f.L), o.y1 + 1.0], [f.A(f.L), o.y1 - .35]];
   if (o.a1 === ST.mid) P.splice(P.length - 1, 0, [ST.back + .01, land + 1.0], [ST.back + .01, land - .35]);
-  else P.unshift([ST.back + .01, land - .35], [ST.back + .01, land + 1.0]);
+  else { const lo = P.shift(); P.unshift([ST.back + .01, land - .35], [ST.back + .01, land + 1.0]); P.push(lo); }   // round the outline in order: the low foot point closes it
   extrude("z", P, s0, s1, C.green, {tex:"paint", jit:0});
   const Q = [...edge(.98), [f.A(f.L), o.y1 + .98], [f.A(f.L), o.y1 + 1.02], ...edge(1.02).reverse()];
   extrude("z", Q, s0 + (s0 < -11 ? .006 : -.004), s1 + (s0 < -11 ? .004 : -.006), 0x4c6a57, {jit:0});
@@ -923,6 +927,25 @@ function car(x, z, ry, color){
   const hw = Math.abs(Math.cos(ry)) > .5 ? 2.1 : .9, hd = Math.abs(Math.cos(ry)) > .5 ? .9 : 2.1;
   solid(x - hw, x + hw, z - hd, z + hd, 0, 1.5);
 }
+// the advert (left, 0–.7) and the timetable (right, top) printed on one canvas
+function stopTex(){
+  return textTex(512, 512, g => {
+    const gr = g.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, "#1f5fb0"); gr.addColorStop(1, "#0f2c55");
+    g.fillStyle = gr; g.fillRect(0, 0, 358, 512);
+    g.fillStyle = "#c8f060"; g.beginPath(); g.arc(250, 150, 120, 0, 7); g.fill();
+    g.fillStyle = "#f2f2ee"; g.beginPath(); g.arc(250, 150, 52, 0, 7); g.fill();                         // a ball in a lime sun
+    g.strokeStyle = "#14202c"; g.lineWidth = 5; g.stroke();
+    g.fillStyle = "#14202c"; g.beginPath(); for (let k = 0; k < 5; k++){ const a = k*1.2566 - 1.57; g.lineTo(250 + Math.cos(a)*20, 150 + Math.sin(a)*20); } g.fill();
+    g.fillStyle = "#fff"; g.textAlign = "left"; g.textBaseline = "alphabetic";
+    g.font = `800 64px "Barlow Condensed", "Arial Narrow", sans-serif`; g.fillText("FUEL", 28, 352); g.fillText("UP.", 28, 414);
+    g.fillStyle = "rgba(255,255,255,.8)"; g.font = `600 22px "Barlow", sans-serif`; g.fillText("Recovery drinks", 28, 452); g.fillText("2 for €3 · Mini Market", 28, 480);
+    // the timetable: a header and the times, in rows
+    g.fillStyle = "#f2f0ea"; g.fillRect(358, 0, 154, 224); g.fillStyle = "#1d6fc4"; g.fillRect(358, 0, 154, 40);
+    g.fillStyle = "#fff"; g.font = "bold 22px sans-serif"; g.textAlign = "center"; g.fillText("LINE 14", 435, 28);
+    g.fillStyle = "#3a3f45"; g.font = "15px sans-serif";
+    ["06:40", "07:20", "08:00", "08:40", "09:20", "10:00", "17:10", "18:30"].forEach((t, i) => { g.textAlign = "left"; g.fillText(t, 370, 64 + i*20); g.fillStyle = "#9aa0a6"; g.fillRect(420, 59 + i*20, 80, 3); g.fillStyle = "#3a3f45"; });
+  });
+}
 export function busStop(x, z, o = {}){
   const dz = o.flip ? -1 : 1, y = o.y == null ? .12 : o.y;     // the shelter's back is towards +z unless flipped
   const zb = z + dz*1.2, zf = z - dz*.15, steel = 0x3b4146, M = {key:"metal"}, GL = {key:"glass", ao:false, jit:0};
@@ -934,14 +957,18 @@ export function busStop(x, z, o = {}){
   rbox(x, y + 2.5, (zb + dz*.15 + z - dz*.4)/2, 3.95, .1, Math.abs(zb + dz*.15 - (z - dz*.4)), .04, 0x2a2f33, M);
   box(x - 1.5, y + 2.47, Math.min(zb - dz*.1, z), x + 1.5, y + 2.5, Math.max(zb - dz*.1, z), 0xfff1d0, {key:"lamp", ao:false});
   // a lit advert in the left bay of the back, and a perch bench
-  box(x - 1.6, y + .45, Math.min(zb - dz*.04, zb - dz*.07), x - .5, y + 2.0, Math.max(zb - dz*.04, zb - dz*.07), 0x2c66b8, {key:"screen", ao:false, jit:0});
+  box(x - 1.6, y + .45, Math.min(zb - dz*.04, zb - dz*.07), x - .5, y + 2.0, Math.max(zb - dz*.04, zb - dz*.07), 0x2a2f33, {key:"metal", ao:false, jit:0});
   box(x - 1.65, y + .4, Math.min(zb - dz*.03, zb - dz*.08), x - .45, y + .45, Math.max(zb - dz*.03, zb - dz*.08), steel, {key:"metal", ao:false});
   propBench(x + .35, zb - dz*.42, o.flip ? Math.PI : 0, 2.2, {y, back:false});
   solid(x - 1.8, x + 1.8, Math.min(zb - .1, zb + .1), Math.max(zb - .1, zb + .1), y, y + 2.6);
   for (const px of [x - 1.75, x + 1.75]) solid(px - .06, px + .06, Math.min(zf, zb), Math.max(zf, zb), y, y + 2.6);
   const sx = x + 2.4;
   cyl(sx, y, z, .05, 2.9, 0x3b4146, {seg:8, key:"metal"});
-  box(sx - .16, y + 1.3, z - .03, sx + .16, y + 1.75, z + .03, 0xf2f0ea, {ao:false});          // the timetable
+  box(sx - .16, y + 1.3, z - .03, sx + .16, y + 1.75, z + .03, 0x2a2f33, {ao:false, key:"metal"});          // the timetable's case
+  // the poster in the advert case and the printed timetable: one sheet, one mesh
+  const ry = o.flip ? 0 : Math.PI;
+  labels(stopTex(), [{x:x - 1.05, y:y + 1.225, z:zb - dz*.072, w:1.02, h:1.47, ry, uv:[0, 0, .7, 1]},
+    {x:sx, y:y + 1.525, z:z - dz*.032, w:.28, h:.41, ry, uv:[.7, 0, 1, .4375]}], {glow:.45, rough:.5});
   const t = textTex(128, 128, (g) => {
     g.fillStyle = "#1d6fc4"; g.beginPath(); g.arc(64, 64, 60, 0, 7); g.fill();
     g.strokeStyle = "#fff"; g.lineWidth = 6; g.stroke(); g.fillStyle = "#fff"; g.font = "bold 42px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("BUS", 64, 66);

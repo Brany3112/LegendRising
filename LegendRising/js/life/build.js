@@ -357,8 +357,9 @@ export function doorway(axis, fixed, a0, a1, base, h, t, o = {}){
   const B = (s0, s1, y0, y1, f0, f1, col) => axis === "x" ? box(s0, y0, fixed + f0, s1, y1, fixed + f1, col, T) : box(fixed + f0, y0, s0, fixed + f1, y1, s1, col, T);
   const lt = o.lining == null ? .03 : o.lining;
   // the lining runs on through any paint or paper skin to a clear step (9 mm) inside the architraves: a hairline step
-  // breaks up into dashes at a distance, a real one reads as a crisp return
-  const e = t/2 + (ar ? d - .009 : .025);
+  // breaks up into dashes at a distance, a real one reads as a crisp return. A metal frame is one dark section: there
+  // the return would only catch the sky as a broken bright line, so the lining runs flush with the architraves
+  const e = t/2 + (ar ? (o.key === "metal" ? d : d - .009) : .025);
   if (lt){ B(a0, a0 + lt, base, base + h, -e, e, c); B(a1 - lt, a1, base, base + h, -e, e, c); B(a0 + lt, a1 - lt, base + h - lt, base + h, -e, e, c); }
   for (const s of o.faces || [-1, 1]){
     if (!ar) break;
@@ -426,7 +427,9 @@ export function wall(axis, fixed, a, b, y0, y1, t, color, holes = [], o = {}){
   // anywhere else an end face is seen edge-on right behind a thin skin of paint or paper, wins the depth test along
   // its line and shows through as a dashed seam. A skin (3 cm or less) is never closed at all: its cut edges are
   // always under a lining, an architrave or a window board, where the same thing happens, so a skin is left open
-  // along its cuts at the heads and sills of its holes too
+  // along its cuts at the heads and sills of its holes too, and at its two outer ends, which butt into a wall or a
+  // lining (o.ends keeps those closed where a skin turns an outside corner: true both, -1 the a end, 1 the b end).
+  // o.back (±1) drops the face on that side of the thickness too, where it is buried in the wall behind
   const open = (c, h0, h1) => { let L = [[h0, h1]];
     if (c) for (const [r0, r1] of c.run) L = L.flatMap(([u0, u1]) => r1 <= u0 || r0 >= u1 ? [[u0, u1]] : [[u0, r0], [r1, u1]].filter(([v0, v1]) => v1 - v0 > 1e-4));
     return L; };
@@ -437,7 +440,9 @@ export function wall(axis, fixed, a, b, y0, y1, t, color, holes = [], o = {}){
       const g = new THREE.BoxGeometry(p1 - p0, q1 - q0, t);
       if (axis === "z") g.rotateY(-Math.PI/2);
       g.translate(axis === "x" ? (p0 + p1)/2 : fixed, (q0 + q1)/2, axis === "x" ? fixed : (p0 + p1)/2);
-      const drop = [nLo && [ai, -1], nHi && [ai, 1], t <= .03 && h0 > y0 && [1, -1], t <= .03 && h1 < y1 && [1, 1]].filter(Boolean);
+      const drop = [nLo && [ai, -1], nHi && [ai, 1], t <= .03 && h0 > y0 && [1, -1], t <= .03 && h1 < y1 && [1, 1],
+        t <= .03 && !(o.ends === true || o.ends === -1) && c.s0 === a && [ai, -1], t <= .03 && !(o.ends === true || o.ends === 1) && c.s1 === b && [ai, 1],
+        o.back && [2 - ai, o.back]].filter(Boolean);
       addGeo(drop.length ? openEnds(g, drop) : g, color, O);
       for (const [nb, at, sg] of [[nLo, p0, -1], [nHi, p1, 1]]) if (nb && t > .03) for (const [u0, u1] of open(nb, h0, h1)){
         const f = new THREE.PlaneGeometry(t, u1 - u0).rotateY(sg*Math.PI/2);
@@ -475,6 +480,22 @@ export function label(texture, x, y, z, w, h, ry = 0, o = {}){
     mat({map:texture, transparent:!!o.transparent, alphaTest:o.alphaTest || 0, emissive:o.glow ? 0xffffff : 0x000000, emissiveMap:o.glow ? texture : null, emissiveIntensity:o.glow || 0, roughness:o.rough == null ? .7 : o.rough}));
   if (o.glow) m.userData.glow = o.glow;
   m.position.set(x, y, z); m.rotation.y = ry; W.scene.add(m); return m;
+}
+/* many printed panels cut from one texture, as one mesh and one draw call: q = [{x, y, z, w, h, ry, uv:[u0, v0, u1, v1]}]
+   (uv measured from the canvas's top left) */
+export function labels(texture, q, o = {}){
+  const P = [], N = [], U = [], I = [], _v = new THREE.Vector3();
+  for (const p of q){
+    const c = Math.cos(p.ry || 0), s = Math.sin(p.ry || 0), [u0, v0, u1, v1] = p.uv, n = P.length/3;
+    for (const [dx, dy, u, v] of [[-p.w/2, -p.h/2, u0, 1 - v1], [p.w/2, -p.h/2, u1, 1 - v1], [p.w/2, p.h/2, u1, 1 - v0], [-p.w/2, p.h/2, u0, 1 - v0]]){
+      _v.set(dx*c, dy, -dx*s); P.push(p.x + _v.x, p.y + _v.y, p.z + _v.z); N.push(s, 0, c); U.push(u, v);
+    }
+    I.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I);
+  const m = new THREE.Mesh(g, mat({map:texture, emissive:o.glow ? 0xffffff : 0x000000, emissiveMap:o.glow ? texture : null, emissiveIntensity:o.glow || 0, roughness:o.rough == null ? .7 : o.rough}));
+  m.receiveShadow = true; W.scene.add(m); return m;
 }
 
 /* ---------- moving things ---------- */

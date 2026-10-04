@@ -4,8 +4,8 @@
    look schema, lookFor(), human(), animateHuman() and playerRig()); this file puts them to work, and keeps
    the older person()/animate() calls working. */
 import {THREE, W, solid} from "./build.js";
-import {human, animateHuman, lookFor, playerRig, hashStr, rng, CONTACT, BONE} from "./human.js";
-export {human, animateHuman, lookFor, playerRig, CONTACT, BONE};
+import {human, animateHuman, lookFor, playerRig, hashStr, rng, CONTACT, BONE, VIEW} from "./human.js";
+export {human, animateHuman, lookFor, playerRig, CONTACT, BONE, VIEW};
 
 const col = c => c == null ? null : typeof c === "number" ? c : new THREE.Color().setStyle(String(c)).getHex();
 
@@ -34,7 +34,9 @@ export function animate(p, dt, mode, speed = 1){
    it, and back — the ball leaves the boot at the moment of contact. Three team-mates running laps together
    (striding out down the far side), the keeper stretching by the touchline, and the coach with his clipboard.
    Everyone is laid out clear of the drill stations: lanes and the lap are tested against the ground's solids
-   and against o.avoid, the things lying flat on the pitch that aren't solid (cones, loose balls, drill marks). */
+   and against o.avoid, the things lying flat on the pitch that aren't solid (cones, loose balls, drill marks).
+   The lap stays on the grass (at most OUT outside the line asked for), goes round the coach on the pitch side,
+   and the runners swing out round you — or ease up — if you stand in their way. */
 // the training ground's loose kit (ground.js drillStations: the cone gates, the odd cone and ball, the spots you
 // stand on for a drill); ground.js may pass its own list as o.avoid instead
 const PITCH_LITTER = [[-1.5, -6.15, .3], [-1.5, -5.05, .3], [-1.5, -8.15, .3], [-1.5, -7.05, .3], [-1.5, -10.15, .3], [-1.5, -9.05, .3],
@@ -64,9 +66,54 @@ function clearLane(a, b, need, avoid, prefer = 1, out = 5){
   }
   return 0;
 }
-// a closed loop with rounded corners, walked by distance: the point and the direction of travel at s
-function roundedLoop(x0, x1, z0, z1, R){
+/* the lap: a rectangle with rounded corners, each straight bent sideways by a smooth profile of bumps round
+   whatever stands on its line (a cone gate, a drill board, the keeper, the coach). A straight gives at most OUT
+   outward from where it was asked to be, so the lap stays on the grass; past a person who may be talked to
+   (the coach) it always goes on the pitch side; and where three abreast won't fit the group closes up into
+   single file. Obstacles are [x, z, r, pitchSideOnly]. */
+const OUT = .65, HALF = .77, ONE = .24, MAXIN = 2.4;
+const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a)/(b - a))); return t*t*(3 - 2*t); };
+function sideProfile(A, B, inN, obst){
+  // the straight is sampled every half metre; at each sample the line may sit anywhere from OUT outward to MAXIN
+  // inward, three abreast or in single file. The cheapest smooth way through that hits nothing wins (dynamic
+  // programming over the samples): staying on the asked-for line is free, moving off it or closing up costs.
+  const L = Math.hypot(B.x - A.x, B.z - A.z) || 1, tx = (B.x - A.x)/L, tz = (B.z - A.z)/L, du = .5, N = Math.ceil(L/du) + 1;
+  const OFF = []; for (let o = -OUT; o <= MAXIN + 1e-6; o += .1) OFF.push(+o.toFixed(2));
+  const K = OFF.length, S = K*2, ob = obst.map(o => { const px = o[0] - A.x, pz = o[1] - A.z; return [px*tx + pz*tz, px*inN.x + pz*inN.z, o[2], o[3]]; }).filter(o => o[0] > -2 && o[0] < L + 2);
+  const blocked = (u, off, half) => { for (const [uo, lo, r, pitchSide] of ob){ const du2 = u - uo;
+    if (Math.hypot(du2, off - lo) < r + half + .08) return true;
+    if (pitchSide && off < lo && Math.abs(du2) < r + half + .5) return true; } return false; };
+  const cost = new Float64Array(N*S).fill(Infinity), from = new Int32Array(N*S).fill(-1);
+  for (let i = 0; i < N; i++){
+    const u = Math.min(L, i*du);
+    for (let st = 0; st < S; st++){
+      const k = st % K, narrow = st >= K, off = OFF[k];
+      if (blocked(u, off, narrow ? ONE : HALF)) continue;
+      const own = Math.abs(off)*(off < 0 ? 1.5 : 1) + (narrow ? .9 : 0);
+      if (!i){ cost[st] = own; continue; }
+      let best = Infinity, bi = -1;
+      for (let k2 = Math.max(0, k - 3); k2 <= Math.min(K - 1, k + 3); k2++) for (const n2 of [0, 1]){
+        const p = (i - 1)*S + k2 + n2*K, c = cost[p]; if (c === Infinity) continue;
+        const v = c + (k2 - k)*(k2 - k)*.04 + (n2 !== +narrow ? .3 : 0);
+        if (v < best){ best = v; bi = p; }
+      }
+      if (bi >= 0){ cost[i*S + st] = best + own; from[i*S + st] = bi; }
+    }
+  }
+  // walk back the cheapest way; if nothing gets through (it shouldn't), the asked-for line
+  const offs = new Float32Array(N), wids = new Float32Array(N).fill(1);
+  let end = -1, bc = Infinity; for (let st = 0; st < S; st++) if (cost[(N - 1)*S + st] < bc){ bc = cost[(N - 1)*S + st]; end = (N - 1)*S + st; }
+  for (let i = N - 1, p = end; i >= 0 && p >= 0; i--, p = from[p]){ const st = p - i*S; offs[i] = OFF[st % K]; wids[i] = st >= K ? 0 : 1; }
+  // smoothed a little, read between samples
+  const sm = a => a.map((v, i) => (a[Math.max(0, i - 1)] + 2*v + a[Math.min(N - 1, i + 1)])/4);
+  const O = sm(offs), Wd = sm(wids.map((v, i) => Math.min(v, wids[Math.max(0, i - 1)], wids[Math.min(N - 1, i + 1)])));
+  const read = (a, u) => { const f = Math.max(0, Math.min(N - 1, u/du)), i = Math.min(N - 2, Math.floor(f)); return a[i] + (a[i + 1] - a[i])*(f - i); };
+  return {L, off:u => read(O, u), wid:u => read(Wd, u)};
+}
+function lapLoop(x0, x1, z0, z1, R, obst){
   // near side (z1) left→right, down the right side, back along the far side (z0), up the left side
+  const SIDES = [[{x:x0, z:z1}, {x:x1, z:z1}, {x:0, z:-1}], [{x:x1, z:z1}, {x:x1, z:z0}, {x:-1, z:0}], [{x:x1, z:z0}, {x:x0, z:z0}, {x:0, z:1}], [{x:x0, z:z0}, {x:x0, z:z1}, {x:1, z:0}]];
+  const prof = SIDES.map(([A, B, n]) => sideProfile(A, B, n, obst));
   const P = [], c = [[x1 - R, z1 - R], [x1 - R, z0 + R], [x0 + R, z0 + R], [x0 + R, z1 - R]];
   const ln = [[[x0 + R, z1], [x1 - R, z1]], [[x1, z1 - R], [x1, z0 + R]], [[x1 - R, z0], [x0 + R, z0]], [[x0, z0 + R], [x0, z1 - R]]];
   for (let i = 0; i < 4; i++){
@@ -74,11 +121,21 @@ function roundedLoop(x0, x1, z0, z1, R){
     P.push({line:false, c:c[i], a0:i*Math.PI/2, len:R*Math.PI/2});
   }
   const total = P.reduce((t, q) => t + q.len, 0);
-  return {total, at(s, out){
+  const base = (s, out) => {
     s = ((s % total) + total) % total; let i = 0; while (s > P[i].len && i < P.length - 1){ s -= P[i].len; i++; }
     const q = P[i];
-    if (q.line){ const f = s/(q.len || 1), ux = (q.q[0] - q.p[0])/(q.len || 1), uz = (q.q[1] - q.p[1])/(q.len || 1); out.x = q.p[0] + (q.q[0] - q.p[0])*f; out.z = q.p[1] + (q.q[1] - q.p[1])*f; out.ux = ux; out.uz = uz; out.side = i >> 1; }
-    else { const a = q.a0 + s/R; out.x = q.c[0] + R*Math.sin(a); out.z = q.c[1] + R*Math.cos(a); out.ux = Math.cos(a); out.uz = -Math.sin(a); out.side = -1; }
+    out.w = 1;
+    if (q.line){
+      const f = s/(q.len || 1), k = i >> 1, pr = prof[k], u = R + s, tp = ss(R*.4, R + .8, u)*ss(R*.4, R + .8, pr.L - u), n = SIDES[k][2];
+      const o = pr.off(u)*tp;
+      out.x = q.p[0] + (q.q[0] - q.p[0])*f + n.x*o; out.z = q.p[1] + (q.q[1] - q.p[1])*f + n.z*o; out.side = k; out.w = 1 - (1 - pr.wid(u))*tp;
+    } else { const a = q.a0 + s/R; out.x = q.c[0] + R*Math.sin(a); out.z = q.c[1] + R*Math.cos(a); out.side = -1; }
+    return out;
+  };
+  const A = {}, Bq = {};
+  return {total, prof, at(s, out){
+    base(s, out); base(s - .15, A); base(s + .15, Bq);
+    const dx = Bq.x - A.x, dz = Bq.z - A.z, l = Math.hypot(dx, dz) || 1; out.ux = dx/l; out.uz = dz/l;
     return out;
   }};
 }
@@ -107,28 +164,22 @@ export function teamSession(o){
   }
   // the keeper stretching by the touchline
   const gk = human(lookFor("goalkeeper", base + 7, {kit:[a, b]}));
-  gk.g.position.set(c.x - 3.5, 0, c.z + 8.2); gk.g.rotation.y = Math.PI*.85; root.add(gk.g);
+  gk.g.position.set(c.x - 3.5, 0, c.z + 6); gk.g.rotation.y = Math.PI*.85; root.add(gk.g);
   actors.push({kind:"stretch", P:gk});
   avoid.push([gk.g.position.x, gk.g.position.z, .8]);
-  // three running laps together, round a loop with rounded corners; each side of it is moved, if it must be,
-  // until the group (three abreast is about 1.1 m) passes clear of everything standing on the pitch
+  // three running laps together, round the pitch: past the coach on the pitch side, round anything else
   const lp = o.lap || [{x:-18, z:-6}, {x:18, z:-6}, {x:18, z:-25}, {x:-18, z:-25}];
-  const X0 = Math.min(...lp.map(p => p.x)), X1 = Math.max(...lp.map(p => p.x)), Z0 = Math.min(...lp.map(p => p.z)), Z1 = Math.max(...lp.map(p => p.z));
-  let x0 = X0, x1 = X1, z0 = Z0, z1 = Z1;
-  for (let pass = 0; pass < 2; pass++){
-    // each side from where it was asked to be, along the other sides as they now stand; outward first
-    // (never more than 1.5 m outward, so the lap stays round the pitch, not behind the goals)
-    const n1 = Z1 - clearLane({x:x1, z:Z1}, {x:x0, z:Z1}, .85, avoid, -1, 1.5);     // near side
-    const e1 = X1 - clearLane({x:X1, z:z0}, {x:X1, z:z1}, .85, avoid, -1, 1.5);     // right side
-    const f0 = Z0 + clearLane({x:x0, z:Z0}, {x:x1, z:Z0}, .85, avoid, -1, 1.5);     // far side
-    const w0 = X0 + clearLane({x:X0, z:z1}, {x:X0, z:z0}, .85, avoid, -1, 1.5);     // left side
-    z1 = n1; x1 = e1; z0 = f0; x0 = w0;
-  }
-  const loop = roundedLoop(x0, x1, z0, z1, Math.min(2.6, (x1 - x0)/3, (z1 - z0)/3));
-  const group = {d:0, v:3.3};
-  [[.55, 0], [-.55, -.25], [0, -1.6]].forEach(([side, back], i) => {
+  const x0 = Math.min(...lp.map(p => p.x)), x1 = Math.max(...lp.map(p => p.x)), z0 = Math.min(...lp.map(p => p.z)), z1 = Math.max(...lp.map(p => p.z));
+  const obst = avoid.map(([x, z, r]) => [x, z, r, 0]);
+  obst.push([o.coach.x, o.coach.z, .75, 1]);
+  // small things standing about (boards, machines, goals' posts) as circles; long walls and fences are left out
+  for (const q of W.solids){ if (q.off || q.y0 > 1.6 || q.y1 < .05 || Math.max(q.x1 - q.x0, q.z1 - q.z0) > 3) continue; obst.push([(q.x0 + q.x1)/2, (q.z0 + q.z1)/2, Math.hypot(q.x1 - q.x0, q.z1 - q.z0)/2, 0]); }
+  const loop = lapLoop(x0, x1, z0, z1, Math.min(2.6, (x1 - x0)/3, (z1 - z0)/3), obst);
+  const group = {d:0, v:3.3, off:0, slow:0, dir:0, clear:0};
+  // three abreast, closing up into single file where the lap is narrow: [beside, behind] and [behind in single file]
+  [[.55, 0, 0], [-.55, -.25, -1.05], [0, -1.6, -2.1]].forEach(([side, back, file]) => {
     const P = player({}); root.add(P.g);
-    actors.push({kind:"lap", P, side, back, yaw:null, px:null, pz:null, v:3.3});
+    actors.push({kind:"lap", P, side, back, file, yaw:null, px:null, pz:null, v:3.3});
   });
   // and the coach watching it all
   const coach = human(lookFor("coach", base + 3, {kit:[a, b]}), {cast:false});
@@ -149,9 +200,35 @@ export function teamSession(o){
     const now = !!o.when();
     if (now !== on){ on = now; root.visible = now; coachSolid.off = !now; }
     if (!now) return;
-    // the running group: one pace, a little quicker down the far side
-    loop.at(group.d, lpt);
-    group.v += ((lpt.side === 2 ? 5.9 : 3.3) - group.v)*(1 - Math.exp(-.9*dt));
+    // where each runner would be on the lap: beside or behind the others, or in single file where it's narrow
+    loop.at(group.d, lpt); const w = lpt.w, side = lpt.side;
+    for (const ac of actors) if (ac.kind === "lap"){
+      const q = ac.q || (ac.q = {}); loop.at(group.d + ac.back*w + ac.file*(1 - w), q); q.lat = ac.side*w;
+    }
+    /* you, standing in their way: the whole group swings out to one side of you (picked once, the nearer way,
+       and kept until they're past), and if that would take it too far, eases right down until you move */
+    let want = 0, slow = 0, hit = false;
+    if (VIEW.scene === W.scene){
+      // every runner coming up on you: to pass on your right the group must be at least l + .9 over, on your left l - .9
+      let lo = 0, hi = 0;
+      for (const ac of actors) if (ac.kind === "lap"){
+        const q = ac.q, dx = VIEW.x - q.x, dz = VIEW.z - q.z, ahead = dx*q.ux + dz*q.uz, l = -dx*q.uz + dz*q.ux - q.lat;
+        if (ahead < -.7 || ahead > 4.5 || Math.abs(l) > 2.6) continue;
+        lo = Math.max(lo, l + .9); hi = Math.min(hi, l - .9);
+        if (Math.abs(l - group.off) < 1.05) hit = true;
+      }
+      if (hit || group.dir){
+        if (!group.dir) group.dir = Math.abs(lo) < Math.abs(hi) ? 1 : -1;
+        want = group.dir > 0 ? lo : hi;
+        if (Math.abs(want) > 1.6){ want = Math.sign(want)*1.6; slow = 1; }
+        if (hit) group.clear = 0;
+      }
+    }
+    if (!hit && (group.clear += dt) > .6) group.dir = 0;
+    group.off += (want - group.off)*(1 - Math.exp(-(hit ? 5 : 2)*dt));
+    group.slow += (slow - group.slow)*(1 - Math.exp(-5*dt));
+    // one pace, a little quicker down the far side
+    group.v += ((side === 2 ? 5.9 : 3.3)*(1 - .8*group.slow) - group.v)*(1 - Math.exp(-(group.slow > .05 ? 3 : .9)*dt));
     group.d += group.v*dt;
     for (const ac of actors){
       if (ac.kind === "pair"){
@@ -186,13 +263,12 @@ export function teamSession(o){
         }
         rollBall(ac, old, ac.ball.position);
       } else if (ac.kind === "lap"){
-        // his place in the group: beside or behind the others, always the same distance off the line of the loop
-        loop.at(group.d + ac.back, lpt);
-        const x = lpt.x - lpt.uz*ac.side, z = lpt.z + lpt.ux*ac.side;
+        // his place in the group, swung out round you if you're in the way
+        const q = ac.q, lat = q.lat + group.off, x = q.x - q.uz*lat, z = q.z + q.ux*lat;
         // the legs are driven by how fast he really goes (quicker on the outside of a bend)
         if (ac.px != null && dt > 0){ const sp = Math.hypot(x - ac.px, z - ac.pz)/dt; ac.v += (sp - ac.v)*(1 - Math.exp(-10*dt)); }
         ac.px = x; ac.pz = z; ac.P.g.position.set(x, 0, z);
-        const yaw = Math.atan2(lpt.ux, lpt.uz);
+        const yaw = Math.atan2(q.ux, q.uz);
         if (ac.yaw == null) ac.yaw = yaw;
         let dy = yaw - ac.yaw; while (dy > Math.PI) dy -= Math.PI*2; while (dy < -Math.PI) dy += Math.PI*2;
         ac.yaw += dy*(1 - Math.exp(-8*dt)); ac.P.g.rotation.y = ac.yaw;
@@ -201,12 +277,12 @@ export function teamSession(o){
     }
     animateHuman(coach, dt, "clipboard");
   });
-  return {root, coach, actors, loop:{x0, x1, z0, z1}};
+  return {root, coach, actors, group, loop:{x0, x1, z0, z1, path:loop}};
 }
 
 /* ---------- someone at work: behind a counter, at a desk, in the office ---------- */
 const JOB_ROLE = {cafe:"barista", store:"shopkeeper", courier:"courier", gym:"gym", academy:"coach", photo:"office", video:"office"};
-const POSE = {manager:{mode:"counter", counter:.8, reach:.4}, shopkeeper:{mode:"counter", counter:1.04, reach:.34}, barista:{mode:"counter", counter:1.04, reach:.4}, gym:{mode:"counter", counter:1.1, reach:.3},
+const POSE = {manager:{mode:"counter", counter:.77, reach:.45}, shopkeeper:{mode:"counter", counter:1.05, reach:.36}, barista:{mode:"counter", counter:1.05, reach:.38}, gym:{mode:"counter", counter:1.1, reach:.34},
   coach:{mode:"clipboard"}, office:{mode:"idle", arms:"behind"}, courier:{mode:"idle", arms:"hips"}};
 function roleOf(o){
   if (o.role) return o.role;
@@ -214,6 +290,23 @@ function roleOf(o){
   if (o.seed === 11) return "shopkeeper";
   const id = typeof jobState === "function" ? (jobState() || {}).id : "";
   return JOB_ROLE[id] || "shopkeeper";
+}
+// the nearest counter-high solid straight ahead within a metre: {top (its height above the feet), d (to its near edge)}
+function counterAhead(x, z, ry, y0){
+  const dx = Math.sin(ry), dz = Math.cos(ry);
+  let best = null;
+  for (const q of W.solids){
+    if (q.off || q.y1 - y0 < .6 || q.y1 - y0 > 1.3 || q.y0 - y0 > .5) continue;
+    // a ray against the box's footprint (slabs)
+    let t0 = 0, t1 = 1.0, ok = true;
+    for (const [p, d, lo, hi] of [[x, dx, q.x0, q.x1], [z, dz, q.z0, q.z1]]){
+      if (Math.abs(d) < 1e-6){ if (p < lo || p > hi) ok = false; continue; }
+      let a = (lo - p)/d, b = (hi - p)/d; if (a > b) [a, b] = [b, a];
+      t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+    }
+    if (ok && t0 <= t1 && t0 > .1 && (!best || t0 < best.d)) best = {top:q.y1 - y0, d:t0};
+  }
+  return best;
 }
 // o: {role, look, pose (an animateHuman state), seed, shirt (the uniform's colour), hair, y}
 export function staffer(x, z, ry, o = {}){
@@ -235,6 +328,9 @@ export function staffer(x, z, ry, o = {}){
   // shop counters stand in front of the till workers; elsewhere they simply stand about
   let st = o.pose || POSE[role] || {mode:"idle"};
   if (!o.pose && st.mode === "counter" && role === "shopkeeper" && o.seed !== 11 && W.zone !== "ground") st = {mode:"idle", arms:"behind"};
+  // hands on the counter (or desk) actually in front of them: its top and how far off its near edge is
+  if (!o.pose && st.mode === "counter"){ const c = counterAhead(x, z, ry, o.y || 0); if (c) st = Object.assign({}, st, {counter:c.top, reach:Math.min(.7, Math.max(.3, c.d + .13))}); }
+  animateHuman(h, 0, st); h.bw = 1; animateHuman(h, 0, st);         // already in place when you walk in
   W.anims.push(dt => animateHuman(h, dt, st));
   solid(x - .3, x + .3, z - .3, z + .3, o.y || 0, (o.y || 0) + 1.9);
   return h;

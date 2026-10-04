@@ -3,7 +3,7 @@
    staff office and the computer that knows everything about you; beyond them the training pitch,
    the stand and the tunnel you walk out of on match day. From ten to five on a training day the
    squad is out there working, and being among them is how a dressing room comes to trust you. */
-import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam} from "./build.js";
+import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, labels, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam} from "./build.js";
 import {facer, decoWin, pilasters, roofTop, busStop, hingedDoor} from "./home.js";
 import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, mannequin, bench, goal, cornerFlag, dugout, floodlight,
   waterCooler, bottle, kitBag, bibs, lockers, shelfUnit, tacticsBoard, noticeBoard, desk, monitor, chair, vending, vendTex, plyoBox, bike,
@@ -274,20 +274,40 @@ function stand(clubName){
     extrude("z", [[-28.6, 1.15], [-28.6, 2.2], [-33.8, 6.4], [-33.8, 3.5]], a + .13, b_ - .13, 0x9fb7c6, {key:"glass", jit:0});
     solid(a, b_, -34.8, -28.6, 0, 7);
   }
-  // the front wall along the pitch, with advertising boards
+  // the front wall along the pitch, with advertising boards: four designs printed on one sheet, one mesh for them all
+  const club = clubName.split(" ")[0].toUpperCase();
+  const ADS = [["#1f5fb0", "#ffffff", "#c8f060", "RISE  ·  TRAIN  ·  REPEAT"], ["#f2f2ee", "#1f6f43", "#1f6f43", "MINI MARKET  ·  OPEN 24/7"],
+    ["#c8f060", "#14202c", "#14202c", "CITY BUS  ·  LINE 14"], ["#14202c", "#ffffff", "#c8f060", `${club} ACADEMY`]];
+  const adT = textTex(1024, 928, g => ADS.forEach(([bg, fg, ac, s], i) => {
+    const y = i*232; g.fillStyle = bg; g.fillRect(0, y, 1024, 232);
+    g.fillStyle = ac; g.fillRect(0, y + 196, 1024, 14); g.fillRect(40, y + 52, 14, 110);
+    let fs = 104; g.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; const tw = g.measureText(s).width;
+    if (tw > 880){ fs = Math.floor(fs*880/tw); g.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; }
+    g.fillStyle = fg; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(s, 532, y + 110);
+  }));
+  const ads = [];
   for (const [a, b_] of [[-26, -3.6], [3.6, 26]]){
     box(a, 0, -28.95, b_, 1.0, -28.6, 0x8f8c85, {tex:"concrete", ao:false, jit:0});
-    for (let x = a + .2; x < b_ - 3; x += 3.3) box(x, .2, -28.6, x + 3.1, .9, -28.57, [0x1f5fb0, 0xf2f2ee, 0xc8f060, 0x14202c][Math.floor((x + 26)/3.3) % 4], {key:"screen", ao:false, jit:0});
+    for (let x = a + .2; x < b_ - 3; x += 3.3){
+      const k = Math.floor((x + 26)/3.3) % 4;
+      box(x - .03, .17, -28.6, x + 3.13, .93, -28.57, 0x23292f, {key:"metal", ao:false, jit:0});
+      ads.push({x:x + 1.55, y:.55, z:-28.565, w:3.1, h:.7, uv:[0, k/4, 1, (k + 1)/4]});
+    }
   }
+  labels(adT, ads, {glow:.35, rough:.5});
   box(-26, 0, -34.8, 26, 6.4, -33.8, 0x5d636a, {tex:"concrete", ao:false});
   for (const x of [-25, -12.5, 0, 12.5, 25]) cyl(x, 0, -33.6, .12, 6.8, 0x8a9198, {seg:10, key:"metal"});
   rbox(0, 6.75, -31.75, 53, .25, 6.6, .08, 0x2f363d, {key:"metal"});
   box(-26.5, 6.3, -28.6, 26.5, 6.8, -28.4, 0x14202c, {ao:false});
-  const t = textTex(1024, 64, g => {
-    g.fillStyle = "#14202c"; g.fillRect(0, 0, 1024, 64); g.fillStyle = "#fff"; g.font = `800 42px "Barlow Condensed", sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText(clubName.toUpperCase() + "  ·  TRAINING CENTRE", 512, 34);
+  // the name along the fascia, shrunk to fit however long the club's name is
+  const t = textTex(2048, 86, g => {
+    const s = clubName.toUpperCase() + "  ·  TRAINING CENTRE"; let fs = 58;
+    g.fillStyle = "#14202c"; g.fillRect(0, 0, 2048, 86); g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; const tw = g.measureText(s).width;
+    if (tw > 1940){ fs = Math.floor(fs*1940/tw); g.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; }
+    g.fillText(s, 1024, 46);
   });
-  label(t, 0, 6.55, -28.35, 16, 1.0, 0, {glow:.4});
+  label(t, 0, 6.55, -28.35, 24, 1.0, 0, {glow:.4});
   solid(-26, 26, -35, -28.6, 0, 7);
   // the tunnel comes out of the middle of the stand: two cheeks and a lintel round a lit recess, double doors at the back
   const TN = 0x6e747a, TC = {tex:"concrete", ao:false, jit:0};
@@ -316,6 +336,9 @@ function clubhouse(clubName){
   const outer = 0xe4ddd0, inner = 0xe9e4d8, PL = {tex:"paint"}, PT = PL;
   // the outside: two floors, the upstairs offices are not yours to go in
   box(b.x0, g0, b.z0, b.x1, H, b.z1, outer, {solid:true, tex:"paint", ao:false});
+  // a string course at the first floor, round all four sides: it covers the joint between the ground-floor walls and
+  // the block above (its top and bottom faces are buried in the block and the ceiling slab)
+  box(b.x0 - .03, g0 - .08, b.z0 - .03, b.x1 + .03, g0 + .06, b.z1 + .03, 0xcdc4b4, {tex:"paint", ao:false, jit:0});
   wall("z", b.x0 + .125, b.z0, b.z1, 0, g0, .25, outer, [[9.3, 10.9, 0, 2.5], [4.6, 7.2, .9, 2.4], [12.6, 15.2, .9, 2.4]], PL);
   wall("z", b.x1 - .125, b.z0, b.z1, 0, g0, .25, outer, [], PL);
   wall("x", b.z0 + .125, b.x0, b.x1, 0, g0, .25, outer, [[25, 28, .9, 2.4]], PL);

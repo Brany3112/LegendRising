@@ -9,8 +9,7 @@
    between the lamps, bulbs and shop lights you are actually near.
 
    Frame pacing: nothing here may cost a frame. The sun's shadow map covers the whole zone from a fixed
-   centre, so walking never forces it to be redrawn — only the sun moving does, in steps of a third of a degree
-   (every 2 s or so of play, as the clock runs: one depth pass of the zone, about 30 draw calls), and the sun's light
+   centre, so walking never forces it to be redrawn — only the sun moving does (see shade()), and the sun's light
    direction moves in the same steps as its shadows, so a shadow never creeps away from what casts it. Things that
    move and throw a shadow can ask for a redraw with W.shadowDirty = true (the world does it at most 5× a second). The
    reflection map is a tiny cube of the sky dome filtered into one render target that is reused for good,
@@ -106,7 +105,7 @@ export function createSky(renderer){
   const K = {night:0, lamps:0, exposure:1, env:.5, sunUp:1};
   const dir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmp = new THREE.Color();
   const shadowAt = {key:"", d:new THREE.Vector3(0, -2, 0)}, shadowDir = new THREE.Vector3(0, 1, 0), mid = {x:0, z:0, half:46};
-  let assignT = 0, shadowSize = 0;
+  let assignT = 0, shadowSize = 0, shadeT = 0, shadeForce = true;
 
   const SAMPLE = {sunI:0, hemiI:0, stars:0, lamps:0, exposure:1, env:.5};
   function sample(h){
@@ -181,13 +180,7 @@ export function createSky(renderer){
         const c = sun.shadow.camera; c.left = -mid.half; c.right = mid.half; c.top = mid.half; c.bottom = -mid.half; c.near = 1; c.far = 240; c.updateProjectionMatrix();
         force = true;
       }
-      // redrawn only when the sun (or the moon) has visibly moved; the light turns with its shadows, never ahead of them
-      if (force || shadowAt.d.angleTo(shadowDir) > .006){
-        shadowAt.d.copy(shadowDir);
-        sun.target.position.set(mid.x, 0, mid.z);
-        sun.position.set(mid.x + shadowDir.x*100, shadowDir.y*100 + 4, mid.z + shadowDir.z*100);
-        renderer.shadowMap.needsUpdate = true;
-      }
+      if (force) shadeForce = true;
       // reflections follow the sky every nine minutes of game time
       if (!(typeof GFX !== "undefined" && GFX.low) && (force || Math.abs(h - envAt) > .15)){
         envAt = h;
@@ -197,6 +190,25 @@ export function createSky(renderer){
       } else if (typeof GFX !== "undefined" && GFX.low) scene.environment = null;
       scene.environmentIntensity = K.env;
       renderer.toneMappingExposure = K.exposure;
+    },
+    /* every frame: redraw the sun's (or the moon's) shadows once it has moved far enough for them to step visibly,
+       and turn the light with them, never ahead of them. How far that is depends on how high it is: a shadow's
+       tip moves by about height·dθ/sin²(elevation), so at noon a third of a degree moves a façade's shadow a few
+       centimetres, while at sunset the same step would throw it a metre or two. The step is set to keep the tip of
+       a ten-metre wall's shadow within ~20 cm (a third of a degree at most), and the redraws come at most five
+       times a second (twice on Low) — at sunset, a cheap depth pass of the zone every few frames; at midday, one
+       every few seconds. */
+    shade(renderer, real){
+      shadeT -= real || 0;
+      const low = typeof GFX !== "undefined" && GFX.low, e = Math.max(.05, shadowDir.y);
+      const step = Math.max(low ? .0015 : .0004, Math.min(.006, .02*e*e));
+      if (!shadeForce && (shadeT > 0 || shadowAt.d.angleTo(shadowDir) <= step)) return false;
+      shadeForce = false; shadeT = low ? .5 : .2;
+      shadowAt.d.copy(shadowDir);
+      sun.target.position.set(mid.x, 0, mid.z);
+      sun.position.set(mid.x + shadowDir.x*100, shadowDir.y*100 + 4, mid.z + shadowDir.z*100);
+      renderer.shadowMap.needsUpdate = true;
+      return true;
     },
     // hand the six real lights to the light sources nearest to you
     lights(dt, focus){

@@ -338,12 +338,14 @@ function moveBy(dx, dz){
     if (dx){
       let nx = P.x + dx; const s = hits(nx, P.z);
       if (s){ nx = dx > 0 ? s.x0 - R - 1e-3 : s.x1 + R + 1e-3; if (hits(nx, P.z)) nx = P.x; P.vx = 0; dx = 0; }
-      P.x = Math.max(b.x0, Math.min(b.x1, nx));
+      if (nx < b.x0 || nx > b.x1){ nx = Math.max(b.x0, Math.min(b.x1, nx)); P.vx = 0; }
+      P.x = nx;
     }
     if (dz){
       let nz = P.z + dz; const s = hits(P.x, nz);
       if (s){ nz = dz > 0 ? s.z0 - R - 1e-3 : s.z1 + R + 1e-3; if (hits(P.x, nz)) nz = P.z; P.vz = 0; dz = 0; }
-      P.z = Math.max(b.z0, Math.min(b.z1, nz));
+      if (nz < b.z0 || nz > b.z1){ nz = Math.max(b.z0, Math.min(b.z1, nz)); P.vz = 0; }
+      P.z = nz;
     }
   }
 }
@@ -387,9 +389,9 @@ function spring(o, kx, kv, w, dt){
 }
 let moving = false;
 function step(dt, real){
+  const lk = locked(), canMove = !lk && (!DRILL || DRILL.allowMove);
+  if (!lk) mouseFrame(); else MA.x.hold = MA.y.hold = 0;
   let f = 0, r = 0;
-  const canMove = !locked() && (!DRILL || DRILL.allowMove);
-  if (!locked()) mouseFrame(); else MA.x.hold = MA.y.hold = 0;
   if (canMove){
     f = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
     r = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
@@ -397,6 +399,37 @@ function step(dt, real){
   const len = Math.hypot(f, r);
   if (len){ f /= len; r /= len; }
   const run = !!keys.shift && !!len && !DRILL;
+  // a long frame (under 20 fps) is lived in equal slices of at most 1/20 s: the world keeps real time — a walk is
+  // 4 m a second at any frame rate — and nothing (the springs, a drill's ball, a figure's animation) takes a step
+  // longer than it was made for
+  const n = Math.max(1, Math.ceil(dt/.05 - 1e-6)), h = dt/n;
+  for (let i = 0; i < n; i++){
+    body(h, f, r, len, run);
+    for (const a of W.anims) a(h);
+    if (DRILL && !lockLost) DRILL.update(h);
+  }
+  // a slightly wider view at a sprint, eased in and out
+  const fovT = 74 + 4*P.sprint*P.sprint*(3 - 2*P.sprint);
+  B.fov = Math.abs(fovT - B.fov) < .005 ? fovT : B.fov + (fovT - B.fov)*(1 - Math.exp(-5*dt));
+  if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)){ B.fovSet = B.fov; cam.fov = B.fov; cam.updateProjectionMatrix(); }
+  // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
+  const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
+  cam.position.set(P.x + cos*B.x, P.eye + B.y + P.drillY + P.bobY, P.z - sin*B.x);
+  cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
+  if (LIFE.zone === "ground") tunnel();
+  held = DRILL ? null : (grab || target());
+  hud(held);
+}
+// are you pressed up against something (a wall, the edge of the zone, a drill's box) on that side?
+function touching(sx, sz){
+  const b = DRILL && DRILL.moveBox ? DRILL.moveBox : W.bounds;
+  if (sx > 0 ? P.x >= b.x1 - 1e-4 : sx < 0 && P.x <= b.x0 + 1e-4) return true;
+  if (sz > 0 ? P.z >= b.z1 - 1e-4 : sz < 0 && P.z <= b.z0 + 1e-4) return true;
+  stuck = null; stuck = hits(P.x, P.z);
+  return !!hits(P.x + sx*.01, P.z + sz*.01);
+}
+// one slice of moving: speed, steering, walls, the ground under you, the eye height and the bob
+function body(dt, f, r, len, run){
   // sprint builds while you hold Shift going forward at full running pace, and falls away as soon as you don't
   const fwd = run && f > .5;
   if (fwd && P.speed > GAIT.run*.85*legs()) P.sprint = Math.min(1, P.sprint + dt/GAIT.sprintIn);
@@ -409,23 +442,29 @@ function step(dt, real){
   // you turn; only the speed itself, and a reversal (over 140°: it brakes through a stop), are acceleration-limited.
   // With no key held you coast to a stop along the way you were going, whichever way you then look.
   const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
-  const tx = (r*cos - f*sin)*sp, tz = (-r*sin - f*cos)*sp, v0 = Math.hypot(P.vx, P.vz);
+  let tx = (r*cos - f*sin)*sp, tz = (-r*sin - f*cos)*sp;
+  // up against a wall, the part of where you want to go that is into it is taken out first (every solid is a box, so
+  // that is one axis): you slide along it at what your push along it is worth — sp·sin of the angle — whatever the
+  // frame rate, and the steering below never mistakes what the wall left of your velocity for the way you are going
+  if (tx && touching(Math.sign(tx), 0)) tx = 0;
+  if (tz && touching(0, Math.sign(tz))) tz = 0;
+  const tl = Math.hypot(tx, tz), v0 = Math.hypot(P.vx, P.vz);
   let turned = false;
-  if (len && v0 > .05){
+  if (tl > .05 && v0 > .05){
     const hv = Math.atan2(P.vz, P.vx);
     let d = Math.atan2(tz, tx) - hv; d -= Math.round(d/(2*Math.PI))*2*Math.PI;
     if (Math.abs(d) < 2.45){
-      const a = hv + Math.max(-GAIT.turn*dt, Math.min(GAIT.turn*dt, d)), s1 = v0 + Math.max(-GAIT.brake*dt, Math.min(GAIT.accel*dt, sp - v0));
+      const a = hv + Math.max(-GAIT.turn*dt, Math.min(GAIT.turn*dt, d)), s1 = v0 + Math.max(-GAIT.brake*dt, Math.min(GAIT.accel*dt, tl - v0));
       P.vx = Math.cos(a)*s1; P.vz = Math.sin(a)*s1; turned = true;
     }
   }
   if (!turned){
     let dvx = tx - P.vx, dvz = tz - P.vz;
-    const dl = Math.hypot(dvx, dvz), lim = (len ? GAIT.accel : GAIT.brake)*dt;
+    const dl = Math.hypot(dvx, dvz), lim = (tl ? GAIT.accel : GAIT.brake)*dt;
     if (dl > lim){ dvx *= lim/dl; dvz *= lim/dl; }
     P.vx += dvx; P.vz += dvz;
   }
-  if (!len && Math.hypot(P.vx, P.vz) < .02) P.vx = P.vz = 0;
+  if (!tl && Math.hypot(P.vx, P.vz) < .02) P.vx = P.vz = 0;
   const ox = P.x, oz = P.z;
   if (P.vx || P.vz) moveBy(P.vx*dt, P.vz*dt);
   // what you actually did, after walls: this drives the bob, the stride and the clock
@@ -460,18 +499,6 @@ function step(dt, real){
   spring(B, "y", "yv", 30, dt); spring(B, "x", "xv", 30, dt);
   B.y += B.amt*Math.sin(ph); B.x += B.amt*.45*Math.sin(ph/2);
   if (!B.amt && Math.abs(B.y) + Math.abs(B.x) < 1e-5 && Math.abs(B.yv) + Math.abs(B.xv) < 1e-4) B.y = B.yv = B.x = B.xv = 0;
-  // a slightly wider view at a sprint, eased in and out
-  const fovT = 74 + 4*sb;
-  B.fov = Math.abs(fovT - B.fov) < .005 ? fovT : B.fov + (fovT - B.fov)*(1 - Math.exp(-5*dt));
-  if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)){ B.fovSet = B.fov; cam.fov = B.fov; cam.updateProjectionMatrix(); }
-  for (const a of W.anims) a(dt);
-  if (DRILL && !lockLost) DRILL.update(dt);
-  // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
-  cam.position.set(P.x + cos*B.x, P.eye + B.y + P.drillY + P.bobY, P.z - sin*B.x);
-  cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
-  if (LIFE.zone === "ground") tunnel();
-  held = DRILL ? null : (grab || target());
-  hud(held);
 }
 // tired legs and an empty stomach slow you down a little — gradually, never in a sudden step
 function legs(){
@@ -600,18 +627,48 @@ function endDrillNow(){ if (DRILL && DRILL.input) DRILL.input("down", "escape");
 
 /* ---------- loop and entry ---------- */
 let last = 0, frames = 0, saveT = 0, keysT = 0, shadowT = 0;
-// Adaptive resolution with hysteresis: it steps down only after two slow seconds in a row, steps back up only
-// after six smooth ones, and once a step up has had to be undone it stays down — the picture never pumps
-// between two sizes (every change reallocates the canvas, which is itself a hitch). A new size is only ever applied
-// at the top of a frame, before it is drawn: resizing the canvas clears it, and done after the render it would put
-// one blank frame on screen.
-const Q = {scale:1, acc:0, n:0, slow:0, good:0, t:0, upAt:-1e9, noUp:false, pending:false};
-function quality(real){
-  Q.acc += real; Q.n++; Q.t += real;
+/* Adaptive resolution with hysteresis: it steps down only after two slow seconds in a row, steps back up only
+   after six good ones, and once a step up has had to be undone it stays down — the picture never pumps between two
+   sizes (every change reallocates the canvas, which is itself a hitch). A new size is only ever applied at the top of
+   a frame, before it is drawn: resizing the canvas clears it, and done after the render it would put one blank frame
+   on screen.
+   Slow means the frame's work is too much, not merely that frames come slowly: a browser that holds the page to
+   30 fps (an energy saver, a low-power mode) would otherwise be "slow" for good and blur the picture on a GPU with
+   nothing to do. So where the GPU can time itself (EXT_disjoint_timer_query_webgl2) each frame's cost is
+   measured — the larger of the GPU's time drawing it and the main thread's time building it — and the resolution
+   only drops when that cost is over 13 ms (no headroom for 60 fps), and may come back up when it is under 8 ms even
+   at a capped 30. Where it can't, the frame rate is all there is to go on. */
+const Q = {scale:1, acc:0, n:0, slow:0, good:0, t:0, upAt:-1e9, noUp:false, pending:false, cpu:0, work:-1};
+const GT = {gl:null, ext:null, cur:null, wait:[], free:[], sum:0, n:0};
+function gpuInit(){
+  try {
+    const gl = renderer.getContext(), ext = gl.createQuery && gl.getExtension("EXT_disjoint_timer_query_webgl2");
+    if (ext){ GT.gl = gl; GT.ext = ext; }
+  } catch(e){}
+}
+function gpuBegin(){
+  if (!GT.ext || GT.cur || GT.wait.length > 3) return;
+  GT.cur = GT.free.pop() || GT.gl.createQuery();
+  GT.gl.beginQuery(GT.ext.TIME_ELAPSED_EXT, GT.cur);
+}
+function gpuEnd(){
+  if (!GT.cur) return;
+  const gl = GT.gl; gl.endQuery(GT.ext.TIME_ELAPSED_EXT); GT.wait.push(GT.cur); GT.cur = null;
+  // results come back a frame or two later; a disjoint (the GPU was reset or throttled) spoils whatever is pending
+  const bad = gl.getParameter(GT.ext.GPU_DISJOINT_EXT);
+  while (GT.wait.length && gl.getQueryParameter(GT.wait[0], gl.QUERY_RESULT_AVAILABLE)){
+    const q = GT.wait.shift();
+    if (!bad){ GT.sum += gl.getQueryParameter(q, gl.QUERY_RESULT)/1e6; GT.n++; }
+    GT.free.push(q);
+  }
+}
+function quality(real, cpu){
+  Q.acc += real; Q.n++; Q.t += real; Q.cpu += cpu;
   if (Q.acc < 1) return;
-  const fps = Q.n/Q.acc; Q.acc = 0; Q.n = 0;
-  Q.slow = fps < 45 ? Q.slow + 1 : 0;
-  Q.good = fps > 57 ? Q.good + 1 : 0;
+  const fps = Q.n/Q.acc, work = GT.n ? Math.max(Q.cpu/Q.n, GT.sum/GT.n) : -1;
+  Q.work = work; Q.acc = Q.n = Q.cpu = GT.sum = GT.n = 0;
+  Q.slow = fps < 45 && (work < 0 || work > 13) ? Q.slow + 1 : 0;
+  Q.good = fps > 57 || (work >= 0 && work < 8) ? Q.good + 1 : 0;
   if (Q.slow >= 2 && Q.scale > .6){
     if (Q.t - Q.upAt < 15) Q.noUp = true;
     Q.scale = Math.max(.6, +(Q.scale - .1).toFixed(2)); Q.slow = Q.good = 0; Q.pending = true;
@@ -626,11 +683,13 @@ function skyStep(real){
   SKY.lights(real || .016, {x:P.x, y:P.eye, z:P.z});
   skyT -= real;
   if (skyT <= 0 || forceSky){ skyT = .5; SKY.refresh(renderer, scene, h, P, forceSky); forceSky = false; }
+  SKY.shade(renderer, real);
 }
 function loop(t){
   if (!LIFE.running) return;
   frames++;
-  const real = Math.max(0, (t - last)/1000 || 0), dt = Math.min(.05, real); last = t;
+  const t0 = performance.now(), real = Math.max(0, (t - last)/1000 || 0), dt = Math.min(.1, real); last = t;
+  if (real > 0 && real < .5) MA.frame += (real*1000 - MA.frame)*.2;
   if (Q.pending) resize();
   step(dt, Math.min(real, .5));
   // the clock runs on its own, faster while you are on the move; it stops while a panel or the hub is up
@@ -640,8 +699,8 @@ function loop(t){
   if (LIFE.zone === "home") homeTick();
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; renderer.shadowMap.needsUpdate = true; }
-  renderer.render(scene, cam);
-  if (real > 0 && real < .5) quality(real);
+  gpuBegin(); renderer.render(scene, cam); gpuEnd();
+  if (real > 0 && real < .5) quality(real, performance.now() - t0);
   // a save every 45 s or so, but only at a quiet moment (see persist); after two minutes of never stopping, anyway
   if ((saveT += real) > 45){ saveDue = true; saveT = 0; }
   if (saveDue){
@@ -668,7 +727,7 @@ function boot(){
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1;
   scene = new THREE.Scene();
   cam = new THREE.PerspectiveCamera(74, 1, .05, 600);
-  SKY = createSky(renderer);
+  SKY = createSky(renderer); gpuInit();
   resize(); addEventListener("resize", () => { Q.pending = true; });
   bindInput(cv);
 }
@@ -719,30 +778,30 @@ function lock(cv){
     if (p && p.then) p.then(() => { rawMouse = true; }, plain); else rawMouse = false;
   } catch(e){ plain(); }
 }
-/* Stray jumps. Ordinary (non-raw) pointer lock in some browsers now and then reports one event with a jump in it
-   (the cursor being warped back to the centre). Chrome also adds up a whole frame's movement into one event, so the
-   first event of a real flick from rest looks just as sudden — size alone cannot tell them apart; what comes next
-   can. So in non-raw input an event far bigger than the movement just before it is held back for one frame: the
-   next event confirms it (same way, not tiny next to it: a hand slows down, it does not stop dead) and both turn
-   the view; an event the other way, or a tiny one, shows it was a jump, and it is dropped; no event on that axis
-   at all (a single quick flick, then stillness) and it is applied on the next frame. Raw input never jumps, and
-   nothing in it is ever held. */
-const MA = {x:{prev:0, hold:0, age:0}, y:{prev:0, hold:0, age:0}, t:0};
+/* Stray jumps. Ordinary (non-raw) pointer lock in some browsers now and then reports one event with a jump in it —
+   the cursor warped back to the centre, a large count the wrong way in the middle of a turn. A real hand can be just as
+   sudden (Chrome adds a whole frame's movement into one event, so a flick at a low frame rate is hundreds of counts at
+   once), so size alone decides nothing and nothing the same way as you are turning, or from rest, is ever held back:
+   it turns the view at once. Only an event that is large, far larger than the movement just before it, AND the
+   other way to a turn in progress waits for one frame. If the next event goes on the way the turn was going, it was a
+   jump and is dropped; if it goes the new way too (you really did snap back), both are applied; if no more comes on
+   that axis, it is applied on the next frame. Raw input never jumps, and nothing in it is ever held. */
+const MA = {x:{prev:0, hold:0, age:0}, y:{prev:0, hold:0, age:0}, t:0, frame:16};
 function mouseAxis(a, m){
   let out = 0;
   if (a.hold && m){
-    if (Math.sign(m) === Math.sign(a.hold) && Math.abs(m) >= Math.abs(a.hold)/8){ out += a.hold; a.prev = a.hold; }
+    if (Math.sign(m) === Math.sign(a.hold)){ out += a.hold; a.prev = a.hold; }
     a.hold = 0;
   }
   if (!m) return out;
-  if (!rawMouse && Math.abs(m) > 250 && Math.abs(m) > 8*(Math.abs(a.prev) + 12)){ a.hold = m; a.age = 0; }
-  else out += m;
+  if (!rawMouse && Math.abs(a.prev) >= 4 && Math.sign(m) !== Math.sign(a.prev) && Math.abs(m) > 250 && Math.abs(m) > 8*(Math.abs(a.prev) + 12)){ a.hold = m; a.age = 0; return out; }
   a.prev = m;
-  return out;
+  return out + m;
 }
-// once a frame, before the camera is set: a held event that nothing contradicted is let through
+// once a frame, before the camera is set: a held event that nothing contradicted is let through. A pause longer than
+// a couple of frames is a hand at rest, and what comes after it is judged from rest
 function mouseFrame(){
-  if (performance.now() - MA.t > 60) MA.x.prev = MA.y.prev = 0;          // a flick from rest is judged from rest
+  if (performance.now() - MA.t > Math.max(60, 2.5*MA.frame)) MA.x.prev = MA.y.prev = 0;
   let mx = 0, my = 0;
   if (MA.x.hold && ++MA.x.age >= 2){ mx = MA.x.hold; MA.x.hold = 0; }
   if (MA.y.hold && ++MA.y.age >= 2){ my = MA.y.hold; MA.y.hold = 0; }
@@ -819,5 +878,5 @@ window.LIFE = LIFE; window.startLife = startLife; window.stopLife = stop; window
 // handles for automated tests
 window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
-  get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
+  get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy};

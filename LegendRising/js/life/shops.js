@@ -73,8 +73,9 @@ export function miniMarket(c){
   box(b.x0, H - .02, b.z0, b.x1, H, b.z1, 0xe8e3d8, {ao:false, jit:0, tex:"paint"});
   // the glass front and the side window, in slim dark frames
   box(22.2, .45, b.z1 - .14, 29.4, 2.85, b.z1 - .1, 0xa9c2d2, {key:"glass", ao:false, jit:0});
-  for (const x of [22.2, 24.6, 27, 29.4]) box(x - .05, .45, b.z1 - .2, x + .05, 2.85, b.z1 + .02, 0x2a2e33, {ao:false, key:"metal"});
-  box(22.1, .38, b.z1 - .2, 29.5, .46, b.z1 + .1, 0xc7c2b8, {ao:false, jit:0}); box(22.15, 2.82, b.z1 - .2, 29.45, 2.9, b.z1 + .05, 0x2a2e33, {ao:false, key:"metal"});
+  // lined like the side window, so neither the brick nor the paint skin shows its cut edge round the glass
+  reveal("x", b.z1 - .125, 22.2, 29.4, .45, 2.85, .25, 0x2a2e33, {sill:0xc7c2b8, key:"metal"});
+  for (const x of [24.6, 27]) box(x - .05, .45, b.z1 - .2, x + .05, 2.85, b.z1 + .035, 0x2a2e33, {ao:false, key:"metal", jit:0});
   box(b.x1 - .14, .45, -3.6, b.x1 - .1, 2.85, 1.6, 0xa9c2d2, {key:"glass", ao:false, jit:0});
   reveal("z", b.x1 - .125, -3.6, 1.6, .45, 2.85, .25, 0x2a2e33, {sill:0xc7c2b8, key:"metal"});
   for (const z of [-3.56, -1, 1.56]) box(b.x1 - .18, .45, z - .04, b.x1 - .06, 2.85, z + .04, 0x2a2e33, {key:"metal", ao:false, jit:0});
@@ -211,7 +212,7 @@ export function workplace(c){
   wall("x", -5 + .1, b.x0, b.x1, 0, g0, .2, 0xe6e1d6, [], PT);
   box(6.2, .45, b.z1 - .14, 14.4, 2.8, b.z1 - .1, 0xa9c2d2, {key:"glass", ao:false, jit:0});
   for (const x of [8.25, 10.3, 12.35]) box(x - .04, .45, b.z1 - .18, x + .04, 2.8, b.z1 + .02, 0x2a2e33, {key:"metal", ao:false});
-  box(6.1, .38, b.z1 - .2, 14.5, .46, b.z1 + .1, 0xc7c2b8, {ao:false, jit:0});
+  box(6.1, .38, b.z1 - .27, 14.5, .46, b.z1 + .1, 0xc7c2b8, {ao:false, jit:0});           // through the wall: a window board inside too
   shopDoor(4, 5.6, b.z1 - .125, .25, 2.4, 0x1f2226);
   box(b.x0 + .25, 0, -4.9, b.x1 - .25, .02, b.z1 - .25, 0xffffff, {tex:js.id === "cafe" || js.id === "photo" ? "planks" : "shopfloor", ao:false, jit:0});
   floor(b.x0 + .25, b.x1 - .25, -4.9, b.z1 - .25, .02);
