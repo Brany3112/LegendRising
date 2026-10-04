@@ -1346,10 +1346,13 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
 .lk-create .lk-main{margin:8px 0 12px;grid-template-columns:minmax(220px,300px) minmax(0,1fr)}
 .lk-create .lk-stage{min-height:360px}
 .lk-create .lk-ctl{max-height:470px}
+@media (min-width:1000px){ .lk-create .lk-ctl{grid-template-columns:1fr 1fr;max-height:none;overflow:visible;padding-right:0} }
 @media (max-width:700px){
   .lf-panel.look .lpn{padding:14px 14px 12px}
   .lk-main,.lk-create .lk-main{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
-  .lk-stage{min-height:0;height:clamp(190px,34vh,280px)} .lk-create .lk-stage{min-height:0;height:300px}
+  .lk-stage{min-height:0;height:clamp(180px,30vh,260px)} .lk-create .lk-stage{min-height:0;height:300px}
+  .lk-sw{gap:6px} .lk-sw button{width:27px;height:27px}
+  .lk-bar{flex-wrap:nowrap;gap:4px} .lk-bar .seg{padding:2px;gap:2px} .lk-bar .seg button{padding:.34em .48em;font-size:.8rem}
   .lk-create .lk-ctl{max-height:none}
   .lk-foot .btn.sm{padding:.5em .7em}
 }

@@ -326,6 +326,7 @@ function place(p){
   P.x = p.x; P.z = p.z; P.feet = p.y || 0; P.eye = P.feet + EYE; P.yaw = p.yaw || 0; P.pitch = 0;
   P.vx = P.vz = P.vy = 0; P.speed = 0; P.sprint = 0; P.moveMode = "idle";
   B.amt = B.y = B.yv = B.x = B.xv = 0; E.g = P.feet; E.a = E.av = E.b = E.bv = 0; tunnelGo = false; tunnelInfo = null;
+  ME.yaw = P.yaw; ME.tw = 0; ME.look = 0;                // your body turns up facing the way you do
 }
 function hits(x, z){
   const lo = P.feet + .42, hi = P.feet + 1.75;
@@ -524,7 +525,7 @@ function legs(){
    Walking sideways the hips turn towards where you are going and the chest stays with the view (no feet sliding
    sideways); walking backwards the stride runs backwards. Its height follows the camera's own smoothed eye, so on a
    kerb or a stair landing the body can never rise into the view. */
-const ME = {fp:null, tp:null, kind:"", scale:1, yaw:0, tw:0, back:false, dph:0, act:null, hide:false, camT:0, dist:0, sh:0, tpShown:false, look:0};
+const ME = {fp:null, tp:null, kind:"", scale:1, yaw:0, tw:0, back:false, dph:0, act:null, camT:0, dist:0, sh:0, short:0, tpShown:false, look:0};
 const TPV = {dist:2.65, sprint:.35, up:.12, side:.36, margin:.16, minShow:.62};    // the third-person camera
 const meKind = () => LIFE.zone === "ground" ? "training" : "casual";
 function meDispose(){ for (const k of ["fp", "tp"]) if (ME[k]){ ME[k].dispose(); ME[k] = null; } }
@@ -539,8 +540,8 @@ function meBuild(){
   ME.fp.g.name = "me-fp"; ME.tp.g.name = "me-tp";
   scene.add(ME.fp.g, ME.tp.g);
   ME.scale = ME.fp.scale;
-  // the eyes of a 1.80 m body are at 1.685: yours, at your height
-  const eye = Math.round(1.685*ME.scale*1000)/1000, d = eye - EYE;
+  // the eyes of a 1.80 m body are at 1.68 (human.js): yours, at your height
+  const eye = Math.round(1.68*ME.scale*1000)/1000, d = eye - EYE;
   EYE = P.eyeH = eye; P.eye += d;
   ME.yaw = P.yaw; ME.tw = 0; ME.back = false; ME.act = null;
   meStep(0);
@@ -554,8 +555,11 @@ function gaitState(look){
   _gs.mode = P.speed > .05 ? "move" : "idle"; _gs.speed = P.speed; _gs.look = look;
   return _gs;
 }
-// a stride played backwards: the phase is stepped back by what it would have gone forward (human.js keeps it in h.ph)
+/* a stride played backwards: the phase is stepped back by what it would have gone forward (human.js keeps it in h.ph).
+   Your legs also run at exactly the speed you move (h.v): human.js eases a person's leg speed in at 7 m/s², right for
+   someone it moves, but you speed up faster than that and the feet would skate over the ground for the first steps */
 function animateDir(h, dt, st, back){
+  if (st === _gs && typeof h.v === "number") h.v = P.speed;
   const p0 = h.ph;
   if (back && typeof p0 === "number") h.ph = ((p0 - 2*ME.dph) % 1 + 1) % 1;
   const p1 = h.ph;
@@ -565,7 +569,7 @@ function animateDir(h, dt, st, back){
 function meStep(dt){
   if (!ME.fp || !ME.tp) return;
   const tp = ME.tpShown, s = ME.scale;
-  ME.fp.g.visible = !tp && !ME.hide && !(DRILL && DRILL.hideBody);
+  ME.fp.g.visible = !tp && !(DRILL && DRILL.hideBody);
   ME.tp.g.visible = tp;
   const mv = Math.atan2(-P.vx, -P.vz), going = P.speed > .3 && (P.vx || P.vz);
   if (tp){
@@ -577,6 +581,7 @@ function meStep(dt){
     const h = ME.tp;
     h.g.position.set(P.x, P.feet, P.z); h.g.rotation.y = ME.yaw + Math.PI;
     animateDir(h, dt, gaitState(ME.look), false);
+    feetIK(h);
     return;
   }
   ME.yaw = P.yaw;
@@ -585,16 +590,17 @@ function meStep(dt){
   if (going && !ME.act){
     let rel = wrapA(mv - P.yaw);
     if (Math.abs(rel) > 1.75){ back = true; rel = wrapA(rel - Math.PI); }
-    tw = clamp(rel, -1.05, 1.05);
+    tw = clamp(rel, -1.5, 1.5);
   }
   if (back !== ME.back && P.speed > .3){ ME.back = back; } else if (P.speed <= .3) ME.back = false;
   ME.tw += (tw - ME.tw)*(1 - Math.exp(-10*dt));
   // the body stands where you stand (the camera is the head, ahead of the neck: see viewStep)
-  const h = ME.fp, sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
-  h.g.position.set(P.x, P.eye - EYE + P.drillY, P.z); h.g.rotation.y = P.yaw + Math.PI;
+  const h = ME.fp, sin = Math.sin(P.yaw), cos = Math.cos(P.yaw), sb = ME.short || 0;
+  h.g.position.set(P.x + sin*sb, P.eye - EYE + P.drillY, P.z + cos*sb); h.g.rotation.y = P.yaw + Math.PI;
   animateDir(h, dt, gaitState(0), ME.back);
   const bn = h.bones;
   if (Math.abs(ME.tw) > 1e-3){ bn[BONE.hips].rotation.y += ME.tw; bn[BONE.spine].rotation.y -= ME.tw*.55; bn[BONE.chest].rotation.y -= ME.tw*.45; }
+  if (!P.drillY) feetIK(h);
   // whatever the body is doing (a lean into a sprint, a kick, a header), the neck stays below and behind the eye:
   // the body gives way, the camera never ends up inside it
   h.g.updateMatrixWorld(true);
@@ -604,6 +610,59 @@ function meStep(dt){
   if (ahead > 0){ h.g.position.x += sin*ahead; h.g.position.z += cos*ahead; }
 }
 const _nk = new THREE.Vector3();
+/* Feet on stairs and kerbs. The walk is made for flat ground and the body rides the ramp along the stair nosings, so
+   a planted foot would hang over a tread and a stepping foot would sink into the next riser. After each frame's pose:
+   the surface under every foot is found (camCast, straight down onto the real treads), the hips come down as far as the
+   lowest planted foot needs to stand on its tread, and any foot still below the surface is lifted onto it with a
+   two-bone IK in world space (the knee folds, the leg swings about the hip, the foot keeps its angle). */
+const FK = {legs:[[BONE.thL, BONE.shL, BONE.ftL, BONE.toL], [BONE.thR, BONE.shR, BONE.ftR, BONE.toR]], c:[0, 0], w:[0, 0]};
+const _H = new THREE.Vector3(), _K = new THREE.Vector3(), _A = new THREE.Vector3(), _T = new THREE.Vector3(), _u = new THREE.Vector3(), _v = new THREE.Vector3(), _n = new THREE.Vector3(), _t2 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _qt = new THREE.Quaternion(), _qs = new THREE.Quaternion(), _qf = new THREE.Quaternion(), _qp = new THREE.Quaternion();
+function surfaceUnder(x, y, z){ const top = y + .45, d = camCast(x, top, z, 0, -1, 0, .95); return d < .95 ? top - d : null; }
+function feetIK(h){
+  if (!CG.tri) return;
+  const bn = h.bones, s = h.scale, base = h.g.position.y;
+  h.g.updateMatrixWorld(true);
+  let drop = 0, any = false;
+  for (let i = 0; i < 2; i++){
+    const [, , f, o] = FK.legs[i];
+    bn[f].getWorldPosition(_A); bn[o].getWorldPosition(_T);
+    const sole = Math.min(_A.y - .085*s, _T.y - .02*s);
+    const a = surfaceUnder(_A.x, _A.y, _A.z), b = surfaceUnder(_T.x, _T.y, _T.z);
+    if (a == null && b == null){ FK.c[i] = 0; FK.w[i] = 0; continue; }
+    const surf = Math.max(a == null ? -1e9 : a, b == null ? -1e9 : b);
+    FK.c[i] = surf - sole; FK.w[i] = 1 - sstep(.03, .2, sole - base);       // how planted the pose has this foot
+    if (Math.abs(FK.c[i]) > .004) any = true;
+    if (FK.c[i] < 0) drop = Math.min(drop, FK.c[i]*FK.w[i]);
+  }
+  if (!any) return;
+  drop = Math.max(drop, -.24*s);
+  if (drop < -1e-4){ h.g.position.y += drop; h.g.updateMatrixWorld(true); }
+  // (a foot the hips came down with may now be below its own surface too: that is lifted the same way)
+  for (let i = 0; i < 2; i++){ const lift = Math.min(FK.c[i] - drop, .42*s); if (lift > .003) legLift(h, FK.legs[i], lift); }
+}
+function legLift(h, [t, k, f], lift){
+  const bn = h.bones;
+  bn[t].getWorldPosition(_H); bn[k].getWorldPosition(_K); bn[f].getWorldPosition(_A);
+  const L1 = _H.distanceTo(_K), L2 = _K.distanceTo(_A); if (L1 < 1e-4 || L2 < 1e-4) return;
+  _T.copy(_A); _T.y += lift;
+  const d1 = Math.min(_H.distanceTo(_T), (L1 + L2)*.998);
+  _u.subVectors(_K, _H).normalize(); _v.subVectors(_A, _K).normalize();
+  const b0 = Math.acos(clamp(_u.dot(_v), -1, 1)), b1 = Math.acos(clamp((d1*d1 - L1*L1 - L2*L2)/(2*L1*L2), -1, 1));
+  _n.crossVectors(_u, _v); if (_n.lengthSq() < 1e-8) _n.set(1, 0, 0).applyQuaternion(bn[t].getWorldQuaternion(_q1)); _n.normalize();
+  bn[t].getWorldQuaternion(_qt); bn[k].getWorldQuaternion(_qs); bn[f].getWorldQuaternion(_qf); bn[t].parent.getWorldQuaternion(_qp);
+  // the knee folds to the new reach...
+  _q1.setFromAxisAngle(_n, b1 - b0);
+  _v.subVectors(_A, _K).applyQuaternion(_q1); _t2.copy(_K).add(_v);           // where the ankle is now
+  _qs.premultiply(_q1);
+  // ...and the whole leg swings about the hip to put the ankle on the target
+  _q2.setFromUnitVectors(_u.subVectors(_t2, _H).normalize(), _v.subVectors(_T, _H).normalize());
+  _qt.premultiply(_q2); _qs.premultiply(_q2);
+  bn[t].quaternion.copy(_qp.invert().multiply(_qt));
+  bn[k].quaternion.copy(_q1.copy(_qt).invert().multiply(_qs));
+  bn[f].quaternion.copy(_q2.copy(_qs).invert().multiply(_qf));
+  bn[t].updateMatrixWorld(true);
+}
 window.lifeLookChanged = () => { if (scene && renderer) meBuild(); };
 
 /* ---------- the camera: first person, or third person behind you ----------
@@ -625,8 +684,9 @@ function viewStep(dt){
   const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
   // first person: the eye, with the bob, a little ahead of your neck — further as you look down, as a head bends
   // over the chest (so you see your legs and shoes) — and never closer than a hand's width to a wall in front
-  let ahead = (.1 + .12*sstep(.2, 1.2, -P.pitch))*ME.scale;
-  if (ahead > 0) ahead = Math.max(0, Math.min(ahead, camCast(P.x, P.eye, P.z, -sin, 0, -cos, ahead + .17) - .17));
+  const ahead0 = (.1 + .12*sstep(.2, 1.2, -P.pitch))*ME.scale;
+  const ahead = Math.max(0, Math.min(ahead0, camCast(P.x, P.eye, P.z, -sin, 0, -cos, ahead0 + .17) - .17));
+  ME.short = ahead0 - ahead;                                // a wall in the way: the body leans back from it instead
   const fx = P.x + cos*B.x - sin*ahead, fy = P.eye + B.y + P.drillY + P.bobY - .035*sstep(.3, 1.2, -P.pitch), fz = P.z - sin*B.x - cos*ahead;
   const want = viewPref() === "tp" && !forcedFP() ? 1 : 0;
   // a panel, the bus, a drill: straight into first person; V: a short glide either way
@@ -650,17 +710,19 @@ function viewStep(dt){
     const ex = _cd.x*want0 + ax, ey = _cd.y*want0 + ay, ez = _cd.z*want0 + az, L = Math.hypot(ex, ey, ez) || 1;
     lim = Math.min(lim, camCast(px, py, pz, ex/L, ey/L, ez/L, L + TPV.margin)*want0/L);
   }
+  // and nothing (a low wall, a counter, a bed end) between the camera and the rest of you: the same ray from your chest
+  lim = Math.min(lim, camCast(px, P.eye - .55*ME.scale, pz, _cd.x, _cd.y, _cd.z, want0 + TPV.margin));
   const d = Math.max(0, Math.min(want0, lim - TPV.margin));
   // pulled in at once; out again gently
   ME.dist = d < ME.dist || !ME.tpShown ? d : ME.dist + (d - ME.dist)*(1 - Math.exp(-4.5*dt));
   _cp.set(px + _cd.x*ME.dist, py + _cd.y*ME.dist, pz + _cd.z*ME.dist);
   // gliding between the eye and the orbit
   if (e < 1) _cp.set(fx + (_cp.x - fx)*e, fy + (_cp.y - fy)*e, fz + (_cp.z - fz)*e);
-  cam.position.copy(_cp);
-  // too close to the head to show it (backed into a corner): the first-person body until there is room again
+  // too close to the head to show it (backed into a corner): your own eyes, until there is room again
   const away = Math.hypot(_cp.x - P.x, _cp.y - (P.eye + .05), _cp.z - P.z);
   const show = ME.tpShown ? away > TPV.minShow - .06 : away > TPV.minShow;
   ME.tpShown = show;
+  if (show) cam.position.copy(_cp); else cam.position.set(fx, fy, fz);
 }
 
 /* the camera's collision: every triangle of the place's fixed geometry (the big batched meshes), sorted once into
@@ -875,9 +937,12 @@ function hud(near){
 const host = {
   P, place:p => place(p), note, pass:(m, act) => pass(m, act),
   jump(h){ P.drillY = h; }, bob(y){ P.bobY = y; }, warm:() => warm(),
-  endDrill(){ DRILL = null; P.drillY = 0; P.bobY = 0; }
+  // your body in a drill: act({mode, t}) plays a move of human.js (kick, pass, trap, header) at that point; act(null) lets go
+  act(st){ ME.act = st ? Object.assign(ME.act && ME.act !== st ? ME.act : {}, st) : null; }, actT:() => ME.act && typeof ME.act.t === "number" ? ME.act.t : 0,
+  scale:() => ME.scale || 1,
+  endDrill(){ DRILL = null; P.drillY = 0; P.bobY = 0; ME.act = null; }
 };
-function endDrillNow(){ if (DRILL && DRILL.input) DRILL.input("down", "escape"); DRILL = null; P.drillY = 0; P.bobY = 0; }
+function endDrillNow(){ if (DRILL && DRILL.input) DRILL.input("down", "escape"); DRILL = null; P.drillY = 0; P.bobY = 0; ME.act = null; }
 
 /* ---------- loop and entry ---------- */
 let last = 0, frames = 0, saveT = 0, keysT = 0, shadowT = 0;
@@ -954,7 +1019,10 @@ function loop(t){
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; renderer.shadowMap.needsUpdate = true; }
   gpuBegin(); renderer.render(scene, cam); gpuEnd();
-  // people step out of YOUR way, wherever the camera is (human.js reads VIEW; drawing set it to the camera)
+  // people step out of YOUR way, wherever the camera is: drawing set VIEW to the camera (and the way it looks, fx/fz);
+  // in third person that is 2.6 m behind you, so the position goes back to your own head. The camera's own position
+  // stays readable as VIEW.cx/cy/cz for anyone who needs what the camera can see rather than where you are
+  VIEW.cx = VIEW.x; VIEW.cy = VIEW.y; VIEW.cz = VIEW.z;
   VIEW.x = P.x; VIEW.y = P.eye; VIEW.z = P.z;
   if (real > 0 && real < .5) quality(real, performance.now() - t0);
   // a save every 45 s or so, but only at a quiet moment (see persist); after two minutes of never stopping, anyway

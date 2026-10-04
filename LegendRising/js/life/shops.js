@@ -3,8 +3,8 @@
    eat and drink, open all hours, warm light spilling out at night. Next door to your block is where
    your day job is — the sign, the counter and the clutter change with whatever job you hold. */
 import {THREE, W, LH, box, rbox, wall, solid, floor, ramp, spot, label, textTex, lightSrc, reseed, rnd, pick, doorway, extrude, reveal} from "./build.js";
-import {frame, rb, cy, sph, fsolid, worldPt, shelfUnit, desk, monitor, chair, bike, cone, ball, bibs, kitBag, cabinet, PC} from "./props.js";
-import {staffer} from "./npc.js";
+import {frame, rb, cy, sph, fsolid, worldPt, shelfUnit, desk, monitor, chair, cafeChair, bike, cone, ball, bibs, kitBag, cabinet, PC} from "./props.js";
+import {staffer, regulars, jobRole} from "./npc.js";
 import {facer, decoWin, pilasters, roofTop, downpipe} from "./home.js";
 
 let ctx = null;
@@ -95,7 +95,13 @@ export function miniMarket(c){
   rb(fc, -.5, 1.21, -.12, .32, .22, .03, .02, 0x3d7a5a, {rx:-.3, key:"screen"});
   rb(fc, .55, 1.05, .1, .5, .3, .3, .03, 0xf2c230);                      // a box of chocolate bars
   fsolid(fc, 0, 0, 2.3, .85, 0, 1.05);
-  staffer(18.15, 1.1, Math.PI/2, {shirt:0x2f7d4a, seed:11});
+  staffer(18.15, 1.1, Math.PI/2, {role:"shopkeeper", shirt:0x2f7d4a, seed:11, minute:ctx.minute});
+  // customers: one paying at the till (they come and go through the day), one browsing the middle aisle
+  const open = m => m >= 6*60 + 30 && m < 23*60 + 30;
+  regulars([
+    {role:"customer", seed:31, x:19.68, z:1.75, ry:-Math.PI/2, state:{mode:"counter", counter:1.05, reach:.5}, when:m => open(m) && m % 41 < 27, solid:[.44, .44]},
+    {role:"customer", seed:57, x:23.95, z:-1.5, ry:-Math.PI/2, browse:{a:[23.95, -3.0], b:[23.95, -.1], face:-Math.PI/2}, when:m => open(m) && (m < 22*60 || m % 53 < 20), solid:[.5, .5]}
+  ], {minute:ctx.minute});
   for (const [x, z] of [[23.2, -1.6], [26.4, -1.6]]){
     const f = shelfUnit(x, z, Math.PI/2, 3.6, 1.6, 0x5a6168);
     goods(f, 0, .12, 3.4, [.08, .61, 1.14], x*13);
@@ -143,16 +149,29 @@ function decor(id){
     rb(f, -1.4, 1.05, 0, .5, .45, .4, .06, 0x8f979e, {key:"metal"}); rb(f, -1.4, 1.18, -.22, .3, .1, .05, .02, 0x2b2f34);
     for (let i = 0; i < 6; i++) cy(f, .2 + i*.18, 1.05, .1, .04, .035, .09, PC.white, {seg:10});
     fsolid(f, 0, 0, 5.3, .8, 0, 1.05);
+    // bistro tables, a chair either side facing in, a cup at most places
+    const seats = [];
     for (const [x, z] of [[5.6, -.6], [8.8, .6], [12, -.6]]){
       const t = frame(x, z); cy(t, 0, 0, 0, .05, .25, .04, PC.dark); cy(t, 0, .04, 0, .04, .04, .7, PC.dark, {seg:8}); cy(t, 0, .74, 0, .38, .38, .04, 0xf2efe8, {seg:18});
-      for (const s of [-1, 1]){ const c = frame(x + s*.62, z, s*Math.PI/2); rb(c, 0, .42, 0, .4, .05, .4, .04, 0x9a6b42); rb(c, 0, .47, -.18, .4, .42, .04, .03, 0x9a6b42); for (const q of [[-.16, -.16], [.16, -.16], [-.16, .16], [.16, .16]]) cy(c, q[0], 0, q[1], .015, .015, .42, PC.dark, {seg:6}); }
+      for (const s of [-1, 1]){
+        const top = cafeChair(x + s*.68, z, -s*Math.PI/2);
+        seats.push({x:x + s*.68, z, ry:-s*Math.PI/2, seat:top, table:{x, z, top:.78, r:.38}});
+        cy(t, s*.2, .78, (s > 0 ? .06 : -.06), .035, .03, .08, PC.white, {seg:10});
+      }
       solid(x - 1, x + 1, z - .5, z + .5, 0, .8);
     }
-    return {title:"CORNER CAFÉ", sub:"COFFEE · CAKES · BREAKFAST", color:"#6b3f22", staff:[8.5, -4.45, 0]};
+    // the regulars: someone over a coffee and the paper in the morning, a couple at lunch, the after-work crowd
+    const at = (i, role, seed, typing, when) => { const q = seats[i], d = Math.hypot(q.x - q.table.x, q.z - q.table.z);
+      return {role, seed, x:q.x, z:q.z, ry:q.ry, solid:false, when, state:typing ? {mode:"typing", keys:false, seat:q.seat, desk:q.table.top, reach:d - q.table.r + .17} : {mode:"sit", seat:q.seat}}; };
+    const span = (...r) => m => { for (let i = 0; i < r.length; i += 2) if (m >= r[i]*60 && m < r[i + 1]*60) return true; return false; };
+    return {title:"CORNER CAFÉ", sub:"COFFEE · CAKES · BREAKFAST", color:"#6b3f22", staff:[8.5, -4.45, 0],
+      customers:[at(0, "customer", 71, true, span(7.25, 11.5, 14.5, 18.75)), at(3, "customer", 83, false, span(9, 13, 16, 20.5)),
+        at(4, "customer", 97, true, span(11.75, 14.75, 17.5, 21)), at(5, "customer", 109, false, span(12, 14.5, 17.25, 20.75))]};
   }
   if (id === "store"){
     for (const x of [5.5, 9, 12.5]){ const f = shelfUnit(x, -1.6, Math.PI/2, 3.4, 1.6, 0x5a6168); goods(f, 0, .12, 3.2, [.08, .61, 1.14], x*31); goods(f, 0, -.12, 3.2, [.08, .61, 1.14], x*37); }
-    return {title:"NEIGHBOURHOOD STORE", sub:"GROCERIES · HOUSEHOLD", color:"#8a2d2d", staff:[13.9, 1.4, -Math.PI/2]};
+    return {title:"NEIGHBOURHOOD STORE", sub:"GROCERIES · HOUSEHOLD", color:"#8a2d2d", staff:[13.9, 1.4, -Math.PI/2],
+      customers:[{role:"customer", seed:61, x:6.2, z:-1.4, ry:-Math.PI/2, browse:{a:[6.2, -2.9], b:[6.2, -.3], face:-Math.PI/2}, when:m => m >= 8*60 && m < 21*60, solid:[.5, .5]}]};
   }
   if (id === "courier"){
     for (const x of [4, 7, 10]){ const f = shelfUnit(x, -4.6, 0, 2.6, 1.9, 0x4b5258); reseed(x*7);
@@ -189,7 +208,7 @@ function decor(id){
     monitor(d, -.4, .77, .05, tx, .55); monitor(d, .4, .77, .05, tx, .55);
     chair(x, -2.7, Math.PI);
   }
-  return {title:"CUT & GRADE", sub:"VIDEO EDITING · HIGHLIGHT REELS", color:"#24324a", staff:[12.6, -1.2, -Math.PI/2]};
+  return {title:"CUT & GRADE", sub:"VIDEO EDITING · HIGHLIGHT REELS", color:"#24324a", staff:[9, -2.7, Math.PI], pose:{mode:"typing", seat:.5, desk:.77, reach:.6}, noSolid:true};
 }
 export function workplace(c){
   ctx = c;
@@ -232,6 +251,8 @@ export function workplace(c){
   lightSrc({x:6, y:2.9, z:-1, color:0xfff0d8, intensity:8, distance:10, indoor:true});
   lightSrc({x:11.5, y:2.9, z:-1, color:0xfff0d8, intensity:8, distance:10, indoor:true});
   for (const x of [5, 9, 13]) box(x - .5, g0 - .1, -1.2, x + .5, g0 - .05, -.8, 0xfff6e0, {key:"lamp", ao:false});
-  if (d.staff) staffer(d.staff[0], d.staff[1], d.staff[2], {shirt:0x3b4249, seed:21});
+  // the staff dressed for the job, and whoever is in as a customer at this time of day
+  if (d.staff) staffer(d.staff[0], d.staff[1], d.staff[2], {role:jobRole(js.id), seed:21, pose:d.pose, noSolid:d.noSolid, minute:ctx.minute});
+  if (d.customers) regulars(d.customers, {minute:ctx.minute});
   return {door:{x:4.8, z:4.2}};
 }

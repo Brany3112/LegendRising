@@ -71,14 +71,22 @@ export function ballBag(x, z, ry = 0){
   for (const [lx, lz] of [[-.18, -.08], [.16, .07], [0, .12]]){ const [bx, bz] = worldPt(f, lx, lz); ball(bx, .6, bz); }
   fsolid(f, 0, 0, .74, .54, 0, .6);
 }
+// a free-kick wall dummy: one smooth moulded figure (head, neck, shoulders, a chest tapering to the hips), flat
+// front to back the way the plastic ones are, on a sprung pole in a heavy round base
+let DUMMY = null;
 export function mannequin(x, z, ry = 0, color = PC.yellow){
   const f = frame(x, z, ry);
-  cy(f, 0, 0, 0, .32, .36, .05, PC.dark, {seg:16});
-  cy(f, 0, .05, 0, .035, .035, .5, PC.darkSteel, {seg:8});
-  cy(f, 0, .5, 0, .17, .14, 1.0, color, {seg:14});
-  sph(f, 0, 1.5, 0, .17, color, {sy:.9});
-  sph(f, 0, 1.72, 0, .13, color);
-  for (const s of [-1, 1]) cy(f, s*.21, 1.05, 0, .05, .045, .42, color, {seg:8, rz:s*.12});
+  cy(f, 0, 0, 0, .29, .33, .05, PC.dark, {seg:16});
+  cy(f, 0, .05, 0, .2, .27, .04, 0x3a3f45, {seg:16});
+  cy(f, 0, .09, 0, .032, .032, .42, PC.darkSteel, {seg:8, key:"metal"});
+  for (let i = 0; i < 4; i++) cy(f, 0, .14 + i*.07, 0, .045, .045, .025, PC.darkSteel, {seg:8, key:"metal"});     // the spring
+  if (!DUMMY){
+    const P = [[0, .5], [.1, .5], [.16, .56], [.175, .66], [.16, .82], [.15, .92], [.17, 1.06], [.205, 1.2], [.225, 1.32], [.215, 1.39],
+      [.17, 1.44], [.075, 1.49], [.062, 1.54], [.075, 1.58], [.102, 1.64], [.114, 1.71], [.104, 1.79], [.07, 1.85], [0, 1.875]];
+    DUMMY = new THREE.LatheGeometry(P.map(([r, y]) => new THREE.Vector2(r, y)), 12);
+    DUMMY.scale(1, 1, .56);
+  }
+  put(f, DUMMY.clone(), 0, 0, 0, color, {flat:true, key:"gloss"});
   fsolid(f, 0, 0, .5, .5, 0, 1.85);
 }
 export function bench(x, z, ry = 0, len = 2.4, o = {}){
@@ -262,6 +270,24 @@ export function chair(x, z, ry, color = 0x23272c){
   rb(f, 0, .5, -.21, .44, .5, .05, .03, color, {seg:2, rx:.08});
   fsolid(f, 0, 0, .5, .5, 0, .9);
 }
+// a bistro chair: a round dished seat on four splayed legs, two uprights and a curved back rail. Faces +z in its frame
+// (the back is at −z); the seat top is at .475. Returns the seat height for the sit contract.
+export function cafeChair(x, z, ry, color = 0x9a6b42, frameCol = PC.dark){
+  const f = frame(x, z, ry);
+  cy(f, 0, .43, 0, .205, .19, .045, color, {seg:14});
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]){
+    const g = new THREE.CylinderGeometry(.013, .011, .45, 6), a = .08;
+    g.rotateZ(-sx*a); g.rotateX(sz*a); put(f, g, sx*.15, .215, sz*.15, frameCol, {key:"metal"});
+  }
+  for (const sx of [-1, 1]){ const g = new THREE.CylinderGeometry(.012, .012, .44, 6); g.rotateX(-.12); put(f, g, sx*.15, .69, -.165, frameCol, {key:"metal"}); }
+  // the back rail: a band bent round the sitter's back
+  const arc = new THREE.CylinderGeometry(.24, .24, .09, 12, 1, true, Math.PI*.72, Math.PI*.56);
+  arc.rotateX(-.12); put(f, arc, 0, .84, .03, color, {});
+  const arc2 = new THREE.CylinderGeometry(.23, .23, .09, 12, 1, true, Math.PI*.72, Math.PI*.56);
+  arc2.scale(-1, 1, 1); arc2.rotateX(-.12); put(f, arc2, 0, .84, .03, color, {shade:.8, flat:true});        // its inside face (mirrored: wound inward)
+  fsolid(f, 0, 0, .44, .44, 0, .9);
+  return .475;
+}
 export function vending(x, z, ry, tex){
   const f = frame(x, z, ry);
   rb(f, 0, 0, 0, .9, 1.9, .75, .05, 0xc8463a, {seg:2, key:"paint"});
@@ -306,12 +332,13 @@ export function bike(x, z, ry){
 /* ---------- outdoors ---------- */
 export function tree(x, z, s = 1, tint = 0){
   const f = frame(x, z);
-  cy(f, 0, 0, 0, .09*s, .16*s, 2.1*s, 0x5b4330, {seg:7, flat:true});
+  // a street tree is crowned up: the lowest leaves well over a tall man's head, so nobody walks through the canopy
+  cy(f, 0, 0, 0, .09*s, .16*s, 2.6*s, 0x5b4330, {seg:7, flat:true});
   const cols = [0x3f7a3a, 0x4a8740, 0x356b34, 0x5a9446], c = cols[(tint + Math.floor(Math.abs(x*7 + z*3))) % cols.length];
-  sph(f, 0, 2.9*s, 0, 1.2*s, c, {detail:1, flat:true, sy:1.05});
-  sph(f, .55*s, 2.45*s, .25*s, .8*s, c, {detail:1, flat:true});
-  sph(f, -.5*s, 2.55*s, -.3*s, .78*s, c, {detail:1, flat:true});
-  sph(f, .1*s, 3.6*s, -.15*s, .72*s, c, {detail:1, flat:true});
+  sph(f, 0, 3.4*s, 0, 1.2*s, c, {detail:1, flat:true, sy:1.05});
+  sph(f, .55*s, 3.0*s, .25*s, .8*s, c, {detail:1, flat:true});
+  sph(f, -.5*s, 3.1*s, -.3*s, .78*s, c, {detail:1, flat:true});
+  sph(f, .1*s, 4.1*s, -.15*s, .72*s, c, {detail:1, flat:true});
   solid(x - .2*s, x + .2*s, z - .2*s, z + .2*s, 0, 2.5*s);
 }
 export function bush(x, z, s = 1, y = 0){

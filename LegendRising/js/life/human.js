@@ -10,7 +10,10 @@
    ---- the API ----
    lookFor(role, seed, extras) → look            a believable, seeded person for a role:
        "footballer" "goalkeeper" "coach" "manager" "shopkeeper" "barista" "customer" "office" "courier" "gym" "pedestrian"
-       extras are merged over the result (outfit fields merge into outfit); also extras.kit = [shirt, shorts], extras.number.
+       "physio" "kitman" "receptionist" "clerk" "dispatcher" "photographer" "editor"
+       extras are merged over the result (outfit fields merge into outfit); also extras.kit = [shirt, shorts], extras.number
+       (club staff — coach, physio, kit man — take the club's colours from extras.kit). The manager is always an older man
+       in a dark suit or long coat, with a tie and glasses: the one face at the club you know from across the room.
    look = {
      sex:"m"|"f", age, skin (hex), height (≈.92–1.08, scales the whole body), build:"slim"|"average"|"athletic"|"stocky"|"muscular",
      hair:"short"|"fade"|"buzz"|"curly"|"afro"|"long"|"ponytail"|"bun"|"braids"|"cornrows"|"dreads"|"messy"|"bald"|"horseshoe",
@@ -21,7 +24,7 @@
              glove, inner, tie (colour or false), apron (colour), apronCut:"bib"|"waist", belt,
              sleeves:"short"|"long", collar:"crew"|"v"|"polo"|"shirt"|"zip"|"hood"|"lapel"|"open",
              legwear:"kitshorts"|"shorts"|"trousers"|"jeans"|"trackpants", footwear:"boots"|"trainers"|"dress"},
-     props:["clipboard"], seed }
+     props:["clipboard", "glasses"], seed }
    human(look, {cast, lod, track}) → h        h.g is a Group with the feet at its origin, facing +z. Add it anywhere.
        h.dispose() frees it (done for you when the place is rebuilt). cast:true lets it throw a real sun shadow
        (only for people who stand still — the sun's shadow map is not redrawn every frame).
@@ -39,7 +42,8 @@
        "sit" {seat:.45}  — SEAT CONTRACT: put the group on the floor under the middle of the seat, facing the way
               the person looks; seat = seat-top height in world metres (chairs .45–.48, benches .42–.45), whatever
               the person's height: the backside rests on it. Feet land ~.45 m ahead; the hands lie on the thighs.
-       "typing" {seat:.47, desk:.74, reach:.4} (sitting, hands on a desk in front; heights and reach in world metres)
+       "typing" {seat:.47, desk:.74, reach:.4, keys} (sitting, hands on a desk in front; heights and reach in world metres;
+              keys:false — no keyboard: the hands rest flat on the table top, still: a café table, a book)
        "counter" {counter:1.0, reach:.34} (standing, both palms flat on a counter top that high, reach ahead of the
               feet; the body leans in from the hips as far as it must — a low desk makes a lean on the desk)
        Hands that rest on something lie flat on it (palm within ~1 cm of the top, whatever the height).
@@ -47,13 +51,13 @@
        Any state may carry look:yaw to turn the head.
    playerRig(look, {firstPerson:true}) → h     your own body for first person: no head, hair or neck — the body
        stops at the shoulders in a low dome of shirt — same art style, same rig and animateHuman(); not tracked
-       for LOD/blobs (one mesh, always near). The eyes of a 1.80 m body are at 1.685 (scale the rig by EYE/1.685),
+       for LOD/blobs (one mesh, always near). The eyes of a 1.80 m body are at 1.68 (scale the rig by EYE/1.68),
        and the camera wants to sit ~.1 m in front of the neck (z ≈ +.1 in the rig's frame): looking down you then
        see the top of your chest and your arms, not the inside of a neck (further forward, ~.2, shows the feet too). h.bones[BONE.haR] etc. are the bones (BONE maps names → index) if a held
        object or a camera needs to follow a hand or the chest.
    CONTACT = {kick, pass, trap, header}: the t at which foot (or head) meets the ball.
-   VIEW = {x, y, z, scene}: where the camera (you, in first person) was at the last frame drawn — people use it to
-       get out of your way.
+   VIEW = {x, y, z, fx, fz, scene}: where the camera (you, in first person) was at the last frame drawn, and the way it
+       looked (flat) — people use it to get out of your way, and to come and go only where you aren't looking.
    Budget: ~3.2k triangles near / ~1k far, ONE draw call per person (+1 for the shirt number within 9.5 m),
    one more for all the blobs together. Bodies switch to the far LOD beyond 15 m.
 */
@@ -379,7 +383,7 @@ function headFn(D, F){
     let rx = .079, ry = y > 0 ? .117 : .118, rzF = .097, rzB = .103, xm = 1, zs = 0;
     if (y < 0){
       const t = -y;
-      xm *= 1 - Math.pow(t, 1.9)*(.4 - .26*(jaw - 1));                  // the jaw narrows to the chin
+      xm *= 1 - Math.pow(t, 1.9)*(.34 - .26*(jaw - 1));                 // the jaw narrows to the chin (its angle wide enough to frame the neck)
       rzB *= 1 - .5*t*t;                                                // the skull tucks into the neck behind
       zs += .036*Math.pow(t, 1.5)*chin*sstep(-.25, .55, z0);            // the chin comes forward
     } else {
@@ -419,10 +423,10 @@ function build(look, det, noHead){
     ts(1.30, .166*ch, .107 + mus*.008 + bust*.024, .098, 0, wt(C)),
     ts(1.37, .172*(ch + sh)/2, .102 + mus*.006 + bust*.01, .102, -.004, wt(C)),
     ts(1.425, .17*sh, .088, .092, -.008, wt(C)),
-    ts(1.465, .136*sh, .072, .078, -.012, wt(C)),
-    ts(1.505, .08*nk, .063, .07, -.01, wt(C, .6, N, .4)),            // the trapezius running into a neck of real thickness
-    ts(1.54, .067*nk, .059*nk, .065*nk, -.006, wt(N)),
-    ts(1.6, .061*nk, .055*nk, .06*nk, -.002, wt(N, .7, HD, .3)),
+    ts(1.465, .14*sh, .074, .08, -.012, wt(C)),
+    ts(1.505, .088*nk, .066, .074, -.01, wt(C, .6, N, .4)),          // the trapezius rising well up into a neck of real thickness
+    ts(1.54, .068*nk, .061*nk, .068*nk, -.006, wt(N)),
+    ts(1.6, .058*nk, .053*nk, .058*nk, -.002, wt(N, .7, HD, .3)),
     ts(1.645, .05, .044, .05, .002, wt(HD, .7, N, .3))
   ];
   if (!near) tst = tst.filter(s => [.83, .94, 1.07, 1.22, 1.37, 1.425, 1.465, 1.505, 1.6, 1.645].includes(s.y));
@@ -606,7 +610,7 @@ function build(look, det, noHead){
       R.push(ring([0, y, b.z], [1, 0, 0], [0, 0, 1], ell(Math.max(b.rx, .16*hp) + off, Math.max(b.rf, .1) + off, Math.max(b.rb, .11) + off), n, w, {s:S.top}));
     }
     R.unshift(ring([0, .95, 0], [1, 0, 0], [0, 0, 1], ell(.162*hp + topOff + .002, .096 + topOff + .002, .108 + topOff + .002), n, wt(B.hips), {s:S.top}));
-    loft(G, R, {sf:(i, k, r) => k === 0 || k === n - 1 ? S.dark : r.s});
+    loft(G, R, {sf:(i, k, r) => k === 0 || k === n - 1 ? -1 : r.s});                    // open down the front: the trousers show between its edges
   }
   /* things printed or sewn on the front and back. The ones that make big blocks of colour (an open front, a V neck,
      a tie, lapels) go on the far body too, so nothing changes colour when it takes over; the small ones only up close */
@@ -1094,7 +1098,7 @@ export function playerRig(look = {}, o = {}){
 
 /* ---------- once a frame, before drawing: near or far body, numbers up close, and the blobs underfoot ---------- */
 // where the camera (in first person: you) was at the last frame drawn, so people can step out of your way
-export const VIEW = {x:0, y:-99, z:0, scene:null};
+export const VIEW = {x:0, y:-99, z:0, fx:0, fz:-1, scene:null};          // fx, fz: the way the camera looks, flat
 let BLOBS = null;
 const _cam = new THREE.Vector3(), _mx = new THREE.Matrix4(), _q0 = new THREE.Quaternion(), _sc = new THREE.Vector3(), _ps = new THREE.Vector3();
 function blobs(){
@@ -1115,6 +1119,7 @@ function hook(scene){
   scene.onBeforeRender = function(renderer, sc, camera, rt){
     prev.call(this, renderer, sc, camera, rt);
     camera.getWorldPosition(_cam); VIEW.x = _cam.x; VIEW.y = _cam.y; VIEW.z = _cam.z; VIEW.scene = sc;
+    { const e = camera.matrixWorld.elements, l = Math.hypot(e[8], e[10]) || 1; VIEW.fx = -e[8]/l; VIEW.fz = -e[10]/l; }
     let n = 0;
     const bl = blobs();
     for (const h of LIVE){
@@ -1516,7 +1521,9 @@ function sit(h, T, st, typing){
   for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .03), D.ankY, .46 + (s > 0 ? .02 : -.02), 0);
   if (typing){
     const desk = (st.desk || .74)/sc, reach = (st.reach || .4)/sc;
-    for (const s of [1, -1]){ const tap = .007*Math.max(0, Math.sin(t*(17 + s*3))); plantHand(h, T, s, s*.15, desk + PALM + .017 + tap, reach, _Dv.set(-s*.3, -.08, 1), _UPV, [.5, -.2, -.8]); }
+    // on a keyboard (its keys a little over the desk, the fingers tapping), or with keys:false simply resting flat on the table
+    const kb = st.keys === false ? 0 : .017;
+    for (const s of [1, -1]){ const tap = kb ? .007*Math.max(0, Math.sin(t*(17 + s*3))) : 0; plantHand(h, T, s, s*.15, desk + PALM + kb + tap, reach, _Dv.set(-s*.3, -.08, 1), _UPV, [.5, -.2, -.8]); }
   } else for (const s of [1, -1]){
     // hands resting on the thighs, fingers toward the knees: the wrist over the top of the thigh, wherever the leg lies
     const th = LEG(s)[0], L1 = D.hipY - D.kneeY, f = .5, top = lerp(.078, .066, clamp((f*L1 - .19)/.12, 0, 1))*D.leg + .004 + (D.thighCloth || .01) + PALM;
@@ -1562,7 +1569,7 @@ const _st = {mode:"idle"}, ACCEL = 7;
 const toward = (v, target, dt) => Math.abs(target - v) < .02 ? target : v + clamp((target - v)*(1 - Math.exp(-10*dt)), -ACCEL*dt, ACCEL*dt);
 export function animateHuman(h, dt, state = "idle"){
   let st = state;
-  if (typeof st === "string"){ _st.mode = st; _st.speed = PRESET[st]; st = _st; for (const k of ["t", "look", "arms", "dir", "seat", "desk", "counter", "reach", "amp"]) delete _st[k]; }
+  if (typeof st === "string"){ _st.mode = st; _st.speed = PRESET[st]; st = _st; for (const k of ["t", "look", "arms", "dir", "seat", "desk", "counter", "reach", "amp", "keys"]) delete _st[k]; }
   let mode = st.mode || "idle";
   // the speed the legs are animated at follows the one asked for, but a body can only speed up or slow down so fast
   if (PRESET[mode] != null){ h.v = toward(h.v, st.speed != null ? st.speed : PRESET[mode], dt); mode = "move"; }
@@ -1595,7 +1602,7 @@ const ROLES = {
   manager:{age:[54, 66], fem:0, builds:[["average", .5], ["stocky", .35], ["slim", .15]]},
   shopkeeper:{age:[19, 62], fem:.55, builds:[["average", .45], ["stocky", .25], ["slim", .3]]},
   barista:{age:[18, 34], fem:.55, builds:[["slim", .45], ["average", .45], ["athletic", .1]]},
-  customer:{age:[16, 80], fem:.5, builds:[["slim", .25], ["average", .4], ["stocky", .25], ["athletic", .1]]},
+  customer:{age:[16, 80], skew:1.6, fem:.5, builds:[["slim", .25], ["average", .4], ["stocky", .25], ["athletic", .1]]},
   office:{age:[23, 60], fem:.45, builds:[["slim", .3], ["average", .45], ["stocky", .2], ["athletic", .05]]},
   courier:{age:[19, 45], fem:.25, builds:[["slim", .35], ["average", .35], ["athletic", .3]]},
   gym:{age:[20, 40], fem:.4, builds:[["athletic", .5], ["muscular", .25], ["slim", .15], ["average", .1]]},
@@ -1617,7 +1624,7 @@ export function lookFor(role = "pedestrian", seed = 1, x = {}){
   const R = ROLES[role] || ROLES.customer, r = rng(hashStr(role) ^ Math.imul(seed | 0, 2654435761));
   const pick = a => a[Math.floor(r()*a.length) % a.length], rr = (a, b) => a + (b - a)*r();
   const sex = x.sex || (r() < R.fem ? "f" : "m"), f = sex === "f";
-  const age = x.age || Math.round(rr(R.age[0], R.age[1])), old = sstep(40, 75, age);
+  const age = x.age || Math.round(R.age[0] + (R.age[1] - R.age[0])*Math.pow(r(), R.skew || 1)), old = sstep(40, 75, age);   // skew > 1: mostly the younger end
   // a given skin tone still steers hair and eyes: find the nearest of the eight
   const lumOf = c => { const k = new THREE.Color(hex(c)); return .3*k.r + .59*k.g + .11*k.b; };
   const tone = x.skin != null ? SKINS.reduce((bi, c, i) => Math.abs(lumOf(c) - lumOf(x.skin)) < Math.abs(lumOf(SKINS[bi]) - lumOf(x.skin)) ? i : bi, 0) : Math.floor(r()*SKINS.length);

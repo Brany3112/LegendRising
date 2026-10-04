@@ -131,9 +131,9 @@ export const LookPreview = {
     if (view) CUR.view(view);
     return CUR;
   },
-  // pl: your look (S.player.look shape), kind: "casual" | "training"
-  show(el, pl, kind, view){ return LookPreview.mount(el, bodyLook(pl, kind || "casual"), view); },
-  update(pl, kind){ if (CUR && !CUR.dead) CUR.set(bodyLook(pl, kind || "casual")); },
+  // pl: your look (S.player.look shape), kind: "casual" | "training", o: bodyLook's options (kit, number, age, seed)
+  show(el, pl, kind, view, o){ return LookPreview.mount(el, bodyLook(pl, kind || "casual", o || {}), view); },
+  update(pl, kind, o){ if (CUR && !CUR.dead) CUR.set(bodyLook(pl, kind || "casual", o || {})); },
   view(name){ if (CUR && !CUR.dead) CUR.view(name); },
   unmount(){ if (CUR) CUR.dispose(); CUR = null; },
   get live(){ return !!(CUR && !CUR.dead); }

@@ -1,11 +1,12 @@
 /* ============ LIFE: the neighbourhood ============
    A few streets of brick blocks. Only one door in the whole street is yours: the block on the near
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
-import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab} from "./build.js";
+import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
 import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, PC} from "./props.js";
 import {miniMarket, workplace} from "./shops.js";
 import {fillFridge} from "./fridge.js";
+import {pedestrians, VIEW} from "./npc.js";
 
 const C = {
   brick:[0xb04a3c, 0x9c4e38, 0xc06a44, 0x96463c, 0xd2c09a, 0x8d9aa4],
@@ -30,7 +31,7 @@ const winsOf = d => { const a = APT[d], w = a.x1 - a.x0; return [a.x0 + w*.3, a.
 
 const G = () => (typeof S !== "undefined" ? S : null);
 let ctx = null, H = null;
-export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null};
+export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null, street:null, mirror:null};
 
 /* ================= facades =================
    A facade is dressed in layers that stand a few centimetres proud of the wall, so nothing shares a face with
@@ -494,57 +495,101 @@ function plateTex(text){
     g.fillStyle = "#2a1f10"; g.font = "bold 30px Georgia, serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, w/2, h/2 + 2);
   });
 }
+/* a leaf that swings about a hinge (a door, a fridge door) kept solid wherever it stands: n short thin boxes laid
+   along it from the hinge to its free edge, moved as it turns, so it blocks only where it really is at every angle —
+   and it never swings into you: a turn that would bring the leaf into the space you stand in is held back until you
+   step clear (you can't end up inside a door, and the camera never sees through one). Each turn asks for the sun's
+   shadows to be redrawn, and once more when it comes to rest. */
+export function leafGuard(hx, hz, len, y0, y1, n = 10, pad = .035){
+  const sols = Array.from({length:n}, () => { const q = solid(0, 0, 0, 0, y0, y1); q.off = true; return q; });
+  let ux = 1, uz = 0, on = false, rest = 0;
+  const G = {
+    // would a leaf pointing along (vx, vz) stand in the space you occupy?
+    hitsYou(vx, vz){
+      if (VIEW.scene !== W.scene) return false;
+      const feet = VIEW.y - 1.62;
+      if (feet + 1.75 <= y0 || feet + .42 >= y1) return false;
+      const px = VIEW.x - hx, pz = VIEW.z - hz, t = Math.max(0, Math.min(len, px*vx + pz*vz));
+      return Math.hypot(px - vx*t, pz - vz*t) < .26 + pad;
+    },
+    // how far the leaf may turn from angle a0 toward a1 (dirOf(a) → its direction): all the way, unless that would
+    // newly bring it into you — then up to you and no further (a leaf already touching you is never held, so you can't be trapped)
+    reach(a0, a1, dirOf){
+      const [ax, az] = dirOf(a0), [bx, bz] = dirOf(a1);
+      if (!G.hitsYou(bx, bz) || G.hitsYou(ax, az)) return a1;
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 8; i++){ const m = (lo + hi)/2, [mx, mz] = dirOf(a0 + (a1 - a0)*m); if (G.hitsYou(mx, mz)) hi = m; else lo = m; }
+      return a0 + (a1 - a0)*lo;
+    },
+    set(vx, vz, show, dt = 1/60){
+      const moved = Math.abs(vx - ux) + Math.abs(vz - uz) > 1e-5 || show !== on;
+      ux = vx; uz = vz; on = show;
+      G.sols = sols;
+    sols.forEach((q, i) => {
+        q.off = !show; if (!show) return;
+        const ax = hx + vx*len*i/n, az = hz + vz*len*i/n, bx = hx + vx*len*(i + 1)/n, bz = hz + vz*len*(i + 1)/n;
+        q.x0 = Math.min(ax, bx) - .03; q.x1 = Math.max(ax, bx) + .03; q.z0 = Math.min(az, bz) - .03; q.z1 = Math.max(az, bz) + .03;
+      });
+      if (moved){ W.shadowDirty = true; rest = .35; } else if (rest > 0 && (rest -= dt) <= 0) W.shadowDirty = true;
+    }
+  };
+  return G;
+}
 /* a door you open by pressing E, or by grabbing it with the mouse and dragging, like a real one.
    o: hingeX, z, base, width, height, into (+1 = swings towards +z), dir (+1: the leaf runs from the hinge
    towards +x, −1 towards −x), color, glass, label, plate. Closed, it blocks the opening; open, it blocks only
-   where the leaf really stands, so you can neither walk through it nor be stopped by a door that is not there. */
+   where the leaf really stands (leafGuard), so you can neither walk through it nor be stopped by a door that is not there. */
 export function hingedDoor(o){
   const dir = o.dir || 1, T = .05;
   const g = new THREE.Group(); g.position.set(o.hingeX, o.base, o.z);
-  // the leaf and its raised panels are one mesh, the roses and levers on both faces another
-  const wood = [boxGeo(o.width, o.height, T, o.width/2, o.height/2, 0)], brass = [];
-  if (!o.glass) for (const dz of [-1, 1]) for (const [h0, h1] of [[.12, .45], [.55, .9]]) wood.push(boxGeo(o.width - .24, o.height*(h1 - h0), .008, o.width/2, o.height*(h0 + h1)/2, dz*(T/2 + .004)));
-  for (const dz of [-1, 1]){
-    brass.push(boxGeo(.05, .16, .012, o.width - .12, 1.02, dz*(T/2 + .006)));
-    brass.push(boxGeo(.13, .024, .024, o.width - .17, 1.06, dz*(T/2 + .012 + .012)));
+  // the leaf and its raised panels are one mesh, the roses and levers on both faces another; a glazed door is a frame
+  // round a real pane, not a slab with glass laid over it
+  const wood = [], brass = [], W_ = o.width, H_ = o.height;
+  if (o.glass){
+    const st = .14, rail = .16, gb = H_*.33, gt = H_*.88;
+    wood.push(boxGeo(st, H_, T, st/2, H_/2, 0), boxGeo(st, H_, T, W_ - st/2, H_/2, 0));
+    wood.push(boxGeo(W_ - 2*st, gb, T, W_/2, gb/2, 0), boxGeo(W_ - 2*st, H_ - gt, T, W_/2, (H_ + gt)/2, 0));
+  } else {
+    wood.push(boxGeo(W_, H_, T, W_/2, H_/2, 0));
+    for (const dz of [-1, 1]) for (const [h0, h1] of [[.12, .45], [.55, .9]]) wood.push(boxGeo(W_ - .24, H_*(h1 - h0), .008, W_/2, H_*(h0 + h1)/2, dz*(T/2 + .004)));
   }
-  const leaf = part(mergeGeos(wood), o.color, {cast:false});
+  for (const dz of [-1, 1]){
+    brass.push(boxGeo(.05, .16, .012, W_ - .12, 1.02, dz*(T/2 + .006)));
+    brass.push(boxGeo(.13, .024, .024, W_ - .17, 1.06, dz*(T/2 + .012 + .012)));
+  }
+  const leaf = part(mergeGeos(wood), o.color, {cast:true});
   g.add(leaf, part(mergeGeos(brass), C.metal, {mat:{metalness:.7, roughness:.35}}));
-  if (o.glass){ g.add(boxPart(o.width - .3, o.height*.55, T + .004, 0x9fb7c6, o.width/2, o.height*.6, 0, {mat:{transparent:true, opacity:.45}})); }
+  if (o.glass){ const pane = boxPart(W_ - .26, H_*.55 + .02, .012, 0x9fb7c6, W_/2, (H_*.33 + H_*.88)/2, 0, {mat:{transparent:true, opacity:.32, roughness:.08, metalness:.1, depthWrite:false}}); pane.renderOrder = 2; g.add(pane); }
   if (o.plate){
     const pm = new THREE.Mesh(new THREE.PlaneGeometry(.16, .08), new THREE.MeshLambertMaterial({map:plateTex(o.plate)}));
-    pm.position.set(o.width/2, 1.62, -o.into*dir*(T/2 + .003)); pm.rotation.y = o.into*dir > 0 ? Math.PI : 0;
+    pm.position.set(W_/2, 1.62, -o.into*dir*(T/2 + .003)); pm.rotation.y = o.into*dir > 0 ? Math.PI : 0;
     g.add(pm);
   }
   W.scene.add(g);
-  const xa = dir > 0 ? o.hingeX : o.hingeX - o.width, xb = dir > 0 ? o.hingeX + o.width : o.hingeX;
-  const sol = solid(xa, xb, o.z - .06, o.z + .06, o.base, o.base + o.height);
-  // the leaf, once it leaves the frame, as three short boxes from the hinge to its free edge: a leaf standing at an
-  // angle blocks only where it really is, at every angle it can be dragged to
-  const leafSols = [0, 1, 2].map(() => { const q = solid(0, 0, 0, 0, o.base, o.base + o.height); q.off = true; return q; });
+  const xa = dir > 0 ? o.hingeX : o.hingeX - W_, xb = dir > 0 ? o.hingeX + W_ : o.hingeX;
+  const sol = solid(xa, xb, o.z - .06, o.z + .06, o.base, o.base + H_);
+  const guard = leafGuard(o.hingeX, o.z, W_, o.base, o.base + H_);
   const base = dir > 0 ? 0 : Math.PI, spin = dir > 0 ? -o.into : o.into;
+  const at = a => { const r = base + spin*a; return [Math.cos(r), -Math.sin(r)]; };
+  // turn the leaf to a, unless that would swing it into you
+  const turnTo = a => { D.a = guard.reach(D.a, a, at); };
   const D = {g, a:0, target:0, sol, leaf, dragging:false, get open(){ return D.a > .4; },
     toggle(){ D.target = D.a > .4 ? 0 : 1.65; }};
   W.anims.push(dt => {
-    D.a += (D.target - D.a)*(1 - Math.exp(-6*dt));
+    if (Math.abs(D.target - D.a) > 1e-4) turnTo(D.a + (D.target - D.a)*(1 - Math.exp(-6*dt)));
     g.rotation.y = base + spin*D.a;
     // the closed box stays until the leaf is clear of the frame; the leaf's own boxes take over as soon as it moves
-    const swung = D.a > .01;
     sol.off = D.a > .08;
-    const r = g.rotation.y, cx = Math.cos(r)*o.width/3, cz = -Math.sin(r)*o.width/3;
-    leafSols.forEach((q, i) => {
-      q.off = !swung; if (!swung) return;
-      const ax = o.hingeX + cx*i, az = o.z + cz*i, bx = ax + cx, bz = az + cz;
-      q.x0 = Math.min(ax, bx) - .04; q.x1 = Math.max(ax, bx) + .04; q.z0 = Math.min(az, bz) - .04; q.z1 = Math.max(az, bz) + .04;
-    });
+    const [ux, uz] = at(D.a);
+    guard.set(ux, uz, D.a > .01, dt);
   });
   const box3 = new THREE.Box3();
   spot({kind:"drag", label:o.label || "Door", get hint(){ return D.open ? "Close the door" : "Open the door"; }, y:o.base + 1.2,
     aim:() => { g.updateMatrixWorld(); box3.setFromObject(leaf); box3.expandByScalar(.06); return [box3.min.toArray(), box3.max.toArray()]; },
     spin, get angle(){ return D.a; }, toggle:() => D.toggle(),
-    drag(da){ D.a = Math.max(0, Math.min(1.75, D.a + da)); D.target = D.a; },
+    drag(da){ turnTo(Math.max(0, Math.min(1.75, D.a + da))); D.target = D.a; },
     hinge(){ return g.getWorldPosition(new THREE.Vector3()); },
-    edge(){ g.updateMatrixWorld(); return g.localToWorld(new THREE.Vector3(o.width*.95, 1.0, 0)); }});
+    edge(){ g.updateMatrixWorld(); return g.localToWorld(new THREE.Vector3(W_*.95, 1.0, 0)); }});
   return D;
 }
 
@@ -582,35 +627,50 @@ function myFlat(F, D){
   lb(.022, .045, 2.3, Dp - .045, .02, .11, sk, SK); lb(Wd - .045, Wd - .022, .045, Dp - .045, .02, .11, sk, SK);
   lb(.045, .48, 2.3, 2.323, .02, .11, sk, SK); lb(1.52, 2.1, 2.3, 2.323, .02, .11, sk, SK);
   lb(2.1, 2.123, .022, 2.3, .02, .11, sk, SK);
-  // bath, toilet, sink and a mirror
+  // bath, toilet, sink and a mirror: enamel and porcelain with soft edges, a chrome tap
+  // fr(u, v, y): a frame at a point of the flat (turned with the world, so a span along v is a depth along z)
+  const fr = (u, v, y = 0) => frame(X(u), Z(v), 0, base + y), vc = (v0, v1) => (v0 + v1)/2;
   // the bath across the far end, the toilet on the left, the sink on the right: a clear path between
-  lb(.05, 1.95, .05, .8, 0, .56, C.white, {solid:true});
-  lb(.13, 1.87, .13, .72, .5, .565, 0xa9c4cf, {ao:false, jit:0});
-  cyl(X(1.75), base + .62, Z(.09), .03, .12, C.metal, {seg:6});
-  lb(.03, .25, 1.05, 1.55, .38, .95, C.white, {solid:true});
-  cyl(X(.36), base, Z(1.3), .17, .42, C.white, {seg:12, rt:.2});
-  cyl(X(.37), base + .42, Z(1.3), .2, .03, 0xe6e6e0, {seg:12});
+  rb(fr(1, .425), 0, 0, 0, 1.9, .565, .75, .06, C.white, {seg:2, key:"gloss"});
+  rb(fr(1, .425), 0, .5, 0, 1.72, .07, .57, .05, 0xdde8ec, {key:"gloss"});                       // the tub, filled to just under the rim
+  rb(fr(1, .425), 0, .51, 0, 1.6, .06, .47, .04, 0xa9c4cf, {key:"glass"});
+  solid(X(.05), X(1.95), ...zr(.05, .8), base, base + .56);
+  cy(fr(1.75, .09), 0, .58, 0, .022, .026, .1, C.metal, {seg:8, key:"metal"});
+  rb(fr(1.75, .14), 0, .66, 0, .04, .03, .12, .015, C.metal, {key:"metal"});
+  // the toilet: a cistern against the wall, a pedestal, a bowl with its seat
+  rb(fr(.14, 1.3), 0, .38, 0, .2, .52, .46, .04, C.white, {seg:2, key:"gloss"});
+  rb(fr(.14, 1.3), 0, .9, 0, .23, .04, .49, .02, 0xf4f4f0, {key:"gloss"});
+  cy(fr(.36, 1.3), 0, 0, 0, .15, .12, .34, C.white, {seg:14, key:"gloss"});
+  cy(fr(.36, 1.3), 0, .34, 0, .2, .16, .07, C.white, {seg:16, key:"gloss"});
+  cy(fr(.37, 1.3), 0, .41, 0, .205, .205, .025, 0xe6e6e0, {seg:16});
   solid(...[X(.03), X(.56)], ...zr(1.08, 1.52), base, base + .45);
-  lb(1.58, 1.98, 1.2, 1.68, .8, .9, C.white, {solid:true});
-  cyl(X(1.82), base, Z(1.44), .08, .8, C.white, {seg:8});
-  lb(1.975, 1.985, 1.24, 1.64, 1.15, 1.7, 0xbfd3dc, {ao:false, jit:0});
-  lb(1.9, 1.98, 1.38, 1.5, .9, 1.02, C.metal, {ao:false});
+  // the sink on its pedestal, the tap, and the mirror over it
+  rb(fr(1.78, 1.44), 0, .78, 0, .4, .12, .48, .045, C.white, {seg:2, key:"gloss"});
+  rb(fr(1.76, 1.44), 0, .86, 0, .28, .045, .34, .04, 0xe2e9ec, {key:"gloss"});
+  cy(fr(1.82, 1.44), 0, 0, 0, .07, .1, .78, C.white, {seg:12, key:"gloss"});
+  solid(X(1.58), X(1.98), ...zr(1.2, 1.68), base, base + .9);
+  cy(fr(1.93, 1.44), 0, .9, 0, .016, .02, .11, C.metal, {seg:8, key:"metal"});
+  rb(fr(1.88, 1.44), 0, .99, 0, .1, .025, .03, .012, C.metal, {key:"metal"});
+  mirror(fr(1.965, 1.44), X, Z, base);
   // the bathroom door: lined, a marble threshold, hung on the sink side so it opens clear of the toilet
   doorway("x", Z(2.25), X(.55), X(1.45), base, 2.0, .1, {proud:.05, sill:base + .034, sillColor:0xe8e4dc});
   hingedDoor({hingeX:X(1.42), dir:-1, z:Z(2.25), base:base + .036, width:.84, height:1.934, into:-s, color:0xe6e1d6, label:"Bathroom"});
   lb(.85, 1.25, .95, 1.35, LH - .28, LH - .25, 0xfff3d6, {key:"lamp", ao:false});
 
   // the room: a table and a chair by the wall, a radiator under the window, a rug
-  const tv0 = Dp - 1.65, tv1 = Dp - 1.05;
-  lb(.12, .95, tv0, tv1, .72, .76, 0x9a6b42);
-  for (const [u, v] of [[.16, tv0 + .04], [.88, tv0 + .04], [.16, tv1 - .07], [.88, tv1 - .07]]) lb(u, u + .05, v, v + .05, 0, .72, 0x6b4a2c);
+  const tv0 = Dp - 1.65, tv1 = Dp - 1.05, WD = 0x9a6b42, WD2 = 0x6b4a2c;
+  rb(fr(.535, vc(tv0, tv1)), 0, .72, 0, .83, .04, .6, .018, WD);
+  rb(fr(.535, vc(tv0, tv1)), 0, .64, 0, .73, .08, .5, .016, WD2);                              // the apron under the top
+  for (const [u, v] of [[.185, tv0 + .065], [.885, tv0 + .065], [.185, tv1 - .065], [.885, tv1 - .065]]) cy(fr(u, v), 0, 0, 0, .024, .017, .72, WD2, {seg:8});
   solid(X(.12), X(.95), ...zr(tv0, tv1), base, base + .76);
   cyl(X(.4), base + .76, Z(tv0 + .3), .045, .1, 0xe8e2d6, {seg:10});
   cyl(X(.7), base + .76, Z(tv0 + .25), .13, .015, 0xf0eee8, {seg:14});
+  // the chair, facing the table: a seat with rounded edges, turned legs, two back posts with slats between
   const cu0 = 1.02, cu1 = 1.45, cv0 = tv0 + .08, cv1 = tv0 + .52;
-  lb(cu0, cu1, cv0, cv1, .43, .47, 0x7a5233);
-  for (const [u, v] of [[cu0, cv0], [cu1 - .04, cv0], [cu0, cv1 - .04], [cu1 - .04, cv1 - .04]]) lb(u, u + .04, v, v + .04, 0, .43, 0x5b3d24);
-  lb(cu1 - .05, cu1, cv0, cv1, .47, .92, 0x7a5233);
+  rb(fr(vc(cu0, cu1), vc(cv0, cv1)), 0, .43, 0, .43, .045, .44, .02, 0x7a5233);
+  for (const [u, v] of [[cu0 + .035, cv0 + .035], [cu0 + .035, cv1 - .035]]) cy(fr(u, v), 0, 0, 0, .019, .015, .43, 0x5b3d24, {seg:8});
+  for (const v of [cv0 + .035, cv1 - .035]) cy(fr(cu1 - .03, v), 0, 0, 0, .021, .017, .93, 0x5b3d24, {seg:8});
+  for (const y of [.62, .8]) rb(fr(cu1 - .03, vc(cv0, cv1)), 0, y, 0, .025, .09, .4, .012, 0x7a5233);
   solid(X(cu0), X(cu1), ...zr(cv0, cv1), base, base + .9);
   lb(.3, 2.0, Dp - 2.1, Dp - .7, .02, .028, 0x7b3b33, {ao:false, jit:0});
   const [w1] = winsOf(D);
@@ -673,6 +733,23 @@ function myFlat(F, D){
   const cm = label(ct, X(.03), base + 2.1, Z(Dp - 1.35), .34, .34, Math.PI/2, {transparent:true});
   cm.rotation.y = Math.PI/2;
 }
+/* the bathroom mirror over the sink: a slim rounded frame, the glass, a little shelf under it. Looking into it is
+   where you change how you look (ctx.look, when the world offers it) */
+function mirror(f, X, Z, base){
+  rb(f, 0, 1.12, 0, .036, .62, .46, .017, 0xd9dcde, {seg:2, key:"metal"});
+  rb(f, -.022, 1.15, 0, .004, .56, .4, 0, 0xdfe9ee, {key:"gloss"});
+  // the glass: a cool, glossy pane with two soft diagonal glints across it (the stylised way a mirror reads)
+  for (const [dz, dy, w] of [[-.05, 1.5, .05], [.04, 1.4, .025]]){
+    const g = new THREE.BoxGeometry(.002, .5, w); g.rotateX(.62); g.translate(-.025, 0, 0);
+    const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) pos.setY(i, Math.max(-.27, Math.min(.27, pos.getY(i))));
+    addGeo(g.translate(f.x, base + dy, f.z + dz), 0xf6fbff, {key:"gloss", ao:false, jit:0});
+  }
+  rb(f, -.03, 1.06, 0, .1, .02, .4, .008, 0xf2f2ee, {key:"gloss"});
+  cy(f, -.05, 1.08, .12, .025, .022, .09, 0x6fa7c9, {seg:10});
+  const [x, z] = [f.x, f.z];
+  HOME.mirror = spot({x:x - .6, y:base + 1.45, z, r:1.8, aim:[[x - .06, base + 1.1, z - .24], [x + .02, base + 1.76, z + .24]], label:"Mirror", hint:"Change your look", hold:.2,
+    run:() => { if (ctx.look) ctx.look(); else ctx.note("You look fine. Ready for training."); }});
+}
 function drawClock(){
   const c = HOME.clock; if (!c) return;
   const m = Math.floor(ctx.minute()); if (m === c.last) return; c.last = m;
@@ -725,24 +802,29 @@ function makeBed(){
   const tier = bedTier(); B.tier = tier;
   const g = new THREE.Group(), w = tier === 2 ? 1.4 : 1.0, len = 2.0;
   const wood = tier === 2 ? 0x3b3f45 : C.wood, dark = tier === 2 ? 0x2c2f33 : C.wood2;
-  const add = m => { m.castShadow = true; g.add(m); return m; };
-  const post = (x, z, h) => add(boxPart(.1, h, .1, dark, x, h/2, z));
-  // head at local +z
-  post(-w/2, len/2, 1.05); post(w/2, len/2, 1.05); post(-w/2, -len/2, .78); post(w/2, -len/2, .78);
-  for (const x of [-w/2, w/2]) add(boxPart(.06, .18, len, wood, x, .34, 0));
-  add(boxPart(w, .16, .06, wood, 0, .5, -len/2));
-  const sh = new THREE.Shape(); sh.moveTo(-w/2, 0); sh.lineTo(-w/2, .5); sh.quadraticCurveTo(0, .78, w/2, .5); sh.lineTo(w/2, 0); sh.lineTo(-w/2, 0);
-  const hg = new THREE.ExtrudeGeometry(sh, {depth:.05, bevelEnabled:false});
-  const head = add(part(hg, wood)); head.position.set(0, .42, len/2 - .05);
+  // every piece rounded off, and the pieces of one colour merged: the bed is five meshes however many parts it has
+  const parts = new Map(), put = (c, geo) => { if (!parts.has(c)) parts.set(c, []); parts.get(c).push(geo); };
+  const rg = (c, w_, h, d, x, y, z, r = .02) => put(c, roundedBoxGeo(w_, h, d, Math.min(r, w_/2 - .002, h/2 - .002, d/2 - .002), 2).translate(x, y, z));
+  // head at local +z: turned posts with a cap, side rails, a foot rail, a shaped headboard
+  for (const [x, z, h] of [[-w/2, len/2, 1.05], [w/2, len/2, 1.05], [-w/2, -len/2, .78], [w/2, -len/2, .78]]){
+    put(dark, new THREE.CylinderGeometry(.042, .048, h, 10).translate(x, h/2, z));
+    put(dark, new THREE.SphereGeometry(.05, 10, 6).translate(x, h + .01, z));
+  }
+  for (const x of [-w/2, w/2]) rg(wood, .06, .18, len - .08, x, .34, 0);
+  rg(wood, w - .06, .16, .05, 0, .5, -len/2);
+  const sh = new THREE.Shape(); sh.moveTo(-w/2 + .04, 0); sh.lineTo(-w/2 + .04, .5); sh.quadraticCurveTo(0, .8, w/2 - .04, .5); sh.lineTo(w/2 - .04, 0); sh.lineTo(-w/2 + .04, 0);
+  put(wood, new THREE.ExtrudeGeometry(sh, {depth:.05, bevelEnabled:true, bevelThickness:.012, bevelSize:.012, bevelSegments:1, curveSegments:8}).translate(0, .42, len/2 - .05));
   const mattress = tier >= 1 ? .2 : .14;
-  add(boxPart(w - .08, mattress, len - .1, 0xe9e4d6, 0, .42 + mattress/2, 0));
+  rg(0xe9e4d6, w - .08, mattress, len - .1, 0, .42 + mattress/2, 0, .05);
   const blanket = tier === 2 ? 0x2d4058 : tier === 1 ? 0x5a6b78 : C.blanket;
   const bt = .42 + mattress;
-  add(boxPart(w + .04, .05, len*.74, blanket, 0, bt + .02, -len*.12));
-  for (const x of [-(w/2 + .02), w/2 + .02]) add(boxPart(.02, .28, len*.74, blanket, x, bt - .1, -len*.12));
-  add(boxPart(w + .04, .26, .02, blanket, 0, bt - .1, -len/2 - .01 + .0));
-  const pil = tier === 2 ? [-.33, .33] : [0];
-  for (const x of pil) add(boxPart(tier === 2 ? .55 : .62, .12, .36, 0xf1eee6, x, bt + .07, len/2 - .32));
+  // the blanket over the top, falling over both sides and the foot, folded back under the pillow
+  rg(blanket, w + .04, .05, len*.74, 0, bt + .02, -len*.12, .025);
+  for (const x of [-(w/2 + .005), w/2 + .005]) rg(blanket, .03, .28, len*.74, x, bt - .1, -len*.12, .012);
+  rg(blanket, w + .04, .26, .03, 0, bt - .1, -len/2 - .005, .012);
+  rg(blanket, w + .04, .07, .16, 0, bt + .04, len*.25 + .02, .03);                               // the fold
+  for (const x of tier === 2 ? [-.33, .33] : [0]) rg(0xf1eee6, tier === 2 ? .55 : .62, .12, .36, x, bt + .07, len/2 - .32, .05);
+  for (const [c, list] of parts){ const m = part(mergeGeos(list), c, {cast:true}); m.receiveShadow = true; g.add(m); }
   g.position.set(B.X(B.u - w/2 - .12), B.base, B.Z(B.v - 1.12));
   if (B.s < 0) g.rotation.y = Math.PI;
   W.scene.add(g); B.group = g;
@@ -753,10 +835,14 @@ function makeBed(){
 function fridge(X, Z, base, Wd, s){
   const u0 = Wd - .68, u1 = Wd, v0 = 1.2, v1 = 1.9;
   const lb = (a0, a1, b0, b1, y0, y1, c, o = {}) => box(X(a0), base + y0, Z(b0), X(a1), base + y1, Z(b1), c, Object.assign({ao:false}, o));
-  lb(u1 - .05, u1, v0, v1, 0, 1.62, C.fridge);
-  lb(u0, u1, v0, v0 + .04, 0, 1.62, C.fridge); lb(u0, u1, v1 - .04, v1, 0, 1.62, C.fridge);
-  lb(u0, u1, v0, v1, 1.57, 1.62, C.fridge); lb(u0, u1, v0, v1, 0, .07, 0x3a3a3a);
-  lb(u0, u1, v0, v1, 1.1, 1.14, C.fridge);
+  const rl = (a0, a1, b0, b1, y0, y1, c, r, o = {}) => rbox((X(a0) + X(a1))/2, base + y0, (Z(b0) + Z(b1))/2, Math.abs(X(a1) - X(a0)), y1 - y0, Math.abs(Z(b1) - Z(b0)), r, c, Object.assign({seg:2}, o));
+  // the cabinet: rounded sides and back down to the floor, a dark kick plinth set back under the doors, a divider,
+  // and a top that overhangs it all with a soft edge
+  rl(u1 - .05, u1, v0, v1, 0, 1.58, C.fridge, .018);
+  rl(u0, u1, v0, v0 + .042, 0, 1.58, C.fridge, .018); rl(u0, u1, v1 - .042, v1, 0, 1.58, C.fridge, .018);
+  rl(u0 - .008, u1 + .004, v0 - .008, v1 + .008, 1.57, 1.64, C.fridge, .028);
+  rl(u0 + .05, u1 - .05, v0 + .04, v1 - .04, 0, .072, 0x34363a, .02);
+  rl(u0 + .005, u1 - .05, v0 + .04, v1 - .04, 1.1, 1.14, C.fridge, .018);
   lb(u1 - .06, u1 - .05, v0 + .04, v1 - .04, .07, 1.57, 0xf5f5f0, {key:"lamp"});          // the inside lights up
   lb(u0 + .02, u1 - .06, v0 + .04, v0 + .05, .07, 1.57, 0xf2f2ee); lb(u0 + .02, u1 - .06, v1 - .05, v1 - .04, .07, 1.57, 0xf2f2ee);
   lb(u0 + .02, u1 - .06, v0 + .04, v1 - .04, .07, .08, 0xeeeeea);
@@ -766,18 +852,27 @@ function fridge(X, Z, base, Wd, s){
   const doors = [[.07, 1.09, "Fridge"], [1.14, 1.6, "Freezer"]].map(([y0, y1, name]) => {
     const g = new THREE.Group(); g.position.set(X(u0), base, Z(v1));
     const h = y1 - y0, wv = v1 - v0;
-    const leaf = boxPart(.05, h, wv, C.fridge, -.025, y0 + h/2, -s*wv/2, {cast:false}); g.add(leaf);
-    g.add(boxPart(.008, h - .04, wv - .04, 0xf2f2ee, .002, y0 + h/2, -s*wv/2));            // the inside of the door
-    const hy = name === "Fridge" ? y1 - .4 : y0 + .22;
-    g.add(part(mergeGeos([boxGeo(.035, .3, .045, -.07, hy, -s*(wv - .08)), boxGeo(.03, .03, .045, -.04, hy + .14, -s*(wv - .08)), boxGeo(.03, .03, .045, -.04, hy - .14, -s*(wv - .08))]), C.handle));
+    const leaf = part(roundedBoxGeo(.05, h - .006, wv - .004, .018, 2).translate(-.025, y0 + h/2, -s*wv/2), C.fridge, {cast:true}); g.add(leaf);
+    g.add(boxPart(.008, h - .06, wv - .06, 0xf2f2ee, .002, y0 + h/2, -s*wv/2));            // the inside of the door
+    // a chrome bar handle on two stand-offs near the free edge
+    const hy = name === "Fridge" ? y1 - .32 : y0 + .2, hz = -s*(wv - .07), hl = name === "Fridge" ? .34 : .22;
+    g.add(part(mergeGeos([new THREE.CylinderGeometry(.011, .011, hl, 8).translate(-.083, hy, hz),
+      ...[-1, 1].map(k => new THREE.CylinderGeometry(.008, .008, .036, 6).rotateZ(Math.PI/2).translate(-.066, hy + k*(hl/2 - .03), hz))]), C.metal, {mat:{metalness:.75, roughness:.3}}));
     W.scene.add(g);
     const Dd = {g, leaf, a:0, target:0, name};
     const box3 = new THREE.Box3();
-    W.anims.push(dt => { Dd.a += (Dd.target - Dd.a)*(1 - Math.exp(-7*dt)); g.rotation.y = s*Dd.a; });
+    // the open door is solid where it stands, and stops short of you rather than swinging through you
+    const guard = leafGuard(X(u0), Z(v1), wv, base + y0, base + y1, 7, .085), dirOf = a => [-s*Math.sin(s*a), -s*Math.cos(s*a)];
+    const turnTo = a => { Dd.a = guard.reach(Dd.a, a, dirOf); };
+    W.anims.push(dt => {
+      if (Math.abs(Dd.target - Dd.a) > 1e-4) turnTo(Dd.a + (Dd.target - Dd.a)*(1 - Math.exp(-7*dt)));
+      g.rotation.y = s*Dd.a;
+      const [ux, uz] = dirOf(Dd.a); guard.set(ux, uz, Dd.a > .06, dt);
+    });
     spot({kind:"drag", label:name, get hint(){ return Dd.a > .5 ? "Close it" : "Open it"; }, y:base + y0 + h/2,
       aim:() => { g.updateMatrixWorld(); box3.setFromObject(leaf); box3.expandByScalar(.03); return [box3.min.toArray(), box3.max.toArray()]; },
       spin:s, get angle(){ return Dd.a; }, toggle(){ Dd.target = Dd.a > .5 ? 0 : 1.75; },
-      drag(da){ Dd.a = Math.max(0, Math.min(1.9, Dd.a + da)); Dd.target = Dd.a; },
+      drag(da){ turnTo(Math.max(0, Math.min(1.9, Dd.a + da))); Dd.target = Dd.a; },
       hinge(){ return g.getWorldPosition(new THREE.Vector3()); },
       edge(){ g.updateMatrixWorld(); return g.localToWorld(new THREE.Vector3(-.05, y0 + h/2, -s*wv*.95)); }
     });
@@ -808,8 +903,8 @@ function mailboxes(){
   for (let f = 1; f <= 3; f++) for (let d = 1; d <= 4; d++) names[`${f}0${d}`] = rnd() < .12 ? "" : `${pick(pool.f)[0]}. ${pick(pool.l)}`;
   names[h.apt] = G().player.name;
   // the cabinet on the lobby wall
-  box(-6.34, .98, -1.64, -6.1, 2.09, .84, 0x5a3f28, {ao:false});
-  box(-6.36, 2.09, -1.68, -6.1, 2.14, .88, 0x3f2c1c, {ao:false});
+  rbox(-6.22, .98, -.4, .24, 1.11, 2.48, .02, 0x5a3f28, {seg:2});
+  rbox(-6.23, 2.09, -.4, .26, .05, 2.56, .02, 0x3f2c1c);
   const t = textTex(1024, 448, () => {});
   HOME.mailTex = {tex:t, names};
   drawMail();
@@ -1000,6 +1095,11 @@ export function buildHome(c){
   miniMarket(ctx);
   workplace(ctx);
   finishBatches();
+  // people out on the street: an eastern loop over the zebra and back across the junction, a western one that
+  // crosses at the quiet end; a handful at the busy times of day, nobody in the small hours
+  HOME.street = pedestrians({minute:ctx.minute, seed:H.seed + 500, max:6, count:streetCount, routes:[
+    [[1.4, 4.75], [30.8, 4.75], [32.75, 4.95], [32.75, 5.5, 1.4, 1], [32.75, 14.5, 1.4, -1], [30.6, 14.85], [6.3, 14.85], [5.75, 14.62], [1.4, 14.62], [1.1, 14.3, 1.3, 1], [1.1, 5.55, 1.3, -1]],
+    [[-1.2, 4.45], [-28.0, 4.45], [-28.7, 5.5, 1.4, 1], [-28.7, 14.5, 1.4, -1], [-28.0, 14.85], [-1.2, 14.85], [-.6, 14.35, 1.2, 1], [-.6, 5.55, 1.2, -1]]]});
   const A = APT[H.door], Wd = A.x1 - A.x0, Dp = Math.abs(A.ext - A.wz);
   const base = H.floor*LH;
   return {
@@ -1008,6 +1108,11 @@ export function buildHome(c){
   };
 }
 export function homeTick(){ drawClock(); }
+// how many people are out walking at a minute of the day
+function streetCount(m){
+  const h = m/60;
+  return h < 5.5 ? 0 : h < 6.5 ? 1 : h < 7 ? 2 : h < 9.5 ? 5 : h < 16.5 ? 4 : h < 19.5 ? 6 : h < 21.5 ? 4 : h < 23 ? 2 : 1;
+}
 export function resetHome(){ for (const k of Object.keys(HOME)) HOME[k] = k === "curtains" ? [] : null; }
 export function homeRefresh(){
   refreshFridge();

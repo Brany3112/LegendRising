@@ -254,16 +254,16 @@ function tomorrowLine(){
 /* The appearance editor: in the world (the bathroom mirror, the computer) it is a panel; on the creation screen the
    same controls sit in a card. Every control edits LK.draft and the preview follows; nothing is kept until "Save".
    The 3D preview is js/life/look.js (window.LookPreview), a canvas of its own. */
-const LK = {draft:null, kind:"casual", view:"front", where:"", saved:false, after:null};
+const LK = {draft:null, kind:"casual", view:"front", where:"", saved:false, o:null};
 const lkHex = c => "#" + (num(c, 0) >>> 0).toString(16).padStart(6, "0").slice(-6);
 function lkPreview(){
   const el = document.getElementById("lkStage"); if (!el || !LK.draft) return;
-  const go = P => P.show(el, LK.draft, LK.kind, LK.view);
+  const go = P => P.show(el, LK.draft, LK.kind, LK.view, LK.o);
   if (window.LookPreview) go(window.LookPreview);
   else import("../life/look.js").then(m => { if (el.isConnected) go(m.LookPreview); }).catch(() => { el.classList.add("off"); });
 }
-function lkUpdate(){ if (window.LookPreview) window.LookPreview.update(LK.draft, LK.kind); }
-const lkSw = (key, list, cur, label) => `<div class="lk-sw" role="group" aria-label="${esc(label)}">${list.map(c => `<button style="--c:${lkHex(c)}" aria-label="${esc(label)} ${lkHex(c)}" aria-pressed="${c === cur}" onclick="lkSet('${key}',${c},this)"></button>`).join("")}</div>`;
+function lkUpdate(){ if (window.LookPreview) window.LookPreview.update(LK.draft, LK.kind, LK.o); }
+const lkSw = (key, list, cur, label) => `<div class="lk-sw" role="group" aria-label="${esc(label)}">${list.map((c, i) => `<button style="--c:${lkHex(c)}" aria-label="${esc(label)} ${i + 1} of ${list.length}" aria-pressed="${c === cur}" onclick="lkSet('${key}',${c},this)"></button>`).join("")}</div>`;
 const lkChips = (key, list, cur, label) => `<div class="seg wrap lk-chips" role="group" aria-label="${esc(label)}">${list.map(([v, n]) => `<button aria-pressed="${v === cur}" onclick="lkSet('${key}','${v}',this)">${esc(n)}</button>`).join("")}</div>`;
 const lkRow = (label, inner, right) => `<div class="lk-row"><div class="lk-lab"><span>${esc(label)}</span>${right ? `<b>${right}</b>` : ""}</div>${inner}</div>`;
 function lookFormHTML(L){
@@ -324,6 +324,8 @@ const lkStageHTML = () => `<div class="lk-side">
 // the creation screen's card (main.js puts it in the page and calls lookCreateMount() once it is drawn)
 function lookCreateHTML(L){
   LK.draft = L; LK.where = "create";
+  // before there is a career: your chosen number on the back, a plain blue kit until a club signs you
+  LK.o = {number:typeof CR === "object" && CR ? clamp(Math.round(num(+CR.number, 9)), 1, 99) : 9, age:17, kit:["#2c66b8", "#ffffff"], seed:7};
   return `<div class="card glass lk-create"><div class="row between"><h3>Appearance</h3><span class="pill">Optional</span></div>
     <p class="muted small">How you look in the 3D world and in kit. You can change it later at the mirror at home.</p>
     <div class="lk-main">${lkStageHTML()}<div class="lk-ctl" id="lkCtl">${lookFormHTML(L)}</div></div>
@@ -333,7 +335,7 @@ function lookCreateMount(){ if (LK.where === "create") lkPreview(); }
 /* the panel: where = "mirror" | "pc" */
 function openLookEditor(where){
   if (!S || !S.player) return;
-  LK.where = where || "mirror"; LK.saved = false; LK.view = "front"; LK.kind = "casual";
+  LK.where = where || "mirror"; LK.saved = false; LK.view = "front"; LK.kind = "casual"; LK.o = null;
   LK.draft = JSON.parse(JSON.stringify(lookSane(S.player.look, lookSeedOf(S))));
   lpShow("look", `<div class="lk">${lpHead("Your look", where === "pc" ? "Appearance" : "Bathroom mirror")}
     <div class="lk-main">${lkStageHTML()}<div class="lk-ctl" id="lkCtl">${lookFormHTML(LK.draft)}</div></div>

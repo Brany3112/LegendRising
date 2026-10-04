@@ -4,7 +4,7 @@
    the stand and the tunnel you walk out of on match day. From ten to five on a training day the
    squad is out there working, and being among them is how a dressing room comes to trust you. */
 import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, labels, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam} from "./build.js";
-import {facer, decoWin, pilasters, roofTop, busStop, hingedDoor} from "./home.js";
+import {facer, decoWin, pilasters, roofTop, busStop, hingedDoor, leafGuard} from "./home.js";
 import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, mannequin, bench, goal, cornerFlag, dugout, floodlight,
   waterCooler, bottle, kitBag, bibs, lockers, shelfUnit, tacticsBoard, noticeBoard, desk, monitor, chair, vending, vendTex, plyoBox, bike,
   tree, bush, hedge, streetLamp, bin, car, sign, wireFence, parkingBays, planter} from "./props.js";
@@ -151,12 +151,19 @@ function gymFridge(x, z){
   add(.7, 1.77, .01, .4, .97, gl); add(.03, .5, .05, .72, 1.0, frm);
   W.scene.add(g);
   const D = {a:0, target:0};
-  W.anims.push(dt => { D.a += (D.target - D.a)*(1 - Math.exp(-7*dt)); g.rotation.y = f.ry - D.a; });
+  // solid where it stands when open, and it stops short of you instead of swinging through you
+  const guard = leafGuard(hx, hz, .8, 0, 1.95, 8), dirOf = a => [Math.cos(f.ry - a), -Math.sin(f.ry - a)];
+  const turnTo = a => { D.a = guard.reach(D.a, a, dirOf); };
+  W.anims.push(dt => {
+    if (Math.abs(D.target - D.a) > 1e-4) turnTo(D.a + (D.target - D.a)*(1 - Math.exp(-7*dt)));
+    g.rotation.y = f.ry - D.a;
+    const [ux, uz] = dirOf(D.a); guard.set(ux, uz, D.a > .06, dt);
+  });
   const box3 = new THREE.Box3();
   spot({kind:"drag", label:"Fridge", get hint(){ return D.a > .5 ? "Close it" : "Open it · your food lives here and at home"; }, y:1,
     aim:() => { g.updateMatrixWorld(); box3.setFromObject(g); box3.expandByScalar(.03); return [box3.min.toArray(), box3.max.toArray()]; },
     spin:-1, get angle(){ return D.a; }, toggle(){ D.target = D.a > .5 ? 0 : 1.7; },
-    drag(da){ D.a = Math.max(0, Math.min(1.9, D.a - da)); D.target = D.a; },
+    drag(da){ turnTo(Math.max(0, Math.min(1.9, D.a - da))); D.target = D.a; },
     hinge(){ return g.getWorldPosition(new THREE.Vector3()); },
     edge(){ g.updateMatrixWorld(); return g.localToWorld(new THREE.Vector3(.75, 1, 0)); }});
   const items = new THREE.Group(); W.scene.add(items);
@@ -424,6 +431,10 @@ function clubhouse(clubName){
   rb(ib, 0, .5, 0, 1.3, .06, .75, .1, 0x8fd0e8, {key:"glass"});
   fsolid(ib, 0, 0, 1.5, .95, 0, .62);
   spot({aim:[[27.8, 0, 8.7], [29.4, .9, 9.7]], label:"Ice bath", hint:"20 min · cold, but your legs will thank you", hold:.5, run:() => ctx.iceBath()});
+  // the staff who look after you here: the physio by the ice bath and the kit man sorting the bibs, in the day
+  const kit = typeof kitOf === "function" && typeof myClub === "function" && myClub() ? kitOf(myClub().nm) : ["#2c66b8", "#ffffff"];
+  staffer(29.25, 10.0, -Math.PI*.78, {role:"physio", seed:12, kit, when:m => m >= 8*60 + 30 && m < 18*60, minute:ctx.minute});
+  staffer(25.35, 7.7, 0, {role:"kitman", seed:15, kit, pose:{mode:"counter", counter:.47, reach:.6}, when:m => m >= 7*60 + 30 && m < 19*60, minute:ctx.minute});
   noticeBoard(22.645, 1.55, 5.2, Math.PI/2, [["TODAY", "Shirts on pegs", "boots outside!"], ["RECOVERY", "Ice bath 20 min", "after every session"], ["KIT", "Bibs in the wash", "basket please"], ["SQUAD", "Team photo", "Friday 9:30"]]);
   lightSrc({x:26.2, y:2.7, z:6.8, color:0xf2f6ff, intensity:8, distance:10, indoor:true});
   for (const z of [5, 8.5]) rbox(26.2, g0 - .3, z, 3, .05, .4, .02, 0xf6f8ff, {key:"lamp"});
@@ -436,7 +447,7 @@ function clubhouse(clubName){
   const sh = shelfUnit(29.45, 13.8, -Math.PI/2, 2.4, 1.8, 0x4b5258);
   for (let i = 0; i < 4; i++) cy(sh, -.9 + i*.6, .98, 0, .1, .07, .32, 0xd9b45a, {seg:10, key:"metal"});
   for (let i = 0; i < 3; i++) rb(sh, -.8 + i*.8, 1.6, 0, .3, .2, .25, .02, [0xc8463a, 0x2c66b8, 0x3f8a48][i]);
-  staffer(26.6, 16.3, Math.PI, {shirt:0x1b2633, long:true, seed:4, hair:0x9a9a9a});
+  staffer(26.6, 16.3, Math.PI, {role:"manager", seed:4, hair:0x9a9a9a, minute:ctx.minute});
   spot({aim:[[26, .8, 15.9], [27.2, 2, 16.7]], x:26.6, z:15.2, label:"The manager", get hint(){ return `${typeof roleOutlook === "function" ? roleOutlook() : ""} · open the hub (Q) to talk to him`; }, hold:.2,
     run:() => ctx.note(`The manager looks up from his screen. “${(G() && G().trust >= 25) ? "Keep doing what you are doing." : (G() && G().trust >= 8) ? "Train hard, be on time, and you'll get your minutes." : "I need to see more from you in training."}”`)});
   lightSrc({x:26.2, y:2.7, z:13.6, color:0xfff0d8, intensity:7, distance:9, indoor:true});
@@ -509,7 +520,16 @@ export function buildGround(c){
   return {bus:{x:-14, z:23.2, y:0, yaw:0}, tunnel:{x:0, z:-25.2, y:0, yaw:Math.PI}};
 }
 // a match ball as a moving mesh, for drills and the squad
-let BALLTEX = null;
+let BALLTEX = null, BLOBG = null, BLOBM = null;
+const blobGeo = () => BLOBG || (BLOBG = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI/2));
+function blobMat(){
+  if (BLOBM) return BLOBM;
+  const t = textTex(64, 64, g => { const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31); gr.addColorStop(0, "rgba(0,0,0,.6)"); gr.addColorStop(.6, "rgba(0,0,0,.3)"); gr.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
+  t.userData.per = 1;
+  BLOBM = new THREE.MeshBasicMaterial({map:t, transparent:true, depthWrite:false, opacity:.5, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
+  BLOBM.userData.keep = true;
+  return BLOBM;
+}
 export function ballMesh(){
   if (!BALLTEX){
     BALLTEX = textTex(256, 128, g => {
@@ -520,7 +540,17 @@ export function ballMesh(){
     });
     BALLTEX.userData.per = 1;
   }
+  // a moving ball throws no sun shadow (the shadow map is not redrawn every frame, so it would leave its old one behind):
+  // a soft blob on the grass under it instead, which shrinks and fades as the ball goes up
   const m = new THREE.Mesh(new THREE.SphereGeometry(.11, 18, 12), mat({map:BALLTEX, roughness:.45}));
-  m.castShadow = true; m.material.userData.keep = false;
+  m.castShadow = false; m.material.userData.keep = false;
+  const b = new THREE.Mesh(blobGeo(), blobMat());
+  b.matrixAutoUpdate = false; b.matrixWorldAutoUpdate = false; b.frustumCulled = false; b.renderOrder = 1; b.castShadow = false; b.receiveShadow = false;
+  b.userData.keep = true;                                    // shared geometry and material: never disposed with the place
+  b.onBeforeRender = () => {
+    const e = m.matrixWorld.elements, h = Math.max(0, e[13] - .11), k = 1/(1 + h*1.6), s = .34*k + .1;
+    b.matrixWorld.makeScale(s, 1, s).setPosition(e[12], .02, e[14]);
+  };
+  m.add(b);
   return m;
 }

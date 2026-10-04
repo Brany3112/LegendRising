@@ -1,8 +1,15 @@
 /* ============ LIFE: people ============
    Your team-mates out on the training pitch, the coach with his clipboard, the manager in his office, the
-   woman behind the till. The bodies, faces, clothes and movement live in human.js (see its header for the
-   look schema, lookFor(), human(), animateHuman() and playerRig()); this file puts them to work, and keeps
-   the older person()/animate() calls working. */
+   woman behind the till, the regulars in the café and the people walking past your block. The bodies, faces,
+   clothes and movement live in human.js (see its header for the look schema, lookFor(), human(),
+   animateHuman() and playerRig()); this file puts them to work, and keeps the older person()/animate() calls working.
+     teamSession(o)                the squad at work on the pitch
+     staffer(x, z, ry, {role, ...})   someone at work, dressed for it, posed at their counter, desk or post
+     regulars(list, o)             customers: seated (the sit contract), paying at a till, browsing an aisle
+     pedestrians({routes, count})  people walking the pavements on looping routes, by the time of day
+     castLook(role, seed)          a look nobody else in this place already has
+   Everyone who moves is drawn without a sun shadow (the shadow map is not redrawn every frame): the blob under
+   them grounds them. People who come and go with the time of day only do it where you can't see them. */
 import {THREE, W, solid} from "./build.js";
 import {human, animateHuman, lookFor, playerRig, hashStr, rng, CONTACT, BONE, VIEW} from "./human.js";
 export {human, animateHuman, lookFor, playerRig, CONTACT, BONE, VIEW};
@@ -280,10 +287,38 @@ export function teamSession(o){
   return {root, coach, actors, group, loop:{x0, x1, z0, z1, path:loop}};
 }
 
+/* ---------- the cast of a place: nobody twice ----------
+   Every person put into a place is checked against the others there: same sex, same hair, same kind of clothes in
+   the same colour family counts as the same-looking person, and the seed is moved on until they differ. */
+const CAST = new Set();
+let castOf = null;
+const sigOf = L => { const c = new THREE.Color(col(L.outfit.shirt) ?? 0); return [L.sex, L.hair, L.outfit.type, Math.round(c.r*3), Math.round(c.g*3), Math.round(c.b*3)].join("|"); };
+export function castLook(role, seed, x = {}){
+  if (castOf !== W.ticks){ castOf = W.ticks; CAST.clear(); }
+  let look = null;
+  for (let k = 0; k < 16; k++){
+    look = lookFor(role, (seed | 0) + k*7919, x);
+    const sig = sigOf(look);
+    if (!CAST.has(sig)){ CAST.add(sig); break; }
+  }
+  return look;
+}
+// the minute of the day, whoever asks
+const dayMin = o => { const m = o && o.minute ? o.minute() : typeof S !== "undefined" && S.life ? S.life.min : 720; return ((m % 1440) + 1440) % 1440; };
+// is a person at (x, z) somewhere you could see them pop in or out? (near you, or in front of you within 30 m)
+function inSight(x, z){
+  if (VIEW.scene !== W.scene) return false;
+  const dx = x - VIEW.x, dz = z - VIEW.z, d = Math.hypot(dx, dz);
+  if (d < 2.5) return true;                                                // right beside you: you'd notice
+  if (d > 32) return false;
+  return (dx*(VIEW.fx || 0) + dz*(VIEW.fz || 0))/d > .25;                  // in front of you (the view is ~105° wide)
+}
+
 /* ---------- someone at work: behind a counter, at a desk, in the office ---------- */
-const JOB_ROLE = {cafe:"barista", store:"shopkeeper", courier:"courier", gym:"gym", academy:"coach", photo:"office", video:"office"};
+const JOB_ROLE = {cafe:"barista", store:"clerk", courier:"dispatcher", gym:"gym", academy:"coach", photo:"photographer", video:"editor"};
 const POSE = {manager:{mode:"counter", counter:.77, reach:.45}, shopkeeper:{mode:"counter", counter:1.05, reach:.36}, barista:{mode:"counter", counter:1.05, reach:.38}, gym:{mode:"counter", counter:1.1, reach:.34},
-  coach:{mode:"clipboard"}, office:{mode:"idle", arms:"behind"}, courier:{mode:"idle", arms:"hips"}};
+  coach:{mode:"clipboard"}, office:{mode:"idle", arms:"behind"}, courier:{mode:"idle", arms:"hips"}, dispatcher:{mode:"idle", arms:"folded"}, clerk:{mode:"idle", arms:"behind"},
+  photographer:{mode:"idle", arms:"folded"}, editor:{mode:"idle", arms:"behind"}, physio:{mode:"idle", arms:"folded"}, kitman:{mode:"idle", arms:"behind"}, receptionist:{mode:"idle", arms:"behind"}};
 function roleOf(o){
   if (o.role) return o.role;
   if (W.zone === "ground") return "manager";
@@ -291,6 +326,7 @@ function roleOf(o){
   const id = typeof jobState === "function" ? (jobState() || {}).id : "";
   return JOB_ROLE[id] || "shopkeeper";
 }
+export function jobRole(id){ return JOB_ROLE[id] || "shopkeeper"; }
 // the nearest counter-high solid straight ahead within a metre: {top (its height above the feet), d (to its near edge)}
 function counterAhead(x, z, ry, y0){
   const dx = Math.sin(ry), dz = Math.cos(ry);
@@ -308,21 +344,22 @@ function counterAhead(x, z, ry, y0){
   }
   return best;
 }
-// o: {role, look, pose (an animateHuman state), seed, shirt (the uniform's colour), hair, y}
+/* o: {role, look, pose (an animateHuman state), seed, shirt (the uniform's colour), hair, y, kit, noSolid,
+       when(minute) → bool: only there at those times (they come and go while you aren't looking), minute()} */
 export function staffer(x, z, ry, o = {}){
   const role = roleOf(o);
   let look = o.look;
   if (!look){
     const sh = col(o.shirt), out = {};
     if (sh != null){
-      if (role === "manager") out.shirt = sh;
-      else if (role === "shopkeeper" || role === "barista") out.apron = sh;
-      else if (role !== "coach") out.shirt = sh;
+      if (role === "shopkeeper" || role === "barista") out.apron = sh;
+      else if (!["coach", "manager", "physio", "kitman", "clerk", "dispatcher"].includes(role)) out.shirt = sh;
     }
-    look = lookFor(role, o.seed ?? 5, {outfit:out});
+    look = castLook(role, o.seed ?? 5, Object.assign({outfit:out}, o.kit ? {kit:o.kit} : {}));
     if (o.hair != null) look.hairColor = col(o.hair);
   }
-  const h = human(look, {cast:true});
+  // standing still, so they may throw a real shadow; anyone who comes and goes doesn't (the sun's shadows are not redrawn for them)
+  const h = human(look, {cast:!o.when});
   h.g.position.set(x, o.y || 0, z); h.g.rotation.y = ry;
   W.scene.add(h.g);
   // shop counters stand in front of the till workers; elsewhere they simply stand about
@@ -331,7 +368,202 @@ export function staffer(x, z, ry, o = {}){
   // hands on the counter (or desk) actually in front of them: its top and how far off its near edge is
   if (!o.pose && st.mode === "counter"){ const c = counterAhead(x, z, ry, o.y || 0); if (c) st = Object.assign({}, st, {counter:c.top, reach:Math.min(.7, Math.max(.3, c.d + .13))}); }
   animateHuman(h, 0, st); h.bw = 1; animateHuman(h, 0, st);         // already in place when you walk in
-  W.anims.push(dt => animateHuman(h, dt, st));
-  solid(x - .3, x + .3, z - .3, z + .3, o.y || 0, (o.y || 0) + 1.9);
+  const sol = o.noSolid ? null : solid(x - .3, x + .3, z - .3, z + .3, o.y || 0, (o.y || 0) + 1.9);
+  let on = true;
+  if (o.when){ on = !!o.when(dayMin(o)); h.g.visible = on; if (sol) sol.off = !on; }
+  W.anims.push(dt => {
+    if (o.when){
+      const want = !!o.when(dayMin(o));
+      if (want !== on && !inSight(x, z)){ on = want; h.g.visible = on; if (sol) sol.off = !on; }
+    }
+    if (on) animateHuman(h, dt, st);
+  });
+  h.role = role;
   return h;
+}
+
+/* ---------- customers: people sitting, paying, browsing ----------
+   list: [{role, seed, x, z, ry, y, state (an animateHuman state for someone who stays put), when(minute),
+           solid ([w, d] footprint or false), browse:{a:[x, z], b:[x, z], face (yaw while looking at the shelf)}}]
+   Nobody here moves fast or throws a sun shadow; the blob under them grounds them. They come and go with the time
+   of day, but never while you are looking. */
+export function regulars(list, o = {}){
+  const out = [];
+  list.forEach((e, i) => {
+    const look = e.look || castLook(e.role || "customer", e.seed ?? (101 + i*37), e.x0 || {});
+    const h = human(look, {cast:false});
+    h.g.position.set(e.x, e.y || 0, e.z); h.g.rotation.y = e.ry || 0;
+    W.scene.add(h.g);
+    const st = e.state || {mode:"idle"};
+    const fp = e.solid === false ? null : e.solid || [.5, .5];
+    const sol = fp ? solid(e.x - fp[0]/2, e.x + fp[0]/2, e.z - fp[1]/2, e.z + fp[1]/2, e.y || 0, (e.y || 0) + 1.8) : null;
+    const P = {h, e, on:true, sol, st, t:2 + i*1.7, at:0, go:null, yaw:e.ry || 0, v:0};
+    if (e.browse){ P.at = .3 + .4*((i*.618) % 1); const a = e.browse.a, b = e.browse.b; h.g.position.set(a[0] + (b[0] - a[0])*P.at, e.y || 0, a[1] + (b[1] - a[1])*P.at); P.yaw = e.browse.face; h.g.rotation.y = P.yaw; }
+    animateHuman(h, 0, st); h.bw = 1;
+    for (let k = 0; k < 4; k++) animateHuman(h, .1, st);
+    if (e.when){ P.on = !!e.when(dayMin(o)); h.g.visible = P.on; if (sol) sol.off = !P.on; }
+    out.push(P);
+  });
+  const tmp = {};
+  W.anims.push(dt => {
+    const m = dayMin(o);
+    for (const P of out){
+      const {h, e} = P;
+      if (e.when){ const want = !!e.when(m); if (want !== P.on && !inSight(h.g.position.x, h.g.position.z)){ P.on = want; h.g.visible = want; if (P.sol) P.sol.off = !want; } }
+      if (!P.on) continue;
+      if (!e.browse){ animateHuman(h, dt, P.st); continue; }
+      // browsing an aisle: stand and look at the shelf a while, then a few steps along it, out of your way
+      const B = e.browse, L = Math.hypot(B.b[0] - B.a[0], B.b[1] - B.a[1]) || 1;
+      if (P.go == null){
+        P.t -= dt;
+        animateHuman(h, dt, {mode:"idle", look:.35*Math.sin(h.t*.4)});
+        turn(P, B.face, dt);
+        if (P.t <= 0){ P.go = Math.max(0, Math.min(1, P.at + (Math.random() < .5 ? -1 : 1)*(.25 + Math.random()*.35))); if (Math.abs(P.go - P.at)*L < .3) P.go = P.at < .5 ? P.at + .4 : P.at - .4; }
+      } else {
+        const dir = Math.sign(P.go - P.at), x = h.g.position.x, z = h.g.position.z, ux = (B.b[0] - B.a[0])/L*dir, uz = (B.b[1] - B.a[1])/L*dir;
+        // you, standing in the aisle ahead: wait for you to move (and give up after a while)
+        const ax = VIEW.x - x, az = VIEW.z - z, ahead = ax*ux + az*uz, side = Math.abs(-ax*uz + az*ux);
+        const blocked = VIEW.scene === W.scene && ahead > 0 && ahead < 1.3 && side < .65;
+        const want = blocked ? 0 : .75;
+        P.v += (want - P.v)*(1 - Math.exp(-6*dt));
+        P.at = Math.max(0, Math.min(1, P.at + dir*P.v*dt/L));
+        h.g.position.set(B.a[0] + (B.b[0] - B.a[0])*P.at, e.y || 0, B.a[1] + (B.b[1] - B.a[1])*P.at);
+        if (P.sol){ const w = (P.sol.x1 - P.sol.x0)/2, d = (P.sol.z1 - P.sol.z0)/2; Object.assign(P.sol, {x0:h.g.position.x - w, x1:h.g.position.x + w, z0:h.g.position.z - d, z1:h.g.position.z + d}); }
+        turn(P, Math.atan2(ux, uz), dt);
+        animateHuman(h, dt, {mode:"move", speed:P.v});
+        if ((P.go - P.at)*dir <= 1e-3 || (blocked && (P.wait = (P.wait || 0) + dt) > 2.5)){ P.go = null; P.wait = 0; P.t = 3 + Math.random()*5; }
+      }
+    }
+  });
+  return out;
+}
+function turn(P, yaw, dt, k = 6){
+  let d = yaw - P.yaw; while (d > Math.PI) d -= Math.PI*2; while (d < -Math.PI) d += Math.PI*2;
+  P.yaw += d*(1 - Math.exp(-k*dt)); P.h.g.rotation.y = P.yaw;
+}
+
+/* ---------- people walking the street ----------
+   o.routes: closed loops of [x, z] waypoints along the pavements (corners are rounded off); a waypoint may carry a
+   pause in seconds (at a kerb, looking both ways before crossing) and the way round the loop it applies to
+   ([x, z, secs, +1 | −1 | 0 for both]). o.count(minute) → how many are
+   out at that time of day (none in the small hours). Walkers keep to the right of their line, swing round you or
+   wait if you're in the way (and turn back if you stay there), and never step into a solid or onto a raised floor:
+   every point of a route knows how far to each side it is clear. One mesh each, no sun shadow. */
+const ROAD_R = .3;
+function groundY(x, z){
+  let g = .013;                                                             // the road's surface (the asphalt is laid 1 cm proud)
+  for (const f of W.floors) if (f.h < .2 && x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1 && f.h > g) g = f.h;
+  return g;
+}
+function clearAt(x, z, r){
+  for (const q of W.solids){ if (q.off || q.y1 < .15 || q.y0 > 1.7) continue; if (x + r > q.x0 && x - r < q.x1 && z + r > q.z0 && z - r < q.z1) return false; }
+  for (const f of W.floors) if (f.h >= .2 && x + r > f.x0 && x - r < f.x1 && z + r > f.z0 && z - r < f.z1) return false;
+  return true;
+}
+function routeOf(pts){
+  // round the corners (Chaikin, twice, cutting no more than 70 cm into a long straight), then sample every 20 cm
+  let P = pts.map(p => [p[0], p[1], p[2] || 0, p[3] || 0]);
+  for (let it = 0; it < 2; it++){
+    const Q = [];
+    for (let i = 0; i < P.length; i++){
+      const a = P[i], b = P[(i + 1) % P.length];
+      if (a[2]) Q.push(a);                                                     // a pause point stays where it is
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, c = Math.min(.25, .7/L);          // a corner rounded over 70 cm at most
+      Q.push([a[0]*(1 - c) + b[0]*c, a[1]*(1 - c) + b[1]*c, 0, 0], [a[0]*c + b[0]*(1 - c), a[1]*c + b[1]*(1 - c), 0, 0]);
+    }
+    P = Q;
+  }
+  const S_ = [];
+  for (let i = 0; i < P.length; i++){
+    const a = P[i], b = P[(i + 1) % P.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L/.2));
+    for (let k = 0; k < n; k++) S_.push({x:a[0] + (b[0] - a[0])*k/n, z:a[1] + (b[1] - a[1])*k/n, pause:k ? 0 : a[2], pdir:k ? 0 : a[3]});
+  }
+  let d = 0;
+  for (let i = 0; i < S_.length; i++){
+    const a = S_[i], b = S_[(i + 1) % S_.length];
+    a.d = d; const L = Math.hypot(b.x - a.x, b.z - a.z) || 1e-6; a.ux = (b.x - a.x)/L; a.uz = (b.z - a.z)/L; d += L;
+  }
+  // the ground under the line, eased over a kerb so a step down onto the road is a step, not a jump
+  for (const a of S_) a.g0 = groundY(a.x, a.z);
+  for (let i = 0; i < S_.length; i++){ let t = 0; for (let k = -1; k <= 1; k++) t += S_[(i + k + S_.length) % S_.length].g0; S_[i].y = t/3; }
+  // how far each side (left +, right −) of the line is clear for a body
+  for (const a of S_){
+    a.l = 0; a.r = 0;
+    for (let o = .1; o <= 1.01 && clearAt(a.x - a.uz*o, a.z + a.ux*o, ROAD_R) && Math.abs(groundY(a.x - a.uz*o, a.z + a.ux*o) - a.g0) < .05; o += .1) a.l = o;
+    for (let o = .1; o <= 1.01 && clearAt(a.x + a.uz*o, a.z - a.ux*o, ROAD_R) && Math.abs(groundY(a.x + a.uz*o, a.z - a.ux*o) - a.g0) < .05; o += .1) a.r = o;
+    a.ok = clearAt(a.x, a.z, ROAD_R - .04);
+  }
+  return {S:S_, len:d, at(s){ s = ((s % d) + d) % d; let lo = 0, hi = S_.length - 1; while (lo < hi){ const m = (lo + hi + 1) >> 1; if (S_[m].d <= s) lo = m; else hi = m - 1; } return S_[lo]; }};
+}
+export function pedestrians(o){
+  const routes = o.routes.map(routeOf), walkers = [];
+  const bad = routes.reduce((n, R) => n + R.S.filter(a => !a.ok).length, 0);                 // route points not clear (a test reads it)
+  const N = o.max || 6;
+  for (let i = 0; i < N; i++){
+    const R = routes[i % routes.length], dir = (i >> 1) % 2 ? -1 : 1;
+    const look = castLook("pedestrian", (o.seed || 500) + i*131);
+    const h = human(look, {cast:false});
+    W.scene.add(h.g);
+    const w = {h, R, dir, s:R.len*((i*.37 + .11) % 1), v:0, base:1.2 + ((i*.29) % 1)*.35, lat:0, yaw:null, on:false, pause:0, cool:0, wait:0, px:null, pz:null, vis:0};
+    const a = R.at(w.s); h.g.position.set(a.x, a.y, a.z); h.g.visible = false;
+    walkers.push(w);
+  }
+  const fwd = (w, a) => [a.ux*w.dir, a.uz*w.dir];
+  W.anims.push(dt => {
+    const want = Math.min(N, Math.max(0, Math.round(o.count(dayMin(o)))));
+    walkers.forEach((w, i) => {
+      const h = w.h, should = i < want;
+      if (should !== w.on && !inSight(h.g.position.x, h.g.position.z)){ w.on = should; h.g.visible = should; if (should){ w.v = 0; w.yaw = null; } }
+      if (!w.on) return;
+      const a = w.R.at(w.s), [fx, fz] = fwd(w, a);
+      // a pause at a kerb: stand, look one way and the other, then go
+      if (w.pause > 0){
+        w.pause -= dt;
+        animateHuman(h, dt, {mode:"idle", look:Math.sin((1.6 - w.pause)*2.4)*.7});
+        return;
+      }
+      // you, in the way: swing round you to whichever side has room, or slow and wait; turn back if you stay put
+      let latT = -.22*w.dir, slow = 0;
+      if (VIEW.scene === W.scene){
+        const x = h.g.position.x, z = h.g.position.z, dx = VIEW.x - x, dz = VIEW.z - z, ahead = dx*fx + dz*fz;
+        if (ahead > -.4 && ahead < 3.2){
+          const pl = (-dx*fz + dz*fx)*w.dir;                                  // your offset across the line, on the line's own left/right
+          const lo = -a.r, hi = a.l, need = .62;
+          if (Math.abs(pl - latT) < need){
+            const left = pl + need, right = pl - need;
+            if (left <= hi && (right < lo || Math.abs(left - latT) < Math.abs(right - latT))) latT = left;
+            else if (right >= lo) latT = right;
+            else slow = 1 - Math.max(0, Math.min(1, (ahead - .9)/1.6));
+          }
+        }
+      }
+      latT = Math.max(-a.r, Math.min(a.l, latT));
+      w.lat += (latT - w.lat)*(1 - Math.exp(-3*dt));
+      w.lat = Math.max(-a.r, Math.min(a.l, w.lat));
+      // the one in front, going the same way: don't walk up their heels
+      for (const q of walkers){ if (q === w || !q.on || q.R !== w.R || q.dir !== w.dir) continue; let gap = (q.s - w.s)*w.dir; gap = ((gap % w.R.len) + w.R.len) % w.R.len; if (gap < 1.6) slow = Math.max(slow, 1 - gap/1.6); }
+      if (slow > .95){ if ((w.wait += dt) > 4){ w.dir = -w.dir; w.wait = 0; } } else w.wait = 0;
+      const vt = w.base*(1 - slow);
+      w.v += (vt - w.v)*(1 - Math.exp(-4*dt));
+      const s0 = w.s; w.s += w.dir*w.v*dt;
+      // a pause point passed: stop there
+      const b = w.R.at(w.s);
+      w.cool -= dt;
+      if (b.pause && (!b.pdir || b.pdir === w.dir) && w.cool <= 0){ w.cool = 12; w.pause = b.pause; }
+      const x = b.x - b.uz*w.lat, z = b.z + b.ux*w.lat;
+      h.g.position.set(x, b.y, z);
+      // legs driven by how fast the body really goes; facing eases round to the way it goes
+      if (w.px != null && dt > 0){ const sp = Math.hypot(x - w.px, z - w.pz)/dt; w.vis += (Math.min(sp, 2.2) - w.vis)*(1 - Math.exp(-8*dt)); }
+      w.px = x; w.pz = z;
+      const yaw = Math.atan2(b.ux*w.dir, b.uz*w.dir);
+      if (w.yaw == null) w.yaw = yaw;
+      let d = yaw - w.yaw; while (d > Math.PI) d -= Math.PI*2; while (d < -Math.PI) d += Math.PI*2;
+      w.yaw += d*(1 - Math.exp(-5*dt)); h.g.rotation.y = w.yaw;
+      // far away, the legs are worked out every other frame
+      const far = Math.hypot(x - VIEW.x, z - VIEW.z) > 25;
+      if (far && (w.skip = !w.skip)){ w.acc = (w.acc || 0) + dt; return; }
+      animateHuman(h, dt + (w.acc || 0), {mode:"move", speed:w.vis}); w.acc = 0;
+    });
+  });
+  return {walkers, routes, bad};
 }

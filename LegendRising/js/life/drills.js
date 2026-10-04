@@ -90,8 +90,9 @@ export function drillWarmup(){
   g.add(ringMesh(.42), ringMesh(.9, true), new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), mats().lamp), ballShadow());
   return g;
 }
-// where the ball sits at your feet: in front of the right boot, where the instep meets it (metres, scaled by your height)
-const AT_FOOT = {ahead:.42, right:.13};
+// where the ball sits: just ahead of where the right boot meets it at the moment of contact — the laces for a shot,
+// the inside of the foot for a pass (measured from the strike in human.js; metres, scaled by your height)
+const AT_FOOT = {kick:{ahead:.66, right:.04}, pass:{ahead:.56, right:0}};
 
 /* =============================== the drills =============================== */
 export function startDrill(kind, H){
@@ -107,7 +108,7 @@ export function startDrill(kind, H){
   const bsh = add(ballShadow());
   const sc = () => (H.scale ? H.scale() : 1);
   const resetBall = () => {
-    const f = fwd(H.P.yaw, 0), a = AT_FOOT.ahead*sc(), r = AT_FOOT.right*sc();
+    const at = AT_FOOT[kind === "pass" ? "pass" : "kick"], f = fwd(H.P.yaw, 0), a = at.ahead*sc(), r = at.right*sc();
     D.ball.m.position.set(H.P.x + f.x*a - f.z*r, .11, H.P.z + f.z*a + f.x*r); D.ball.v.set(0, 0, 0);
   };
   /* your body strikes the ball: while you hold for power the leg draws back; on release the strike plays and the ball
@@ -313,7 +314,8 @@ export function startDrill(kind, H){
           if (d < reach){
             const q = Math.max(.35, 1 - d/reach*.65);
             // cut out at your feet: the ball dies under your boot on the side it came
-            b.v.set(0, 0, 0); b.m.position.set(H.P.x - .42, .11, H.P.z + Math.max(-.2, Math.min(.2, b.m.position.z - H.P.z))); D.trap = 0;
+            const f = fwd(H.P.yaw, 0), side = Math.max(-.2, Math.min(.2, (b.m.position.x - H.P.x)*-f.z + (b.m.position.z - H.P.z)*f.x));
+            b.v.set(0, 0, 0); b.m.position.set(H.P.x + f.x*.36 - f.z*side, .11, H.P.z + f.z*.36 + f.x*side); D.trap = 0;
             const x = award([["interception", 6, 14], ["tackling", 1, 3], ["pace", 1, 1]], q);
             finishRep(q, q > .8 ? "Read it perfectly" : "Got a foot to it", `+${x} XP`);
           } else {
