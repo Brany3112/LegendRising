@@ -58,7 +58,8 @@ function startMoment(type){
       p.x = sd < 0 ? rnd(3, 7) : rnd(61, 65); p.y = rnd(6, 11);
       const R = MT.roleNames, c = clamp(S.chem/100, 0, 1);
       const spots = [["near", sd < 0 ? 31.6 : 36.4, rnd(4, 6)], ["far", sd < 0 ? 38.6 : 29.4, rnd(5, 8)], ["cut", sd < 0 ? rnd(19, 23) : rnd(45, 49), rnd(12, 16)]];
-      const roles = shuffle(["ST", "LW", "RW", "CAM"]);
+      // the striker attacks the near post, the far winger arrives at the back stick, the ten waits for the cut-back
+      const roles = ["ST", sd < 0 ? "RW" : "LW", "CAM"];
       M.mates = spots.map(([slot, x, y], i) => ({role:roles[i], name:R[roles[i]].name, pid:R[roles[i]].id, x, y, slot, ox:0, oy:0, vx:0, vy:0,
         st:wpick(["open", "space", "marked", "held"], k => ({open:1.6, space:1, marked:2, held:1}[k])*(k === "open" || k === "space" ? .7 + c*.8 : 1.3 - c*.5))}));
       M.defs = [newDef(p.x + (sd < 0 ? 2 : -2), p.y + 2.5, opp)];

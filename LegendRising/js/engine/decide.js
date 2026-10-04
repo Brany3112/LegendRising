@@ -61,12 +61,18 @@ function addSupport(type){
   if (!MT || !MT.roleNames) return;
   const n = (SUPPORTED[type] || 0) + (S.chem > 65 && Math.random() < .5 ? 1 : 0);
   if (!n) return;
-  const p = M.p, R = MT.roleNames, roles = shuffle(["ST", "LW", "RW", "CAM"]);
+  const p = M.p, R = MT.roleNames, used = new Set();
+  // the name fits the place: the man out left is the left winger, the one behind is the ten
+  const roleAt = (x, y) => {
+    const want = x < p.x - 3 ? "LW" : x > p.x + 3 ? "RW" : y > p.y ? "CAM" : "ST";
+    const r = [want, "ST", "CAM", "LW", "RW"].find(k => !used.has(k) && R[k]);
+    used.add(r); return r;
+  };
   const slots = type === "wing" ? ["box", "far", "back"] : type === "oneonone" ? ["side"] : type === "counter" ? ["left", "right", "back"] : ["left", "right", "back"];
   const c = clamp(S.chem/100, 0, 1), gap = clamp((MT.oppR - MT.ourR)/20, -.5, 1);
   M.mates = M.mates || [];
   for (let i = 0; i < Math.min(n, slots.length); i++){
-    const role = roles[i], sl = slots[i];
+    const sl = slots[i];
     let x = p.x, y = p.y;
     if (sl === "left"){ x = p.x - rnd(8, 13); y = p.y - rnd(0, 5); }
     else if (sl === "right"){ x = p.x + rnd(8, 13); y = p.y - rnd(0, 5); }
@@ -78,8 +84,9 @@ function addSupport(type){
     // how free he is depends on how well you lot play together, and on who you are up against
     const st = wpick(Object.keys(MATE_STATE), k => ({open:2, space:1.4, run:type === "counter" ? 2.6 : 1.2, better:.8, marked:2, held:1}[k])
       *(OPEN_STATES.has(k) ? .7 + c*.8 : 1.3 - c*.5)*(k === "marked" || k === "held" ? 1 + Math.max(0, gap) : 1));
+    if (st === "better"){ x = clamp(34 + rnd(-7, 7), 6, 62); y = clamp(Math.min(p.y - 4, rnd(9, 15)), 5, 40); }
+    const role = roleAt(x, y);
     const m = {role, name:R[role].name, pid:R[role].id, x, y, st, vx:0, vy:0, slot:sl, ox:x - p.x, oy:y - p.y};
-    if (st === "better"){ m.x = clamp(34 + rnd(-7, 7), 6, 62); m.y = clamp(Math.min(p.y - 4, rnd(9, 15)), 5, 40); }
     M.mates.push(m);
     // the man marking him, if he has one
     const mk = st === "held" ? .75 : st === "marked" ? 1.7 : st === "run" ? 2.4 : st === "space" ? 3.6 : 0;
