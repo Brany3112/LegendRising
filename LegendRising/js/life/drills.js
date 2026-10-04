@@ -15,33 +15,33 @@ const PRAISE = q => q >= .9 ? "Perfect" : q >= .7 ? "Great" : q >= .45 ? "Good" 
 function hudEl(){ return document.getElementById("lifeDrill"); }
 function hudSet(d, o = {}){
   const el = hudEl(); if (!el) return;
-  if (!el.dataset.on){
+  clearTimeout(hudClose._t);
+  if (!el.dataset.on || !el.querySelector(".dr-card")){
     el.innerHTML = `<div class="dr-card"><div class="dr-top"><b class="dr-title"></b><span class="dr-reps"></span></div><div class="dr-pips"></div><div class="dr-hint"></div></div>
       <div class="dr-result"></div><div class="dr-power"><i></i><span>POWER</span></div><div class="dr-timing"><div class="dr-zone"></div><div class="dr-mark"></div></div>`;
     el.dataset.on = "1";
     requestAnimationFrame(() => el.classList.add("on"));
-  }
+  } else el.classList.add("on");
   el.querySelector(".dr-title").textContent = d.title;
   el.querySelector(".dr-reps").textContent = `${Math.min(d.rep + 1, d.reps)} / ${d.reps}`;
   el.querySelector(".dr-pips").innerHTML = Array.from({length:d.reps}, (_, i) => `<i class="${i < d.scores.length ? (d.scores[i] >= .7 ? "hi" : d.scores[i] >= .35 ? "mid" : "lo") : i === d.rep ? "now" : ""}"></i>`).join("");
   if (o.hint != null) el.querySelector(".dr-hint").textContent = o.hint;
 }
 function hudResult(text, sub, good){
-  const el = hudEl(); if (!el) return;
-  const r = el.querySelector(".dr-result");
+  const el = hudEl(), r = el && el.querySelector(".dr-result"); if (!r) return;
   r.className = `dr-result ${good ? "good" : "bad"}`; r.innerHTML = `<b>${text}</b>${sub ? `<span>${sub}</span>` : ""}`;
   void r.offsetWidth; r.classList.add("show");
   clearTimeout(hudResult._t); hudResult._t = setTimeout(() => r.classList.remove("show"), 1300);
 }
-function hudPower(p){ const el = hudEl(); if (!el) return; const b = el.querySelector(".dr-power"); b.classList.toggle("show", p != null); if (p != null) b.querySelector("i").style.width = (p*100).toFixed(0) + "%"; }
+function hudPower(p){ const el = hudEl(), b = el && el.querySelector(".dr-power"); if (!b) return; b.classList.toggle("show", p != null); if (p != null) b.querySelector("i").style.width = (p*100).toFixed(0) + "%"; }
 function hudTiming(show, zone, mark){
-  const el = hudEl(); if (!el) return;
-  const t = el.querySelector(".dr-timing"); t.classList.toggle("show", !!show);
+  const el = hudEl(), t = el && el.querySelector(".dr-timing"); if (!t) return;
+  t.classList.toggle("show", !!show);
   if (!show) return;
   const z = t.querySelector(".dr-zone"); z.style.left = ((zone.c - zone.w/2)*100) + "%"; z.style.width = (zone.w*100) + "%";
   t.querySelector(".dr-mark").style.left = (mark*100) + "%";
 }
-function hudClose(){ const el = hudEl(); if (!el) return; el.classList.remove("on"); setTimeout(() => { if (!el.classList.contains("on")){ el.innerHTML = ""; delete el.dataset.on; } }, 350); }
+function hudClose(){ const el = hudEl(); if (!el) return; el.classList.remove("on"); clearTimeout(hudClose._t); hudClose._t = setTimeout(() => { if (!el.classList.contains("on")){ el.innerHTML = ""; delete el.dataset.on; } }, 350); }
 
 /* ---------- a ball in flight ---------- */
 function stepBall(b, dt){
@@ -381,6 +381,7 @@ export function startSession(H){
   const D = {kind:"session", H, t:0, xp:0, phase:"go", title:"Team session", objs:[], allowMove:false, lockLook:false, ticks:0, reps:6, rep:0, scores:[]};
   const drills = ["Rondo", "Pattern play", "Small-sided game", "Finishing", "Shape work", "Cool down"];
   D.update = dt => {
+    if (D.phase !== "go") return;
     D.t += dt;
     const tick = Math.floor(D.t/1.1);
     while (D.ticks < tick && D.ticks < 6){
@@ -388,7 +389,7 @@ export function startSession(H){
       D.xp += trainXP(k, 7 + Math.random()*5);
       H.pass(15, "train");
       D.ticks++; D.rep = D.ticks; D.scores.push(.8);
-      hudSet(D, {hint:drills[Math.min(5, D.ticks)] + " · being out there with the lads"});
+      hudSet(D, {hint:drills[Math.min(5, D.ticks)] + " · being out there with the lads · Esc to step out"});
     }
     if (D.ticks >= 6 && D.phase === "go"){
       D.phase = "done";
@@ -401,7 +402,16 @@ export function startSession(H){
       if (typeof save === "function") save();
     }
   };
-  D.input = (type, k) => {};
-  hudSet(D, {hint:drills[0] + " · being out there with the lads"});
+  D.input = (type, k) => {
+    if (type !== "down" || k !== "escape" || D.phase !== "go") return;
+    // walking off early: you keep what you did, the extra chemistry only comes from seeing it through
+    D.phase = "done";
+    const done = D.ticks;
+    if (done){ exert(done*2, done*1.6); s.today.trainMin += done*15; }
+    hudClose(); H.endDrill();
+    H.note(done ? `You left the session early. You keep the ${D.xp} XP.` : "You stepped out before it got going.");
+    if (typeof save === "function") save();
+  };
+  hudSet(D, {hint:drills[0] + " · being out there with the lads · Esc to step out"});
   return D;
 }

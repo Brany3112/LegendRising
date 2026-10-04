@@ -36,7 +36,7 @@ const FEED = {
       node.innerHTML = `<div class="fd-top"><span class="fd-ico">${o.kind === "job" ? "€" : "▲"}</span><b class="fd-title"></b><em class="fd-gain"></em></div>
         <div class="fd-bar"><i></i></div><div class="fd-sub"><span class="fd-num"></span><span class="fd-foot"></span></div>`;
       box.appendChild(node);
-      while (box.children.length > 3){ const old = box.firstElementChild; this.dropNode(old); }
+      this.trim(box, 3);
       requestAnimationFrame(() => node.classList.add("in"));
       c = {node, pct:clamp(o.from, 0, 1), gain:0, gainShown:0, wraps:0};
       this.cards.set(key, c);
@@ -49,9 +49,15 @@ const FEED = {
     this.kick();
   },
   dropNode(n){
-    if (!n) return;
+    if (!n || n.dataset.leaving) return;
     for (const [k, c] of this.cards) if (c.node === n) this.cards.delete(k);
+    n.dataset.leaving = "1";
     n.classList.add("out"); setTimeout(() => n.remove(), 420);
+  },
+  // keep at most `max` cards in a corner; the ones already sliding out do not count
+  trim(box, max){
+    const alive = Array.from(box.children).filter(n => !n.dataset.leaving);
+    for (let i = 0; i < alive.length - max; i++) this.dropNode(alive[i]);
   },
   kick(){ if (!this.raf) this.raf = requestAnimationFrame(t => this.frame(t)); },
   frame(t){
@@ -83,7 +89,7 @@ const FEED = {
     const n = document.createElement("div");
     n.className = `fd-chip ${kind || ""}`; n.textContent = text;
     box.appendChild(n);
-    while (box.children.length > 4){ this.dropNode(box.firstElementChild); }
+    this.trim(box, 4);
     requestAnimationFrame(() => n.classList.add("in"));
     setTimeout(() => this.dropNode(n), 3600);
   },
