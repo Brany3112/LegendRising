@@ -92,7 +92,7 @@ export function drillWarmup(){
 }
 // where the ball sits: just ahead of where the right boot meets it at the moment of contact — the laces for a shot,
 // the inside of the foot for a pass (measured from the strike in human.js; metres, scaled by your height)
-const AT_FOOT = {kick:{ahead:.66, right:.04}, pass:{ahead:.56, right:0}};
+const AT_FOOT = {kick:{ahead:.66, right:.04}, pass:{ahead:.47, right:-.04}};
 
 /* =============================== the drills =============================== */
 export function startDrill(kind, H){

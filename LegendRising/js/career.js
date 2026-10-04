@@ -366,7 +366,8 @@ function newsFromMatch(res){
 function newCareer(cr){
   const skills = {}; SKILLS.forEach(([k]) => skills[k] = 24 + (POS[cr.pos].bonus[k] || 0) + cr.alloc[k]);
   const cid = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  // how you look: what you chose on the creation screen, or a default of your own, the same for the same name
+  // how you look: what the creation screen showed you (your edits, or the default it drew for you); without that
+  // screen (file://, scripts) a default of your own from your name and nationality
   const look = lookSane(cr.look, cr.look ? cid : "p:" + (cr.name || "") + ":" + (cr.nat || ""));
   S = {v:2, cid, player:{name:cr.name, number:cr.number, pos:cr.pos, foot:cr.foot, nat:cr.nat, age:17, look}, skills, sp:0, xp:0, level:1,
     energy:85, fatigue:10, chem:0, money:100, workrate:2, tutDone:false, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0, v2:true},

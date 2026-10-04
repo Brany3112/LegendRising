@@ -503,7 +503,7 @@ function plateTex(text){
 export function leafGuard(hx, hz, len, y0, y1, n = 10, pad = .035){
   const sols = Array.from({length:n}, () => { const q = solid(0, 0, 0, 0, y0, y1); q.off = true; return q; });
   let ux = 1, uz = 0, on = false, rest = 0;
-  const G = {
+  const G = {sols,
     // would a leaf pointing along (vx, vz) stand in the space you occupy?
     hitsYou(vx, vz){
       if (VIEW.scene !== W.scene) return false;
@@ -524,8 +524,7 @@ export function leafGuard(hx, hz, len, y0, y1, n = 10, pad = .035){
     set(vx, vz, show, dt = 1/60){
       const moved = Math.abs(vx - ux) + Math.abs(vz - uz) > 1e-5 || show !== on;
       ux = vx; uz = vz; on = show;
-      G.sols = sols;
-    sols.forEach((q, i) => {
+      sols.forEach((q, i) => {
         q.off = !show; if (!show) return;
         const ax = hx + vx*len*i/n, az = hz + vz*len*i/n, bx = hx + vx*len*(i + 1)/n, bz = hz + vz*len*(i + 1)/n;
         q.x0 = Math.min(ax, bx) - .03; q.x1 = Math.max(ax, bx) + .03; q.z0 = Math.min(az, bz) - .03; q.z1 = Math.max(az, bz) + .03;

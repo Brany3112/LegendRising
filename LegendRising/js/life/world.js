@@ -525,7 +525,7 @@ function legs(){
    Walking sideways the hips turn towards where you are going and the chest stays with the view (no feet sliding
    sideways); walking backwards the stride runs backwards. Its height follows the camera's own smoothed eye, so on a
    kerb or a stair landing the body can never rise into the view. */
-const ME = {fp:null, tp:null, kind:"", scale:1, yaw:0, tw:0, back:false, dph:0, act:null, camT:0, dist:0, sh:0, short:0, tpShown:false, look:0};
+const ME = {fp:null, tp:null, kind:"", scale:1, yaw:0, tw:0, back:false, dph:0, act:null, camT:0, dist:0, sh:0, up:.12, hold:0, short:0, px:0, pz:0, tpShown:false, look:0};
 const TPV = {dist:2.65, sprint:.35, up:.12, side:.36, margin:.16, minShow:.62};    // the third-person camera
 const meKind = () => LIFE.zone === "ground" ? "training" : "casual";
 function meDispose(){ for (const k of ["fp", "tp"]) if (ME[k]){ ME[k].dispose(); ME[k] = null; } }
@@ -596,7 +596,7 @@ function meStep(dt){
   ME.tw += (tw - ME.tw)*(1 - Math.exp(-10*dt));
   // the body stands where you stand (the camera is the head, ahead of the neck: see viewStep)
   const h = ME.fp, sin = Math.sin(P.yaw), cos = Math.cos(P.yaw), sb = ME.short || 0;
-  h.g.position.set(P.x + sin*sb, P.eye - EYE + P.drillY, P.z + cos*sb); h.g.rotation.y = P.yaw + Math.PI;
+  h.g.position.set(P.x + sin*sb + ME.px, P.eye - EYE + P.drillY, P.z + cos*sb + ME.pz); h.g.rotation.y = P.yaw + Math.PI;
   animateDir(h, dt, gaitState(0), ME.back);
   const bn = h.bones;
   if (Math.abs(ME.tw) > 1e-3){ bn[BONE.hips].rotation.y += ME.tw; bn[BONE.spine].rotation.y -= ME.tw*.55; bn[BONE.chest].rotation.y -= ME.tw*.45; }
@@ -679,50 +679,130 @@ function toggleView(){
   s.life.view = viewPref() === "tp" ? "fp" : "tp"; persist();
   if (forcedFP()) note(s.life.view === "tp" ? "Third person comes back when you're done here." : "First person.");
 }
-const _cp = new THREE.Vector3(), _cd = new THREE.Vector3();
+const _cp = new THREE.Vector3(), _cd = new THREE.Vector3(), _cv = new THREE.Vector3();
+// how far the near plane's corners reach from the eye, and a little more: nothing may come nearer the camera than this
+function camRadius(){ const t = Math.tan(cam.fov*Math.PI/360), a = cam.aspect || 1; return Math.max(.1, cam.near*Math.sqrt(1 + t*t*(1 + a*a)) + .025); }
+/* the near plane is not a point: anything nearer the camera than r on any side (a wall, a door jamb's edge, the slope
+   under a stair, a cabinet with no collision box) pushes it away — 26 short rays (the faces, edges and corners of a
+   cube), the push along each axis the deepest one asks for, never through something on the other side; a second
+   pass takes up what an oblique surface left */
+const PUSH = (() => { const o = [];
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++){ const L = Math.hypot(x, y, z); if (L) o.push([x/L, y/L, z/L]); }
+  return o; })();
+function camPush(v, r){
+  let moved = 0;
+  for (let pass = 0; pass < 2; pass++){
+    let px = 0, nx = 0, py = 0, ny = 0, pz = 0, nz = 0;
+    for (const [dx, dy, dz] of PUSH){
+      const h = camCast(v.x, v.y, v.z, dx, dy, dz, r); if (h >= r) continue;
+      const k = r - h;
+      if (dx > 0) nx = Math.max(nx, k*dx); else if (dx < 0) px = Math.max(px, -k*dx);
+      if (dy > 0) ny = Math.max(ny, k*dy); else if (dy < 0) py = Math.max(py, -k*dy);
+      if (dz > 0) nz = Math.max(nz, k*dz); else if (dz < 0) pz = Math.max(pz, -k*dz);
+    }
+    const mx = px - nx, my = py - ny, mz = pz - nz, L = Math.hypot(mx, my, mz);
+    if (L < 2e-3) break;
+    const k = Math.max(0, Math.min(L, camCast(v.x, v.y, v.z, mx/L, my/L, mz/L, L + .03) - .03))/L;
+    v.x += mx*k; v.y += my*k; v.z += mz*k; moved += L*k;
+    if (k < 1) break;
+  }
+  return moved;
+}
+// can the camera at (x, y, z) see you — your head and your chest — or is a wall, a jamb or a door between?
+function seesMe(x, y, z){
+  for (const ty of [P.eye, P.eye - .5*ME.scale]){
+    const dx = x - P.x, dy = y - ty, dz = z - P.z, D = Math.hypot(dx, dy, dz);
+    if (D > .15 && camCast(P.x, ty, P.z, dx/D, dy/D, dz/D, D) < D - .1) return false;
+  }
+  return true;
+}
 function viewStep(dt){
-  const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
-  // first person: the eye, with the bob, a little ahead of your neck — further as you look down, as a head bends
-  // over the chest (so you see your legs and shoes) — and never closer than a hand's width to a wall in front
-  const ahead0 = (.1 + .12*sstep(.2, 1.2, -P.pitch))*ME.scale;
-  const ahead = Math.max(0, Math.min(ahead0, camCast(P.x, P.eye, P.z, -sin, 0, -cos, ahead0 + .17) - .17));
+  const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw), r = camRadius();
+  /* first person: the eye, with the bob, a little ahead of your neck — further as you look well down, as a head bends
+     over the chest (so you see your legs and shoes and never the inside of a neck) — and never nearer than r to
+     anything in front of it: straight ahead and 40° to either side */
+  const ahead0 = (.07 + .15*sstep(.75, 1.35, -P.pitch))*ME.scale;
+  let ahead = ahead0;
+  for (const a of [0, .7, -.7]){
+    const ca = Math.cos(a), sa = Math.sin(a), dx = -sin*ca + cos*sa, dz = -cos*ca - sin*sa;
+    ahead = Math.min(ahead, (camCast(P.x, P.eye, P.z, dx, 0, dz, ahead0*ca + r + .02) - r)/ca);
+  }
+  ahead = Math.max(0, ahead);
   ME.short = ahead0 - ahead;                                // a wall in the way: the body leans back from it instead
-  const fx = P.x + cos*B.x - sin*ahead, fy = P.eye + B.y + P.drillY + P.bobY - .035*sstep(.3, 1.2, -P.pitch), fz = P.z - sin*B.x - cos*ahead;
+  _cv.set(P.x + cos*B.x - sin*ahead, P.eye + B.y + P.drillY + P.bobY - .035*sstep(.3, 1.2, -P.pitch), P.z - sin*B.x - cos*ahead);
+  // anything else nearer than r (a jamb's edge beside you, a cabinet with no collision box) moves the eye — and the
+  // body with it — the few centimetres it takes (only while the first-person view is the one you see)
+  const fpEye = () => { const x0 = _cv.x, z0 = _cv.z; camPush(_cv, r); ME.px = _cv.x - x0; ME.pz = _cv.z - z0; };
   const want = viewPref() === "tp" && !forcedFP() ? 1 : 0;
   // a panel, the bus, a drill: straight into first person; V: a short glide either way
   if (!want && (modal || busy || DRILL || fadeOn())) ME.camT = 0;
   else ME.camT = want ? Math.min(1, ME.camT + dt/.38) : Math.max(0, ME.camT - dt/.28);
   const e = sstep(0, 1, ME.camT);
-  if (e <= 0){ cam.position.set(fx, fy, fz); ME.tpShown = false; ME.dist = 0; ME.sh = 0; return; }
-  // the pivot: the top of your head, then out over the right shoulder as far as the room allows
-  const hx = P.x, hy = P.eye + TPV.up, hz = P.z, rx = cos, rz = -sin;
-  const sw = TPV.side*e, sh = Math.max(0, Math.min(sw, camCast(hx, hy, hz, rx, 0, rz, sw + TPV.margin) - TPV.margin));
-  ME.sh = sh;
-  const px = hx + rx*sh, py = hy, pz = hz + rz*sh;
-  // back along the view, the orbit's own pitch limited so it neither digs into the floor nor goes over the top
+  if (e <= 0){ fpEye(); cam.position.copy(_cv); ME.tpShown = false; ME.dist = ME.sh = ME.hold = 0; ME.up = TPV.up; return; }
+  if (e < 1 || !ME.tpShown) fpEye(); else ME.px = ME.pz = 0;
+  const fx = _cv.x, fy = _cv.y, fz = _cv.z;
+  /* third person: a pivot over your head and out over the right shoulder, the camera back from it along the view.
+     The orbit's own pitch is limited so it neither digs into the floor nor goes over the top. */
+  const fresh = !ME.tpShown;
+  const hx = P.x, hz = P.z, rx = cos, rz = -sin;
   const po = clamp(P.pitch, -1.15, .75), cp = Math.cos(po);
   _cd.set(sin*cp, -Math.sin(po), cos*cp);                      // from the pivot towards the camera (behind the view)
-  const want0 = (TPV.dist + TPV.sprint*P.sprint)*e;
-  // the near plane is not a point: four rays to its corners as well, and the camera stops short of the nearest hit
-  let lim = camCast(px, py, pz, _cd.x, _cd.y, _cd.z, want0 + TPV.margin);
-  const qx = rx*.13, qz = rz*.13, qy = .09;
-  for (const [ax, ay, az] of [[qx, qy, qz], [-qx, qy, -qz], [qx, -qy, qz], [-qx, -qy, -qz]]){
-    const ex = _cd.x*want0 + ax, ey = _cd.y*want0 + ay, ez = _cd.z*want0 + az, L = Math.hypot(ex, ey, ez) || 1;
-    lim = Math.min(lim, camCast(px, py, pz, ex/L, ey/L, ez/L, L + TPV.margin)*want0/L);
+  const want0 = (TPV.dist + TPV.sprint*P.sprint)*e, sw = TPV.side*e;
+  // where your head will be in a moment: what is coming (a doorway, a lintel, a jamb) is made room for before you get there
+  let ax = hx, az = hz;
+  const vl = Math.hypot(P.vx, P.vz);
+  if (vl > .3){ const L = clamp(camCast(hx, P.eye, hz, P.vx/vl, 0, P.vz/vl, vl*.3 + .3) - .3, 0, vl*.3); ax += P.vx/vl*L; az += P.vz/vl*L; }
+  // how far back the camera can go from a pivot at (x, z), s out over the shoulder, u above your eyes: the drawn
+  // geometry and the doors, less a margin
+  const reach = (x, z, s, u) => clamp(camCast(x + rx*s, P.eye + u, z + rz*s, _cd.x, _cd.y, _cd.z, want0 + TPV.margin) - TPV.margin, 0, want0);
+  // its height: over your head — or lower, ducking under a door's lintel or a low ceiling, when the way back from
+  // over your head is (or in a moment will be) blocked close behind you and a lower one is not
+  let uG = TPV.up;
+  { const ok = u => Math.min(reach(hx, hz, 0, u), reach(ax, az, 0, u));
+    let best = ok(TPV.up);
+    if (best < .75*want0) for (const u of [-.14, -.34]){ const v = ok(u); if (v > best + .3){ best = v; uG = u; } } }
+  ME.up = fresh ? uG : ME.up + (uG - ME.up)*(1 - Math.exp(-(uG < ME.up ? 12 : 3)*dt));
+  const hy = P.eye + ME.up;
+  // the shoulder: as far out as the room beside the head allows — beside it now, where it is going, and back along
+  // the camera's path, so a door recess or an alcove beside you does not throw the camera at the wall behind
+  const room0 = camCast(hx, hy, hz, rx, 0, rz, sw + TPV.margin);
+  const back = camCast(hx, hy, hz, _cd.x, _cd.y, _cd.z, want0);
+  let room = Math.min(room0, camCast(ax, hy, az, rx, 0, rz, sw + TPV.margin));
+  for (const k of [.5, 1]){ const t = back*k - r; if (t > .2) room = Math.min(room, camCast(hx + _cd.x*t, hy + _cd.y*t, hz + _cd.z*t, rx, 0, rz, sw + TPV.margin)); }
+  const shMax = clamp(room0 - r, 0, sw);                       // the pivot itself never nearer a wall than the camera may be
+  let shG = clamp(room - TPV.margin, 0, sw);
+  // it must also see you: a jamb or a wall between the camera and your head or chest (you in a doorway, it in the
+  // room behind) first brings it over your head, then closer in, until you are in view
+  const ATS = []; const at = (s, d) => { _cp.set(hx + rx*s + _cd.x*d, hy + _cd.y*d, hz + rz*s + _cd.z*d); const pre = _cp.toArray(); const mv = camPush(_cp, r); const ok = seesMe(_cp.x, _cp.y, _cp.z); ATS.push([+s.toFixed(2), +d.toFixed(2), ok, +mv.toFixed(3), pre.map(v => +v.toFixed(2)), _cp.toArray().map(v => +v.toFixed(2))]); return ok; };
+  let dG = reach(hx, hz, shG, ME.up);
+  if (dG > 0 && !at(shG, dG)){
+    let ok = false;
+    const d0 = reach(hx, hz, 0, ME.up);
+    if (at(0, d0)){ shG = 0; dG = d0; ok = true; }
+    else for (const f of [.75, .55, .4, .28]){ const d = d0*f; if (d < TPV.minShow) break; if (at(0, d)){ shG = 0; dG = d; ok = true; break; } }
+    if (!ok){ shG = 0; dG = 0; }                              // nowhere: your own eyes (below), until there is
   }
-  // and nothing (a low wall, a counter, a bed end) between the camera and the rest of you: the same ray from your chest
-  lim = Math.min(lim, camCast(px, P.eye - .55*ME.scale, pz, _cd.x, _cd.y, _cd.z, want0 + TPV.margin));
-  const d = Math.max(0, Math.min(want0, lim - TPV.margin));
-  // pulled in at once; out again gently
-  ME.dist = d < ME.dist || !ME.tpShown ? d : ME.dist + (d - ME.dist)*(1 - Math.exp(-4.5*dt));
-  _cp.set(px + _cd.x*ME.dist, py + _cd.y*ME.dist, pz + _cd.z*ME.dist);
+  // the shoulder eases both ways (quickly in, gently out), but never past what the room beside the head allows
+  ME.sh = fresh ? shG : ME.sh + (shG - ME.sh)*(1 - Math.exp(-(shG < ME.sh ? 16 : 4.5)*dt));
+  ME.sh = Math.min(ME.sh, shMax);
+  // the distance: anything in the camera's way pulls it in at once (it is never inside or behind a wall); not seeing
+  // you brings it in quickly but smoothly; it goes back out gently, and not until the way has stayed clear a moment
+  const hard = reach(hx, hz, ME.sh, ME.up), d = Math.min(hard, dG);
+  window.__vsdbg = {dG:+dG.toFixed(2), hard:+hard.toFixed(2), shG:+shG.toFixed(2), uG, room0:+room0.toFixed(2), room:+room.toFixed(2), back:+back.toFixed(2), ATS};
+  ME.hold = Math.max(0, ME.hold - dt);
+  if (fresh || hard < ME.dist){ ME.dist = d; ME.hold = .2; }
+  else if (d < ME.dist - 1e-3){ ME.dist += (d - ME.dist)*(1 - Math.exp(-14*dt)); ME.hold = .2; }
+  else if (!ME.hold) ME.dist += (d - ME.dist)*(1 - Math.exp(-4.5*dt));
+  _cp.set(hx + rx*ME.sh + _cd.x*ME.dist, hy + _cd.y*ME.dist, hz + rz*ME.sh + _cd.z*ME.dist);
+  camPush(_cp, r);
   // gliding between the eye and the orbit
   if (e < 1) _cp.set(fx + (_cp.x - fx)*e, fy + (_cp.y - fy)*e, fz + (_cp.z - fz)*e);
-  // too close to the head to show it (backed into a corner): your own eyes, until there is room again
+  // too close to the head to show it (backed into a corner, nowhere it can see you from): your own eyes, until there is room
   const away = Math.hypot(_cp.x - P.x, _cp.y - (P.eye + .05), _cp.z - P.z);
   const show = ME.tpShown ? away > TPV.minShow - .06 : away > TPV.minShow;
+  if (!show && ME.tpShown){ fpEye(); }
   ME.tpShown = show;
-  if (show) cam.position.copy(_cp); else cam.position.set(fx, fy, fz);
+  if (show) cam.position.copy(_cp); else cam.position.set(_cv.x, _cv.y, _cv.z);
 }
 
 /* the camera's collision: every triangle of the place's fixed geometry (the big batched meshes), sorted once into

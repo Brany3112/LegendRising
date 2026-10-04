@@ -308,7 +308,8 @@ const dayMin = o => { const m = o && o.minute ? o.minute() : typeof S !== "undef
 // is a person at (x, z) somewhere you could see them pop in or out? (near you, or in front of you within 30 m)
 function inSight(x, z){
   if (VIEW.scene !== W.scene) return false;
-  const dx = x - VIEW.x, dz = z - VIEW.z, d = Math.hypot(dx, dz);
+  // from where the camera is (in third person that is behind you: VIEW.cx/cz), not where you stand
+  const dx = x - (VIEW.cx ?? VIEW.x), dz = z - (VIEW.cz ?? VIEW.z), d = Math.hypot(dx, dz);
   if (d < 2.5) return true;                                                // right beside you: you'd notice
   if (d > 32) return false;
   return (dx*(VIEW.fx || 0) + dz*(VIEW.fz || 0))/d > .25;                  // in front of you (the view is ~105° wide)
@@ -383,14 +384,14 @@ export function staffer(x, z, ry, o = {}){
 }
 
 /* ---------- customers: people sitting, paying, browsing ----------
-   list: [{role, seed, x, z, ry, y, state (an animateHuman state for someone who stays put), when(minute),
+   list: [{role, seed, extras (for lookFor), x, z, ry, y, state (an animateHuman state for someone who stays put), when(minute),
            solid ([w, d] footprint or false), browse:{a:[x, z], b:[x, z], face (yaw while looking at the shelf)}}]
    Nobody here moves fast or throws a sun shadow; the blob under them grounds them. They come and go with the time
    of day, but never while you are looking. */
 export function regulars(list, o = {}){
   const out = [];
   list.forEach((e, i) => {
-    const look = e.look || castLook(e.role || "customer", e.seed ?? (101 + i*37), e.x0 || {});
+    const look = e.look || castLook(e.role || "customer", e.seed ?? (101 + i*37), e.extras || {});
     const h = human(look, {cast:false});
     h.g.position.set(e.x, e.y || 0, e.z); h.g.rotation.y = e.ry || 0;
     W.scene.add(h.g);
@@ -404,7 +405,6 @@ export function regulars(list, o = {}){
     if (e.when){ P.on = !!e.when(dayMin(o)); h.g.visible = P.on; if (sol) sol.off = !P.on; }
     out.push(P);
   });
-  const tmp = {};
   W.anims.push(dt => {
     const m = dayMin(o);
     for (const P of out){
@@ -545,7 +545,7 @@ export function pedestrians(o){
       if (slow > .95){ if ((w.wait += dt) > 4){ w.dir = -w.dir; w.wait = 0; } } else w.wait = 0;
       const vt = w.base*(1 - slow);
       w.v += (vt - w.v)*(1 - Math.exp(-4*dt));
-      const s0 = w.s; w.s += w.dir*w.v*dt;
+      w.s += w.dir*w.v*dt;
       // a pause point passed: stop there
       const b = w.R.at(w.s);
       w.cool -= dt;

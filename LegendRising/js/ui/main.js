@@ -213,9 +213,12 @@ function screenTitle(){
 let CR = null;
 function screenCreate(){
   CR = CR || {name:"", number:9, pos:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
-  // how you look: a default of your own until you change it (the 3D preview needs the world's modules, so not on file://)
+  /* how you look: a default of your own until you change it — seeded from a token drawn when this screen first opens,
+     so every new player starts as somebody different, and what the preview shows is what the career gets
+     (the 3D preview needs the world's modules, so not on file://) */
   const looks = typeof lookCreateHTML === "function" && location.protocol !== "file:";
-  if (looks) CR.look = lookSane(CR.look, "p::" + CR.nat);
+  if (!CR.seed) CR.seed = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  if (looks) CR.look = lookSane(CR.look, "p:" + CR.seed);
   const baseOf = k => 24 + (POS[CR.pos].bonus[k] || 0);
   render(`<section class="page create"><div class="page-inner">
     <div class="eyebrow">Step 1</div><h1>Create your player</h1>
