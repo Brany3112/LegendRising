@@ -38,12 +38,14 @@ function renderPhone(){
 function kpView(){
   const K = PH.kp, me = meP();
   switch (K.view){
-    case "home": return {title:"Menu", items:[...(inLife() ? [{l:"Hub ▸"}] : []), {l:"Stats"}, {l:"Scout"}, {l:`Messages${S.msgs.some(m => !m.read) ? " ●" : ""}`}, {l:"Settings"}], soft:["Select","Exit"]};
+    case "home": return {title:"Menu", items:[...(inLife() ? [{l:"Hub ▸"}] : []), {l:"Stats"}, ...(inLife() ? [{l:"Foodies"}] : []), {l:"Scout"}, {l:`Messages${S.msgs.some(m => !m.read) ? " ●" : ""}`}, {l:"Settings"}], soft:["Select","Exit"]};
+    case "foodies": return kpFoodiesView();
     case "stats": {
       const s = S.seasonMy, c = S.careerMy, k = S.contract, prog = reqProgress();
       const lines = [`${S.player.name}`, `${POS[S.player.pos].name} · OVR ${overall()}`, `Club: ${myClub().nm}`, `Rep ${pad5(me.rep)} World ${pad5(me.wrep)}`, "-- SEASON --",
         `Apps ${s.apps}  Goals ${s.goals}`, `Assists ${s.assists}  MotM ${s.motm}`, `Dribbles ${s.dribbles}`, `Passes ${s.spass + s.lpass}/${s.passAtt}`, `Avg rating ${s.apps ? (s.ratingSum/s.apps).toFixed(2) : "-"}`,
-        "-- CAREER --", `Apps ${c.apps}  Goals ${c.goals}`, `Assists ${c.assists}`, "-- SKILLS --", ...SKILLS.map(([key, n]) => `${n} ${S.skills[key]}`),
+        "-- CAREER --", `Apps ${c.apps}  Goals ${c.goals}`, `Assists ${c.assists}`, "-- SKILLS --", ...SKILLS.map(([key, n]) => `${n} ${num(S.skills[key], 0)}`),
+        "-- TODAY --", `Energy ${Math.round(S.energy)} Fatigue ${Math.round(S.fatigue || 0)}`, `Chemistry ${Math.round(S.chem || 0)}`,
         "-- CONTRACT --", k ? `${eur(k.wage)}/wk ${k.years}y` : "None", ...(prog ? Object.entries(prog).map(([key, v]) => `${REQ_LABEL[key]} ${Math.min(v.have, v.target)}/${v.target}`) : [])];
       return {title:"Stats", lines, soft:["","Back"]};
     }
@@ -101,7 +103,8 @@ function kpBack(){ const K = PH.kp, p = K.hist.pop(); if (p){ K.view = p.view; K
 function kpSelect(v){
   const K = PH.kp, it = v.items ? v.items[K.sel] : null;
   switch (K.view){
-    case "home": { const list = [...(inLife() ? ["hub"] : []), "stats","scoutC","msgs","settings"];
+    case "foodies": if (it){ K.hist = []; K.view = "info"; K.data = kpFoodiesPick(it.v); save(); } return;
+    case "home": { const list = [...(inLife() ? ["hub"] : []), "stats", ...(inLife() ? ["foodies"] : []), "scoutC","msgs","settings"];
       if (list[K.sel] === "hub"){ if (window.lifeHub) setTimeout(window.lifeHub, 0); return; }
       return kpGo(list[K.sel]); }
     case "scoutC": return kpGo("scoutL", it.v);

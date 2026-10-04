@@ -1,8 +1,11 @@
 /* ============ LIFE: the neighbourhood ============
    A few streets of brick blocks. Only one door in the whole street is yours: the block on the near
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
-import {THREE, W, LH, box, cyl, blob, solid, floor, ramp, spot, wall, textTex, label, part, boxPart, lmat, reseed, rnd, pick, finishBatches} from "./build.js";
+import {THREE, W, LH, box, cyl, blob, solid, floor, ramp, spot, wall, textTex, label, part, boxPart, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
+import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, PC} from "./props.js";
+import {miniMarket, workplace} from "./shops.js";
+import {fillFridge} from "./fridge.js";
 
 const C = {
   brick:[0xa8392f, 0x92442f, 0xb8603c, 0x8c3a33, 0xc0ae8a, 0x7d8a94],
@@ -233,6 +236,7 @@ function myBlock(F, D){
     twoTone("x", -3.99, -9.625, -0.25, base, top, [doorHole(-6.0, base), doorHole(-1.5, base)]);
     twoTone("z", -0.26, -3.99, -2.31, base, top);
     for (const x of [-11.5, -6.5, -2]) box(x - .3, top - .06, -3.3, x + .3, top, -3, 0xfff3d6, {key:"lamp", ao:false});
+    lightSrc({x:-7, y:top - .3, z:-3.1, color:0xfff0d0, intensity:5, distance:9, indoor:true});
     for (let d = 1; d <= 4; d++){
       if (L === F && d === D) continue;
       staticDoor(L, d);
@@ -396,14 +400,13 @@ function myFlat(F, D){
   const bu = Wd*.55, bv = Dp*.55;
   cyl(X(bu), top - .5, Z(bv), .006, .5, 0x1c1c1c, {seg:4});
   cyl(X(bu), top - .04, Z(bv), .06, .04, 0xe8e4da, {seg:10});
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.055, 10, 8), new THREE.MeshLambertMaterial({color:0xfff6e0, emissive:0xffd590, emissiveIntensity:0}));
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.055, 10, 8), new THREE.MeshStandardMaterial({color:0xfff6e0, emissive:0xffd590, emissiveIntensity:0}));
   bulb.position.set(X(bu), top - .58, Z(bv)); W.scene.add(bulb);
-  const lamp = new THREE.PointLight(0xffd8a0, 0, 11, 1.4);
-  lamp.position.set(X(bu), top - .7, Z(bv)); W.scene.add(lamp);
+  const lamp = lightSrc({x:X(bu), y:top - .7, z:Z(bv), color:0xffd8a0, intensity:7, distance:11, decay:1.4, indoor:true, on:() => !!(G() && G().home && G().home.light)});
   const su = du + .78 < Wd - .2 ? du + .78 : du - .78;
   lb(su - .05, su + .05, .02, .035, 1.18, 1.32, 0xf2efe6, {ao:false});
   HOME.light = {
-    set(on){ const h = G().home; h.light = on; bulb.material.emissiveIntensity = on ? 2.2 : 0; lamp.intensity = on ? 7 : 0; },
+    set(on){ const h = G().home; h.light = on; bulb.material.emissiveIntensity = on ? 2.2 : 0; },
     get on(){ return !!G().home.light; }
   };
   HOME.light.set(G().home.light);
@@ -418,8 +421,22 @@ function myFlat(F, D){
   HOME.bed = {u:Wd, v:Dp, X, Z, base, s, group:null, sol:solid(X(Wd - 1.15), X(Wd - .1), ...zr(Dp - 2.15, Dp - .1), base, base + .6)};
   makeBed();
   spot({x:X(Wd - .6), y:base + .6, z:Z(Dp - 1.1), aim:[[Math.min(X(Wd - 1.5), X(Wd)), base, zr(Dp - 2.15, Dp - .1)[0]], [X(Wd), base + .9, zr(Dp - 2.15, Dp - .1)[1]]],
-    label:"Bed", get hint(){ const m = ctx.minute() % 1440; return m >= 19*60 || m < 5*60 ? "Sleep until morning" : "Have a nap (2 hours)"; }, hold:1.2,
+    label:"Bed", get hint(){ const m = ctx.minute() % 1440; return m >= 19*60 || m < 5*60 ? "Sleep · wake tomorrow at 7:00 AM" : "Have a nap · 2 hours"; }, hold:1.2,
     run:() => ctx.sleep()});
+  // a hot bath takes the ache out of your legs
+  spot({aim:[[Math.min(X(.05), X(1.95)), base, Math.min(Z(.05), Z(.8))], [Math.max(X(.05), X(1.95)), base + .6, Math.max(Z(.05), Z(.8))]],
+    x:X(1), z:Z(.45), label:"Bath", hint:"Hot bath · 30 min · eases fatigue", hold:.5, run:() => ctx.bath()});
+  // the laptop on the table: your stats, your week, your career
+  const lt = frame(X(.53), Z(tv0 + .3), s > 0 ? Math.PI : 0, base + .76);
+  rb(lt, 0, 0, 0, .36, .018, .25, .008, 0x2b2f34, {key:"metal"});
+  rb(lt, 0, .012, -.115, .36, .23, .012, .008, 0x2b2f34, {key:"metal", rx:-.28});
+  const scr = textTex(256, 160, g => { const gr = g.createLinearGradient(0, 0, 0, 160); gr.addColorStop(0, "#14243a"); gr.addColorStop(1, "#0a1220"); g.fillStyle = gr; g.fillRect(0, 0, 256, 160);
+    g.fillStyle = "#c8f060"; g.font = "bold 20px sans-serif"; g.fillText("CLUB PORTAL", 16, 32); g.fillStyle = "rgba(255,255,255,.75)"; g.font = "14px sans-serif";
+    for (let i = 0; i < 4; i++){ g.fillRect(16, 52 + i*24, 90 + (i*37) % 110, 8); } });
+  const [lsx, lsz] = worldPt(lt, 0, -.105);
+  const lsm = label(scr, lsx, base + .76 + .125, lsz, .32, .2, lt.ry, {glow:.9, rough:.2}); lsm.rotateX(-.28);
+  spot({aim:[[X(.53) - .25, base + .7, Math.min(Z(tv0 + .05), Z(tv0 + .55))], [X(.53) + .25, base + 1.05, Math.max(Z(tv0 + .05), Z(tv0 + .55))]],
+    label:"Laptop", hint:"Check your stats, your week and your career", hold:.2, run:() => ctx.computer("home")});
   fridge(X, Z, base, Wd, s);
 
   // your front door, from both sides
@@ -549,56 +566,16 @@ function fridge(X, Z, base, Wd, s){
   HOME.fridge = {doors, items, X, Z, base, u0, u1, v0, v1, s};
   refreshFridge();
 }
-const CAN = {drink:[0x1f6fd1, "Energy-UP"], max:[0xcf2f36, "Energy-UP MAX"]};
 export function refreshFridge(){
   const F = HOME.fridge; if (!F) return;
-  const s = G(); if (!s) return;
-  F.items.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-  F.items.clear();
-  W.spots = W.spots.filter(p => !p.fridgeItem);
-  const at = (u, v, y) => new THREE.Vector3(F.X(u), F.base + y, F.Z(v));
-  const open = () => F.doors[0].a > 1.0;
-  // top shelf: drinks
-  let k = 0;
-  for (const id of ["drink", "max"]) for (let i = 0; i < Math.min(s.inv[id] || 0, 6); i++, k++){
-    if (k >= 10) break;
-    const row = k < 5 ? 0 : 1, col = k % 5;
-    const p = at(F.u0 + .2 + row*.16, F.v0 + .14 + col*.11, .57);
-    const can = part(new THREE.CylinderGeometry(.032, .032, .12, 12), CAN[id][0]); can.position.copy(p).add(new THREE.Vector3(0, .06, 0));
-    const lid = part(new THREE.CylinderGeometry(.03, .032, .01, 12), 0xc9cdd1); lid.position.copy(can.position).add(new THREE.Vector3(0, .065, 0));
-    F.items.add(can, lid);
-    if (col === 0 && row === 0 || true){
-      const bx = new THREE.Box3().setFromObject(can).expandByScalar(.02);
-      W.spots.push({fridgeItem:true, label:CAN[id][1], hint:`Drink it · +${id === "max" ? 60 : 30} energy`, when:open,
-        aim:[bx.min.toArray(), bx.max.toArray()], run:() => ctx.drink(id)});
-    }
+  if (!F.fill){
+    const open = () => F.doors[0].a > 1.0;
+    const at = (u, v) => [F.X(u), F.Z(v)];
+    const slots = y => [0, 1].flatMap(row => [0, 1, 2].map(col => at(F.u0 + .2 + row*.2, F.v0 + .14 + col*.19)));
+    const lo = [Math.min(F.X(F.u0), F.X(F.u1)) - .01, F.base + .07, Math.min(F.Z(F.v0), F.Z(F.v1))], hi = [Math.max(F.X(F.u0), F.X(F.u1)), F.base + 1.1, Math.max(F.Z(F.v0), F.Z(F.v1))];
+    F.fill = {group:F.items, open, ctx, shelves:[{y:F.base + .08, kind:"food", slots:slots()}, {y:F.base + .58, kind:"drink", slots:slots()}], across:[0, .045], emptyAim:[lo, hi]};
   }
-  // bottom shelf: food
-  k = 0;
-  const food = [["sandwich", "Sandwich", 12], ["meal", "Ready meal", 24]];
-  for (const [id, name, gain] of food) for (let i = 0; i < Math.min(s.inv[id] || 0, 4); i++, k++){
-    if (k >= 6) break;
-    const p = at(F.u0 + .2 + (k >= 3 ? .2 : 0), F.v0 + .16 + (k % 3)*.17, .08);
-    let m;
-    if (id === "sandwich"){
-      m = part(new THREE.CylinderGeometry(.075, .075, .05, 3), 0xd9b77a); m.rotation.x = Math.PI/2; m.rotation.z = Math.PI/2;
-      m.position.copy(p).add(new THREE.Vector3(0, .055, 0));
-      const film = part(new THREE.CylinderGeometry(.078, .078, .052, 3), 0xe8f4f8, {mat:{transparent:true, opacity:.35}}); film.rotation.copy(m.rotation); film.position.copy(m.position);
-      F.items.add(film);
-    } else {
-      m = part(new THREE.BoxGeometry(.16, .045, .12), 0x2b2b2e); m.position.copy(p).add(new THREE.Vector3(0, .025, 0));
-      const top = part(new THREE.BoxGeometry(.15, .006, .11), 0xc7552d); top.position.copy(m.position).add(new THREE.Vector3(0, .025, 0)); F.items.add(top);
-    }
-    F.items.add(m);
-    const bx = new THREE.Box3().setFromObject(m).expandByScalar(.025);
-    W.spots.push({fridgeItem:true, label:name, hint:`Eat it · +${gain} energy`, hold:.6, when:open,
-      aim:[bx.min.toArray(), bx.max.toArray()], run:() => ctx.eat(id, name, gain)});
-  }
-  if (!(s.inv.sandwich || s.inv.meal || s.inv.drink || s.inv.max)){
-    const bx = [[F.X(F.u0) - .01, F.base + .07, Math.min(F.Z(F.v0), F.Z(F.v1))], [F.X(F.u1), F.base + 1.1, Math.max(F.Z(F.v0), F.Z(F.v1))]];
-    const lo = [Math.min(bx[0][0], bx[1][0]), bx[0][1], bx[0][2]], hi = [Math.max(bx[0][0], bx[1][0]), bx[1][1], bx[1][2]];
-    W.spots.push({fridgeItem:true, label:"Empty fridge", hint:"Buy food and drinks at the Mall on your phone", hold:.2, when:open, aim:[lo, hi], run:() => ctx.note("Nothing in here. The Mall on your phone sells food.")});
-  }
+  fillFridge(F.fill);
 }
 
 /* ---------- the mailboxes in the lobby ---------- */
@@ -661,7 +638,7 @@ function streets(){
   for (let z = -10; z < 31; z += 4) box(37.93, .013, z, 38.07, .017, z + 2, 0xe9e7df, {ao:false, jit:0});
   for (let x = -1; x < 7; x += .9) box(x, .012, 6.3, x + .5, .016, 13.7, 0xeceae2, {ao:false, jit:0});   // zebra to the stop
   // the other blocks on your side and across the road
-  const near = [[-31, -16], [2, 15], [17, 30]], far = [[-31, -17], [-15, -2], [0, 14], [16, 30]];
+  const near = [[-31, -16]], far = [[-31, -17], [-15, -2], [0, 14], [16, 30]];
   near.forEach(([x0, x1], i) => block({x0, x1, z0:-9, z1:3}, "+z", C.brick[(i + 1) % C.brick.length], {doorAt:(x1 - x0)*.3}));
   far.forEach(([x0, x1], i) => block({x0, x1, z0:17, z1:29}, "-z", C.brick[(i + 3) % C.brick.length], {doorAt:(x1 - x0)*.3, floors:i === 2 ? 3 : 4}));
   [[-6, 7], [9, 21], [23, 32]].forEach(([z0, z1], i) => block({x0:45, x1:57, z0, z1}, "-x", C.brick[(i + 2) % C.brick.length], {doorAt:(z1 - z0)*.4}));
@@ -674,19 +651,22 @@ function streets(){
     const len = Math.hypot(x1 - x0, z1 - z0), n = Math.round(len/1.6);
     for (let i = 0; i <= n; i++){ const t = i/n, x = x0 + (x1 - x0)*t, z = z0 + (z1 - z0)*t; box(x - .05, 0, z - .05, x + .05, 2.0, z + .05, 0x3d4347, {ao:false}); }
   };
-  for (const [x0, x1] of [[-16, -14], [0, 2], [15, 17], [30, 31]]) fence(x0, 2.9, x1, 3.0);
+  for (const [x0, x1] of [[-16, -14], [0, 2], [15, 17.5], [30, 31]]) fence(x0, 2.9, x1, 3.0);
   for (const [x0, x1] of [[-17, -15], [-2, 0], [14, 16]]) fence(x0, 17, x1, 17.1);
   fence(-33.2, 3, -33.1, 17);
   barrier(31, -6.2, 45, -6.0); barrier(31, 29.4, 45, 29.6);
   fence(-31, 17, -34, 17.1); fence(30, 17, 31, 17.1); fence(-34, 2.9, -31, 3);
-  // trees and street lamps
-  for (const x of [-26, -12, 10, 20]) tree(x, 15.2);
-  for (const x of [-22, 8, 24]) tree(x, 5.2);
+  // trees, street lamps, bins and bollards
+  for (const x of [-26, -12, 10, 20]) tree(x, 15.6);
+  for (const x of [-22, -4.5, 16.2]) tree(x, 5.3);
   for (const z of [-2, 22]) tree(43.6, z);
-  for (const x of [-30, -18, -4, 12, 26]) lampPost(x, 14.35, 1);
-  for (const x of [-24, 0, 18]) lampPost(x, 5.65, -1);
+  for (const x of [-30, -18, -4, 12, 26]) streetLamp(x, 14.4, 1);
+  for (const x of [-24, 0, 18, 31.6]) streetLamp(x, 5.6, -1);
+  bin(-7.6, 3.6, 0); bin(16.6, 3.6, 0); bin(8, 16.6, Math.PI);
+  for (const x of [19.5, 21.8]) bollard(x, 5.5);
+  planter(-1.2, 3.8, 1.6);
   // parked cars
-  car(-24, 7.1, 0, 0x8a2b2b); car(-12, 12.9, Math.PI, 0x3b5b7a); car(20, 7.1, 0, 0xd8d6cf); car(36, 20, Math.PI/2, 0x2f3a2f);
+  propCar(-24, 7.1, 0, 0x8a2b2b); propCar(-12, 12.9, Math.PI, 0x3b5b7a); propCar(9.5, 7.1, 0, 0xd8d6cf); propCar(36, 20, Math.PI/2, 0x2f3a2f);
   // the bus stop across the road
   busStop(3, 15.2);
 }
@@ -694,19 +674,11 @@ function barrier(x0, z0, x1, z1){
   box(x0, 0, z0, x1, 1.6, z1, 0x5f666c, {solid:true, ao:false});
   for (let x = x0; x < x1 - .4; x += .8) box(x, .65, z0 - .03, x + .4, .95, z1 + .03, x % 1.6 < .8 ? 0xd23c2c : 0xf2f0ea, {ao:false, jit:0});
 }
-export function tree(x, z){
-  cyl(x, .12, z, .11, 2.2, 0x5b4330, {seg:6});
-  const c = pick([0x3f7a3a, 0x4a8740, 0x356b34]);
-  blob(x, 3.0, z, 1.25, c, {sy:1.15}); blob(x + .5, 2.5, z + .3, .8, c); blob(x - .4, 2.6, z - .35, .75, c);
-  box(x - .6, .121, z - .6, x + .6, .125, z + .6, 0x4a3a2c, {ao:false});
+export function tree(x, z, s){
+  propTree(x, z, s || 1);
+  rbox(x, .12, z, 1.3, .02, 1.3, .3, 0x4a3a2c, {jit:0});
 }
-export function lampPost(x, z, dir){
-  cyl(x, .12, z, .07, 5.2, 0x3b4146, {seg:8});
-  box(x - .04, 5.1, z, x + .04, 5.18, z - dir*1.1, 0x3b4146, {ao:false});
-  box(x - .16, 4.95, z - dir*1.25, x + .16, 5.15, z - dir*.85, 0x2a2e31, {ao:false});
-  box(x - .13, 4.93, z - dir*1.22, x + .13, 4.95, z - dir*.88, 0xfff1c8, {key:"lamp", ao:false});
-  solid(x - .15, x + .15, z - .15, z + .15, 0, 5);
-}
+export function lampPost(x, z, dir){ streetLamp(x, z, dir, .12); }
 function car(x, z, ry, color){
   const g = new THREE.Group();
   const add = (m) => { m.castShadow = true; m.receiveShadow = true; g.add(m); return m; };
@@ -755,9 +727,12 @@ export function buildHome(c){
   // the way in
   HOME.entrance = hingedDoor({hingeX:-10.2, z:2.875, base:0, width:1.4, height:2.3, into:-1, color:0x2f3a44, glass:true, label:"Your block"});
   // a lamp in the lobby
-  const l = new THREE.PointLight(0xffe2b0, 9, 9, 1.6); l.position.set(-10, 2.6, -1); W.scene.add(l);
+  lightSrc({x:-10, y:2.6, z:-1, color:0xffe2b0, intensity:9, distance:9, indoor:true});
   box(-10.3, 2.9, -1.3, -9.7, 2.95, -.7, 0xfff3d6, {key:"lamp", ao:false});
-  spot({x:3, y:1.2, z:15.4, r:2.6, aim:[[1.2, 0, 14.6], [4.8, 2.7, 16.8]], near:true, label:"Bus stop", hint:"Take the bus to training · 40 minutes", hold:3, run:() => ctx.bus("ground")});
+  spot({x:3, y:1.2, z:15.4, r:2.6, aim:[[1.2, 0, 14.6], [4.8, 2.7, 16.8]], near:true, label:"Bus stop", hint:"Bus to the training ground · 40 min", hold:3, run:() => ctx.bus("ground")});
+  reseed(H.seed + 11);
+  miniMarket(ctx);
+  workplace(ctx);
   finishBatches();
   const A = APT[H.door], Wd = A.x1 - A.x0, Dp = Math.abs(A.ext - A.wz);
   const base = H.floor*LH;

@@ -5,21 +5,49 @@ const SKILLS = [
   ["aero","Clean strike","Less drag — long shots keep their pace"],
   ["curve","Curve","How hard the ball bends when you hit its side — strike the edge for a big bend"],
   ["accuracy","Accuracy","Less random error on hard shots"],
-  ["passing","Passing","Accuracy and weight of your passes"],
+  ["passing","Passing","Vision and the weight you put on a pass"],
+  ["passacc","Pass accuracy","How precisely a pass lands where you meant it to"],
   ["pace","Pace","Running speed with the ball"],
   ["dribbling","Dribbling","Chance to ride a tackle"],
   ["stamina","Stamina","How slowly your energy drains in matches — low stamina burns out fast"],
   ["composure","Composure","Keeps your skills from dropping in front of huge crowds"],
-  ["tackling","Tackling","How cleanly you take the ball off a man, and how much of him you risk catching"]
+  ["tackling","Tackling","How cleanly you take the ball off a man, and how much of him you risk catching"],
+  ["interception","Interception","Reading a pass early and getting into its lane"],
+  ["jumping","Jumping","How high and how quickly you get off the ground"],
+  ["heading","Heading","Power and direction when you meet the ball with your head"]
 ];
+// where each skill is actually trained, shown on the stats computer
+const SKILL_HOW = {
+  power:"Gym · squat rack and dumbbells", aero:"Pitch · shooting drill, hit it hard and clean", curve:"Matches · bend shots and free kicks",
+  accuracy:"Pitch · shooting accuracy drill at the goal", passing:"Pitch · pass accuracy drill, team sessions", passacc:"Pitch · pass accuracy drill in the centre circle",
+  pace:"Gym · sprint ladder and bike", dribbling:"Matches and team sessions", stamina:"Gym · treadmill and bike",
+  composure:"Big crowds on match day", tackling:"Matches and team sessions", interception:"Pitch · interception drill by the ball machine",
+  jumping:"Gym · plyo boxes, and the heading drill", heading:"Pitch · heading drill at the far goal"
+};
+/* Everything you can eat or drink. energy is the food/energy meter, fatigue a change to tiredness
+   (negative helps). mins is how long it takes. store is the Mini Market price, foodies the delivered one. */
+const FOOD = {
+  fruit:   {name:"Banana & apple",   icon:"🍌", kind:"food",     energy:7,  fatigue:-1,  mins:5,  store:1, foodies:2,  shelf:"food"},
+  sandwich:{name:"Sandwich",         icon:"🥪", kind:"food",     energy:14, fatigue:0,   mins:10, store:3, foodies:4,  shelf:"food"},
+  meal:    {name:"Ready meal",       icon:"🍱", kind:"food",     energy:26, fatigue:0,   mins:20, store:5, foodies:7,  shelf:"food"},
+  pasta:   {name:"Chicken pasta",    icon:"🍝", kind:"food",     energy:34, fatigue:-3,  mins:20, store:7, foodies:9,  shelf:"food"},
+  water:   {name:"Water",            icon:"💧", kind:"drink",    energy:2,  fatigue:-2,  mins:2,  store:1, foodies:2,  shelf:"drink"},
+  iso:     {name:"Isotonic drink",   icon:"🧃", kind:"drink",    energy:8,  fatigue:-4,  mins:2,  store:2, foodies:3,  shelf:"drink"},
+  drink:   {name:"Energy-UP",        icon:"⚡", kind:"energy",   energy:22, fatigue:0,   mins:2,  store:3, foodies:4,  shelf:"drink"},
+  max:     {name:"Energy-UP MAX",    icon:"⚡", kind:"energy",   energy:40, fatigue:0,   mins:2,  store:7, foodies:9,  shelf:"drink"},
+  shake:   {name:"Protein shake",    icon:"🥤", kind:"recovery", energy:10, fatigue:-8,  mins:5,  store:4, foodies:6,  shelf:"drink"},
+  rub:     {name:"Muscle rub",       icon:"🧴", kind:"recovery", energy:0,  fatigue:-12, mins:10, store:6, foodies:8,  shelf:"door"}
+};
+const FOOD_KINDS = [["food","Food"], ["drink","Drinks"], ["energy","Energy"], ["recovery","Recovery"]];
+const FOODIES_FEE = 2;
 /* Where you play. The order is the pitch, back to front — asking to move up or down walks this list.
    blurb is what the position asks of you; chances is roughly how much of a game you spend in front of goal. */
 const POS = {
-  DF: {name:"Defender",       line:0, bonus:{tackling:9, composure:5, passing:3}, blurb:"You defend first. Fewer chances, but a clean sheet is your goal."},
-  CM: {name:"Central mid",    line:1, bonus:{passing:6, stamina:4, tackling:4},  blurb:"The engine. You touch the ball more than anyone."},
-  AM: {name:"Attacking mid",  line:2, bonus:{curve:4, passing:6, accuracy:2},  blurb:"Between the lines. Create, and get on the end of things."},
-  W:  {name:"Winger",         line:2, bonus:{pace:6, dribbling:6},             blurb:"One against one on the touchline. Beat him and cross, or cut in."},
-  ST: {name:"Striker",        line:3, bonus:{power:6, accuracy:6},             blurb:"Score. Everything else is a bonus."}
+  DF: {name:"Defender",       line:0, bonus:{tackling:9, composure:5, passing:3, interception:7, heading:6, jumping:4}, blurb:"You defend first. Fewer chances, but a clean sheet is your goal."},
+  CM: {name:"Central mid",    line:1, bonus:{passing:6, stamina:4, tackling:4, passacc:5, interception:4},  blurb:"The engine. You touch the ball more than anyone."},
+  AM: {name:"Attacking mid",  line:2, bonus:{curve:4, passing:6, accuracy:2, passacc:5},  blurb:"Between the lines. Create, and get on the end of things."},
+  W:  {name:"Winger",         line:2, bonus:{pace:6, dribbling:6, passacc:2},             blurb:"One against one on the touchline. Beat him and cross, or cut in."},
+  ST: {name:"Striker",        line:3, bonus:{power:6, accuracy:6, heading:4, jumping:3},  blurb:"Score. Everything else is a bonus."}
 };
 const POS_ORDER = ["DF", "CM", "AM", "W", "ST"];
 // how often a match asks you to defend. A centre half does it constantly; a striker tracks back now and then.
@@ -79,14 +107,21 @@ const JOBS = [
 // this is the order the five-job ladder shipped in, used to read those older saves.
 const JOB_LEGACY = ["cafe", "store", "courier", "photo", "edit"];
 const JOB_TOP = {j:JOBS.length - 1, r:2};
+// a four-hour shift is worth about this much experience; a rank needs `need` shifts' worth
+const JOB_XP_PER_SHIFT = 50;
+// what you actually do on a shift, for the progress card at work
+const JOB_TASKS = {cafe:["Washing up", "Pulling shots", "Clearing tables", "Restocking cups"], store:["Stacking shelves", "On the till", "Counting stock", "Facing up the aisles"],
+  courier:["Loading the bag", "Cross-town run", "Doorstep drop-offs", "Back to dispatch"], gym:["Front desk", "Wiping down machines", "Inductions", "Locking up"],
+  academy:["Laying out cones", "Running drills", "Small-sided games", "Talking to parents"], photo:["Setting up lights", "Portrait session", "Sorting the shots", "Editing selects"],
+  edit:["Logging footage", "Rough cut", "Colour grade", "Exporting the reel"]};
 function jobAt(j, r){ const job = JOBS[clamp(j|0, 0, JOBS.length - 1)]; return {job, rank:job.ranks[clamp(r|0, 0, job.ranks.length - 1)]}; }
 // mall: things you buy once (except drinks)
 const SHOP = [
   {id:"smartphone", cat:"Phone", name:"Branyfon S1 smartphone", desc:"Touchscreen, app store, Showoff, Visage, full negotiations. Replaces your keypad phone.", price:450},
   {id:"drink", cat:"Energy", name:"Energy-UP", desc:"+30 energy at half-time (more with a better home).", price:3, stack:true},
   {id:"max", cat:"Energy", name:"Energy-UP MAX", desc:"+60 energy at half-time (more with a better home).", price:7, stack:true},
-  {id:"sandwich", cat:"Food", name:"Sandwich", desc:"Goes in your fridge. Eat it at home: +12 energy.", price:2, stack:true},
-  {id:"meal", cat:"Food", name:"Ready meal", desc:"Goes in your fridge. A proper dinner: +24 energy.", price:5, stack:true},
+  {id:"sandwich", cat:"Food", name:"Sandwich", desc:"Goes in your fridge. Eat it at home or at the gym: +14 energy.", price:3, stack:true},
+  {id:"meal", cat:"Food", name:"Ready meal", desc:"Goes in your fridge. A proper dinner: +26 energy.", price:5, stack:true},
   {id:"mattress", cat:"Bed", name:"Better mattress", desc:"A night in your own bed gives +60 energy instead of +45.", price:120},
   {id:"bed2", cat:"Bed", name:"New double bed", desc:"Proper sleep: +75 energy every night.", price:420},
   {id:"flat", cat:"Home", tier:1, name:"Rented flat", desc:"Your own bed. Drinks and rest give 15% more energy, +5 recovery every week.", price:1500},
@@ -114,9 +149,10 @@ const STAFF = [
 const TRAIN = {
   general:{name:"General", skills:null, coach:null},
   shooting:{name:"Shooting", skills:["power","aero","curve","accuracy"], coach:"shootCoach"},
-  passing:{name:"Passing", skills:["passing","accuracy"], coach:"passCoach"},
+  passing:{name:"Passing", skills:["passing","passacc"], coach:"passCoach"},
   dribbling:{name:"Dribbling", skills:["dribbling","pace"], coach:"dribCoach"},
-  fitness:{name:"Fitness", skills:["stamina","pace"], coach:"fitCoach"},
+  fitness:{name:"Fitness", skills:["stamina","pace","jumping"], coach:"fitCoach"},
+  defending:{name:"Defending", skills:["tackling","interception","heading"], coach:null},
   mental:{name:"Mental", skills:["composure"], coach:"psych"}
 };
 const APPS = {
@@ -125,6 +161,7 @@ const APPS = {
   scout:{name:"Scout Pro", desc:"Contact clubs and negotiate your own contracts.", size:"22 MB"},
   news:{name:"Rising News", desc:"Football news from every league.", size:"18 MB"},
   league:{name:"Tables", desc:"Tables, fixtures and European cups.", size:"12 MB"},
+  foodies:{name:"Foodies", desc:"Order food and drinks — delivered to your flat or the training ground.", size:"14 MB"},
   bank:{name:"Bank", desc:"Money, wages, bonuses and your contract.", size:"9 MB"}
 };
 
@@ -156,6 +193,21 @@ const CHANTS = {
 
 /* Patch notes — newest first. The flag button in the top bar opens these; nothing pops up on its own. */
 const PATCH = [
+  {v:"2026.10.04a", date:"4 October", title:"A footballer's life, one day at a time", items:[
+    "Sleeping now takes you to the next morning — never further. A week is seven days you live through, and it turns over in the night from Sunday to Monday, when your wage goes in.",
+    "Two meters to manage: energy, which is food, and fatigue, which only rest really clears. Training tired is worth less and tires you more; eat, sleep, sit down, take an ice bath. Energy drinks give a lift and then wear off.",
+    "Team training runs 10:00 AM to 5:00 PM on weekdays without a match. Turn up on time and stay, and the manager notices — be late or absent and his trust drops. Manager trust decides how often you start, but form, fitness and luck get a say too.",
+    "Team Chemistry: being at training with the squad builds it quietly, and you see what the day did once you're home or on the club computer. High chemistry means more of the game comes your way — never the ball every few seconds.",
+    "Chances now come with team-mates around you — open, marked, held, making a run. Reach the box and the game slows for a moment: shoot, pass left, pass right or back. You can shoot instead of passing while building an attack, but the dressing room has an opinion.",
+    "Shots end more like real ones: saved, parried back out, tipped over for a corner, blocked, deflected behind, loose for a scramble, or off a defender and in. A great save on a good shot costs you nothing; skying a clear chance with a team-mate free costs plenty.",
+    "A personality that grows from how you play: teamwork, confidence, decision making, risk. It moves slowly and it shows on the stats computer.",
+    "New skills: Pass accuracy, Interception, Jumping and Heading — each with its own drill. Careers already under way get starting values that match the player they are.",
+    "Train for real: shooting at targets in the goal, passing to rings round the centre circle, timing headers off the ball machine, reading passes to cut them out, and timed sets in the gym. Every rep shows its experience filling the bar.",
+    "The club computer and the laptop at home show your day, your schedule, your skills, your job, your money and your personality. Match day says who, where and when.",
+    "The Mini Market on your street sells food, drinks and recovery. The gym has a fridge with the same food as home, a vending machine and a water cooler. Or order on Foodies from your phone and wait for it to arrive.",
+    "Work happens at work: clock in on your street for a two- or four-hour shift and watch the job bar fill.",
+    "A full day and night: sunrise, a real sunset, stars, street lamps and floodlights coming on, warm shop windows at night.",
+    "The training ground has been rebuilt — a proper pitch with nets, dugouts and floodlights, a dressing room with lockers and an ice bath, a staff office, a car park — and the squad is out there training while you are."]},
   {v:"2026.10.01a", date:"1 October", title:"No more milestones for nothing", items:[
     "Fixed milestones being handed out for nought of something — a man-of-the-match award when a team-mate won it, a career goal before you had scored one. Zero counted as a round number and tripped the ladder.",
     "Any of those that were already in your cabinet are cleared out the next time you open your career."]},

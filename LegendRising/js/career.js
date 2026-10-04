@@ -18,7 +18,8 @@ function metaFromSave(n){
     const raw = localStorage.getItem(slotKey(n)); if (!raw) return null;
     const d = deserial(raw); if (!d || !d.player) return null;
     const me = d.W.players[d.meId], c = me && me.club >= 0 ? d.W.clubs[me.club] : null;
-    const sk = d.skills || {}, ovr = Math.round(SKILLS.reduce((a, [k]) => a + (sk[k] || 0), 0)/SKILLS.length);
+    const sk = d.skills || {}, have = SKILLS.filter(([k]) => typeof sk[k] === "number");
+    const ovr = have.length ? Math.round(have.reduce((a, [k]) => a + sk[k], 0)/have.length) : 0;
     const cm = d.careerMy || {apps:0, goals:0, assists:0};
     return {name:d.player.name, club:c ? c.nm : "Free agent", lg:c ? (d.W.leagues[c.lg] || {}).nm || "" : "",
       season:d.W.season, seasons:(d.W.season - (d.startSeason || d.W.season)) + 1, week:d.week,
@@ -175,6 +176,7 @@ function resume(data){
   if (!S.workrate) S.workrate = 2;
   if (S.tutDone == null) S.tutDone = true;
   indexSquads();
+  dailyEnsure();                    // the daily-life fields, and new skills for careers made before them
 }
 /* ---------- match-day skills: crowd nerves (composure) and the dream ---------- */
 // big crowds only: under ~8,000 there's no pressure; it grows up to full pressure around 68,000
@@ -256,7 +258,7 @@ function jobSync(s){ s.id = JOBS[clamp(s.j, 0, JOBS.length - 1)].id; return s; }
 function myJob(){ const s = jobState(); return jobAt(s.j, s.r); }
 function jobLabel(){ const {job, rank} = myJob(); return `${job.name} · ${rank.name}`; }
 function jobPay(){ const {rank} = myJob(); return ri(rank.pay[0], rank.pay[1]); }
-function jobNeed(){ return myJob().rank.need; }
+function jobNeed(){ return myJob().rank.need*JOB_XP_PER_SHIFT; }     // experience points to the next rank
 function jobStage(){ const s = jobState(); return s.j*3 + s.r; }          // 0…14, one number for the whole ladder
 function jobIsTop(){ const s = jobState(); return s.j >= JOBS.length - 1 && s.r >= 2; }
 // moves you one position up the ladder (rolling over into the next job), or down. Returns the pay before and after.
@@ -288,20 +290,37 @@ function shopOpen(sh){ return shopRep() >= sh.rep; }
 function clothesOwned(){ return (S.wardrobe || []).length; }
 /* ----------each skill earns its own experience from what you actually do ---------- */
 function skillNeed(k){ return Math.round(45 + S.skills[k]*13); }   // higher skills take longer to grow
+function skillName(k){ return (SKILLS.find(s => s[0] === k) || [0, String(k)])[1]; }
 function skillXP(k, x){
   if (!S.skillXp) S.skillXp = {};
+  if (typeof S.skills[k] !== "number" || !isFinite(x)) return;
   if (S.skills[k] >= 99){ S.skillXp[k] = 0; return; }
   S.skillXp[k] = (S.skillXp[k] || 0) + x;
   while (S.skills[k] < 99 && S.skillXp[k] >= skillNeed(k)){
     S.skillXp[k] -= skillNeed(k); S.skills[k]++;
-    const nm = (SKILLS.find(s => s[0] === k) || [0, k])[1];
-    toast(`${nm} up! Now ${S.skills[k]} — from playing.`, "good");
+    const me = W && W.players ? meP() : null; if (me) me.ovr = overall();
+    notifySkillUp(k);
   }
 }
-function addXP(x){ S.xp += Math.round(x); while (S.xp >= xpNeed()){ S.xp -= xpNeed(); S.level++; S.sp += 4; toast(`Level ${S.level}! 4 skill points to spend.`, "good"); } }
+// in the first-person world a skill going up is a moment of its own; anywhere else it is a toast
+function notifySkillUp(k){
+  const nm = skillName(k);
+  if (typeof FEED === "object" && FEED.live()) FEED.center("Skill point earned", `+1 ${nm} · now ${S.skills[k]}`, {kind:"skill", icon:"▲"});
+  else toast(`${nm} up! Now ${S.skills[k]}.`, "good");
+}
+function addXP(x){
+  if (!isFinite(x)) return;
+  S.xpF = (S.xpF || 0) + x;                     // fractions add up instead of being rounded away
+  const whole = Math.floor(S.xpF); S.xpF -= whole; S.xp += whole;
+  while (S.xp >= xpNeed()){
+    S.xp -= xpNeed(); S.level++; S.sp += 4;
+    if (typeof FEED === "object" && FEED.live()) FEED.center(`Level ${S.level}`, "+4 skill points to spend · open the stats computer", {kind:"level", icon:"★"});
+    else toast(`Level ${S.level}! 4 skill points to spend.`, "good");
+  }
+}
 function skillCost(v){ return v < 50 ? 1 : v < 75 ? 2 : 3; }
 // how fast energy burns: stamina 24 -> x1.32, 50 -> x1.03, 75 -> x0.74, 99 -> x0.46 (nutritionist: 20% less)
-function staminaF(){ return (1.6 - 1.15*S.skills.stamina/100)*(S.staff.nutri ? .8 : 1); }
+function staminaF(){ return (1.6 - 1.15*S.skills.stamina/100)*(S.staff.nutri ? .8 : 1)*(typeof MT !== "undefined" && MT && !MT.dream && typeof fatigueDrain === "function" ? fatigueDrain() : 1); }
 function energyFactor(){ return S.energy >= 45 ? 1 : .55 + .45*S.energy/45; }
 function avgRating(l){ return l.length ? l.reduce((a,b) => a+b, 0)/l.length : 0; }
 function recentAvg(){ return avgRating(S.ratings.slice(-6)) || 6.3; }
@@ -347,13 +366,15 @@ function newsFromMatch(res){
 function newCareer(cr){
   const skills = {}; SKILLS.forEach(([k]) => skills[k] = 24 + (POS[cr.pos].bonus[k] || 0) + cr.alloc[k]);
   S = {v:2, cid:"c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), player:{name:cr.name, number:cr.number, pos:cr.pos, foot:cr.foot, nat:cr.nat, age:17}, skills, sp:0, xp:0, level:1,
-    energy:100, money:100, workrate:2, tutDone:false, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0}, inv:{drink:2, max:0}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
+    energy:85, fatigue:10, chem:0, money:100, workrate:2, tutDone:false, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0, v2:true},
+    inv:{drink:2, max:0, sandwich:3, meal:2, fruit:3, water:4, pasta:1}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
     contract:null, trust:0, raise:null, ban:0, cards:{y:0, r:0, run:0}, seasonMy:blankMy(), careerMy:blankMy(), ratings:[], awards:[], trophies:[], news:[], msgs:[], requests:[],
     locks:{}, pendingMove:null, actions:3, weekDone:{}, history:[], meId:-1, rivalId:-1, offerSet:null, social:null, purchases:[], speed:2, lastMatch:null, promiseLog:[]};
   genWorld();
   // you join the world as a player with no club yet
   const me = newPlayer(cr.nat, MY_POS[cr.pos], 17, overall(), -1);
   me.me = true; me.rep = 4; me.wrep = 0; me.fol = 0; S.meId = me.id;
+  dailyEnsure();
   const starts = shuffle(W.clubs.filter(c => c.cc === "ROU" && c.t === 4)).slice(0, 3);
   S.offerSet = {ctx:"start", list:starts.map(c => baseOffer(c, true))};
   S.startSeason = W.season; startPlayClock();
@@ -394,6 +415,7 @@ function joinClub(o){
   S.raise = null;                                   // a new deal wipes any rise agreed with the last manager
   S.contract = Object.assign({}, o, {start:gw(), startSnap:snapMy(), deadline:o.promised ? gw() + Math.round(o.years*CAL.W/2) : gw() + o.years*CAL.W});
   S.trust = trustFor(o.role); S.money += o.sign || 0;
+  if (old !== c.id) S.chem = 18;                    // a new dressing room: you start again with these lads
   S.requests = S.requests.filter(r => r.club !== c.id);
   S.msgs.forEach(m => { if (m.offer && m.offer.club === c.id) m.done = true; });
   indexSquads();
@@ -544,7 +566,8 @@ function endWeek(){
       if (!S.ban) addNews("you", "Suspension served", "You are available again.", "me");
     }
     if (me.inj > 0){ me.inj = Math.max(0, me.inj - (S.items.physio ? 2 : 1)); if (!me.inj) addNews("you", "Back in training", "You're fit again.", "me"); }
-    S.energy = Math.min(100, S.energy + weeklyRecovery());
+    // living it day by day, your body is managed by the day; the old weekly top-up only applies to the hub
+    if (!(typeof lifeMode === "function" && lifeMode())) S.energy = Math.min(100, S.energy + weeklyRecovery());
     S.actions = weeklyActions();
   });
   step(report, "contract", checkPromise);

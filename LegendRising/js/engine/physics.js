@@ -56,7 +56,7 @@ function launchBall(b, ang, power, u, v, moving){
   const vmax = (17 + sk.power*.18) * (.72 + .28*ef) * (S.items.strike ? 1.04 : 1);
   const spd = vmax * power * (.55 + .45*q);
   const over = power > .9 ? 1 + (power-.9)*8 : 1;              // over-hitting costs accuracy
-  const acc = M && M.isPass ? sk.passing*.7 + sk.accuracy*.3 : sk.accuracy;
+  const acc = M && typeof passMode === "function" && passMode() ? (sk.passacc || sk.passing)*.65 + sk.passing*.35 : sk.accuracy;
   const errDeg = (1 - acc/115) * 6 * Math.pow(power, 1.5) * over * (1.6 - .6*ef) * (moving ? 1.25 : 1) * (1 + (1-q)*3);
   // hitting the right side pushes the ball out right first; the spin then bends it back left
   const a = ang + u*.16 + gauss()*errDeg*Math.PI/180;

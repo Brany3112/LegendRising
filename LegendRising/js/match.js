@@ -34,7 +34,9 @@ function momentMix(){
   return Object.assign({}, MOMENT_MIX[S.player.pos] || MOMENT_MIX.ST,
                        DEFEND_MIX[S.player.pos] || DEFEND_MIX.ST);
 }
-function pickMomentType(){
+// what kind of moment comes your way depends on where you play, the score, the clock and who you are up against
+function pickMomentType(ctx){
+  if (typeof pickMomentTypeCtx === "function") return pickMomentTypeCtx(ctx);
   const mix = momentMix(), keys = Object.keys(mix);
   let total = 0; for (const k of keys) total += mix[k];
   let r = Math.random()*total;
@@ -58,14 +60,17 @@ function startMatch(f){
   const ourR = strength(usXI.filter(p => !p.me)) + (me.ovr - 50)*.05, oppR = strength(themXI);
   let [us, them] = goalsFor(ourR, oppR, home && f.kind !== "N");
   let thin = 0; for (let i = 0; i < us; i++) if (Math.random() < .72) thin++; us = thin;
-  const role = f.kind === "N" ? "rotation" : currentRole();
+  // the manager picks the side on the day: trust above all, but form, fitness, the dressing room and chance too
+  const role = typeof selectRole === "function" ? selectRole(f) : (f.kind === "N" ? "rotation" : currentRole());
   const events = [];
   const usGoals = pickScorers(usXI, us, p => p.me), themGoals = pickScorers(themXI, them);
   usGoals.forEach(g => events.push({min:ri(2,90), kind:"us", g}));
   themGoals.forEach(g => events.push({min:ri(2,90), kind:"them", g}));
-  const n = momentCount();
-  const lo = role === "sub" ? 58 : 3;
-  for (let i = 0; i < n; i++) events.push({min:ri(lo, 89), kind:"moment", type:pickMomentType()});
+  // how often the ball finds you, and when — what kind of moment it is gets decided when it arrives
+  const n = typeof involvement === "function" ? involvement(role, ourR, oppR) : momentCount();
+  const subOff = role === "rotation" ? ri(64, 78) : 0;
+  const lo = role === "sub" ? ri(56, 68) : role === "cameo" ? ri(78, 84) : 3, hi = subOff ? subOff - 1 : 89;
+  for (let i = 0; i < n; i++) events.push({min:ri(lo, hi), kind:"moment", type:null});
   events.sort((a,b) => a.min - b.min);
   const firstMoment = events.find(e => e.kind === "moment");
   const nameUs = sideName(f, home ? "h" : "a"), nameThem = sideName(f, home ? "a" : "h");
@@ -80,12 +85,14 @@ function startMatch(f){
   MT = {f, home, usId, themId, nameUs, nameThem, usXI, themXI, ourR, oppR, events, i:0, score:[0,0], minute:0, label:"0'", role,
     usGoals:[], themGoals:[], my:{goals:0, assists:0, dribbles:0, shots:0, onTarget:0, lost:0, misses:0, long:0, fk:0, curl:0, pen:0, spass:0, lpass:0, passAtt:0, tackles:0, fouls:0, headers:0, cards:0, beaten:0},
     highlights:[], stats:{shots:[0,0], corners:[0,0], cards:[0,0]}, poss:clamp(.5 + (ourR - oppR)/40, .3, .72), tl, ti:0, running:false, timer:null,
-    onPitch: role !== "sub", subOn: role === "sub" && firstMoment ? Math.max(46, firstMoment.min - ri(3, 8)) : 0,
+    onPitch: role !== "sub" && role !== "cameo", subOn: (role === "sub" || role === "cameo") ? (firstMoment ? Math.max(lo - 4, firstMoment.min - ri(2, 6)) : lo) : 0, subOff, chemD:0,
     myKit: f.kind === "N" ? natKit(usId) : kitOf(nameUs), oppKit: f.kind === "N" ? natKit(themId) : awayKit(nameUs, nameThem),
     roleNames: roleNames(usXI.filter(p => !p.me).concat([])), gkName: sname(usXI.find(p => p.pos === "GK") || usXI[0]), lines:[]};
   S.speed = S.speed || 2;
   MT.stad = stadiumFor(f); MT.nerves = nervesFor(MT.stad.crowd); MT.extras = 0;
-  matchSkillsOn(MT.nerves);
+  // tired legs take something off everything you do
+  MT.tired = typeof fatigueSkillHit === "function" ? fatigueSkillHit() : 0;
+  matchSkillsOn(Math.min(.45, MT.nerves + MT.tired));
   renderMatchScreen();
   showPrematch();
 }
@@ -116,6 +123,7 @@ function renderMatchScreen(){
       </div>
     </div>
     <div class="commentary glass" id="comm"><div class="comm-head"><b>Live</b><span id="poss"></span></div><div id="llines"></div></div>
+    <div id="decide" class="decide"></div>
     <div id="ov" class="ov"></div>
     <div class="rotate-tip">↻ Turn your phone sideways for a bigger pitch</div>
   </div>`;
@@ -174,6 +182,8 @@ function leadIn(e){
   const line = {run:`${m} wins it back and finds ${you} in space...`, wing:`${m} spreads it wide to ${you}...`, oneonone:`${m} plays a perfect through ball — ${you} is in!`,
     edge:`The ball breaks to ${you} on the edge of the box!`, freekick:`${you} is brought down in a dangerous area. Free kick!`, penalty:`${you} is tripped in the box — PENALTY!`,
     pass:`${you} gets it in the middle of the park. Options everywhere...`,
+    counter:`${m} wins it on the edge of our box — ${you} is away on the break!`,
+    cross:`${m} slides ${you} in down the line. The box is filling up...`,
     corner:`${you} jogs over to take the corner. The box is packed...`,
     throwin:`It runs out for a throw. ${you} picks the ball up...`}[e.type];
   say(line || `The ball comes to ${you}...`, "hot");
@@ -193,7 +203,12 @@ function advance(){
   updateBoard();
   if (t.base === 1 && !t.st) say(`Kick-off! ${MT.f.kind === "N" ? "The anthems are done." : ""} ${MT.role === "sub" ? "You start on the bench." : "You're in the team."}`.trim());
   if (t.base === 46 && !t.st) say("The second half is under way.");
-  if (!MT.onPitch && MT.subOn && t.base >= MT.subOn && !t.st){ MT.onPitch = true; say(`Substitution ${MT.nameUs}: ${S.player.name} comes on for ${sname(U())}.`, "hot"); }
+  if (!MT.onPitch && MT.subOn && t.base >= MT.subOn && !t.st && !MT.subbedOff){ MT.onPitch = true; MT.cameOn = t.base; say(`Substitution ${MT.nameUs}: ${S.player.name} comes on for ${sname(U())}.`, "hot"); }
+  if (MT.onPitch && MT.subOff && t.base >= MT.subOff && !t.st){
+    MT.onPitch = false; MT.subbedOff = t.base;
+    MT.events = MT.events.filter((e, i) => i < MT.i || e.kind !== "moment");
+    say(`Substitution ${MT.nameUs}: ${S.player.name} makes way after a solid shift.`);
+  }
   if (MT.onPitch && !MT.injuredOff){
     const wr = S.workrate || 2, stamF = staminaF();
     S.energy = Math.max(0, S.energy - WR.drain[wr]*stamF*(MT.dream ? .3 : 1));
@@ -213,7 +228,16 @@ function advance(){
   if (!t.st) while (MT.i < MT.events.length && MT.events[MT.i].min <= t.base){
     const e = MT.events[MT.i];
     if (e.kind === "moment" && WR.skip[S.workrate || 2] && !MT.dream && Math.random() < WR.skip[S.workrate || 2]){ MT.i++; say(`${sname(U())} ignores ${S.player.name}'s half-hearted run and loses it.`); continue; }
-    if (e.kind === "moment"){ if (!MT.onPitch){ MT.onPitch = true; say(`${S.player.name} comes on.`, "hot"); } leadIn(e); showPre(e); return false; }
+    if (e.kind === "moment" && MT.subbedOff){ MT.i++; continue; }
+    if (e.kind === "moment" && !MT.dream && Math.random() < Math.max(0, .07 - (S.chem || 0)*.0006)){
+      // a team-mate who does not know you yet goes alone instead
+      MT.i++; say(`${sname(U())} has ${S.player.name} free but goes on his own — and loses it.`); continue;
+    }
+    if (e.kind === "moment"){
+      if (!e.type) e.type = pickMomentType({minute:t.base, diff:MT.score[0] - MT.score[1]});
+      if (!MT.onPitch){ MT.onPitch = true; MT.cameOn = MT.cameOn || t.base; say(`${S.player.name} comes on.`, "hot"); }
+      leadIn(e); showPre(e); return false;
+    }
     MT.i++; goalEvent(e);
   }
   if (Math.random() < .32) say(commentary());
@@ -242,11 +266,13 @@ function showPrematch(){
   else lines.push(`${NAMES[me.nat].n} call on you. A good game here raises your world reputation.`);
   const d = MT.ourR - MT.oppR;
   lines.push(d > 3 ? `Pundits make ${MT.nameUs} clear favourites.` : d < -3 ? `${MT.nameThem} are the favourites today.` : "Pundits expect a tight one.");
-  lines.push({starter:"You're in the starting XI.", rotation:"You start — the coach wants to see what you can do.", sub:"You start on the bench. Be ready for the second half."}[MT.role]);
+  lines.push({starter:"You're in the starting XI.", rotation:"You start — the manager will look at his bench around the hour.", sub:"You start on the bench. Be ready for the second half.",
+    cameo:"You're on the bench. If you get on, it'll be late — the manager needs more from you in training."}[MT.role] || "");
+  if (MT.tired > .02) lines.push(`Your legs are heavy (fatigue ${Math.round(S.fatigue)}). Everything will be about ${Math.round(MT.tired*100)}% harder tonight.`);
   const rv = W.players[S.rivalId];
   if (rv && (rv.club === MT.themId)) lines.push(`Your rival ${pname(rv)} is in their line-up. All eyes on the two of you.`);
   lines.push(`Coach: "${pick(["We need your goals today.", "Stay patient, the chances will come.", "Take them on — they're slow at the back.", "Look for the runners. Play simple.", "Enjoy it. You've earned this."])}"`);
-  if (S.energy < 35) lines.push(`Your legs feel heavy (energy ${Math.round(S.energy)}). An Energy-UP before kick-off would help.`);
+  if (S.energy < 35) lines.push(`You're running on empty (energy ${Math.round(S.energy)}). You should have eaten — an Energy-UP at half-time will help.`);
   const crowd = MT.stad.crowd;
   if (MT.nerves > .01) lines.push(`${crowd.toLocaleString("en-GB")} fans. With composure ${S.skillsBase ? S.skillsBase.composure : S.skills.composure}, the nerves will take ${Math.round(MT.nerves*100)}% off your skills today. Work on Composure to handle big nights.`);
   else if (crowd >= 8000) lines.push(`${crowd.toLocaleString("en-GB")} fans — but you're calm. Nerves won't be a problem.`);
@@ -270,14 +296,17 @@ function statTable(s){
   return `<div class="stattable">${[["Possession", p + "%", (100-p) + "%"], ["Shots", s.shots[0], s.shots[1]], ["Corners", s.corners[0], s.corners[1]], ["Yellow cards", s.cards[0], s.cards[1]]]
     .map(([k,a,b]) => `<div><b>${a}</b><span>${k}</span><b>${b}</b></div>`).join("")}</div>`;
 }
-const MOMENT_TITLE = {run:"On the ball", wing:"Out wide", oneonone:"Through on goal!", edge:"Edge of the box",
+const MOMENT_TITLE = {run:"On the ball", wing:"Out wide", oneonone:"Through on goal!", edge:"Edge of the box", counter:"Counter-attack!", cross:"Cross it in",
   freekick:"Free kick", penalty:"Penalty!", pass:"Pick a pass", corner:"Corner", throwin:"Throw-in",
   tackle:"Get back and stop him", last:"Last man!", shepherd:"Hold him up", intercept:"Read the pass", aerial:"It's in the air"};
 function momentTitle(t){ return MOMENT_TITLE[t] || "Your moment"; }
 const DESC = {
-  run:"Drag the ball past them and get into the box.", wing:"Take on your full-back and cut into the box.", oneonone:"Defender chasing, keeper rushing out. Finish it.",
-  edge:"It's moving — hit it quick.", freekick:"Hit the side of the ball to bend it round the wall.", penalty:"Just you and the keeper.",
-  pass:"Find the team-mate who's calling for it. Drag back to aim, release, then strike the ball. Bottom of the ball lifts it over defenders.",
+  run:"Drag the ball past them and get into the box. Team-mates are around you — get to the box and you choose: shoot, or find one of them.",
+  wing:"Take on your full-back and cut in. Watch who's free in the middle.", oneonone:"Defender chasing, keeper rushing out. Finish it — or square it if a team-mate has the easier tap-in.",
+  edge:"It's moving — hit it quick, or lay it off to a team-mate in a better spot.",
+  counter:"You have space and support. Run at them, then decide: shoot, or play in a runner.",
+  cross:"Near post, far post, or the cut-back — pick the man in space and whip it in. You can go for goal from the angle too.", freekick:"Hit the side of the ball to bend it round the wall.", penalty:"Just you and the keeper.",
+  pass:"Find the team-mate who's calling for it. Drag back to aim, release, then strike the ball. Bottom of the ball lifts it over defenders. You can press D to shoot instead — but you are building an attack, and the lads won't love a wild one.",
   corner:"Swing it into the box. Strike the side of the ball to bend it in, the bottom to float it to the back post — or curl it straight in yourself.",
   tackle:"Move to stay in front of him and wait for the heavy touch. When the ball leaves his feet, swipe through it — across the ball takes it cleanly, straight through pokes it loose. Catch his legs and it is a foul.",
   last:"There is nobody behind you. Beaten and he is through; a foul here is a red card.",
@@ -287,7 +316,7 @@ const DESC = {
   throwin:"Drag back from yourself, not the ball — it is in your hands. No boot on it, so no bend and only so far you can throw it. Pick the man in space and get the weight right."
 };
 function showPre(e){
-  const help = MT.firstMoment ? "" : `<p class="muted small">Dribble: hold and drag where the ball should go. Shoot or pass: drag back from the ball, release, then click where your boot hits the ball.</p>`;
+  const help = MT.firstMoment ? "" : `<p class="muted small">Dribble: hold and drag where the ball should go. Shoot or pass: drag back from the ball, release, then click where your boot hits the ball. When options appear, press 1–4 or click one.</p>`;
   MT.firstMoment = true;
   const dh = MT.dream && DREAM_HINT[e.type] ? `<p class="dream-hint">✨ ${DREAM_HINT[e.type]}</p>` : "";
   card(`<div class="eyebrow">${esc(MT.label)}</div><h2>${esc(momentTitle(e.type))}</h2><p>${esc(DESC[e.type] || "")}</p>${dh}${help}<button class="btn" onclick="A.playMoment()">Play</button>`);
@@ -299,9 +328,9 @@ function momentOver(){
   if (!MT.dream){
     if (M.dribbles) skillXP("dribbling", 14*M.dribbles);
     if (M.sprintT) skillXP("pace", Math.min(20, M.sprintT*1.6));
-    if (M.isPass && !M.gaveBack){
-      if (M.passTo) skillXP("passing", 9 + Math.min(10, M.passLen*.25));
-      if (r === "goal") skillXP("passing", 22);
+    if (M.isPass && !M.gaveBack && !M.shooting){
+      if (M.passTo){ skillXP("passing", 6 + Math.min(8, M.passLen*.2)); skillXP("passacc", 6 + Math.min(8, M.passLen*.2)); }
+      if (r === "goal"){ skillXP("passing", 14); skillXP("passacc", 10); }
     } else if (sh){
       if (M.passDone) skillXP("passing", 9 + Math.min(10, M.passDone.len*.25));
       skillXP("power", 4 + Math.min(9, sh.dist*.3)); skillXP("accuracy", r === "goal" || r === "saved" ? 7 : 2);
@@ -326,7 +355,14 @@ function momentOver(){
     const long = M.passDone.len >= 22; if (long) my.lpass++; else my.spass++;
     say(`${S.player.name} finds ${esc(M.passDone.name)} — ${long ? "lovely long ball" : "crisp pass"}.`);
   }
-  if (M.isPass && !M.gaveBack){
+  if (M.deflectTo && ai){
+    // your shot cannoned off a defender into a team-mate's path; what happened next is his
+    my.shots++;
+    if (r === "goal"){ MT.score[0]++; MT.usGoals.push({s:mate.id, a:-1}); title = "GOAL!"; text = `Your shot cannons off a defender and ${sname(mate)} buries the loose ball.`;
+      say(`GOAL! ${sname(mate)} pounces after ${S.player.name}'s shot is blocked. ${scoreText()}`, "goal"); hl = {icon:"⚽", kind:"assist", text:`Blocked shot falls to ${sname(mate)} — he scores`}; }
+    else { title = "Blocked"; text = `Your shot is blocked and runs to ${sname(mate)}. ${{saved:"His effort is saved.", miss:"He drags it wide.", blocked:"Blocked again.", aiLost:M.resultText}[r] || "The chance goes."}`;
+      hl = {icon:"✖", kind:"shot", text:`Shot from ${Math.round(sh ? sh.dist : 0)}m · blocked, ${sname(mate)} followed up`}; }
+  } else if (M.isPass && !M.gaveBack && !M.shooting){
     if (M.passTo){
       // the pass arrived; what happened next is your team-mate's run and shot
       const long = M.passLen >= 22, t = M.passTo;
@@ -357,7 +393,8 @@ function momentOver(){
       if (typeof noteGoal === "function") noteGoal(sh, M.gaveBack, M.lastFrame, MT.nameThem, MT.minute);
       hl = {icon:"⚽", kind:"goal", text:`Goal · ${d}m${sh.pen ? " · penalty" : sh.fk ? " · free kick" : ""}${sh.curl ? " · curled" : ""}${wood}${M.gaveBack ? ` · one-two with ${M.gaveBack.role} ${esc(M.gaveBack.name)}` : ""}`};
     } else {
-      my.misses++; title = {saved:"Saved", miss:"Wide", post:"Off the post!", bar:"Crossbar!", blocked:"Blocked"}[r] || (M.woodwork ? "Off the woodwork!" : "Chance gone");
+      my.misses++; title = {saved:"Saved", miss:(M.shotEval && M.shotEval.margin > 4 ? "Off target" : "Missed"), post:"Off the post!", bar:"Crossbar!", blocked:"Blocked", corner:"Corner"}[r] || (M.woodwork ? "Off the woodwork!" : "Chance gone");
+      if (r === "corner") my.onTarget += (M.shotEval && M.shotEval.saveQ != null) ? 1 : 0;
       say(`${S.player.name}: ${M.resultText}`);
       hl = {icon:r === "saved" ? "🧤" : "✖", kind:"shot", text:`Shot from ${Math.round(sh.dist)}m · ${title.toLowerCase()}${wood}${M.gaveBack ? ` · after a one-two with ${esc(M.gaveBack.name)}` : ""}`};
     }
@@ -365,12 +402,18 @@ function momentOver(){
   if (M.injury){ meP().inj = M.injury; title = "Injured"; text += ` You're hurt and have to come off — out for about ${M.injury} week${M.injury > 1 ? "s" : ""}.`; MT.events = MT.events.filter((e, i) => i <= MT.i || e.kind !== "moment"); say(`${S.player.name} goes down injured and is replaced.`, "bad"); }
   const stamF = staminaF();
   S.energy = Math.max(0, S.energy - (5 + M.sprintT*1.1)*stamF);
+  // what the dressing room made of it
+  const j = typeof judgeMoment === "function" ? judgeMoment() : null;
+  // deflected behind: the corner is yours to take
+  if (r === "corner" && !MT.dream && !(MT.events[MT.i] && MT.events[MT.i].chained) && MT.events.filter((e, i) => i > MT.i && e.kind === "moment").length < 6 && !(M.type === "corner"))
+    MT.events.splice(MT.i + 1, 0, {min:MT.minute, kind:"moment", type:"corner", chained:true});
   updateBoard(); updateMatchHUD();
   NEED_DRAW = true;
   const scored = r === "goal";
   if (hl) MT.highlights.push(Object.assign({min:MT.minute, rec:M.rec}, hl));
   const rec = M.rec, label = hl ? hl.text : "";
-  const show = () => card(`<h2 class="${scored ? "gold" : ""}">${title}</h2><p>${esc(text)}</p><button class="btn" onclick="A.contMoment()">Continue</button>`);
+  const chemLine = j && (j.chem || j.say) ? `<div class="judge ${j.chem > 0 ? "good" : j.chem < 0 ? "bad" : ""}">${j.say ? `<span>${esc(j.say)}</span>` : ""}${j.chem ? `<b>Team Chemistry ${j.chem > 0 ? "+" : "−"}${Math.abs(j.chem).toFixed(1)}</b>` : ""}</div>` : "";
+  const show = () => card(`<h2 class="${scored ? "gold" : ""}">${title}</h2><p>${esc(text)}</p>${chemLine}<button class="btn" onclick="A.contMoment()">Continue</button>`);
   M = null;
   if (scored) startReplay(rec, {label}, show); else show();
 }
@@ -452,6 +495,11 @@ function finishMatch(){
     checkMilestones();
   }
   S.lastMatch = {gw:gw(), rating, goals:my.goals, assists:my.assists, res, opp:MT.nameThem, score:`${us}–${th}`, motm};
+  // the legs pay for it: more minutes, more work rate, more fatigue tomorrow
+  const mins = MT.role === "starter" ? 90 : MT.subbedOff ? MT.subbedOff : MT.cameOn ? 90 - MT.cameOn : 0;
+  A._matchFatigue = Math.round(8 + mins/90*24 + (S.workrate || 2)*2);
+  // playing together builds the group; a good night more so
+  if (!MT.dream && mins > 0 && typeof chemAdd === "function"){ const g = (.6 + (res === "W" ? .6 : 0) + (rating >= 7.5 ? .5 : 0))*(1 - (S.chem || 0)/140); chemAdd(g); MT.chemD += g; }
   socialEvent("match", `${MT.nameUs} ${us}–${th} ${MT.nameThem}`);
   if (motm) addNews("you", `${S.player.name} named man of the match`, `${MT.nameUs} ${us}–${th} ${MT.nameThem}. Rated ${rating}.`, "me");
   else if (my.goals >= 2) addNews("you", `${my.goals >= 3 ? "Hat-trick" : "Brace"} for ${S.player.name}!`, `${MT.nameUs} ${us}–${th} ${MT.nameThem}.`, "me");
@@ -466,7 +514,8 @@ function finishMatch(){
     <h2>${esc(sideName(f,"h"))} ${MT.home ? us : th} – ${MT.home ? th : us} ${esc(sideName(f,"a"))}</h2>
     <div class="ft-grid"><div class="ft-rating ${rating >= 7.5 ? "hi" : rating < 6 ? "lo" : ""}"><b>${rating}</b><span>Your rating</span></div>
       <div class="ft-list"><div>${my.goals} goals · ${my.assists} assists</div><div>${my.dribbles} dribbles · ${my.spass + my.lpass}/${my.passAtt} passes</div><div>${my.onTarget}/${my.shots} shots on target</div>
-      <div>Man of the match: <b>${esc(pname(mo))}</b></div><div class="gold">+${Math.round(xp)} XP${bonus ? ` · +${eur(bonus)} bonuses` : ""}</div></div></div>
+      <div>Man of the match: <b>${esc(pname(mo))}</b></div><div class="gold">+${Math.round(xp)} XP${bonus ? ` · +${eur(bonus)} bonuses` : ""}</div>
+      ${MT.chemD ? `<div class="${MT.chemD > 0 ? "good" : "bad"}">Team Chemistry ${MT.chemD > 0 ? "+" : "−"}${Math.abs(MT.chemD).toFixed(1)}</div>` : ""}</div></div>
     <div class="odo-wrap">${odoHTML(me.rep, repD, `Reputation · ${TR.nm}`)}${wrepD ? odoHTML(me.wrep, wrepD, "World reputation") : ""}</div>
     ${statTable(MT.stats)}
     ${MT.highlights.length ? `<div class="eyebrow" style="margin-top:12px">Your highlights</div><div class="hlist">${MT.highlights.map((h, i) => `<div class="hl-row ${h.kind}"><span class="hl-ico">${h.icon}</span><span class="hl-min">${h.min}'</span><span class="grow">${esc(h.text)}</span>${h.rec && h.rec.length > 6 ? `<button class="btn sm ghost" onclick="A.playHighlight(${i})">▶ Replay</button>` : ""}</div>`).join("")}</div>` : ""}

@@ -282,14 +282,21 @@ function renderHubInner(){
   const {fx, next, me, c, win} = hubState();
   const lg = W.leagues[c.lg], pos = sortTab(lg.tab).indexOf(c.id) + 1, need = xpNeed(), k = S.contract;
   const inj = me.inj > 0;
+  const life = typeof lifeMode === "function" && lifeMode();
   const fxHtml = fx.length ? fx.map(f => {
-    const d = W.done[f.key], home = f.kind === "N" ? f.h === me.nat : f.h === me.club;
-    return `<div class="fx ${d ? "done" : f === next ? "next" : ""}"><div class="fx-comp">${esc(compLabel(f))}</div>
+    const d = W.done[f.key], home = f.kind === "N" ? f.h === me.nat : f.h === me.club, sl = life ? fixtureSlot(f) : null;
+    const today = life && sl.wd === S.life.wd;
+    return `<div class="fx ${d ? "done" : today ? "next" : f === next && !life ? "next" : ""}"><div class="fx-comp">${esc(compLabel(f))}</div>
       <div class="fx-teams">${f.kind !== "N" ? crest(sideName(f,"h"), 18) : ""}<span>${esc(sideName(f,"h"))}</span><b>${d ? `${d.hg}–${d.ag}` : "vs"}</b><span>${esc(sideName(f,"a"))}</span>${f.kind !== "N" ? crest(sideName(f,"a"), 18) : ""}</div>
-      <div class="fx-meta">${home ? "Home" : "Away"}${d ? " · played" : ""}</div></div>`; }).join("")
+      <div class="fx-meta">${home ? "Home" : "Away"}${d ? " · played" : life ? ` · ${today ? "TODAY" : dayName(sl.wd)} ${fmtTime(sl.min)}` : ""}</div></div>`; }).join("")
     : `<div class="empty">No match for you this week.${CAL.INTL.includes(S.week) ? " International break." : ""}</div>`;
   const banned = !inj && (S.ban || 0) > 0;
-  const cta = next ? (inj ? `<button class="btn lg" onclick="A.endWeek()">Injured — watch from the stands, next week →</button>`
+  // living it day by day there is no button that skips time: you sleep, and the week turns on its own
+  const tf = life ? todaysFixture() : null;
+  const cta = life ? `<div class="life-cta ${tf ? "match" : ""}"><b>${todayName()} · ${fmtTime(S.life.min)}</b><span>${tf
+      ? (inj ? "Match today — you're injured and will watch from the stand." : banned ? "Match today — you're suspended." : `Match today at ${fmtTime(fixtureSlot(tf).min)}. Walk out of the tunnel at the training ground.`)
+      : `${esc(todayLine())}. Sleep in your own bed to move on to tomorrow.`}</span></div>`
+    : next ? (inj ? `<button class="btn lg" onclick="A.endWeek()">Injured — watch from the stands, next week →</button>`
       : banned ? `<button class="btn lg" onclick="A.endWeek()">Suspended — ${S.ban} match${S.ban === 1 ? "" : "es"} to sit out, next week →</button>`
       : `<button class="btn lg pulse" onclick="A.playMatch()">Play ${next.kind === "N" ? "for your country" : "match"} →</button>`)
     : `<button class="btn lg" onclick="A.endWeek()">Next week →</button>`;
@@ -311,6 +318,8 @@ function renderHubInner(){
           <div><h2>${esc(S.player.name)}</h2><div class="muted">#${S.player.number} · ${POS[S.player.pos].name} · ${S.player.age} · ${NAMES[S.player.nat].n}</div>
           <div class="row gap6 wrap" style="margin-top:6px"><span class="pill">${ROLE[currentRole()]}</span>${inj ? `<span class="pill bad">Injured · ${me.inj} wk</span>` : ""}${(S.ban || 0) > 0 ? `<span class="pill bad">Suspended · ${S.ban}</span>` : ""}${(S.cards && S.cards.run) ? `<span class="pill">🟨 ${S.cards.run}</span>` : ""}${S.sp ? `<span class="pill gold">${S.sp} skill points</span>` : ""}</div></div></div>
         <div class="meter-row"><span>Energy</span><div class="meter energy"><i style="width:${S.energy}%"></i></div><b>${Math.round(S.energy)}</b></div>
+        ${life ? `<div class="meter-row"><span>Fatigue</span><div class="meter fatigue"><i style="width:${num(S.fatigue, 0)}%"></i></div><b>${Math.round(num(S.fatigue, 0))}</b></div>
+        <div class="meter-row"><span>Chemistry</span><div class="meter chem"><i style="width:${num(S.chem, 0)}%"></i></div><b>${Math.round(num(S.chem, 0))}</b></div>` : ""}
         <div class="meter-row"><span>Level ${S.level}</span><div class="meter xp"><i style="width:${100*S.xp/need}%"></i></div><b>${S.xp}/${need}</b></div>
         ${(() => { const js = jobState(), jn = jobNeed(), top = jobIsTop(), {job, rank} = myJob();
           // at the top of the ladder there is nothing left to earn towards — you just keep working for the money
@@ -322,24 +331,26 @@ function renderHubInner(){
           <div class="kv-value"><span>Value</span><b>${eur(marketValue(me))}</b></div></div>
         <button class="btn sm ghost wide" onclick="openSheet('cabinet')">🏆 Trophy cabinet${(S.trophies.length + S.awards.length) ? ` (${S.trophies.length + S.awards.length})` : ""}</button>
         <button class="btn sm ghost wide" onclick="openSheet('skills')">Upgrade skills${S.sp ? ` (${S.sp})` : ""}</button>
-        <div class="drink-row"><button class="btn sm drink" ${S.inv.drink ? "" : "disabled"} onclick="A.drink('drink')">Energy-UP ×${S.inv.drink}</button>
-          <button class="btn sm drink" ${S.inv.max ? "" : "disabled"} onclick="A.drink('max')">Energy-UP MAX ×${S.inv.max}</button></div>
+        ${life ? "" : `<div class="drink-row"><button class="btn sm drink" ${S.inv.drink ? "" : "disabled"} onclick="A.drink('drink')">Energy-UP ×${S.inv.drink}</button>
+          <button class="btn sm drink" ${S.inv.max ? "" : "disabled"} onclick="A.drink('max')">Energy-UP MAX ×${S.inv.max}</button></div>`}
         <div class="activities me-acts">
-          ${tile("train", "Train", "🏃", S.actions && S.energy >= trainCost() && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${trainCost()} energy`)}
+          ${life ? "" : tile("train", "Train", "🏃", S.actions && S.energy >= trainCost() && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${trainCost()} energy`)}
           ${tile("staff", "Staff", "🧑‍🏫", true)}
-          ${tile("rest", "Rest at home", "🛏", S.actions > 0, "No actions left this week")}
-          ${tile("media", "Media", "🎙", S.actions && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${MEDIA_COST} energy`)}
+          ${life ? "" : tile("rest", "Rest at home", "🛏", S.actions > 0, "No actions left this week")}
+          ${life ? tile("media", "Media", "🎙", !S.today.media && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : S.today.media ? "Done for today" : `Too tired — needs ${MEDIA_COST} energy`)
+            : tile("media", "Media", "🎙", S.actions && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${MEDIA_COST} energy`)}
           ${tile("manager", "Manager", "🧑‍💼", !!myClub(), "You have no club")}
         </div>
         ${myClub() ? formStrip() : ""}
       </section>
       <div class="col-week">
       <section class="card glass week-card rise" style="animation-delay:60ms">
-        <div class="row between"><h3>This week</h3><span class="pill">${S.actions} action${S.actions !== 1 ? "s" : ""} left</span></div>
+        <div class="row between"><h3>This week</h3><span class="pill">${life ? `${todayName()} · ${fmtTime(S.life.min)}` : `${S.actions} action${S.actions !== 1 ? "s" : ""} left`}</span></div>
         <div class="fxlist">${fxHtml}</div>
         ${cta}
         <div class="activities week-acts">
-          ${tile("work", jobLabel(), myJob().job.icon, S.actions && S.energy >= 8 && !inj, workWhy(inj))}
+          ${life ? `<div class="tile info" title="Your workplace is on your street, next to your block"><span class="ti">${myJob().job.icon}</span><span>${esc(jobLabel())}</span><span class="tile-why">Clock in at work, on your street</span></div>`
+            : tile("work", jobLabel(), myJob().job.icon, S.actions && S.energy >= 8 && !inj, workWhy(inj))}
           ${tile("mall", "Mall", "🛍", true)}
           ${tile("clothes", "Clothes", "👕", true)}
         </div>
@@ -476,8 +487,9 @@ function openSheet(kind){
         <span class="pill ${has ? "good" : ""}">${t.coach ? (has ? "Coach hired" : "No coach") : (S.staff.trainer ? "Personal trainer" : "Basic")}</span></button>`; }).join("")}</div>
       <p class="muted small">Costs ${trainCost()} energy and one action.</p>`;
   } else if (kind === "mall"){
-    const cats = [...new Set(SHOP.map(s => s.cat))];
-    body = `<h2>Mall</h2><p class="muted">You have ${eur(S.money)}.</p>` + cats.map(cat => `<h4>${cat}</h4><div class="shopgrid">${SHOP.filter(s => s.cat === cat).map(it => {
+    const lifeNow = typeof lifeMode === "function" && lifeMode();
+    const cats = [...new Set(SHOP.map(s => s.cat))].filter(c => !lifeNow || (c !== "Food" && c !== "Energy"));
+    body = `<h2>Mall</h2><p class="muted">You have ${eur(S.money)}.${lifeNow ? " Food and drinks: the Mini Market on your street, or Foodies on your phone." : ""}</p>` + cats.map(cat => `<h4>${cat}</h4><div class="shopgrid">${SHOP.filter(s => s.cat === cat).map(it => {
       const owned = it.stack ? false : it.id === "smartphone" ? S.phone === "smart" : !!S.items[it.id];
       const outgrown = it.tier && ((it.cat === "Home" && homeTier() > it.tier) || (it.cat === "Car" && carTier() > it.tier));
       return `<div class="shopitem ${owned ? "owned" : ""}"><div class="row between"><b>${it.name}</b><span class="price">${eur(it.price)}</span></div><p class="muted small">${it.desc}${it.stack ? ` · you have ${S.inv[it.id] || 0}` : ""}</p>
@@ -630,6 +642,7 @@ const A = {
   },
   afterSeason(){ save(); S.offerSet ? screenOffers() : renderHub(); },
   playMatch(){ const {next} = hubState(); if (!next) return; setPhoneVisible(false); closePhone(); closeSheet(); startMatch(next); },
+  playFixture(f){ if (!f || W.done[f.key]) return; setPhoneVisible(false); closePhone(); closeSheet(); startMatch(f); },
   kickOff(){ resumeClock(); },
   resumeMatch(){ resumeClock(); },
   playMoment(){
@@ -651,10 +664,10 @@ const A = {
     if (document.body.classList.contains("life") && window.LIFE){
       document.body.classList.remove("in-match");
       if (window.lifeReset) window.lifeReset();
-      LIFE.min = Math.max(LIFE.min, 17*60); S.life = {day:LIFE.day, min:LIFE.min}; LIFE.zone = "ground";
       renderHub();
-      // back out of the tunnel, facing the pitch you just played on
-      if (window.startLife) window.startLife({zone:"ground", at:"tunnel", msg:"Full time. You walk back out of the tunnel — it is five o'clock. The bus home is by the gate."});
+      // back out of the tunnel, a couple of hours on, facing the pitch you just played on
+      if (window.lifeAfterMatch) window.lifeAfterMatch(A._matchFatigue || 0);
+      A._matchFatigue = 0;
       return;
     }
     renderHub(); },
@@ -707,8 +720,14 @@ const A = {
   tile(id){ if (id === "rest") return A.rest(); if (id === "work") return A.work(); openSheet(id === "train" ? "train" : id); },
   media(k, i){
     const l = MEDIA_LINES[k] && MEDIA_LINES[k][i]; if (!l) return;
-    if (!S.actions || S.energy < MEDIA_COST) return toast("Not enough energy or actions.");
-    S.actions--; S.energy -= MEDIA_COST;
+    const life = typeof lifeMode === "function" && lifeMode();
+    if (life){
+      if (S.today.media || S.energy < MEDIA_COST) return toast(S.today.media ? "You've spoken to the press today." : "Too tired to face the cameras.");
+      S.today.media = 1; S.energy -= MEDIA_COST; dailyPass(30, "idle");
+    } else {
+      if (!S.actions || S.energy < MEDIA_COST) return toast("Not enough energy or actions.");
+      S.actions--; S.energy -= MEDIA_COST;
+    }
     const me = meP(), back = Math.random() < l.risk;
     // a line that backfires still gets you talked about — it just costs you the dressing room
     const gain = Math.max(3, Math.round((8 + me.rep*.012)*l.rep*styleMul()*(back ? .6 : 1)));
@@ -880,7 +899,7 @@ const A = {
     const js = jobState(), before = myJob(), m = jobPay();
     S.money += m; S.energy -= 8; S.actions--; js.shifts = (js.shifts || 0) + 1;
     let promo = null;
-    if (!jobIsTop()){ js.xp++; if (js.xp >= jobNeed()) promo = jobMove(1); }
+    if (!jobIsTop()){ js.xp += JOB_XP_PER_SHIFT; if (js.xp >= jobNeed()) promo = jobMove(1); }
     save(); renderHub();
     if (promo) return promoBox(promo, m);
     toast(`${before.job.name} · ${before.rank.name}: +${eur(m)}`);

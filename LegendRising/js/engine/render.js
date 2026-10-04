@@ -431,7 +431,8 @@ function drawMiniContact(){
 }
 const DEFEND_PHASES = {jockey:1, steal:1, read:1, aerial:1};
 const HINT = {
-  dribble: "Hold and drag where you want the ball to go · D: shoot · S: pass",
+  dribble: "Hold and drag where you want the ball to go · D: shoot · S: options",
+  decide: "Choose: press 1–4 or click an option",
   jockey: "Move to stay in front of him — wait for the heavy touch",
   steal: "Swipe through the ball, not through his legs",
   read: "Move into the lane and cut it out",
@@ -450,6 +451,13 @@ function draw2DScene(){
     drawMan(t.x, t.y, m1, m2, "", false);
     c.fillStyle = call ? "#ffd75a" : "rgba(255,255,255,.9)"; c.font = font(800, call ? 15 : 13); c.textAlign = "center"; c.textBaseline = "bottom";
     c.fillText(`${t.role} · ${t.name}`, sx(t.x), sy(t.y) - .9*scale);
+    // how free he is, as a small tag under his name — only while it matters
+    if (t.st && typeof MATE_STATE === "object" && MATE_STATE[t.st] && (M.phase === "dribble" || M.phase === "decide" || M.phase === "aim")){
+      const st = MATE_STATE[t.st], col = {open:"#5fd47a", better:"#ffd75a", run:"#48d0f0", marked:"#ffb04a", held:"#ff5a5f"}[st.cls] || "#fff";
+      c.font = font(800, 11); const tw = c.measureText(st.label).width + 12*DPR, ty = sy(t.y) + .85*scale;
+      c.fillStyle = "rgba(6,12,20,.78)"; roundRect(c, sx(t.x) - tw/2, ty, tw, 17*DPR, 8*DPR); c.fill();
+      c.fillStyle = col; c.textBaseline = "middle"; c.fillText(st.label, sx(t.x), ty + 9*DPR);
+    }
   }
   for (const d of M.defs){ c.globalAlpha = d.stun > 0 ? .5 : 1; drawMan(d.x, d.y, o1, o2, "", false); c.globalAlpha = 1; }
   drawMan(M.gk.x, M.gk.y, "#e3f030", "#1b1b1b", "1", false);
@@ -468,12 +476,14 @@ function drawOverlay(){
     c.beginPath(); c.arc(inp.x, inp.y, 12*DPR, 0, 7); c.stroke();
     c.setLineDash([5*DPR, 6*DPR]); c.beginPath(); c.moveTo(bs.x, bs.y); c.lineTo(inp.x, inp.y); c.stroke(); c.setLineDash([]);
   }
+  if (M.phase === "decide"){ c.fillStyle = "rgba(6,12,22,.18)"; c.fillRect(0, 0, cv.width, cv.height); }
   if (M.phase === "aim") drawAimStage();
   if (M.phase === "contact") drawContactStage();
   if (DEFEND_PHASES[M.phase]) drawDefendOverlay();
   if (!M.throwIn && (M.phase === "kick" || M.phase === "flight" || M.phase === "done")) drawMiniContact();
   c.textAlign = "left"; c.textBaseline = "top"; c.font = font(700, 15);
-  const hint = M.throwIn && M.phase === "aim" ? "Drag back from the thrower to aim and set the weight · release to throw" : (HINT[M.phase] || "");
+  const hint = M.throwIn && M.phase === "aim" ? "Drag back from the thrower to aim and set the weight · release to throw"
+    : M.phase === "aim" && passMode() && !M.corner ? "Drag back to aim and set the weight · release · D to shoot instead" : (HINT[M.phase] || "");
   const txt = `${M.info ? M.info + " · " : ""}${hint}`;
   if (txt){ c.fillStyle = "rgba(0,0,0,.5)"; roundRect(c, (cv.width - c.measureText(txt).width)/2 - 10*DPR, TOPM, c.measureText(txt).width + 20*DPR, 26*DPR, 9*DPR); c.fill(); }
   c.textAlign = "center"; c.fillStyle = "rgba(255,255,255,.95)"; c.fillText(txt, cv.width/2, TOPM + 5*DPR); c.textAlign = "left";

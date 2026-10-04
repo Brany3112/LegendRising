@@ -145,7 +145,7 @@ function adSecSeason(){
 function adSecWork(){
   const js = jobState(), {job, rank} = myJob(), top = jobIsTop();
   return `<div class="ad-now"><div><b>${esc(job.name)} · ${esc(rank.name)}</b>
-      <div class="muted small">Pays ${payRange(rank)} a shift · ${top ? "top of the ladder" : `${js.xp}/${jobNeed()} shifts to the next promotion`} · ${fmt(js.shifts || 0)} shifts worked</div></div></div>
+      <div class="muted small">Pays ${payRange(rank)} a shift · ${top ? "top of the ladder" : `${js.xp}/${jobNeed()} XP to the next promotion`} · ${fmt(js.shifts || 0)} shifts worked</div></div></div>
     <div class="ad-grid">
       ${adSel("Job", "jobIdx", js.j, JOBS.map((j, i) => [i, j.name]))}
       ${adSel("Position", "jobRank", js.r, job.ranks.map((r, i) => [i, r.name]))}

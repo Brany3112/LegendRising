@@ -46,7 +46,26 @@ function startMoment(type){
       M.defs = [newDef(p.x+rnd(-2,2), p.y+4, opp)]; M.defs[0].spd *= 1.05; M.limit = 10; break;
     case "edge": p.x = rnd(20,48); p.y = rnd(18.5,22);
       M.defs = [newDef(p.x+rnd(-1.5,1.5), p.y-3, opp), newDef(p.x+(p.x<34?3.5:-3.5), p.y-1.5, opp)];
-      M.ball.x = p.x; M.ball.y = p.y - .55; beginAim(true, 3.5); M.info = "Edge of the box"; break;
+      M.ball.x = p.x; M.ball.y = p.y - .55; M.info = "Edge of the box"; M.edgeStart = true; break;
+    case "counter": {
+      // you broke from deep with space in front of you: two of them scrambling back, two of yours flying up alongside
+      p.x = 34 + rnd(-10, 10); p.y = rnd(36, 42);
+      M.defs = [newDef(p.x + rnd(-6, 6), p.y - rnd(10, 15), opp), newDef(34 + rnd(-5, 5), rnd(14, 19), opp)];
+      M.limit = 16; M.info = "Counter-attack!"; break; }
+    case "cross": {
+      // wide by the byline with bodies arriving in the box: near post, far post, and one waiting for the cut-back
+      const sd = Math.random() < .5 ? -1 : 1;
+      p.x = sd < 0 ? rnd(3, 7) : rnd(61, 65); p.y = rnd(6, 11);
+      const R = MT.roleNames, c = clamp(S.chem/100, 0, 1);
+      const spots = [["near", sd < 0 ? 31.6 : 36.4, rnd(4, 6)], ["far", sd < 0 ? 38.6 : 29.4, rnd(5, 8)], ["cut", sd < 0 ? rnd(19, 23) : rnd(45, 49), rnd(12, 16)]];
+      const roles = shuffle(["ST", "LW", "RW", "CAM"]);
+      M.mates = spots.map(([slot, x, y], i) => ({role:roles[i], name:R[roles[i]].name, pid:R[roles[i]].id, x, y, slot, ox:0, oy:0, vx:0, vy:0,
+        st:wpick(["open", "space", "marked", "held"], k => ({open:1.6, space:1, marked:2, held:1}[k])*(k === "open" || k === "space" ? .7 + c*.8 : 1.3 - c*.5))}));
+      M.defs = [newDef(p.x + (sd < 0 ? 2 : -2), p.y + 2.5, opp)];
+      for (const m of M.mates){ const mk = m.st === "held" ? .75 : m.st === "marked" ? 1.5 : m.st === "space" ? 3.2 : 4.5; const d = newDef(m.x + rnd(-.5, .5), m.y - mk, opp); d.mark = m; d.markD = mk; M.defs.push(d); }
+      M.gk.x = 34 + sd*-1.5; M.gk.y = 1.2;
+      M.ball.x = p.x; M.ball.y = p.y - .4; M.cross = true;
+      M.info = "Out wide by the byline"; break; }
     case "freekick": {
       const d = rnd(18,30), a = rnd(-.55,.55), bx = 34 + Math.sin(a)*d, by = Math.cos(a)*d;
       M.ball.x = bx; M.ball.y = by;
@@ -120,8 +139,11 @@ function startMoment(type){
       break; }
     case "penalty": M.ball.x = 34; M.ball.y = 11; M.gk.x = 34; M.gk.y = .3; beginAim(false); M.info = "Penalty"; break;
   }
-  if (M.phase === "dribble"){ M.ball.x = p.x; M.ball.y = p.y - .55; }
+  if (M.phase === "dribble" && !M.cross){ M.ball.x = p.x; M.ball.y = p.y - .55; }
   if (!M.aimFrom) M.aimFrom = null;
+  // team-mates around the chance, each in a state of his own
+  if (typeof addSupport === "function" && SUPPORTED[type]) addSupport(type);
+  if (M.cross || M.edgeStart){ if (M.mates && M.mates.length && typeof beginDecide === "function") beginDecide(); else { M.shooting = true; beginAim(true, 3.5); } }
   resize(); updateMatchHUD();
 }
 
@@ -129,7 +151,8 @@ function flash(t){ if (M) M.flash = {t, life:1.2}; }
 function endMoment(res, text){
   if (!M || M.phase === "done") return;
   M.phase = "done"; M.result = res; M.resultText = text; M.endT = res === "goal" ? 2 : 1.4;
-  flash(res === "goal" ? "GOAL!" : {saved:"SAVED", miss:"WIDE", post:"POST!", bar:"BAR!", blocked:"BLOCKED", lost:"LOST IT", passed:"GREAT BALL", intercepted:"INTERCEPTED", outplay:"OUT OF PLAY", aiLost:"CHANCE GONE"}[res]);
+  flash(res === "goal" ? "GOAL!" : {saved:"SAVED", miss:"WIDE", post:"POST!", bar:"BAR!", blocked:"BLOCKED", corner:"CORNER", lost:"LOST IT", passed:"GREAT BALL", intercepted:"INTERCEPTED", outplay:"OUT OF PLAY", aiLost:"CHANCE GONE"}[res]);
+  if (typeof hideDecide === "function") hideDecide();
   inp.down = false; updateMatchHUD();
 }
 
@@ -184,6 +207,7 @@ function updateDribble(dt){
   const f = Math.exp(-1.6*dt); b.vx *= f; b.vy *= f;
   b.x += b.vx*dt; b.y += b.vy*dt; b.z = BR;
 
+  if (typeof updateMates === "function") updateMates(dt);
   updateDefs(dt); if (M.phase !== "dribble") return;
   moveKeeper(dt);
   const g = M.gk; g.cd -= dt;
@@ -193,15 +217,20 @@ function updateDribble(dt){
   }
   if (b.x < 0 || b.x > 68 || b.y > 44) return endMoment("lost", "Ran it out of play.");
   if (b.y < .3) return endMoment("lost", "Over the byline.");
-  if (b.x > BOX.x0 && b.x < BOX.x1 && b.y < BOX.y1 && pb < 1.3){ M.shooting = true; return beginAim(true, 3.2); }
+  if (b.x > BOX.x0 && b.x < BOX.x1 && b.y < BOX.y1 && pb < 1.3){
+    // into the box: if there is somebody to give it to, the game slows and you choose
+    if (!M.decided && M.mates && M.mates.length && !M.gaveBack && typeof beginDecide === "function") return beginDecide();
+    M.shooting = true; return beginAim(true, 3.2);
+  }
   if (M.t > M.limit) endMoment("lost", "Held it too long — the defence closed you down.");
 }
 function updateDefs(dt){
   if (M.t < .45) return;
   const p = M.p, b = M.ball, sk = S.skills; let best = null, bd = 1e9;
-  for (const d of M.defs){ if (d.stun > 0) continue; const dd = Math.hypot(d.x-b.x, d.y-b.y); if (dd < bd){ bd = dd; best = d; } }
+  for (const d of M.defs){ if (d.stun > 0 || d.mark) continue; const dd = Math.hypot(d.x-b.x, d.y-b.y); if (dd < bd){ bd = dd; best = d; } }
   M.defs.forEach((d, i) => {
     d.cd -= dt; if (d.stun > 0){ d.stun -= dt; return; }
+    if (d.mark) return;                                             // he has a man to look after
     let tx, ty, sp = d.spd;
     if (d === best){ tx = b.x + b.vx*.2; ty = b.y + b.vy*.2; }
     else { tx = b.x + (34-b.x)*.35 + (i%2 ? 2.5 : -2.5); ty = Math.max(3, b.y*.55); sp *= .78; }
@@ -219,8 +248,16 @@ function updateDefs(dt){
 }
 function passMode(){ return !!(M && M.isPass && !M.shooting); }     // is the strike being lined up a pass, or a shot?
 function shootNow(){
-  if (!M || M.phase !== "dribble") return;
+  if (!M) return;
+  if (M.phase === "decide"){ const i = M.opt.opts.findIndex(o => o.kind === "shoot"); if (i >= 0) chooseOption(i); return; }
+  if (M.phase === "aim" && typeof switchToShot === "function" && switchToShot()) return;
+  if (M.phase !== "dribble") return;
   if (Math.hypot(M.ball.x-M.p.x, M.ball.y-M.p.y) > 1.3) return flash("Get to the ball first");
+  // choosing to shoot with team-mates around is a decision too
+  if (!M.decided && M.mates && M.mates.length && typeof buildOptions === "function"){
+    const b = buildOptions(); M.decided = true;
+    M.dec = {choice:"shoot", chosenQ:b.shotQ, shotQ:b.shotQ, bestQ:b.best ? b.best.q : 0, bestOpen:b.best ? OPEN_STATES.has(b.best.m.st) : false, bestName:b.best ? b.best.m.name : "", ctx:"open"};
+  }
   M.shooting = true; beginAim(true, 3.2);
 }
 /* who is in the best position right now — used when you choose to pass rather than being told who is calling */
@@ -239,6 +276,7 @@ function passNow(){
   if (!M || M.phase !== "dribble") return;
   if (!M.mates || !M.mates.length) return flash("Nobody's in support");
   if (Math.hypot(M.ball.x-M.p.x, M.ball.y-M.p.y) > 1.3) return flash("Get to the ball first");
+  if (!M.decided && !M.ai && typeof beginDecide === "function" && !M.wonBall) return beginDecide();
   const t = bestMate(); if (!t) return flash("Nobody's in support");
   M.shooting = false; M.isPass = true; M.call = t.role;
   M.info = `Find the ${t.role}: ${t.name} is calling for it`;
@@ -267,8 +305,10 @@ function beginAim(moving, limit){
 }
 function aimSwayAmp(){
   const sk = S.skills, ef = energyFactor();
-  const acc = passMode() ? sk.passing : sk.accuracy;
-  return (1 - acc/120) * .05 * (M.moving ? 1.5 : 1) * (1.6 - .6*ef) * (S.staff.psych ? .7 : 1);
+  const acc = passMode() ? (sk.passacc || sk.passing) : sk.accuracy;
+  // confidence steadies the aim a touch; a shaky one wobbles it
+  const conf = S.traits ? 1.08 - S.traits.conf/100*.16 : 1;
+  return (1 - acc/120) * .05 * (M.moving ? 1.5 : 1) * (1.6 - .6*ef) * (S.staff.psych ? .7 : 1)*conf;
 }
 // full power needs only a short pull: about 130px on a laptop, less on a small phone
 function maxPull(){ return Math.max(70*DPR, Math.min(130*DPR, Math.min(cv.width, cv.height)*.26)); }
@@ -291,7 +331,7 @@ function releaseAim(){
 }
 // a throw comes out of the hands: there is no contact point to pick, just a little loft and no spin
 function throwNow(){
-  const jit = (1 - S.skills.passing/120)*.055;
+  const jit = (1 - (S.skills.passacc || S.skills.passing)/120)*.055;
   M.lock.ang += gauss()*jit;
   M.contact = {u:0, v:.22, whiff:false};
   M.p.x = M.p.x < 34 ? 1.2 : 66.8;        // he steps back onto the pitch as the ball leaves his hands
@@ -326,6 +366,7 @@ function doLaunch(){
   const b = M.ball;
   if (M.throwIn){ M.ball.spin = 0; M.ball.knuck = 0; b.z = 2; }     // out of the hands, over the head, no bend
   M.shotCount = (M.shotCount || 0) + (passMode() ? 0 : 1);
+  if (!passMode()){ M.myShot = true; M.shotEval = {xg:typeof xgAt === "function" ? xgAt({x:M.ball.x, y:M.ball.y}) : 0}; }
   M.shot = {t:0, dist:Math.hypot(b.x-34, b.y), curl:meta.style === "curl", style:meta.style, fk:M.type === "freekick", pen:M.type === "penalty", power:M.lock.power, x0:b.x, y0:b.y};
   M.phase = "flight"; M.trail = [];
   if (!passMode()) keeperReads();
@@ -372,8 +413,7 @@ function shotChecks(py){
     if (d.stun > 0) continue;
     const top = d.wall ? (t < .7 ? 2.15 : 1.85) : 1.85;
     if (Math.hypot(b.x-d.x, b.y-d.y) < .5 && b.z < top){
-      b.vx = -b.vx*.25 + rnd(-3,3); b.vy = Math.abs(b.vy)*.35; b.vz = rnd(1,4); b.spin = 0; b.lift = 0; b.knuck = 0;
-      return endMoment("blocked", d.wall ? "Straight into the wall." : "A defender threw himself in the way.");
+      return blockedBy(d);
     }
   }
   if (!M.gkDone && py > g.y && b.y <= g.y){
@@ -388,24 +428,86 @@ function shotChecks(py){
     if (b.z < .35) ps *= .85;                                  // along the ground into the corner is hard to keep out
     ps *= clamp(1.06 - spd/95, .8, 1.02);                      // a fierce strike gives him a little less time
     if (b.knuck) ps *= .8;
-    if (Math.random() < ps){
-      b.vx = b.vx*.25 + (b.x-g.x)*4; b.vy = Math.abs(b.vy)*.3; b.vz = Math.abs(b.vz)*.3 + 1; b.spin = 0; b.lift = 0; b.knuck = 0;
-      return endMoment("saved", pick(["Good hands from the keeper.","Keeper gets down well.","Tipped away by the keeper.","Straight at him."]));
-    }
+    M.shotEval = Object.assign(M.shotEval || {}, {xg:M.shotEval ? M.shotEval.xg : 0, onTarget:Math.abs(b.x - 34) < 3.66 && b.z < GOAL.H, saveQ:1 - ps});
+    if (Math.random() < ps) return keeperSaves(ps, spd);
   }
   if (py > 0 && b.y <= 0){
     const r = BR, d = Math.round(M.shot.dist);
     if (b.x > GOAL.L+r && b.x < GOAL.R-r && b.z < GOAL.H-r){
       const how = M.shot.pen ? "Buried from the spot." : {curl:`Curled in from ${d}m.`, dip:`Dipped under the bar from ${d}m.`, knuckle:`A knuckleball from ${d}m — it moved everywhere.`, chip:`Chipped in from ${d}m.`, lofted:`Lifted in from ${d}m.`}[M.shot.style] || `Drilled in from ${d}m.`;
-      return endMoment("goal", how);
+      return endMoment("goal", M.deflected ? `Deflected in off a defender from ${d}m — it counts!` : how);
     }
     if ((Math.abs(b.x-GOAL.L) < .17 || Math.abs(b.x-GOAL.R) < .17) && b.z < GOAL.H + .1) return woodwork("post");
     if (b.x > GOAL.L && b.x < GOAL.R && Math.abs(b.z-GOAL.H) < .17) return woodwork("bar");
-    return endMoment("miss", b.z > GOAL.H ? "Over the bar." : "Wide of the post.");
+    // how far it missed by: a whisker wide is not the same as a shot into the stand
+    const wide = Math.max(0, GOAL.L - b.x, b.x - GOAL.R), high = Math.max(0, b.z - GOAL.H), margin = Math.hypot(wide, high);
+    M.shotEval = Object.assign(M.shotEval || {}, {margin, onTarget:false});
+    const txt = margin < .6 ? (high > wide ? "Just over the bar." : "Inches wide.") : margin < 2.2 ? (high > wide ? "Over the bar." : "Wide of the post.") : margin < 5 ? (high > wide ? "Well over." : "Well wide.") : "Miles off target.";
+    return endMoment("miss", txt);
   }
-  if (b.x < -1 || b.x > 69 || b.y > 55) return endMoment("miss", "Way off target.");
+  if (b.x < -1 || b.x > 69 || b.y > 55){ M.shotEval = Object.assign(M.shotEval || {}, {margin:8}); return endMoment("miss", "Way off target."); }
   if (b.vx === 0 && b.vy === 0 && b.z <= BR + .01) return endMoment("saved", "Not enough on it — the keeper gathers.");
   if (M.shot.t > 4.5) return endMoment("miss", "The chance fizzled out.");
+}
+
+/* ---------- blocks and saves: not every stopped shot is the end of it ----------
+   A block can be cleared, deflected behind for a corner, run loose for a scramble, fall to a
+   team-mate — or, now and then, loop in off the defender. A save can be held, parried back out,
+   or tipped round the post. */
+function blockedBy(d){
+  const b = M.ball, setP = M.type === "penalty" || M.type === "freekick";
+  b.spin = 0; b.lift = 0; b.knuck = 0;
+  M.shotEval = Object.assign(M.shotEval || {}, {blocked:true, margin:0});
+  const r = Math.random();
+  if (d.wall){
+    if (r < .38){ b.vx = rnd(-6, 6); b.vy = -rnd(6, 10); b.vz = rnd(2, 5); return endMoment("corner", "Off the wall and behind — corner."); }
+    b.vx = -b.vx*.25 + rnd(-3, 3); b.vy = Math.abs(b.vy)*.35; b.vz = rnd(1, 4);
+    return endMoment("blocked", "Straight into the wall.");
+  }
+  d.stun = 2;
+  if (r < .06 && !setP){
+    // it loops off him and wrong-foots the keeper
+    const tx = M.gk.x > 34 ? GOAL.L + .7 : GOAL.R - .7, dx = tx - b.x, dy = -b.y, L = Math.hypot(dx, dy) || 1, sp = 11;
+    b.vx = dx/L*sp; b.vy = dy/L*sp; b.vz = rnd(2.5, 4); M.gkDone = true; M.deflected = true;
+    flash("Deflected!"); return;
+  }
+  if (r < .32){ b.vx = rnd(-7, 7); b.vy = -rnd(5, 9); b.vz = rnd(2, 5); return endMoment("corner", "Deflected behind — corner."); }
+  if (r < .52 && !setP){
+    b.vx = -b.vx*.2 + rnd(-4, 4); b.vy = Math.abs(b.vy)*.3 + 2; b.vz = rnd(.5, 2);
+    M.phase = "rebound"; M.reb = {t:0, gkCd:.5}; M.shooting = false; M.limit = Math.max(M.limit, M.t + 6);
+    M.info = "Blocked — it's loose!"; flash("LOOSE BALL!"); updateMatchHUD(); return;
+  }
+  if (r < .66 && !setP && M.mates && M.mates.length && !M.ai){
+    // it cannons off him into a team-mate's path
+    let m = null, md = 1e9; for (const t of M.mates){ const q = Math.hypot(t.x - b.x, t.y - b.y); if (q < md){ md = q; m = t; } }
+    if (m && md < 16){
+      b.x = m.x; b.y = m.y - .5; b.vx = b.vy = b.vz = 0; b.z = BR;
+      flash(`Falls to ${m.name}!`);
+      M.passTo = null; M.deflectTo = m;
+      return beginAiRun(m, true);
+    }
+  }
+  b.vx = -b.vx*.25 + rnd(-3, 3); b.vy = Math.abs(b.vy)*.35; b.vz = rnd(1, 4);
+  return endMoment("blocked", pick(["A defender threw himself in the way.", "Blocked — and cleared.", "Charged down."]));
+}
+function keeperSaves(ps, spd){
+  const b = M.ball, g = M.gk, setP = M.type === "penalty" || M.type === "freekick";
+  b.spin = 0; b.lift = 0; b.knuck = 0;
+  const hard = ps < .55 || spd > 22, high = b.z > 1.55, nearPost = Math.abs(b.x - GOAL.L) < 1 || Math.abs(b.x - GOAL.R) < 1;
+  const r = Math.random();
+  if ((high || nearPost) && r < .38){
+    b.vx = (b.x - g.x)*3; b.vy = -2; b.vz = high ? 4 : 1;
+    return endMoment("corner", high ? "Tipped over the bar — corner." : "Pushed round the post — corner.");
+  }
+  if (hard && !setP && r < .72){
+    // parried: it's back out and it's anybody's
+    b.vx = b.vx*.3 + (b.x - g.x)*3 + rnd(-2, 2); b.vy = Math.abs(b.vy)*.32 + 3; b.vz = rnd(.5, 2.5);
+    b.y = Math.max(b.y, .3);
+    M.phase = "rebound"; M.reb = {t:0, gkCd:1.1 + rnd(0, .3)}; M.shooting = false; M.limit = Math.max(M.limit, M.t + 6);
+    M.info = "Parried — follow it in!"; flash("PARRIED!"); updateMatchHUD(); return;
+  }
+  b.vx = b.vx*.25 + (b.x-g.x)*4; b.vy = Math.abs(b.vy)*.3; b.vz = Math.abs(b.vz)*.3 + 1;
+  return endMoment("saved", ps < .4 ? pick(["What a save!", "A superb stop from the keeper.", "Full stretch — he gets there."]) : pick(["Good hands from the keeper.", "Keeper gets down well.", "Straight at him."]));
 }
 
 /* ---------- the woodwork: the ball comes back off the frame and stays live ----------
@@ -425,12 +527,14 @@ function woodwork(kind){
     else { b.vy = Math.abs(b.vy)*.5; b.vz = -Math.abs(b.vz)*.3; }
     b.spin = 0; b.lift = 0; b.knuck = 0;
     if (M.shot) M.shot.frame = kind;
+    M.shotEval = Object.assign(M.shotEval || {}, {margin:.1, frame:kind});
     flash(kind === "post" ? "POST!" : "BAR!");
     return endMoment(kind, kind === "post"
       ? (M.type === "penalty" ? "Off the post! The penalty is gone." : "Off the post! So close from the free kick.")
       : (M.type === "penalty" ? "Off the bar! The penalty is gone." : "Off the bar! Over everyone and against the frame."));
   }
   M.woodwork = (M.woodwork || 0) + 1; M.lastFrame = kind;
+  M.shotEval = Object.assign(M.shotEval || {}, {margin:.1, frame:kind});
   if (M.shot) M.shot.frame = kind;                 // remembered for the commentary if you score the rebound
   if (kind === "post"){
     const out = b.x < 34 ? -1 : 1;                 // spits back out across the face of goal
@@ -605,15 +709,15 @@ function containRun(d, ball, h, tight){
 function passChecks(h){
   const b = M.ball, t = M.shot.t, sp = Math.hypot(b.vx, b.vy);
   // a corner can beat everyone and curl straight in, and the keeper can come and claim it
-  if (M.corner){
+  if (M.corner || M.cross){
     const g = M.gk;
     if (b.y <= 0 && t > .1){
       const r = BR;
       if (b.x > GOAL.L + r && b.x < GOAL.R - r && b.z < GOAL.H - r)
-        return endMoment("goal", "Straight in from the corner — nobody got a touch!");
+        return endMoment("goal", M.cross ? "The cross beats everyone and drops in!" : "Straight in from the corner — nobody got a touch!");
       if ((Math.abs(b.x - GOAL.L) < .17 || Math.abs(b.x - GOAL.R) < .17) && b.z < GOAL.H + .1) return woodwork("post");
       if (b.x > GOAL.L && b.x < GOAL.R && Math.abs(b.z - GOAL.H) < .17) return woodwork("bar");
-      return endMoment("outplay", "The corner sails behind for a goal kick.");
+      return endMoment("outplay", M.cross ? "The cross sails out for a goal kick." : "The corner sails behind for a goal kick.");
     }
     if (t > .15 && b.z < 2.7 && Math.hypot(b.x - g.x, b.y - g.y) < 1.25)
       return endMoment("lost", pick(["The keeper comes and claims it.", "Punched clear by the keeper.", "Gathered by the goalkeeper."]));
@@ -915,6 +1019,7 @@ function update(dt){
   if (M.flash){ M.flash.life -= dt; if (M.flash.life <= 0) M.flash = null; }
   switch (M.phase){
     case "dribble": updateDribble(dt); break;
+    case "decide": updateDecide(dt); break;
     case "ai": updateAi(dt); break;
     case "aipass": updateAiPass(dt); break;
     case "rebound": updateRebound(dt); break;
@@ -977,8 +1082,9 @@ window.addEventListener("keydown", e => {
   if (!MT) return;
   if (["arrowup","arrowdown","arrowleft","arrowright"," ","s","d"].includes(k)) e.preventDefault();
   if ((k === " " || k === "d") && M && M.phase === "aerial"){ if (!M.jumped) M.charge = Math.min(1, M.charge + .34); releaseJump(); return; }
-  if (k === " " || k === "d") shootNow();        // D or Space: shoot
-  if (k === "s") passNow();                       // S: pick a team-mate out
+  if (M && M.phase === "decide" && /^[1-4]$/.test(k)){ chooseOption(+k - 1); return; }
+  if (k === " " || k === "d") shootNow();        // D or Space: shoot (or, lining up a pass, shoot instead)
+  if (k === "s") passNow();                       // S: your options
 });
 window.addEventListener("keyup", e => { keys[e.key.toLowerCase()] = false; });
 window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; inp.down = false; });
