@@ -311,9 +311,29 @@ export function teamSession(o){
   for (const q of solids) q.off = true;                              // until the session is seen to be on
   // ... and the runners too, each a body that goes round with him (see follow(): never switched on round you)
   const runners = actors.filter(ac => ac.kind === "lap"), bodies = runners.map(ac => (ac.sol = solid(0, 0, 0, 0, 0, 1.85), ac.sol.off = true, ac.sol));
+  W.runners = runners;                                                     // (for tests: where they are)
   const track = youTracker(), lc = {};
   // (going round you, one doesn't step into another either)
   const bumpsRunner = (ac, x, z) => { for (const o of runners){ if (o === ac || o.px == null) continue; const e = Math.hypot(o.px - x, o.pz - z); if (e < .5 && e < Math.hypot(o.px - ac.px, o.pz - ac.pz) - 1e-4) return true; } return false; };
+  /* somewhere a runner can't go when he leaves the lap to get round you: inside anything solid (a goal, the stand, a
+     dugout, the fence, a team-mate in a drill: every solid, the big ones too) or too near the things lying on the
+     grass and the people standing on it (obst) */
+  const stuck = (x, z) => {
+    for (const q of W.solids){ if (q.off || q.y0 > 1.6 || q.y1 < .1 || bodies.includes(q)) continue; if (x > q.x0 - .32 && x < q.x1 + .32 && z > q.z0 - .32 && z < q.z1 + .32) return true; }
+    for (const [ox, oz, r] of obst) if (Math.hypot(x - ox, z - oz) < r + .2) return true;
+    return false;
+  };
+  // the group swung out to lateral offset `off`: is every runner's place (and the way across to it) clear?
+  const sideClear = off => {
+    for (const ac of runners){
+      const q = ac.q; if (!q) continue;
+      for (const f of [.5, 1]) for (const ahead of [0, 1.5]){
+        const lat = q.lat + off*f, x = q.x - q.uz*lat + q.ux*ahead, z = q.z + q.ux*lat + q.uz*ahead;
+        if (stuck(x, z)) return false;
+      }
+    }
+    return true;
+  };
   const tmp = new THREE.Vector3(), lpt = {};
   // a spot by a player's right foot, d metres in front of him
   const footSpot = (P, d, out) => { const y = P.g.rotation.y; return out.set(P.g.position.x + Math.sin(y)*d - Math.cos(y)*.12, .11, P.g.position.z + Math.cos(y)*d + Math.sin(y)*.12); };
@@ -348,8 +368,15 @@ export function teamSession(o){
       }
       if (hit || group.dir){
         if (!group.dir) group.dir = Math.abs(lo) < Math.abs(hi) ? 1 : -1;
-        want = group.dir > 0 ? lo : hi;
-        if (Math.abs(want) > 1.6){ want = Math.sign(want)*1.6; slow = 1; }
+        const lim = w => Math.abs(w) > 1.6 ? Math.sign(w)*1.6 : w;
+        // only round a side that is clear of goals, stands and everything else: the other side if not, and if
+        // neither is, they ease up and wait for you to get out of the way
+        if (!sideClear(lim(group.dir > 0 ? lo : hi))){
+          if (sideClear(lim(group.dir > 0 ? hi : lo))) group.dir = -group.dir;
+          else group.blocked = true;
+        } else group.blocked = false;
+        want = group.blocked ? 0 : lim(group.dir > 0 ? lo : hi);
+        if (group.blocked || Math.abs(group.dir > 0 ? lo : hi) > 1.6) slow = 1;
         if (hit) group.clear = 0;
       }
     }
@@ -380,7 +407,8 @@ export function teamSession(o){
       let mx = tx - ac.px, mz = tz - ac.pz; const ml = Math.hypot(mx, mz), lim = (Math.min(sv, 7) + 1.5)*dt;
       if (ml > lim){ mx *= lim/ml; mz *= lim/ml; }
       let X = ac.px + mx, Z = ac.pz + mz;
-      if (into(me, X, Z, ac.px, ac.pz) || bumpsRunner(ac, X, Z)){
+      const offLap = Math.abs(group.off) > .05 || ac.lag > .3;          // (on the lap itself everything is clear already)
+      if (into(me, X, Z, ac.px, ac.pz) || bumpsRunner(ac, X, Z) || (offLap && stuck(X, Z) && !stuck(ac.px, ac.pz))){
         X = ac.px; Z = ac.pz;
         const L = Math.hypot(mx, mz);
         if (L > 1e-5){
@@ -389,7 +417,7 @@ export function teamSession(o){
           // (a squeeze between two of the others is only a brush of shoulders: if nothing else will do, he takes it)
           search: for (const mate of [true, false]) for (const t of [0, .45, .9, 1.35, 1.8]) for (const sg of t ? [away, -away] : [1]){
             const ca = Math.cos(t*sg), sa = Math.sin(t*sg), nx = ac.px + mx*ca + mz*sa, nz = ac.pz - mx*sa + mz*ca;
-            if (!into(me, nx, nz, ac.px, ac.pz) && !(mate && bumpsRunner(ac, nx, nz))){ X = nx; Z = nz; break search; }
+            if (!into(me, nx, nz, ac.px, ac.pz) && !(mate && bumpsRunner(ac, nx, nz)) && !(stuck(nx, nz) && !stuck(ac.px, ac.pz))){ X = nx; Z = nz; break search; }
           }
         }
       }
