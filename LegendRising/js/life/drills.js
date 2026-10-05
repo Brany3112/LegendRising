@@ -3,7 +3,7 @@
    read the ball machine yourself — how close you get is what you learn. In the gym each set is a
    run of reps you time. Everything is worth more fresh and fed, and less when you are spent. */
 import {THREE, W} from "./build.js";
-import {DRILLS, RINGS, PITCH, ballMesh} from "./ground.js";
+import {DRILLS, RINGS, PITCH, ballMesh, GROUND, barbell, dumbbell} from "./ground.js";
 import {CONTACT} from "./human.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -380,26 +380,127 @@ const SETS = {
   treadmill:{title:"Treadmill", main:"stamina", side:["pace", .25], bob:"run"},
   bike:{title:"Exercise bike", main:"stamina", side:["pace", .35], bob:"run"}
 };
+/* Where each set is done and how it is filmed: where you stand (x, z, facing yaw), the equipment, and the camera's place
+   in your own frame (right, up, back — back is negative, so in front of you), looking at a point in the same frame. */
+const NEAR = (list, P) => list.reduce((a, b) => Math.hypot(b[0] - P.x, b[1] - P.z) < Math.hypot(a[0] - P.x, a[1] - P.z) ? b : a);
+function station(kind, P){
+  switch (kind){
+    case "squat": return {x:-9.6, z:6.75, yaw:Math.PI, y:0, cam:[1.9, 1.35, -2.5], at:[0, 1.0, 0]};
+    case "dumbbell": return {x:-11.05, z:10.2, yaw:-Math.PI/2, y:0, cam:[1.5, 1.4, -2.3], at:[0, 1.1, 0]};
+    case "plyo": return {x:-7.5, z:12.7, yaw:Math.PI, y:0, box:.6, cam:[1.5, 1.75, 2.6], at:[0, 1.0, .5]};
+    case "ladder": return {x:0, z:5.3, yaw:Math.PI, y:.04, len:6.8, cam:[2.4, 1.6, 1.0], at:[0, .9, 1.8]};
+    case "treadmill": { const [x] = NEAR([[5.4, 7.2], [7.6, 7.2], [9.8, 7.2]], P); return {x, z:7.35, yaw:0, y:.255, cam:[1.7, 1.55, 2.1], at:[0, 1.15, 0]}; }
+    case "bike": { const [x] = NEAR([[5.6, 10.8], [7.6, 10.8]], P); return {x:x + .14, z:10.8, yaw:Math.PI/2, y:0, cam:[1.9, 1.3, -1.2], at:[0, .95, .1]}; }
+  }
+  return {x:P.x, z:P.z, yaw:P.yaw, y:0, cam:[1.6, 1.4, -2.4], at:[0, 1, 0]};
+}
+// how a rep goes with how well you timed it: perfect, good, sloppy, missed
+const GRADE = q => q >= .9 ? "perfect" : q >= .55 ? "good" : q > 0 ? "sloppy" : "miss";
+const REP = {   // seconds a rep takes, by grade
+  squat:{perfect:1.0, good:1.2, sloppy:1.5, miss:2.4}, dumbbell:{perfect:.85, good:1.0, sloppy:1.2, miss:1.4},
+  plyo:{perfect:1.5, good:1.6, sloppy:1.8, miss:1.9}, ladder:{perfect:1.15, good:1.45, sloppy:1.9, miss:2.6},
+  treadmill:{perfect:1.6, good:1.6, sloppy:1.6, miss:1.8}, bike:{perfect:1.4, good:1.4, sloppy:1.5, miss:1.7}
+};
 export function startReps(kind, H){
   const s = G(), set = SETS[kind];
-  // the set is lived through the camera (a dip, a hop, a run on the spot): your own body would only get in the way of it
+  // the set is seen from beside you: your body does the work (human.js: squat, curl, plyo, bike, running), and how well
+  // you time each rep is how it looks — a deep clean squat or a grinding one, a stuck landing or a clipped box
   const D = {kind, H, rep:0, reps:6, scores:[], xp:0, phase:"go", t:0, title:set.title, objs:[], allowMove:false, lockLook:true, hideBody:true};
   const sk = s.skills[set.main] || 30;
   const zone = () => ({c:.5 + Math.sin(D.rep*1.9)*.18, w:Math.max(.09, .2 + sk/700 - D.rep*.012)*(.7 + .3*trainEff())});
   D.z = zone(); D.m = 0; D.dir = 1;
   const speed = () => .75 + D.rep*.09;
+  const st = station(kind, H.P), sin = Math.sin(st.yaw), cos = Math.cos(st.yaw);
+  // your frame: forward is where you face (-sin, -cos), right is (cos, -sin)
+  const W2 = (r, f) => [st.x + r*cos - f*sin, st.z - r*sin - f*cos];
+  H.place({x:st.x, z:st.z, y:0, yaw:st.yaw});
+  const A = {grade:"good", k:0, ph:0, side:1, pos:0, dirL:1, run:0, step:0};
+  // the props: the rack's own bar off its hooks, or a pair of dumbbells from the rack
+  const sc = H.scene();
+  let bar = null, bells = null;
+  if (kind === "squat"){ bar = GROUND.rackBar || barbell(); if (!bar.parent) sc.add(bar); }
+  if (kind === "dumbbell"){ bells = [dumbbell(0xe2722e), dumbbell(0xe2722e)]; bells.forEach(b => sc.add(b)); }
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion(), _o = new THREE.Vector3();
+  D.props = h => {
+    const hl = h.bones[8], hr = h.bones[11];            // the hands (human.js BONE.haL, haR)
+    if (bar){ hl.getWorldPosition(_a); hr.getWorldPosition(_b); bar.position.copy(_a).add(_b).multiplyScalar(.5); bar.position.y += .02;
+      bar.rotation.set(0, Math.atan2(-(_b.z - _a.z), _b.x - _a.x), 0); }
+    if (bells) [hl, hr].forEach((bn, i) => { bn.getWorldQuaternion(_q); _o.set(0, -.075, .01).applyQuaternion(_q); bn.getWorldPosition(bells[i].position).add(_o); bells[i].quaternion.copy(_q); });
+  };
+  // the shot: beside you, easing after you (the sprint lane moves)
+  const camPos = new THREE.Vector3(), camAt = new THREE.Vector3(); let camInit = false;
+  D.view = (dt, cam) => {
+    const along = kind === "ladder" ? A.pos : 0;
+    const fx = -sin, fz = -cos, rx = cos, rz = -sin;
+    const ox = st.x + fx*along, oz = st.z + fz*along;
+    const want = _a.set(ox + rx*st.cam[0] - fx*st.cam[2], st.cam[1] + (st.y || 0), oz + rz*st.cam[0] - fz*st.cam[2]);
+    const look = _b.set(ox + rx*st.at[0] + fx*st.at[2], st.at[1] + (st.y || 0) + (kind === "plyo" ? A.lift*.6 : 0), oz + rz*st.at[0] + fz*st.at[2]);
+    if (!camInit){ camPos.copy(want); camAt.copy(look); camInit = true; }
+    const k = 1 - Math.exp(-6*dt); camPos.lerp(want, k); camAt.lerp(look, k);
+    cam.position.copy(camPos); cam.lookAt(camAt);
+  };
+  A.lift = 0;
+  // what the body is doing this frame
+  D.pose = dt => {
+    const g = A.grade, animT = D.phase === "anim" ? Math.min(1, D.t/REP[kind][g]) : 0, base = {x:st.x, z:st.z, y:st.y || 0, yaw:st.yaw, air:true};
+    if (kind === "squat"){
+      // down and up; a missed rep grinds at the bottom, shaking, before it comes up
+      let k = 0, wob = 0;
+      if (D.phase === "anim"){
+        k = g === "miss" ? kf3(animT, [[0, 0], [.25, 1], [.7, .85], [1, 0]]) : kf3(animT, [[0, 0], [.45, g === "perfect" ? 1.05 : g === "good" ? .9 : .65], [1, 0]]);
+        wob = g === "miss" ? (animT > .2 && animT < .75 ? 1 : 0) : g === "sloppy" ? .5 : 0;
+      }
+      return Object.assign(base, {mode:"squat", k, wob});
+    }
+    if (kind === "dumbbell"){
+      let k = 0;
+      if (D.phase === "anim") k = (g === "miss" ? .45 : g === "sloppy" ? .8 : 1)*Math.sin(Math.min(1, animT)*Math.PI);
+      return Object.assign(base, {mode:"curl", k, side:A.side, sway:g === "sloppy" ? 1 : g === "miss" ? .6 : 0});
+    }
+    if (kind === "plyo"){
+      // up onto the box (or not), stand tall, step back down for the next one
+      const fail = g === "miss", up = D.phase === "anim" ? (fail ? kf3(animT, [[0, 0], [.36, 0], [.48, .28], [.62, 0], [1, 0]]) : kf3(animT, [[0, 0], [.34, 0], [.46, 1.15], [.6, 1], [.8, 1], [.95, 0], [1, 0]])) : 0;
+      const fwd = D.phase === "anim" ? (fail ? kf3(animT, [[0, 0], [.36, 0], [.5, .22], [.7, .05], [1, 0]]) : kf3(animT, [[0, 0], [.34, 0], [.55, .85], [.8, .85], [.95, 0], [1, 0]])) : 0;
+      A.lift = Math.min(1, up);
+      const [x, z] = W2(0, fwd);
+      return Object.assign(base, {mode:"plyo", t:D.phase === "anim" ? Math.min(.99, animT/.8) : 0, fail, x, z, y:up*st.box*(fail ? 1 : 1)});
+    }
+    if (kind === "ladder"){
+      // quick feet down the ladder; a good rep flies, a missed one stutters and nearly trips
+      const v = D.phase === "anim" ? ({perfect:6.2, good:5, sloppy:3.6, miss:2.6})[g]*(g === "miss" ? (.6 + .4*Math.abs(Math.sin(D.t*5))) : 1) : 0;
+      A.pos = Math.max(0, Math.min(st.len, A.pos + A.dirL*v*dt));
+      const yaw = A.dirL > 0 ? st.yaw : st.yaw + Math.PI;
+      const [x, z] = W2(0, A.pos);
+      return Object.assign(base, {mode:v > .05 ? "move" : "idle", speed:v, x, z, yaw, air:false});
+    }
+    if (kind === "treadmill"){
+      // the belt runs at a jog; a rep is a burst, faster for a good one, a stumble for a miss
+      const burst = D.phase === "anim" ? ({perfect:7.2, good:6, sloppy:4.6, miss:3})[g]*Math.sin(Math.min(1, animT)*Math.PI) : 0;
+      const v = 2.6 + Math.max(0, burst - 2.6*Math.sin(Math.min(1, animT)*Math.PI));
+      A.run = v;
+      return Object.assign(base, {mode:"move", speed:v, dir:0});
+    }
+    if (kind === "bike"){
+      const cad = 7 + (D.phase === "anim" ? ({perfect:9, good:6.5, sloppy:3.5, miss:1})[g]*Math.sin(Math.min(1, animT)*Math.PI) : 0);
+      A.ph += cad*dt;
+      return Object.assign(base, {mode:"bike", ph:A.ph, seat:.86, crankY:.36, crankZ:.16, barY:1.05, barZ:.56});
+    }
+    return Object.assign(base, {mode:"idle"});
+  };
   D.update = dt => {
     D.t += dt;
     if (D.phase === "go"){
       D.m += D.dir*speed()*dt;
       if (D.m > 1){ D.m = 1; D.dir = -1; } if (D.m < 0){ D.m = 0; D.dir = 1; }
       hudTiming(true, D.z, D.m);
-      if (set.bob === "run") H.bob(Math.sin(D.t*11)*.03);
     }
     if (D.phase === "anim"){
-      const k = Math.min(1, D.t/.55), y = set.bob === "dip" ? -Math.sin(k*Math.PI)*.38 : set.bob === "hop" ? Math.sin(k*Math.PI)*.55 : set.bob === "curl" ? -Math.sin(k*Math.PI)*.08 : Math.sin(D.t*11)*.04;
-      H.bob(y);
-      if (k >= 1){ H.bob(0); D.rep++; if (D.rep >= D.reps) return finish(); D.z = zone(); D.phase = "go"; D.t = 0; hudSet(D); }
+      const dur = REP[kind][A.grade];
+      if (D.t >= dur){
+        D.rep++; if (kind === "dumbbell") A.side = -A.side; if (kind === "ladder"){ A.dirL = -A.dirL; }
+        if (D.rep >= D.reps) return finish();
+        D.z = zone(); D.phase = "go"; D.t = 0; hudSet(D);
+      }
     }
   };
   const press = () => {
@@ -408,14 +509,28 @@ export function startReps(kind, H){
     const q = off <= half ? .55 + .45*(1 - off/half) : off <= half*2 ? .25 : 0;
     let x = trainXP(set.main, 4 + 10*q); if (set.side && q > 0) x += trainXP(set.side[0], (1 + 3*q)*set.side[1]*3);
     D.xp += x; D.scores.push(q);
-    hudResult(q >= .9 ? "Perfect rep" : q >= .55 ? "Good rep" : q > 0 ? "Sloppy" : "Missed it", `+${x} XP`, q >= .55);
-    D.phase = "anim"; D.t = 0; hudSet(D);
+    A.grade = GRADE(q);
+    const words = {squat:["Deep and clean", "Good rep", "Half a rep", "Grinding it out"], dumbbell:["Perfect curl", "Good rep", "Swinging it", "Couldn't lift it"],
+      plyo:["Stuck the landing", "Up and on", "Heavy landing", "Clipped the box"], ladder:["Lightning feet", "Quick feet", "Sloppy feet", "Tripped up"],
+      treadmill:["Flying", "Strong burst", "Labouring", "Stumbled"], bike:["Spinning", "Strong push", "Heavy legs", "Legs gone"]}[kind];
+    const gi = ["perfect", "good", "sloppy", "miss"].indexOf(A.grade);
+    hudResult(words ? words[gi] : (q >= .9 ? "Perfect rep" : q >= .55 ? "Good rep" : q > 0 ? "Sloppy" : "Missed it"), `+${x} XP`, q >= .55);
+    if (A.grade === "perfect") H.shakeCam && H.shakeCam(.012, .2);
+    D.phase = "anim"; D.t = 0; hudSet(D); hudTiming(false);
+  };
+  const cleanup = () => {
+    if (bar && bar === GROUND.rackBar && bar.userData.home){ bar.position.copy(bar.userData.home); bar.rotation.set(0, 0, 0); }
+    else if (bar) sc.remove(bar);
+    if (bells) bells.forEach(b => sc.remove(b));
+    // you step away from the equipment, facing it
+    const [x, z] = W2(0, kind === "squat" ? 1.2 : kind === "treadmill" ? -1.2 : kind === "bike" ? -.9 : kind === "ladder" ? A.pos : -.3);
+    H.place({x, z, y:0, yaw:kind === "squat" ? st.yaw + Math.PI : st.yaw});
   };
   const finish = () => {
     D.phase = "done"; hudTiming(false);
     const avg = D.scores.reduce((a, b) => a + b, 0)/Math.max(1, D.scores.length);
     exert(8, 7); s.today.trainMin += 45; H.pass(45, "train");
-    hudClose(); H.bob(0); H.endDrill();
+    cleanup(); hudClose(); H.bob(0); H.endDrill();
     if (typeof FEED === "object") FEED.center(`${set.title} · set done`, `${Math.round(avg*100)}% · +${D.xp} XP`, {kind:"drill", icon:"✓", ms:2200});
     if (typeof save === "function") save();
   };
@@ -423,7 +538,7 @@ export function startReps(kind, H){
     if (D.phase === "done") return;
     if (type === "down" && (k === "mouse" || k === " " || k === "e")) press();
     if (type === "down" && k === "escape"){
-      D.phase = "done"; hudTiming(false); hudClose(); H.bob(0);
+      D.phase = "done"; hudTiming(false); hudClose(); H.bob(0); cleanup();
       const done = D.scores.length; if (done){ exert(done*1.2, done); s.today.trainMin += done*7; H.pass(done*7, "train"); }
       H.endDrill(); H.note(done ? `Stopped after ${done} reps. You keep the ${D.xp} XP.` : "Set cancelled.");
     }
@@ -431,6 +546,7 @@ export function startReps(kind, H){
   hudSet(D, {hint:"Press Space, E or click when the marker is in the green"});
   return D;
 }
+const kf3 = (t, K) => { if (t <= K[0][0]) return K[0][1]; for (let i = 1; i < K.length; i++) if (t <= K[i][0]){ const u = (t - K[i - 1][0])/(K[i][0] - K[i - 1][0]), e = u*u*(3 - 2*u); return K[i - 1][1] + (K[i][1] - K[i - 1][1])*e; } return K[K.length - 1][1]; };
 
 /* =============================== the team session =============================== */
 const SESSION_SKILLS = {ST:["accuracy", "power", "heading", "pace"], W:["dribbling", "pace", "passacc", "accuracy"], AM:["passing", "passacc", "curve", "dribbling"],

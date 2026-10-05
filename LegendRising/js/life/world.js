@@ -513,6 +513,21 @@ function cineStep(dt){
     const c = cam.position; meFade(sstep(.3, .56, Math.hypot(c.x - P.x, c.y - P.eye - .05, c.z - P.z)/ME.scale));
   }
 }
+/* a gym set, seen from beside you: the set frames the shot (DRILL.view(dt, cam)) and says what your body is doing
+   (DRILL.pose(dt): an animateHuman state, plus where the body stands — x, y, z, yaw — when it is not where you do) */
+function drillViewStep(dt){
+  DRILL.view(dt, cam);
+  if (!document.body.classList.contains("drillview")){ document.body.classList.add("drillview"); const off = () => { if (!DRILL || !DRILL.view) document.body.classList.remove("drillview"); else requestAnimationFrame(off); }; requestAnimationFrame(off); }
+  const h = ME.tp, st = DRILL.pose(dt) || {mode:"idle"};
+  ME.fp.g.visible = false; h.g.visible = true; meFade(1);
+  h.g.position.set(st.x != null ? st.x : P.x, st.y != null ? st.y : P.feet, st.z != null ? st.z : P.z);
+  ME.yaw = st.yaw != null ? st.yaw : P.yaw; h.g.rotation.y = ME.yaw + Math.PI;
+  if (st.mode === "move" && typeof h.v === "number" && st.speed != null) h.v = st.speed;     // on a belt the legs run at the belt's speed at once
+  animateHuman(h, dt, st);
+  if (!st.air) feetIK(h);
+  h.g.updateMatrixWorld(true);
+  if (DRILL.props) DRILL.props(h);
+}
 function shake(a = .06, t = .35){ CINE.shake = a; CINE.shakeT = t; }
 /* ---------- holding E (a spot with long:{time, run, label}) and holding the left button (a spot of kind "pick") ----------
    A tap of E still does what E always did; holding it fills the ring on the prompt and does the long thing when full.
@@ -582,6 +597,7 @@ function step(dt, real){
   // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
   cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
   if (CINE.on) cineStep(dt);
+  else if (DRILL && DRILL.view && ME.tp) drillViewStep(dt);
   else { viewStep(dt); meStep(dt); }
   if (LIFE.zone === "ground" && !CINE.on) tunnel();
   held = DRILL || CINE.on ? null : (grab || target());
@@ -1306,7 +1322,7 @@ const host = {
   jump(h){ P.drillY = h; }, bob(y){ P.bobY = y; }, warm:() => warm(),
   // your body in a drill: act({mode, t}) plays a move of human.js (kick, pass, trap, header) at that point; act(null) lets go
   act(st){ ME.act = st ? Object.assign(ME.act && ME.act !== st ? ME.act : {}, st) : null; }, actT:() => ME.act && typeof ME.act.t === "number" ? ME.act.t : 0,
-  scale:() => ME.scale || 1,
+  scale:() => ME.scale || 1, scene:() => scene, body:() => ME.tp, cam:() => cam,
   endDrill(){ DRILL = null; P.drillY = 0; P.bobY = 0; ME.act = null; }
 };
 function endDrillNow(){ if (DRILL && DRILL.input) DRILL.input("down", "escape"); DRILL = null; P.drillY = 0; P.bobY = 0; ME.act = null; }

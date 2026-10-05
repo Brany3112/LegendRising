@@ -1675,8 +1675,57 @@ function clipboard(h, T, st){
   const look = lerp(.35*Math.sin(t*.13 + h.seed*4), .1, write);
   R3(T, B.neck, lerp(-.02, .25, write), look*.5, 0); R3(T, B.head, lerp(0, .2, write), look*.5, 0);
 }
+/* ---- the gym (drills.js drives these; st.k is how far into the movement, st.wob a shake, st.q how clean) ---- */
+const _Gm = new THREE.Matrix4(), _Gv = new THREE.Vector3();
+// back squat: a bar across the upper back, hands just outside the shoulders, hips back and down, chest up
+function squatPose(h, T, st){
+  stand(h, T, st);
+  const D = h.D, k = clamp(st.k || 0, 0, 1.1), wob = st.wob || 0, t = h.t;
+  const drop = (D.hipY - D.ankY)*.46*k;
+  T[61] = -drop; T[62] = -.1*k; T[60] = wob*.025*Math.sin(t*23);
+  R3(T, B.hips, .62*k, 0, wob*.05*Math.sin(t*19)); R3(T, B.spine, .12*k - .04 + wob*.06*Math.sin(t*17)); R3(T, B.chest, -.06*k);
+  R3(T, B.neck, -.5*k - .05, 0, 0); R3(T, B.head, -.12*k + .05, 0, 0);
+  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .1), D.ankY, .02, 0, 0);
+  frameOf(h, T, B.chest, _Gm);
+  for (const s of [1, -1]){ _Gv.set(s*.36, .2 + wob*.01*Math.sin(t*29), -.075).applyMatrix4(_Gm); armIK(h, T, s, _Gv.x, _Gv.y, _Gv.z, 0, .2, [.35, -1, -.25]); }
+}
+// a dumbbell curl, one arm at a time (st.side), the elbow pinned at the ribs; sloppy reps swing the body into it
+function curlPose(h, T, st){
+  stand(h, T, Object.assign({}, st, {look:0}));
+  const k = clamp(st.k || 0, 0, 1), side = st.side || 1, sw = st.sway || 0;
+  R3(T, B.spine, .03 - sw*.18*Math.sin(k*Math.PI)); R3(T, B.chest, -sw*.08*Math.sin(k*Math.PI)); R3(T, B.neck, .08, 0, 0);
+  for (const s of [1, -1]){
+    const [ua, fa, hd] = ARM(s), on = s === side, kk = on ? k : 0;
+    R3(T, ua, .06 - .25*kk - sw*.3*Math.sin(kk*Math.PI), 0, s*.1);
+    R3(T, fa, -(.2 + 2.15*kk), -s*.55, 0); R3(T, hd, -.15*kk, 0, 0);
+  }
+}
+// a box jump: load (arms back, hips down), drive up, tuck, land soft on the box, stand tall. The group is lifted and
+// carried forward by the drill; this is the shape of the body through it. st.fail: clips the edge and steps back down
+function plyoPose(h, T, st){
+  stand(h, T, Object.assign({}, st, {look:0}));
+  const D = h.D, t = clamp(st.t || 0, 0, 1), fail = !!st.fail;
+  const crouch = kf(t, [[0, 0], [.22, 1], [.34, .2], [.45, 0], [.62, fail ? .2 : .9], [.78, fail ? .6 : .25], [1, 0]]);
+  const tuck = fail ? kf(t, [[0, 0], [.36, 0], [.48, .35], [.6, 0]]) : kf(t, [[0, 0], [.36, 0], [.46, 1], [.58, .3], [.64, 0]]);
+  const drop = (D.hipY - D.ankY)*.34*crouch;
+  T[61] = -drop + .02*tuck; T[62] = -.06*crouch;
+  R3(T, B.hips, .5*crouch + .25*tuck); R3(T, B.spine, .2*crouch + .1*tuck + (fail ? .2*sstep(.5, .7, t)*(1 - sstep(.85, 1, t)) : 0)); R3(T, B.chest, .05);
+  R3(T, B.neck, -.35*crouch, 0, 0); R3(T, B.head, -.1*crouch, 0, 0);
+  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .06), D.ankY + .3*tuck, .03 + .1*tuck, .2*tuck, 0);
+  const sw = kf(t, [[0, 0], [.22, .9], [.38, -2.2], [.5, -1.6], [.66, -.6], [1, .05]]);
+  for (const s of [1, -1]){ const [ua, fa] = ARM(s); R3(T, ua, sw + (fail ? .5*Math.sin(h.t*14)*sstep(.5, .6, t)*(1 - sstep(.8, .95, t)) : 0), 0, s*(.12 + (fail ? .5 : 0)*sstep(.5, .65, t)*(1 - sstep(.85, 1, t)))); R3(T, fa, -.3 - .4*crouch); }
+}
+// on the bike: sat on the saddle, leant onto the bars, the feet going round on the pedals (st.ph: the crank angle)
+function bikePose(h, T, st){
+  const D = h.D, sc = h.scale || 1;
+  sit(h, T, {seat:(st.seat || .86)}, false);
+  R3(T, B.hips, -.05); R3(T, B.spine, .42 + .03*Math.sin((st.ph || 0)*2)); R3(T, B.chest, .1); R3(T, B.neck, -.42); R3(T, B.head, -.1);
+  const a = st.ph || 0, r = .16/sc, cy = (st.crankY || .36)/sc, cz = (st.crankZ || .18)/sc;
+  for (const s of [1, -1]){ const p = a + (s > 0 ? 0 : Math.PI); legIK(h, T, s, s*(D.hipX + .04), cy + r*Math.sin(p) + D.ankY*.4, cz + r*Math.cos(p), -.25 + .25*Math.sin(p), 0); }
+  for (const s of [1, -1]) armIK(h, T, s, s*.22, (st.barY || 1.05)/sc, (st.barZ || .55)/sc, 0, 0, [.3, -.6, -.8]);
+}
 const MODES = {
-  idle:(h, T, st) => idle(h, T, st), move:moveMode, stand,
+  idle:(h, T, st) => idle(h, T, st), move:moveMode, stand, squat:squatPose, curl:curlPose, plyo:plyoPose, bike:bikePose,
   kick:(h, T, st) => kickLike(h, T, st, "kick"), pass:(h, T, st) => kickLike(h, T, st, "pass"), trap:(h, T, st) => kickLike(h, T, st, "trap"),
   header, tackle, dive, gkready:gkReady, celebrate, stretch, sit:(h, T, st) => sit(h, T, st, false), typing:(h, T, st) => sit(h, T, st, true), counter, clipboard
 };

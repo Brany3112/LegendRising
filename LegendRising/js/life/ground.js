@@ -41,11 +41,30 @@ function rack(x, z){
   const f = frame(x, z);
   rb(f, 0, 0, 0, 1.6, .06, .95, .02, GY.dark);
   for (const s of [-1, 1]){ rb(f, s*.6, .06, -.25, .09, 2.1, .09, .02, GY.grey, {key:"metal"}); rb(f, s*.6, .06, .25, .09, 2.1, .09, .02, GY.grey, {key:"metal"}); rb(f, s*.6, 2.12, 0, .09, .07, .6, .02, GY.grey, {key:"metal"}); }
-  cy(f, 0, 1.45, -.1, .022, .022, 2.0, 0xc9cdd0, {seg:8, rz:Math.PI/2, key:"metal"});
-  for (const s of [-1, 1]) cy(f, s*.78, 1.45, -.1, .23, .23, .06, s < 0 ? GY.teal : 0x2b2c2e, {seg:18, rz:Math.PI/2});
+  // the bar and its plates are one piece of their own: you take it off the hooks for a set (drills.js) and put it back
+  GROUND.rackBar = barbell(); GROUND.rackBar.position.set(x, 1.45, z - .1); GROUND.rackBar.userData.home = GROUND.rackBar.position.clone(); W.scene.add(GROUND.rackBar);
   rb(f, 0, .42, 1.55, .34, .1, 1.2, .04, 0x2a2b2d, {seg:2});
   for (const dz of [1.1, 2.0]) rb(f, 0, 0, dz, .26, .42, .07, .02, GY.grey, {key:"metal"});
   fsolid(f, 0, 0, 1.7, 1.0, 0, 2.2); fsolid(f, 0, 1.55, .4, 1.25, 0, .55);
+}
+// a barbell: the bar along x, a plate at each end (teal and black, like the rest of the gym)
+export function barbell(){
+  const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({color:0xc9cdd0, metalness:.8, roughness:.3});
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, 2.0, 10), steel); bar.rotation.z = Math.PI/2; g.add(bar);
+  for (const s of [-1, 1]){
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(.23, .23, .06, 20), new THREE.MeshStandardMaterial({color:s < 0 ? GY.teal : 0x2b2c2e, roughness:.6}));
+    p.rotation.z = Math.PI/2; p.position.x = s*.78; g.add(p);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, .05, 10), steel); c.rotation.z = Math.PI/2; c.position.x = s*.84; g.add(c);
+  }
+  g.traverse(o => { if (o.isMesh){ o.castShadow = true; } });
+  return g;
+}
+export function dumbbell(color = 0x2b2c2e){
+  const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({color:0x9aa0a4, metalness:.8, roughness:.35}), m = new THREE.MeshStandardMaterial({color, roughness:.55});
+  const h = new THREE.Mesh(new THREE.CylinderGeometry(.017, .017, .2, 8), steel); h.rotation.z = Math.PI/2; g.add(h);
+  for (const s of [-1, 1]){ const b = new THREE.Mesh(new THREE.BoxGeometry(.06, .12, .12), m); b.position.x = s*.1; g.add(b); }
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
 }
 function dumbbellRack(x, z, ry){
   const f = frame(x, z, ry);

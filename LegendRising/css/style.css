@@ -1611,3 +1611,4 @@ body.cine #lifeRoot .lf-keys, body.cine #lifeRoot .lf-note, body.cine #lifeRoot 
 ::-webkit-scrollbar-thumb:hover{background:rgba(200,240,96,.6);background-clip:padding-box}
 ::-webkit-scrollbar-corner{background:transparent}
 .gd-body{padding-right:10px;margin-right:-4px;mask-image:linear-gradient(180deg,#000 calc(100% - 22px),transparent);-webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 22px),transparent);padding-bottom:18px}
+body.drillview #lifeRoot .lf-cross{opacity:0}
