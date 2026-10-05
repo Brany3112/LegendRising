@@ -172,7 +172,7 @@ function arrive(leaving, to){
     else if (!td) note(`${clockText()}. No team training today — the gym and the drills are yours.`);
     else if (LIFE.min < SESSION.start) note(`You're here at ${clockText()}. Training starts at ${clockText(SESSION.start)} — the gym is open, or sit on the bench.`);
     else if (LIFE.min < SESSION.end) note(a.status === "late" ? `${clockText()}. Training started at ${clockText(SESSION.start)}. The manager saw you come in late.` : `${clockText()}. Training's on — the squad is out on the pitch.`);
-    else note(`${clockText()}. The session finished at ${clockText(SESSION.end)}. The gym is still open.`);
+    else note(`${clockText()}. The session finished at ${clockText(SESSION.end)}. The gym's open till ${clockText(CENTRE.close)}.`);
     return;
   }
   if (to === "town"){
@@ -261,7 +261,7 @@ function work(){
 }
 function trainCheck(){
   if (S.energy < 8){ note("You're running on empty. Eat something before you train."); return false; }
-  if (LIFE.min < 6*60 || LIFE.min >= 22*60){ note("The training ground is closed. It opens at 6:00 AM."); return false; }
+  if (!centreOpen()){ note(`The training centre is closed. It's open ${clockText(CENTRE.open)} – ${clockText(CENTRE.close)}.`); return false; }
   if (S.fatigue > 80) FEED.chip("Exhausted — this will count for little", "bad");
   return true;
 }
@@ -363,6 +363,21 @@ function sleepDay(){
   }, 2200);
 }
 
+/* five o'clock at the training centre (any day but a match day): they lock up, and you're sent home on the bus — as
+   soon as you're free (not in the middle of a drill, a shift or a panel) */
+let closing = null;
+function closingTime(){
+  if (centreOpen()){ closing = null; return; }
+  if (busy || modal || DRILL || MINI.on || CINE.on || tunnelGo) return;
+  if (!closing){
+    closing = {t:performance.now()};
+    FEED.center("The training centre is closing", "Everyone out — the bus home is at the gate", {kind:"day", icon:"🔒", ms:3600});
+    note(`${clockText(CENTRE.close)} — they're locking up. The bus is waiting for you at the gate.`);
+    return;
+  }
+  if (performance.now() - closing.t > 3800){ closing = null; bus("home"); }
+}
+
 /* ---------- zones ---------- */
 function clearScene(){
   scene.traverse(o => {
@@ -379,6 +394,7 @@ function enterZone(zone, at){
   if (BM.on) buildExit();
   // out of town or to the training centre: your flat is a long way off
   if (zone !== "home" && typeof lifeAway === "function") lifeAway(true);
+  closing = null;
   HOLD = null; heldMeshDrop(); flyEnd(); resetParcels();
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(scene);
@@ -1610,6 +1626,7 @@ function loop(t){
   else if (!modal && !DRILL && !tutOn() && !CINE.on && !MINI.on && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
   skyStep(Math.min(real, .1));
   if (LIFE.zone === "home") homeTick();
+  else if (LIFE.zone === "ground") closingTime();
   compassStep(Math.min(real, .1), P);
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; renderer.shadowMap.needsUpdate = true; }
@@ -1841,7 +1858,7 @@ buildInit({P, cam:() => cam, scene:() => scene, canvas:() => renderer.domElement
     renderer.shadowMap.needsUpdate = true; W.shadowDirty = true;
     if (window.lifeRelock) setTimeout(() => window.lifeRelock(), 30);
   }});
-window.__life = {P, keys, B, Q, W, HOME, LIFE, compassStep:dt => compassStep(dt, P), bus:to => bus(to), get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
+window.__life = {P, keys, B, Q, W, HOME, LIFE, GROUND, compassStep:dt => compassStep(dt, P), bus:to => bus(to), closingTime, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,

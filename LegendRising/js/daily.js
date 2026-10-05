@@ -9,7 +9,15 @@
    The first-person world calls in here; nothing in here draws anything. */
 
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const SESSION = {start:10*60, end:17*60, late:10*60 + 15};
+// team training: ten till four, the squad going home after it; the training centre itself is open six till five
+// (on a match day, until the night is over)
+const SESSION = {start:10*60, end:16*60, late:10*60 + 15};
+const CENTRE = {open:6*60, close:17*60};
+function centreOpen(m){
+  m = m == null ? S.life.min : m; const d = ((m % 1440) + 1440) % 1440;
+  if (typeof todaysFixture === "function" && todaysFixture() && m < 24*60) return d >= CENTRE.open;
+  return d >= CENTRE.open && d < CENTRE.close;
+}
 // when each kind of game is played inside its week: [weekday, kick-off minute]
 const KICKOFF = {F:[5, 17*60], L:[5, 19*60], C:[2, 19*60], E:[1, 20*60], N:[4, 19*60 + 45], D:[5, 19*60]};
 const TUNNEL_OPEN = 90;            // minutes before kick-off you can walk out
@@ -327,7 +335,7 @@ function arriveForTraining(){
     dailyEmit("late", {d, min:m});
   }
 }
-// at five o'clock, or in the night if you never came: how did the day go in the manager's eyes
+// at four o'clock, or in the night if you never came: how did the day go in the manager's eyes
 function settleAttendance(){
   const a = S.life.att; if (!a || a.settled) return;
   a.settled = true;

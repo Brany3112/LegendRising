@@ -210,7 +210,8 @@ function openBus(from){
   const order = ["ground", "town", "home"].filter(k => k !== from && R[k]);
   lpShow("bus", `${lpHead("Line 14", `Bus stop · ${BUS_STOPS[from] ? BUS_STOPS[from].name : ""}`)}
     <p class="lpn-p">Where to? It's ${fmtTime(m)} — the clock runs on while you ride.</p>
-    <div class="wait-list bus-list">${order.map(k => `<button class="wait-opt bus-opt" onclick="busGo('${k}')"><i>${BUS_STOPS[k].icon}</i><b>${esc(BUS_STOPS[k].name)}<em>${esc([BUS_STOPS[k].sub, why(k)].filter(Boolean).join(" · "))}</em></b><span>${busDur(R[k])}<em>arrive ${fmtTime(m + R[k])}</em></span></button>`).join("")}</div>
+    <div class="wait-list bus-list">${order.map(k => { const shut = k === "ground" && !centreOpen(m + R[k]);
+      return `<button class="wait-opt bus-opt" ${shut ? "disabled" : ""} onclick="busGo('${k}')"><i>${BUS_STOPS[k].icon}</i><b>${esc(BUS_STOPS[k].name)}<em>${esc(shut ? `Closed by then · open ${fmtTime(CENTRE.open)} – ${fmtTime(CENTRE.close)}` : [BUS_STOPS[k].sub, why(k)].filter(Boolean).join(" · "))}</em></b><span>${busDur(R[k])}<em>arrive ${fmtTime(m + R[k])}</em></span></button>`; }).join("")}</div>
     <p class="lpn-foot">Hungry or tired? Sort it before you go — there's nothing to eat on the bus.</p>`);
 }
 function busGo(to){

@@ -1815,3 +1815,4 @@ body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass,
 .dk-today b{font-family:var(--display);font-size:1.3rem;color:#fff} .dk-today small{font-weight:600;text-transform:none;font-size:.72rem;color:#c8f060}
 .dk-btns{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media (max-width:640px){ .cf{grid-template-columns:1fr;justify-items:center} .dk-desk{grid-template-columns:1fr} .jb-stats{gap:8px;font-size:.74rem} }
+.bus-opt[disabled]{opacity:.45;cursor:not-allowed} .bus-opt[disabled]:hover{background:rgba(255,255,255,.04);border-color:var(--line)}

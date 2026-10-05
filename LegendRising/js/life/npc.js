@@ -252,6 +252,7 @@ export function teamSession(o){
   // o: {kit:[a,b], when:() => bool, centre:{x,z}, coach:{x,z,ry}, ballMesh:() => Mesh, lap?:[{x,z}...], avoid?:[[x,z,r]...],
   //     pairs?:[[{x,z}, {x,z}, bib]...], lanes?:[{a:[x,z], b:[x,z], r}...], rings?:[[x,z]...]}
   const root = new THREE.Group(); W.scene.add(root);
+  const self = {leave:null, left:false};                       // (what is returned; leave.js sets .leave)
   const [a, b] = o.kit || ["#2c66b8", "#ffffff"];
   const base = hashStr(String(a) + String(b)) % 100000, r = rng(base + 11);
   const nums = [2, 3, 4, 5, 6, 7, 8, 10, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28];
@@ -346,8 +347,21 @@ export function teamSession(o){
   let on = null;
   W.anims.push(dt => {
     const now = !!o.when();
-    if (now !== on){ on = now; root.visible = now; for (const q of solids) q.off = !now; for (const q of bodies) q.off = true; }
-    if (!now) return;
+    if (now !== on){
+      const was = on; on = now;
+      // the session ending while you are here: if somebody (leave.js) is taking them home, its people are handed over
+      // where they stand — they don't vanish — and the balls are gathered up
+      if (!now && was === true && self.leave){
+        for (const ac of actors) if (ac.ball) ac.ball.visible = false;
+        for (const q of solids) q.off = true; for (const q of bodies) q.off = true;
+        const list = []; for (const ac of actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) list.push(h); list.push(coach);
+        self.leave(list); self.left = true;
+        return;
+      }
+      if (!self.left) root.visible = now;
+      for (const q of solids) q.off = !now || !!self.left; for (const q of bodies) q.off = true;
+    }
+    if (!now || self.left) return;
     const me = track(dt);
     // where each runner would be on the lap: beside or behind the others, or in single file where it's narrow
     loop.at(group.d, lpt); const w = lpt.w, side = lpt.side;
@@ -479,7 +493,8 @@ export function teamSession(o){
     }
     animateHuman(coach, dt, "clipboard");
   });
-  return {root, coach, actors, group, solids:[...solids, ...bodies], loop:{x0, x1, z0, z1, path:loop, obst}};
+  Object.assign(self, {root, coach, actors, group, solids:[...solids, ...bodies], loop:{x0, x1, z0, z1, path:loop, obst}});
+  return self;
 }
 
 /* ---------- the cast of a place: nobody twice ----------

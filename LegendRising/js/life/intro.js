@@ -396,7 +396,7 @@ function guide(){
   const row = (ic, t, d) => `<div class="gd-row"><i>${ic}</i><div><b>${t}</b><p>${d}</p></div></div>`;
   lpShow("guide", `<div class="gd">${typeof lpHead === "function" ? lpHead("How your days work", "Your first day") : "<h3>How your days work</h3>"}
     <div class="gd-body">
-      ${row("⚽", "Team training · 10:00 AM – 5:00 PM", "On training days (Monday to Friday, unless there's a game) the squad trains at the training centre. Be there on time and join the coach on the pitch: XP across your skills, Team Chemistry and the manager's trust. Turning up late or not at all costs you trust.")}
+      ${row("⚽", "Team training · 10:00 AM – 4:00 PM", "On training days (Monday to Friday, unless there's a game) the squad trains at the training centre. Be there on time and join the coach on the pitch: XP across your skills, Team Chemistry and the manager's trust. Turning up late or not at all costs you trust. The centre closes at 5:00 PM.")}
       ${row("🏟", "Matches", "Your fixtures are on your phone and on the club computer. On match day go to the training centre and walk out through the tunnel before kick-off.")}
       ${row("🎯", "Training on your own", "Any time the centre is open: skill drills on the pitch (30 min) and gym sets (45 min). Each one trains particular skills. It costs energy and adds fatigue.")}
       ${row("💼", "Work", `Your job — ${myJob().job.name} — is ${JOB_WHERE[jobState().id].how}. Clock in between 7:00 AM and 11:00 PM for a 2- or 4-hour shift: money and job XP, and better jobs as you go — further along the road, then out in ${PLACES.town}. It's JOB on the compass at the top of the screen.`)}
@@ -472,7 +472,7 @@ async function centreTour(){
     await step(camTo(V(2, 12, 30), V(0, 0, -6), 3.2));
     await step(say("Assistant coach", `Welcome to the training centre, ${s.player.name.split(" ")[0]}. Let me show you where everything is.`));
     const stops = [
-      ["Coach", 0, "Team training", [["What", "The day's session with the squad"], ["How", "Find the coach on the pitch and press E · 90 min"], ["Gives", "XP across your skills, Team Chemistry and the manager's trust"], ["When", "Training days, 10:00 AM – 5:00 PM"]],
+      ["Coach", 0, "Team training", [["What", "The day's session with the squad"], ["How", "Find the coach on the pitch and press E · 90 min"], ["Gives", "XP across your skills, Team Chemistry and the manager's trust"], ["When", "Training days, 10:00 AM – 4:00 PM"]],
         "Team training's out here with the coach. Don't be late — the manager notices."],
       ["Shooting accuracy", .4, "Skill drills", [["What", "Shooting, passing, heading and interception drills"], ["How", "Stand on a drill's marker and press E · 30 min"], ["Gives", "Shooting: accuracy + shot power · Passing: pass accuracy · Heading: heading + jumping · Interception: interception"], ["When", "Any time the centre is open"]],
         "The drills — one skill at a time, as often as your legs allow."],

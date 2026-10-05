@@ -8,7 +8,7 @@
    · car(kind, color) → THREE.Group — a car that can come and go (one parked across your front door, the squad's cars
      leaving the training ground): one mesh per material, the wheels separate so they can turn, its own lamps that
      can be switched on (.userData.lamps(on)). .userData.size = [length, height, width]. */
-import {THREE, roundedBoxGeo, mergeGeos, lmat, addGeo} from "./build.js";
+import {THREE, roundedBoxGeo, mergeGeos, lmat, addGeo, textTex} from "./build.js";
 
 const KINDS = {
   // side profiles: [x, y] round the body from the front bumper, length along x (front +x), height y; then glass
@@ -116,3 +116,45 @@ export function car(kind = "hatch", color = 0x2c66b8, o = {}){
 export const CAR_KINDS = Object.keys(KINDS);
 const PAINT = [0xd8d6cf, 0x2f3a2f, 0x8a2b2b, 0x3b5b7a, 0x1d1f22, 0xc9a24a, 0x5a6b78, 0xe2722e, 0x2d6f4a, 0x7a2f5a];
 export function carPaint(i){ return PAINT[((i % PAINT.length) + PAINT.length) % PAINT.length]; }
+
+/* the Line 14 bus: a long white box with the city's blue along its skirt, a dark band of windows, the doors on its
+   kerb side (local +z), the number and where it is going lit over the windscreen; one mesh per material, the wheels
+   separate so they turn. Nose at local +x, as a car's. */
+let BUS_SIGN = null;
+export function bus(){
+  const g = new THREE.Group(), L = 11.4, Wd = 2.5, H = 3.05, by = new Map(), r = .48;
+  const M = {white:lmat(0xeceff1, {roughness:.4, metalness:.2}), blue:lmat(0x1d6fc4, {roughness:.4, metalness:.2}), glass:lmat(0x1c252e, {roughness:.1, metalness:.4}),
+    dark:lmat(0x1d1f22, {roughness:.6}), door:lmat(0x2a3440, {roughness:.2, metalness:.3}), rim:lmat(0xb9bec2, {metalness:.8, roughness:.3}), tyre:lmat(0x17181a, {roughness:.9})};
+  const add = (geo, m, x, y, z) => { geo.translate(x, y, z); if (!by.has(m)) by.set(m, []); by.get(m).push(geo); };
+  add(roundedBoxGeo(L, H - .38, Wd, .16, 2), M.white, 0, .38 + (H - .38)/2, 0);
+  add(roundedBoxGeo(L + .02, .5, Wd + .02, .1, 1), M.blue, 0, .62, 0);
+  add(new THREE.BoxGeometry(L - 1.3, 1.1, Wd + .03), M.glass, -.35, 2.0, 0);
+  add(new THREE.BoxGeometry(.05, 1.55, Wd - .24), M.glass, L/2 + .005, 1.95, 0);
+  add(new THREE.BoxGeometry(.05, .9, Wd - .3), M.glass, -L/2 - .005, 2.05, 0);
+  for (const x of [L/2 - 1.4, -.6]) add(new THREE.BoxGeometry(1.15, 2.25, .04), M.door, x, 1.5, Wd/2 + .005);
+  add(roundedBoxGeo(L - .4, .14, Wd - .3, .06, 1), M.white, 0, H + .07, 0);
+  add(roundedBoxGeo(.16, .26, Wd - .1, .06, 1), M.dark, L/2 + .02, .45, 0); add(roundedBoxGeo(.16, .26, Wd - .1, .06, 1), M.dark, -L/2 - .02, .45, 0);
+  for (const x of [L/2 - 2.1, -L/2 + 2.6]) for (const s of [1, -1]) add(new THREE.CylinderGeometry(r + .08, r + .08, .02, 16, 1, false, 0, Math.PI).rotateX(Math.PI/2).rotateZ(Math.PI/2), M.dark, x, r + .03, s*(Wd/2 + .004));
+  for (const [m, list] of by){ const mesh = new THREE.Mesh(mergeGeos(list), m); mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh); }
+  // the destination board over the windscreen
+  if (!BUS_SIGN){ BUS_SIGN = textTex(512, 96, c => { c.fillStyle = "#0b0d10"; c.fillRect(0, 0, 512, 96); c.fillStyle = "#ffb43a"; c.font = "800 62px 'Barlow Condensed', sans-serif"; c.textBaseline = "middle"; c.fillText("14", 22, 52); c.font = "700 40px 'Barlow Condensed', sans-serif"; c.fillText(`${PLACES.city.toUpperCase()} · ${PLACES.town.toUpperCase()}`, 108, 52); }); BUS_SIGN.userData.keep = true; }
+  const sm = new THREE.MeshStandardMaterial({map:BUS_SIGN, emissive:0xffffff, emissiveMap:BUS_SIGN, emissiveIntensity:.9, roughness:.4});
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(Wd - .5, .34), sm); sign.position.set(L/2 + .035, 2.83, 0); sign.rotation.y = Math.PI/2; g.add(sign);
+  const head = new THREE.MeshStandardMaterial({color:0xfff6dc, emissive:0xfff0c8, emissiveIntensity:.1, roughness:.2});
+  const tail = new THREE.MeshStandardMaterial({color:0xc8261f, emissive:0xff2a1a, emissiveIntensity:.15, roughness:.3});
+  for (const s of [1, -1]){
+    const hl = new THREE.Mesh(roundedBoxGeo(.06, .18, .34, .04, 1), head); hl.position.set(L/2 + .03, .82, s*(Wd/2 - .32)); g.add(hl);
+    const tl = new THREE.Mesh(roundedBoxGeo(.06, .3, .2, .04, 1), tail); tl.position.set(-L/2 - .03, .95, s*(Wd/2 - .2)); g.add(tl);
+  }
+  const wheels = [];
+  for (const x of [L/2 - 2.1, -L/2 + 2.6]) for (const s of [1, -1]){
+    const w = new THREE.Group();
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, .32, 18).rotateX(Math.PI/2), M.tyre); t.castShadow = true; w.add(t);
+    const h = new THREE.Mesh(new THREE.CylinderGeometry(r*.55, r*.55, .34, 10).rotateX(Math.PI/2), M.rim); w.add(h);
+    w.position.set(x, r, s*(Wd/2 - .16)); g.add(w); wheels.push(w);
+  }
+  g.userData.size = [L + .1, H, Wd + .1]; g.userData.wheels = wheels; g.userData.wheelR = r;
+  g.userData.lamps = on => { head.emissiveIntensity = on ? 2.2 : .1; tail.emissiveIntensity = on ? 1.6 : .15; };
+  g.userData.dispose = () => { head.dispose(); tail.dispose(); sm.dispose(); g.traverse(c => { if (c.isMesh) c.geometry.dispose(); }); };
+  return g;
+}

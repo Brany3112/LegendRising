@@ -7,13 +7,15 @@ import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label
 import {facer, decoWin, pilasters, roofTop, busStop, hingedDoor, leafGuard} from "./home.js";
 import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, mannequin, bench, goal, cornerFlag, dugout, floodlight,
   waterCooler, bottle, kitBag, bibs, kitHamper, lockers, shelfUnit, tacticsBoard, noticeBoard, desk, monitor, chair, vending, vendTex, plyoBox, bike,
-  tree, bush, hedge, streetLamp, bin, car, sign, wireFence, parkingBays, planter} from "./props.js";
+  tree, bush, hedge, streetLamp, bin, sign, wireFence, parkingBays, planter} from "./props.js";
 import {teamSession, staffer} from "./npc.js";
 import {cabinet} from "./props.js";
 import {fillFridge} from "./fridge.js";
 import {rack, dumbbellRack, plyoBoxes, ladderLane, treadmill, spinBike, barbell, dumbbell} from "./gymclub.js";
 export {barbell, dumbbell};
 import {deliveryPoint} from "./parcels.js";
+import {departures, EXIT} from "./leave.js";
+import {bakeCar, CAR_KINDS} from "./cars.js";
 
 let ctx = null;
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -71,8 +73,7 @@ function gym(){
   box(-.45, 2.64, z1 + .55, .45, 2.66, z1 + .65, 0xfff1d0, {key:"lamp", ao:false, jit:0});
   lightSrc({x:0, y:2.5, z:z1 + .7, color:0xffe8c8, intensity:4, distance:6});
   // the kit is as good as the club can afford (clubFacTier: from a rusting Liga 4 shed to an elite academy)
-  const t = typeof clubFacTier === "function" ? clubFacTier() : 3;
-  GROUND.tier = t;
+  const t = GROUND.tier;
   // power corner: the rack, dumbbells, plyo boxes
   rack(-9.6, 6.8, t);
   dumbbellRack(-12.25, 10.2, Math.PI/2, t);
@@ -158,20 +159,20 @@ function gymFridge(x, z){
 export function refreshGymFridge(){ if (GROUND.fridge) fillFridge(GROUND.fridge); }
 
 /* ---------- the pitch ---------- */
-function pitchLines(){
-  const L = (x0, z0, x1, z1) => box(Math.min(x0, x1), .012, Math.min(z0, z1), Math.max(x0, x1), .016, Math.max(z0, z1), 0xf4f6f0, {ao:false, jit:0});
+function pitchLines(lc = 0xf4f6f0){
+  const L = (x0, z0, x1, z1) => box(Math.min(x0, x1), .012, Math.min(z0, z1), Math.max(x0, x1), .016, Math.max(z0, z1), lc, {ao:false, jit:0});
   const {x0, x1, z0, z1} = PITCH, t = .1;
   L(x0, z0, x1, z0 + t); L(x0, z1 - t, x1, z1); L(x0, z0, x0 + t, z1); L(x1 - t, z0, x1, z1); L(-t/2, z0, t/2, z1);
-  const ring = (r, cx, cz, a0 = 0, a1 = Math.PI*2) => { const g = new THREE.RingGeometry(r - .05, r + .05, 56, 1, a0, a1 - a0); g.rotateX(-Math.PI/2); g.translate(cx, .014, cz); addGeo(g, 0xf4f6f0, {ao:false, jit:0}); };
+  const ring = (r, cx, cz, a0 = 0, a1 = Math.PI*2) => { const g = new THREE.RingGeometry(r - .05, r + .05, 56, 1, a0, a1 - a0); g.rotateX(-Math.PI/2); g.translate(cx, .014, cz); addGeo(g, lc, {ao:false, jit:0}); };
   ring(4.2, 0, PITCH.cz);
   for (const s of [-1, 1]){
     const gx = s > 0 ? x1 : x0, bx = gx - s*8, sx = gx - s*3;
     L(gx, -23, bx, -22.9); L(gx, -7.1, bx, -7); L(bx - t/2, -23, bx + t/2, -7);         // the penalty area
     L(gx, -19, sx, -18.9); L(gx, -11.1, sx, -11); L(sx - t/2, -19, sx + t/2, -11);      // the six-yard box
-    const pg = new THREE.CircleGeometry(.14, 12); pg.rotateX(-Math.PI/2); pg.translate(gx - s*6, .015, PITCH.cz); addGeo(pg, 0xf4f6f0, {ao:false, jit:0});
+    const pg = new THREE.CircleGeometry(.14, 12); pg.rotateX(-Math.PI/2); pg.translate(gx - s*6, .015, PITCH.cz); addGeo(pg, lc, {ao:false, jit:0});
     ring(3.4, gx - s*6, PITCH.cz, s > 0 ? Math.PI*.5 + .95 : -Math.PI*.5 + .95, s > 0 ? Math.PI*1.5 - .95 : Math.PI*.5 - .95);
   }
-  const cs = new THREE.CircleGeometry(.14, 12); cs.rotateX(-Math.PI/2); cs.translate(0, .015, PITCH.cz); addGeo(cs, 0xf4f6f0, {ao:false, jit:0});
+  const cs = new THREE.CircleGeometry(.14, 12); cs.rotateX(-Math.PI/2); cs.translate(0, .015, PITCH.cz); addGeo(cs, lc, {ao:false, jit:0});
   for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) cornerFlag(cx, cz);
 }
 // the targets for the passing drill, painted rings with a disc in the middle
@@ -337,6 +338,8 @@ function stand(clubName){
 /* ---------- the clubhouse: dressing room, staff office and the stats computer ---------- */
 function clubhouse(clubName){
   const b = {x0:18, x1:30, z0:3, z1:17}, H = 6.4, g0 = 3.2;
+  // on a match day everyone stays for the evening; otherwise they're gone before the centre shuts at five
+  const md = typeof todaysFixture === "function" && !!todaysFixture(), until = m => md ? 21*60 + 30 : m;
   const outer = 0xe4ddd0, inner = 0xe9e4d8, PL = {tex:"paint"}, PT = PL;
   // the outside: two floors, the upstairs offices are not yours to go in
   box(b.x0, g0, b.z0, b.x1, H, b.z1, outer, {solid:true, tex:"paint", ao:false});
@@ -439,12 +442,12 @@ function clubhouse(clubName){
   spot({aim:[[23.5, 0, 9.5], [26.7, 2.2, 10.4]], label:"Showers", get hint(){ return `Shower · 10 min · ${typeof odorLabel === "function" ? odorLabel() : "clean"} now`; }, hold:.3, run:() => ctx.shower()});
   // the staff who look after you here: the physio by the ice bath and the kit man sorting the bibs, in the day
   const kit = typeof kitOf === "function" && typeof myClub === "function" && myClub() ? kitOf(myClub().nm) : ["#2c66b8", "#ffffff"];
-  staffer(29.25, 10.0, -Math.PI*.78, {role:"physio", seed:12, kit, when:m => m >= 8*60 + 30 && m < 18*60, minute:ctx.minute});
+  staffer(29.25, 10.0, -Math.PI*.78, {role:"physio", seed:12, kit, when:m => m >= 8*60 + 30 && m < until(16*60 + 45), minute:ctx.minute});
   // the kit man at his laundry trolley in the corner by the window, sorting the bibs into it (a counter-high top, so
   // he stands at it with his head up rather than bowing over a bench)
   kitHamper(23.3, 4.95, 0);
   // (the hamper's near rail is at z 4.69: he stands a hand's width off it, his hands on the rail)
-  staffer(23.3, 4.48, 0, {role:"kitman", seed:15, kit, pose:{mode:"counter", counter:.84, reach:.25}, when:m => m >= 7*60 + 30 && m < 19*60, minute:ctx.minute});
+  staffer(23.3, 4.48, 0, {role:"kitman", seed:15, kit, pose:{mode:"counter", counter:.84, reach:.25}, when:m => m >= 7*60 + 30 && m < until(16*60 + 30), minute:ctx.minute});
   noticeBoard(22.645, 1.55, 5.2, Math.PI/2, [["TODAY", "Shirts on pegs", "boots outside!"], ["RECOVERY", "Ice bath 20 min", "after every session"], ["KIT", "Bibs in the wash", "basket please"], ["SQUAD", "Team photo", "Friday 9:30"]]);
   lightSrc({x:26.2, y:2.7, z:6.8, color:0xf2f6ff, intensity:8, distance:10, indoor:true});
   for (const z of [5, 8.5]) rbox(26.2, g0 - .3, z, 3, .05, .4, .02, 0xf6f8ff, {key:"lamp"});
@@ -460,9 +463,9 @@ function clubhouse(clubName){
   const sh = shelfUnit(29.45, 13.8, -Math.PI/2, 2.4, 1.8, 0x4b5258);
   for (let i = 0; i < 4; i++) cy(sh, -.9 + i*.6, .98, 0, .1, .07, .32, 0xd9b45a, {seg:10, key:"metal"});
   for (let i = 0; i < 3; i++) rb(sh, -.8 + i*.8, 1.6, 0, .3, .2, .25, .02, [0xc8463a, 0x2c66b8, 0x3f8a48][i]);
-  // the manager keeps office hours: in before the squad, gone after the evening's work (never while you're looking)
+  // the manager keeps office hours: in before the squad, gone before the centre shuts at five (never while you're looking)
   // sat at his desk (the seat top at .5, the desk's near edge .27 ahead of the seat's middle), at his keyboard
-  const boss = staffer(26.6, 16.22, Math.PI, {role:"manager", seed:4, hair:0x9a9a9a, pose:{mode:"typing", seat:.5, desk:.77, reach:.4}, when:m => m >= 7*60 + 45 && m < 19*60 + 30, minute:ctx.minute});
+  const boss = staffer(26.6, 16.22, Math.PI, {role:"manager", seed:4, hair:0x9a9a9a, pose:{mode:"typing", seat:.5, desk:.77, reach:.4}, when:m => m >= 7*60 + 45 && m < until(16*60 + 50), minute:ctx.minute});
   spot({aim:[[26, .8, 15.9], [27.2, 2, 16.7]], x:26.6, z:15.2, when:() => boss.g.visible, label:"The manager", get hint(){ return `${typeof roleOutlook === "function" ? roleOutlook() : ""} · open the hub (Q) to talk to him`; }, hold:.2,
     run:() => ctx.note(`The manager looks up from his screen. “${(G() && G().trust >= 25) ? "Keep doing what you are doing." : (G() && G().trust >= 8) ? "Train hard, be on time, and you'll get your minutes." : "I need to see more from you in training."}”`)});
   lightSrc({x:26.2, y:2.7, z:13.6, color:0xfff0d8, intensity:7, distance:9, indoor:true});
@@ -470,8 +473,124 @@ function clubhouse(clubName){
   for (const z of [6, 10, 14]) rbox(20.4, g0 - .3, z, .5, .05, 1.6, .02, 0xfff6e0, {key:"lamp"});
 }
 
+/* ---------- what the club can afford, on show (GROUND.tier, clubFacTier 1–6) ----------
+   A poor club's pitch is worn bare in the goalmouths, down the middle and along the touchline everyone walks, its
+   lines gone grey; a rich one's is mown in stripes, its lines like chalk. The clubhouse goes from damp-stained render,
+   a boarded-up window, a tag on the wall and weeds at its foot (1–2) to a glass porch, the club's banner down the front,
+   flowers by the door and its name lit (5–6). */
+function overlay(tex, x0, z0, x1, z1, y){
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI/2),
+    mat({map:tex, transparent:true, depthWrite:false, roughness:.95, polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1}));
+  m.position.set((x0 + x1)/2, y, (z0 + z1)/2); m.receiveShadow = true; W.scene.add(m); return m;
+}
+function pitchLook(t){
+  const X0 = -23, X1 = 23, Z0 = -27.2, Z1 = -2.8, cw = 1024, ch = 544;
+  const px = x => (x - X0)/(X1 - X0)*cw, pz = z => (z - Z0)/(Z1 - Z0)*ch;
+  if (t <= 2){
+    reseed(4040 + t);
+    const tex = textTex(cw, ch, g => {
+      const blob = (x, z, r, a, col = "120,92,58") => { const gr = g.createRadialGradient(px(x), pz(z), 0, px(x), pz(z), r); gr.addColorStop(0, `rgba(${col},${a})`); gr.addColorStop(.6, `rgba(${col},${a*.55})`); gr.addColorStop(1, `rgba(${col},0)`); g.fillStyle = gr; g.beginPath(); g.arc(px(x), pz(z), r, 0, 7); g.fill(); };
+      const k = t === 1 ? 1 : .7;
+      // bare goalmouths and penalty spots, the centre circle, the touchline everyone walks along, scattered thin patches
+      for (const s of [-1, 1]){ for (let i = 0; i < 26; i++) blob(s*(21.5 - rnd()*6), -15 + (rnd() - .5)*7, 14 + rnd()*26, .45*k); blob(s*15.5, -15, 26, .5*k); }
+      for (let i = 0; i < 18; i++) blob((rnd() - .5)*9, -15 + (rnd() - .5)*8, 14 + rnd()*22, .35*k);
+      for (let x = -20; x <= 20; x += 1.4) blob(x + rnd(), -4.7 + rnd()*.6, 10 + rnd()*12, .4*k, "134,110,70");
+      for (let i = 0; i < 70; i++) blob(X0 + 2 + rnd()*42, Z0 + 2 + rnd()*20, 6 + rnd()*14, (.12 + rnd()*.18)*k, rnd() < .5 ? "150,140,70" : "120,92,58");
+    });
+    tex.userData.per = 1;
+    overlay(tex, X0, Z0, X1, Z1, .0112);
+  } else if (t >= 5){
+    // mown in stripes across the pitch, two tones of the same green
+    const tex = textTex(cw, 64, g => { const n = 12; for (let i = 0; i < n; i++){ g.fillStyle = i % 2 ? "rgba(0,0,0,.09)" : "rgba(255,255,255,.04)"; g.fillRect(i*cw/n, 0, cw/n + 1, 64); } });
+    tex.userData.per = 1;
+    overlay(tex, X0, Z0, X1, Z1, .0112);
+  }
+  return t <= 1 ? 0xc0c7b4 : t === 2 ? 0xd9dfcf : t >= 5 ? 0xffffff : 0xf4f6f0;
+}
+// stains running down from the top of a wall and creeping up from its foot, a little uneven: for the poorer clubs
+let GRIME = null, TAG = null;
+function grimeTex(){
+  if (GRIME) return GRIME;
+  reseed(515);
+  GRIME = textTex(512, 256, g => {
+    for (let i = 0; i < 40; i++){ const x = rnd()*512, w = 4 + rnd()*14, h = 40 + rnd()*150, gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, `rgba(48,44,36,${.22 + rnd()*.2})`); gr.addColorStop(1, "rgba(48,44,36,0)"); g.fillStyle = gr; g.fillRect(x, 0, w, h); }
+    const gr = g.createLinearGradient(0, 256, 0, 170); gr.addColorStop(0, "rgba(70,62,44,.45)"); gr.addColorStop(1, "rgba(70,62,44,0)"); g.fillStyle = gr;
+    g.beginPath(); g.moveTo(0, 256); for (let x = 0; x <= 512; x += 16) g.lineTo(x, 190 + Math.sin(x*.05)*12 + rnd()*14); g.lineTo(512, 256); g.fill();
+    for (let i = 0; i < 26; i++){ const x = rnd()*512, y = rnd()*230, r = 6 + rnd()*20, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, "rgba(60,56,46,.25)"); rg.addColorStop(1, "rgba(60,56,46,0)"); g.fillStyle = rg; g.fillRect(x - r, y - r, r*2, r*2); }
+  });
+  GRIME.userData.per = 1;
+  return GRIME;
+}
+function tagTex(){
+  if (TAG) return TAG;
+  TAG = textTex(512, 192, g => {
+    g.lineJoin = "round"; g.font = "italic 900 96px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.lineWidth = 16; g.strokeStyle = "#1d1f22"; g.strokeText("ULTRAS '98", 256, 96);
+    const gr = g.createLinearGradient(0, 40, 0, 150); gr.addColorStop(0, "#ff5aa0"); gr.addColorStop(1, "#7c3aed"); g.fillStyle = gr; g.fillText("ULTRAS '98", 256, 96);
+    g.strokeStyle = "#c8f060"; g.lineWidth = 5; g.beginPath(); g.moveTo(60, 160); g.quadraticCurveTo(256, 190, 460, 150); g.stroke();
+  });
+  TAG.userData.per = 1;
+  return TAG;
+}
+function clubhouseLook(t, clubName){
+  const b = {x0:18, x1:30, z0:3, z1:17}, H = 6.4;
+  if (t <= 2){
+    // damp and dirt down every face
+    const G1 = grimeTex(), o = {transparent:true, rough:.95};
+    label(G1, b.x0 - .012, H/2, (b.z0 + b.z1)/2, b.z1 - b.z0, H, -Math.PI/2, o);
+    label(G1, b.x1 + .012, H/2, (b.z0 + b.z1)/2, b.z1 - b.z0, H, Math.PI/2, o);
+    label(G1, (b.x0 + b.x1)/2, H/2, b.z0 - .012, b.x1 - b.x0, H, Math.PI, o);
+    label(G1, (b.x0 + b.x1)/2, H/2, b.z1 + .012, b.x1 - b.x0, H, 0, o);
+    // the front window by the door boarded up with planks
+    for (let i = 0; i < 5; i++){ const z0 = 12.5 + i*.56; rbox(b.x0 - .06, .86, z0 + .26, .04, 1.62, .5, .01, [0x8a6a4a, 0x7a5c3e, 0x94744f][i % 3], {jit:.06}); }
+    rbox(b.x0 - .09, 1.3, 13.9, .03, .1, 2.9, .01, 0x6a4f35); rbox(b.x0 - .09, 2.0, 13.9, .03, .1, 2.9, .01, 0x6a4f35);
+    // a tag sprayed on the side facing the car park, weeds along the foot of the walls, an old skip
+    if (t === 1 || (G() && G().life && G().life.day % 2 === 0)) label(tagTex(), 21.4, 1.5, b.z1 + .02, 2.8, 1.05, 0, {transparent:true, rough:.8});
+    reseed(77 + t);
+    for (let i = 0; i < 26; i++){ const side = i % 3, x = side === 0 ? b.x0 - .12 : b.x0 + .5 + rnd()*(b.x1 - b.x0 - 1), z = side === 0 ? b.z0 + .5 + rnd()*(b.z1 - b.z0 - 1) : side === 1 ? b.z0 - .1 : b.z1 + .1;
+      cyl(x, 0, z, .03 + rnd()*.05, .15 + rnd()*.25, [0x5d7a34, 0x6f8a3a, 0x4f6a2e][i % 3], {seg:5, jit:.1}); }
+    rbox(29.6, 0, 1.4, 1.6, .9, 1.1, .04, 0x8a3a24, {key:"metal", solid:true}); rbox(29.6, .9, 1.4, 1.7, .06, 1.2, .02, 0x5a2a1a, {key:"metal"});
+    for (const [x, z] of [[28.9, 1.2], [29.3, 1.7], [30.1, 1.2]]) rbox(x, .9, z, .3, .12 + (x*7 % 3)*.06, .25, .03, 0x6b5a44);
+  } else if (t >= 5){
+    // a glass porch over the door, the club's banner down the front, flowers each side of the door, the name lit
+    const kit = typeof kitOf === "function" ? kitOf(clubName) : ["#2c66b8", "#ffffff"];
+    const ban = textTex(256, 768, g => { g.fillStyle = kit[0]; g.fillRect(0, 0, 256, 768); g.fillStyle = kit[1]; g.fillRect(0, 0, 256, 18); g.fillRect(0, 750, 256, 18);
+      g.beginPath(); g.arc(128, 170, 78, 0, 7); g.fill(); g.fillStyle = kit[0]; g.font = "900 64px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(clubName.split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase(), 128, 174);
+      g.fillStyle = kit[1]; g.font = "800 46px 'Barlow Condensed', sans-serif"; const words = clubName.toUpperCase().split(" "); words.slice(0, 4).forEach((w, i) => { let fs = 46; g.font = `800 ${fs}px 'Barlow Condensed', sans-serif`; while (g.measureText(w).width > 230 && fs > 20){ fs -= 2; g.font = `800 ${fs}px 'Barlow Condensed', sans-serif`; } g.fillText(w, 128, 330 + i*80); }); });
+    label(ban, b.x0 - .03, 4.2, 4.4, 1.1, 3.3, -Math.PI/2, {rough:.6});
+    box(b.x0 - 2.1, 2.66, 8.6, b.x0 - .1, 2.72, 11.6, 0xa9c2d2, {key:"glass", ao:false, jit:0});
+    for (const z of [8.6, 11.6]) rbox(b.x0 - 2.05, 0, z, .07, 2.7, .07, .02, 0x2a2e33, {key:"metal", solid:true});
+    for (const z of [7.9, 12.3]){ rbox(b.x0 - .55, 0, z, .7, .55, .7, .05, 0x2a2e33, {key:"metal", solid:true});
+      for (let i = 0; i < 9; i++){ const a = i*.7, r = .12 + (i % 3)*.08; sph(frame(b.x0 - .55 + Math.cos(a)*r, z + Math.sin(a)*r), 0, .62, 0, .09, [0xd8432f, 0xf2c230, 0xe8e4da, 0x7c3aed][i % 4]); } }
+    box(b.x0 - .08, 5.6, 5.0, b.x0 - .04, 5.66, 15.0, 0xfff1d0, {key:"lamp", ao:false, jit:0});
+  }
+}
+// the gym's walls show it too: scuffed and stained at the bottom of the ladder
+function gymLook(t){
+  if (t > 2) return;
+  const G1 = grimeTex(), o = {transparent:true, rough:.95};
+  for (const [x, z, w, ry] of [[-6, 4.27, 12, 0], [6, 4.27, 12, 0], [-12.73, 10, 11.4, Math.PI/2], [12.73, 10, 11.4, -Math.PI/2]]){ const m = label(G1, x, 2.0, z, w, 4.0, ry, o); m.material.opacity = t === 1 ? .6 : .4; }
+}
+/* the road past the ground on the far side of the fence, the vehicle gate out of the car park (its barrier up), and
+   the pavement where the bus stops: the way everybody goes home */
+function roadOut(){
+  box(-95, 0, 31, 95, .012, 37, 0xffffff, {tex:"asphalt", ao:false, jit:0});
+  box(-95, 0, 29.75, 95, .1, 31, 0xffffff, {tex:"slabs", ao:false, jit:0});
+  box(-95, 0, 30.85, 95, .104, 31.0, 0xc4c1b9, {tex:"concrete", ao:false, jit:0});
+  for (let x = -94; x < 94; x += 4) box(x, .013, 33.93, x + 2, .017, 34.07, 0xe9e7df, {ao:false, jit:0});
+  box(-15.6, .013, 31.1, -9.4, .017, 33.9, 0xf2c230, {ao:false, jit:0});               // the bus bay marked yellow
+  box(-15.5, .0135, 31.2, -9.5, .0175, 33.8, 0x3a3f46, {ao:false, jit:0});
+  // the vehicle gate: two posts, the barrier arm raised, a sign
+  for (const x of [21.3, 26.7]) rbox(x, 0, 29.6, .32, 1.2, .32, .05, 0x3b4249, {key:"metal", solid:true});
+  const arm = frame(21.3, 29.6, 0); rb(arm, 0, 1.15, 0, .26, .3, .26, .04, 0xd8432f, {key:"paint"});
+  beam(21.3, 1.3, 29.6, 22.6, 5.6, 29.6, .08, .08, 0xf2f0ea, {key:"paint"});
+  for (const k of [.3, .55, .8]){ const x = 21.3 + (22.6 - 21.3)*k, y = 1.3 + (5.6 - 1.3)*k; beam(x - .05, y - .15, 29.6, x + .05, y + .15, 29.6, .085, .085, 0xd8432f, {key:"paint"}); }
+}
+
 export function buildGround(c){
   ctx = c;
+  // what the club can afford sets the kit, the pitch and the buildings (clubFacTier: a rusting shed to an elite academy)
+  const tier = GROUND.tier = typeof clubFacTier === "function" ? clubFacTier() : 3;
   reseed(77);
   W.bounds = {x0:-31.3, x1:31.3, z0:-28.6, z1:29.3};
   box(-90, -.2, -90, 90, 0, 90, 0xffffff, {tex:"grass", ao:false, jit:0});
@@ -482,14 +601,15 @@ export function buildGround(c){
   box(18.5, 0, 18.5, 31.4, .02, 29.4, 0xffffff, {tex:"asphalt", ao:false, jit:0});
   box(-23, 0, -27.2, 23, .01, -2.8, 0xffffff, {tex:"pitch", ao:false, jit:0});
   parkingBays(19.2, 19, 4, 2.7, 5, 1);
-  pitchLines();
+  pitchLines(pitchLook(tier));
   goal(PITCH.x0, PITCH.cz, -1, PITCH.goalW, PITCH.goalH);
   goal(PITCH.x1, PITCH.cz, 1, PITCH.goalW, PITCH.goalH);
   dugout(-8, -2.1, 0, 5, 0x1f5fb0); dugout(8, -2.1, 0, 5, 0x6d737a);
   for (const [x, z] of [[-24.5, -28.4], [24.5, -28.4], [-24.5, -.5], [24.5, -.5]]) floodlight(x, z, 0, PITCH.cz);
   // the floodlights light the pitch once it gets dark
-  for (const [x, z] of [[-12, -12], [12, -18], [-12, -20], [12, -9]]) lightSrc({x, y:11, z, color:0xf4f6ff, intensity:46, distance:34, decay:1.2});
-  gym();
+  // (a poor club runs half of them, and those not so bright)
+  for (const [x, z] of tier <= 2 ? [[-12, -15], [12, -15]] : [[-12, -12], [12, -18], [-12, -20], [12, -9]]) lightSrc({x, y:11, z, color:0xf4f6ff, intensity:tier <= 2 ? 34 : tier >= 5 ? 54 : 46, distance:34, decay:1.2});
+  gym(); gymLook(tier);
   drillStations();
   // the bench in the yard, for waiting out the morning
   bench(-9, 20, 0, 2.6);
@@ -502,25 +622,26 @@ export function buildGround(c){
   solid(4.3, 7.2, 16.65, 17.55, 0, .82);
   const clubName = (typeof myClub === "function" && myClub()) ? myClub().nm : "Legend Rising";
   stand(clubName);
-  clubhouse(clubName);
-  // fences, the gate by the bus stop, hedges along them
-  wireFence(-31.6, 29.6, -18, 29.6); wireFence(-10, 29.6, 31.6, 29.6);
+  clubhouse(clubName); clubhouseLook(tier, clubName);
+  // fences, the gate by the bus stop and the vehicle gate out of the car park, hedges along them; the road beyond
+  wireFence(-31.6, 29.6, -18, 29.6); wireFence(-10, 29.6, 21.1, 29.6); wireFence(26.9, 29.6, 31.6, 29.6);
+  roadOut();
   wireFence(-31.6, -28.8, -31.6, 29.6); wireFence(31.6, -28.8, 31.6, 29.6);
   for (const s of [-1, 1]){ rbox(s > 0 ? -10 : -18, 0, 29.6, .5, 2.8, .5, .08, 0x3b4249, {solid:true}); }
   sign(`${clubName.toUpperCase()} · TRAINING CENTRE`, -14, 3.1, 29.75, Math.PI, 7.6);
   rbox(-14, 2.6, 29.6, 8.6, .14, .3, .05, 0x2a3036);
   hedge(-29.5, 27.8, -20, 27.8); hedge(-6, 27.8, 11, 27.8);
-  for (const [x, z] of [[-26, 22], [-27.5, 12], [-27, 2], [27, 1.5], [-36, -16], [36, -18], [-38, 10], [38, 12], [-20, 36], [4, 38], [24, 36]]) tree(x, z, .9 + ((x*z) % 3 + 3) % 3*.12);
+  for (const [x, z] of [[-26, 22], [-27.5, 12], [-27, 2], [27, 1.5], [-36, -16], [36, -18], [-38, 10], [38, 12], [-20, 44], [4, 46], [24, 44]]) tree(x, z, .9 + ((x*z) % 3 + 3) % 3*.12);
   for (const [x, z] of [[-29, 18], [-29.4, 7.5], [14.6, 26.8], [-16.5, 26.6]]) bush(x, z, 1);
   for (const [x, z, d] of [[-16, 6, -1], [16, 6, -1], [-18.2, 26.4, 1], [9, 26, 1], [17.4, 18, 1], [-24.5, 10, 1]]) streetLamp(x, z, d);
-  // the car park, and your own car if you have one
+  // the car park: the squad's cars (leave.js: they go home through the vehicle gate after training), and yours, if
+  // you have one, in the end bay
   sign("PLAYERS & STAFF PARKING", 24.6, 2.2, 18.2, 0, 3.2, {bar:"#4ea8ff"});
   for (const x of [23.1, 26.1]) rbox(x, 0, 18.15, .08, 2.0, .08, .02, 0x3b4249, {key:"metal", solid:true});
-  car(20.55, 21.5, Math.PI/2, 0x2f3a46); car(25.95, 21.6, Math.PI/2, 0xd8d6cf);
   const ct = typeof carTier === "function" && G() ? carTier() : 0;
-  if (ct) car(28.65, 21.5, Math.PI/2, [0, 0x5a6a7a, 0x22303d, 0xc8202a][ct]);
-  // low warehouses and houses beyond the fence, so the world goes on past the gate
-  for (const [x, z, w, d, h, c] of [[-44, 34, 16, 10, 6, 0x8b8f94], [-22, 40, 14, 9, 8, 0xa3593f], [6, 41, 18, 9, 7, 0x9a8e7e], [30, 38, 14, 10, 9, 0x7b8691],
+  if (ct){ const bx = EXIT.bays[3], sz = bakeCar(["hatch", "hatch", "sport", "muscle"][ct], [0, 0x5a6a7a, 0x22303d, 0xc8202a][ct], bx, EXIT.bayZ, -Math.PI/2); solid(bx - sz[2]/2, bx + sz[2]/2, EXIT.bayZ - sz[0]/2, EXIT.bayZ + sz[0]/2, 0, 1.4); }
+  // low warehouses and houses beyond the road, so the world goes on past the gate
+  for (const [x, z, w, d, h, c] of [[-44, 44, 16, 10, 6, 0x8b8f94], [-22, 48, 14, 9, 8, 0xa3593f], [6, 49, 18, 9, 7, 0x9a8e7e], [30, 46, 14, 10, 9, 0x7b8691],
     [-46, -6, 10, 18, 7, 0x8b5a4a], [46, -4, 10, 20, 6, 0x9a8e7e], [-30, -48, 30, 10, 10, 0x7b8691], [24, -48, 24, 10, 12, 0x8b8f94]])
     rbox(x, 0, z, w, h, d, .2, c);
   busStop(-14, 24.6, {y:.02});
@@ -538,6 +659,8 @@ export function buildGround(c){
     // clear of the goal mouths and the six-yard boxes; and along the stand outside the far touchline, behind the heading
     // drill's ball machine and the corner flags (it swings in round the tunnel's cheeks)
     lap:[{x:-25.6, z:-5}, {x:25.6, z:-5}, {x:25.6, z:-27.2}, {x:-25.6, z:-27.2}]});
+  // and at four, home: walking off to their cars or the bus (leave.js)
+  GROUND.leave = departures({minute:ctx.minute, session:GROUND.session, mine:!!ct});
   spot({x:-6, y:1.2, z:-5.4, r:2.2, near:true, when:() => typeof sessionOn === "function" && sessionOn(), label:"Coach", hint:"Join the team session · 90 min", run:() => ctx.session()});
   finishBatches();
   return {bus:{x:-14, z:23.2, y:0, yaw:0}, tunnel:{x:0, z:-25.2, y:0, yaw:Math.PI}};
