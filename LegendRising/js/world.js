@@ -97,7 +97,8 @@ function lineup(cid){
   let sq = squadOf(cid).filter(p => !p.inj);
   if (sq.length < 12) sq = squadOf(cid);           // injury crisis: the walking wounded have to play
   const used = new Set(), xi = [];
-  for (const [k, n] of FORMATION){
+  const shape = typeof formationLinesOf === "function" ? formationLinesOf(club(cid)) : FORMATION;   // the club's own shape (positions.js)
+  for (const [k, n] of shape){
     sq.filter(p => lineOf(p) === k && !used.has(p.id)).sort((a, b) => b.ovr - a.ovr).slice(0, n)
       .forEach(p => { used.add(p.id); xi.push(p); });
   }

@@ -175,6 +175,7 @@ function resume(data){
   if (S.awards) S.awards = S.awards.filter(a => !/^0 /.test(a.name || ""));
   if (!S.workrate) S.workrate = 2;
   if (S.tutDone == null) S.tutDone = true;
+  assignTeamPos();                  // your preferred and team positions (saves from before there were seventeen)
   indexSquads();
   dailyEnsure();                    // the daily-life fields, and new skills for careers made before them
 }
@@ -364,19 +365,22 @@ function newsFromMatch(res){
 
 /* ---------- new career ---------- */
 function newCareer(cr){
+  // where you want to play (one of the seventeen in positions.js); the archetype a match plays you as follows from it
+  cr.pref = posOrArch(cr.pref || cr.pos); if (cr.pref === "GK") cr.pref = "CB";
+  cr.pos = archOf(cr.pref);
   const skills = {}; SKILLS.forEach(([k]) => skills[k] = 24 + (POS[cr.pos].bonus[k] || 0) + cr.alloc[k]);
   const cid = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   // how you look: what the creation screen showed you (your edits, or the default it drew for you); without that
   // screen (file://, scripts) a default of your own from your name and nationality
   const look = lookSane(cr.look, cr.look ? cid : "p:" + (cr.name || "") + ":" + (cr.nat || ""));
-  S = {v:2, cid, player:{name:cr.name, number:cr.number, pos:cr.pos, foot:cr.foot, nat:cr.nat, age:17, look}, skills, sp:0, xp:0, level:1,
+  S = {v:2, cid, player:{name:cr.name, number:cr.number, pos:cr.pos, pref:cr.pref, teamPos:cr.pref, foot:cr.foot, nat:cr.nat, age:17, look}, skills, sp:0, xp:0, level:1,
     energy:85, fatigue:10, chem:0, money:100, workrate:2, tutDone:false, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0, v2:true},
     inv:{drink:2, max:0, sandwich:3, meal:2, fruit:3, water:4, pasta:1}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
     contract:null, trust:0, raise:null, ban:0, cards:{y:0, r:0, run:0}, seasonMy:blankMy(), careerMy:blankMy(), ratings:[], awards:[], trophies:[], news:[], msgs:[], requests:[],
     locks:{}, pendingMove:null, actions:3, weekDone:{}, history:[], meId:-1, rivalId:-1, offerSet:null, social:null, purchases:[], speed:2, lastMatch:null, promiseLog:[]};
   genWorld();
   // you join the world as a player with no club yet
-  const me = newPlayer(cr.nat, MY_POS[cr.pos], 17, overall(), -1);
+  const me = newPlayer(cr.nat, POSITIONS[cr.pref].world, 17, overall(), -1);
   me.me = true; me.rep = 4; me.wrep = 0; me.fol = 0; S.meId = me.id;
   dailyEnsure();
   const starts = shuffle(W.clubs.filter(c => c.cc === "ROU" && c.t === 4)).slice(0, 3);
@@ -423,6 +427,8 @@ function joinClub(o){
   if (S.today){ S.today.chem0 = S.chem; S.today.trust0 = S.trust; }   // signing is not something the day summary should count
   S.requests = S.requests.filter(r => r.club !== c.id);
   S.msgs.forEach(m => { if (m.offer && m.offer.club === c.id) m.done = true; });
+  if (old !== c.id) delete S.player.asked;          // a new manager fits you into his own shape
+  assignTeamPos();
   indexSquads();
   addNews("you", `${S.player.name} signs for ${c.nm}${o.loan ? " on loan" : ""}`, contractText(o), "me");
   if (S.rivalId < 0) pickRival();
@@ -627,7 +633,7 @@ function seasonEnd(){
   S.year++; S.player.age++; me.age = S.player.age; S.week = 0; S.seasonMy = blankMy(); S.energy = 100; S.actions = weeklyActions();
   // loan ends
   const k = S.contract;
-  if (k && k.loan && me.loan >= 0){ me.club = me.loan; me.loan = -1; S.contract = Object.assign({}, k.prev || baseOffer(W.clubs[me.club]), {start:gw(), startSnap:snapMy(), loan:false}); report.push(`Loan over: back at ${W.clubs[me.club].nm}.`); }
+  if (k && k.loan && me.loan >= 0){ me.club = me.loan; me.loan = -1; S.contract = Object.assign({}, k.prev || baseOffer(W.clubs[me.club]), {start:gw(), startSnap:snapMy(), loan:false}); report.push(`Loan over: back at ${W.clubs[me.club].nm}.`); delete S.player.asked; assignTeamPos(); }
   else if (k){ k.years--; if (k.raise) k.wage = Math.round(k.wage*(1 + k.raise/100)); }
   indexSquads();
   if (S.contract && S.contract.years <= 0 && W.clubs[me.club]){

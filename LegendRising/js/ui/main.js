@@ -211,44 +211,92 @@ function screenTitle(){
   if (typeof fbInit === "function" && fbConfigured()) fbInit().then(() => { if (LAST_SCREEN === "title") { const c = $("#cloudCorner"); if (c) c.outerHTML = cloudCorner(); } }).catch(() => {});
 }
 let CR = null;
+/* ---------- creating your player ----------
+   One screen: your player large on the left, turning in the light (drag to spin), and on the right four steps —
+   who you are, where you play (a pitch you click), how you look, what you are good at. Every change shows at once;
+   nothing is fixed until "Find a club". The screen redraws itself on a click; the 3D preview survives that. */
+const CC_TABS = [["you", "Identity"], ["pos", "Position"], ["look", "Appearance"], ["skills", "Abilities"]];
+const CC_LOOK = [["body", "Body"], ["face", "Face"], ["hair", "Hair"], ["beard", "Beard"], ["clothes", "Clothing"]];
 function screenCreate(){
-  CR = CR || {name:"", number:9, pos:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
+  CR = CR || {name:"", number:9, pos:"ST", pref:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
+  CR.pref = posOrArch(CR.pref || CR.pos); if (!POSITIONS[CR.pref] || CR.pref === "GK") CR.pref = "ST";
+  CR.pos = archOf(CR.pref);
+  CR.tab = CC_TABS.some(t => t[0] === CR.tab) ? CR.tab : "you";
+  CR.lookSec = CC_LOOK.some(t => t[0] === CR.lookSec) ? CR.lookSec : "body";
   /* how you look: a default of your own until you change it — seeded from a token drawn when this screen first opens,
      so every new player starts as somebody different, and what the preview shows is what the career gets
      (the 3D preview needs the world's modules, so not on file://) */
-  const looks = typeof lookCreateHTML === "function" && location.protocol !== "file:";
+  const looks = typeof lookFormHTML === "function" && location.protocol !== "file:";
   if (!CR.seed) CR.seed = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  if (looks) CR.look = lookSane(CR.look, "p:" + CR.seed);
-  const baseOf = k => 24 + (POS[CR.pos].bonus[k] || 0);
-  render(`<section class="page create"><div class="page-inner">
-    <div class="eyebrow">Step 1</div><h1>Create your player</h1>
-    <div class="grid2">
-      <div class="card glass">
-        <label>Name</label><input id="nm" type="text" maxlength="24" placeholder="e.g. Andrei Popa" value="${esc(CR.name)}" oninput="CR.name=this.value">
-        <div class="row gap10">
-          <div class="grow"><label>Shirt number</label><input type="number" min="1" max="99" value="${CR.number}" oninput="CR.number=clamp(+this.value||9,1,99)"></div>
-          <div class="grow"><label>Strong foot</label><div class="seg">${["Right","Left"].map(f => `<button aria-pressed="${CR.foot === f}" onclick="CR.foot='${f}';screenCreate()">${f}</button>`).join("")}</div></div>
-        </div>
-        <label>Nationality</label><div class="seg wrap">${HOME_NATS.map(n => `<button aria-pressed="${CR.nat === n}" onclick="CR.nat='${n}';screenCreate()">${NAMES[n].n}</button>`).join("")}</div>
-        <label>Position</label><div class="seg wrap">${POS_ORDER.map(k => `<button aria-pressed="${CR.pos === k}" onclick="CR.pos='${k}';screenCreate()">${POS[k].name}</button>`).join("")}</div>
-        <p class="muted small">${esc(POS[CR.pos].blurb)}</p>
-        <div class="pos-mix">${(() => { const mix = MOMENT_MIX[CR.pos] || MOMENT_MIX.ST;
-          const shoot = mix.run + mix.wing + mix.oneonone + mix.edge + mix.penalty + mix.freekick;
-          const total = Object.values(mix).reduce((a, b) => a + b, 0);
-          const pct = Math.round(100*shoot/total);
-          return `<span>In a game</span><div class="meter thin"><i style="width:${pct}%"></i></div><b>${pct}% chances on goal</b>`; })()}</div>
-        <p class="muted small">You start at 17 in Romanian Liga 4, whatever your nationality. You can ask the manager to move you up or down the pitch later in your career.</p>
-      </div>
-      <div class="card glass">
-        <div class="row between"><h3>Starting abilities</h3><span class="pill">${CR.pts} points left</span></div>
-        ${SKILLS.map(([k,n,d]) => `<div class="skillrow"><div><b>${n}</b><div class="muted small">${d}</div></div><div class="sv">${baseOf(k) + CR.alloc[k]}</div>
-          <div class="row gap6"><button class="btn sm ghost" onclick="A.alloc('${k}',-1)">−</button><button class="btn sm ghost" onclick="A.alloc('${k}',1)">+</button></div></div>`).join("")}
+  if (looks){
+    CR.look = lookSane(CR.look, "p:" + CR.seed);
+    LK.draft = CR.look; LK.where = "create"; LK.only = CR.lookSec;
+    // before there is a career: your chosen number on the back, a plain blue kit until a club signs you
+    LK.o = {number:clamp(Math.round(num(+CR.number, 9)), 1, 99), age:17, kit:["#2c66b8", "#ffffff"], seed:7};
+  }
+  const t = CR.tab, idx = CC_TABS.findIndex(x => x[0] === t);
+  const nav = `<nav class="cc-tabs" role="tablist">${CC_TABS.map(([k, n], i) => `<button role="tab" aria-selected="${k === t}" onclick="A.ccTab('${k}')"><i>${i + 1}</i>${n}</button>`).join("")}</nav>`;
+  const stage = looks ? `<div class="cc-stage card glass">${lkStageHTML()}
+      <div class="cc-plate"><b id="ccName">${esc(CR.name.trim() || "Your name")}</b><span><em id="ccNum">#${CR.number}</em> · <em class="cc-posb">${CR.pref}</em> ${esc(POSITIONS[CR.pref].name)}</span></div></div>`
+    : `<div class="cc-stage card glass cc-noprev"><div class="cc-plate"><b id="ccName">${esc(CR.name.trim() || "Your name")}</b><span><em id="ccNum">#${CR.number}</em> · ${esc(POSITIONS[CR.pref].name)}</span></div></div>`;
+  render(`<section class="page create cc"><div class="page-inner">
+    <div class="cc-head"><div><div class="eyebrow">New career</div><h1>Create your player</h1></div>${nav}</div>
+    <div class="cc-grid">${stage}
+      <div class="cc-panel card glass">${ccPanel(t)}
+        <div class="cc-foot"><button class="btn ghost" onclick="${idx > 0 ? `A.ccTab('${CC_TABS[idx - 1][0]}')` : "screenTitle()"}">${idx > 0 ? "← Back" : "Cancel"}</button><span class="grow"></span>
+          ${idx < CC_TABS.length - 1 ? `<button class="btn ghost" onclick="A.ccTab('${CC_TABS[idx + 1][0]}')">Next: ${CC_TABS[idx + 1][1]} →</button>` : ""}
+          <button class="btn" onclick="A.startCareer()">Find a club →</button></div>
       </div>
     </div>
-    ${looks ? lookCreateHTML(CR.look) : ""}
-    <div class="row gap10"><button class="btn lg" onclick="A.startCareer()">Find a club →</button><button class="btn lg ghost" onclick="screenTitle()">Back</button></div>
   </div></section>`, "create");
   if (looks) lookCreateMount();
+}
+function ccPanel(t){
+  if (t === "pos") return ccPosHTML();
+  if (t === "look") return ccLookHTML();
+  if (t === "skills"){
+    const baseOf = k => 24 + (POS[CR.pos].bonus[k] || 0);
+    return `<div class="row between"><h3>Starting abilities</h3><span class="pill">${CR.pts} points left</span></div>
+      <p class="muted small">Your position gives you a head start in what it needs. Spread the rest where you like.</p>
+      <div class="cc-skills">${SKILLS.map(([k, n, d]) => `<div class="skillrow"><div><b>${n}</b><div class="muted small">${d}</div></div><div class="sv">${baseOf(k) + CR.alloc[k]}${POS[CR.pos].bonus[k] ? `<small class="cc-bon">+${POS[CR.pos].bonus[k]}</small>` : ""}</div>
+        <div class="row gap6"><button class="btn sm ghost" aria-label="Less ${esc(n)}" onclick="A.alloc('${k}',-1)">−</button><button class="btn sm ghost" aria-label="More ${esc(n)}" onclick="A.alloc('${k}',1)">+</button></div></div>`).join("")}</div>`;
+  }
+  return `<h3>Who you are</h3>
+    <label>Name</label><input id="nm" type="text" maxlength="24" placeholder="e.g. Andrei Popa" value="${esc(CR.name)}" oninput="A.ccName(this.value)">
+    <div class="row gap10">
+      <div class="grow"><label>Shirt number</label><input type="number" min="1" max="99" value="${CR.number}" oninput="A.ccNumber(this.value)"></div>
+      <div class="grow"><label>Strong foot</label><div class="seg">${["Right", "Left"].map(f => `<button aria-pressed="${CR.foot === f}" onclick="CR.foot='${f}';screenCreate()">${f}</button>`).join("")}</div></div>
+    </div>
+    <label>Nationality</label><div class="seg wrap">${HOME_NATS.map(n => `<button aria-pressed="${CR.nat === n}" onclick="CR.nat='${n}';screenCreate()">${NAMES[n].n}</button>`).join("")}</div>
+    <p class="muted small">You start at 17 in Romanian Liga 4, whatever your nationality.</p>`;
+}
+// the pitch: your goal at the bottom, theirs at the top; click where you want to play
+function ccPosHTML(){
+  const sel = CR.pref, P = POSITIONS[sel], arch = archOf(sel);
+  const mix = MOMENT_MIX[arch] || MOMENT_MIX.ST, shoot = mix.run + mix.wing + mix.oneonone + mix.edge + mix.penalty + mix.freekick;
+  const pct = Math.round(100*shoot/Object.values(mix).reduce((a, b) => a + b, 0));
+  const bon = Object.entries(POS[arch].bonus).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `<span class="pill">${esc(skillName(k))} +${v}</span>`).join("");
+  const alt = (POS_NEAR[sel] || []).slice(0, 3).map(k => `<b>${k}</b>`).join(", ");
+  const marks = POSITION_ORDER.map(k => { const Q = POSITIONS[k], gk = k === "GK";
+    return `<button class="pp-m${k === sel ? " on" : ""}${gk ? " off" : ""}" style="left:${Q.x}%;top:${100 - Q.y}%" aria-pressed="${k === sel}"
+      ${gk ? `disabled title="Goalkeeper careers are not playable yet"` : `title="${esc(Q.name)}" onclick="A.ccPos('${k}')"`}>${k}</button>`; }).join("");
+  return `<div class="row between"><h3>Preferred position</h3><span class="pill">${esc(POS[arch].name)} role</span></div>
+    <div class="pp"><div class="pp-pitch" role="group" aria-label="Pick your position on the pitch">
+        <div class="pp-l pp-half"></div><div class="pp-l pp-circle"></div><div class="pp-l pp-box t"></div><div class="pp-l pp-box b"></div>
+        <div class="pp-l pp-six t"></div><div class="pp-l pp-six b"></div><span class="pp-att">Attack ↑</span>${marks}</div>
+      <div class="pp-info"><div class="pp-code">${sel}</div><h4>${esc(P.name)}</h4>
+        <p class="muted small">${esc(POS[arch].blurb)}</p>
+        <div class="pos-mix"><span>In a game</span><div class="meter thin"><i style="width:${pct}%"></i></div><b>${pct}% chances on goal</b></div>
+        <div class="pp-bon">${bon}</div>
+        <p class="muted small">This is where you want to play. Every club has its own shape: if yours has no ${sel}, the manager plays you in the nearest role${alt ? ` (${alt})` : ""}. You can ask him to move you later.</p>
+      </div></div>`;
+}
+function ccLookHTML(){
+  if (!(typeof lookFormHTML === "function" && location.protocol !== "file:")) return `<h3>Appearance</h3><p class="muted">The 3D preview needs the game served over http(s). You can change your look later at the mirror at home.</p>`;
+  return `<div class="row between"><h3>Appearance</h3><button class="btn sm ghost" onclick="lkRandom()">🎲 Randomise</button></div>
+    <div class="seg wrap cc-sub" role="tablist">${CC_LOOK.map(([k, n]) => `<button role="tab" aria-selected="${k === CR.lookSec}" aria-pressed="${k === CR.lookSec}" onclick="A.ccLook('${k}')">${n}</button>`).join("")}</div>
+    <div class="lk-ctl cc-ctl" id="lkCtl">${lookFormHTML(CR.look, CR.lookSec)}</div>
+    <p class="muted small">You can change all of this later — the mirror at home, or the barber in town for a new cut.</p>`;
 }
 function screenOffers(){
   setPhoneVisible(false);
@@ -323,7 +371,7 @@ function renderHubInner(){
     <main class="hub-grid">
       <section class="card glass me-card rise">
         <div class="row gap10"><div class="ovr-ring" style="--p:${overall()}"><b>${overall()}</b><span>OVR</span></div>
-          <div><h2>${esc(S.player.name)}</h2><div class="muted">#${S.player.number} · ${POS[S.player.pos].name} · ${S.player.age} · ${NAMES[S.player.nat].n}</div>
+          <div><h2>${esc(S.player.name)}</h2><div class="muted">#${S.player.number} · ${esc(teamPosText())} · ${S.player.age} · ${NAMES[S.player.nat].n}</div>
           <div class="row gap6 wrap" style="margin-top:6px"><span class="pill">${ROLE[currentRole()]}</span>${inj ? `<span class="pill bad">Injured · ${me.inj} wk</span>` : ""}${(S.ban || 0) > 0 ? `<span class="pill bad">Suspended · ${S.ban}</span>` : ""}${(S.cards && S.cards.run) ? `<span class="pill">🟨 ${S.cards.run}</span>` : ""}${S.sp ? `<span class="pill gold">${S.sp} skill points</span>` : ""}</div></div></div>
         <div class="meter-row"><span>Energy</span><div class="meter energy"><i style="width:${S.energy}%"></i></div><b>${Math.round(S.energy)}</b></div>
         ${life ? `<div class="meter-row"><span>Fatigue</span><div class="meter fatigue"><i style="width:${num(S.fatigue, 0)}%"></i></div><b>${Math.round(num(S.fatigue, 0))}</b></div>
@@ -672,8 +720,16 @@ const A = {
     confirmBox(`Delete slot ${n}?`, `${esc(m.name)} · ${esc(m.club)} · ${m.apps} matches, ${playTime(m.ms)} played. This can't be undone.`, () => { deleteSlot(n); toast("Save deleted."); screenTitle(); });
   },
   alloc(k, d){ if (d > 0 && CR.pts <= 0) return; if (d < 0 && CR.alloc[k] <= 0) return; CR.alloc[k] += d; CR.pts -= d; screenCreate(); },
+  ccTab(t){ CR.tab = t; if (t === "pos" && typeof lkKind === "function" && LK.kind !== "training") lkKind("training");
+    if (t !== "look" && LK.view !== "front" && typeof lkView === "function") lkView("front"); screenCreate(); },
+  ccLook(k){ CR.lookSec = k; LK.only = k; const c = $("#lkCtl"); if (c){ c.innerHTML = lookFormHTML(CR.look, k); for (const b of document.querySelectorAll(".cc-sub button")){ const on = b.getAttribute("onclick").includes(`'${k}'`); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-selected", String(on)); } }
+    if (typeof lkView === "function") lkView(k === "face" || k === "hair" || k === "beard" ? "face" : "front");
+    if (k === "clothes" && typeof lkKind === "function") lkKind("casual"); },
+  ccPos(k){ if (!POSITIONS[k] || k === "GK") return; CR.pref = k; CR.pos = archOf(k); screenCreate(); },
+  ccName(v){ CR.name = v; const e = $("#ccName"); if (e) e.textContent = v.trim() || "Your name"; },
+  ccNumber(v){ CR.number = clamp(+v || 9, 1, 99); const e = $("#ccNum"); if (e) e.textContent = "#" + CR.number; if (LK.o){ LK.o.number = CR.number; if (typeof lkUpdate === "function") lkUpdate(); } },
   startCareer(){
-    const name = (CR.name || "").trim(); if (!name){ toast("Give your player a name first."); $("#nm").focus(); return; }
+    const name = (CR.name || "").trim(); if (!name){ toast("Give your player a name first."); if (CR.tab !== "you") A.ccTab("you"); const n = $("#nm"); if (n) n.focus(); return; }
     CR.name = name;
     render(`<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world — clubs, squads, fixtures…</p></div></section>`);
     setTimeout(() => { newCareer(CR); save(); screenOffers(); }, 50);

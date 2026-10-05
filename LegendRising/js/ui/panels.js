@@ -114,7 +114,7 @@ function pcCareer(){
       <div class="pc-stats"><span><b>${cm.apps}</b>apps</span><span><b>${cm.goals}</b>goals</span><span><b>${cm.assists}</b>assists</span><span><b>${cm.motm}</b>MotM</span></div></div>
   </div>
   <div class="pc-card"><div class="pc-h">Reputation</div><div class="pc-row"><span>League</span><b>${fmt(me.rep)}</b></div><div class="pc-row"><span>World</span><b>${fmt(me.wrep)}</b></div>
-    <div class="pc-row"><span>Position</span><b>${POS[S.player.pos].name}</b></div><div class="pc-row"><span>Age</span><b>${S.player.age}</b></div></div>`;
+    <div class="pc-row"><span>Position</span><b>${esc(POSITIONS[S.player.teamPos] ? POSITIONS[S.player.teamPos].name : POS[S.player.pos].name)}</b></div>${S.player.pref && S.player.pref !== S.player.teamPos ? `<div class="pc-row"><span>Preferred</span><b>${esc(POSITIONS[S.player.pref].name)}</b></div>` : ""}<div class="pc-row"><span>Age</span><b>${S.player.age}</b></div></div>`;
 }
 function pcYou(){
   const T = S.traits;
@@ -254,7 +254,7 @@ function tomorrowLine(){
 /* The appearance editor: in the world (the bathroom mirror, the computer) it is a panel; on the creation screen the
    same controls sit in a card. Every control edits LK.draft and the preview follows; nothing is kept until "Save".
    The 3D preview is js/life/look.js (window.LookPreview), a canvas of its own. */
-const LK = {draft:null, kind:"casual", view:"front", where:"", saved:false, o:null};
+const LK = {draft:null, kind:"casual", view:"front", where:"", saved:false, o:null, only:null};
 const lkHex = c => "#" + (num(c, 0) >>> 0).toString(16).padStart(6, "0").slice(-6);
 function lkPreview(){
   const el = document.getElementById("lkStage"); if (!el || !LK.draft) return;
@@ -266,29 +266,26 @@ function lkUpdate(){ if (window.LookPreview) window.LookPreview.update(LK.draft,
 const lkSw = (key, list, cur, label) => `<div class="lk-sw" role="group" aria-label="${esc(label)}">${list.map((c, i) => `<button style="--c:${lkHex(c)}" aria-label="${esc(label)} ${i + 1} of ${list.length}" aria-pressed="${c === cur}" onclick="lkSet('${key}',${c},this)"></button>`).join("")}</div>`;
 const lkChips = (key, list, cur, label) => `<div class="seg wrap lk-chips" role="group" aria-label="${esc(label)}">${list.map(([v, n]) => `<button aria-pressed="${v === cur}" onclick="lkSet('${key}','${v}',this)">${esc(n)}</button>`).join("")}</div>`;
 const lkRow = (label, inner, right) => `<div class="lk-row"><div class="lk-lab"><span>${esc(label)}</span>${right ? `<b>${right}</b>` : ""}</div>${inner}</div>`;
-function lookFormHTML(L){
+// the editor's sections; only: one of them ("body" | "face" | "hair" | "beard" | "clothes"), or all of them grouped
+function lookFormHTML(L, only){
   const F = L.face || {}, O = LOOK_OPT;
   const faceEnds = {jaw:["Narrow", "Wide"], chin:["Short", "Long"], nose:["Small", "Large"], brow:["Soft", "Strong"], eyes:["Close", "Wide apart"]};
-  return `<section class="lk-sec"><h4>Body</h4>
-      ${lkRow("Skin tone", lkSw("skin", O.skin, L.skin, "Skin tone"))}
-      ${lkRow("Build", lkChips("build", O.build, L.build, "Build"))}
-      ${lkRow("Height", `<input type="range" class="lk-range" min="${O.height[0]}" max="${O.height[1]}" step=".01" value="${num(L.height, 1)}" aria-label="Height" oninput="lkHeight(this.value)">`, `<span id="lkCm">${Math.round(180*num(L.height, 1))} cm</span>`)}
-    </section>
-    <section class="lk-sec"><h4>Hair</h4>
-      ${lkRow("Style", lkChips("hair", O.hair, L.hair, "Hairstyle"))}
-      ${lkRow("Colour", lkSw("hairColor", O.hairColor, L.hairColor, "Hair colour"))}
-      ${lkRow("Facial hair", lkChips("beard", O.beard, L.beard, "Facial hair"))}
-    </section>
-    <section class="lk-sec"><h4>Face</h4>
-      ${O.face.map(([k, n, a, b]) => lkRow(n, `<div class="lk-slide"><em>${faceEnds[k][0]}</em><input type="range" class="lk-range" min="${a}" max="${b}" step=".06" value="${num(F[k], 1)}" aria-label="${esc(n)}" oninput="lkFace('${k}',this.value)"><em>${faceEnds[k][1]}</em></div>`)).join("")}
-      ${lkRow("Eyes", lkSw("eyes", O.eyes, L.eyes, "Eye colour"))}
-    </section>
-    <section class="lk-sec"><h4>Off the pitch</h4>
-      ${lkRow("Top", lkChips("top", O.top, L.top, "Top") + lkSw("topCol", O.topCol, L.topCol, "Top colour"))}
-      ${lkRow("Bottoms", lkChips("legs", O.legs, L.legs, "Bottoms") + lkSw("legCol", O.legCol, L.legCol, "Bottoms colour"))}
-      ${lkRow("Shoes", lkSw("shoeCol", O.shoeCol, L.shoeCol, "Shoe colour"))}
-      <p class="lk-note">On the pitch and at training you wear the club's kit with your number.</p>
-    </section>`;
+  const part = {
+    body:() => lkRow("Skin tone", lkSw("skin", O.skin, L.skin, "Skin tone")) + lkRow("Build", lkChips("build", O.build, L.build, "Build"))
+      + lkRow("Height", `<input type="range" class="lk-range" min="${O.height[0]}" max="${O.height[1]}" step=".01" value="${num(L.height, 1)}" aria-label="Height" oninput="lkHeight(this.value)">`, `<span id="lkCm">${Math.round(180*num(L.height, 1))} cm</span>`),
+    face:() => O.face.map(([k, n, a, b]) => lkRow(n, `<div class="lk-slide"><em>${faceEnds[k][0]}</em><input type="range" class="lk-range" min="${a}" max="${b}" step=".06" value="${num(F[k], 1)}" aria-label="${esc(n)}" oninput="lkFace('${k}',this.value)"><em>${faceEnds[k][1]}</em></div>`)).join("")
+      + lkRow("Eyes", lkSw("eyes", O.eyes, L.eyes, "Eye colour")),
+    hair:() => lkRow("Style", lkChips("hair", O.hair, L.hair, "Hairstyle")) + lkRow("Colour", lkSw("hairColor", O.hairColor, L.hairColor, "Hair colour")),
+    beard:() => lkRow("Facial hair", lkChips("beard", O.beard, L.beard, "Facial hair")),
+    clothes:() => lkRow("Top", lkChips("top", O.top, L.top, "Top") + lkSw("topCol", O.topCol, L.topCol, "Top colour"))
+      + lkRow("Bottoms", lkChips("legs", O.legs, L.legs, "Bottoms") + lkSw("legCol", O.legCol, L.legCol, "Bottoms colour"))
+      + lkRow("Shoes", lkSw("shoeCol", O.shoeCol, L.shoeCol, "Shoe colour")) + `<p class="lk-note">On the pitch and at training you wear the club's kit with your number.</p>`
+  };
+  if (only && part[only]) return `<section class="lk-sec">${part[only]()}</section>`;
+  return `<section class="lk-sec"><h4>Body</h4>${part.body()}</section>
+    <section class="lk-sec"><h4>Hair</h4>${part.hair()}${part.beard()}</section>
+    <section class="lk-sec"><h4>Face</h4>${part.face()}</section>
+    <section class="lk-sec"><h4>Off the pitch</h4>${part.clothes()}</section>`;
 }
 // one control changed: the draft, the pressed state in its group, the preview
 function lkSet(key, v, el){
@@ -313,7 +310,7 @@ function lkRandom(){
   if (!LK.draft) return;
   const fresh = lookDefault("r" + Date.now() + Math.random());
   for (const k of Object.keys(fresh)) LK.draft[k] = fresh[k];
-  const c = document.getElementById("lkCtl"); if (c) c.innerHTML = lookFormHTML(LK.draft);
+  const c = document.getElementById("lkCtl"); if (c) c.innerHTML = lookFormHTML(LK.draft, LK.only);
   lkUpdate();
 }
 const lkStageHTML = () => `<div class="lk-side">
@@ -321,21 +318,12 @@ const lkStageHTML = () => `<div class="lk-side">
     <div class="lk-bar"><div class="seg lk-views" role="group" aria-label="View">${[["front", "Front"], ["side", "Side"], ["back", "Back"], ["face", "Face"]].map(([v, n]) => `<button data-v="${v}" aria-pressed="${LK.view === v}" onclick="lkView('${v}')">${n}</button>`).join("")}</div>
       <div class="seg lk-kind" role="group" aria-label="Outfit">${[["casual", "Casual"], ["training", "Kit"]].map(([v, n]) => `<button data-v="${v}" aria-pressed="${LK.kind === v}" onclick="lkKind('${v}')">${n}</button>`).join("")}</div></div>
   </div>`;
-// the creation screen's card (main.js puts it in the page and calls lookCreateMount() once it is drawn)
-function lookCreateHTML(L){
-  LK.draft = L; LK.where = "create";
-  // before there is a career: your chosen number on the back, a plain blue kit until a club signs you
-  LK.o = {number:typeof CR === "object" && CR ? clamp(Math.round(num(+CR.number, 9)), 1, 99) : 9, age:17, kit:["#2c66b8", "#ffffff"], seed:7};
-  return `<div class="card glass lk-create"><div class="row between"><h3>Appearance</h3><span class="pill">Optional</span></div>
-    <p class="muted small">How you look in the 3D world and in kit. You can change it later at the mirror at home.</p>
-    <div class="lk-main">${lkStageHTML()}<div class="lk-ctl" id="lkCtl">${lookFormHTML(L)}</div></div>
-    <div class="row gap10"><button class="btn sm ghost" onclick="lkRandom()">🎲 Randomise</button></div></div>`;
-}
+// the creation screen (main.js) draws lkStageHTML() and the form itself, then calls this once the page is up
 function lookCreateMount(){ if (LK.where === "create") lkPreview(); }
 /* the panel: where = "mirror" | "pc" */
 function openLookEditor(where){
   if (!S || !S.player) return;
-  LK.where = where || "mirror"; LK.saved = false; LK.view = "front"; LK.kind = "casual"; LK.o = null;
+  LK.where = where || "mirror"; LK.saved = false; LK.view = "front"; LK.kind = "casual"; LK.o = null; LK.only = null;
   LK.draft = JSON.parse(JSON.stringify(lookSane(S.player.look, lookSeedOf(S))));
   lpShow("look", `<div class="lk">${lpHead("Your look", where === "pc" ? "Appearance" : "Bathroom mirror")}
     <div class="lk-main">${lkStageHTML()}<div class="lk-ctl" id="lkCtl">${lookFormHTML(LK.draft)}</div></div>

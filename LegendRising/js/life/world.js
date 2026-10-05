@@ -267,7 +267,8 @@ window.lifeModalSet = on => {
 };
 const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:() => LIFE.min,
   wait:where => openWait(where), reps, drill, session, computer:where => openComputer(where), shop:() => openShop("market"), vend:() => openShop("vend"),
-  water, work, bath, iceBath, warm:() => warm(), look:() => { if (typeof openLookEditor === "function") openLookEditor("mirror"); }};
+  water, work, bath, iceBath, warm:() => warm(), look:() => { if (typeof openLookEditor === "function") openLookEditor("mirror"); },
+  barber:() => { if (typeof openBarber === "function") openBarber(); }};
 
 /* ---------- zones ---------- */
 function clearScene(){

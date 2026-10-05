@@ -16,8 +16,8 @@
        in a dark suit or long coat, with a tie and glasses: the one face at the club you know from across the room.
    look = {
      sex:"m"|"f", age, skin (hex), height (≈.92–1.08, scales the whole body), build:"slim"|"average"|"athletic"|"stocky"|"muscular",
-     hair:"short"|"fade"|"buzz"|"curly"|"afro"|"long"|"ponytail"|"bun"|"braids"|"cornrows"|"dreads"|"messy"|"bald"|"horseshoe",
-     hairColor (hex), beard:""|"stubble"|"beard", eyes (iris hex), receding (0..1),
+     hair:"short"|"fade"|"buzz"|"curly"|"afro"|"long"|"ponytail"|"bun"|"braids"|"cornrows"|"dreads"|"messy"|"bald"|"horseshoe"
+       |"undercut"|"slick"|"spiky"|"mohawk" (the barber's), hairColor (hex), beard:""|"stubble"|"beard"|"goatee"|"full", eyes (iris hex), receding (0..1),
      face:{jaw, nose, brow, eyes}  (each ≈ .9–1.12, eyes = spacing),
      outfit:{type:"kit"|"training"|"gk"|"tracksuit"|"casual"|"polo"|"hoodie"|"jacket"|"suit"|"coat"|"apron"|"office",
              shirt, trim, shorts, trousers, socks, sockTrim, shoes, sole, stripe, number, numCol, bib (colour or false),
@@ -689,7 +689,7 @@ function build(look, det, noHead){
     if (specs) G.hit = [];
     hair(G, D, F, look, hf, near);
     if (specs){ const hairHit = G.hit; G.hit = null; glasses(G, D, F, headHit, headHit.concat(hairHit)); }
-    if (look.beard === "beard") beard(G, D, hf, near);
+    if (look.beard === "beard" || look.beard === "goatee" || look.beard === "full") beard(G, D, hf, near, look.beard);
   }
   return {G, torsoHit, D, hem};
 }
@@ -739,7 +739,7 @@ function face(G, D, F, look, hit, hf, lite = false){
   const onF = (x, y, lift) => { const o = [hc[0] + x*hs, hc[1] + y*hs, 2], t = ray(hit, o, [0, 0, -1]); return t < 0 ? null : [o[0], o[1], 2 - t + lift, HEADW]; };
   const poly = (pts, lift, slot, sh = 1, out = [0, 0, 1]) => { const P = pts.map(p => onF(p[0], p[1], lift)); if (P.some(p => !p)) return; const c = P.reduce((s, p) => [s[0] + p[0]/P.length, s[1] + p[1]/P.length, s[2] + p[2]/P.length], [0, 0, 0]); c.push(HEADW);
     for (let i = 0; i < P.length; i++) G.tri(c, P[i], P[(i + 1) % P.length], slot, sh, sh, sh, out); };
-  const beardLift = look.beard === "beard" ? .008 : 0;
+  const beardLift = look.beard === "full" ? .013 : look.beard === "beard" || look.beard === "goatee" ? .008 : 0;
   for (const s of [1, -1]){
     const ex = s*es, ey = .004;
     const white = [], iris = [], lid = [];
@@ -857,6 +857,11 @@ function hair(G, D, F, look, hf, near){
       case "dreads": return t > .97 ? .007 : .016 + .005*bump(r, j);
       case "long": return t > .97 ? (front ? .006 : .005) : .014 - .004*t;
       case "horseshoe": return t > .97 ? .003 : .008;
+      // the barber's cuts: long on top and taken right down at the sides; swept back flat; tufted; a crest front to back
+      case "undercut": return t < .5 ? (t > .38 ? .012 : .026 + (front ? .009 : 0) + .003*bump(r, j)) : .0026;
+      case "slick": return t > .97 ? (front ? .007 : .004) : .012 + (front && t > .55 ? .005 : 0) - .003*t;
+      case "spiky": return t > .97 ? (front ? .01 : .004) : .016 + .02*Math.abs(bump(r, j)) + (front ? .004 : 0);
+      case "mohawk": { const side = t*Math.abs(Math.sin(lon*D2R)); return side < .2 ? .034 - .05*side + .006*bump(r, j) : .0024; }
       default: return t > .97 ? (front ? .009 : .004) : lerp(.017, .009, t) + (front && t > .6 ? .004 : 0);
     }
   };
@@ -952,15 +957,16 @@ function under(a, b, c, out){
 const p0y = (R, rows) => { let y = 0, n = 0; for (const p of R[rows].v) if (p){ y += p[1]; n++; } return n ? y/n : 0; };
 // a short beard over the jaw and chin, with the moustache; the mouth is lifted above it
 const BEARDLINE = [[0, -27], [16, -29], [30, -38], [52, -31], [72, -12], [100, -2]];
-function beard(G, D, hf, near){
-  const cols = near ? 12 : 6, rows = near ? 4 : 2, R = [];
+// kind: "beard" (short, ear to ear), "full" (thicker and lower), "goatee" (the chin and the moustache only)
+function beard(G, D, hf, near, kind = "beard"){
+  const cols = near ? 12 : 6, rows = near ? 4 : 2, R = [], span = kind === "goatee" ? 30 : 100, deep = kind === "full" ? .0115 : .0065;
   const top = lon => { const x = Math.abs(lon); for (let i = 1; i < BEARDLINE.length; i++) if (x <= BEARDLINE[i][0]) return lerp(BEARDLINE[i - 1][1], BEARDLINE[i][1], (x - BEARDLINE[i - 1][0])/(BEARDLINE[i][0] - BEARDLINE[i - 1][0])); return -2; };
   // down over the jaw to just under it (not round under the chin to the throat, where it would only be seen in shadow)
-  const bot = lon => lerp(-68, -50, Math.abs(lon)/100);
+  const bot = lon => lerp(kind === "full" ? -74 : -68, kind === "full" ? -54 : -50, Math.abs(lon)/100);
   for (let r = 0; r <= rows; r++){
     const t = r/rows, v = [];
-    for (let j = 0; j <= cols; j++){ const lon = -100 + j*200/cols, lat = lerp(top(lon), bot(lon), Math.pow(t, .8));
-      v.push([...hf(lat*D2R, lon*D2R, r === 0 ? .0018 : .0065 + .002*t), HEADW]); }
+    for (let j = 0; j <= cols; j++){ const lon = -span + j*2*span/cols, lat = lerp(top(lon), bot(lon), Math.pow(t, .8));
+      v.push([...hf(lat*D2R, lon*D2R, r === 0 ? .0018 : deep + .002*t), HEADW]); }
     R.push({v, sh:r === 0 ? .95 : 1 + .12*t});
   }
   for (let i = 0; i < rows; i++) for (let k = 0; k < cols; k++){
@@ -969,7 +975,7 @@ function beard(G, D, hf, near){
   }
   // the lower edge tucks back into the skin, chamfered like the hairline
   for (let k = 0; k < cols; k++){
-    const l0 = -100 + k*200/cols, l1 = l0 + 200/cols, a = R[rows].v[k], b = R[rows].v[k + 1];
+    const l0 = -span + k*2*span/cols, l1 = l0 + 2*span/cols, a = R[rows].v[k], b = R[rows].v[k + 1];
     const A2 = [...hf((bot(l0) - 5)*D2R, l0*D2R, -.001), HEADW], B2 = [...hf((bot(l1) - 5)*D2R, l1*D2R, -.001), HEADW];
     G.quad(a, b, B2, A2, S.hair, 1.1, sub(a, R[rows - 1].v[k]));
   }

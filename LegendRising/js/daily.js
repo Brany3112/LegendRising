@@ -56,6 +56,13 @@ const LOOK_OPT = {
   face:[["jaw", "Jaw", .88, 1.12], ["chin", "Chin", .88, 1.12], ["nose", "Nose", .88, 1.12], ["brow", "Brow", .88, 1.18], ["eyes", "Eye spacing", .94, 1.06]],
   height:[.93, 1.07]                                        // × 1.80 m: 1.67 – 1.93 m
 };
+/* what only the barber does (barber.js in the life world): cuts, beards and dyes that are not on the creation screen.
+   A look may carry them; lookSane keeps them. */
+const LOOK_BARBER = {
+  hair:[["undercut", "Undercut"], ["slick", "Slicked back"], ["spiky", "Spiky"], ["mohawk", "Mohawk"]],
+  beard:[["goatee", "Goatee"], ["full", "Full beard"]],
+  hairColor:[[0xd8b860, "Bleached blonde"], [0xe6dcc4, "Platinum"], [0xa4302a, "Fire red"], [0x2d4f9e, "Electric blue"]]
+};
 // a tiny seeded random for classic scripts (the same sequence for the same seed)
 function lookRng(seed){
   let s = 2166136261; const t = String(seed); for (let i = 0; i < t.length; i++) s = Math.imul(s ^ t.charCodeAt(i), 16777619);
@@ -90,8 +97,8 @@ function lookSane(L, seed){
   const one = (v, list, dv) => list.some(e => e[0] === v) ? v : dv;
   const F = o.face && typeof o.face === "object" ? o.face : {};
   return {v:1, skin:lookCol(o.skin, d.skin), height:+clamp(num(o.height, d.height), O.height[0], O.height[1]).toFixed(3),
-    build:one(o.build, O.build, d.build), hair:one(o.hair, O.hair, d.hair), hairColor:lookCol(o.hairColor, d.hairColor),
-    beard:one(o.beard, O.beard, d.beard), eyes:lookCol(o.eyes, d.eyes),
+    build:one(o.build, O.build, d.build), hair:one(o.hair, O.hair.concat(LOOK_BARBER.hair), d.hair), hairColor:lookCol(o.hairColor, d.hairColor),
+    beard:one(o.beard, O.beard.concat(LOOK_BARBER.beard), d.beard), eyes:lookCol(o.eyes, d.eyes),
     face:Object.fromEntries(O.face.map(([k, , a, b]) => [k, lookFaceStep(num(F[k], d.face[k]), a, b)])),
     top:one(o.top, O.top, d.top), topCol:lookCol(o.topCol, d.topCol), legs:one(o.legs, O.legs, d.legs), legCol:lookCol(o.legCol, d.legCol),
     shoeCol:lookCol(o.shoeCol, d.shoeCol)};

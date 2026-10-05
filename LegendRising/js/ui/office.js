@@ -242,12 +242,17 @@ function takeRaise(){
    A manager will move you one line at a time, and only when he can see a reason: you have played
    enough for him to judge you, he trusts you, and there is room in the side where you want to go. */
 const POS_COOL = 12;                                  // weeks before he will discuss it again
+// the other spots in his shape that are one line from yours (positions.js): deeper, across, or further forward
 function posMoveOptions(){
-  const i = POS_ORDER.indexOf(S.player.pos);
-  const out = [];
-  if (i > 0) out.push({dir:-1, to:POS_ORDER[i - 1], label:"Drop deeper"});
-  if (i >= 0 && i < POS_ORDER.length - 1) out.push({dir:1, to:POS_ORDER[i + 1], label:"Push further forward"});
-  return out;
+  const cur = S.player.teamPos || posOrArch(S.player.pos), i = POS_ORDER.indexOf(archOf(cur)), seen = new Set([cur]), out = [];
+  const slots = myClub() ? formationSlots(myClub()) : POSITION_ORDER;
+  for (const s of slots){
+    if (seen.has(s) || s === "GK") continue; seen.add(s);
+    const j = POS_ORDER.indexOf(archOf(s)), dy = POSITIONS[s].y - POSITIONS[cur].y;
+    if (Math.abs(j - i) > 1) continue;
+    out.push({dir:Math.sign(dy), to:s, label:j < i || dy < -6 ? "Drop deeper" : j > i || dy > 6 ? "Push further forward" : "Switch flank"});
+  }
+  return out.sort((a, b) => Math.abs(POSITIONS[a.to].y - POSITIONS[cur].y) - Math.abs(POSITIONS[b.to].y - POSITIONS[cur].y)).slice(0, 4);
 }
 function posBlock(){
   const c = myClub(); if (!c || !S.contract) return "You need a club before anyone will move you.";
@@ -261,7 +266,7 @@ function posBlock(){
 // how he feels about the move: your form, his trust, and whether that line needs a body
 function posVerdict(to){
   const c = myClub(), me = meP();
-  const want = MY_POS[to];
+  const want = POSITIONS[to] ? POSITIONS[to].world : MY_POS[to];
   const line = q => q.pos === "GK" ? "GK" : (q.pos === "ST" || q.pos === "LW" || q.pos === "RW") ? "FWD" : q.pos;
   const sq = squadOf(c.id).filter(p => !p.me);
   const there = sq.filter(p => line(p) === line({pos:want}));
@@ -275,20 +280,20 @@ function posSheet(){
   if (POS_ANSWER){
     const a = POS_ANSWER; POS_ANSWER = null;
     return `<h2>Where you play</h2><blockquote class="mq">${esc(a.line)}</blockquote>
-      <p class="muted small">${a.ok ? `You are a <b>${esc(POS[a.to].name)}</b> now. Your chances in a game change with the job.` : "Come back when something has changed."}</p>
+      <p class="muted small">${a.ok ? `You play <b>${esc(POSITIONS[a.to].name.toLowerCase())}</b> now. Your chances in a game change with the job.` : "Come back when something has changed."}</p>
       <button class="btn ghost" onclick="openSheet('pos')">Back</button>`;
   }
   const block = posBlock();
   const opts = posMoveOptions();
   const head = `<h2>Where you play</h2>
-    <p class="muted">You are a <b>${esc(POS[S.player.pos].name)}</b>. ${esc(POS[S.player.pos].blurb)}</p>`;
+    <p class="muted">You play <b>${esc(teamPosText())}</b> in his ${esc(clubFormation(myClub()))}. ${esc(POS[S.player.pos].blurb)}</p>`;
   if (block) return `${head}<blockquote class="mq">${esc(block)}</blockquote>`;
   return `${head}<p class="muted small">He will move you one line at a time, and only if he thinks it helps the team.</p>
     <div class="stack">${opts.map(o => {
       const v = posVerdict(o.to);
       return `<button class="opt" onclick="A.askPos('${o.to}')">
-        <b>${esc(o.label)} — ${esc(POS[o.to].name)}</b>
-        <span class="muted small">${esc(POS[o.to].blurb)}</span>
+        <b>${esc(o.label)} — ${esc(POSITIONS[o.to].name)}</b>
+        <span class="muted small">${esc(POS[archOf(o.to)].blurb)}</span>
         <span class="pill">${v.need ? "He is short of bodies there" : v.rival ? `${esc(sname(v.rival))} plays there` : "Nobody is ahead of you"}</span></button>`;
     }).join("")}</div>`;
 }
@@ -304,11 +309,11 @@ function askPos(to){
     save(); openSheet("pos");
     return;
   }
-  S.player.pos = to; me.pos = MY_POS[to];
+  S.player.asked = to; assignTeamPos();             // his slot for you, kept until you change clubs
   S.posCool = gw() + POS_COOL;
   S.trust = Math.max(0, S.trust - 4);                 // a new job, and you start again proving it
-  POS_ANSWER = {ok:true, to, line:`Right. From Saturday you play ${POS[to].name.toLowerCase()}. Show me you can do it.`};
-  addNews("you", `${S.player.name} moves to ${POS[to].name.toLowerCase()}`, `${myClub().nm} give him a new job in the side.`, "me");
+  POS_ANSWER = {ok:true, to, line:`Right. From Saturday you play ${POSITIONS[to].name.toLowerCase()}. Show me you can do it.`};
+  addNews("you", `${S.player.name} moves to ${POSITIONS[to].name.toLowerCase()}`, `${myClub().nm} give him a new job in the side.`, "me");
   save(); renderHub(); openSheet("pos");
 }
 let POS_ANSWER = null;

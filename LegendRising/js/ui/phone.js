@@ -43,7 +43,7 @@ function kpView(){
     case "foodies": return kpFoodiesView();
     case "stats": {
       const s = S.seasonMy, c = S.careerMy, k = S.contract, prog = reqProgress();
-      const lines = [`${S.player.name}`, `${POS[S.player.pos].name} · OVR ${overall()}`, `Club: ${myClub().nm}`, `Rep ${pad5(me.rep)} World ${pad5(me.wrep)}`, "-- SEASON --",
+      const lines = [`${S.player.name}`, `${S.player.teamPos || S.player.pos} · OVR ${overall()}`, `Club: ${myClub().nm}`, `Rep ${pad5(me.rep)} World ${pad5(me.wrep)}`, "-- SEASON --",
         `Apps ${s.apps}  Goals ${s.goals}`, `Assists ${s.assists}  MotM ${s.motm}`, `Dribbles ${s.dribbles}`, `Passes ${s.spass + s.lpass}/${s.passAtt}`, `Avg rating ${s.apps ? (s.ratingSum/s.apps).toFixed(2) : "-"}`,
         "-- CAREER --", `Apps ${c.apps}  Goals ${c.goals}`, `Assists ${c.assists}`, "-- SKILLS --", ...SKILLS.map(([key, n]) => `${n} ${num(S.skills[key], 0)}`),
         "-- TODAY --", `Energy ${Math.round(S.energy)} Fatigue ${Math.round(S.fatigue || 0)}`, `Chemistry ${Math.round(S.chem || 0)}`,

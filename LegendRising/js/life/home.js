@@ -5,6 +5,7 @@ import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, 
 import {ensureHome, unread, owed} from "./rent.js";
 import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, PC} from "./props.js";
 import {miniMarket, workplace} from "./shops.js";
+import {barbershop} from "./barber.js";
 import {fillFridge} from "./fridge.js";
 import {pedestrians, VIEW} from "./npc.js";
 
@@ -1019,7 +1020,8 @@ function streets(){
   // the other blocks on your side and across the road
   const near = [[-31, -16]], far = [[-31, -17], [-15, -2], [0, 14], [16, 30]];
   near.forEach(([x0, x1], i) => block({x0, x1, z0:-9, z1:3}, "+z", C.brick[(i + 1) % C.brick.length], {doorAt:(x1 - x0)*.3}));
-  far.forEach(([x0, x1], i) => block({x0, x1, z0:17, z1:29}, "-z", C.brick[(i + 3) % C.brick.length], {doorAt:(x1 - x0)*.3, floors:i === 2 ? 3 : 4}));
+  far.forEach(([x0, x1], i) => { if (i !== 2) block({x0, x1, z0:17, z1:29}, "-z", C.brick[(i + 3) % C.brick.length], {doorAt:(x1 - x0)*.3, floors:4}); });
+  barbershop(ctx);                                  // the third one across the road: the barber's on its ground floor
   [[-6, 7], [9, 21], [23, 32]].forEach(([z0, z1], i) => block({x0:45, x1:57, z0, z1}, "-x", C.brick[(i + 2) % C.brick.length], {doorAt:(z1 - z0)*.4}));
   // far away blocks so the sky has an edge: a mass, rows of dark windows, a coping
   for (const [x, z, w, d, h] of [[-50, -30, 14, 12, 15], [-20, -32, 16, 12, 18], [10, -34, 14, 12, 15], [40, -30, 14, 12, 21], [-48, 40, 14, 12, 18], [0, 44, 18, 12, 15], [62, 18, 12, 18, 18], [-52, 10, 12, 18, 15]]){
