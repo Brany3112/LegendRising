@@ -13,6 +13,7 @@ import {startDrill, startReps, startSession, drillWarmup} from "./drills.js";
 import {human, animateHuman, BONE, VIEW} from "./human.js";
 import {bodyLook} from "./look.js";
 import {onboardInit, onboardStart, onboardTick, onboardZone} from "./intro.js";
+import * as INV from "./inv.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 export const LIFE = {min:7*60, day:1, wd:0, zone:"home", running:false};
@@ -313,12 +314,13 @@ function clearScene(){
 let spawns = {};
 function enterZone(zone, at){
   if (DRILL) endDrillNow();
-  if (CARRY && CARRY.drop) CARRY.drop(); CARRY = null; HOLD = null; PICK = null;
+  HOLD = null; heldMeshDrop(); flyEnd();
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(scene);
   if (zone === "ground"){ resetHome(); spawns = buildGround(ctx); }
   else { GROUND.fridge = null; spawns = buildHome(ctx); }
   camGridBuild();
+  spawnDrops();
   meBuild();
   renderer.shadowMap.needsUpdate = true;
   const p = typeof at === "object" && at ? at : spawns[at] || spawns[zone === "home" ? "bed" : "bus"];
@@ -483,7 +485,7 @@ const locked = () => !!(window.lifeMoveLocked && window.lifeMoveLocked()) || mod
 const CINE = {on:false, frame:null, me:"hide", meYaw:0, walk:0, shake:0, shakeT:0};
 function cineBegin(o = {}){
   CINE.on = true; CINE.frame = o.frame || null; CINE.me = o.me || "hide"; CINE.meYaw = o.meYaw != null ? o.meYaw : P.yaw; CINE.walk = 0;
-  for (const k in keys) keys[k] = false; grab = null; HOLD = null; PICK = null;
+  for (const k in keys) keys[k] = false; grab = null; HOLD = null;
   P.vx = P.vz = 0; P.speed = 0; P.sprint = 0;
   document.body.classList.add("cine");
 }
@@ -529,12 +531,9 @@ function drillViewStep(dt){
   if (DRILL.props) DRILL.props(h);
 }
 function shake(a = .06, t = .35){ CINE.shake = a; CINE.shakeT = t; }
-/* ---------- holding E (a spot with long:{time, run, label}) and holding the left button (a spot of kind "pick") ----------
-   A tap of E still does what E always did; holding it fills the ring on the prompt and does the long thing when full.
-   Holding the left button on something you can pick up lifts it into your hands; with it in your hands, a click on
-   where it goes (a spot of kind "place" that takes it) puts it there. */
-let HOLD = null, PICK = null, CARRY = null;
-const _ch = new THREE.Vector3(), _cq = new THREE.Quaternion();
+/* ---------- holding E (a spot with long:{time, run, label}) ----------
+   A tap of E still does what E always did; holding it fills the ring on the prompt and does the long thing when full. */
+let HOLD = null;
 function holdStep(dt){
   const p = document.getElementById("lifePrompt");
   if (HOLD){
@@ -546,23 +545,124 @@ function holdStep(dt){
       if (k >= 1){ const sp = HOLD.sp; HOLD = null; HOLD_DONE = true; if (p) p.classList.remove("holding"); sp.long.run(); }
     }
   }
-  if (PICK){
-    if (!MOUSE_L || locked() || held !== PICK.sp) PICK = null;
-    else {
-      PICK.t += dt;
-      const k = Math.min(1, PICK.t/(PICK.sp.time || .45));
-      if (p){ p.style.setProperty("--hold", k.toFixed(3)); p.classList.add("holding"); }
-      if (k >= 1){ const sp = PICK.sp; PICK = null; if (p) p.classList.remove("holding"); CARRY = sp.pick(); if (CARRY) note(CARRY.hint || "Got it."); }
-    }
+  if (!HOLD && p && p.classList.contains("holding")) p.classList.remove("holding");
+  handStep(dt);
+  flyStep(dt);
+}
+/* ---------- what you carry (inv.js): your hand and two pockets ----------
+   A left click on something you can pick up (a spot of kind "pick": its pick() hands over the item) puts it in your
+   hand, if your hand is free. With something in your hand, a left click on where it goes (a spot of kind "place" that
+   takes it) puts it there. 1 / 2 pocket it, G throws it. What is in your hand is drawn in front of you, low and to the
+   right (a big box: in both arms, in front), or in your right hand in third person. */
+const HELD = {it:null, mesh:null};
+const _ch = new THREE.Vector3(), _cq = new THREE.Quaternion(), _ce = new THREE.Euler();
+const takes = (sp, it) => !!it && (typeof sp.takes === "function" ? sp.takes(it) : Array.isArray(sp.takes) ? sp.takes.includes(it.id) : sp.takes === it.id);
+function heldMeshDrop(){ if (HELD.mesh){ if (HELD.mesh.parent) HELD.mesh.parent.remove(HELD.mesh); HELD.mesh.traverse(o => { if (o.geometry) o.geometry.dispose(); }); } HELD.mesh = null; HELD.it = null; }
+function handStep(){
+  const it = INV.hand();
+  if (it !== HELD.it){ heldMeshDrop(); HELD.it = it; if (it){ HELD.mesh = INV.itemMesh(it); HELD.mesh.renderOrder = 5; scene.add(HELD.mesh); } }
+  const m = HELD.mesh; if (!m) return;
+  const d = INV.ITEMS[it.id] || {}, hold = d.hold || {pos:[.2, -.2, -.48], rot:[0, 0, 0]};
+  m.visible = !CINE.on && !(DRILL && DRILL.view);
+  if (ME.tpShown && ME.tp && ME.tp.g.visible){
+    // third person: in the right hand, or held out in front for a box
+    const h = ME.tp;
+    if (d.big){ _ch.set(0, 1.0, .42).applyMatrix4(h.g.matrixWorld); m.position.copy(_ch); m.rotation.set(0, h.g.rotation.y, 0); }
+    else { h.bones[11].getWorldPosition(_ch); m.position.copy(_ch); m.position.y -= .04; m.rotation.set(0, h.g.rotation.y, 0); }
+    return;
   }
-  if (!HOLD && !PICK && p && p.classList.contains("holding")) p.classList.remove("holding");
-  // what you carry rides in front of you, low and to the right
-  if (CARRY && CARRY.mesh){
-    cam.updateMatrixWorld(); _ch.set(.2, -.2, -.48).applyMatrix4(cam.matrixWorld);
-    CARRY.mesh.position.copy(_ch); cam.getWorldQuaternion(_cq); CARRY.mesh.quaternion.copy(_cq);
-    if (CARRY.tilt) CARRY.mesh.rotateX(CARRY.tilt);
+  cam.updateMatrixWorld(); _ch.set(hold.pos[0], hold.pos[1], hold.pos[2]).applyMatrix4(cam.matrixWorld);
+  m.position.copy(_ch); cam.getWorldQuaternion(_cq); m.quaternion.copy(_cq);
+  // a little sway with the head bob, so it is held rather than glued to the screen
+  m.rotateX(hold.rot[0] + B.y*.6); m.rotateY(hold.rot[1]); m.rotateZ(hold.rot[2] + B.x*.4);
+}
+// a click with the left button on what you are looking at
+function clickUse(){
+  const it = INV.hand();
+  if (held && held.kind === "pick"){
+    if (it){ note(`Your hands are full — press 1 or 2 to pocket the ${INV.itemName(it).toLowerCase()}, or G to drop it.`); return true; }
+    const got = held.pick(); if (got){ INV.take(got); if (got.hint) note(got.hint); }
+    return true;
+  }
+  if (held && held.kind === "place" && takes(held, it)){
+    const from = HELD.mesh ? HELD.mesh.getWorldPosition(new THREE.Vector3()) : null;
+    const used = INV.release(); held.place(used, from);
+    return true;
+  }
+  return false;
+}
+/* G: what is in your hand goes, tossed a little way in front of you: it flies, bounces off what it hits, rolls to a
+   stop on the floor and stays there (S.drops), to be picked up again */
+const FLY = [];
+function throwHand(){
+  const it = INV.hand(); if (!it || locked() || DRILL) return;
+  const d = INV.ITEMS[it.id] || {};
+  INV.release();
+  const m = INV.itemMesh(it); scene.add(m);
+  cam.updateMatrixWorld(); cam.getWorldDirection(_d);
+  const from = HELD.mesh ? HELD.mesh.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(P.x, P.eye - .3, P.z);
+  // never start inside a wall: back along the line to your head if anything is in the way
+  const dx = from.x - P.x, dy = from.y - P.eye, dz = from.z - P.z, dl = Math.hypot(dx, dy, dz) || 1;
+  const free = camCast(P.x, P.eye, P.z, dx/dl, dy/dl, dz/dl, dl);
+  if (free < dl) from.set(P.x + dx/dl*Math.max(0, free - .12), P.eye + dy/dl*Math.max(0, free - .12), P.z + dz/dl*Math.max(0, free - .12));
+  m.position.copy(from);
+  const sp = d.big ? 1.6 : 3.4, h = Math.hypot(_d.x, _d.z) || 1;
+  const v = new THREE.Vector3(_d.x/h*sp*Math.max(.35, h) + P.vx*.5, (d.big ? 1.2 : 2.0) + _d.y*2, _d.z/h*sp*Math.max(.35, h) + P.vz*.5);
+  FLY.push({it, m, v, spin:new THREE.Vector3((Math.random() - .5)*8, (Math.random() - .5)*6, (Math.random() - .5)*8), r:d.big ? .3 : .06, zone:LIFE.zone, t:0, still:0});
+  note(`${INV.itemName(it)} dropped. Left click it to pick it back up.`);
+}
+const _fd = new THREE.Vector3();
+function flyStep(dt){
+  for (const f of FLY.slice()){
+    f.t += dt;
+    const v = f.v; v.y -= 9.8*dt;
+    const sp = v.length();
+    if (sp > 1e-4){
+      _fd.copy(v).divideScalar(sp);
+      const want = sp*dt, hit = camCast(f.m.position.x, f.m.position.y, f.m.position.z, _fd.x, _fd.y, _fd.z, want + f.r);
+      if (hit < want + f.r){
+        // which way did it hit: a floor (falling), or a wall (sideways)?
+        const go = Math.max(0, hit - f.r);
+        f.m.position.addScaledVector(_fd, go);
+        if (_fd.y < -.6){ v.y = -v.y*.28; v.x *= .55; v.z *= .55; f.spin.multiplyScalar(.5); }
+        else { v.x = -v.x*.35; v.z = -v.z*.35; if (v.y > 0) v.y *= .5; }
+      } else f.m.position.addScaledVector(v, dt);
+    }
+    // the ground under it (a floor, a step, a stair) or, failing that, the zone's ground
+    const g = surfaceUnder(f.m.position.x, f.m.position.y + .02, f.m.position.z);
+    const floorY = g != null ? g : 0;
+    if (f.m.position.y - f.r*.5 <= floorY && v.y <= 0){
+      f.m.position.y = floorY + (INV.ITEMS[f.it.id] && INV.ITEMS[f.it.id].big ? 0 : f.r*.5);
+      if (Math.abs(v.y) > 1){ v.y = -v.y*.3; v.x *= .6; v.z *= .6; }
+      else { v.y = 0; v.x *= Math.exp(-6*dt); v.z *= Math.exp(-6*dt); }
+      f.spin.multiplyScalar(Math.exp(-5*dt));
+    }
+    f.m.rotation.x += f.spin.x*dt; f.m.rotation.y += f.spin.y*dt; f.m.rotation.z += f.spin.z*dt;
+    f.still = Math.hypot(v.x, v.y, v.z) < .15 ? f.still + dt : 0;
+    if (f.still > .25 || f.t > 6) flyLand(f);
   }
 }
+// at rest: lying where it stopped, flat on its side or its base, and it can be picked up
+function flyLand(f){
+  FLY.splice(FLY.indexOf(f), 1);
+  const big = INV.ITEMS[f.it.id] && INV.ITEMS[f.it.id].big;
+  f.m.rotation.set(big ? 0 : (f.it.id === "paper" ? Math.PI/2 : 0), f.m.rotation.y, 0);
+  const d = {zone:f.zone, x:+f.m.position.x.toFixed(3), y:+f.m.position.y.toFixed(3), z:+f.m.position.z.toFixed(3), ry:+f.m.rotation.y.toFixed(3), rx:+f.m.rotation.x.toFixed(3), item:f.it};
+  INV.addDrop(d);
+  dropSpot(d, f.m);
+}
+// a zone left while something is still in the air: it lands where it is
+function flyEnd(){ for (const f of FLY.slice()){ f.m.position.y = Math.max(0, f.m.position.y); flyLand(f); } }
+function dropSpot(d, m){
+  m.position.set(d.x, d.y, d.z); m.rotation.set(d.rx || 0, d.ry || 0, 0);
+  if (!m.parent) scene.add(m);
+  const bb = new THREE.Box3();
+  W.spots.push({kind:"pick", drop:d, label:INV.itemName(d.item), get hint(){ return d.item.unpaid ? "Not paid for · left click to pick it up" : "Left click to pick it up"; },
+    aim:() => { bb.setFromObject(m); bb.expandByScalar(.06); return [bb.min.toArray(), bb.max.toArray()]; },
+    pick(){ W.spots = W.spots.filter(x => x.drop !== d); INV.removeDrop(d); if (m.parent) m.parent.remove(m); return d.item; }});
+}
+// the things lying about in this zone, put back where they were
+function spawnDrops(){ for (const d of INV.dropsOf(LIFE.zone)) dropSpot(d, INV.itemMesh(d.item)); }
 let MOUSE_L = false, HOLD_DONE = false;
 // exact critically damped spring of x (and its rate v) towards 0 over dt: no overshoot from rest, no frame-rate dependence
 function spring(o, kx, kv, w, dt){
@@ -1225,13 +1325,17 @@ function target(){
   // in third person you aim with the crosshair, but reach from where you stand: the ray starts level with your head
   if (ME.tpShown || ME.camT > 0){ const k = (P.x - _o.x)*_d.x + (P.eye - _o.y)*_d.y + (P.z - _o.z)*_d.z; if (k > 0) _o.addScaledVector(_d, k); }
   let best = null, bt = REACH, bbox = null;
+  // small things win a near tie: something you can pick up, or the place what is in your hand goes, is what you mean
+  // when it lies just in front of (or just behind the front of) something big, like a door
+  const PRIO = .35;
   for (const sp of W.spots){
     if (!sp.aim || (sp.when && !sp.when())) continue;
-    if (sp.kind === "place" && !(CARRY && sp.takes === CARRY.id)) continue;
-    if (sp.kind === "pick" && CARRY) continue;
+    if (sp.kind === "place" && !takes(sp, INV.hand())) continue;
     const box = typeof sp.aim === "function" ? sp.aim() : sp.aim;
     const t = rayBox(_o, _d, box[0], box[1]);
-    if (t < bt){ bt = t; best = sp; bbox = box; }
+    if (t === Infinity) continue;
+    const small = sp.kind === "pick" || sp.kind === "place", bestSmall = best && (best.kind === "pick" || best.kind === "place");
+    if (small && !bestSmall ? t < bt + PRIO : !small && bestSmall ? t < bt - PRIO : t < bt){ bt = t; best = sp; bbox = box; }
   }
   // (anything further along the same ray is behind the same wall, so the nearest is the only one to check; the
   // collision box of the furniture the spot is part of — a fridge round its shelves — is not in the way of it)
@@ -1465,6 +1569,7 @@ export function startLife(opts = {}){
   document.getElementById("lifeRoot").style.display = "block";
   boot();
   FEED.reset(); FEED.moneySync(true); hudCtxT = 0;       // (and the line under the clock is brought up to date at once)
+  INV.render();
   const zone = opts.zone || "home";
   enterZone(zone, opts.at || (zone === "home" ? "bed" : "bus"));
   if (zone === "ground") arriveForTraining();
@@ -1571,10 +1676,9 @@ function bindInput(cv){
     MOUSE_L = true;
     if (CINE.on) return;
     if (held && held.kind === "drag") grab = held;
-    if (held && held.kind === "pick" && !CARRY) PICK = {sp:held, t:0};
-    if (held && held.kind === "place" && CARRY && held.takes === CARRY.id){ const c = CARRY; CARRY = null; held.place(c); }
+    if (!locked() && clickUse()) return;
   });
-  addEventListener("mouseup", e => { if (e.button !== 0) return; MOUSE_L = false; PICK = null; grab = null; if (DRILL && document.pointerLockElement === cv) DRILL.input("up", "mouse"); });
+  addEventListener("mouseup", e => { if (e.button !== 0) return; MOUSE_L = false; grab = null; if (DRILL && document.pointerLockElement === cv) DRILL.input("up", "mouse"); });
   addEventListener("mousemove", e => {
     if (document.pointerLockElement !== cv || locked()) return;
     let mx = e.movementX || 0, my = e.movementY || 0;
@@ -1601,6 +1705,8 @@ function bindInput(cv){
     keys[k === " " ? "space" : k] = true;
     if (k === "h" && !e.repeat){ const el = document.getElementById("lifeKeys"); el.classList.toggle("faded"); keysT = -999; }
     if (k === "v" && !e.repeat) toggleView();
+    if ((k === "1" || k === "2") && !e.repeat && !locked()) INV.swap(+k - 1);
+    if (k === "g" && !e.repeat) throwHand();
     if (k === "e" && !e.repeat && !locked()){ const t = held || target(); HOLD_DONE = false; if (t){ if (t.long) HOLD = {sp:t, t:0}; else use(t); } }
   });
   addEventListener("keyup", e => {
@@ -1609,7 +1715,7 @@ function bindInput(cv){
     if (k === "e" && HOLD){ const h = HOLD; HOLD = null; if (h.t < .35 && !HOLD_DONE && !locked()) use(h.sp); }
     if (DRILL && k === " ") DRILL.input("up", " ");
   });
-  addEventListener("blur", () => { for (const k in keys) keys[k] = false; grab = null; HOLD = null; PICK = null; MOUSE_L = false; });
+  addEventListener("blur", () => { for (const k in keys) keys[k] = false; grab = null; HOLD = null; MOUSE_L = false; });
 }
 window.LIFE = LIFE; window.startLife = startLife; window.stopLife = stop; window.resumeLife = resumeLife;
 // handles for automated tests
@@ -1618,10 +1724,11 @@ onboardInit({
   P, keys, cam:() => cam, scene:() => scene, renderer:() => renderer, place, note, fade, persist, enterZone, warm,
   minute:() => LIFE.min, zone:() => LIFE.zone, spots:() => W.spots, solids:() => W.solids, eye:() => EYE, camCast, sstep,
   cineBegin, cineEnd, cine:CINE, shake, ME, meFade, B, hudReset:() => { lastPrompt = null; hudCtxT = 0; },
-  carrying:() => CARRY, spawn:k => spawns[k], relock:() => { if (window.lifeRelock) window.lifeRelock(); }, mailNews:() => mailNews(), forceSky:() => { forceSky = true; }
+  carrying:() => INV.hand(), spawn:k => spawns[k], relock:() => { if (window.lifeRelock) window.lifeRelock(); }, mailNews:() => mailNews(), forceSky:() => { forceSky = true; }
 });
 
 window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
-  drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep};
+  drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,
+  INV, clickUse, throwHand, get fly(){ return FLY; }};

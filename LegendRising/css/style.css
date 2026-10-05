@@ -1067,7 +1067,27 @@ body:not(.life) .lp-notch, body:not(.life) .lp-away{display:none}
 .lfc-title{font-family:var(--display);font-weight:800;font-size:clamp(1.25rem,2.2vw,1.7rem);letter-spacing:.06em;text-transform:uppercase;color:#fff;line-height:1.05}
 .lfc-sub{font-size:.88rem;color:#c6d4e2;font-weight:600}
 /* narrative notes */
-.lf-note{position:absolute;left:50%;bottom:calc(var(--hud-pad) + 4px);transform:translate(-50%,10px);max-width:min(560px,calc(100vw - 2*(22vw + 48px)));text-align:center;
+/* what you carry: two pockets either side of your hand, along the bottom */
+.lf-inv{position:absolute;left:50%;bottom:calc(var(--hud-pad) + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;align-items:flex-end;gap:8px;
+  pointer-events:none;z-index:3;opacity:.72;transition:opacity .3s}
+.lf-inv.some{opacity:1}
+body.cine .lf-inv,body.drillview .lf-inv,body.hub-out .lf-inv{opacity:0}
+.iv-cell{position:relative;width:62px;height:62px;border-radius:12px;background:rgba(9,15,24,.72);border:1px solid var(--hud-line);display:grid;place-items:center;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .2s,background .2s}
+.iv-cell.hand{width:86px;height:76px;border-color:rgba(200,240,96,.28)}
+.iv-cell.full{background:rgba(16,26,38,.86)} .iv-cell.hand.full{border-color:rgba(200,240,96,.7);box-shadow:0 0 0 1px rgba(200,240,96,.25),0 6px 18px rgba(0,0,0,.35)}
+.iv-cell.unpaid{border-color:rgba(255,170,60,.8)}
+.iv-cell kbd{position:absolute;left:5px;top:4px;font-size:.6rem;padding:0 4px;min-width:0;height:auto;line-height:1.5;border-radius:4px;background:rgba(255,255,255,.14);color:#dfe9f3;box-shadow:none}
+.iv-ico{font-size:1.5rem;line-height:1;margin-top:4px}
+.iv-cell.hand .iv-ico{font-size:1.9rem}
+.iv-nm{position:absolute;left:3px;right:3px;bottom:3px;font-size:.58rem;font-weight:700;text-align:center;color:#c9d6e3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iv-cell em{position:absolute;top:-9px;right:-6px;font-style:normal;font-size:.55rem;font-weight:800;padding:1px 5px;border-radius:6px;background:#f2a43a;color:#1b1206;text-transform:uppercase}
+.iv-cell.pulse{animation:ivPulse .35s var(--ease)} .iv-cell.nope{animation:ivNope .3s ease}
+@keyframes ivPulse{40%{transform:scale(1.1)}}
+@keyframes ivNope{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.iv-keys{position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);display:flex;gap:10px;white-space:nowrap;font-size:.64rem;color:rgba(255,255,255,.66)}
+.iv-keys kbd{font-size:.58rem;padding:0 4px;margin-right:2px}
+.lf-note{position:absolute;left:50%;bottom:calc(var(--hud-pad) + 104px);transform:translate(-50%,10px);max-width:min(560px,calc(100vw - 2*(22vw + 48px)));text-align:center;
   padding:9px 16px;border-radius:12px;background:rgba(9,15,24,.78);border:1px solid var(--hud-line);color:#eef3f8;font-weight:600;font-size:.86rem;line-height:1.35;
   opacity:0;transition:opacity .35s,transform .35s var(--ease);pointer-events:none;z-index:3;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .lf-note.on{opacity:1;transform:translate(-50%,0)}

@@ -3,6 +3,7 @@
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
 import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
+import {onYou} from "./inv.js";
 import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, ball as propBall, PC} from "./props.js";
 import {miniMarket, workplace} from "./shops.js";
 import {barbershop} from "./barber.js";
@@ -706,13 +707,17 @@ export function winRefresh(){
 }
 /* The number on your door. It is on the corridor face of the leaf; a neighbour slamming their door on the first
    morning shakes it off, and from then on it drops off every time your door is opened or closed — and you pick it
-   up (hold the left button) and put it back (click the door). S.home.plate: "door" | "floor"; plateAt where it lies. */
+   up (a left click: it goes in your hand, inv.js) and put it back (click the door with it in your hand).
+   S.home.plate: "door" | "floor" | "carried" (on you, or wherever you dropped it); plateAt where it lies. */
 function plateSetup(D, F, A){
   const h = G().home, pm = D.plate; if (!pm) return;
   pm.material.side = THREE.DoubleSide;
   const local = pm.position.clone(), rotY = pm.rotation.y, floorY = F*LH + .021, out = -A.s;
-  const PL = HOME.plate = {mesh:pm, state:h.plate === "floor" ? "floor" : "door", busy:false, D};
+  // carried off and since lost track of (an older save, or a drop that went missing): it is back on the floor
+  if (h.plate === "carried" && !onYou("plate") && !G().drops.some(d => d.item && d.item.id === "plate")) h.plate = "floor";
+  const PL = HOME.plate = {mesh:pm, state:h.plate === "floor" ? "floor" : h.plate === "carried" ? "carried" : "door", busy:false, D};
   const toFloor = (x, z, r) => { W.scene.attach(pm); pm.position.set(x, floorY + .004, z); pm.rotation.set(-Math.PI/2, 0, r); };
+  if (PL.state === "carried"){ W.scene.attach(pm); pm.visible = false; }
   if (PL.state === "floor"){
     const at = h.plateAt || {x:A.door + .3, z:A.wz - A.s*.1 + out*.45, r:.4};
     toFloor(at.x, at.z, at.r);
@@ -740,15 +745,17 @@ function plateSetup(D, F, A){
   PL.slot = () => { D.g.updateMatrixWorld(true); return D.g.localToWorld(local.clone()); };
   // pick it up from the floor
   const bb = () => { const p = pm.position; return [[p.x - .14, p.y - .02, p.z - .14], [p.x + .14, p.y + .1, p.z + .14]]; };
-  spot({kind:"pick", label:`Room number · ${h.apt}`, hint:"Hold left click to pick it up", aim:bb, when:() => PL.state === "floor", time:.45,
+  spot({kind:"pick", label:`Room number · ${h.apt}`, hint:"Left click to pick it up", aim:bb, when:() => PL.state === "floor",
     pick(){
-      PL.state = "carried";
-      return {id:"plate", mesh:pm, tilt:-.25, hint:`Put it back on your door: aim at the door and click.`,
-        drop(){ if (PL.state === "carried"){ PL.state = "floor"; } }};
+      PL.state = "carried"; h.plate = "carried"; delete h.plateAt; pm.visible = false;
+      return {id:"plate", text:h.apt, hint:`Put it back on your door: aim at the door and click.`};
     }});
   // and back on the door, where it belongs
   spot({kind:"place", takes:"plate", label:`Your door · ${h.apt}`, hint:"Click to put the number back on", get aim(){ const p = PL.slot(); return [[p.x - .3, p.y - .3, p.z - .3], [p.x + .3, p.y + .3, p.z + .3]]; },
-    place(c){
+    place(c, at){
+      // from your hand to the door
+      if (at) pm.position.copy(at);
+      pm.visible = true;
       PL.state = "fixing"; const from = pm.position.clone(), q0 = pm.quaternion.clone(), to = PL.slot();
       D.g.updateMatrixWorld(true); const q1 = new THREE.Quaternion(); D.g.getWorldQuaternion(q1); q1.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)));
       let t = 0;

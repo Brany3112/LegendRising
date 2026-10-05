@@ -294,7 +294,7 @@ window.lifeOnb = ev => {
   const s = G(); if (!s || !s.flags) return;
   if (ev === "plateFell" && !s.flags.ApartmentTutorialCompleted && !OB().fixed){
     OB().stage = "plate"; save();
-    hint(`<span class="oh-mouse"></span><span>Hold <b>Left Click</b> to pick up an object.</span>`);
+    hint(`<span class="oh-mouse click"></span><span><b>Left Click</b> to pick up an object.</span>`);
     goal(`Pick up your room number`, null);
   } else if (ev === "plateFixed" && !s.flags.ApartmentTutorialCompleted){
     OB().fixed = true; OB().stage = "enter"; save();
@@ -507,7 +507,7 @@ export function onboardStart(){
     if (o.fixed || o.slam){ const d = doorPos(); H.place({x:d.x, z:d.z - APT[h.door].s*.6, y:h.floor*LH + .02, yaw:APT[h.door].s > 0 ? Math.PI : 0}); }
     else H.place({x:ENTR.x, z:ENTR.z, y:.12, yaw:0});
     if (o.fixed) goal("Go into your flat", null);
-    else if (o.slam && h.plate === "floor"){ window.lifeOnb("plateFell"); }
+    else if (o.slam && (h.plate === "floor" || h.plate === "carried")){ window.lifeOnb("plateFell"); }
     else goal(`Go up to flat ${h.apt} · floor ${h.floor}`, doorPos());
     return true;
   }
