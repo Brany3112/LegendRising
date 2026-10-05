@@ -1600,3 +1600,5 @@ body.cine #lifeRoot .lf-keys, body.cine #lifeRoot .lf-note, body.cine #lifeRoot 
 .gd-foot{display:flex;justify-content:flex-end;padding-top:12px;margin-top:8px;border-top:1px solid var(--line)}
 .gd-foot .btn{min-width:120px}
 .cine-skip kbd{font:inherit;font-size:.72rem;padding:0 .35em;margin-left:4px;border-radius:5px;background:rgba(255,255,255,.12)}
+.lf-panel.guide .lpn{display:block}
+.gd{display:grid;grid-template-rows:auto minmax(0,1fr) auto;height:100%;min-height:0}
