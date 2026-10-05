@@ -1675,3 +1675,12 @@ body.building #lifeCanvas{cursor:crosshair}
 .bm-cell kbd{position:absolute;left:5px;top:4px;font-size:.58rem;padding:0 4px}
 .bm-cell.on{border-color:var(--lime);box-shadow:0 0 0 2px rgba(200,240,96,.35)} .bm-cell.empty{opacity:.5;cursor:default}
 .bm-keys{position:absolute;left:50%;bottom:var(--hud-pad);transform:translateX(-50%);display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;font-size:.7rem;color:rgba(255,255,255,.8);white-space:nowrap}
+
+/* ---------- the notice board, read (home.js) ---------- */
+.nb-panel{display:grid;grid-template-rows:auto 1fr auto;height:100%;min-height:0}
+.nb-list{display:grid;gap:10px;padding:14px 16px;overflow:auto;align-content:start}
+.nb-item{padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+.nb-item b{display:block;font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:.03em}
+.nb-item p{margin:4px 0 0;font-size:.86rem;color:#c9d6e3;line-height:1.4}
+.nb-item em{display:inline-block;margin-top:6px;font-style:normal;font-size:.72rem;font-weight:700;color:#ffd08a;text-transform:uppercase;letter-spacing:.05em}
+.nb-item.warn{background:rgba(255,90,80,.12);border-color:rgba(255,110,90,.4)} .nb-item.warn b{color:#ffb4ac}

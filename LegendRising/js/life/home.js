@@ -11,6 +11,7 @@ import {furnitureStore} from "./store.js";
 import {fillFridge} from "./fridge.js";
 import {furnish, pieceOf, bedTierNow, footprint, powerOn} from "./furniture.js";
 import {deliveryPoint} from "./parcels.js";
+import {car as carModel} from "./cars.js";
 import {pedestrians, VIEW} from "./npc.js";
 
 const C = {
@@ -25,6 +26,7 @@ const wallTex = c => c === C.brick[4] || c === C.brick[5] ? "paint" : "brick";
 const BLD = {x0:-14, x1:0, z0:-9, z1:3};
 const H4 = 4*LH;
 const G0 = .27;                   // the ground floor of your block: one step up from the pavement
+const LOBBY_WIN = [-7.65, -6.55, .9, 2.35];
 /* the four flats on every floor: front two look onto the street, back two onto the yard */
 export const APT = {
   1:{x0:-13.75, x1:-7.1,  door:-10.4, wz:-2.1, ext:2.75,  s:1},
@@ -248,7 +250,7 @@ function myBlock(F, D){
   // each outer wall in one piece from the ground to the roof: a joint at every storey would be a face seen edge-on
   // right behind the paint inside, and would show through it as a dashed line
   const Ls = [0, 1, 2, 3];
-  wall("x", 2.875, -14, 0, 0, H4, .25, brick, [ENT, ...Ls.flatMap(L => winHoles(L, "front"))], BT);
+  wall("x", 2.875, -14, 0, 0, H4, .25, brick, [ENT, LOBBY_WIN, ...Ls.flatMap(L => winHoles(L, "front"))], BT);
   wall("x", -8.875, -14, 0, 0, H4, .25, brick, [...Ls.flatMap(L => winHoles(L, "back")), ...stairWin(0)], BT);
   wall("z", -13.875, -8.75, 2.75, 0, H4, .25, brick, [], BT);
   wall("z", -0.125, -8.75, 2.75, 0, H4, .25, brick, [], BT);
@@ -267,6 +269,8 @@ function myBlock(F, D){
   for (const side of ["+x", "-x"]){ const g = facer(side, BLD); pilasters(g, 12, H4); if (side === "-x") ladder(g, 2, H4); }
   for (const s of [.18, 13.82]) downpipe(fb, s, H4);
   roofTop(BLD, H4, {wall:brick, tex:"brick"});
+  // the lobby's own window, to the right of the door from the street (the one to climb through when the door's blocked)
+  realWin((LOBBY_WIN[0] + LOBBY_WIN[1])/2, 0, 3, 1, false);
   // the real windows of your flat, and of the stairwell
   winsOf(D).forEach((x, i) => { if (D <= 2) realWin(x, F*LH, 3, 1, i === 0); else realWin(x, F*LH, -9, -1, i === 0); });
   for (let k = 0; k < 3; k++) realWin(-12.75, k*LH + 1.6 + .1, -9, -1);
@@ -286,7 +290,7 @@ function myBlock(F, D){
   box(-9.625, 0, -8.75, -6.1, G0, -4, 0xffffff, {tex:"terrazzo", ao:false, jit:0}); floor(-9.625, -6.1, -8.75, -4, G0);
   box(-13.75, 0, -8.75, -9.625, G0 - .01, -4, C.step, {ao:false, jit:0});
   box(ST.w, 0, ST.mid + 7*.375, ST.f1[1], G0, ST.front, 0xffffff, {tex:"terrazzo", ao:false, jit:0}); floor(ST.w, ST.f1[1], ST.mid + 7*.375, ST.front, G0);
-  twoTone("x", 2.74, -13.75, -6.1, G0, 2.95, [ENT], 0, -1);
+  twoTone("x", 2.74, -13.75, -6.1, G0, 2.95, [ENT, LOBBY_WIN], 0, -1);
   twoTone("z", -13.74, -4, 2.75, G0, 2.95, [], -1, 1);          // closed at -4: the stair's thinner skin carries on from there
   twoTone("z", -6.11, -8.75, 2.75, G0, 2.95, [], 0, -1);
   twoTone("x", -8.74, -9.625, -6.1, G0, 2.95, [], 0, 1);
@@ -315,8 +319,8 @@ function myBlock(F, D){
     skirting("x", -2.32, -13.75, -0.25, base + .02, -1, hf.map(h => [h[0] - .08, h[1] + .08]));
     skirting("x", -3.98, ST.e - .016, -0.25, base + .02, 1, hb.map(h => [h[0] - .08, h[1] + .08]));
     skirting("z", -0.27, -3.99, -2.31, base + .02, -1); skirting("z", -13.73, -3.99, -2.31, base + .02, 1);
-    for (const x of [-11.5, -6.5, -2]){ rbox(x, top - .05, -3.15, .6, .05, .3, .02, 0xfff3d6, {key:"lamp"}); rbox(x, top - .02, -3.15, .66, .02, .36, .01, C.darkMetal); }
-    lightSrc({x:-7, y:top - .3, z:-3.1, color:0xfff0d0, intensity:5, distance:9, indoor:true});
+    for (const x of [-11.5, -6.5, -2]){ rbox(x, top - .05, -3.15, .6, .05, .3, .02, 0xfff3d6, {key:"lampB"}); rbox(x, top - .02, -3.15, .66, .02, .36, .01, C.darkMetal); }
+    lightSrc({x:-7, y:top - .3, z:-3.1, color:0xfff0d0, intensity:5, distance:9, indoor:true, on:powerOn});
     const nb = D === 1 ? 3 : D === 2 ? 4 : D === 3 ? 1 : 2, onb = G().onb || {};
     const slamDue = !onb.slam && G().flags && !G().flags.ApartmentTutorialCompleted;
     for (let d = 1; d <= 4; d++){
@@ -349,8 +353,8 @@ function entrance(){
   doorway("x", z, x0, x1, G0, 2.35, .25, {color:0x2b3036, arch:.1, proud:.04, sill:G0 + .012, sillColor:0x9a958c, key:"metal"});
   // the canopy: a slim slab on two steel brackets, lit from beneath
   rbox(-9.5, 2.88, 3.6, 3.0, .14, 1.3, .05, C.coping, {key:"metal"});
-  lightSrc({x:-9.5, y:2.7, z:3.7, color:0xffe2b0, intensity:4, distance:6});
-  box(-10.0, 2.86, 3.62, -9.0, 2.88, 3.72, 0xfff1d0, {key:"lamp", ao:false, jit:0});
+  lightSrc({x:-9.5, y:2.7, z:3.7, color:0xffe2b0, intensity:4, distance:6, on:powerOn});
+  box(-10.0, 2.86, 3.62, -9.0, 2.88, 3.72, 0xfff1d0, {key:"lampB", ao:false, jit:0});
   for (const x of [-10.75, -8.25]) beam(x, 3.75, 3.0, x, 3.0, 4.15, .03, .03, C.coping, {key:"metal"});     // tie rods to the wall
   // a house number and a buzzer panel
   const t = textTex(128, 64, g => { g.fillStyle = "#1d2328"; g.fillRect(0, 0, 128, 64); g.fillStyle = "#f2efe6"; g.font = "bold 40px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("14", 64, 34); });
@@ -402,10 +406,10 @@ function stairs(){
     if (L < 2) railAcross(S_.f1[1] + .025, S_.f2[0] - .025, S_.front + .03, base + LH, rail, steel, false);
     // two wall lights on the landing, one each side of the well (on the back wall by the east flight, on the west
     // wall by the west one), so each flight's well face is lit from across the well rather than edge-on from over it
-    rbox(-10.6, land + 2.2, S_.back + .07, .5, .12, .12, .04, 0xfff3d6, {key:"lamp"});
-    rbox(S_.w + .07, land + 2.2, -7.9, .12, .12, .5, .04, 0xfff3d6, {key:"lamp"});
-    lightSrc({x:-10.6, y:land + 2.05, z:-8.35, color:0xffe8c8, intensity:4.5, distance:8, indoor:true});
-    lightSrc({x:S_.w + .4, y:land + 2.05, z:-7.9, color:0xffe8c8, intensity:4.5, distance:8, indoor:true});
+    rbox(-10.6, land + 2.2, S_.back + .07, .5, .12, .12, .04, 0xfff3d6, {key:"lampB"});
+    rbox(S_.w + .07, land + 2.2, -7.9, .12, .12, .5, .04, 0xfff3d6, {key:"lampB"});
+    lightSrc({x:-10.6, y:land + 2.05, z:-8.35, color:0xffe8c8, intensity:4.5, distance:8, indoor:true, on:powerOn});
+    lightSrc({x:S_.w + .4, y:land + 2.05, z:-7.9, color:0xffe8c8, intensity:4.5, distance:8, indoor:true, on:powerOn});
   }
   // under the second flight: a store cupboard with a door, closed off from the well
   const P = [[S_.mid, 0], [S_.mid, 1.6 + .178 - .32], [S_.front, LH - .32], [S_.front, 0]];
@@ -646,10 +650,14 @@ export function hingedDoor(o){
     guard.set(ux, uz, D.a > .01, dt);
   });
   const box3 = new THREE.Box3();
-  if (!o.noSpot) spot({kind:"drag", label:o.label || "Door", get hint(){ return D.open ? "Close the door" : "Open the door"; }, y:o.base + 1.2,
+  // a locked door (o.locked: your own, once you have a lock that works and have turned it) does not open
+  const shut = () => !!(o.locked && o.locked());
+  let rattled = 0;
+  const rattle = () => { const t = performance.now(); if (t - rattled > 1200){ rattled = t; if (window.lifeNote) window.lifeNote("It's locked. Press F to unlock it."); } };
+  if (!o.noSpot) spot({kind:"drag", label:o.label || "Door", get hint(){ return shut() ? "Locked · F to unlock" : D.open ? "Close the door" : "Open the door"; }, y:o.base + 1.2,
     aim:() => { g.updateMatrixWorld(); box3.setFromObject(leaf); box3.expandByScalar(.06); return [box3.min.toArray(), box3.max.toArray()]; },
-    spin, get angle(){ return D.a; }, toggle:() => D.toggle(),
-    drag(da){ turnTo(Math.max(0, Math.min(1.75, D.a + da))); D.target = D.a; },
+    spin, get angle(){ return D.a; }, toggle:() => { if (shut()) return rattle(); D.toggle(); },
+    drag(da){ if (shut()){ rattle(); return; } turnTo(Math.max(0, Math.min(1.75, D.a + da))); D.target = D.a; },
     hinge(){ return g.getWorldPosition(new THREE.Vector3()); },
     edge(){ g.updateMatrixWorld(); return g.localToWorld(new THREE.Vector3(W_*.95, 1.0, 0)); }});
   return D;
@@ -781,6 +789,66 @@ function plateSetup(D, F, A){
   let was = D.open;
   W.anims.push(() => { const o = D.open; if (o !== was){ was = o; if (PL.state === "door") PL.fall(); } });
 }
+/* ---------- the lock on your door ----------
+   A new career's lock is broken: the door shuts but never locks. A new one (Mobila Bună, by the till) is fitted by
+   clicking the door with it in your hand; after that F at the door, shut, locks it and unlocks it — the thumb-turn
+   on the inside turns over and a little light by the keyhole shows red (locked) or green. S.home.fx.lock, .locked */
+function doorLock(D, A, base, s){
+  const fx = G().home.fx, W_ = .94, T = .05, out = -s;              // the corridor face of the leaf is on the -s side
+  const g = new THREE.Group(); D.g.add(g);
+  const brass = lmat(0xb38c3e, {metalness:.7, roughness:.35}), old = lmat(0x6e5a3a, {metalness:.4, roughness:.7}), chrome = lmat(0xd5d9dc, {metalness:.85, roughness:.22}), dark = lmat(0x1d1f22);
+  const ledM = new THREE.MeshStandardMaterial({color:0x2a2d30, emissive:0x55ff6a, emissiveIntensity:0});
+  const parts = {old:new THREE.Group(), neu:new THREE.Group()};
+  for (const side of [1, -1]){
+    const z = side*(T/2 + .006);
+    // the old one: a dull escutcheon round an empty, wrenched hole
+    const e = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, .008, 14).rotateX(Math.PI/2), old); e.position.set(W_ - .12, 1.3, z); parts.old.add(e);
+    const hole = new THREE.Mesh(new THREE.CylinderGeometry(.011, .011, .01, 10).rotateX(Math.PI/2), dark); hole.position.set(W_ - .12, 1.3, z + side*.003); parts.old.add(hole);
+    // the new one: a chrome deadlock, a keyhole outside, a thumb-turn inside, and the light
+    const n = new THREE.Mesh(roundedBoxGeo(.07, .11, .014, .008, 1), chrome); n.position.set(W_ - .12, 1.3, z); parts.neu.add(n);
+    if (side === out){ const k = new THREE.Mesh(new THREE.BoxGeometry(.008, .028, .006), dark); k.position.set(W_ - .12, 1.29, z + side*.009); parts.neu.add(k);
+      const led = new THREE.Mesh(new THREE.SphereGeometry(.006, 8, 6), ledM); led.position.set(W_ - .12, 1.335, z + side*.008); parts.neu.add(led); }
+    else { const t = new THREE.Mesh(roundedBoxGeo(.016, .05, .016, .006, 1), brass); t.position.set(W_ - .12, 1.29, z + side*.012); parts.neu.add(t); parts.turn = t;
+      const led = new THREE.Mesh(new THREE.SphereGeometry(.006, 8, 6), ledM); led.position.set(W_ - .12, 1.34, z + side*.008); parts.neu.add(led); }
+  }
+  g.add(parts.old, parts.neu);
+  const show = () => {
+    const isNew = fx.lock === "new";
+    parts.old.visible = !isNew; parts.neu.visible = isNew;
+    if (parts.turn) parts.turn.rotation.z = fx.locked ? Math.PI/2 : 0;
+    ledM.emissive.setHex(fx.locked ? 0xff3a2a : 0x55ff6a); ledM.emissiveIntensity = isNew ? 1.4 : 0;
+  };
+  show(); HOME.lockShow = show;
+  // your door's state for the thieves: open or shut, as you left it
+  W.anims.push(() => { const o = D.a > .3; if (o !== !!fx.doorOpen){ fx.doorOpen = o; if (o && fx.locked) fx.locked = false; } });
+  // fitting the new lock: click the door with it in your hand
+  const box3 = new THREE.Box3();
+  spot({kind:"place", takes:"lock", label:`Your door · ${G().home.apt}`, hint:"Click to fit the new lock · about 20 min", when:() => fx.lock !== "new",
+    aim:() => { D.g.updateMatrixWorld(); box3.setFromObject(D.leaf); box3.expandByScalar(.1); return [box3.min.toArray(), box3.max.toArray()]; },
+    place(it){
+      ctx.timeLapse(20, "work", k => k < .4 ? "Taking out the old lock" : "Fitting the new one", () => {
+        fx.lock = "new"; fx.locked = false; show();
+        if (typeof FEED === "object") FEED.chip("New lock fitted", "good");
+        ctx.note("New lock fitted. Shut the door and press F to lock it — and again to unlock it.");
+        ctx.persist(true);
+      }, {icon:"🔒", dur:2.4});
+    }});
+}
+// F at your door: lock it or unlock it (it has to be shut, and it needs a lock that works)
+export function lockKey(P){
+  const D = HOME.door, F = HOME.flat; if (!D || !F) return false;
+  const A = F.A, dx = A.door - P.x, dz = (A.wz - F.s*.1) - P.z;
+  if (Math.abs(P.feet - F.base) > .7 || Math.hypot(dx, dz) > 1.7) return false;
+  const fx = G().home.fx;
+  if (fx.lock !== "new"){ ctx.note("The lock's broken — the door shuts but it won't lock. Mobila Bună sells new ones, by the till."); return true; }
+  if (D.a > .08){ ctx.note("Shut the door first."); return true; }
+  fx.locked = !fx.locked; if (HOME.lockShow) HOME.lockShow();
+  if (typeof FEED === "object") FEED.chip(fx.locked ? "Door locked" : "Door unlocked", fx.locked ? "good" : "");
+  ctx.note(fx.locked ? "Click-clunk. Locked." : "Unlocked.");
+  if (typeof save === "function") save();
+  return true;
+}
+
 /* the neighbour across the corridor, door ajar on the first morning, until it is slammed (intro.js calls HOME.slam) */
 function neighbourDoor(L, d){
   const a = APT[d], base = L*LH, z = a.wz - a.s*.1, side = d <= 2 ? -1 : 1, col = DOOR_COL[(L*4 + d*3) % DOOR_COL.length];
@@ -856,7 +924,7 @@ function myFlat(F, D){
   // the bathroom door: lined, a marble threshold, hung on the sink side so it opens clear of the toilet
   doorway("x", Z(2.25), X(.55), X(1.45), base, 2.0, .1, {proud:.05, sill:base + .034, sillColor:0xe8e4dc});
   hingedDoor({hingeX:X(1.42), dir:-1, z:Z(2.25), base:base + .036, width:.84, height:1.934, into:-s, color:0xe6e1d6, label:"Bathroom"});
-  lb(.85, 1.25, .95, 1.35, LH - .28, LH - .25, 0xfff3d6, {key:"lamp", ao:false});
+  lb(.85, 1.25, .95, 1.35, LH - .28, LH - .25, 0xfff3d6, {key:"lampB", ao:false});
 
   // the radiator under the window (the room's furniture is yours: furniture.js puts it where you put it)
   const [w1] = winsOf(D);
@@ -926,7 +994,9 @@ function myFlat(F, D){
 
   // your front door, from both sides
   const into = s;
-  HOME.door = hingedDoor({hingeX:A.door - .47, z:A.wz - s*.1, base:base + .026, width:.94, height:2.044, into, color:0x6e4b34, label:`Flat ${G().home.apt}`, plate:G().home.apt});
+  HOME.door = hingedDoor({hingeX:A.door - .47, z:A.wz - s*.1, base:base + .026, width:.94, height:2.044, into, color:0x6e4b34, label:`Flat ${G().home.apt}`, plate:G().home.apt,
+    locked:() => { const fx = G().home.fx; return fx.lock === "new" && !!fx.locked; }});
+  doorLock(HOME.door, A, base, s);
   plateSetup(HOME.door, F, A);
   // the football that came in through the window on the first morning, where it rolled to a stop
   if (G().home.win && G().home.win.state !== "ok"){ const [w0] = winsOf(D); propBall(w0 + .35, base + .13, Z(Dp - .75)); }
@@ -1087,6 +1157,90 @@ export function drawMail(){
   M.tex.needsUpdate = true;
 }
 
+/* ---------- the notice board, next to the mailboxes ----------
+   A cork board with whatever is going on in the block pinned to it (events.js: thieves about, a power cut, a car
+   across the door), and the usual house rules when nothing is. E on it reads it properly. */
+const HOUSE_RULES = [["Bins", "Bins go out Thursday night. Not before."], ["Quiet hours", "10 PM to 7 AM. This means you, 302."], ["Stairs", "Bikes do not live on the stairs."]];
+function noticeBoard(){
+  const x = -6.13, z0 = 1.05, z1 = 2.4, y0 = 1.15, y1 = 2.15, zc = (z0 + z1)/2;
+  rbox(x - .02, y0 - .05, zc, .04, y1 - y0 + .1, z1 - z0 + .1, .015, 0x5a3f28);
+  const t = textTex(768, 576, () => {});
+  HOME.notices = {tex:t, key:""};
+  const m = label(t, x - .045, (y0 + y1)/2, zc, z1 - z0, y1 - y0, -Math.PI/2);
+  drawNotices();
+  spot({aim:[[x - .3, y0, z0], [x, y1, z1]], label:"Notice board", get hint(){ const n = lifeEventsToday().length; return n ? `${n} notice${n > 1 ? "s" : ""} for today · read it` : "House rules · read it"; }, hold:.2,
+    run:() => openNotices()});
+}
+function noticeList(){
+  const list = typeof lifeEventsToday === "function" ? lifeEventsToday().map(ev => ({warn:true, title:eventText(ev), text:LIFE_EVENTS[ev.id].sub, until:ev.to})) : [];
+  return list.concat(HOUSE_RULES.map(([t, d]) => ({title:t, text:d})));
+}
+export function drawNotices(){
+  const N = HOME.notices; if (!N) return;
+  const list = noticeList(), key = list.map(n => n.title).join("|");
+  if (key === N.key) return; N.key = key;
+  const g = N.tex.image.getContext("2d"), W_ = 768, H_ = 576;
+  g.fillStyle = "#b98f5e"; g.fillRect(0, 0, W_, H_);
+  for (let i = 0; i < 900; i++){ g.fillStyle = `rgba(${90 + Math.random()*60},${60 + Math.random()*40},30,.25)`; g.fillRect(Math.random()*W_, Math.random()*H_, 2, 2); }
+  const papers = list.slice(0, 4);
+  papers.forEach((n, i) => {
+    const big = n.warn, w = big ? 700 : 330, h = big ? 150 : 150, x = big ? 34 : 34 + (i % 2)*360, y = 30 + i*(big ? 170 : 0) + (big ? 0 : 0);
+    const yy = big ? 30 + i*172 : 30 + papers.filter(p => p.warn).length*172 + Math.floor((i - papers.filter(p => p.warn).length)/2)*170;
+    const xx = big ? 34 : 34 + ((i - papers.filter(p => p.warn).length) % 2)*360;
+    g.save(); g.translate(xx + w/2, yy + h/2); g.rotate((i % 2 ? -1 : 1)*.012); g.translate(-w/2, -h/2);
+    g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(5, 6, w, h);
+    g.fillStyle = big ? "#fff7d8" : "#f4f1e8"; g.fillRect(0, 0, w, h);
+    if (big){ g.fillStyle = "#c8261f"; g.fillRect(0, 0, w, 10); }
+    g.fillStyle = big ? "#a8231c" : "#1d2328"; g.font = `800 ${big ? 30 : 26}px "Barlow Condensed", sans-serif`; g.textAlign = "left";
+    const wrap = (txt, max, lh, y0, font) => { g.font = font; let line = "", y = y0; for (const w2 of txt.split(" ")){ const t2 = (line + " " + w2).trim(); if (g.measureText(t2).width > max){ g.fillText(line, 16, y); line = w2; y += lh; } else line = t2; } g.fillText(line, 16, y); return y; };
+    const ty = wrap(n.title, w - 32, 32, 44, `800 ${big ? 30 : 26}px "Barlow Condensed", sans-serif`);
+    g.fillStyle = "#3a3f45"; wrap(n.text, w - 32, 22, ty + 28, `500 ${big ? 19 : 18}px "Barlow", sans-serif`);
+    g.fillStyle = "#c8261f"; g.beginPath(); g.arc(w/2, 8, 7, 0, 7); g.fill();
+    g.restore();
+  });
+  N.tex.needsUpdate = true;
+}
+function openNotices(){
+  const list = noticeList(), esc2 = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
+  if (typeof lpShow !== "function"){ ctx.note(list.map(n => n.title).join(" · ")); return; }
+  lpShow("notices", `<div class="nb-panel">${typeof lpHead === "function" ? lpHead("Notice board", "The lobby") : "<h3>Notice board</h3>"}
+    <div class="nb-list">${list.map(n => `<div class="nb-item${n.warn ? " warn" : ""}"><b>${esc2(n.title)}</b><p>${esc2(n.text)}</p>${n.warn && n.until != null ? `<em>${n.until > G().life.day ? `Until ${dayName((G().life.wd + n.until - G().life.day) % 7)}` : "Today only"}</em>` : ""}</div>`).join("")}</div>
+    <div class="gd-foot"><button class="btn" onclick="lpClose()">OK</button></div></div>`);
+}
+
+/* ---------- a car across your front door (events.js "blocked") ----------
+   Parked half up on the pavement with its nose against the door, from the morning until the evening of the day the
+   notice says. While it is there the lobby window is the way in and out: hold E at it to climb through. */
+function blockedCar(){
+  const c = carModel("hatch", 0x7a2f2f);
+  c.position.set(-9.5, .13, 3.05 + c.userData.size[0]/2); c.rotation.set(-.055, -Math.PI/2, 0);       // nose to the wall, front wheels up on the step
+  W.scene.add(c);
+  const sz = c.userData.size, sol = solid(-9.5 - sz[2]/2, -9.5 + sz[2]/2, 3.0, 3.05 + sz[0], 0, 1.5);
+  const on = () => typeof lifeEventOn === "function" && lifeEventOn("blocked");
+  let shown = null;
+  const set = v => { if (v === shown) return; shown = v; c.visible = v; sol.off = !v; W.shadowDirty = true; };
+  set(on());
+  W.anims.push(() => {
+    const want = on();
+    // never appears on top of you: it waits till you are out of its way
+    if (want && !shown && VIEW.x > sol.x0 - .4 && VIEW.x < sol.x1 + .4 && VIEW.z > sol.z0 - .4 && VIEW.z < sol.z1 + .4) return;
+    set(want);
+  });
+  // the window, from both sides
+  const wx = (LOBBY_WIN[0] + LOBBY_WIN[1])/2;
+  const climb = into => ctx.fade(() => {
+    ctx.place(into ? {x:wx, z:2.15, y:G0, yaw:0} : {x:wx, z:3.75, y:.12, yaw:Math.PI});
+    ctx.note(into ? "In through the lobby window. Not elegant, but you're in." : "Out through the lobby window, past the car. Somebody's going to get a note on their windscreen.");
+  }, 900);
+  const blk = () => on();
+  spot({aim:[[LOBBY_WIN[0], LOBBY_WIN[2], 2.45], [LOBBY_WIN[1], LOBBY_WIN[3], 2.9]], label:"Lobby window", get hint(){ return blk() ? "The car's blocking the door — hold E to climb out" : "A window onto the street"; }, hold:.2,
+    run:() => ctx.note(blk() ? "Hold E to climb out through the window." : "It only opens a crack. Use the door."),
+    long:{time:1.4, label:"climb out", run:() => { if (blk()) climb(false); else ctx.note("It only opens a crack. Use the door."); }}});
+  spot({aim:[[LOBBY_WIN[0], LOBBY_WIN[2], 2.95], [LOBBY_WIN[1], LOBBY_WIN[3], 3.35]], label:"Lobby window", get hint(){ return blk() ? "Your way in today — hold E to climb in" : "Your block's lobby"; }, hold:.2,
+    run:() => ctx.note(blk() ? "Hold E to climb in through the window." : "That's the lobby. The door's right there."),
+    long:{time:1.4, label:"climb in", run:() => { if (blk()) climb(true); else ctx.note("That's the lobby. The door's right there."); }}});
+}
+
 /* the delivery table: where couriers leave what you ordered (parcels.js) — in the lobby, to the right of the door as
    you look out, against the front wall, with a sign over it */
 function deliveryTable(){
@@ -1158,7 +1312,7 @@ function streets(){
   for (const z of [8, 22]) tree(43.6, z);
   for (const x of [-30, -18, -4, 12, 26]) streetLamp(x, 14.4, 1, .12);
   for (const x of [-24, 0, 18, 31.6]) streetLamp(x, 5.6, -1, .12);
-  bin(-7.6, 3.6, 0, .12); bin(16.6, 3.6, 0, .12); bin(8, 16.6, Math.PI, .12);
+  bin(-11.7, 3.6, 0, .12); bin(16.6, 3.6, 0, .12); bin(8, 16.6, Math.PI, .12);
   for (const x of [19.5, 21.8]) bollard(x, 5.5, .12);
   planter(-.9, 3.8, 1.5, .12);
   propBench(-19.5, 16.2, Math.PI, 2.2, {y:.12});
@@ -1255,11 +1409,13 @@ export function buildHome(c){
   myFlat(H.floor, H.door);
   mailboxes();
   deliveryTable();
+  noticeBoard();
+  blockedCar();
   // the way in
   HOME.entrance = hingedDoor({hingeX:-10.22, z:2.875, base:G0 + .014, width:1.44, height:2.306, into:-1, color:0x2f3a44, glass:true, label:"Your block"});
   // lamps in the lobby, flush with the ceiling
-  lightSrc({x:-10, y:2.6, z:-1, color:0xffe2b0, intensity:9, distance:9, indoor:true});
-  for (const z of [-1, 1.6]){ rbox(-10, 2.9, z, .5, .05, .5, .02, 0xfff3d6, {key:"lamp"}); rbox(-10, 2.93, z, .56, .02, .56, .01, C.darkMetal); }
+  lightSrc({x:-10, y:2.6, z:-1, color:0xffe2b0, intensity:9, distance:9, indoor:true, on:powerOn});
+  for (const z of [-1, 1.6]){ rbox(-10, 2.9, z, .5, .05, .5, .02, 0xfff3d6, {key:"lampB"}); rbox(-10, 2.93, z, .56, .02, .56, .01, C.darkMetal); }
   spot({x:3, y:1.2, z:15.4, r:2.6, aim:[[1.2, 0, 14.6], [4.8, 2.7, 16.8]], near:true, label:"Bus stop", hint:"Bus to the training ground · 40 min", hold:3, run:() => ctx.bus("ground")});
   reseed(H.seed + 11);
   miniMarket(ctx);
@@ -1291,14 +1447,29 @@ function besideBed(){
   }
   return {x:cx, z:cz, y:base, yaw:0};
 }
+// in your flat or not: leaving it starts the thieves' clock (events.js), coming back in is when you find out
+let inFlatWas = null;
+function flatWatch(){
+  const F = HOME.flat; if (!F) return;
+  const z0 = Math.min(F.A.wz, F.A.ext), z1 = Math.max(F.A.wz, F.A.ext);
+  const inF = VIEW.x > F.A.x0 && VIEW.x < F.A.x1 && VIEW.z > z0 + .15 && VIEW.z < z1 && Math.abs((VIEW.feet || 0) - F.base) < .7;
+  if (inFlatWas === null){ inFlatWas = inF; return; }
+  if (inF === inFlatWas) return;
+  inFlatWas = inF;
+  if (!inF){ if (typeof lifeAway === "function") lifeAway(false); }
+  else if (typeof lifeTheft === "function"){ const r = lifeTheft("return"); if (r) ctx.robbed(r.lost); }
+}
 let winT = 0;
-export function homeTick(){ drawClock(); const t = performance.now(); if (t - winT > 2000){ winT = t; winRefresh(); } }
+export function homeTick(){
+  flatWatch();
+  // your block's own lamps go dark in a power cut
+  const lb = W.mats.lampB; if (lb){ const e = powerOn() ? 1.1 : 0; if (lb.emissiveIntensity !== e) lb.emissiveIntensity = e; } drawClock(); const t = performance.now(); if (t - winT > 2000){ winT = t; winRefresh(); drawNotices(); } }
 // how many people are out walking at a minute of the day
 function streetCount(m){
   const h = m/60;
   return h < 5.5 ? 0 : h < 6.5 ? 1 : h < 7 ? 2 : h < 9.5 ? 5 : h < 16.5 ? 4 : h < 19.5 ? 6 : h < 21.5 ? 4 : h < 23 ? 2 : 1;
 }
-export function resetHome(){ for (const k of Object.keys(HOME)) HOME[k] = k === "curtains" ? [] : null; }
+export function resetHome(){ for (const k of Object.keys(HOME)) HOME[k] = k === "curtains" ? [] : null; inFlatWas = null; }
 export function homeRefresh(){
   refreshFridge(); winRefresh();
   drawMail();

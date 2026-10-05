@@ -5,7 +5,7 @@
    or wait. Everything about the day itself (the meters, the schedule, the dressing room) lives in
    daily.js; this file is the world you walk around and the screen you see it through. */
 import {THREE, W, begin} from "./build.js";
-import {buildHome, homeTick, homeRefresh, resetHome, HOME, drawMail, refreshFridge, bedTier} from "./home.js";
+import {buildHome, homeTick, homeRefresh, resetHome, HOME, drawMail, refreshFridge, bedTier, lockKey, drawNotices} from "./home.js";
 import {buildGround, refreshGymFridge, GROUND} from "./ground.js";
 import {ensureHome, checkMail, openMail, closeMail, mailOpen} from "./rent.js";
 import {createSky} from "./sky.js";
@@ -73,6 +73,11 @@ function onDaily(type, d){
   } else if (type === "missed" && !d.excused) FEED.center("Match missed", "The team played without you · Manager trust −10", {kind:"bad", icon:"!"});
   else if (type === "newweek"){ if (d && d.income) FEED.center(`Week ${G().week + 1}`, `Your wage is in · ${eurFull(d.income)}${d.cost ? ` · staff −${eurFull(d.cost)}` : ""}`, {kind:"money", icon:"€"}); }
   else if (type === "crash") FEED.chip("The energy drink wears off", "bad");
+  else if (type === "event"){
+    const k = typeof LIFE_EVENTS === "object" ? LIFE_EVENTS[d.id] : null;
+    if (k) setTimeout(() => FEED.center(k.feed, "A new notice is up on the board in your lobby", {kind:"bad", icon:"!", ms:4200}), 1400);
+    if (LIFE.zone === "home") drawNotices();
+  }
 }
 if (typeof dailyOn === "function") dailyOn(onDaily);
 
@@ -112,8 +117,11 @@ function doSleep(){
   const s = G();
   fade(() => {
     const r = sleepNight(bedTier());
+    // thieves come in the night: whether they get in depends on your door
+    const rob = LIFE.zone === "home" && typeof lifeTheft === "function" ? lifeTheft("night") : null;
     startNewDay(); sync(); forceSky = true;
     persist(true);
+    if (rob) robbed(rob.lost);
     // the first night: you dream (tutorial.js), and wake up to the morning in the flat
     if (!s.tutDone && window.lifeDream){ window.lifeDream(); return; }
     morning(r); mailNews();
@@ -303,13 +311,23 @@ const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:(
   barber:() => { if (typeof openBarber === "function") openBarber(); }, sleepDay,
   // hands-on jobs (mini.js), and putting something back in your hands when one is abandoned
   screw:o => screwIn(o), mini:o => startMini(o), giveBack:it => { if (it && !INV.take(it) && !INV.stow(it)) INV.addDrop({zone:LIFE.zone, x:P.x, y:P.feet + .02, z:P.z, ry:0, item:it}); },
-  timeLapse:(mins, act, label, done, o) => timeLapse(mins, act, label, done, o), hand:() => INV.hand(), take:it => INV.take(it), release:() => INV.release(), persist};
+  timeLapse:(mins, act, label, done, o) => timeLapse(mins, act, label, done, o), hand:() => INV.hand(), take:it => INV.take(it), release:() => INV.release(), persist,
+  place:p => place(p), robbed:lost => robbed(lost)};
+// thieves have been: the money's gone, and you are told so plainly
+function robbed(lost){
+  setTimeout(() => {
+    FEED.center("You were robbed.", lost > 0 ? `You lost ${eurFull(lost)}.` : "There was nothing worth taking.", {kind:"bad", icon:"!", ms:6000});
+    note(lost > 0 ? `Somebody's been in your flat. Half your money's gone — ${eurFull(lost)}. A lock that works, locked, would have stopped them.` : "Somebody's been through your flat. Lucky there was nothing to take.");
+  }, 600);
+}
 /* a whole day asleep: hold E on the bed. Exactly 24 hours of the clock pass — not to the next morning, not a nap */
 function sleepDay(){
   const s = G(); if (!s || busy) return;
   fade(() => {
     const r = typeof sleepFullDay === "function" ? sleepFullDay(bedTier()) : null;
+    const rob = LIFE.zone === "home" && typeof lifeTheft === "function" ? lifeTheft("night") : null;
     startNewDay(); sync(); forceSky = true; persist(true);
+    if (rob) robbed(rob.lost);
     FEED.center(todayName(), `You slept the whole day · ${clockText()}`, {kind:"day", icon:"☾", ms:3200});
     if (r) note(`Twenty-four hours later. Fatigue ${r.fatigue <= 0 ? "−" + Math.abs(r.fatigue) : "+" + r.fatigue} · you wake up starving.`);
     mailNews();
@@ -330,6 +348,8 @@ let spawns = {};
 function enterZone(zone, at){
   if (DRILL) endDrillNow();
   if (BM.on) buildExit();
+  // out of town or to the training centre: your flat is a long way off
+  if (zone !== "home" && typeof lifeAway === "function") lifeAway(true);
   HOLD = null; heldMeshDrop(); flyEnd(); resetParcels();
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(scene);
@@ -1754,6 +1774,7 @@ function bindInput(cv){
     if ((k === "1" || k === "2") && !e.repeat && !locked()) INV.swap(+k - 1);
     if (k === "g" && !e.repeat) throwHand();
     if (k === "b" && !e.repeat && !locked()) buildEnter();
+    if (k === "f" && !e.repeat && !locked() && LIFE.zone === "home") lockKey(P);
     if (k === "e" && !e.repeat && !locked()){ const t = held || target(); HOLD_DONE = false; if (t){ if (t.long) HOLD = {sp:t, t:0}; else use(t); } }
   });
   addEventListener("keyup", e => {
@@ -1791,4 +1812,4 @@ window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, g
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,
-  INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels, MINI, miniInput, BM, buildEnter, buildExit, buildKey};
+  INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels, MINI, miniInput, BM, buildEnter, buildExit, buildKey, lockKey:() => lockKey(P), robbed, homeTick};

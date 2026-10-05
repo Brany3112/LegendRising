@@ -644,7 +644,7 @@ export function finishBatches(){
     // one material per kind of surface: matte for most things, glossy for glass, paint and metal, glowing for lamps
     if (key === "glass") m = mat({vertexColors:true, transparent:true, opacity:.3, depthWrite:false, roughness:.06, metalness:.1, envMapIntensity:1.6});
     else if (key === "lit"){ m = mat({vertexColors:true, emissive:0xffcf8a, emissiveIntensity:0, roughness:.2}); W.lit = m; }
-    else if (key === "lamp") m = mat({vertexColors:true, emissive:0xfff2d0, emissiveIntensity:1.1, roughness:.4});
+    else if (key === "lamp" || key === "lampB") m = mat({vertexColors:true, emissive:0xfff2d0, emissiveIntensity:1.1, roughness:.4});      // lampB: your own block's, which go out in a power cut
     else if (key === "street") m = mat({vertexColors:true, emissive:0xffe2a8, emissiveIntensity:.2, roughness:.4});
     else if (key === "neon") m = mat({vertexColors:true, emissive:0xffffff, emissiveIntensity:.5, roughness:.3});
     else if (key === "screen") m = mat({vertexColors:true, emissive:0xffffff, emissiveIntensity:.85, roughness:.25});
