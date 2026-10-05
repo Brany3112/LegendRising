@@ -3,7 +3,7 @@
    vending machine, trees, cars and street lamps. Everything is a few rounded or tapered shapes, so
    it reads as a made object rather than a grey cube, and almost all of it is poured into the shared
    batches so a whole training ground stays a handful of draw calls. */
-import {THREE, W, addGeo, roundedBoxGeo, solid, textTex, label, mat, lightSrc, pool, netTex, part} from "./build.js";
+import {THREE, W, addGeo, roundedBoxGeo, solid, textTex, label, mat, lightSrc, pool, halo, netTex, part, lmat} from "./build.js";
 
 export const PC = {white:0xf2f1ec, offwhite:0xe6e2d8, dark:0x2b2f34, steel:0x8f979e, darkSteel:0x4b5258, wood:0x9a6b42, woodDark:0x6b4a2c,
   orange:0xf07a22, yellow:0xf2c230, lime:0xc8f060, blue:0x2c66b8, red:0xc8463a, green:0x3f8a48, teal:0x2f8f86, black:0x1d1f22};
@@ -355,16 +355,52 @@ export function plyoBox(x, z, ry, h = .6, color = 0x2b2f34){
   rb(f, 0, h - .02, 0, .7, .03, .55, .02, 0xc8f060);
   fsolid(f, 0, 0, .75, .6, 0, h);
 }
-export function bike(x, z, ry){
-  const f = frame(x, z, ry);
-  rb(f, 0, 0, 0, 1.1, .08, .5, .04, PC.dark);
-  rb(f, .3, .08, 0, .14, .75, .14, .05, 0x3a3c3e, {rz:-.25});
-  rb(f, -.32, .08, 0, .12, .95, .12, .05, 0x3a3c3e, {rz:.2});
-  cy(f, .32, .45, 0, .26, .26, .08, PC.teal, {seg:20, rx:Math.PI/2});
-  rb(f, .2, .78, 0, .3, .07, .22, .03, PC.black);
-  rb(f, -.45, 1.05, 0, .1, .06, .5, .03, PC.steel, {key:"metal"});
-  rb(f, -.42, .98, 0, .2, .14, .14, .03, 0x1b1e20);
-  fsolid(f, 0, 0, 1.2, .55, 0, 1.1);
+/* a spin bike. The rider sits at the back (local +x) facing the bars (−x); the flywheel is at the front under the bars,
+   and the cranks turn on a bottom bracket below and just ahead of the saddle. The cranks and the pedals are moving
+   parts of their own (W.bikes), turned by whoever rides it: the feet go forward over the top, as on a real bike.
+   o.tier (1–6): how worn it is — chipped paint and a rusty frame at the bottom, polished at the top */
+export function bike(x, z, ry, o = {}){
+  const f = frame(x, z, ry), t = o.tier || 3, old = t <= 2;
+  const fr = old ? 0x5a5650 : t >= 5 ? 0x24272b : 0x3a3c3e, acc = old ? 0x6d7f7a : t >= 5 ? 0xc8f060 : PC.teal;
+  const tube = (x0, y0, x1, y1, w, c = fr, oo = {}) => { const dx = x1 - x0, dy = y1 - y0; rb(f, (x0 + x1)/2, (y0 + y1)/2, oo.z || 0, Math.hypot(dx, dy) + w*.6, w, oo.d || w, w*.45, c, Object.assign({center:true, rz:Math.atan2(dy, dx)}, oo)); };
+  // the feet and the beam between them
+  rb(f, -.5, 0, 0, .1, .07, .56, .03, PC.dark); rb(f, .48, 0, 0, .1, .07, .56, .03, PC.dark);
+  rb(f, -.01, .03, 0, 1.0, .07, .1, .03, PC.dark);
+  // the frame: the stem up to the bars, a down tube to the bottom bracket, the seat tube up to the saddle, a strut behind
+  tube(-.44, .06, -.46, 1.0, .07); tube(-.44, .62, -.02, .36, .065); tube(-.02, .36, .17, .78, .065); tube(.46, .07, .07, .56, .055);
+  // the flywheel at the front, in a guard, with its hub
+  cy(f, -.25, .42, 0, .23, .23, .045, acc, {seg:22, rx:Math.PI/2, key:t >= 4 ? "metal" : undefined});
+  cy(f, -.25, .42, 0, .06, .06, .07, 0x1d1f22, {seg:12, rx:Math.PI/2});
+  rb(f, -.25, .42, .045, .5, .5, .015, .2, fr, {center:true});
+  // the saddle on its post, the bars with grips and a little console
+  rb(f, .17, .79, 0, .27, .055, .16, .025, PC.black);
+  tube(-.46, 1.0, -.36, 1.07, .05);
+  rb(f, -.38, 1.05, 0, .07, .045, .54, .02, PC.steel, {key:"metal"});
+  for (const s of [-1, 1]) rb(f, -.47, 1.05, s*.24, .16, .05, .05, .02, 0x1b1e20);
+  rb(f, -.47, 1.1, 0, .07, .1, .14, .02, 0x1b1e20, {rz:.5});
+  // the bottom bracket the cranks turn on
+  cy(f, -.02, .36, 0, .045, .045, .2, 0x1d1f22, {seg:12, rx:Math.PI/2});
+  if (old){                                  // tape on the saddle, rust round the feet
+    rb(f, .17, .845, 0, .1, .01, .17, .004, 0x8a8a7a);
+    for (const lx of [-.5, .48]) rb(f, lx, .07, 0, .08, .012, .4, .004, 0x7a4a2a);
+  }
+  fsolid(f, -.02, 0, 1.12, .56, 0, 1.1);
+  // the moving parts: two crank arms on one spindle (left arm up, right down), each with a pedal that stays level
+  const [bx, bz] = worldPt(f, -.02, 0), CR = .16;
+  const crank = new THREE.Group(); crank.position.set(bx, f.y + .36, bz); crank.rotation.y = ry;
+  const armM = lmat(0x2b2f34, {metalness:.6, roughness:.4}), pedM = lmat(0x1b1e20, {roughness:.7});
+  const pedals = [];
+  for (const s of [1, -1]){
+    const arm = new THREE.Mesh(roundedBoxGeo(.035, CR + .04, .022, .01, 1), armM); arm.position.set(0, s*CR/2, s*.115); arm.castShadow = true; crank.add(arm);
+    const p = new THREE.Group(); p.position.set(0, s*CR, s*.15);
+    const pm = new THREE.Mesh(roundedBoxGeo(.1, .026, .075, .008, 1), pedM); pm.castShadow = true; p.add(pm);
+    crank.add(p); pedals.push(p);
+  }
+  W.scene.add(crank);
+  // a: the angle of the left pedal from the top, increasing forward (towards the bars)
+  const B = {x, z, ry, crank, r:CR, set(a){ crank.rotation.z = a; for (const p of pedals) p.rotation.z = -a; }};
+  B.set(.6); (W.bikes || (W.bikes = [])).push(B);
+  return B;
 }
 
 /* ---------- outdoors ---------- */
@@ -401,7 +437,8 @@ export function streetLamp(x, z, dir = 1, y = 0){
   rb(f, 0, 5.49, -1.0, .2, .03, .6, .02, 0xfff1c8, {key:"street"});
   const [lx, lz] = worldPt(f, 0, -1.0);
   lightSrc({x:lx, y:y + 5.3, z:lz, color:0xffd9a0, intensity:14, distance:16, decay:1.5});
-  pool(lx, lz, 3.6, y + .03);
+  pool(lx, lz, 4.4, y + .03);
+  halo(lx, y + 5.42, lz, 1.5);
   solid(x - .14, x + .14, z - .14, z + .14, y, y + 5);
 }
 export function bollard(x, z, y = 0){ const f = frame(x, z, 0, y); cy(f, 0, 0, 0, .09, .11, .9, 0x2f3438, {seg:10}); cy(f, 0, .72, 0, .1, .1, .06, 0xd8dcd6, {seg:10}); solid(x - .12, x + .12, z - .12, z + .12, y, y + .9); }

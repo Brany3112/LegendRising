@@ -4,7 +4,7 @@
    three lit mirrors, a counter of products under each, a trolley of clippers and scissors, a shelf of tubs and
    bottles, a bench to wait on by the window and the till by the door. Sit in a chair and the barber's book opens
    (js/ui/barber.js). The barber is in from opening to closing. */
-import {LH, box, wall, floor, spot, label, textTex, lightSrc, reseed, rnd, pick, doorway} from "./build.js";
+import {LH, box, wall, floor, spot, label, textTex, lightSrc, pool, reseed, rnd, pick, doorway} from "./build.js";
 import {frame, rb, cy, sph, fsolid, worldPt, PC} from "./props.js";
 import {staffer} from "./npc.js";
 import {facer, decoWin, pilasters, roofTop, downpipe} from "./home.js";
@@ -163,6 +163,7 @@ export function barbershop(c){
     lightSrc({x, y:g0 - .9, z:back - 1.1, color:0xffe6c4, intensity:5, distance:7, indoor:true});
   }
   lightSrc({x:7, y:2.9, z:z0 + 1.5, color:0xfff0d8, intensity:5, distance:9, indoor:true});
+  pool(7, z0 - 1.2, 3.2, .125);
   // the sign and the pole
   box(.3, 2.9, b.z0 - .1, 13.7, 3.5, b.z0, 0x15171a, {ao:false, jit:0});
   const t = textTex(1600, 140, g => {

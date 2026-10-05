@@ -1702,26 +1702,73 @@ function curlPose(h, T, st){
 }
 // a box jump: load (arms back, hips down), drive up, tuck, land soft on the box, stand tall. The group is lifted and
 // carried forward by the drill; this is the shape of the body through it. st.fail: clips the edge and steps back down
-function plyoPose(h, T, st){
-  stand(h, T, Object.assign({}, st, {look:0}));
-  const D = h.D, t = clamp(st.t || 0, 0, 1), fail = !!st.fail;
-  const crouch = kf(t, [[0, 0], [.22, 1], [.34, .2], [.45, 0], [.62, fail ? .2 : .9], [.78, fail ? .6 : .25], [1, 0]]);
-  const tuck = fail ? kf(t, [[0, 0], [.36, 0], [.48, .35], [.6, 0]]) : kf(t, [[0, 0], [.36, 0], [.46, 1], [.58, .3], [.64, 0]]);
-  const drop = (D.hipY - D.ankY)*.34*crouch;
-  T[61] = -drop + .02*tuck; T[62] = -.06*crouch;
-  R3(T, B.hips, .5*crouch + .25*tuck); R3(T, B.spine, .2*crouch + .1*tuck + (fail ? .2*sstep(.5, .7, t)*(1 - sstep(.85, 1, t)) : 0)); R3(T, B.chest, .05);
-  R3(T, B.neck, -.35*crouch, 0, 0); R3(T, B.head, -.1*crouch, 0, 0);
-  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .06), D.ankY + .3*tuck, .03 + .1*tuck, .2*tuck, 0);
-  const sw = kf(t, [[0, 0], [.22, .9], [.38, -2.2], [.5, -1.6], [.66, -.6], [1, .05]]);
-  for (const s of [1, -1]){ const [ua, fa] = ARM(s); R3(T, ua, sw + (fail ? .5*Math.sin(h.t*14)*sstep(.5, .6, t)*(1 - sstep(.8, .95, t)) : 0), 0, s*(.12 + (fail ? .5 : 0)*sstep(.5, .65, t)*(1 - sstep(.85, 1, t)))); R3(T, fa, -.3 - .4*crouch); }
+/* the box jump, the whole rep: load, jump, land and stand tall on the box, step back down off it and walk back to the
+   mark for the next one (st.t: 0–1 through the rep, st.box: the box's height in metres, st.fail: the box was clipped).
+   Where the body stands is plyoPath(), which the set moves the body's group along; the feet, once down, are planted
+   where the path put them and step from there, so nothing slides and nothing is put back in place in one frame */
+const PLYO = {
+  jump:[.48, .44],                                                         // the share of the rep the jump itself takes
+  up:[[[0, 0], [.204, 0], [.276, 1.15], [.36, 1], [.5, 1], [.55, .92], [.6, .5], [.66, 0]], [[0, 0], [.198, 0], [.264, .28], [.341, 0]]],
+  fwd:[[[0, 0], [.204, 0], [.33, .85], [.5, .85], [.56, .8], [.66, .48], [.95, 0]], [[0, 0], [.198, 0], [.275, .24], [.36, .2], [.52, .2], [.86, 0]]],
+  // each foot once it is put down for real: where it starts (forward, up in boxes), then its steps [t0, t1, fwd, up, lift]
+  feet:[{L:[.85, 1, [[.6, .7, .45, 0, .1], [.84, .94, 0, 0, .06]]], R:[.85, 1, [[.5, .6, .32, 0, .14], [.72, .82, 0, 0, .06]]]},
+        {L:[.2, 0, [[.7, .82, 0, 0, .06]]], R:[.2, 0, [[.56, .68, 0, 0, .06]]]}]
+};
+export function plyoPath(t, fail){
+  const i = fail ? 1 : 0;
+  return {up:kf(t, PLYO.up[i]), fwd:kf(t, PLYO.fwd[i]), jump:PLYO.jump[i]};
 }
-// on the bike: sat on the saddle, leant onto the bars, the feet going round on the pedals (st.ph: the crank angle)
+function plyoFoot(spec, t){
+  let [f, u] = spec, lift = 0;
+  for (const [t0, t1, f1, u1, l] of spec[2]){
+    if (t >= t1){ f = f1; u = u1; continue; }
+    if (t > t0){ const k = sstep(t0, t1, t); lift = l*Math.sin(Math.PI*k); f += (f1 - f)*k; u += (u1 - u)*k; }
+    break;
+  }
+  return [f, u, lift];
+}
+function plyoPose(h, T, st){
+  const D = h.D, t = clamp(st.t || 0, 0, 1), fail = !!st.fail, P = plyoPath(t, fail), sc = h.scale || 1, box = st.box || .6;
+  if (t < P.jump || t <= 0){
+    // the jump itself: down into a crouch with the arms back, up with a tuck, down onto the box and stand tall
+    stand(h, T, Object.assign({}, st, {look:0}));
+    const tj = clamp(t/P.jump, 0, 1);
+    const crouch = kf(tj, [[0, 0], [.22, 1], [.34, .2], [.45, 0], [.62, fail ? .2 : .9], [.78, fail ? .6 : .25], [1, 0]]);
+    const tuck = fail ? kf(tj, [[0, 0], [.36, 0], [.48, .35], [.6, 0]]) : kf(tj, [[0, 0], [.36, 0], [.46, 1], [.58, .3], [.64, 0]]);
+    const drop = (D.hipY - D.ankY)*.34*crouch;
+    T[61] = -drop + .02*tuck; T[62] = -.06*crouch;
+    R3(T, B.hips, .5*crouch + .25*tuck); R3(T, B.spine, .2*crouch + .1*tuck + (fail ? .2*sstep(.5, .7, tj)*(1 - sstep(.85, 1, tj)) : 0)); R3(T, B.chest, .05);
+    R3(T, B.neck, -.35*crouch, 0, 0); R3(T, B.head, -.1*crouch, 0, 0);
+    for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .06), D.ankY + .3*tuck, .03 + .1*tuck, .2*tuck, 0);
+    const sw = kf(tj, [[0, 0], [.22, .9], [.38, -2.2], [.5, -1.6], [.66, -.6], [1, .05]]);
+    for (const s of [1, -1]){ const [ua, fa] = ARM(s); R3(T, ua, sw + (fail ? .5*Math.sin(h.t*14)*sstep(.5, .6, tj)*(1 - sstep(.8, .95, tj)) : 0), 0, s*(.12 + (fail ? .5 : 0)*sstep(.5, .65, tj)*(1 - sstep(.85, 1, tj)))); R3(T, fa, -.3 - .4*crouch); }
+    return;
+  }
+  // back down and back to the mark: the feet step, the body follows them down and back
+  idle(h, T, {look:0});
+  const F = PLYO.feet[fail ? 1 : 0], lean = kf(t, fail ? [[P.jump, .05], [.6, .12], [1, 0]] : [[P.jump, 0], [.52, .22], [.62, .3], [.72, .12], [1, 0]]);
+  R3(T, B.hips, .1*lean); R3(T, B.spine, .12 + .3*lean); R3(T, B.chest, .04); R3(T, B.neck, -.3*lean - .06); R3(T, B.head, -.15*lean);
+  T[60] = 0; T[62] = -.04*lean;
+  for (const s of [1, -1]){
+    const [f, u, lift] = plyoFoot(s > 0 ? F.L : F.R, t);
+    legIK(h, T, s, s*(D.hipX + .06), ((u - P.up)*box + lift)/sc + D.ankY, (f - P.fwd)/sc + .03, -.3*lift/.14, 0);
+    const [ua, fa] = ARM(s); R3(T, ua, -.35*lean + .05, 0, s*(.14 + .1*lean)); R3(T, fa, -.35 - .3*lean);
+  }
+}
+// on the bike: sat on the saddle, leant onto the bars, the feet going round on the pedals. st.ph is the crank angle of
+// the left pedal from the top, increasing forward: over the top the foot goes towards the bars, at the bottom it comes
+// back — the way a bike is pedalled. The bike's own cranks (props.js) are turned to the same angle
 function bikePose(h, T, st){
   const D = h.D, sc = h.scale || 1;
   sit(h, T, {seat:(st.seat || .86)}, false);
   R3(T, B.hips, -.05); R3(T, B.spine, .42 + .03*Math.sin((st.ph || 0)*2)); R3(T, B.chest, .1); R3(T, B.neck, -.42); R3(T, B.head, -.1);
-  const a = st.ph || 0, r = .16/sc, cy = (st.crankY || .36)/sc, cz = (st.crankZ || .18)/sc;
-  for (const s of [1, -1]){ const p = a + (s > 0 ? 0 : Math.PI); legIK(h, T, s, s*(D.hipX + .04), cy + r*Math.sin(p) + D.ankY*.4, cz + r*Math.cos(p), -.25 + .25*Math.sin(p), 0); }
+  const a = st.ph || 0, r = (st.crankR || .16)/sc, cy = (st.crankY || .36)/sc, cz = (st.crankZ || .16)/sc;
+  for (const s of [1, -1]){
+    const p = a + (s > 0 ? 0 : Math.PI);
+    // the ball of the foot on the pedal, the ankle a little above and behind it; the toes dip as the foot comes round the
+    // bottom and lift over the top (ankling)
+    legIK(h, T, s, s*(D.hipX + .04), cy + r*Math.cos(p) + D.ankY*.75, cz + r*Math.sin(p) - .07/sc, -.12 - .14*Math.sin(p - .6), 0);
+  }
   for (const s of [1, -1]) armIK(h, T, s, s*.22, (st.barY || 1.05)/sc, (st.barZ || .55)/sc, 0, 0, [.3, -.6, -.8]);
 }
 const MODES = {

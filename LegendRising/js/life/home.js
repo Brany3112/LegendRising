@@ -1205,14 +1205,16 @@ function streets(){
   barrier(31, -6.2, 45, -6.0); barrier(31, 29.4, 45, 29.6);
   fence(-31, 17, -34, 17.1); fence(30, 17, 31, 17.1); fence(-34, 2.9, -31, 3);
   // trees, street lamps, bins and bollards, all standing on the pavement
-  for (const x of [-26, -12, 10, 20]) tree(x, 15.6);
-  for (const x of [-22, -4.5, 16.2]) tree(x, 5.3);
-  for (const z of [-2, 22]) tree(43.6, z);
+  // (every tree stands in front of a fence or a blank stretch of wall: none in front of a garage, a door, a shop or a
+  // drive, and none under a street lamp)
+  for (const x of [-32.3, -16, -1, 15]) tree(x, 15.6);
+  for (const x of [-32, -15, 16.2]) tree(x, 5.3);
+  for (const z of [8, 22]) tree(43.6, z);
   for (const x of [-30, -18, -4, 12, 26]) streetLamp(x, 14.4, 1, .12);
   for (const x of [-24, 0, 18, 31.6]) streetLamp(x, 5.6, -1, .12);
   bin(-7.6, 3.6, 0, .12); bin(16.6, 3.6, 0, .12); bin(8, 16.6, Math.PI, .12);
   for (const x of [19.5, 21.8]) bollard(x, 5.5, .12);
-  planter(-1.4, 3.8, 1.6, .12);
+  planter(-.9, 3.8, 1.5, .12);
   propBench(-19.5, 16.2, Math.PI, 2.2, {y:.12});
   // parked cars
   propCar(-24, 7.1, 0, 0x8a2b2b); propCar(-12, 12.9, Math.PI, 0x3b5b7a); propCar(9.5, 7.1, 0, 0xd8d6cf); propCar(36, 20, Math.PI/2, 0x2f3a2f);

@@ -5,8 +5,8 @@
    lamps are blended between those keyframes, so a sunset is a sunset and morning creeps up.
 
    The same sky is what the shiny things reflect: an environment map is baked from it every few
-   in-game minutes. Real point lights are expensive, so there are only six, and they follow you
-   between the lamps, bulbs and shop lights you are actually near.
+   in-game minutes. Real point lights are expensive, so there are only a few (eight), and they follow you
+   between the lamps, bulbs and shop lights you are actually near, fading in and out so none of them pops.
 
    Frame pacing: nothing here may cost a frame. The sun's shadow map covers the whole zone from a fixed
    centre, so walking never forces it to be redrawn — only the sun moving does (see shade()), and the sun's light
@@ -15,7 +15,7 @@
    reflection map is a tiny cube of the sky dome filtered into one render target that is reused for good,
    so the materials that read it never see a new texture (which would send every one of them back through
    the shader cache). */
-import {THREE, W, poolMat} from "./build.js";
+import {THREE, W, poolMat, haloMat} from "./build.js";
 
 // [hour, sky top, horizon, hemisphere sky, hemisphere ground, sun colour, sun strength, hemi strength,
 //  cloud colour, stars, lamps, exposure, env strength]
@@ -101,12 +101,14 @@ export function createSky(renderer){
   sun.castShadow = true;
   sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; sun.shadow.radius = 2.5;   // vogel-disk PCF: soft edge instead of stair-steps
   const hemi = new THREE.HemisphereLight(0xc4dcff, 0x9a9184, 1);
-  const pool = Array.from({length:6}, () => { const l = new THREE.PointLight(0xffe0b0, 0, 12, 1.6); l.userData.src = null; l.userData.cur = 0; return l; });
+  // the real lights: eight (five on Low) handed out to the sources that matter most where you are (see lights())
+  const NREAL = typeof GFX !== "undefined" && GFX.low ? 5 : 8;
+  const pool = Array.from({length:NREAL}, () => { const l = new THREE.PointLight(0xffe0b0, 0, 12, 1.6); l.userData.src = null; l.userData.cur = 0; return l; });
   const fog = new THREE.Fog(0xc8d8e8, 60, 260);
-  const K = {night:0, lamps:0, exposure:1, env:.5, sunUp:1};
+  const K = {night:0, lamps:0, exposure:1, env:.5, sunUp:1, cover:0};
   const dir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmp = new THREE.Color();
   const shadowAt = {key:"", d:new THREE.Vector3(0, -2, 0)}, shadowDir = new THREE.Vector3(0, 1, 0), mid = {x:0, z:0, half:46};
-  let assignT = 0, shadowSize = 0, shadeT = 0, shadeForce = true;
+  let assignT = 0, shadowSize = 0, shadeT = 0, shadeForce = true, cut = Infinity, band = 8;
   const SHADOW_HALF = 30, _eye = new THREE.Vector3(), _zero = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _look = new THREE.Matrix4();
   const _rt = new THREE.Vector3(), _upv = new THREE.Vector3(), _c0 = new THREE.Vector3();
 
@@ -165,12 +167,14 @@ export function createSky(renderer){
       hemi.intensity = k.hemiI;
       fog.color.copy(uni.uHor.value).multiplyScalar(.92);
       fog.near = 50 + k.env*50; fog.far = 180 + k.env*130;
-      K.night = k.stars; K.lamps = k.lamps; K.exposure = k.exposure; K.env = k.env; K.sunUp = uni.uSunUp.value;
-      // the things that glow
+      K.night = k.stars; K.lamps = k.lamps; K.exposure = k.exposure; K.env = k.env; K.sunUp = uni.uSunUp.value; K.cover = cover;
+      // the things that glow: every lamp in the zone glows and throws its pool of light on the ground, however far away
+      // it is, so a street at night reads as lit end to end; the real lights (lights()) only add the light close to you
       if (W.lit) W.lit.emissiveIntensity = k.lamps*1.25;
-      if (W.mats.street) W.mats.street.emissiveIntensity = .15 + k.lamps*2.2;
+      if (W.mats.street) W.mats.street.emissiveIntensity = .15 + k.lamps*2.6;
       if (W.mats.neon) W.mats.neon.emissiveIntensity = .55 + k.lamps*1.6;
-      const pm = poolMat(); if (pm) pm.opacity = k.lamps*.55;
+      const pm = poolMat(); if (pm) pm.opacity = k.lamps*.72;
+      const hm = haloMat(); if (hm) hm.opacity = k.lamps*.9;
       for (const f of (W.glows || [])) f(k);
       return k;
     },
@@ -231,30 +235,44 @@ export function createSky(renderer){
       renderer.shadowMap.needsUpdate = true;
       return true;
     },
-    // hand the six real lights to the light sources nearest to you
+    /* Hand the real lights to the sources that matter most where you are, and fade them so none of them ever pops.
+       Every source is ranked by its distance from you (a room's own lights count for more while you are indoors, the
+       street's while you are out); the first N get a real light. Each one's brightness falls off smoothly towards the
+       distance of the first source that did NOT get one (cut), and is nothing at it — so when two sources swap places
+       across that line, the one handing its light over is already dark and the one taking it starts dark: lamps come
+       up and go down gradually as you walk, never one by one. */
     lights(dt, focus){
       assignT -= dt;
       const fx = focus ? focus.x : 0, fy = focus ? focus.y : 1.6, fz = focus ? focus.z : 0;
+      const dist = l => Math.hypot(l.x - fx, (l.y - fy)*.5, l.z - fz) + (l.indoor ? (K.cover > .5 ? -3 : 5) : (K.cover > .5 ? 5 : 0));
       if (assignT <= 0){
-        assignT = .25;
-        const live = W.lights.filter(l => (l.on ? l.on() : true) && (l.indoor || K.lamps > .02));
-        live.forEach(l => { l._d = Math.hypot(l.x - fx, (l.y - fy)*.5, l.z - fz) - (l.indoor ? 3 : 0); });
+        assignT = .2;
+        const live = W.lights.filter(l => (l.on ? l.on() : true) && (l.indoor || K.lamps > .02) && !l.dead);
+        live.forEach(l => { l._d = dist(l); });
         live.sort((a, b) => a._d - b._d);
+        cut = live.length > pool.length ? live[pool.length]._d : Infinity;
+        band = Math.max(3, Math.min(9, (isFinite(cut) ? cut : 30)*.5));
         const want = live.slice(0, pool.length);
-        // keep each light on its source where possible so nothing jumps
-        const free = pool.filter(p => !want.includes(p.userData.src)).sort((a, b) => a.userData.cur - b.userData.cur);
+        // a source keeps its light while it is still wanted. One that is no longer wanted fades its light out first, and
+        // only a light that has gone dark is handed to a new source, which then fades it in: nothing is ever cut
+        for (const p of pool) p.userData.leaving = !!p.userData.src && !want.includes(p.userData.src);
+        const free = pool.filter(p => !p.userData.src || (p.userData.leaving && p.userData.cur < .03)).sort((a, b) => a.userData.cur - b.userData.cur);
         for (const src of want){
           if (pool.some(p => p.userData.src === src)) continue;
           const p = free.shift(); if (!p) break;
-          p.userData.src = src; p.userData.cur = 0; p.intensity = 0;
+          p.userData.src = src; p.userData.leaving = false; p.userData.cur = 0; p.intensity = 0;
           p.position.set(src.x, src.y, src.z); p.color.setHex(src.color); p.distance = src.distance; p.decay = src.decay;
         }
-        for (const p of free) p.userData.src = null;
       }
       for (const p of pool){
         const src = p.userData.src;
-        const target = src ? src.intensity*(src.indoor ? 1 : K.lamps) : 0;
-        p.userData.cur += (target - p.userData.cur)*Math.min(1, dt*6);
+        let target = 0;
+        if (src && !p.userData.leaving && (src.on ? src.on() : true)){
+          const d = dist(src), w = isFinite(cut) ? Math.max(0, Math.min(1, (cut - d)/band)) : 1;
+          target = src.intensity*(src.indoor ? 1 : K.lamps)*w*w*(3 - 2*w);
+        }
+        p.userData.cur += (target - p.userData.cur)*Math.min(1, dt*3);
+        if (p.userData.leaving && p.userData.cur < .005){ p.userData.src = null; p.userData.leaving = false; p.userData.cur = 0; }
         p.intensity = p.userData.cur;
       }
     },

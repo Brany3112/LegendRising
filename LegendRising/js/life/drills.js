@@ -4,7 +4,7 @@
    run of reps you time. Everything is worth more fresh and fed, and less when you are spent. */
 import {THREE, W} from "./build.js";
 import {DRILLS, RINGS, PITCH, ballMesh, GROUND, barbell, dumbbell} from "./ground.js";
-import {CONTACT} from "./human.js";
+import {CONTACT, plyoPath} from "./human.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 const GRAV = 9.81;
@@ -398,7 +398,7 @@ function station(kind, P){
 const GRADE = q => q >= .9 ? "perfect" : q >= .55 ? "good" : q > 0 ? "sloppy" : "miss";
 const REP = {   // seconds a rep takes, by grade
   squat:{perfect:1.0, good:1.2, sloppy:1.5, miss:2.4}, dumbbell:{perfect:.85, good:1.0, sloppy:1.2, miss:1.4},
-  plyo:{perfect:1.5, good:1.6, sloppy:1.8, miss:1.9}, ladder:{perfect:1.15, good:1.45, sloppy:1.9, miss:2.6},
+  plyo:{perfect:2.5, good:2.6, sloppy:2.8, miss:2.5}, ladder:{perfect:1.15, good:1.45, sloppy:1.9, miss:2.6},
   treadmill:{perfect:1.6, good:1.6, sloppy:1.6, miss:1.8}, bike:{perfect:1.4, good:1.4, sloppy:1.5, miss:1.7}
 };
 export function startReps(kind, H){
@@ -415,6 +415,8 @@ export function startReps(kind, H){
   const W2 = (r, f) => [st.x + r*cos - f*sin, st.z - r*sin - f*cos];
   H.place({x:st.x, z:st.z, y:0, yaw:st.yaw});
   const A = {grade:"good", k:0, ph:0, side:1, pos:0, dirL:1, run:0, step:0};
+  // the bike you are on: its cranks turn with your feet
+  if (kind === "bike" && W.bikes && W.bikes.length) A.bike = W.bikes.reduce((a, b) => Math.hypot(b.x - st.x, b.z - st.z) < Math.hypot(a.x - st.x, a.z - st.z) ? b : a);
   // the props: the rack's own bar off its hooks, or a pair of dumbbells from the rack
   const sc = H.scene();
   let bar = null, bells = null;
@@ -458,12 +460,12 @@ export function startReps(kind, H){
       return Object.assign(base, {mode:"curl", k, side:A.side, sway:g === "sloppy" ? 1 : g === "miss" ? .6 : 0});
     }
     if (kind === "plyo"){
-      // up onto the box (or not), stand tall, step back down for the next one
-      const fail = g === "miss", up = D.phase === "anim" ? (fail ? kf3(animT, [[0, 0], [.36, 0], [.48, .28], [.62, 0], [1, 0]]) : kf3(animT, [[0, 0], [.34, 0], [.46, 1.15], [.6, 1], [.8, 1], [.95, 0], [1, 0]])) : 0;
-      const fwd = D.phase === "anim" ? (fail ? kf3(animT, [[0, 0], [.36, 0], [.5, .22], [.7, .05], [1, 0]]) : kf3(animT, [[0, 0], [.34, 0], [.55, .85], [.8, .85], [.95, 0], [1, 0]])) : 0;
-      A.lift = Math.min(1, up);
-      const [x, z] = W2(0, fwd);
-      return Object.assign(base, {mode:"plyo", t:D.phase === "anim" ? Math.min(.99, animT/.8) : 0, fail, x, z, y:up*st.box*(fail ? 1 : 1)});
+      // the whole rep is one movement: up onto the box (or not), stand tall, step back down and walk back to the mark —
+      // the next jump is only offered once you are standing on it again
+      const fail = g === "miss", t = D.phase === "anim" ? animT : 0, p = plyoPath(t, fail);
+      A.lift = Math.min(1, p.up);
+      const [x, z] = W2(0, p.fwd);
+      return Object.assign(base, {mode:"plyo", t, fail, box:st.box, x, z, y:p.up*st.box});
     }
     if (kind === "ladder"){
       // quick feet down the ladder; a good rep flies, a missed one stutters and nearly trips
@@ -483,7 +485,8 @@ export function startReps(kind, H){
     if (kind === "bike"){
       const cad = 7 + (D.phase === "anim" ? ({perfect:9, good:6.5, sloppy:3.5, miss:1})[g]*Math.sin(Math.min(1, animT)*Math.PI) : 0);
       A.ph += cad*dt;
-      return Object.assign(base, {mode:"bike", ph:A.ph, seat:.86, crankY:.36, crankZ:.16, barY:1.05, barZ:.56});
+      if (A.bike) A.bike.set(A.ph);
+      return Object.assign(base, {mode:"bike", ph:A.ph, seat:.86, crankY:.36, crankZ:.16, crankR:A.bike ? A.bike.r : .16, barY:1.08, barZ:.6});
     }
     return Object.assign(base, {mode:"idle"});
   };

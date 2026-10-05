@@ -2,7 +2,7 @@
    Two ground-floor units on your side of the street. The Mini Market on the corner sells what you
    eat and drink, open all hours, warm light spilling out at night. Next door to your block is where
    your day job is — the sign, the counter and the clutter change with whatever job you hold. */
-import {THREE, W, LH, box, rbox, wall, solid, floor, ramp, spot, label, textTex, lightSrc, reseed, rnd, pick, doorway, extrude, reveal} from "./build.js";
+import {THREE, W, LH, box, rbox, wall, solid, floor, ramp, spot, label, textTex, lightSrc, pool, reseed, rnd, pick, doorway, extrude, reveal} from "./build.js";
 import {frame, rb, cy, sph, fsolid, worldPt, shelfUnit, desk, monitor, chair, cafeChair, bike, cone, ball, bibs, kitBag, cabinet, PC} from "./props.js";
 import {staffer, regulars, jobRole} from "./npc.js";
 import {facer, decoWin, pilasters, roofTop, downpipe} from "./home.js";
@@ -132,6 +132,7 @@ export function miniMarket(c){
   // warm light inside, day and night
   lightSrc({x:21.4, y:3.6, z:-.8, color:0xffe2b8, intensity:9, distance:11, indoor:true});
   lightSrc({x:26.8, y:3.6, z:-.8, color:0xffe2b8, intensity:9, distance:11, indoor:true});
+  pool(25.8, 4.5, 3.4, .125); pool(20.7, 4.3, 2.2, .125);            // its light spilling out over the pavement at night
   for (const x of [20, 23.5, 27]) for (const z of [-3, 0]) box(x - .6, H - .06, z - .15, x + .6, H - .02, z + .15, 0xfff6e0, {key:"lamp", ao:false});
   // buying: at the counter, or anywhere you look at the shelves and fridges
   spot({x:19.6, y:1.1, z:1.1, r:1.8, aim:[[18.4, 0, -.1], [19.6, 1.6, 2.3]], label:"Mini Market", hint:"Buy food, drinks and recovery", hold:.2, run:() => ctx.shop()});
@@ -252,6 +253,7 @@ export function workplace(c){
   spot({x:4.8, y:1.2, z:2.4, r:1.6, near:true, label:d.title.replace(/\b\w+/g, w => w[0] + w.slice(1).toLowerCase()), hint:"Your workplace · clock in at the back", hold:.2, run:() => ctx.note("Clock in at the terminal on the back wall to start a shift.")});
   lightSrc({x:6, y:2.9, z:-1, color:0xfff0d8, intensity:8, distance:10, indoor:true});
   lightSrc({x:11.5, y:2.9, z:-1, color:0xfff0d8, intensity:8, distance:10, indoor:true});
+  pool(10.3, 4.4, 3.2, .125);
   for (const x of [5, 9, 13]) box(x - .5, g0 - .1, -1.2, x + .5, g0 - .05, -.8, 0xfff6e0, {key:"lamp", ao:false});
   // the staff dressed for the job, and whoever is in as a customer at this time of day
   // (in for the hours the shifts run, 7:00 AM to 11:00 PM: not standing in the dark after closing)

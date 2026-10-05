@@ -428,6 +428,21 @@ export function pool(x, z, r = 3.2, y = .03){
   return m;
 }
 export const poolMat = () => POOL_MAT;
+// the glow round a lamp's head at night, seen from any distance: one soft additive sprite, faded in with the lamps
+let HALO_MAT = null;
+export function halo(x, y, z, size = 1.4, color = 0xffd9a0){
+  if (!HALO_MAT){
+    const [c, g] = canvas(64, 64), gr = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+    gr.addColorStop(0, "rgba(255,240,210,1)"); gr.addColorStop(.25, "rgba(255,220,160,.55)"); gr.addColorStop(1, "rgba(255,210,140,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    HALO_MAT = new THREE.SpriteMaterial({map:t, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, opacity:0, toneMapped:false});
+    HALO_MAT.userData.keep = true;
+  }
+  const s = new THREE.Sprite(HALO_MAT); s.position.set(x, y, z); s.scale.set(size, size, 1); s.renderOrder = 3;
+  W.scene.add(s); return s;
+}
+export const haloMat = () => HALO_MAT;
 export function solid(x0, x1, z0, z1, y0 = 0, y1 = 3){
   const s = {x0:Math.min(x0, x1), x1:Math.max(x0, x1), z0:Math.min(z0, z1), z1:Math.max(z0, z1), y0, y1, off:false};
   W.solids.push(s); return s;
@@ -578,7 +593,7 @@ export function boxPart(w, h, d, color, x = 0, y = 0, z = 0, o = {}){
 export function begin(scene){
   W.scene = scene;
   W.solids.length = 0; W.floors.length = 0; W.ramps.length = 0; W.spots.length = 0; W.anims.length = 0;
-  W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = [];
+  W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = []; W.bikes = [];
   batches.clear();
 }
 const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber"]);
