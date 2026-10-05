@@ -316,7 +316,7 @@ function inSight(x, z){
 }
 
 /* ---------- someone at work: behind a counter, at a desk, in the office ---------- */
-const JOB_ROLE = {cafe:"barista", store:"clerk", courier:"dispatcher", gym:"gym", academy:"coach", photo:"photographer", video:"editor"};
+const JOB_ROLE = {cafe:"barista", store:"clerk", courier:"dispatcher", gym:"gym", academy:"coach", photo:"photographer", edit:"editor", video:"editor"};
 const POSE = {manager:{mode:"counter", counter:.77, reach:.45}, shopkeeper:{mode:"counter", counter:1.05, reach:.36}, barista:{mode:"counter", counter:1.05, reach:.38}, gym:{mode:"counter", counter:1.1, reach:.34},
   coach:{mode:"clipboard"}, office:{mode:"idle", arms:"behind"}, courier:{mode:"idle", arms:"hips"}, dispatcher:{mode:"idle", arms:"folded"}, clerk:{mode:"idle", arms:"behind"},
   photographer:{mode:"idle", arms:"folded"}, editor:{mode:"idle", arms:"behind"}, physio:{mode:"idle", arms:"folded"}, kitman:{mode:"idle", arms:"behind"}, receptionist:{mode:"idle", arms:"behind"}};
@@ -359,8 +359,8 @@ export function staffer(x, z, ry, o = {}){
     look = castLook(role, o.seed ?? 5, Object.assign({outfit:out}, o.kit ? {kit:o.kit} : {}));
     if (o.hair != null) look.hairColor = col(o.hair);
   }
-  // standing still, so they may throw a real shadow; anyone who comes and goes doesn't (the sun's shadows are not redrawn for them)
-  const h = human(look, {cast:!o.when});
+  // standing still, so they throw a real shadow (when they come or go, the sun's shadows are redrawn)
+  const h = human(look, {cast:true});
   h.g.position.set(x, o.y || 0, z); h.g.rotation.y = ry;
   W.scene.add(h.g);
   // shop counters stand in front of the till workers; elsewhere they simply stand about
@@ -375,7 +375,7 @@ export function staffer(x, z, ry, o = {}){
   W.anims.push(dt => {
     if (o.when){
       const want = !!o.when(dayMin(o));
-      if (want !== on && !inSight(x, z)){ on = want; h.g.visible = on; if (sol) sol.off = !on; }
+      if (want !== on && !inSight(x, z)){ on = want; h.g.visible = on; if (sol) sol.off = !on; W.shadowDirty = true; }
     }
     if (on) animateHuman(h, dt, st);
   });
@@ -446,114 +446,191 @@ function turn(P, yaw, dt, k = 6){
    o.routes: closed loops of [x, z] waypoints along the pavements (corners are rounded off); a waypoint may carry a
    pause in seconds (at a kerb, looking both ways before crossing) and the way round the loop it applies to
    ([x, z, secs, +1 | −1 | 0 for both]). o.count(minute) → how many are
-   out at that time of day (none in the small hours). Walkers keep to the right of their line, swing round you or
-   wait if you're in the way (and turn back if you stay there), and never step into a solid or onto a raised floor:
+   out at that time of day (none in the small hours); o.max (6) of them at most. Walkers glide along the line (read
+   between its 20 cm samples), keep to the right of it, swing round you and round anyone coming the other way — or
+   stand aside, or wait, and turn back if it stays blocked — and never step into a solid or onto a raised floor:
    every point of a route knows how far to each side it is clear. One mesh each, no sun shadow. */
-const ROAD_R = .3;
-function groundY(x, z){
+const ROAD_R = .3, KEEP = .3, NEED = .62;
+// the ground under (x, z) (the road's surface, a pavement, a kerb) and whether a body of radius r fits there: against
+// the solids and floors near one route only (fl, so)
+function groundY(x, z, fl = W.floors){
   let g = .013;                                                             // the road's surface (the asphalt is laid 1 cm proud)
-  for (const f of W.floors) if (f.h < .2 && x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1 && f.h > g) g = f.h;
+  for (const f of fl) if (f.h < .2 && x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1 && f.h > g) g = f.h;
   return g;
 }
-function clearAt(x, z, r){
-  for (const q of W.solids){ if (q.off || q.y1 < .15 || q.y0 > 1.7) continue; if (x + r > q.x0 && x - r < q.x1 && z + r > q.z0 && z - r < q.z1) return false; }
-  for (const f of W.floors) if (f.h >= .2 && x + r > f.x0 && x - r < f.x1 && z + r > f.z0 && z - r < f.z1) return false;
+function clearAt(x, z, r, so = W.solids, fl = W.floors){
+  for (const q of so){ if (q.off || q.y1 < .15 || q.y0 > 1.7) continue; if (x + r > q.x0 && x - r < q.x1 && z + r > q.z0 && z - r < q.z1) return false; }
+  for (const f of fl) if (f.h >= .2 && x + r > f.x0 && x - r < f.x1 && z + r > f.z0 && z - r < f.z1) return false;
   return true;
 }
 function routeOf(pts){
-  // round the corners (Chaikin, twice, cutting no more than 70 cm into a long straight), then sample every 20 cm
-  let P = pts.map(p => [p[0], p[1], p[2] || 0, p[3] || 0]);
-  for (let it = 0; it < 2; it++){
+  // round every corner (Chaikin, three times, cutting no more than 70 cm into a long straight), then sample every 20 cm.
+  // A pause (a kerb) goes to the sample nearest where it was asked for, so no corner is left sharp for it
+  let P = pts.map(p => [p[0], p[1]]);
+  for (let it = 0; it < 3; it++){
     const Q = [];
     for (let i = 0; i < P.length; i++){
       const a = P[i], b = P[(i + 1) % P.length];
-      if (a[2]) Q.push(a);                                                     // a pause point stays where it is
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, c = Math.min(.25, .7/L);          // a corner rounded over 70 cm at most
-      Q.push([a[0]*(1 - c) + b[0]*c, a[1]*(1 - c) + b[1]*c, 0, 0], [a[0]*c + b[0]*(1 - c), a[1]*c + b[1]*(1 - c), 0, 0]);
+      Q.push([a[0]*(1 - c) + b[0]*c, a[1]*(1 - c) + b[1]*c], [a[0]*c + b[0]*(1 - c), a[1]*c + b[1]*(1 - c)]);
     }
     P = Q;
   }
+  // only what stands near this route is ever tested against it
+  const xs = P.map(p => p[0]), zs = P.map(p => p[1]), M = 1.6;
+  const bx0 = Math.min(...xs) - M, bx1 = Math.max(...xs) + M, bz0 = Math.min(...zs) - M, bz1 = Math.max(...zs) + M;
+  const near = q => q.x1 > bx0 && q.x0 < bx1 && q.z1 > bz0 && q.z0 < bz1;
+  // ... and through a 1 m grid, so each probe looks only at the few things in its own cells
+  const grid = new Map(), key = (i, j) => i*4096 + j;
+  const file = (q, kind) => { for (let i = Math.floor(q.x0); i <= Math.floor(q.x1); i++) for (let j = Math.floor(q.z0); j <= Math.floor(q.z1); j++){ const k = key(i, j); let c = grid.get(k); if (!c) grid.set(k, c = {so:[], fl:[]}); c[kind].push(q); } };
+  W.solids.filter(q => near(q) && !q.off && q.y1 >= .15 && q.y0 <= 1.7).forEach(q => file(q, "so"));
+  W.floors.filter(near).forEach(q => file(q, "fl"));
+  const EMPTY = {so:[], fl:[]}, cell = (x, z) => grid.get(key(Math.floor(x), Math.floor(z))) || EMPTY;
+  const gAt = (x, z) => groundY(x, z, cell(x, z).fl);
+  const clear = (x, z, r) => { for (let i = Math.floor(x - r); i <= Math.floor(x + r); i++) for (let j = Math.floor(z - r); j <= Math.floor(z + r); j++){ const c = grid.get(key(i, j)); if (c && !clearAt(x, z, r, c.so, c.fl)) return false; } return true; };
   const S_ = [];
   for (let i = 0; i < P.length; i++){
     const a = P[i], b = P[(i + 1) % P.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L/.2));
-    for (let k = 0; k < n; k++) S_.push({x:a[0] + (b[0] - a[0])*k/n, z:a[1] + (b[1] - a[1])*k/n, pause:k ? 0 : a[2], pdir:k ? 0 : a[3]});
+    for (let k = 0; k < n; k++) S_.push({x:a[0] + (b[0] - a[0])*k/n, z:a[1] + (b[1] - a[1])*k/n, pause:0, pdir:0});
+  }
+  for (const p of pts) if (p[2]){
+    let bi = 0, bd = 1e9; S_.forEach((a, i) => { const dd = Math.hypot(a.x - p[0], a.z - p[1]); if (dd < bd){ bd = dd; bi = i; } });
+    S_[bi].pause = p[2]; S_[bi].pdir = p[3] || 0;
   }
   let d = 0;
   for (let i = 0; i < S_.length; i++){
     const a = S_[i], b = S_[(i + 1) % S_.length];
-    a.d = d; const L = Math.hypot(b.x - a.x, b.z - a.z) || 1e-6; a.ux = (b.x - a.x)/L; a.uz = (b.z - a.z)/L; d += L;
+    a.d = d; const L = Math.hypot(b.x - a.x, b.z - a.z) || 1e-6; a.ux = (b.x - a.x)/L; a.uz = (b.z - a.z)/L; a.len = L; d += L;
   }
-  // the ground under the line, eased over a kerb so a step down onto the road is a step, not a jump
-  for (const a of S_) a.g0 = groundY(a.x, a.z);
-  for (let i = 0; i < S_.length; i++){ let t = 0; for (let k = -1; k <= 1; k++) t += S_[(i + k + S_.length) % S_.length].g0; S_[i].y = t/3; }
-  // how far each side (left +, right −) of the line is clear for a body
+  // the way the line runs AT each sample (half way between the segments either side), read smoothly between samples:
+  // a walker kept to one side of the line then rounds a corner on a curve too, instead of being flicked across it
+  for (let i = 0; i < S_.length; i++){ const a = S_[i], p = S_[(i - 1 + S_.length) % S_.length], tx = a.ux + p.ux, tz = a.uz + p.uz, l = Math.hypot(tx, tz) || 1; a.tx = tx/l; a.tz = tz/l; }
+  // how far each side (left +, right −) of the line is clear for a body, on the same level as the line
   for (const a of S_){
-    a.l = 0; a.r = 0;
-    for (let o = .1; o <= 1.01 && clearAt(a.x - a.uz*o, a.z + a.ux*o, ROAD_R) && Math.abs(groundY(a.x - a.uz*o, a.z + a.ux*o) - a.g0) < .05; o += .1) a.l = o;
-    for (let o = .1; o <= 1.01 && clearAt(a.x + a.uz*o, a.z - a.ux*o, ROAD_R) && Math.abs(groundY(a.x + a.uz*o, a.z - a.ux*o) - a.g0) < .05; o += .1) a.r = o;
-    a.ok = clearAt(a.x, a.z, ROAD_R - .04);
+    a.g0 = gAt(a.x, a.z); a.l = 0; a.r = 0;
+    for (let o = .1; o <= 1.01 && clear(a.x - a.uz*o, a.z + a.ux*o, ROAD_R) && Math.abs(gAt(a.x - a.uz*o, a.z + a.ux*o) - a.g0) < .05; o += .1) a.l = o;
+    for (let o = .1; o <= 1.01 && clear(a.x + a.uz*o, a.z - a.ux*o, ROAD_R) && Math.abs(gAt(a.x + a.uz*o, a.z - a.ux*o) - a.g0) < .05; o += .1) a.r = o;
+    a.ok = clear(a.x, a.z, ROAD_R - .04);
   }
-  return {S:S_, len:d, at(s){ s = ((s % d) + d) % d; let lo = 0, hi = S_.length - 1; while (lo < hi){ const m = (lo + hi + 1) >> 1; if (S_[m].d <= s) lo = m; else hi = m - 1; } return S_[lo]; }};
+  const pauses = S_.filter(a => a.pause), N_ = S_.length;
+  const idx = s => { let lo = 0, hi = N_ - 1; while (lo < hi){ const m = (lo + hi + 1) >> 1; if (S_[m].d <= s) lo = m; else hi = m - 1; } return lo; };
+  return {S:S_, len:d, pauses, ground:gAt,
+    // the point at distance s round the loop, read BETWEEN the samples (a walker glides, it doesn't hop 20 cm at a time):
+    // position, the way the line runs, and the room either side (the narrower of the two samples it lies between)
+    at(s, out = {}){
+      s = ((s % d) + d) % d; const i = idx(s), A = S_[i], Bq = S_[(i + 1) % N_], t = Math.min(1, (s - A.d)/A.len);
+      const tx = A.tx + (Bq.tx - A.tx)*t, tz = A.tz + (Bq.tz - A.tz)*t, tl = Math.hypot(tx, tz) || 1;
+      out.x = A.x + (Bq.x - A.x)*t; out.z = A.z + (Bq.z - A.z)*t; out.ux = tx/tl; out.uz = tz/tl; out.g0 = t < .5 ? A.g0 : Bq.g0;
+      out.l = Math.min(A.l, Bq.l); out.r = Math.min(A.r, Bq.r); out.i = i; out.s = s;
+      return out;
+    },
+    // the room either side of the line over the next len metres going dir (−1: back round the loop)
+    room(s, dir, len){
+      s = ((s % d) + d) % d; let i = idx(s), l = 9, r = 9, k = 0;
+      if (dir < 0) i = (i + 1) % N_;
+      for (let gone = 0; gone <= len && k < N_; k++){ const a = S_[i]; l = Math.min(l, a.l); r = Math.min(r, a.r); gone += a.len; i = (i + dir + N_) % N_; }
+      return [l, r];
+    }};
 }
 export function pedestrians(o){
   const routes = o.routes.map(routeOf), walkers = [];
   const bad = routes.reduce((n, R) => n + R.S.filter(a => !a.ok).length, 0);                 // route points not clear (a test reads it)
-  const N = o.max || 6;
+  const N = o.max ?? 6, wantNow = () => Math.min(N, Math.max(0, Math.round(o.count(dayMin(o)))));
+  const first = wantNow();
   for (let i = 0; i < N; i++){
     const R = routes[i % routes.length], dir = (i >> 1) % 2 ? -1 : 1;
     const look = castLook("pedestrian", (o.seed || 500) + i*131);
     const h = human(look, {cast:false});
     W.scene.add(h.g);
-    const w = {h, R, dir, s:R.len*((i*.37 + .11) % 1), v:0, base:1.2 + ((i*.29) % 1)*.35, lat:0, yaw:null, on:false, pause:0, cool:0, wait:0, px:null, pz:null, vis:0};
-    const a = R.at(w.s); h.g.position.set(a.x, a.y, a.z); h.g.visible = false;
+    const w = {h, R, dir, s:R.len*((i*.37 + .11) % 1), v:0, base:1.2 + ((i*.29) % 1)*.35, lat:-KEEP*dir, yaw:null, on:false, pause:0, cool:0, wait:0, px:null, pz:null, vis:0, y:0, b:{}};
+    const a = R.at(w.s, w.b); w.y = R.ground(a.x - a.uz*w.lat, a.z + a.ux*w.lat);
+    h.g.position.set(a.x - a.uz*w.lat, w.y, a.z + a.ux*w.lat); h.g.rotation.y = Math.atan2(a.ux*dir, a.uz*dir);
+    // the ones out at this hour are already out when you arrive (nothing has been drawn yet, so nobody sees them
+    // appear); after that they come and go only where you can't see
+    w.on = i < first; h.g.visible = w.on;
+    if (w.on) animateHuman(h, 0, {mode:"move", speed:w.base});
     walkers.push(w);
   }
-  const fwd = (w, a) => [a.ux*w.dir, a.uz*w.dir];
+  const ob = [], TMP = {};
   W.anims.push(dt => {
-    const want = Math.min(N, Math.max(0, Math.round(o.count(dayMin(o)))));
+    if (!(dt > 0)) return;
+    const want = wantNow(), here = VIEW.scene === W.scene;
     walkers.forEach((w, i) => {
       const h = w.h, should = i < want;
-      if (should !== w.on && !inSight(h.g.position.x, h.g.position.z)){ w.on = should; h.g.visible = should; if (should){ w.v = 0; w.yaw = null; } }
+      if (should !== w.on && !inSight(h.g.position.x, h.g.position.z)){ w.on = should; h.g.visible = should; if (should){ w.v = 0; w.yaw = null; w.px = null; } }
       if (!w.on) return;
-      const a = w.R.at(w.s), [fx, fz] = fwd(w, a);
+      const R = w.R, a = R.at(w.s, w.b), fx = a.ux*w.dir, fz = a.uz*w.dir;
       // a pause at a kerb: stand, look one way and the other, then go
       if (w.pause > 0){
-        w.pause -= dt;
+        w.pause -= dt; w.v = 0; w.vis = 0;
         animateHuman(h, dt, {mode:"idle", look:Math.sin((1.6 - w.pause)*2.4)*.7});
         return;
       }
-      // you, in the way: swing round you to whichever side has room, or slow and wait; turn back if you stay put
-      let latT = -.22*w.dir, slow = 0;
-      if (VIEW.scene === W.scene){
-        const x = h.g.position.x, z = h.g.position.z, dx = VIEW.x - x, dz = VIEW.z - z, ahead = dx*fx + dz*fz;
-        if (ahead > -.4 && ahead < 3.2){
-          const pl = (-dx*fz + dz*fx)*w.dir;                                  // your offset across the line, on the line's own left/right
-          const lo = -a.r, hi = a.l, need = .62;
-          if (Math.abs(pl - latT) < need){
-            const left = pl + need, right = pl - need;
-            if (left <= hi && (right < lo || Math.abs(left - latT) < Math.abs(right - latT))) latT = left;
-            else if (right >= lo) latT = right;
-            else slow = 1 - Math.max(0, Math.min(1, (ahead - .9)/1.6));
-          }
+      /* who is in the way ahead: you, and anyone coming the other way (or on the other loop). Each is measured
+         from the line itself (lat 0), across it (pl, + to the line's left) and along it (ahead). The nearest one
+         that the walker's line would brush decides: it steps to whichever side of them is nearer and has room,
+         else slows and waits (standing aside where there's room); held up for a few seconds it turns back. Two walkers
+         meeting each step their own way. */
+      const [rl, rr] = R.room(w.s, w.dir, 3.2), lo = -rr, hi = rl;
+      let latT = -KEEP*w.dir, slow = 0, close = 9;
+      ob.length = 0;
+      if (here) ob.push(VIEW.x, VIEW.z);
+      for (const q of walkers) if (q !== w && q.on && (q.R !== R || q.dir !== w.dir)) ob.push(q.h.g.position.x, q.h.g.position.z);
+      let best = null;
+      for (let k = 0; k < ob.length; k += 2){
+        const dx = ob[k] - a.x, dz = ob[k + 1] - a.z, ahead = dx*fx + dz*fz, pl = -dx*a.uz + dz*a.ux;
+        if (ahead < -.3 || ahead > 3.2 || Math.abs(pl - w.lat) > 2) continue;
+        // right in front, still not clear of it: ease up, and stop short of touching
+        if (ahead > 0 && Math.abs(pl - w.lat) < NEED*.85) close = Math.min(close, ahead);
+        if (Math.abs(pl - latT) < NEED && (!best || ahead < best[0])) best = [ahead, pl];
+      }
+      let aside = false;
+      if (best){
+        const [ahead, pl] = best, left = pl + NEED, right = pl - NEED, okL = left <= hi, okR = right >= lo;
+        if (okL && (!okR || Math.abs(left - w.lat) < Math.abs(right - w.lat))) latT = left;
+        else if (okR) latT = right;
+        else {
+          // no way past along the next few metres: stop a good pace short — and if there's room to one side right
+          // here, stand aside there and let them by
+          slow = 1 - Math.max(0, Math.min(1, (ahead - 1.1)/1.4));
+          const l2 = pl + NEED <= a.l, r2 = pl - NEED >= -a.r;
+          if (l2 || r2){ latT = l2 && (!r2 || Math.abs(pl + NEED - w.lat) < Math.abs(pl - NEED - w.lat)) ? pl + NEED : pl - NEED; aside = true; }
         }
       }
-      latT = Math.max(-a.r, Math.min(a.l, latT));
-      w.lat += (latT - w.lat)*(1 - Math.exp(-3*dt));
-      w.lat = Math.max(-a.r, Math.min(a.l, w.lat));
+      if (close < 9) slow = Math.max(slow, 1 - Math.max(0, Math.min(1, (close - .5)/.7)));
+      latT = aside ? Math.max(-a.r, Math.min(a.l, latT)) : Math.max(lo, Math.min(hi, latT));
+      // a side-step is a few paces, not a skip: at most .9 m/s across
+      w.lat += Math.max(-.9*dt, Math.min(.9*dt, (latT - w.lat)*(1 - Math.exp(-3*dt))));
+      // still wider than the way ahead allows (just turned round, say): ease up until it has stepped in
+      { const out = Math.max(lo - w.lat, w.lat - hi, 0); if (out > .02 && !aside) slow = Math.max(slow, Math.min(1, out/.35)); }
       // the one in front, going the same way: don't walk up their heels
-      for (const q of walkers){ if (q === w || !q.on || q.R !== w.R || q.dir !== w.dir) continue; let gap = (q.s - w.s)*w.dir; gap = ((gap % w.R.len) + w.R.len) % w.R.len; if (gap < 1.6) slow = Math.max(slow, 1 - gap/1.6); }
-      if (slow > .95){ if ((w.wait += dt) > 4){ w.dir = -w.dir; w.wait = 0; } } else w.wait = 0;
+      // (it stops a pace behind them — when they stop at a kerb, it waits there too)
+      for (const q of walkers){ if (q === w || !q.on || q.R !== R || q.dir !== w.dir) continue; let gap = (q.s - w.s)*w.dir; gap = ((gap % R.len) + R.len) % R.len; if (gap < 1.8) slow = Math.max(slow, Math.min(1, (1.8 - gap)/.8)); }
+      // held up too long: turn back (not all at once — two who meet where neither can pass don't both give up)
+      if (slow > .95 && !aside){ if ((w.wait += dt) > 2.5 + (i % 3)*1.6){ w.dir = -w.dir; w.wait = 0; } } else w.wait = 0;
       const vt = w.base*(1 - slow);
-      w.v += (vt - w.v)*(1 - Math.exp(-4*dt));
-      w.s += w.dir*w.v*dt;
-      // a pause point passed: stop there
-      const b = w.R.at(w.s);
+      w.v += (vt - w.v)*(1 - Math.exp(-(vt < w.v ? 7 : 4)*dt));
+      // on along the line, at the body's own pace (on the outside of a bend the offset path is longer, inside shorter);
+      // a pause point passed on the way (for this direction) stops it right there
+      const ahd = R.at(w.s + w.dir*.1, TMP), ox = (ahd.x - ahd.uz*w.lat) - (a.x - a.uz*w.lat), oz = (ahd.z + ahd.ux*w.lat) - (a.z + a.ux*w.lat);
+      const s0 = w.s, step = w.v*dt*.1/Math.max(.04, Math.hypot(ox, oz));
+      let s1 = s0 + w.dir*step;
       w.cool -= dt;
-      if (b.pause && (!b.pdir || b.pdir === w.dir) && w.cool <= 0){ w.cool = 12; w.pause = b.pause; }
+      if (w.cool <= 0) for (const p of R.pauses){
+        if (p.pdir && p.pdir !== w.dir) continue;
+        const gone = (((p.d - s0)*w.dir % R.len) + R.len) % R.len;
+        if (gone > 1e-6 && gone <= step){ s1 = p.d; w.pause = p.pause; w.cool = 12; break; }
+      }
+      w.s = ((s1 % R.len) + R.len) % R.len;
+      const b = R.at(w.s, w.b);
+      { const c = Math.max(-b.r, Math.min(b.l, w.lat)); w.lat += Math.max(-1.5*dt, Math.min(1.5*dt, c - w.lat)); }   // never into a post, a bin or a wall
       const x = b.x - b.uz*w.lat, z = b.z + b.ux*w.lat;
-      h.g.position.set(x, b.y, z);
+      // the ground under the feet, met over a few centimetres of stride (a kerb is a step up or down, not a ramp)
+      const moved = w.px == null ? 1 : Math.hypot(x - w.px, z - w.pz), gy = R.ground(x, z);
+      w.y += (gy - w.y)*(1 - Math.exp(-(moved/(gy > w.y ? .03 : .035) + dt*2)));
+      h.g.position.set(x, w.y, z);
       // legs driven by how fast the body really goes; facing eases round to the way it goes
-      if (w.px != null && dt > 0){ const sp = Math.hypot(x - w.px, z - w.pz)/dt; w.vis += (Math.min(sp, 2.2) - w.vis)*(1 - Math.exp(-8*dt)); }
+      if (w.px != null){ const sp = moved/dt; w.vis += (Math.min(sp, 2.2) - w.vis)*(1 - Math.exp(-8*dt)); }
       w.px = x; w.pz = z;
       const yaw = Math.atan2(b.ux*w.dir, b.uz*w.dir);
       if (w.yaw == null) w.yaw = yaw;

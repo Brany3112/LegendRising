@@ -507,7 +507,10 @@ export function leafGuard(hx, hz, len, y0, y1, n = 10, pad = .035){
     // would a leaf pointing along (vx, vz) stand in the space you occupy?
     hitsYou(vx, vz){
       if (VIEW.scene !== W.scene) return false;
-      const feet = VIEW.y - 1.62;
+      // where your feet are: VIEW.feet if the player controller gives it, else the floor under you (your eyes'
+      // height above it depends on how tall you made yourself, so it can't be taken off a fixed eye height)
+      let feet = VIEW.feet;
+      if (feet == null){ feet = 0; for (const f of W.floors) if (f.h > feet && f.h <= VIEW.y - .9 && VIEW.x >= f.x0 && VIEW.x <= f.x1 && VIEW.z >= f.z0 && VIEW.z <= f.z1) feet = f.h; }
       if (feet + 1.75 <= y0 || feet + .42 >= y1) return false;
       const px = VIEW.x - hx, pz = VIEW.z - hz, t = Math.max(0, Math.min(len, px*vx + pz*vz));
       return Math.hypot(px - vx*t, pz - vz*t) < .26 + pad;
@@ -662,8 +665,9 @@ function myFlat(F, D){
   rb(fr(.535, vc(tv0, tv1)), 0, .64, 0, .73, .08, .5, .016, WD2);                              // the apron under the top
   for (const [u, v] of [[.185, tv0 + .065], [.885, tv0 + .065], [.185, tv1 - .065], [.885, tv1 - .065]]) cy(fr(u, v), 0, 0, 0, .024, .017, .72, WD2, {seg:8});
   solid(X(.12), X(.95), ...zr(tv0, tv1), base, base + .76);
-  cyl(X(.4), base + .76, Z(tv0 + .3), .045, .1, 0xe8e2d6, {seg:10});
-  cyl(X(.7), base + .76, Z(tv0 + .25), .13, .015, 0xf0eee8, {seg:14});
+  // a mug by the chair and a side plate at the far corner, both clear of the laptop (u .35–.71, v tv0 + .175–.425)
+  cyl(X(.84), base + .76, Z(tv0 + .16), .045, .1, 0xe8e2d6, {seg:10});
+  cyl(X(.23), base + .76, Z(tv0 + .47), .1, .015, 0xf0eee8, {seg:14});
   // the chair, facing the table: a seat with rounded edges, turned legs, two back posts with slats between
   const cu0 = 1.02, cu1 = 1.45, cv0 = tv0 + .08, cv1 = tv0 + .52;
   rb(fr(vc(cu0, cu1), vc(cv0, cv1)), 0, .43, 0, .43, .045, .44, .02, 0x7a5233);

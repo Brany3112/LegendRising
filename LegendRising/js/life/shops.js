@@ -252,7 +252,8 @@ export function workplace(c){
   lightSrc({x:11.5, y:2.9, z:-1, color:0xfff0d8, intensity:8, distance:10, indoor:true});
   for (const x of [5, 9, 13]) box(x - .5, g0 - .1, -1.2, x + .5, g0 - .05, -.8, 0xfff6e0, {key:"lamp", ao:false});
   // the staff dressed for the job, and whoever is in as a customer at this time of day
-  if (d.staff) staffer(d.staff[0], d.staff[1], d.staff[2], {role:jobRole(js.id), seed:21, pose:d.pose, noSolid:d.noSolid, minute:ctx.minute});
+  // (in for the hours the shifts run, 7:00 AM to 11:00 PM: not standing in the dark after closing)
+  if (d.staff) staffer(d.staff[0], d.staff[1], d.staff[2], {role:jobRole(js.id), seed:21, pose:d.pose, noSolid:d.noSolid, when:m => m >= 6*60 + 45 && m < 23*60, minute:ctx.minute});
   if (d.customers) regulars(d.customers, {minute:ctx.minute});
   return {door:{x:4.8, z:4.2}};
 }

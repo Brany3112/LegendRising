@@ -6,7 +6,7 @@
 import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, labels, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam} from "./build.js";
 import {facer, decoWin, pilasters, roofTop, busStop, hingedDoor, leafGuard} from "./home.js";
 import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, mannequin, bench, goal, cornerFlag, dugout, floodlight,
-  waterCooler, bottle, kitBag, bibs, lockers, shelfUnit, tacticsBoard, noticeBoard, desk, monitor, chair, vending, vendTex, plyoBox, bike,
+  waterCooler, bottle, kitBag, bibs, kitHamper, lockers, shelfUnit, tacticsBoard, noticeBoard, desk, monitor, chair, vending, vendTex, plyoBox, bike,
   tree, bush, hedge, streetLamp, bin, car, sign, wireFence, parkingBays, planter} from "./props.js";
 import {teamSession, staffer} from "./npc.js";
 import {cabinet} from "./props.js";
@@ -434,7 +434,10 @@ function clubhouse(clubName){
   // the staff who look after you here: the physio by the ice bath and the kit man sorting the bibs, in the day
   const kit = typeof kitOf === "function" && typeof myClub === "function" && myClub() ? kitOf(myClub().nm) : ["#2c66b8", "#ffffff"];
   staffer(29.25, 10.0, -Math.PI*.78, {role:"physio", seed:12, kit, when:m => m >= 8*60 + 30 && m < 18*60, minute:ctx.minute});
-  staffer(25.35, 7.7, 0, {role:"kitman", seed:15, kit, pose:{mode:"counter", counter:.47, reach:.6}, when:m => m >= 7*60 + 30 && m < 19*60, minute:ctx.minute});
+  // the kit man at his laundry trolley in the corner by the window, sorting the bibs into it (a counter-high top, so
+  // he stands at it with his head up rather than bowing over a bench)
+  kitHamper(23.3, 4.95, 0);
+  staffer(23.3, 4.3, 0, {role:"kitman", seed:15, kit, pose:{mode:"counter", counter:.84, reach:.5}, when:m => m >= 7*60 + 30 && m < 19*60, minute:ctx.minute});
   noticeBoard(22.645, 1.55, 5.2, Math.PI/2, [["TODAY", "Shirts on pegs", "boots outside!"], ["RECOVERY", "Ice bath 20 min", "after every session"], ["KIT", "Bibs in the wash", "basket please"], ["SQUAD", "Team photo", "Friday 9:30"]]);
   lightSrc({x:26.2, y:2.7, z:6.8, color:0xf2f6ff, intensity:8, distance:10, indoor:true});
   for (const z of [5, 8.5]) rbox(26.2, g0 - .3, z, 3, .05, .4, .02, 0xf6f8ff, {key:"lamp"});
@@ -447,8 +450,9 @@ function clubhouse(clubName){
   const sh = shelfUnit(29.45, 13.8, -Math.PI/2, 2.4, 1.8, 0x4b5258);
   for (let i = 0; i < 4; i++) cy(sh, -.9 + i*.6, .98, 0, .1, .07, .32, 0xd9b45a, {seg:10, key:"metal"});
   for (let i = 0; i < 3; i++) rb(sh, -.8 + i*.8, 1.6, 0, .3, .2, .25, .02, [0xc8463a, 0x2c66b8, 0x3f8a48][i]);
-  staffer(26.6, 16.3, Math.PI, {role:"manager", seed:4, hair:0x9a9a9a, minute:ctx.minute});
-  spot({aim:[[26, .8, 15.9], [27.2, 2, 16.7]], x:26.6, z:15.2, label:"The manager", get hint(){ return `${typeof roleOutlook === "function" ? roleOutlook() : ""} · open the hub (Q) to talk to him`; }, hold:.2,
+  // the manager keeps office hours: in before the squad, gone after the evening's work (never while you're looking)
+  const boss = staffer(26.6, 16.3, Math.PI, {role:"manager", seed:4, hair:0x9a9a9a, when:m => m >= 7*60 + 45 && m < 19*60 + 30, minute:ctx.minute});
+  spot({aim:[[26, .8, 15.9], [27.2, 2, 16.7]], x:26.6, z:15.2, when:() => boss.g.visible, label:"The manager", get hint(){ return `${typeof roleOutlook === "function" ? roleOutlook() : ""} · open the hub (Q) to talk to him`; }, hold:.2,
     run:() => ctx.note(`The manager looks up from his screen. “${(G() && G().trust >= 25) ? "Keep doing what you are doing." : (G() && G().trust >= 8) ? "Train hard, be on time, and you'll get your minutes." : "I need to see more from you in training."}”`)});
   lightSrc({x:26.2, y:2.7, z:13.6, color:0xfff0d8, intensity:7, distance:9, indoor:true});
   lightSrc({x:20.3, y:2.7, z:10, color:0xfff0d8, intensity:7, distance:10, indoor:true});

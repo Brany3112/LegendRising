@@ -148,11 +148,12 @@ function startMoment(type){
   resize(); updateMatchHUD();
 }
 
-function flash(t){ if (M) M.flash = {t, life:1.2}; }
+function flash(t){ if (M && typeof t === "string" && t) M.flash = {t, life:1.2}; }
 function endMoment(res, text){
   if (!M || M.phase === "done") return;
   M.phase = "done"; M.result = res; M.resultText = text; M.endT = res === "goal" ? 2 : 1.4;
-  flash(res === "goal" ? "GOAL!" : {saved:"SAVED", miss:"WIDE", post:"POST!", bar:"BAR!", blocked:"BLOCKED", corner:"CORNER", lost:"LOST IT", passed:"GREAT BALL", intercepted:"INTERCEPTED", outplay:"OUT OF PLAY", aiLost:"CHANCE GONE"}[res]);
+  flash(res === "goal" ? "GOAL!" : {saved:"SAVED", miss:"WIDE", post:"POST!", bar:"BAR!", blocked:"BLOCKED", corner:"CORNER", lost:"LOST IT", passed:"GREAT BALL", intercepted:"INTERCEPTED", outplay:"OUT OF PLAY", aiLost:"CHANCE GONE",
+    beaten:"BEATEN", tackleWin:"WON IT!", foul:"FOUL"}[res]);
   if (typeof hideDecide === "function") hideDecide();
   inp.down = false; updateMatchHUD();
 }
@@ -335,7 +336,7 @@ function throwNow(){
   const jit = (1 - (S.skills.passacc || S.skills.passing)/120)*.055;
   M.lock.ang += gauss()*jit;
   M.contact = {u:0, v:.22, whiff:false};
-  M.p.x = M.p.x < 34 ? 1.2 : 66.8;        // he steps back onto the pitch as the ball leaves his hands
+  M.p.stepTo = M.p.x < 34 ? 1.2 : 66.8;   // he steps back onto the pitch as the ball leaves his hands (update walks him on)
   M.kickSpot = {x:M.ball.x, y:M.ball.y};
   M.phase = "kick"; M.kickT = 0;
 }
@@ -1018,6 +1019,9 @@ function updateAi(dt){
 function update(dt){
   if (!M) return;
   if (M.flash){ M.flash.life -= dt; if (M.flash.life <= 0) M.flash = null; }
+  // after a throw he walks back onto the pitch while the ball is in the air; once play moves on he is there
+  if (M.p.stepTo != null){ const d = M.p.stepTo - M.p.x, m = M.phase === "kick" || M.phase === "flight" || M.phase === "done" ? 3.4*dt : 1e9;
+    M.p.x += Math.sign(d)*Math.min(Math.abs(d), m); if (Math.abs(d) <= m) M.p.stepTo = null; }
   switch (M.phase){
     case "dribble": updateDribble(dt); break;
     case "decide": updateDecide(dt); break;

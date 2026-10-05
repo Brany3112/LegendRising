@@ -76,8 +76,9 @@ export function ballBag(x, z, ry = 0){
 let DUMMY = null;
 export function mannequin(x, z, ry = 0, color = PC.yellow){
   const f = frame(x, z, ry);
-  cy(f, 0, 0, 0, .29, .33, .05, PC.dark, {seg:16});
-  cy(f, 0, .05, 0, .2, .27, .04, 0x3a3f45, {seg:16});
+  // a heavy base, small enough that a row of them set 62 cm apart stand clear of each other
+  cy(f, 0, 0, 0, .25, .285, .05, PC.dark, {seg:16});
+  cy(f, 0, .05, 0, .17, .23, .04, 0x3a3f45, {seg:16});
   cy(f, 0, .09, 0, .032, .032, .42, PC.darkSteel, {seg:8, key:"metal"});
   for (let i = 0; i < 4; i++) cy(f, 0, .14 + i*.07, 0, .045, .045, .025, PC.darkSteel, {seg:8, key:"metal"});     // the spring
   if (!DUMMY){
@@ -189,6 +190,23 @@ export function kitBag(x, z, ry = 0, color = 0x1f2e4a){
 export function bibs(x, y, z, ry = 0, color = 0xd8ff3a){
   const f = frame(x, z, ry, y);
   for (let i = 0; i < 4; i++) rb(f, (i - 1.5)*.04, i*.02, (i % 2)*.03, .42, .02, .32, .01, color, {key:"gloss"});
+}
+// the kit man's laundry trolley: a steel frame on four castors round a canvas bag, bibs folded on top (.84 m high)
+export function kitHamper(x, z, ry = 0, color = 0xd8ff3a, bag = 0x2a3442){
+  const f = frame(x, z, ry), W_ = .74, D_ = .52, H_ = .84;
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]){
+    cy(f, sx*(W_/2 - .05), 0, sz*(D_/2 - .05), .035, .035, .03, PC.dark, {seg:10, rx:Math.PI/2});          // a castor
+    cy(f, sx*(W_/2 - .05), .07, sz*(D_/2 - .05), .012, .012, H_ - .08, PC.darkSteel, {seg:6, key:"metal"});    // an upright
+  }
+  rb(f, 0, .1, 0, W_ - .06, .03, D_ - .06, .012, PC.darkSteel, {key:"metal"});
+  for (const sz of [-1, 1]) rb(f, 0, H_ - .03, sz*(D_/2 - .05), W_ - .06, .025, .025, .01, PC.darkSteel, {key:"metal"});
+  for (const sx of [-1, 1]) rb(f, sx*(W_/2 - .05), H_ - .03, 0, .025, .025, D_ - .06, .01, PC.darkSteel, {key:"metal"});
+  // the bag hangs inside the frame, a little slack: wider at the top than at the bottom
+  const g = roundedBoxGeo(W_ - .12, H_ - .2, D_ - .12, .05, 2), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++){ const k = .9 + .1*(p.getY(i)/(H_ - .2) + .5); p.setX(i, p.getX(i)*k); p.setZ(i, p.getZ(i)*k); }
+  put(f, g, 0, .14 + (H_ - .2)/2, 0, bag);
+  for (let i = 0; i < 3; i++) rb(f, -.12 + i*.11, H_ - .05 + i*.02, (i % 2)*.05 - .02, .34, .025, .26, .01, i === 1 ? 0xff6a3a : color, {key:"gloss", ry:(i - 1)*.2});
+  fsolid(f, 0, 0, W_, D_, 0, H_);
 }
 export function lockers(x, z, ry, n = 6, color = 0x2c66b8){
   const f = frame(x, z, ry), w = .52;

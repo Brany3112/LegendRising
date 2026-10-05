@@ -572,24 +572,39 @@ function build(look, det, noHead){
     tube(G, pts, rs, near ? 6 : 4, ws, S.top, .9);
   }
   if (g.apron){
-    const top = g.apron === "bib" ? 1.38 : 1.08, bot = g.apron === "bib" ? .6 : .62, wHalf = g.apron === "bib" ? .15 : .17, cols = near ? 6 : 3, rows = near ? 8 : 4;
-    const Rf = [], Rb = [];
-    // where the cloth lies on the body: each column's own depth (a waist the cloth follows in, a belly it rides over),
-    // never wider than the body at that height (it wraps round to the side seam instead of standing off it in a flap)
-    const halfAt = y => { let x = 0; while (x < .3 && ray(torsoHit, [x + .005, y, 2], [0, 0, -1]) > 0) x += .005; return x; };
-    const zOn = (x, y) => { const t = ray(torsoHit, [x, y, 2], [0, 0, -1]); return t < 0 ? null : 2 - t + .012; };
-    const HANG = .92, zHang = [];
-    for (let r = 0; r <= rows; r++){
-      const y = lerp(top, bot, r/rows), vf = [], vb = [];
-      const yb = Math.max(y, HANG), hw = Math.min(wHalf, halfAt(yb) - .004);
-      // below the hips it hangs free: from the line it had there, straightening into one sheet in front of the thighs
-      const k = sstep(HANG, HANG - .14, y), front = Math.max(...zHang.length ? zHang : [.12]);
+    /* one sheet of cloth tied at the waist (a bib apron's bib carries on up the chest). It lies on the CLOTHED body
+       (torsoHit is the outside of the shirt, hem flare and all), clear of it by a few mm measured across the
+       neighbouring points too, so the cloth never dips under a curve of the shirt; from the tie down each column only
+       ever comes forward (it rides over the hips and the belly and hangs straight off them, never pulled back in
+       under them), and below the seat the columns straighten into one sheet in front of the thighs. The skirt is one
+       width from the tie to the hem (no step where the body widens), never wider than the waist it is tied round. */
+    const bib = g.apron === "bib", TIE = 1.075, top = bib ? 1.38 : TIE, bot = bib ? .6 : .62, cols = near ? 6 : 3, SEAT = .85;
+    const halfAt = y => { let x = 0; while (x < .3 && ray(torsoHit, [x + .004, y, 2], [0, 0, -1]) > 0) x += .004; return x; };
+    const surf = (x, y) => { let z = -1; for (const d of [-.01, 0, .01]){ const t = ray(torsoHit, [x + d, y, 2], [0, 0, -1]); if (t > 0) z = Math.max(z, 2 - t); } return z < 0 ? null : z + .007; };
+    const skirtW = Math.min(bib ? .15 : .165, halfAt(TIE) - .012, halfAt(TIE - .03) - .012), bibW = y => lerp(.11, skirtW, sstep(1.36, TIE + .02, y));
+    // the heights of the rows: close together where the cloth meets the body's curves, wider apart where it hangs free
+    const ys = [];
+    if (bib) for (let y = top; y > TIE + 1e-6; y -= near ? .06 : .1) ys.push(y);
+    for (let y = TIE; y > SEAT - 1e-6; y -= near ? .022 : .045) ys.push(y);
+    for (const y of near ? [.8, .74, .67, bot] : [.74, bot]) ys.push(y);
+    const zRun = new Array(cols + 1).fill(-1), Rf = [], Rb = [];
+    let sheet = -1;
+    for (const y of ys){
+      const vf = [], vb = [], skirt = y <= TIE + 1e-6, hw = skirt ? skirtW*(1 + Math.max(0, SEAT - y)*.3) : bibW(y);
+      const zs = [];
       for (let c = 0; c <= cols; c++){
-        const u = c/cols, xx = lerp(-1, 1, u)*(y >= HANG ? hw : hw*(1 + (HANG - y)*.25));
-        let z;
-        if (y >= HANG){ z = zOn(xx, y) ?? zOn(xx*.9, y) ?? .12; if (r === rows || lerp(top, bot, (r + 1)/rows) < HANG) zHang[c] = z; }
-        else z = lerp(zHang[c], front, k) + (HANG - y)*.06;
-        const side = xx >= 0 ? 1 : -1, lw = sstep(.95, .62, y)*(.45 + .25*Math.min(1, Math.abs(xx)/.08));
+        const xx = lerp(-1, 1, c/cols)*hw;
+        let z = y >= SEAT - 1e-6 ? surf(Math.min(Math.abs(xx), skirtW), y) : null;
+        if (skirt){ if (z != null) zRun[c] = Math.max(zRun[c], z); z = zRun[c] > 0 ? zRun[c] : z; }
+        zs.push(z ?? .12);
+      }
+      if (y >= SEAT - 1e-6) sheet = Math.max(sheet, ...zs);
+      const k = sstep(SEAT + .03, SEAT - .12, y);
+      for (let c = 0; c <= cols; c++){
+        const xx = lerp(-1, 1, c/cols)*hw, side = xx >= 0 ? 1 : -1;
+        const z = lerp(zs[c], sheet, k) + Math.max(0, SEAT - y)*.06;
+        // the part in front of a thigh goes with that thigh (a stride or sitting down never pushes the leg through it)
+        const lw = sstep(.95, .7, y)*(.4 + .5*Math.min(1, Math.abs(xx)/.07));
         const ww = y >= .95 ? wTorso(y) : wt(B.hips, 1 - lw, LEG(side)[0], lw);
         vf.push([xx, y, z, ww]); vb.push([xx, y, z - .003, ww]);
       }
@@ -597,7 +612,7 @@ function build(look, det, noHead){
     }
     loft(G, Rf, {open:true, out:[0, 0, 1]}); loft(G, Rb, {open:true, out:[0, 0, -1]});
     if (g.apron === "bib"){
-      decal(G, torsoHit, [...stroke([[-.12, 1.38], [-.06, 1.5]], .022), ...stroke([[.12, 1.38], [.06, 1.5]], .022)], 1, .006, S.apron, wTorso);
+      decal(G, torsoHit, [...stroke([[-.095, 1.375], [-.06, 1.5]], .022), ...stroke([[.095, 1.375], [.06, 1.5]], .022)], 1, .006, S.apron, wTorso);
       const R = [1.495, 1.52].map(y => { const b = at(tst, y); return ring([0, y, b.z], [1, 0, 0], [0, 0, 1], ell(b.rx + .012, b.rf + .012, b.rb + .012), 10, wTorso(y), {s:S.apron}); });
       loft(G, R, {sf:(i, k, r) => (k < 2 || k > 7) ? -1 : r.s, radial:"xz"});
     }
@@ -664,7 +679,10 @@ function build(look, det, noHead){
       return lon < 112 && (lat < -24 || (lon > 55 && lat < -8)) ? S.stubble : S.skin; }});
     headHit = G.hit; G.hit = null;
     if (near) face(G, D, F, look, headHit, hf);
+    const specs = near && (look.props || []).includes("glasses");
+    if (specs) G.hit = [];
     hair(G, D, F, look, hf, near);
+    if (specs){ const hairHit = G.hit; G.hit = null; glasses(G, D, F, headHit, headHit.concat(hairHit)); }
     if (look.beard === "beard") beard(G, D, hf, near);
   }
   return {G, torsoHit, D, hem};
@@ -751,32 +769,41 @@ function face(G, D, F, look, hit, hf){
   const up = [[-mw, my + .0015], [-mw*.45, my + .0005], [0, my + .0018], [mw*.45, my + .0005], [mw, my + .0015]];
   for (const [a, b, c] of stroke(up, .0045)){ const A = onF(a[0], a[1], .002 + beardLift), Bq = onF(b[0], b[1], .002 + beardLift), Cq = onF(c[0], c[1], .002 + beardLift); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lips, 1, 1, 1, [0, 0, 1]); }
   poly([[-mw*.7, my - .003], [0, my - .0065], [mw*.7, my - .003], [0, my - .0018]], .0018 + beardLift, S.lips, 1.1);
-  // glasses: two softly squared rims in one plane a little in front of the eyes, a bridge over the nose, and arms that
-  // run back along the side of the head to the ears
-  if ((look.props || []).includes("glasses")){
-    const gy = .005, hw = .0235, hh = .0145, lw = .0034, rim = [];
-    for (const s of [1, -1]) for (let k = 0; k <= 14; k++){ const a = k/14*TAU, c = Math.cos(a), q = Math.sin(a);
-      rim.push([s*es + Math.sign(c)*Math.pow(Math.abs(c), .55)*hw, gy + Math.sign(q)*Math.pow(Math.abs(q), .55)*hh, s]); }
-    let zp = -1; for (const [x, y] of [...rim, [0, gy + .006]]){ const q = onF(x, y, 0); if (q) zp = Math.max(zp, q[2]); }
-    if (zp > 0){
-      zp += .006;
-      const P3 = ([x, y]) => [hc[0] + x*hs, hc[1] + y*hs, zp, HEADW];
-      const flat = (tris, z = zp, n = 1) => { for (const [a, b, c] of tris){ const A = P3(a), Bq = P3(b), Cq = P3(c); A[2] = Bq[2] = Cq[2] = z; G.tri(A, Bq, Cq, S.dark, 1, 1, 1, [0, 0, n]); } };
-      for (const s of [1, -1]){
-        const loop = rim.filter(p => p[2] === s).map(p => [p[0], p[1]]);
-        flat(stroke(loop, lw)); flat(stroke(loop, lw), zp - .0025, -1);      // a rim with a back to it
-        // the arm: from the rim's outer edge along the side of the head, a few millimetres off it, to over the ear
-        const P = [], W_ = [];
-        for (const f of [0, .25, .55, 1]){
-          const z = lerp(zp - .004, hc[2] - .004*hs, f), y = hc[1] + lerp(gy + hh*.55, .02, f)*hs, t = ray(hit, [s*.3, y, z], [-s, 0, 0]);
-          const x = t < 0 ? s*(es + hw)*hs : s*.3 - s*t + s*.004;
-          P.push([f ? x : s*Math.max(Math.abs(x), (es + hw)*hs), y, z]); W_.push(HEADW);
-        }
-        tube(G, P, [.0022, .0022, .0022, .002], 4, W_, S.dark, 1);
-      }
-      flat(stroke([[-(es - hw*.95), gy + .004], [0, gy + .0085], [es - hw*.95, gy + .004]], lw));
+}
+
+/* glasses: two softly squared rims in one plane a little in front of the eyes, a bridge over the nose, and arms that
+   run back over the temples — over the hair where it covers them — to rest on the root of each ear and tuck down
+   behind it. outer: the head and the hair (the arms lie on whichever is outermost) */
+function glasses(G, D, F, hit, outer){
+  const hc = D.hc, hs = D.hs, es = .031*(F.eyes || 1);
+  const onF = (x, y) => { const t = ray(hit, [hc[0] + x*hs, hc[1] + y*hs, 2], [0, 0, -1]); return t < 0 ? null : 2 - t; };
+  const sideAt = (s, y, z) => { const t = ray(outer, [hc[0] + s*.3, y, z], [-s, 0, 0]); return t < 0 ? null : hc[0] + s*.3 - s*t; };
+  const gy = .005, hw = .0235, hh = .0145, lw = .0034, rim = [];
+  for (const s of [1, -1]) for (let k = 0; k <= 14; k++){ const a = k/14*TAU, c = Math.cos(a), q = Math.sin(a);
+    rim.push([s*es + Math.sign(c)*Math.pow(Math.abs(c), .55)*hw, gy + Math.sign(q)*Math.pow(Math.abs(q), .55)*hh, s]); }
+  let zp = -1; for (const [x, y] of [...rim, [0, gy + .006]]){ const q = onF(x, y); if (q != null) zp = Math.max(zp, q); }
+  if (zp < 0) return;
+  zp += .006;
+  const P3 = ([x, y]) => [hc[0] + x*hs, hc[1] + y*hs, zp, HEADW];
+  const flat = (tris, z = zp, n = 1) => { for (const [a, b, c] of tris){ const A = P3(a), Bq = P3(b), Cq = P3(c); A[2] = Bq[2] = Cq[2] = z; G.tri(A, Bq, Cq, S.dark, 1, 1, 1, [0, 0, n]); } };
+  for (const s of [1, -1]){
+    const loop = rim.filter(p => p[2] === s).map(p => [p[0], p[1]]);
+    flat(stroke(loop, lw)); flat(stroke(loop, lw), zp - .0025, -1);      // a rim with a back to it
+    // where the ear joins the head (as face() puts it): the arm comes to rest on top of that root
+    const ey = hc[1] + .008*hs, ez = hc[2] - .006*hs - .004, eTop = ey + .02*hs;
+    const P = [], W_ = [], R_ = [];
+    const ax0 = s*(es + hw)*hs + hc[0], ay0 = hc[1] + (gy + hh*.55)*hs, az0 = zp - .004;
+    // from the hinge at the rim's outer edge, level back along the temple, easing down onto the ear, then a short tip
+    // tucked down behind it, hidden between the ear and the head
+    for (const f of [0, .3, .6, .85, 1]){
+      const z = lerp(az0, ez + .004, f), y = lerp(ay0, eTop, sstep(.35, 1, f));
+      const xs = sideAt(s, y, z), x = f === 0 ? s*Math.max(Math.abs(ax0), xs == null ? 0 : Math.abs(xs) + .003) : xs == null ? ax0 : xs + s*.003;
+      P.push([x, y, z]); W_.push(HEADW); R_.push(.0022);
     }
+    { const xs = sideAt(s, eTop - .012, ez - .014); P.push([xs == null ? P[P.length - 1][0] : xs + s*.0015, eTop - .012, ez - .014]); W_.push(HEADW); R_.push(.0018); }
+    tube(G, P, R_, 4, W_, S.dark, 1);
   }
+  flat(stroke([[-(es - hw*.95), gy + .004], [0, gy + .0085], [es - hw*.95, gy + .004]], lw));
 }
 
 /* hair: a shell over the scalp out to a hairline, with each style's own thickness, plus whatever hangs */

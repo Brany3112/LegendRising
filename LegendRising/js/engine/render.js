@@ -294,12 +294,14 @@ function figLookFor(role, seed, kit0){
   for (let i = 0; i < 5; i++) r();                                     // face
   const L = {skin:FIG_SKINS[tone], hair, hairColor, beard, build, height};
   if (gk){
-    const t = figRGB(kit0 || "#2c66b8").map(figLin);
-    const opts = [0x2f9e44, 0xf2c230, 0xf07a1a, 0x24262b, 0x7a3fb0, 0x1fa2c4].filter(c => { const k = figRGB(c).map(figLin); return Math.abs(k[0] - t[0]) + Math.abs(k[1] - t[1]) + Math.abs(k[2] - t[2]) > .5; });
+    const opts = FIG_GK.filter(c => figKitDist(c, kit0 || "#2c66b8") > .5);
     L.gkShirt = pick(opts); L.boots = pick(FIG_BOOTS); L.glove = pick([0xf2f2ee, 0xd8ff3a, 0xf06a1e]);
   } else L.boots = pick(FIG_BOOTS);
   return L;
 }
+const FIG_GK = [0x2f9e44, 0xf2c230, 0xf07a1a, 0x24262b, 0x7a3fb0, 0x1fa2c4];
+// how far apart two kit colours are (linear rgb, summed), as lookFor measures it
+function figKitDist(a, b){ const p = figRGB(a), q = figRGB(b); return Math.abs(figLin(p[0]) - figLin(q[0])) + Math.abs(figLin(p[1]) - figLin(q[1])) + Math.abs(figLin(p[2]) - figLin(q[2])); }
 // a look → the colours a figure is painted with (css strings, worked out once)
 function figPaint(L, gk){
   const sk = figRGB(L.skin), hc = figRGB(L.hairColor), bt = figRGB(L.boots[0]);
@@ -365,7 +367,21 @@ function figOppIds(){
 const FIG_NUM_OPP = [5, 4, 2, 3, 6, 8, 11, 7, 10, 9, 14, 15, 16, 17, 18];
 const FIG_NUM_MATE = {ST:9, LW:11, RW:7, CAM:10, CM:8};
 function figOpp(i){ const o = figOppIds(), id = o.ids.length ? o.ids[i % o.ids.length] + (i >= o.ids.length ? 977*Math.floor(i/o.ids.length) : 0) : o.base + 31*(i + 1); return figLook("footballer", id); }
-function figKeeper(){ const o = figOppIds(); return figLook("goalkeeper", o.gk, MT && MT.oppKit ? MT.oppKit[0] : "#2c66b8"); }
+/* their keeper: lookFor picks his shirt to stand out from his own side only; on this pitch he must not wear yours either,
+   so a shirt too near your shirt or shorts moves on to the next one in the same list that is far from all three
+   (only the paint changes: his face, hair and build stay the man lookFor made) */
+function figKeeper(){
+  const o = figOppIds(), them = MT && MT.oppKit ? MT.oppKit : ["#2c66b8", "#fff"], us = MT && MT.myKit ? MT.myKit : ["#c0392b", "#fff"];
+  const key = "gk:" + o.gk + ":" + them[0] + ":" + us[0] + ":" + us[1];
+  let P = FIG_LOOKS.get(key); if (P) return P;
+  const L = figLookFor("goalkeeper", o.gk, them[0]), far = c => Math.min(figKitDist(c, them[0]), figKitDist(c, us[0]), figKitDist(c, us[1]));
+  if (far(L.gkShirt) <= .5){
+    const i0 = Math.max(0, FIG_GK.indexOf(L.gkShirt)); let best = L.gkShirt, bd = far(best);
+    for (let k = 1; k < FIG_GK.length; k++){ const c = FIG_GK[(i0 + k) % FIG_GK.length], d = far(c); if (d > .5){ best = c; break; } if (d > bd){ bd = d; best = c; } }
+    L.gkShirt = best;
+  }
+  P = figPaint(L, true); FIG_LOOKS.set(key, P); return P;
+}
 function figMate(pid, role){
   let id = pid;
   if (id == null && MT && MT.roleNames && MT.roleNames[role]) id = MT.roleNames[role].id;
@@ -417,19 +433,81 @@ function figAdd(st, x, y, look, kit, flags, lift, alpha, num){
   let R = FIG_POOL[FIG_N]; if (!R){ R = {}; FIG_POOL[FIG_N] = R; }
   FIG_LIST[FIG_N++] = R;
   R.st = st; R.x = x; R.y = y; R.look = look; R.kit = look.gk || kit; R.flags = flags; R.lift = lift || 0; R.alpha = alpha == null ? 1 : alpha;
-  R.num = num || ""; R.face = null; R.pose = 0; R.u = 0; R.roll = 0; R.hx = 0; R.hy = 0; R.dive = false;
+  R.num = num || ""; R.face = null; R.pose = 0; R.u = 0; R.roll = 0; R.dive = false; R.vis = true;
   return R;
 }
 const figOrder = (a, b) => a.y - b.y;
-// shadows and rings on the grass first, then the men from the back of the picture to the front
-// ball: a ball on the grass goes into the same order (in front of or behind a man's legs); returns false if it was not drawn
+
+/* ---------- where the ball is drawn ----------
+   The men are drawn FIG.kh × life size, the ball at its true place, so a ball at a man's feet has to be drawn in his
+   frame or it lands on his shirt. Near a man (within FIG_D1) its offset from him is drawn in his own scale — growing
+   from life size × FIG.kh at his boots back to 1:1 at FIG_D1, so it never jumps — and when he faces away from you
+   it runs at his stronger foot's side, where it is seen beside his legs instead of behind him. A throw-in is held in
+   the thrower's hands. The offsets ease, so a change of carrier never jumps, and everything that marks the ball on
+   screen (aim arrow, rings, the drag line) uses ballScreen(), the point where it is drawn. Hit tests that read the
+   ball's true place (the tackle) only run while it is loose, when the two are the same. */
+const FIG_D0 = .36, FIG_D1 = 1.6, FIG_D2 = 2.4;      // D1: back to life size; D2: out of his reach altogether
+const BV = {b:null, ox:0, oy:0, shx:0, shy:0, lx:0, ly:0, held:null, C:null, s:0, q:0, cs:null, sg:0, slow:0};
+const BALL_PT = {x:0, y:0};
+function figBallPlace(b){
+  const KH = FIG.kh, loose = !REP && M && M.phase === "steal", low = b.z - BR < .35;
+  let snap = BV.b !== b || Math.abs(b.x - BV.lx) + Math.abs(b.y - BV.ly) > 6 || loose;
+  const wasHeld = !!BV.held; BV.b = b; BV.lx = b.x; BV.ly = b.y; BV.held = BV.C = null;
+  let tx = 0, ty = 0, tsx = 0, tsy = 0, C = null, cd = FIG_D1;
+  for (let i = 0; i < FIG_N; i++){ const R = FIG_LIST[i];
+    if (R.pose === 3){ C = R; break; }
+    if (low && !loose && R.alpha >= 1){ const d = Math.hypot(b.x - R.x, b.y - R.y); if (d < cd){ cd = d; C = R; } } }
+  // the man who had it keeps it a little longer (a long touch ahead of him is still his, and still kept in sight)
+  if (!C && low && !loose && BV.cs) for (let i = 0; i < FIG_N; i++){ const R = FIG_LIST[i]; if (R.st === BV.cs && Math.hypot(b.x - R.x, b.y - R.y) < FIG_D2){ C = R; break; } }
+  if (C && C.pose === 3){
+    // in his hands over his head: the drawn ball sits between them, its shadow on the grass under them
+    const u = C.u*C.u; figFrame(C); figP(0, -.06 + .22*u, 2.0 - .1*u); tx = (FPX - sx(b.x))/scale; ty = (FPY - sy(b.y - (b.z - BR)*.55))/scale;
+    figP(0, -.06 + .22*u, 0); tsx = (FPX - sx(b.x))/scale; tsy = (FPY - sy(b.y))/scale; BV.held = C; snap = true;
+  } else if (C){
+    const a = C.st.a, fx = Math.cos(a), fy = Math.sin(a), dx = b.x - C.x, dy = b.y - C.y, d = Math.hypot(dx, dy);
+    const fd = d < FIG_D0 ? d*KH : d < FIG_D1 ? FIG_D0*KH + (d - FIG_D0)*(FIG_D1 - FIG_D0*KH)/(FIG_D1 - FIG_D0) : d;
+    const ux = d > 1e-4 ? dx/d : fx, uy = d > 1e-4 ? dy/d : fy;
+    let ox = ux*fd, oy = uy*fd;                                                  // from his feet, on the screen
+    // up the screen from his feet is behind him in the picture: there it goes out beside him, clear of his body
+    // (to the side it already leans to, his stronger foot's when it is square behind him; the side is kept until
+    // the ball is clearly on the other one, so it never flickers across him)
+    const behind = smoothF(-.05, -.35, oy)*(1 - smoothF(FIG_D2 - .5, FIG_D2, d));
+    if (behind > 0){
+      const foot = C.flags & F_ME && S.player && S.player.foot === "Left" ? -1 : 1;
+      if (BV.cs !== C.st || !BV.sg) BV.sg = Math.abs(ox) > .08 ? Math.sign(ox) : (-fy*foot >= 0 ? 1 : -1);
+      const clear = (.2*Math.abs(fy)*C.look.bw + .12*Math.abs(fx) + .1)*KH;
+      if (ox*BV.sg < -.6*clear) BV.sg = -BV.sg;
+      ox += (BV.sg*Math.max(ox*BV.sg, clear) - ox)*behind;
+    }
+    BV.cs = C.st; BV.C = C; BV.s = (-ox*fy + oy*fx)/KH; BV.q = (ox*fx + oy*fy)/KH;      // and in his body: to his right, ahead
+    tx = tsx = C.x + ox - b.x; ty = tsy = C.y + oy - b.y;
+  }
+  // just out of the hands it eases onto its true flight more gently, so a throw leaves from over his head
+  if (wasHeld && !BV.held) BV.slow = .7;
+  if (snap){ BV.ox = tx; BV.oy = ty; BV.shx = tsx; BV.shy = tsy; BV.slow = BV.held ? 0 : BV.slow; }
+  else if (FIG_DT > 0){ BV.slow = Math.max(0, (BV.slow || 0) - FIG_DT); const k = 1 - Math.exp(-FIG_DT*(BV.slow > 0 ? 5 : 14)); BV.ox += (tx - BV.ox)*k; BV.oy += (ty - BV.oy)*k; BV.shx += (tsx - BV.shx)*k; BV.shy += (tsy - BV.shy)*k; }
+}
+// the screen point the ball is drawn at (its centre)
+function ballScreen(b){
+  const ox = b === BV.b ? BV.ox : 0, oy = b === BV.b ? BV.oy : 0;
+  BALL_PT.x = sx(b.x + ox); BALL_PT.y = sy(b.y + oy - (b.z - BR)*.55); return BALL_PT;
+}
+// shadows and rings on the grass first, then the men from the back of the picture to the front, the ball among them
+// (a ball on the grass by where it is drawn, one in the hands right after the man holding it, one in the air on top)
 function figFlush(ball){
   const c = cx; FIG_LIST.length = FIG_N; FIG_LIST.sort(figOrder);
-  const KH = FIG.kh*scale;
+  const KH = FIG.kh*scale, W_ = cv.width, H_ = cv.height, up = (FIG.top + .35)*FIG.kv*scale;
+  for (let i = 0; i < FIG_N; i++){ const R = FIG_LIST[i];
+    figStep(R.st, R.x, R.y, FIG_BX, FIG_BY, R.flags & (F_WATCH | F_GK), R.face, R.flags & F_GK);
+    // off the screen (most of them when the camera follows the play on a phone): moved, never drawn
+    const X = sx(R.x), Y = sy(R.y), top = up + (R.lift + .4)*FIG.kv*scale;
+    R.vis = X > -.9*KH && X < W_ + .9*KH && Y > -.45*KH && Y - top < H_;
+  }
+  if (ball) figBallPlace(ball);
+  const sh = figShadow(KH);
   for (let i = 0; i < FIG_N; i++){
-    const R = FIG_LIST[i], st = R.st;
-    figStep(st, R.x, R.y, FIG_BX, FIG_BY, R.flags & (F_WATCH | F_GK), R.face, R.flags & F_GK);
-    const X = sx(R.x), Y = sy(R.y), lift = R.lift, sh = figShadow(KH);
+    const R = FIG_LIST[i]; if (!R.vis) continue;
+    const X = sx(R.x), Y = sy(R.y), lift = R.lift;
     c.globalAlpha = R.alpha*(.85 - Math.min(.45, lift*.5));
     if (lift > .02){ const k = 1/(1 + lift*.8); c.drawImage(sh, X - sh.width*k*.5 + .06*KH, Y - sh.height*k*.5 + .05*KH, sh.width*k, sh.height*k); }
     else c.drawImage(sh, Math.round(X - sh.width*.5 + .06*KH), Math.round(Y - sh.height*.5 + .05*KH));
@@ -437,28 +515,22 @@ function figFlush(ball){
       c.beginPath(); c.ellipse(X, Y, .56*KH, .4*KH, 0, 0, 7); c.stroke(); }
   }
   c.globalAlpha = 1;
-  let ballDone = !ball || ball.z - BR > .45, ballAt = FIG_N;
+  if (ball) drawBallShadow(ball);
+  const air = !!ball && !BV.held && ball.z - BR > .45, key = ball ? ball.y + BV.oy : 0;
+  let ballDone = !ball || air || !!BV.held;
   c.lineCap = "round"; c.lineJoin = "round";
-  for (let i = 0; i < FIG_N; i++){
-    if (!ballDone && ball.y < FIG_LIST[i].y){ ballDone = true; ballAt = i; drawBallBody(ball); }
-    figBody(FIG_LIST[i]);
+  for (let i = 0; i < FIG_N; i++){ const R = FIG_LIST[i];
+    if (!ballDone && key < R.y){ ballDone = true; drawBallBody(ball); }
+    if (R.vis) figBody(R);
+    if (R === BV.held) drawBallBody(ball);
   }
   c.lineCap = "butt"; c.lineJoin = "miter"; c.globalAlpha = 1;
-  if (ball && !ballDone){ drawBallBody(ball); ballDone = true; }
-  // a ball hidden behind a man is still the thing you are playing: show it through him, faintly
-  else if (ball && ball.z - BR <= .45){
-    const bx = sx(ball.x), by = sy(ball.y), top = (FIG.top + .15)*FIG.kv*scale, half = .3*KH;
-    for (let i = ballAt; i < FIG_N; i++){ const R = FIG_LIST[i], X = sx(R.x), Y = sy(R.y) - R.lift*FIG.kv*scale;
-      if (Math.abs(X - bx) < half*R.look.bw && by < Y + .1*KH && by > Y - top){
-        const r = Math.max(3, .26*scale); c.globalAlpha = .8; drawBallBody(ball); c.globalAlpha = 1;
-        c.strokeStyle = "rgba(10,14,20,.85)"; c.lineWidth = Math.max(1.5, .07*scale); c.beginPath(); c.arc(bx, by, r + c.lineWidth*.5, 0, 7); c.stroke(); break; } }
-  }
+  if (!ballDone || air) drawBallBody(ball);
   // you: a marker over your head, so you are found at a glance
-  for (let i = 0; i < FIG_N; i++){ const R = FIG_LIST[i]; if (!(R.flags & F_ME)) continue;
-    const X = sx(R.x), Y = figTopY(R.y, R.lift) - 5*DPR, s = Math.max(4.5*DPR, .16*KH);
+  for (let i = 0; i < FIG_N; i++){ const R = FIG_LIST[i]; if (!(R.flags & F_ME) || !R.vis) continue;
+    const X = sx(R.x), Y = figTopY(R.y, R.lift) - 5*DPR - (R === BV.held ? .45*scale : 0), s = Math.max(4.5*DPR, .16*KH);   // over the ball he holds up
     c.fillStyle = "#ffd75a"; c.strokeStyle = "rgba(20,16,4,.55)"; c.lineWidth = 1.5*DPR;
     c.beginPath(); c.moveTo(X - s, Y - s*1.1); c.lineTo(X + s, Y - s*1.1); c.lineTo(X, Y); c.closePath(); c.stroke(); c.fill(); }
-  return !!ball && ball.z - BR <= .45;
 }
 // the screen y just above a man's head (for names)
 function figTopY(y, lift){ return sy(y) - ((FIG.top + .1 + (lift || 0))*FIG.kv)*scale - .14*FIG.kh*scale; }
@@ -505,13 +577,11 @@ function figLeg(sd, fs, fq, fz, hipZ, lean, K, P){
   figLine(hx, hy, mx, my, .18*kh, sd*FIG_F.rx > 0 ? K.shortsD : K.shorts);   // the shorts' leg, darker on the side away from the light
 }
 // an arm: shoulder → elbow → hand; the sleeve covers the upper arm (all of it for a keeper), then a hand or a glove
-// (hx_ null: hq, hz are the hand's screen point, and sex, sey the elbow's)
-function figArm(sd, shQ, ex, eq, ez, hx_, hq, hz, K, P, gk, sex, sey){
+function figArm(sd, shQ, ex, eq, ez, hx_, hq, hz, K, P, gk){
   const kh = FIG_F.kh, ol = FIG_F.ol;
   figP(sd*.2, shQ, 1.37); const sx_ = FPX, sy_ = FPY;
-  let elx, ely; if (hx_ === null){ elx = sex; ely = sey; } else { figP(ex, eq, ez); elx = FPX; ely = FPY; }
-  let hdx, hdy;
-  if (hx_ === null){ hdx = hq; hdy = hz; } else { figP(hx_, hq, hz); hdx = FPX; hdy = FPY; }
+  figP(ex, eq, ez); const elx = FPX, ely = FPY;
+  figP(hx_, hq, hz); const hdx = FPX, hdy = FPY;
   const mx = sx_ + (elx - sx_)*.62, my = sy_ + (ely - sy_)*.62;
   if (ol) figLine3(sx_, sy_, elx, ely, hdx, hdy, .085*kh + ol, FIG_OL);
   figLine3(sx_, sy_, elx, ely, hdx, hdy, .085*kh, gk ? K.shirt : P.skin);
@@ -540,22 +610,26 @@ function figArmPose(sd, ang, bnd){
 function figArmFront(sd){ const A = FIG_ARM[sd < 0 ? 0 : 1]; return (sd*.2)*FIG_F.ry + ((A[1] + A[4])*.5)*FIG_F.fy > .015; }
 function figDrawArm(sd, R, K, P){
   const A = FIG_ARM[sd < 0 ? 0 : 1];
-  if (R.pose === 3){                                                   // both hands on the ball (R.hx, R.hy on screen), elbows out
-    figP(sd*.2, FIG_F.shQ, 1.37); const hx = R.hx + sd*.09*FIG_F.kh, hy = R.hy, ex = (FPX + hx)*.5 + sd*FIG_F.rx*.07*FIG_F.kh, ey = (FPY + hy)*.5 + .04*FIG_F.kh;
-    figArm(sd, FIG_F.shQ, 0, 0, 0, null, hx, hy, K, P, !!P.gk, ex, ey);
-  }
+  if (R.pose === 3){ const u = R.u*R.u; figArm(sd, FIG_F.shQ, sd*.27, -.03 + .12*u, 1.67 - .04*u, sd*.125, -.06 + .22*u, 1.95 - .1*u, K, P, !!P.gk); }   // both hands on the ball over his head, elbows out; u: the throw coming forward
   else figArm(sd, FIG_F.shQ, A[0], A[1], A[2], A[3], A[4], A[5], K, P, !!P.gk);
+}
+// his frame: feet on the grass at R, facing his heading, upright (figBody adds the roll of a dive or a stumble)
+function figFrame(R){
+  const P = R.look, a = R.st.a, fx = Math.cos(a), fy = Math.sin(a);
+  FIG_F.ox = sx(R.x); FIG_F.oy = sy(R.y); FIG_F.fx = fx; FIG_F.fy = fy; FIG_F.rx = -fy; FIG_F.ry = fx; FIG_F.kh = FIG.kh*scale; FIG_F.kv = FIG.kv*scale;
+  FIG_F.bw = P.bw; FIG_F.ht = P.ht; FIG_F.lift = R.lift; FIG_F.roll = 0; FIG_F.cr = 1; FIG_F.sr = 0;
+  FIG_F.ol = GFX.low || FIG_F.kh < 14*DPR ? 0 : Math.max(1, .022*FIG_F.kh);
 }
 function figBody(R){
   const c = cx, st = R.st, P = R.look, K = R.kit, gk = !!P.gk;
-  const a = st.a, fx = Math.cos(a), fy = Math.sin(a);
-  FIG_F.ox = sx(R.x); FIG_F.oy = sy(R.y); FIG_F.fx = fx; FIG_F.fy = fy; FIG_F.rx = -fy; FIG_F.ry = fx; FIG_F.kh = FIG.kh*scale; FIG_F.kv = FIG.kv*scale;
-  FIG_F.bw = P.bw; FIG_F.ht = P.ht; FIG_F.lift = R.lift; FIG_F.ol = GFX.low ? 0 : Math.max(1, .022*FIG_F.kh);
+  figFrame(R);
+  const fx = FIG_F.fx, fy = FIG_F.fy;
   const sp = Math.hypot(st.vx, st.vy), amp = st.amp, run = st.run, ph = st.ph;
   // a keeper going full length: the whole body rolls over towards the ball, lifted off the floor
   let roll = R.roll, divK = 0;
   if (gk && R.dive){ const side = st.vx*FIG_F.rx + st.vy*FIG_F.ry; divK = smoothF(2.4, 4.2, Math.abs(side)); roll += Math.sign(side)*divK*1.2; }
   FIG_F.roll = roll; FIG_F.cr = Math.cos(roll); FIG_F.sr = Math.sin(roll); if (roll) FIG_F.lift += Math.abs(FIG_F.sr)*.16;
+  if (R.pose !== 1) st.bQ = null;
   c.globalAlpha = R.alpha;
   // ---- the pose, in his own frame: feet swing along the way he is moving (ms: to his right, mq: ahead)
   const SA = (.15 + .17*run)*amp, ms = st.ms, mq = st.mq;
@@ -570,16 +644,23 @@ function figBody(R){
   else if (FIG_F.guard && divK <= .3){ lS = -.17; rS = .17; lQ = rQ = .02; hipZ = .86; lean = .06; }   // set: feet apart, knees bent
   if (R.pose === 1){
     // the strike: the plant foot beside the ball, the other one swinging through it
+    // (bS, bQ: the ball where it is drawn in his frame, kept from before it left his boot for the follow-through)
     const u = R.u, side = S.player && S.player.foot === "Left" ? -1 : 1, sw = smoothF(0, 1, Math.min(u, 1)), ft = u > 1 ? Math.min(1, u - 1) : 0;
-    const kS = .07*side, kQ = -.42 + .95*sw - .1*ft, kZ = .06 + .14*Math.sin(Math.PI*Math.min(u, 1)) + .22*ft;
-    if (side > 0){ rS = kS; rQ = kQ; rZ = kZ; lS = -.16; lQ = .1; lZ = 0; } else { lS = kS; lQ = kQ; lZ = kZ; rS = .16; rQ = .1; rZ = 0; }
+    if (u <= 1 || st.bQ == null){ const on = BV.C === R; st.bS = on ? clamp(BV.s, -.4, .4) : .16*side; st.bQ = on ? clamp(BV.q, .1, .6) : .3; }
+    const kS = st.bS - .06*side, kQ = st.bQ - .5 + .58*sw - .1*ft, kZ = .06 + .14*Math.sin(Math.PI*Math.min(u, 1)) + .22*ft;
+    const pS = st.bS - side*.24, pQ = st.bQ - .1;                                                 // the standing foot beside the ball
+    if (side > 0){ rS = kS; rQ = kQ; rZ = kZ; lS = pS; lQ = pQ; lZ = 0; } else { lS = kS; lQ = kQ; lZ = kZ; rS = pS; rQ = pQ; rZ = 0; }
     lean = .05; aL = side*.5; bend = .5; hipZ = .9; FIG_F.kickArm = -side;
   }
+  // stepping into the strike: the whole of him moves up to the ball, and settles back after the follow-through
+  const adv0 = st.adv || 0, advT = R.pose === 1 ? Math.max(0, st.bQ - .3)*smoothF(0, .8, Math.min(R.u, 1)) : 0;
+  st.adv = R.pose === 1 ? advT : adv0*Math.exp(-FIG_DT*6);
+  if (st.adv > .002){ FIG_F.ox += fx*st.adv*FIG_F.kh; FIG_F.oy += fy*st.adv*FIG_F.kh; if (R.pose === 1){ lQ -= st.adv; rQ -= st.adv; } }
   FIG_F.shQ = lean;
   figArmPose(-1, aL, bend); figArmPose(1, -aL, bend);
   const frontL = R.pose === 3 || figArmFront(-1), frontR = R.pose === 3 || figArmFront(1);
   // ---- legs, the far one first; arms behind the body
-  if (-.11*FIG_F.ry + lQ*fy <= .11*FIG_F.ry + rQ*fy){ figLeg(-1, lS, lQ, lZ, hipZ, lean, K, P); figLeg(1, rS, rQ, rZ, hipZ, lean, K, P); }
+  if (lS*FIG_F.ry + lQ*fy <= rS*FIG_F.ry + rQ*fy){ figLeg(-1, lS, lQ, lZ, hipZ, lean, K, P); figLeg(1, rS, rQ, rZ, hipZ, lean, K, P); }
   else { figLeg(1, rS, rQ, rZ, hipZ, lean, K, P); figLeg(-1, lS, lQ, lZ, hipZ, lean, K, P); }
   if (!frontL) figDrawArm(-1, R, K, P);
   if (!frontR) figDrawArm(1, R, K, P);
@@ -656,17 +737,16 @@ function figHang(P, lean){
   else for (let i = -1; i <= 1; i++){ const o = i*.06*kh*Math.abs(FIG_F.fy) + i*.02*kh; figLine(ax + o, ay, bx + o*1.15, by, .045*kh, P.hair); }
 }
 
-/* ---------- the ball: its shadow goes down with the grass, the ball itself over everything ---------- */
+/* ---------- the ball: its shadow goes down with the grass, the ball where figBallPlace put it ---------- */
 function drawBallShadow(b){
-  const c = cx;
-  c.fillStyle = "rgba(0,0,0,.35)"; c.beginPath(); c.ellipse(sx(b.x), sy(b.y), .3*scale, .18*scale, 0, 0, 7); c.fill();
+  const c = cx, ox = b === BV.b ? BV.shx : 0, oy = b === BV.b ? BV.shy : 0;
+  c.fillStyle = "rgba(0,0,0,.35)"; c.beginPath(); c.ellipse(sx(b.x + ox), sy(b.y + oy), .3*scale, .18*scale, 0, 0, 7); c.fill();
 }
 function drawBallBody(b){
-  const c = cx, r = Math.max(3, (.26 + (b.z-BR)*.05)*scale);
+  const c = cx, r = Math.max(3, (.26 + (b.z-BR)*.05)*scale), p = ballScreen(b);
   c.fillStyle = "#fff"; c.strokeStyle = "#222"; c.lineWidth = 1;
-  c.beginPath(); c.arc(sx(b.x), sy(b.y - (b.z-BR)*.55), r, 0, 7); c.fill(); c.stroke();
+  c.beginPath(); c.arc(p.x, p.y, r, 0, 7); c.fill(); c.stroke();
 }
-function drawBall(b){ drawBallShadow(b); drawBallBody(b); }
 
 /* ---------- the 3D ball for stage 2 ---------- */
 const ICO = (() => { const t = (1+Math.sqrt(5))/2;
@@ -776,8 +856,7 @@ function drawDefendScene(){
   if (M.rival) figAdd(figSt(M.rival), M.rival.x, M.rival.y, figOppL(M.rival, 10), ok, F_WATCH, 0, 1, String(FIG_NUM_OPP[10]));
   if (M.recv) figAdd(figSt(M.recv), M.recv.x, M.recv.y, figOppL(M.recv, 8), ok, F_WATCH, 0, 1, String(FIG_NUM_OPP[8]));
   figAdd(figSt(M.p), M.p.x, M.p.y, figMineL(M.p), mk, F_ME | F_WATCH, M.jumped ? Math.max(0, M.jumped.z) : 0, 1, String(S.player.number));
-  drawBallShadow(M.ball);
-  if (!figFlush(M.ball)) drawBallBody(M.ball);
+  figFlush(M.ball);
 }
 // a man's look, worked out once and kept with his motion
 function figOppL(o, i){ const st = figSt(o); return st.look || (st.look = figOpp(i)); }
@@ -827,7 +906,7 @@ function drawDefendOverlay(){
   }
 }
 function drawAimStage(){
-  const c = cx, b = M.ball, A_ = M.aim, bs = worldToScreen(b.x, b.y, b.z), ang = A_.ang + A_.swayAng, pw = A_.power;
+  const c = cx, b = M.ball, A_ = M.aim, bs = ballScreen(b), ang = A_.ang + A_.swayAng, pw = A_.power;
   // aim arrow: dotted path ahead of the ball, longer with more power
   // arrow grows with power but always stays on screen (clipped at a margin from every edge)
   // the arrow is as long as the ball will travel, so a throw draws a short one and a shot a long one
@@ -884,34 +963,58 @@ function draw2DScene(){
   }
   figAdd(figSt(M.gk), M.gk.x, M.gk.y, figKeeperL(M.gk), ok, F_GK | F_WATCH, 0, 1, "1").dive = !!M.shot && (M.phase === "flight" || M.phase === "done");
   figPoseMe(figAdd(figSt(M.p), M.p.x, M.p.y, figMineL(M.p), mk, F_ME, 0, 1, String(S.player.number)));
-  drawBallShadow(b);
   if (M.trail.length > 1){
     c.strokeStyle = "rgba(255,255,255,.35)"; c.lineWidth = 2*DPR; c.beginPath();
     M.trail.forEach((t, i) => { const X = sx(t.x), Y = sy(t.y - (t.z-BR)*.55); i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.stroke();
   }
-  const ballIn = figFlush(b);
+  figFlush(b);
+  // each team-mate's name, and how free he is while it matters, in one tag under his own feet
+  const tags = M.phase === "dribble" || M.phase === "decide" || M.phase === "aim";
+  figTagsBegin(M.p.x, M.p.y, b);
   if (M.mates) for (const t of M.mates){
-    const call = t.role === M.call, X = sx(t.x);
-    c.fillStyle = call ? "#ffd75a" : "rgba(255,255,255,.9)"; c.font = font(800, call ? 15 : 13); c.textAlign = "center"; c.textBaseline = "bottom";
-    figLabel(`${t.role} · ${t.name}`, X, figTopY(t.y, 0));
-    // how free he is, as a small tag under his feet — only while it matters
-    if (t.st && typeof MATE_STATE === "object" && MATE_STATE[t.st] && (M.phase === "dribble" || M.phase === "decide" || M.phase === "aim")){
-      const st = MATE_STATE[t.st], col = MATE_TAG_COL[st.cls] || "#fff";
-      c.font = font(800, 11); const tw = c.measureText(st.label).width + 12*DPR, ty = sy(t.y) + .32*FIG.kh*scale;
-      c.fillStyle = "rgba(6,12,20,.78)"; roundRect(c, X - tw/2, ty, tw, 17*DPR, 8*DPR); c.fill();
-      c.fillStyle = col; c.textBaseline = "middle"; c.fillText(st.label, X, ty + 9*DPR);
-    }
+    const st = tags && t.st && typeof MATE_STATE === "object" ? MATE_STATE[t.st] : null;
+    figTag(`${t.role} · ${t.name}`, st ? st.label : "", st ? MATE_TAG_COL[st.cls] || "#fff" : "", t.x, t.y, t.role === M.call, mk);
   }
-  if (!ballIn) drawBallBody(b);
 }
-// a name over a man: a soft dark edge so it reads on grass, on a shirt or on the stand
-function figLabel(t, x, y){ const c = cx; c.lineWidth = 3*DPR; c.strokeStyle = "rgba(6,12,20,.55)"; c.lineJoin = "round"; c.strokeText(t, x, y); c.fillText(t, x, y); c.lineJoin = "miter"; }
+/* a man's tag, under his feet: on the grass below a figure there is nothing of his own marker's to sit on (heads are
+   up the screen, and markers stand goal-side, up the screen), so it reads as his. A pill in the dark with an edge in
+   his shirt colour, the name, and a coloured state chip when there is one; the man you are calling for gets a gold
+   edge and a bigger name. A tag never covers you, the ball or another tag: then it goes over his head instead. */
+const FIG_TAGR = []; let FIG_TAGN = 0;
+function figTagRect(x0, y0, x1, y1){ let r = FIG_TAGR[FIG_TAGN]; if (!r){ r = [0, 0, 0, 0]; FIG_TAGR[FIG_TAGN] = r; } r[0] = x0; r[1] = y0; r[2] = x1; r[3] = y1; FIG_TAGN++; }
+// what tags must keep clear of: you (head to boots) and the ball where it is drawn
+function figTagsBegin(px, py, ball){
+  FIG_TAGN = 0; const KH = FIG.kh*scale, X = sx(px), Y = sy(py);
+  figTagRect(X - .55*KH, figTopY(py, 0) - 12*DPR, X + .55*KH, Y + .45*KH);
+  if (ball){ const p = ballScreen(ball), r = Math.max(3, .26*scale) + 3*DPR; figTagRect(p.x - r, p.y - r, p.x + r, p.y + r); }
+}
+function figTagFree(x, y, w, h){ for (let i = 0; i < FIG_TAGN; i++){ const r = FIG_TAGR[i]; if (x < r[2] && x + w > r[0] && y < r[3] && y + h > r[1]) return false; } return true; }
+function figTag(name, label, col, wx_, wy_, call, K){
+  const c = cx, KH = FIG.kh*scale, h = (call ? 20 : 18)*DPR, pad = 7*DPR, gap = 6*DPR, X = sx(wx_), Y = sy(wy_);
+  c.font = font(800, call ? 14 : 12); const nw = c.measureText(name).width;
+  let lw = 0; if (label){ c.font = font(800, 11); lw = c.measureText(label).width + 10*DPR; }
+  const w = nw + pad*2 + (label ? lw + gap - pad*.5 : 0), cxm = v => Math.round(clamp(v, 4*DPR, cv.width - w - 4*DPR));
+  // under him, centred; or still under him but hanging off to one side; or else over his head
+  let x = cxm(X - w/2), y = Math.round(Y + .3*KH);
+  if (!figTagFree(x, y, w, h)){
+    const r = cxm(X - .45*KH), l = cxm(X + .45*KH - w), up = Math.round(figTopY(wy_, 0) - h - 2*DPR);
+    if (figTagFree(r, y, w, h)) x = r; else if (figTagFree(l, y, w, h)) x = l; else if (figTagFree(x, up, w, h)) y = up;
+  }
+  figTagRect(x, y, x + w, y + h);
+  if (y > cv.height || y + h < 0) return;
+  c.fillStyle = "rgba(6,12,20,.8)"; roundRect(c, x, y, w, h, h/2); c.fill();
+  c.strokeStyle = call ? "#ffd75a" : K ? K.shirt : "rgba(255,255,255,.4)"; c.lineWidth = (call ? 2 : 1.5)*DPR; roundRect(c, x, y, w, h, h/2); c.stroke();
+  c.textAlign = "left"; c.textBaseline = "middle";
+  c.font = font(800, call ? 14 : 12); c.fillStyle = call ? "#ffd75a" : "rgba(255,255,255,.94)"; c.fillText(name, x + pad, y + h/2 + .5*DPR);
+  if (label){ const lx = x + pad + nw + gap, lh = h - 6*DPR;
+    c.fillStyle = col; c.globalAlpha = .18; roundRect(c, lx, y + 3*DPR, lw, lh, lh/2); c.fill(); c.globalAlpha = 1;
+    c.font = font(800, 11); c.fillStyle = col; c.fillText(label, lx + 5*DPR, y + h/2 + .5*DPR); }
+}
 // you: lined up behind the ball you face where you aim, you strike through it, you throw it in from over your head
 function figPoseMe(R){
   const ph = M.phase, aimA = M.aim ? M.aim.ang + (M.aim.swayAng || 0) : null, lockA = M.lock ? M.lock.ang : aimA;
-  if (M.throwIn && (ph === "aim" || ph === "contact" || ph === "kick") && M.ball.z > 1){
-    const p = worldToScreen(M.ball.x, M.ball.y, M.ball.z); R.pose = 3; R.hx = p.x; R.hy = p.y; R.face = aimA; return;
-  }
+  if (M.throwIn && (ph === "aim" || ph === "contact" || ph === "kick")){                       // in his hands until it is launched
+    R.pose = 3; R.face = ph === "kick" ? lockA : aimA; R.u = ph === "kick" ? clamp((M.kickT || 0)/.24, 0, 1) : 0; return; }
   if ((ph === "aim" || ph === "contact") && aimA != null) R.face = aimA;
   else if (ph === "kick" && M.kickT != null && !M.throwIn){ R.pose = 1; R.u = clamp(M.kickT/.24, 0, 1); R.face = lockA; }
   else if ((ph === "flight" || ph === "done") && M.kickT != null && M.kickT < .6 && M.shot && !M.shot.ai && !M.throwIn){ R.pose = 1; R.u = 1 + clamp((M.kickT - .24)/.36, 0, 1); R.face = lockA; }
@@ -919,7 +1022,7 @@ function figPoseMe(R){
 function drawOverlay(){
   const c = cx;
   if ((M.phase === "dribble" || M.phase === "rebound") && inp.down){
-    const bs = worldToScreen(M.ball.x, M.ball.y, M.ball.z);
+    const bs = ballScreen(M.ball);
     c.strokeStyle = "rgba(255,215,90,.85)"; c.lineWidth = 2*DPR;
     c.beginPath(); c.arc(inp.x, inp.y, 12*DPR, 0, 7); c.stroke();
     c.setLineDash([5*DPR, 6*DPR]); c.beginPath(); c.moveTo(bs.x, bs.y); c.lineTo(inp.x, inp.y); c.stroke(); c.setLineDash([]);
@@ -940,7 +1043,7 @@ function drawOverlay(){
     c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(cv.width/2 - 70*DPR, TOPM + 32*DPR, 140*DPR, 6*DPR);
     c.fillStyle = f < .3 ? "#ef5a60" : "#ffd75a"; c.fillRect(cv.width/2 - 70*DPR, TOPM + 32*DPR, 140*DPR*f, 6*DPR);
   }
-  if (M.flash){
+  if (M.flash && typeof M.flash.t === "string" && M.flash.t){
     const life = M.flash.life, pop = 1 + Math.max(0, life - 1)*1.5;
     c.globalAlpha = clamp(life*1.5, 0, 1); c.textAlign = "center"; c.textBaseline = "middle";
     c.font = font(800, 46*pop); c.lineWidth = 6*DPR; c.strokeStyle = "rgba(0,0,0,.55)";
@@ -971,11 +1074,9 @@ function drawReplayScene(f){
   figAdd(L.g, f.g[0], f.g[1], L.g.look || (L.g.look = figKeeper()), ok, F_GK | F_WATCH, 0, 1, "1").dive = f.b[1] < 9 && Math.hypot(f.b[0] - f.g[0], f.b[1] - f.g[1]) < 5;
   if (f.c) figAdd(L.c, f.c[0], f.c[1], L.c.look || (L.c.look = figMate(null, "CAM")), mk, 0, 0, 1, "");
   figAdd(L.p, f.p[0], f.p[1], L.p.look || (L.p.look = figMine()), mk, F_ME, 0, 1, String(S.player.number));
-  drawBallShadow(REP_BALL);
-  const ballIn = figFlush(REP_BALL);
-  c.fillStyle = "rgba(255,255,255,.85)"; c.font = font(700, 12); c.textAlign = "center"; c.textBaseline = "bottom";
-  for (const t of f.m) figLabel(t[2], sx(t[0]), figTopY(t[1], 0));
-  if (!ballIn) drawBallBody(REP_BALL);
+  figFlush(REP_BALL);
+  figTagsBegin(f.p[0], f.p[1], REP_BALL);
+  for (const t of f.m) figTag(t[2], "", "", t[0], t[1], false, mk);
 }
 function drawReplayHud(){
   const c = cx, f = Math.min(1, REP.i/Math.max(1, REP.frames.length - 1));
