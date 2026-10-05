@@ -96,6 +96,20 @@ function addSupport(type){
     }
   }
 }
+// team-mates who came into a move without a read on them (the men you threw to, passed to or crossed for, once one of
+// them gives it back to you): how free each is right now, and the angle he keeps to the ball from here
+function readMates(){
+  if (!M || !M.mates) return;
+  const b = M.ball;
+  for (const m of M.mates){
+    if (!MATE_STATE[m.st]){
+      let near = 99;
+      for (const d of M.defs) if (d.stun <= 0) near = Math.min(near, Math.hypot(d.x - m.x, d.y - m.y));
+      m.st = near < 2.2 ? "marked" : "open";
+    }
+    m.ox = m.x - b.x; m.oy = m.y - b.y; m.vx = m.vx || 0; m.vy = m.vy || 0;
+  }
+}
 // they move with the play: runners attack space, the held man struggles, the rest keep their angle
 function updateMates(dt){
   if (!M.mates || M.ai) return;
@@ -104,7 +118,10 @@ function updateMates(dt){
     let tx, ty, sp = 5.6;
     if (m.st === "run" || m.st === "space"){ tx = clamp(34 + (m.x - 34)*.7, 6, 62); ty = Math.max(6, Math.min(m.y, b.y - 5)); sp = 6.2; }
     else if (m.st === "better"){ tx = m.x; ty = m.y; sp = 2; }
-    else { tx = clamp(b.x + m.ox, 4, 64); ty = clamp(b.y + m.oy, 4, 44); }
+    else {
+      if (!Number.isFinite(m.ox) || !Number.isFinite(m.oy)){ m.ox = m.x - b.x; m.oy = m.y - b.y; }   // keep the angle he has now
+      tx = clamp(b.x + m.ox, 4, 64); ty = clamp(b.y + m.oy, 4, 44);
+    }
     if (m.st === "held") sp *= .3;
     const dx = tx - m.x, dy = ty - m.y, dl = Math.hypot(dx, dy);
     if (dl > .05){ const s = Math.min(dl, sp*dt); m.x += dx/dl*s; m.y += dy/dl*s; m.vx = dx/dl*sp; m.vy = dy/dl*sp; } else { m.vx = m.vy = 0; }
@@ -135,7 +152,9 @@ function buildOptions(){
     if (used.has(r.d.k) || opts.length >= 4) continue;
     used.add(r.d.k);
     const lab = M.cross ? (r.m.slot === "cut" ? "CUT BACK" : r.m.slot === "near" ? "CROSS · NEAR POST" : "CROSS · FAR POST") : r.d.label;
-    opts.push({kind:"pass", label:lab, m:r.m, q:r.q, sub:`${r.m.name} · ${MATE_STATE[r.m.st].label.toLowerCase()}`, st:r.m.st});
+    // a team-mate who arrived without a read on him (an outlet after you win it, the man who gave it back) is simply open
+    const st = MATE_STATE[r.m.st] ? r.m.st : "open";
+    opts.push({kind:"pass", label:lab, m:r.m, q:r.q, sub:`${r.m.name} · ${MATE_STATE[st].label.toLowerCase()}`, st});
   }
   return {opts, shotQ, best:ranked[0] || null};
 }
@@ -172,13 +191,40 @@ function showDecide(){
   placeDecide(el);
   el.classList.add("on");
 }
-// the choices sit along the bottom unless that is where the play is; then they move up under the score
+// the choices sit along the bottom unless that is where the play is; then up under the score — unless that covers
+// the goal and the keeper, the very thing you are deciding whether to shoot at. Then a column down the side away
+// from the play, and if everything is crowded, wherever covers least (the goal and the keeper count double).
+const DEC_PLACES = ["", "top", "side r", "side l"];
 function placeDecide(el){
-  el.classList.remove("top");
+  el.classList.remove("top", "side", "r", "l");
   if (typeof cv === "undefined" || !cv || typeof worldToScreen !== "function") return;
-  const r = cv.getBoundingClientRect(), k = r.height/(cv.height || 1), box = el.getBoundingClientRect();
-  const ys = [M.ball, M.p].concat(M.mates || []).map(o => r.top + worldToScreen(o.x, o.y, o.z || BR).y*k);
-  if (ys.some(y => y > box.top - 44 && y < box.bottom + 14)) el.classList.add("top");
+  const r = cv.getBoundingClientRect(), k = r.width/(cv.width || 1);
+  const pt = (x, y, z) => { const s = worldToScreen(x, y, z == null ? BR : z); return {x:r.left + s.x*k, y:r.top + s.y*k}; };
+  // what must stay in sight: the ball, you, your team-mates (a head's height above the feet), the goal mouth and the keeper
+  const men = [M.ball, M.p].concat(M.mates || []).map(o => { const s = pt(o.x, o.y, o.z); return {x0:s.x - 14, x1:s.x + 14, y0:s.y - 46, y1:s.y + 10, w:1}; });
+  const gl = pt(GOAL.L, NET_TOP, BR), gr = pt(GOAL.R, 0, BR), gk = pt(M.gk.x, M.gk.y, BR);
+  const keys = men.concat([{x0:gl.x - 6, x1:gr.x + 6, y0:gl.y - 4, y1:gr.y + 6, w:2}, {x0:gk.x - 16, x1:gk.x + 16, y0:gk.y - 50, y1:gk.y + 8, w:2}]);
+  const onScreen = keys.filter(o => o.x1 > r.left && o.x0 < r.right && o.y1 > r.top && o.y0 < r.bottom);
+  const cost = () => { const b = el.getBoundingClientRect(); let n = 0;
+    for (const o of onScreen) if (o.x1 > b.left - 8 && o.x0 < b.right + 8 && o.y1 > b.top - 8 && o.y0 < b.bottom + 8) n += o.w;
+    return n; };
+  // a side column only where there is room for one beside the play
+  const wide = innerWidth >= 760;
+  // the side away from you first
+  const order = DEC_PLACES.filter(p => wide || !p.startsWith("side"));
+  if (wide && pt(M.p.x, M.p.y).x > r.left + r.width/2) order.splice(order.indexOf("side l"), 1), order.splice(2, 0, "side l");
+  let best = null, bc = 1e9;
+  const tr = el.style.transition; el.style.transition = "none";      // measure where each would sit, not where it slides from
+  for (const p of order){
+    el.classList.remove("top", "side", "r", "l");
+    if (p) el.classList.add(...p.split(" "));
+    const n = cost();
+    if (n < bc){ bc = n; best = p; }
+    if (!n) break;
+  }
+  el.classList.remove("top", "side", "r", "l");
+  if (best) el.classList.add(...best.split(" "));
+  void el.offsetWidth; el.style.transition = tr;
 }
 function hideDecide(){ const el = document.getElementById("decide"); if (el){ el.classList.remove("on"); el.innerHTML = ""; } }
 function chooseOption(i, timedOut){

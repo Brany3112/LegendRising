@@ -318,7 +318,7 @@ function renderHubInner(){
         <span class="chip">REP <b>${pad5(me.rep)}</b></span><span class="chip">WORLD <b>${pad5(me.wrep)}</b></span>
         <button class="chip flagbtn${patchUnseen() ? " unread" : ""}" title="Patch notes" onclick="A.patch()"><span class="fl">⚑</span>Updates${patchUnseen() ? `<i class="dotn"></i>` : ""}</button>
       </div>
-      <div class="row gap6"><button class="icon-btn" title="Full screen" onclick="A.fullscreen()">⛶</button><button class="icon-btn" title="Menu" onclick="A.menu()">☰</button></div>
+      <div class="row gap6"><button class="icon-btn tb-phone" title="Phone" aria-label="Phone" onclick="togglePhone()">▮<i class="badge ph-badge"></i></button><button class="icon-btn" title="Full screen" onclick="A.fullscreen()">⛶</button><button class="icon-btn" title="Menu" onclick="A.menu()">☰</button></div>
     </header>
     <main class="hub-grid">
       <section class="card glass me-card rise">
@@ -620,6 +620,18 @@ function screenSeasonEnd(sum){
 }
 
 /* ---------- actions ---------- */
+// a toast that lands while the full-time card is up (a milestone, big-game experience) would sit over its rows:
+// it waits until you leave the ground, then they come one after another
+const TOAST_HELD = [];
+const toastNow = toast;
+toast = function(msg, kind){
+  if (typeof MT !== "undefined" && MT && MT.holdToasts){ TOAST_HELD.push([msg, kind]); return; }
+  toastNow(msg, kind);
+};
+function flushHeldToasts(){
+  const q = TOAST_HELD.splice(0);
+  q.forEach(([msg, kind], i) => setTimeout(() => toastNow(msg, kind), 700 + i*3300));
+}
 const A = {
   newGame(n){ useSlot(n || 1); CR = null; screenCreate(); },
   deleteSlot(n){
@@ -667,7 +679,7 @@ const A = {
   playHighlight(i){ const h = MT.highlights[i]; const ov = $("#ov"); if (ov) ov.hidden = true; startReplay(h.rec, {label:`${h.min}' ${h.text}`}, () => MT.ftCard()); },
   passNow(){ if (typeof passNow === "function") passNow(); },
   shootNow(){ shootNow(); },
-  leaveMatch(){ loopOn = false; M = null; REP = null; clearTimeout(MT && MT.timer); MT = null; matchSkillsOff(); save();
+  leaveMatch(){ loopOn = false; M = null; REP = null; clearTimeout(MT && MT.timer); MT = null; matchSkillsOff(); save(); flushHeldToasts();
     // in the city, the final whistle sends you back out into the yard rather than to the hub
     if (document.body.classList.contains("life") && window.LIFE){
       document.body.classList.remove("in-match");

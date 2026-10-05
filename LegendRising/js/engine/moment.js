@@ -18,12 +18,19 @@ function recFrame(){
 }
 function startReplay(rec, meta, onEnd){
   if (!rec || rec.length < 6){ if (onEnd) onEnd(); return; }
-  REP = {frames:rec, i:0, meta:meta || {}, onEnd, speed:.6};
+  // the live commentary would sit over the replay (and over its banner on a phone): it steps aside until the replay ends
+  const cm = $("#comm"), commShown = !!cm && !cm.classList.contains("hide");
+  if (commShown) cm.classList.add("hide");
+  REP = {frames:rec, i:0, meta:meta || {}, onEnd, speed:.6, commShown};
   const ov = $("#ov"); if (ov){ ov.hidden = false; ov.className = "ov rep"; ov.dataset.kind = "rep";
     ov.innerHTML = `<div class="rep-bar"><span class="rep-dot">● REPLAY</span><b>${esc((meta && meta.label) || "")}</b><button class="btn sm ghost" onclick="A.skipReplay()">Skip ▸</button></div>`; }
 }
 function stepReplay(dt){ if (!REP) return; REP.i += dt*20*REP.speed; if (REP.i >= REP.frames.length - 1) endReplay(); }
-function endReplay(){ const r = REP; REP = null; NEED_DRAW = true; const ov = $("#ov"); if (ov) ov.dataset.kind = ""; if (r && r.onEnd) r.onEnd(); }
+function endReplay(){
+  const r = REP; REP = null; NEED_DRAW = true; const ov = $("#ov"); if (ov) ov.dataset.kind = "";
+  if (r && r.commShown){ const cm = $("#comm"); if (cm) cm.classList.remove("hide"); }
+  if (r && r.onEnd) r.onEnd();
+}
 const inp = {down:false, id:null, sx:0, sy:0, x:0, y:0, hx:null, hy:null};
 const keys = {};
 
@@ -81,7 +88,7 @@ function startMoment(type){
       p.x = 34 + rnd(-12, 12); p.y = rnd(30, 36);
       const R = MT.roleNames;
       M.mates = [{role:"LW", x:rnd(5,12), y:rnd(13,22)}, {role:"RW", x:rnd(56,63), y:rnd(13,22)}, {role:"CAM", x:34 + rnd(-7,7), y:rnd(19,25)}, {role:"ST", x:34 + rnd(-5,5), y:rnd(8,13)}]
-        .map(t => Object.assign(t, {name:R[t.role].name, pid:R[t.role].id}));
+        .map(t => Object.assign(t, {name:R[t.role].name, pid:R[t.role].id, vx:0, vy:0}));
       M.call = pick(["LW","RW","CAM","ST","ST"]);
       M.defs = M.mates.map(t => { const open = t.role === M.call, d = open ? rnd(4, 6) : rnd(1.2, 2.6), a = rnd(-.8, .8);
         return newDef(t.x + Math.sin(a)*d*(34 > t.x ? 1 : -1)*.5, t.y - Math.cos(a)*d*.8 - .5, opp); });
@@ -104,7 +111,7 @@ function startMoment(type){
                  {role:side === 0 ? "LW" : "RW", x:p.x + inward*rnd(2, 5), y:p.y + rnd(3, 7)},
                  // the long one down the line — still inside what a throw can actually reach
                  {role:side === 0 ? "RW" : "LW", x:p.x + inward*rnd(3, 7), y:p.y - rnd(10, 14)}]
-        .map(t => Object.assign(t, {name:R[t.role].name, pid:R[t.role].id}));
+        .map(t => Object.assign(t, {name:R[t.role].name, pid:R[t.role].id, vx:0, vy:0}));
       M.call = pick(M.mates).role;
       M.defs = M.mates.map(t => { const open = t.role === M.call, d = open ? rnd(3.5, 5.5) : rnd(1.1, 2.4), a = rnd(-.9, .9);
         return newDef(t.x - inward*Math.cos(a)*d, t.y - Math.sin(a)*d*.8, opp); });
@@ -129,7 +136,7 @@ function startMoment(type){
                  {role:"CAM", x:34 + rnd(-7, 7),  y:rnd(7, 11)},
                  {role:"LW",  x:34 - rnd(4, 9),   y:rnd(3.5, 6)},
                  {role:"RW",  x:34 + rnd(4, 9),   y:rnd(3.5, 6)}]
-        .map(t => Object.assign(t, {name:R[t.role].name, pid:R[t.role].id}));
+        .map(t => Object.assign(t, {name:R[t.role].name, pid:R[t.role].id, vx:0, vy:0}));
       M.call = pick(M.mates).role;
       M.defs = M.mates.map(t => { const open = t.role === M.call, d = open ? rnd(2.6, 4.2) : rnd(.9, 2);
         return newDef(clamp(t.x + rnd(-1, 1)*d, 2, 66), clamp(t.y - d*.7, 1.5, 14), opp); });
@@ -238,8 +245,10 @@ function updateDefs(dt){
     else { tx = b.x + (34-b.x)*.35 + (i%2 ? 2.5 : -2.5); ty = Math.max(3, b.y*.55); sp *= .78; }
     const dx = tx-d.x, dy = ty-d.y, dl = Math.hypot(dx,dy);
     if (dl > .05){ const m = Math.min(dl, sp*dt); d.x += dx/dl*m; d.y += dy/dl*m; }
-    const px = d.x-p.x, py = d.y-p.y, pd = Math.hypot(px,py);          // bodies don't overlap
-    if (pd < .9 && pd > 0){ const push = (.9-pd)/2; d.x += px/pd*push; d.y += py/pd*push; p.x -= px/pd*push; p.y -= py/pd*push; }
+    // bodies don't overlap: he leans on you (you give a little ground) but never ends up inside you
+    const px = d.x-p.x, py = d.y-p.y, pd = Math.hypot(px,py);
+    if (pd < BODY_GAP && pd > 1e-4){ const push = BODY_GAP - pd; d.x += px/pd*push*.7; d.y += py/pd*push*.7; p.x -= px/pd*push*.3; p.y -= py/pd*push*.3; }
+    else if (pd <= 1e-4) d.y = p.y - BODY_GAP;
     if (d === best && d.cd <= 0 && Math.hypot(d.x-b.x, d.y-b.y) < .85 && M.phase === "dribble"){
       const loose = clamp((Math.hypot(b.x-p.x, b.y-p.y) - .7)/1.3, 0, 1);
       const pt = clamp(.28 + (M.opp - sk.dribbling - (S.items.control ? 6 : 0))*.011 + loose*.4 + (M.sprinting ? .05 : 0), .08, .93);
@@ -255,8 +264,9 @@ function shootNow(){
   if (M.phase === "aim" && typeof switchToShot === "function" && switchToShot()) return;
   if (M.phase !== "dribble") return;
   if (Math.hypot(M.ball.x-M.p.x, M.ball.y-M.p.y) > 1.3) return flash("Get to the ball first");
-  // choosing to shoot with team-mates around is a decision too
-  if (!M.decided && M.mates && M.mates.length && typeof buildOptions === "function"){
+  // choosing to shoot with team-mates around is a decision too — not after you have just won it back, or once a
+  // team-mate has given it back to you (those men were never read for a choice; as when you carry it into the box)
+  if (!M.decided && !M.wonBall && !M.gaveBack && M.mates && M.mates.length && typeof buildOptions === "function"){
     const b = buildOptions(); M.decided = true;
     M.dec = {choice:"shoot", chosenQ:b.shotQ, shotQ:b.shotQ, bestQ:b.best ? b.best.q : 0, bestOpen:b.best ? OPEN_STATES.has(b.best.m.st) : false, bestName:b.best ? b.best.m.name : "", ctx:"open"};
   }
@@ -278,8 +288,14 @@ function passNow(){
   if (!M || M.phase !== "dribble") return;
   if (!M.mates || !M.mates.length) return flash("Nobody's in support");
   if (Math.hypot(M.ball.x-M.p.x, M.ball.y-M.p.y) > 1.3) return flash("Get to the ball first");
-  if (!M.decided && !M.ai && typeof beginDecide === "function" && !M.wonBall) return beginDecide();
+  if (!M.decided && !M.ai && typeof beginDecide === "function" && !M.wonBall && !M.gaveBack) return beginDecide();
   const t = bestMate(); if (!t) return flash("Nobody's in support");
+  if (M.gaveBack){
+    // the one-two is done and this is a new pass: book the first one now, and judge this one on its own
+    if (typeof notePass === "function") notePass();
+    M.oneTwo = M.gaveBack; M.gaveBack = null;
+    M.passCounted = false; M.passDone = null; M.passLogged = false; M.passTo = null; M.passLen = null;
+  }
   M.shooting = false; M.isPass = true; M.call = t.role;
   M.info = `Find the ${t.role}: ${t.name} is calling for it`;
   flash(`${t.name} is calling for it`);
@@ -581,6 +597,7 @@ function updateRebound(dt){
     if (d.stun > 0){ d.stun -= dt; continue; }
     const ic = interceptOn(ballPath(), d, d.spd, .22, 2.1);
     runTo(d, ic ? ic.x : b.x, ic ? ic.y : b.y, d.spd, dt);
+    keepOff(d, p);
   }
   // first to it wins it — you need it near the ground to take it
   const low = b.z < 1.9;
@@ -631,6 +648,14 @@ function interceptOn(path, o, spd, react, maxZ, maxMove){
     if (d <= Math.max(0, s.t - r)*spd + .45) return s;
   }
   return null;
+}
+// two men are never closer than this, chest to chest
+const BODY_GAP = .9;
+function keepOff(d, o, r){
+  const gap = r || BODY_GAP, dx = d.x - o.x, dy = d.y - o.y, dd = Math.hypot(dx, dy);
+  if (dd >= gap) return;
+  if (dd < 1e-4){ d.y = o.y - gap; return; }                 // square on: he stays goal-side of you
+  d.x = o.x + dx/dd*gap; d.y = o.y + dy/dd*gap;
 }
 function runTo(o, x, y, spd, h){
   const dx = x - o.x, dy = y - o.y, d = Math.hypot(dx, dy);
@@ -929,6 +954,7 @@ function updateAiPass(dt){
     if (d.stun > 0) continue;
     if (d === dFirst && d.ic && (!recvIc || d.ic.t < recvIc.t - .05)) runTo(d, d.ic.x, d.ic.y, d.spd, dt);
     else containRun(d, recvIc || b, dt, false);
+    keepOff(d, recv);
   }
   moveKeeper(dt);
   // cut out?
@@ -945,6 +971,9 @@ function updateAiPass(dt){
     if (ap.isPlayer){
       M.gaveBack = {name:M.ai.mate.name, role:M.ai.mate.role};
       M.ai = null; M.aiPass = null;
+      // the ball in flight was his (and before that your pass): nothing of it is a shot of yours
+      M.shot = null; M.shotEval = null; M.trail = [];
+      if (typeof readMates === "function") readMates();
       M.phase = "dribble"; M.control = true; M.touchCd = .1; M.wob = 0; M.shooting = false;
       b.x = M.p.x + M.p.fx*.5; b.y = M.p.y + M.p.fy*.5;
       M.limit = Math.max(M.limit, M.t + 9);

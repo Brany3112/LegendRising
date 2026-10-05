@@ -2,9 +2,10 @@
 /* ============ PHONE SHELL ============ */
 const PH = {open:false, stack:[], kp:{view:"home", sel:0, scroll:0, data:null, hist:[]}, land:false, neg:null, installing:{}};
 function phoneBadge(){
-  const b = $("#phoneBadge"); if (!b || !S) return;
+  if (!S) return;
   const n = S.msgs.filter(m => !m.read).length + (S.social ? S.social.ctx.filter(c => c.type === "mention").length : 0);
-  b.textContent = n; b.style.display = n ? "" : "none";
+  // the floating button's badge, and the one on the hub header's phone button (on a phone screen)
+  for (const b of document.querySelectorAll("#phoneBadge, .ph-badge")){ b.textContent = n; b.style.display = n ? "" : "none"; }
 }
 function mountPhone(){
   const r = $("#phoneRoot");

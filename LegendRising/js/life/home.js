@@ -76,7 +76,7 @@ function doorDeco(f, s, glassy){
   f.box(s - .74, s - .6, 0, 2.56, 0, .07, C.stone, O); f.box(s + .6, s + .74, 0, 2.56, 0, .07, C.stone, O);
   f.box(s - .74, s + .74, 2.42, 2.56, 0, .07, C.stone, O);
   rboxF(f, s, 2.82, .55, 2.3, .14, 1.1, C.coping);                                        // the canopy
-  f.box(s - .7, s + .7, 2.79, 2.8, .2, .9, 0xfff3d6, {key:"lamp", ao:false});
+  f.box(s - .7, s + .7, 2.80, 2.82, .2, .9, 0xfff3d6, {key:"lamp", ao:false});            // set into its underside
   f.box(s + .38, s + .44, .98, 1.14, .025, .06, C.metal, {key:"metal", ao:false});           // handle
   stepF(f, s - 1.05, s + 1.05, 0, 1.0, G0);
 }
@@ -112,6 +112,8 @@ export function downpipe(f, s, h){
   cyl(x, 0, z, .07, .12, C.coping, {seg:8, key:"metal"});
   f.box(s - .12, s + .12, h - .35, h - .15, 0, .22, C.coping, {key:"metal", ao:false});
   for (let y = 1.6; y < h - .5; y += 2.4) f.box(s - .07, s + .07, y, y + .05, 0, .16, C.coping, {key:"metal", ao:false});
+  const [ax, az] = f.at(s - .08, 0), [bx, bz] = f.at(s + .08, .17);        // you brush past it, not through it
+  solid(ax, bx, az, bz, 0, h);
 }
 /* the flat roof: a membrane, a parapet in the wall's own finish, a metal coping overhanging both faces, and the
    things that live on roofs — the stair hut, a lift room, air-con units, vents, maybe a dish */
@@ -264,11 +266,14 @@ function myBlock(F, D){
   }
   for (let k = 0; k < 3; k++) realWin(-12.75, k*LH + 1.6 + .1, -9, -1);
 
-  // slabs: a hole in each one for the stairs; the underside is the ceiling of the storey below
+  // slabs: a hole in each one for the stairs; the underside is the ceiling of the storey below. Each stops 2 cm short
+  // of the front wall's inner face (2.75), so no face of it lies in that plane right behind the brick (the rooms' skins
+  // cover the hair of a gap from inside)
+  const FW = 2.73;
   for (let L = 1; L <= 4; L++){
     const y = L*LH, CL = {ao:false, jit:0, tex:"paint"};
-    slab(L === 4 ? [[-13.75, -8.75], [-0.25, -8.75], [-0.25, 2.75], [-13.75, 2.75]]
-      : [[-9.875, -8.75], [-0.25, -8.75], [-0.25, 2.75], [-13.75, 2.75], [-13.75, -4], [-9.875, -4]], y - .25, y, C.ceiling, CL);
+    slab(L === 4 ? [[-13.75, -8.75], [-0.25, -8.75], [-0.25, FW], [-13.75, FW]]
+      : [[-9.875, -8.75], [-0.25, -8.75], [-0.25, FW], [-13.75, FW], [-13.75, -4], [-9.875, -4]], y - .25, y, C.ceiling, CL);
     if (L < 4){ floor(-13.75, -0.25, -4, 2.75, y + .02); floor(-9.875, -0.25, -8.75, -4, y + .02); }   // you stand on the lino and the boards, not under them
   }
   // the lobby: one step up from the street, terrazzo, the walls painted
@@ -295,8 +300,10 @@ function myBlock(F, D){
     const hf = [1, 2].map(d => [APT[d].door - .5, APT[d].door + .5, base, base + 2.1]), hb = [3, 4].map(d => [APT[d].door - .5, APT[d].door + .5, base, base + 2.1]);
     wall("x", -2.2, -13.75, -0.25, base, top, .2, C.cream, hf, {tex:"paint"});
     wall("x", -4.1, -9.625, -0.25, base, top, .2, C.cream, hb, {tex:"paint"});
-    wall("z", -7, -2.1, 2.75, base, top, .2, C.cream, [], {tex:"paint"});
-    wall("z", -5, -8.75, -4.2, base, top, .2, C.cream, [], {tex:"paint"});
+    // the party walls between the flats: only ever seen from inside your own flat, where its wallpaper covers them, so
+    // they are kept as what you bump into and not drawn — drawn, their faces run edge-on up to the front and back walls
+    // and showed through the brick from the street as dashed lines
+    solid(-7.125, -6.875, -2.1, 2.75, base, top); solid(-5.125, -4.875, -8.75, -4.2, base, top);      // (out to the skins on both faces)
     twoTone("x", -2.31, -13.75, -0.25, base, top, hf, 0, -1);
     twoTone("x", -3.99, ST.e - .016, -0.25, base, top, hb, -1, 1);          // on round the end of the stairwell wall to the stair
     twoTone("z", -0.26, -3.99, -2.31, base, top, [], 0, -1);
@@ -339,7 +346,8 @@ function entrance(){
   for (const x of [-10.75, -8.25]) beam(x, 3.75, 3.0, x, 3.0, 4.15, .03, .03, C.coping, {key:"metal"});     // tie rods to the wall
   // a house number and a buzzer panel
   const t = textTex(128, 64, g => { g.fillStyle = "#1d2328"; g.fillRect(0, 0, 128, 64); g.fillStyle = "#f2efe6"; g.font = "bold 40px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("14", 64, 34); });
-  label(t, -9.5, 2.62, 3.08, .32, .16, 0);
+  // on the brick between the door's architrave (top 2.72) and the canopy (2.88), flat on the wall
+  label(t, -9.5, 2.797, 3.006, .28, .14, 0);
   box(-8.6, 1.2, 3.0, -8.4, 1.55, 3.04, 0x9aa1a7, {key:"metal", ao:false});
   for (let i = 0; i < 6; i++) box(-8.56, 1.26 + i*.045, 3.04, -8.44, 1.29 + i*.045, 3.046, 0x2a2e33, {ao:false, jit:0});
 }
@@ -369,8 +377,10 @@ function stairs(){
     // wall strings and, on the well side, a steel stringer
     stringer(o1, f1, S_.w, S_.f1[0], 0xd9d4ca, .08, .02);
     stringer(o2, f2, S_.f2[1], S_.e, 0xd9d4ca, .08, .02);
-    stringer(o1, f1, S_.f1[1], S_.f1[1] + .05, steel, .1, .03, {key:"metal"});
-    stringer(o2, f2, S_.f2[0] - .05, S_.f2[0], steel, .1, .03, {key:"metal"});
+    // (painted steel: a bare metal finish has next to no diffuse colour, and these faces look across the well, lit
+    // only from the side by the landing lights, so by night they would go flat black)
+    stringer(o1, f1, S_.f1[1], S_.f1[1] + .05, 0x464d55, .1, .03, {key:"paint"});
+    stringer(o2, f2, S_.f2[0] - .05, S_.f2[0], 0x464d55, .1, .03, {key:"paint"});
     // the green dado follows each flight up the wall it runs along, and runs level round the landing
     dado(o1, f1, S_.w + .01, S_.w + .016, land, L ? null : {a:S_.front, y:G0 + 1.15}); dado(o2, f2, S_.e - .016, S_.e - .01, land);
     box(S_.w, land - .2, S_.back + .01, S_.e, land + 1.0, S_.back + .016, C.green, {tex:"paint", ao:false, jit:0});
@@ -382,9 +392,12 @@ function stairs(){
     // across the end of the well on the landing, and on the floor above
     railAcross(S_.f1[1] + .025, S_.f2[0] - .025, S_.mid + .02, land, rail, steel, false);
     if (L < 2) railAcross(S_.f1[1] + .025, S_.f2[0] - .025, S_.front + .03, base + LH, rail, steel, false);
-    // a wall light on the landing, and a real light that follows you between them
+    // two wall lights on the landing, one each side of the well (on the back wall by the east flight, on the west
+    // wall by the west one), so each flight's well face is lit from across the well rather than edge-on from over it
     rbox(-10.6, land + 2.2, S_.back + .07, .5, .12, .12, .04, 0xfff3d6, {key:"lamp"});
-    lightSrc({x:-11.8, y:land + 2.1, z:-8.0, color:0xffe8c8, intensity:5, distance:8, indoor:true});
+    rbox(S_.w + .07, land + 2.2, -7.9, .12, .12, .5, .04, 0xfff3d6, {key:"lamp"});
+    lightSrc({x:-10.6, y:land + 2.05, z:-8.35, color:0xffe8c8, intensity:3.5, distance:8, indoor:true});
+    lightSrc({x:S_.w + .4, y:land + 2.05, z:-7.9, color:0xffe8c8, intensity:3.5, distance:8, indoor:true});
   }
   // under the second flight: a store cupboard with a door, closed off from the well
   const P = [[S_.mid, 0], [S_.mid, 1.6 + .178 - .32], [S_.front, LH - .32], [S_.front, 0]];
@@ -467,6 +480,7 @@ function realWin(x, base, face, s){
   // the window board inside, a little wider than the hole
   bx(x - h - .08, x + h + .08, b - .04, b + .035, .11 + .035, .25 + .24, 0xece9e2);
   bx(x - h - .08, x + h + .08, b - .12, b - .04, .25 + .2, .25 + .24, 0xe2ded6);
+  { const [z0, z1] = Zs(.25, .25 + .24); solid(x - h - .08, x + h + .08, z0, z1, b - .12, b + .035); }      // it stands out into the room
 }
 function plate(text, x, y, z, ry){ label(plateTex(text), x, y, z, .16, .08, ry); }
 const DOOR_COL = [0x6e4b34, 0x7a3a2e, 0x5b6168, 0x5a4636, 0x3f4a3e];
@@ -500,37 +514,71 @@ function plateTex(text){
    and it never swings into you: a turn that would bring the leaf into the space you stand in is held back until you
    step clear (you can't end up inside a door, and the camera never sees through one). Each turn asks for the sun's
    shadows to be redrawn, and once more when it comes to rest. */
+// the player's collision body (world.js): a square R either side of where you stand, from .42 over your feet to 1.75
+const BODY_R = .26, BODY_LO = .42, BODY_HI = 1.75, LEAF_T = .03;
 export function leafGuard(hx, hz, len, y0, y1, n = 10, pad = .035){
   const sols = Array.from({length:n}, () => { const q = solid(0, 0, 0, 0, y0, y1); q.off = true; return q; });
   let ux = 1, uz = 0, on = false, rest = 0;
+  // the box that piece i of a leaf pointing along (vx, vz) blocks: exactly what set() lays down
+  const piece = (vx, vz, i, q) => {
+    const ax = hx + vx*len*i/n, az = hz + vz*len*i/n, bx = hx + vx*len*(i + 1)/n, bz = hz + vz*len*(i + 1)/n;
+    q.x0 = Math.min(ax, bx) - LEAF_T; q.x1 = Math.max(ax, bx) + LEAF_T; q.z0 = Math.min(az, bz) - LEAF_T; q.z1 = Math.max(az, bz) + LEAF_T;
+    return q;
+  };
+  const tmp = {x0:0, x1:0, z0:0, z1:0};
   const G = {sols,
-    // would a leaf pointing along (vx, vz) stand in the space you occupy?
-    hitsYou(vx, vz){
-      if (VIEW.scene !== W.scene) return false;
-      // where your feet are: VIEW.feet if the player controller gives it, else the floor under you (your eyes'
-      // height above it depends on how tall you made yourself, so it can't be taken off a fixed eye height)
+    // would a leaf pointing along (vx, vz) stand in the space you occupy? Every box the leaf would lay down at that
+    // angle is tested against your real body — the square the player's collision uses — with pad to spare
+    // how far the leaf pointing along (vx, vz) would stand clear of your body: the gap between the nearest box it
+    // lays down and your square (negative: it would be in you). Infinity when you are not in its world or its height
+    // closed: {s, upTo} — the box a door blocks its frame with once it is within upTo of shut (hingedDoor): from
+    // there on it is part of what the leaf puts in your way, so it is counted too (a = the leaf's angle, when known)
+    closed:null,
+    clearance(vx, vz, a){
+      if (VIEW.scene !== W.scene) return Infinity;
+      // where your feet are: VIEW.feet from the player controller; only if it never gave one, the floor under you
+      // (your eyes' height above it depends on how tall you made yourself, so it can't be taken off a fixed eye height)
       let feet = VIEW.feet;
-      if (feet == null){ feet = 0; for (const f of W.floors) if (f.h > feet && f.h <= VIEW.y - .9 && VIEW.x >= f.x0 && VIEW.x <= f.x1 && VIEW.z >= f.z0 && VIEW.z <= f.z1) feet = f.h; }
-      if (feet + 1.75 <= y0 || feet + .42 >= y1) return false;
-      const px = VIEW.x - hx, pz = VIEW.z - hz, t = Math.max(0, Math.min(len, px*vx + pz*vz));
-      return Math.hypot(px - vx*t, pz - vz*t) < .26 + pad;
+      if (feet == null || !isFinite(feet)){ feet = 0; for (const f of W.floors) if (f.h > feet && f.h <= VIEW.y - .9 && VIEW.x >= f.x0 && VIEW.x <= f.x1 && VIEW.z >= f.z0 && VIEW.z <= f.z1) feet = f.h; }
+      if (feet + BODY_HI <= y0 || feet + BODY_LO >= y1) return Infinity;
+      const x0 = VIEW.x - BODY_R, x1 = VIEW.x + BODY_R, z0 = VIEW.z - BODY_R, z1 = VIEW.z + BODY_R;
+      let c = Infinity;
+      for (let i = 0; i < n; i++){
+        const q = piece(vx, vz, i, tmp);
+        c = Math.min(c, Math.max(q.x0 - x1, x0 - q.x1, q.z0 - z1, z0 - q.z1));
+      }
+      const k = G.closed;
+      if (k && a != null && a <= k.upTo) c = Math.min(c, Math.max(k.s.x0 - x1, x0 - k.s.x1, k.s.z0 - z1, z0 - k.s.z1));
+      return c;
     },
-    // how far the leaf may turn from angle a0 toward a1 (dirOf(a) → its direction): all the way, unless that would
-    // newly bring it into you — then up to you and no further (a leaf already touching you is never held, so you can't be trapped)
+    // would a leaf pointing along (vx, vz) stand in the space you occupy (or within pad of it)?
+    hitsYou(vx, vz){ return G.clearance(vx, vz) < pad; },
+    // how far the leaf may turn from angle a0 toward a1 (dirOf(a) → its direction): all the way, unless on the way it
+    // would come within pad of you — then up to you and no further. Already closer than pad, it may only move so as
+    // not to come any closer; a leaf already in you is never held, so you can't be trapped. The sweep is walked in
+    // small steps, so a hard drag can't jump the leaf through you
     reach(a0, a1, dirOf){
-      const [ax, az] = dirOf(a0), [bx, bz] = dirOf(a1);
-      if (!G.hitsYou(bx, bz) || G.hitsYou(ax, az)) return a1;
-      let lo = 0, hi = 1;
-      for (let i = 0; i < 8; i++){ const m = (lo + hi)/2, [mx, mz] = dirOf(a0 + (a1 - a0)*m); if (G.hitsYou(mx, mz)) hi = m; else lo = m; }
-      return a0 + (a1 - a0)*lo;
+      const cl = a => { const [x, z] = dirOf(a); return G.clearance(x, z, a); };
+      const c0 = cl(a0);
+      if (c0 < 0) return a1;
+      const lim = Math.min(pad, c0) - 1e-7, hit = a => cl(a) < lim;      // no creeping in a hair at a time
+      const k = Math.max(1, Math.ceil(Math.abs(a1 - a0)/.04));
+      let prev = a0;
+      for (let j = 1; j <= k; j++){
+        const a = a0 + (a1 - a0)*j/k;
+        if (!hit(a)){ prev = a; continue; }
+        let lo = prev, hi = a;
+        for (let i = 0; i < 8; i++){ const m = (lo + hi)/2; if (hit(m)) hi = m; else lo = m; }
+        return lo;
+      }
+      return a1;
     },
     set(vx, vz, show, dt = 1/60){
       const moved = Math.abs(vx - ux) + Math.abs(vz - uz) > 1e-5 || show !== on;
       ux = vx; uz = vz; on = show;
       sols.forEach((q, i) => {
         q.off = !show; if (!show) return;
-        const ax = hx + vx*len*i/n, az = hz + vz*len*i/n, bx = hx + vx*len*(i + 1)/n, bz = hz + vz*len*(i + 1)/n;
-        q.x0 = Math.min(ax, bx) - .03; q.x1 = Math.max(ax, bx) + .03; q.z0 = Math.min(az, bz) - .03; q.z1 = Math.max(az, bz) + .03;
+        piece(vx, vz, i, q);
       });
       if (moved){ W.shadowDirty = true; rest = .35; } else if (rest > 0 && (rest -= dt) <= 0) W.shadowDirty = true;
     }
@@ -570,7 +618,8 @@ export function hingedDoor(o){
   W.scene.add(g);
   const xa = dir > 0 ? o.hingeX : o.hingeX - W_, xb = dir > 0 ? o.hingeX + W_ : o.hingeX;
   const sol = solid(xa, xb, o.z - .06, o.z + .06, o.base, o.base + H_);
-  const guard = leafGuard(o.hingeX, o.z, W_, o.base, o.base + H_);
+  const guard = leafGuard(o.hingeX, o.z, W_, o.base, o.base + H_), SHUT = .08;
+  guard.closed = {s:sol, upTo:SHUT};
   const base = dir > 0 ? 0 : Math.PI, spin = dir > 0 ? -o.into : o.into;
   const at = a => { const r = base + spin*a; return [Math.cos(r), -Math.sin(r)]; };
   // turn the leaf to a, unless that would swing it into you
@@ -581,7 +630,7 @@ export function hingedDoor(o){
     if (Math.abs(D.target - D.a) > 1e-4) turnTo(D.a + (D.target - D.a)*(1 - Math.exp(-6*dt)));
     g.rotation.y = base + spin*D.a;
     // the closed box stays until the leaf is clear of the frame; the leaf's own boxes take over as soon as it moves
-    sol.off = D.a > .08;
+    sol.off = D.a > SHUT;
     const [ux, uz] = at(D.a);
     guard.set(ux, uz, D.a > .01, dt);
   });
@@ -908,6 +957,7 @@ function mailboxes(){
   // the cabinet on the lobby wall
   rbox(-6.22, .98, -.4, .24, 1.11, 2.48, .02, 0x5a3f28, {seg:2});
   rbox(-6.23, 2.09, -.4, .26, .05, 2.56, .02, 0x3f2c1c);
+  solid(-6.36, -6.1, -1.68, .88, .98, 2.14);          // you stand in front of it, not in it
   const t = textTex(1024, 448, () => {});
   HOME.mailTex = {tex:t, names};
   drawMail();
@@ -915,10 +965,12 @@ function mailboxes(){
   m.material.emissive = new THREE.Color(0x000000);
   const c = h.door - 1, r = h.floor - 1;
   const z0 = -1.6 + c*.6, y0 = 2.05 - (r + 1)*.35;
-  spot({x:-6.4, y:y0 + .17, z:z0 + .3, aim:[[-6.9, y0, z0], [-6.1, y0 + .35, z0 + .6]],
+  // aimed at from the lobby, yours stands a few centimetres proud of the cabinet's own box, so it is what you look
+  // at whenever you look at it (the cabinet is solid: you stand at least 26 cm off its face, x −6.36)
+  spot({x:-6.4, y:y0 + .17, z:z0 + .3, aim:[[-6.42, y0, z0], [-6.1, y0 + .35, z0 + .6]],
     label:`Your mailbox · ${h.apt}`, get hint(){ const n = unread(), o = owed(); return n ? `${n} new letter${n > 1 ? "s" : ""}` : o ? `You owe €${o}` : "Nothing new"; }, hold:.3,
     run:() => ctx.openMail()});
-  spot({x:-6.4, y:1.5, z:-.4, aim:[[-6.9, .98, -1.64], [-6.1, 2.1, .84]], label:"Mailboxes", hint:"Find your name on one of them", hold:.2,
+  spot({x:-6.4, y:1.5, z:-.4, aim:[[-6.37, .98, -1.64], [-6.1, 2.1, .84]], label:"Mailboxes", hint:"Find your name on one of them", hold:.2,
     run:() => ctx.note(`Yours is the one that says ${G().player.name} · ${h.apt}.`)});
 }
 export function drawMail(){

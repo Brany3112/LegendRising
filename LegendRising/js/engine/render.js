@@ -2,9 +2,14 @@
 /* ============ CANVAS + DRAWING ============ */
 const VIEW = {x0:-3, x1:71, y0:-11, y1:45};
 let cv = null, cx = null, scale = 1, offX = 0, offY = 0, DPR = 1, TOPM = 80, NEED_DRAW = true, BGC = null;
+// the band under the score banner where the hint and the clock bar sit: the goal (net, crossbar, the keeper's head)
+// is always drawn below it. HUDB: its reserved bottom; HUDB_S: the same, eased, when the hint takes more lines.
+let HUDB = 120, HUDB_S = 120, HINT_B = 120;
+const NET_TOP = -2.6;                                 // the back of the net and the keeper's head, in pitch metres
 // On phones the whole pitch is far too small, so the camera zooms in and follows the play.
 let ZOOM = false, CAM = {x:34, y:20}, CAMT = {x:34, y:20};
-const LAYER = {x0:-9, y0:-14, x1:77, y1:52};       // world area pre-rendered into the background layer
+const LAYER = {x0:-9, y0:-20, x1:77, y1:52};       // world area pre-rendered into the background layer
+const CAM_TOP = -14;                                 // a following camera looks no further up than this, unless the goal needs it
 
 function setupCanvas(){
   cv = $("#pitch"); try{ cx = cv.getContext("2d"); }catch(e){ cx = null; }
@@ -20,20 +25,22 @@ function resize(){
   cv.width = Math.max(1, r.width*DPR); cv.height = Math.max(1, r.height*DPR);
   const cssW = r.width, aspect = cv.width/cv.height;
   ZOOM = cssW < 900 || aspect < 1.25;                 // phones and narrow windows
+  // top of the free pitch area = just under the score banner (whatever size it is on this screen)
+  const sb = document.querySelector(".scorebug");
+  const sbBot = sb ? sb.getBoundingClientRect().bottom - r.top : 70;
+  TOPM = (sbBot + 6)*DPR;
+  HUDB = HUDB_S = HINT_B = TOPM + 44*DPR;              // one line of hint and the clock bar under it
   if (ZOOM){
     const viewW = aspect < .8 ? 34 : aspect < 1.1 ? 42 : 50;     // metres across the screen
     scale = cv.width/viewW;
     CAM.x = CAMT.x; CAM.y = CAMT.y; applyCam();
   } else {
-    const vw = VIEW.x1-VIEW.x0, vh = VIEW.y1-VIEW.y0;
-    scale = Math.min(cv.width/vw, cv.height/vh);
+    // the whole pitch fits, the stands share what is left, and the goal stays clear of the band under the banner
+    const vw = VIEW.x1-VIEW.x0, vh = VIEW.y1-VIEW.y0, gap = 4*DPR;
+    scale = Math.min(cv.width/vw, cv.height/vh, (cv.height - HUDB - gap)/(VIEW.y1 - NET_TOP));
     offX = (cv.width - vw*scale)/2 - VIEW.x0*scale;
-    offY = (cv.height - vh*scale)/2 - VIEW.y0*scale;
+    offY = Math.max((cv.height - vh*scale)/2 - VIEW.y0*scale, HUDB + gap - NET_TOP*scale);
   }
-  // top of the free pitch area = just under the score banner (whatever size it is on this screen)
-  const sb = document.querySelector(".scorebug");
-  const sbBot = sb ? sb.getBoundingClientRect().bottom - r.top : 70;
-  TOPM = (sbBot + 6)*DPR;
   // everything that floats over the pitch starts below the score banner, so nothing ever covers it
   const scr = document.querySelector(".match-screen");
   if (scr) scr.style.setProperty("--sb-bottom", Math.round(sbBot + 8) + "px");
@@ -46,7 +53,10 @@ window.addEventListener("resize", resize);
 const sx = x => offX + x*scale, sy = y => offY + y*scale;
 function applyCam(){
   const halfW = cv.width/2/scale, halfH = cv.height/2/scale;
-  const cx_ = clamp(CAM.x, LAYER.x0 + halfW, LAYER.x1 - halfW), cy_ = clamp(CAM.y, LAYER.y0 + halfH, LAYER.y1 - halfH);
+  // up by the goal the camera may rise a little higher than usual, so the net drops below the hint band
+  const goalLo = NET_TOP - (HUDB_S + 4*DPR - cv.height/2)/scale;
+  const lo = Math.max(LAYER.y0 + halfH, Math.min(CAM_TOP + halfH, goalLo));
+  const cx_ = clamp(CAM.x, LAYER.x0 + halfW, LAYER.x1 - halfW), cy_ = clamp(CAM.y, lo, Math.max(lo, LAYER.y1 - halfH));
   offX = cv.width/2 - cx_*scale; offY = cv.height/2 - cy_*scale;
 }
 // follow the ball, looking a little towards the goal so you can see where you're going
@@ -56,6 +66,7 @@ function camFollow(dt){
   if (REP){ const f = REP.frames[Math.min(REP.frames.length - 1, Math.floor(REP.i))]; if (f){ bx = f.b[0]; by = f.b[1]; } }
   else if (M){ bx = M.ball.x; by = M.ball.y; if (M.phase === "dribble" || M.phase === "rebound"){ bx += M.p.vx*.35; by += M.p.vy*.35; } }
   CAMT.x = bx*.75 + 34*.25; CAMT.y = Math.min(by, by*.72 + 4);
+  HUDB_S += (HUDB - HUDB_S)*Math.min(1, dt*6);                  // a hint that grows a line eases the goal down
   const k = Math.min(1, dt*4.5);
   CAM.x += (CAMT.x - CAM.x)*k; CAM.y += (CAMT.y - CAM.y)*k;
   applyCam();
@@ -174,6 +185,15 @@ function drawChant(){
   const pad = 9*DPR, tw = c.measureText(CHANT.text).width, bw = tw + pad*2, bh = 23*DPR;
   let bx = clamp(CHANT.x - bw/2, 6*DPR, cv.width - bw - 6*DPR);
   let by = clamp(CHANT.y - 12*DPR - rise*10*DPR, TOPM + 4*DPR, cv.height - bh - 8*DPR);
+  // a song from the stand behind the goal keeps out from under the hint: it goes to whichever side has the room
+  if (M && HL.lines.length && by < HINT_B && by + bh > TOPM){
+    const hl = (cv.width - HL.w)/2 - 16*DPR, hr = (cv.width + HL.w)/2 + 16*DPR;
+    if (bx < hr && bx + bw > hl){
+      if (hl - bw >= 6*DPR && (CHANT.x < cv.width/2 || cv.width - hr - bw < 6*DPR)) bx = hl - bw;
+      else if (cv.width - hr - bw >= 6*DPR) bx = hr;
+      else { c.restore(); return; }
+    }
+  }
   c.fillStyle = "rgba(10,16,26,.9)";
   roundRect(c, bx, by, bw, bh, 8*DPR); c.fill();
   c.strokeStyle = "rgba(255,255,255,.28)"; c.lineWidth = 1.5*DPR; roundRect(c, bx, by, bw, bh, 8*DPR); c.stroke();
@@ -437,6 +457,7 @@ function figAdd(st, x, y, look, kit, flags, lift, alpha, num){
   return R;
 }
 const figOrder = (a, b) => a.y - b.y;
+const FIG_SEP = .6;                                   // closer than this (metres) two men are drawn apart
 
 /* ---------- where the ball is drawn ----------
    The men are drawn FIG.kh × life size, the ball at its true place, so a ball at a man's feet has to be drawn in his
@@ -502,6 +523,14 @@ function figFlush(ball){
     // off the screen (most of them when the camera follows the play on a phone): moved, never drawn
     const X = sx(R.x), Y = sy(R.y), top = up + (R.lift + .4)*FIG.kv*scale;
     R.vis = X > -.9*KH && X < W_ + .9*KH && Y > -.45*KH && Y - top < H_;
+  }
+  // the engine keeps bodies apart; should two still end up on the same spot, they are drawn side by side, never one
+  // inside the other (only where they are drawn: their motion above was worked out from where they really are)
+  for (let i = 0; i < FIG_N; i++) for (let j = i + 1; j < FIG_N; j++){
+    const A_ = FIG_LIST[i], B_ = FIG_LIST[j], dx = B_.x - A_.x, dy = B_.y - A_.y;
+    if (Math.abs(dy) >= FIG_SEP || Math.abs(dx) >= FIG_SEP || dx*dx + dy*dy >= FIG_SEP*FIG_SEP) continue;
+    const sg = dx > 0 || (dx === 0 && i < j) ? 1 : -1, push = (FIG_SEP - Math.abs(dx))/2;
+    A_.x -= sg*push; B_.x += sg*push;
   }
   if (ball) figBallPlace(ball);
   const sh = figShadow(KH);
@@ -867,7 +896,8 @@ function drawDefendOverlay(){
   const c = cx;
   if (M.phase === "jockey" || M.phase === "steal"){
     // how hard you are making it for him
-    const w = 150*DPR, x = cv.width/2 - w/2, y = TOPM + 48*DPR;
+    // at the bottom, where the power bar sits when you strike it: the top of the picture is the goal's
+    const w = Math.min(180*DPR, cv.width*.5), x = cv.width/2 - w/2, y = cv.height - 46*DPR;
     c.fillStyle = "rgba(0,0,0,.4)"; roundRect(c, x, y, w, 8*DPR, 4*DPR); c.fill();
     c.fillStyle = M.press > .6 ? "#c8f060" : M.press > .3 ? "#ffd75a" : "#8fa6bd";
     roundRect(c, x, y, w*clamp(M.press, 0, 1), 8*DPR, 4*DPR); c.fill();
@@ -912,7 +942,7 @@ function drawAimStage(){
   // the arrow is as long as the ball will travel, so a throw draws a short one and a shot a long one
   let len = (5 + pw*(M.throwIn ? 15 : (typeof passMode === "function" && passMode()) ? 30 : 24))*scale;
   const m = 34*DPR, dx = Math.cos(ang), dy = Math.sin(ang);
-  const room = Math.min(dx > 0 ? (cv.width - m - bs.x)/dx : dx < 0 ? (m - bs.x)/dx : 1e9, dy > 0 ? (cv.height - m - bs.y)/dy : dy < 0 ? (TOPM + 44*DPR - bs.y)/dy : 1e9);
+  const room = Math.min(dx > 0 ? (cv.width - m - bs.x)/dx : dx < 0 ? (m - bs.x)/dx : 1e9, dy > 0 ? (cv.height - m - bs.y)/dy : dy < 0 ? (HINT_B + 8*DPR - bs.y)/dy : 1e9);
   len = Math.max(18*DPR, Math.min(len, room));
   const ex = bs.x + dx*len, ey = bs.y + dy*len;
   c.setLineDash([7*DPR, 7*DPR]); c.strokeStyle = "rgba(255,255,255,.9)"; c.lineWidth = 2.5*DPR;
@@ -922,11 +952,7 @@ function drawAimStage(){
   // where your finger is pulling from: a faint tether only while dragging
   if (inp.down && pw > 0){ c.strokeStyle = "rgba(255,255,255,.25)"; c.lineWidth = 1.5*DPR; c.beginPath(); c.moveTo(inp.sx, inp.sy); c.lineTo(inp.x, inp.y); c.stroke(); c.fillStyle = "rgba(255,255,255,.5)"; c.beginPath(); c.arc(inp.x, inp.y, 7*DPR, 0, 7); c.fill(); }
   drawPowerBar(pw);
-  if (M.moving){
-    const f = clamp(1 - M.phaseT/M.aimLimit, 0, 1);
-    c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(cv.width/2 - 70*DPR, TOPM + 32*DPR, 140*DPR, 6*DPR);
-    c.fillStyle = f < .3 ? "#ef5a60" : "#ffd75a"; c.fillRect(cv.width/2 - 70*DPR, TOPM + 32*DPR, 140*DPR*f, 6*DPR);
-  }
+  if (M.moving) drawClockBar(clamp(1 - M.phaseT/M.aimLimit, 0, 1));
 }
 function drawMiniContact(){
   if (!M.contact) return;
@@ -1019,8 +1045,59 @@ function figPoseMe(R){
   else if (ph === "kick" && M.kickT != null && !M.throwIn){ R.pose = 1; R.u = clamp(M.kickT/.24, 0, 1); R.face = lockA; }
   else if ((ph === "flight" || ph === "done") && M.kickT != null && M.kickT < .6 && M.shot && !M.shot.ai && !M.throwIn){ R.pose = 1; R.u = 1 + clamp((M.kickT - .24)/.36, 0, 1); R.face = lockA; }
 }
+// the hint under the banner: what this moment is, then what to do. One line when it fits; otherwise it breaks at
+// its own separators (and between words if one part is still too long) and the box grows to hold the lines.
+const HL = {lines:[], px:15, w:0, h:0, key:""};
+function hintLayout(){
+  const hint = M.throwIn && M.phase === "aim" ? "Drag back from the thrower to aim and set the weight · release to throw"
+    : M.phase === "aim" && passMode() && !M.corner ? "Drag back to aim and set the weight · release · D to shoot instead" : (HINT[M.phase] || "");
+  const parts = [M.info, hint].filter(Boolean).join(" · ").split(" · ").filter(Boolean);
+  const key = parts.join("|") + "@" + cv.width;
+  if (HL.key === key) return HL;
+  const c = cx, maxW = cv.width - 44*DPR;
+  HL.key = key; HL.lines = []; HL.w = 0;
+  if (parts.length){
+    let px = 15; c.font = font(700, px);
+    let one = parts.join(" · ");
+    if (c.measureText(one).width > maxW){ px = 14; c.font = font(700, px); }
+    if (c.measureText(one).width <= maxW) HL.lines = [one];
+    else {
+      // pack whole parts onto lines; a part longer than a line is broken between words
+      let cur = "";
+      const push = t => { if (cur && c.measureText(cur + " · " + t).width <= maxW) cur += " · " + t; else { if (cur) HL.lines.push(cur); cur = t; } };
+      for (const p of parts){
+        if (c.measureText(p).width <= maxW){ push(p); continue; }
+        if (cur){ HL.lines.push(cur); cur = ""; }
+        for (const w of p.split(" ")){ if (cur && c.measureText(cur + " " + w).width > maxW){ HL.lines.push(cur); cur = w; } else cur = cur ? cur + " " + w : w; }
+      }
+      if (cur) HL.lines.push(cur);
+    }
+    HL.px = px; c.font = font(700, px);
+    for (const l of HL.lines) HL.w = Math.max(HL.w, c.measureText(l).width);
+  }
+  HL.h = HL.lines.length ? (HL.lines.length*(HL.px + 5) + 9)*DPR : 0;
+  return HL;
+}
+function drawHint(L){
+  if (!L.lines.length) return;
+  const c = cx, lh = (L.px + 5)*DPR;
+  c.fillStyle = "rgba(0,0,0,.5)"; roundRect(c, (cv.width - L.w)/2 - 10*DPR, TOPM, L.w + 20*DPR, L.h, 9*DPR); c.fill();
+  c.font = font(700, L.px); c.textAlign = "center"; c.textBaseline = "top"; c.fillStyle = "rgba(255,255,255,.95)";
+  L.lines.forEach((l, i) => c.fillText(l, cv.width/2, TOPM + 5*DPR + i*lh));
+  c.textAlign = "left";
+}
+// how long you have left, just under the hint
+function drawClockBar(f){
+  const c = cx, y = HINT_B - 10*DPR;
+  c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(cv.width/2 - 70*DPR, y, 140*DPR, 6*DPR);
+  c.fillStyle = f < .3 ? "#ef5a60" : "#ffd75a"; c.fillRect(cv.width/2 - 70*DPR, y, 140*DPR*f, 6*DPR);
+}
 function drawOverlay(){
   const c = cx;
+  // lay the hint out first: the clock bar and the aim arrow keep clear of it, and the camera keeps the goal under it
+  hintLayout();
+  HINT_B = TOPM + Math.max(26*DPR, HL.h) + 16*DPR;
+  HUDB = Math.max(TOPM + 44*DPR, HINT_B);
   if ((M.phase === "dribble" || M.phase === "rebound") && inp.down){
     const bs = ballScreen(M.ball);
     c.strokeStyle = "rgba(255,215,90,.85)"; c.lineWidth = 2*DPR;
@@ -1032,17 +1109,8 @@ function drawOverlay(){
   if (M.phase === "contact") drawContactStage();
   if (DEFEND_PHASES[M.phase]) drawDefendOverlay();
   if (!M.throwIn && (M.phase === "kick" || M.phase === "flight" || M.phase === "done")) drawMiniContact();
-  c.textAlign = "left"; c.textBaseline = "top"; c.font = font(700, 15);
-  const hint = M.throwIn && M.phase === "aim" ? "Drag back from the thrower to aim and set the weight · release to throw"
-    : M.phase === "aim" && passMode() && !M.corner ? "Drag back to aim and set the weight · release · D to shoot instead" : (HINT[M.phase] || "");
-  const txt = `${M.info ? M.info + " · " : ""}${hint}`;
-  if (txt){ c.fillStyle = "rgba(0,0,0,.5)"; roundRect(c, (cv.width - c.measureText(txt).width)/2 - 10*DPR, TOPM, c.measureText(txt).width + 20*DPR, 26*DPR, 9*DPR); c.fill(); }
-  c.textAlign = "center"; c.fillStyle = "rgba(255,255,255,.95)"; c.fillText(txt, cv.width/2, TOPM + 5*DPR); c.textAlign = "left";
-  if (M.phase === "dribble"){
-    const f = clamp(1 - M.t/M.limit, 0, 1);
-    c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(cv.width/2 - 70*DPR, TOPM + 32*DPR, 140*DPR, 6*DPR);
-    c.fillStyle = f < .3 ? "#ef5a60" : "#ffd75a"; c.fillRect(cv.width/2 - 70*DPR, TOPM + 32*DPR, 140*DPR*f, 6*DPR);
-  }
+  drawHint(HL);
+  if (M.phase === "dribble") drawClockBar(clamp(1 - M.t/M.limit, 0, 1));
   if (M.flash && typeof M.flash.t === "string" && M.flash.t){
     const life = M.flash.life, pop = 1 + Math.max(0, life - 1)*1.5;
     c.globalAlpha = clamp(life*1.5, 0, 1); c.textAlign = "center"; c.textBaseline = "middle";
@@ -1082,8 +1150,12 @@ function drawReplayHud(){
   const c = cx, f = Math.min(1, REP.i/Math.max(1, REP.frames.length - 1));
   c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(cv.width*.25, cv.height - 26*DPR, cv.width*.5, 4*DPR);
   c.fillStyle = "#ffd75a"; c.fillRect(cv.width*.25, cv.height - 26*DPR, cv.width*.5*f, 4*DPR);
-  c.textAlign = "center"; c.textBaseline = "top"; c.font = font(800, 20); c.fillStyle = "rgba(255,255,255,.92)";
-  c.fillText("REPLAY", cv.width/2, TOPM + 34*DPR);
+  // the replay banner over the pitch says REPLAY (and what it is, and Skip): nothing more is written on the canvas
+  // (only without that banner, which only the engine's own tests do, does the canvas say it)
+  if (!document.querySelector("#ov.rep:not([hidden])")){
+    c.textAlign = "center"; c.textBaseline = "top"; c.font = font(800, 20); c.fillStyle = "rgba(255,255,255,.92)";
+    c.fillText("REPLAY", cv.width/2, TOPM + 6*DPR);
+  }
 }
 let FRAME_DT = 0;                                   // this frame's step, for the men's strides (0: a redraw, nothing moved)
 function draw(dt){

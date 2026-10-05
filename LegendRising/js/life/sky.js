@@ -35,6 +35,7 @@ const KEYS = [
   [24,   0x02050e, 0x0b1426, 0x2c3e62, 0x0a0b0e, 0x9fb6ff, .34, .6,  0x111a2c, 1,   1,  1.25, .22]
 ];
 const smooth = t => t*t*(3 - 2*t);
+const INDOOR_BOUNCE = 0xe2dfd8;          // daylight bounced round a room: neutral, a touch warm
 const _a = new THREE.Color(), _b = new THREE.Color();
 function lerpHex(out, h1, h2, t){ _a.setHex(h1); _b.setHex(h2); return out.copy(_a).lerp(_b, t); }
 
@@ -135,9 +136,16 @@ export function createSky(renderer){
       scene.fog = fog; scene.background = null;
       shadowAt.key = ""; envAt = -999;
     },
-    // h: hour of the day (fractional). real: seconds since the last frame, for the clouds and stars.
-    update(h, focus, real){
+    // h: hour of the day (fractional). real: seconds since the last frame, for the clouds and stars. cover: how much
+    // of the sky over you is roofed over (0 out in the open, 1 indoors)
+    update(h, focus, real, cover = 0){
       const k = sample(h);
+      /* Indoors the light from below is not the warm ground of the street but daylight bounced off pale floors and
+         walls: a ceiling lit by the street's brown would come out muddy taupe, far darker than the walls under it. So
+         under a roof, by day, the hemisphere's ground colour goes over to a neutral bright bounce (none of it at
+         night, when the rooms are lit by their own lamps) */
+      const day = Math.max(0, Math.min(1, (k.sunI - .4)/2.1)), ind = Math.max(0, Math.min(1, cover))*day;
+      if (ind > 0){ _b.setHex(INDOOR_BOUNCE); hemi.groundColor.lerp(_b, ind); }
       uni.uTime.value += real || 0;
       sunVec(h, dir); moonVec(h, moonDir);
       uni.uSun.value.copy(dir); uni.uMoon.value.copy(moonDir);

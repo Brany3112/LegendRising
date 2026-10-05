@@ -305,7 +305,8 @@ function warm(){
 }
 
 /* ---------- you ----------
-   How you move. W A S D walk (4 m/s); hold Shift to run (6 m/s); keep Shift held while going forward and,
+   How you move. W A S D walk (2 m/s, a real walk: the body's gait only starts to break into a run above 1.9 m/s);
+   hold Shift to run (6 m/s); keep Shift held while going forward and,
    once you are up to running pace, it builds into a sprint over about a second (7.6 m/s). Backwards and
    sideways never sprint. Speeding up and slowing down are acceleration-limited; the direction you move in
    follows the view almost at once (see step). The view itself is never smoothed: the mouse turns the camera
@@ -317,7 +318,9 @@ const P = {x:0, z:0, feet:0, eye:1.62, eyeH:1.62, yaw:0, pitch:0, vx:0, vz:0, vy
   speed:0, moveMode:"idle", stride:0, sprint:0};
 let EYE = 1.62;                                       // your eye height: set from your body's height (meBuild)
 const R = .26, REACH = 2.5;
-const GAIT = {walk:4.0, run:6.0, sprint:7.6, back:.8, accel:26, brake:24, turn:24, sprintIn:1.1, sprintOut:2.5};
+// drill: how fast you move in a drill that lets you (the interception lane): a quick shuffle, as the drills were timed for
+// bobFrom: the pace above which the head bob grows with a run's longer, harder strides
+const GAIT = {walk:2.0, run:6.0, sprint:7.6, back:.8, drill:4.0, bobFrom:4.0, accel:26, brake:24, turn:24, sprintIn:1.1, sprintOut:2.5};
 const keys = {};
 let held = null, grab = null, lockLost = false;
 const B = {amt:0, y:0, yv:0, x:0, xv:0, fov:74, fovSet:74};     // head bob springs and the field of view
@@ -327,20 +330,43 @@ function place(p){
   P.vx = P.vz = P.vy = 0; P.speed = 0; P.sprint = 0; P.moveMode = "idle";
   B.amt = B.y = B.yv = B.x = B.xv = 0; E.g = P.feet; E.a = E.av = E.b = E.bv = 0; tunnelGo = false; tunnelInfo = null;
   ME.yaw = P.yaw; ME.tw = 0; ME.look = 0;                // your body turns up facing the way you do
+  ME.tpShown = false; ME.near = ME.nearT = 0;             // and a third-person camera starts afresh, not gliding from where you were
+  COVER.snap = true;                                        // and the light indoors or out is the one where you now are
+  // where you are, for anything that steps out of your way or keeps a door off you (home.js), before a frame is drawn
+  VIEW.x = P.x; VIEW.y = P.eye; VIEW.z = P.z; VIEW.feet = P.feet;
 }
+/* Walls are boxes (W.solids). A box you are already inside when a move starts (a door swung shut onto you, a
+   leaf held against you) never blocks that move: every such box is ignored, all of them, so no combination of the
+   pieces of a door can pin you. But a move may only take you out of them, never deeper in: the depth of each (how
+   far you would have to go to be clear of it, the nearest way out) must not grow — so you step out on the side you
+   are mostly on and can never walk on through a door you were caught by. */
+const inside = [], insideD = [];
 function hits(x, z){
   const lo = P.feet + .42, hi = P.feet + 1.75;
   for (const s of W.solids){
-    if (s.off || s.y1 <= lo || s.y0 >= hi || s === stuck) continue;
-    if (x + R > s.x0 && x - R < s.x1 && z + R > s.z0 && z - R < s.z1) return s;
+    if (s.off || s.y1 <= lo || s.y0 >= hi) continue;
+    if (x + R > s.x0 && x - R < s.x1 && z + R > s.z0 && z - R < s.z1 && !inside.includes(s)) return s;
   }
   return null;
 }
-let stuck = null;
+const depthIn = (s, x, z) => Math.min(x + R - s.x0, s.x1 - x + R, z + R - s.z0, s.z1 - z + R);
+// the boxes you are in right now, and how deep
+function findInside(){
+  inside.length = insideD.length = 0;
+  const lo = P.feet + .42, hi = P.feet + 1.75, x = P.x, z = P.z;
+  for (const s of W.solids){
+    if (s.off || s.y1 <= lo || s.y0 >= hi) continue;
+    if (x + R > s.x0 && x - R < s.x1 && z + R > s.z0 && z - R < s.z1){ inside.push(s); insideD.push(depthIn(s, x, z)); }
+  }
+}
+// would being at (x, z) put you deeper into any box you started inside (or back into one you have left)?
+function deeper(x, z){
+  for (let i = 0; i < inside.length; i++){ const d = depthIn(inside[i], x, z); if (d > 0 && d > insideD[i] + 1e-6) return true; }
+  return false;
+}
 function moveBy(dx, dz){
   const b = DRILL && DRILL.moveBox ? DRILL.moveBox : W.bounds;
-  // if something closed on you (a door), you may walk out of it rather than be pushed through it
-  stuck = null; stuck = hits(P.x, P.z);
+  findInside();
   // long frames are split so a sprint can never carry you through a thin wall
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dz))/.12));
   dx /= n; dz /= n;
@@ -348,13 +374,17 @@ function moveBy(dx, dz){
     if (dx){
       let nx = P.x + dx; const s = hits(nx, P.z);
       if (s){ nx = dx > 0 ? s.x0 - R - 1e-3 : s.x1 + R + 1e-3; if (hits(nx, P.z)) nx = P.x; P.vx = 0; dx = 0; }
+      if (inside.length && nx !== P.x && deeper(nx, P.z)){ nx = P.x; P.vx = 0; dx = 0; }
       if (nx < b.x0 || nx > b.x1){ nx = Math.max(b.x0, Math.min(b.x1, nx)); P.vx = 0; }
+      if (inside.length) for (let k = 0; k < inside.length; k++) insideD[k] = Math.min(insideD[k], depthIn(inside[k], nx, P.z));
       P.x = nx;
     }
     if (dz){
       let nz = P.z + dz; const s = hits(P.x, nz);
       if (s){ nz = dz > 0 ? s.z0 - R - 1e-3 : s.z1 + R + 1e-3; if (hits(P.x, nz)) nz = P.z; P.vz = 0; dz = 0; }
+      if (inside.length && nz !== P.z && deeper(P.x, nz)){ nz = P.z; P.vz = 0; dz = 0; }
       if (nz < b.z0 || nz > b.z1){ nz = Math.max(b.z0, Math.min(b.z1, nz)); P.vz = 0; }
+      if (inside.length) for (let k = 0; k < inside.length; k++) insideD[k] = Math.min(insideD[k], depthIn(inside[k], P.x, nz));
       P.z = nz;
     }
   }
@@ -410,7 +440,7 @@ function step(dt, real){
   if (len){ f /= len; r /= len; }
   const run = !!keys.shift && !!len && !DRILL;
   // a long frame (under 20 fps) is lived in equal slices of at most 1/20 s: the world keeps real time — a walk is
-  // 4 m a second at any frame rate — and nothing (the springs, a drill's ball, a figure's animation) takes a step
+  // 2 m a second at any frame rate — and nothing (the springs, a drill's ball, a figure's animation) takes a step
   // longer than it was made for
   const n = Math.max(1, Math.ceil(dt/.05 - 1e-6)), h = dt/n;
   for (let i = 0; i < n; i++){
@@ -435,8 +465,9 @@ function touching(sx, sz){
   const b = DRILL && DRILL.moveBox ? DRILL.moveBox : W.bounds;
   if (sx > 0 ? P.x >= b.x1 - 1e-4 : sx < 0 && P.x <= b.x0 + 1e-4) return true;
   if (sz > 0 ? P.z >= b.z1 - 1e-4 : sz < 0 && P.z <= b.z0 + 1e-4) return true;
-  stuck = null; stuck = hits(P.x, P.z);
-  return !!hits(P.x + sx*.01, P.z + sz*.01);
+  findInside();
+  const x = P.x + sx*.01, z = P.z + sz*.01;
+  return !!hits(x, z) || (inside.length > 0 && deeper(x, z));
 }
 // one slice of moving: speed, steering, walls, the ground under you, the eye height and the bob
 function body(dt, f, r, len, run){
@@ -445,7 +476,7 @@ function body(dt, f, r, len, run){
   if (fwd && P.speed > GAIT.run*.85*legs()) P.sprint = Math.min(1, P.sprint + dt/GAIT.sprintIn);
   else P.sprint = Math.max(0, P.sprint - dt*GAIT.sprintOut);
   const sb = P.sprint*P.sprint*(3 - 2*P.sprint);
-  let sp = (run ? GAIT.run + (GAIT.sprint - GAIT.run)*sb : GAIT.walk)*legs();
+  let sp = (run ? GAIT.run + (GAIT.sprint - GAIT.run)*sb : DRILL ? GAIT.drill : GAIT.walk)*legs();
   if (f < 0) sp *= GAIT.back;
   // world-space velocity towards where you want to go. While you hold a direction, the way you are moving swings
   // round onto it at once (a quarter turn in about 1/15 s) without losing speed, so you go where you look the moment
@@ -501,7 +532,7 @@ function body(dt, f, r, len, run){
   spring(E, "a", "av", 40, dt); spring(E, "b", "bv", 16, dt);
   P.eye = base + EYE + E.a + E.b;
   // head bob: the target is a small sine once a step (and half that, sideways, once a stride); springs carry the camera to it
-  const want = P.speed < .3 ? 0 : Math.min(.011, P.speed*.0028) + Math.max(0, P.speed - GAIT.walk)*.0034;
+  const want = P.speed < .3 ? 0 : Math.min(.011, P.speed*.0028) + Math.max(0, P.speed - GAIT.bobFrom)*.0034;
   B.amt += (want - B.amt)*(1 - Math.exp(-6*dt));
   if (B.amt < 1e-5 && !want) B.amt = 0;
   const ph = P.stride*Math.PI*2;
@@ -525,10 +556,29 @@ function legs(){
    Walking sideways the hips turn towards where you are going and the chest stays with the view (no feet sliding
    sideways); walking backwards the stride runs backwards. Its height follows the camera's own smoothed eye, so on a
    kerb or a stair landing the body can never rise into the view. */
-const ME = {fp:null, tp:null, kind:"", scale:1, yaw:0, tw:0, back:false, dph:0, act:null, camT:0, dist:0, sh:0, up:.12, hold:0, yawV:0, lastYaw:0, short:0, px:0, pz:0, tpShown:false, look:0};
-const TPV = {dist:2.65, sprint:.35, up:.12, side:.36, margin:.16, minShow:.62, inSpeed:8};    // the third-person camera
+const ME = {fp:null, tp:null, kind:"", scale:1, yaw:0, tw:0, back:false, dph:0, act:null, camT:0, dist:0, sh:0, up:.12, hold:0, yawV:0, lastYaw:0, short:0, px:0, pz:0, tpShown:false, look:0, near:0, nearT:0, fadeMat:null, op:1};
+// the third-person camera: how far back (and more at a sprint), over the head, out over the shoulder, kept from walls; how
+// near it may come and still show you; how high it cranes; how fast it may come in (unless it must) and go out; the
+// glide into your eyes when there is no room
+const TPV = {dist:2.65, sprint:.35, up:.12, side:.36, margin:.16, minShow:.62, crane:.5, inSpeed:15, outSpeed:3.2, glide:.25};
 const meKind = () => LIFE.zone === "ground" ? "training" : "casual";
-function meDispose(){ for (const k of ["fp", "tp"]) if (ME[k]){ ME[k].dispose(); ME[k] = null; } }
+function meDispose(){
+  for (const k of ["fp", "tp"]) if (ME[k]){ ME[k].dispose(); ME[k] = null; }
+  if (ME.fadeMat){ ME.fadeMat.dispose(); ME.fadeMat = null; }
+}
+// the third-person body's own copy of the people's material, able to fade (alpha hashing: a dither, no sorting)
+function meFadeMat(h){
+  const base = h.near.material, m = base.clone();
+  m.onBeforeCompile = base.onBeforeCompile; if (base.customProgramCacheKey) m.customProgramCacheKey = base.customProgramCacheKey;
+  m.alphaHash = true; m.userData = {keep:true};
+  h.near.material = m; if (h.num) h.num.material = m;        // (the shirt number fades with the shirt)
+  ME.fadeMat = m; ME.op = 1;
+}
+function meFade(op){
+  const h = ME.tp, m = ME.fadeMat; if (!h || !m) return;
+  if (Math.abs(op - ME.op) > 1e-3 || (op === 1 && ME.op !== 1)){ ME.op = op; m.opacity = op; }
+  h.near.visible = op > .02;
+}
 function meBuild(){
   meDispose();
   const s = G(); if (!s || !s.player || !scene) return;
@@ -538,6 +588,7 @@ function meBuild(){
   ME.fp = human(look, {noHead:true, lod:false, track:true}); ME.fp.near.frustumCulled = false;
   ME.tp = human(look, {lod:false, track:true});
   ME.fp.g.name = "me-fp"; ME.tp.g.name = "me-tp";
+  meFadeMat(ME.tp);
   scene.add(ME.fp.g, ME.tp.g);
   ME.scale = ME.fp.scale;
   // the eyes of a 1.80 m body are at 1.68 (human.js): yours, at your height
@@ -582,6 +633,11 @@ function meStep(dt){
     h.g.position.set(P.x, P.feet, P.z); h.g.rotation.y = ME.yaw + Math.PI;
     animateDir(h, dt, gaitState(ME.look), false);
     feetIK(h);
+    // the camera gliding in to your eyes (no room behind you, or V) passes through where your head and shoulders are:
+    // the body fades out (dithered, so nothing needs sorting) as it comes within half a metre, and is gone before the
+    // view could fill with the back of your head or the inside of your collar
+    const c = cam.position, op = sstep(.3, .56, Math.hypot(c.x - P.x, c.y - P.eye - .05, c.z - P.z)/s);
+    meFade(op);
     return;
   }
   ME.yaw = P.yaw;
@@ -600,6 +656,16 @@ function meStep(dt){
   animateDir(h, dt, gaitState(0), ME.back);
   const bn = h.bones;
   if (Math.abs(ME.tw) > 1e-3){ bn[BONE.hips].rotation.y += ME.tw; bn[BONE.spine].rotation.y -= ME.tw*.55; bn[BONE.chest].rotation.y -= ME.tw*.45; }
+  /* looking down at a run (a sprint, a flight of stairs taken at pace), the arm swinging forward would come up the
+     middle of the view as a long stiff forearm: the arms are kept lower and nearer the body — less forward swing, the
+     shoulders back and a little out — so the hands stay in the bottom of the picture. First person only: the body
+     others see (third person) runs as it always does */
+  const armK = sstep(.45, 1.0, -P.pitch)*sstep(2.6, 5.5, P.speed);
+  if (armK > 1e-3 && !ME.act) for (const [ua, fa, sd] of [[BONE.uaL, BONE.faL, 1], [BONE.uaR, BONE.faR, -1]]){
+    const r = bn[ua].rotation, f = bn[fa].rotation;
+    if (r.x < 0) r.x *= 1 - .85*armK;
+    r.x += .3*armK; r.z += sd*.2*armK; f.x *= 1 - .3*armK;
+  }
   if (!P.drillY) feetIK(h);
   // whatever the body is doing (a lean into a sprint, a kick, a header), the neck stays below and behind the eye:
   // the body gives way, the camera never ends up inside it
@@ -679,7 +745,7 @@ function toggleView(){
   s.life.view = viewPref() === "tp" ? "fp" : "tp"; persist();
   if (forcedFP()) note(s.life.view === "tp" ? "Third person comes back when you're done here." : "First person.");
 }
-const _cp = new THREE.Vector3(), _cd = new THREE.Vector3(), _cd2 = new THREE.Vector3(), _cv = new THREE.Vector3();
+const _cp = new THREE.Vector3(), _cd = new THREE.Vector3(), _cd2 = new THREE.Vector3(), _cd3 = new THREE.Vector3(), _cv = new THREE.Vector3();
 // how far the near plane's corners reach from the eye, and a little more: nothing may come nearer the camera than this
 function camRadius(){ const t = Math.tan(cam.fov*Math.PI/360), a = cam.aspect || 1; return Math.max(.1, cam.near*Math.sqrt(1 + t*t*(1 + a*a)) + .025); }
 /* the near plane is not a point: anything nearer the camera than r on any side (a wall, a door jamb's edge, the slope
@@ -731,42 +797,53 @@ function viewStep(dt){
   ME.short = ahead0 - ahead;                                // a wall in the way: the body leans back from it instead
   _cv.set(P.x + cos*B.x - sin*ahead, P.eye + B.y + P.drillY + P.bobY - .035*sstep(.3, 1.2, -P.pitch), P.z - sin*B.x - cos*ahead);
   // anything else nearer than r (a jamb's edge beside you, a cabinet with no collision box) moves the eye — and the
-  // body with it — the few centimetres it takes (only while the first-person view is the one you see)
+  // body with it — the few centimetres it takes (only while the first-person view is the one you see, or blended in)
   const fpEye = () => { const x0 = _cv.x, z0 = _cv.z; camPush(_cv, r); ME.px = _cv.x - x0; ME.pz = _cv.z - z0; };
   const want = viewPref() === "tp" && !forcedFP() ? 1 : 0;
   // a panel, the bus, a drill: straight into first person; V: a short glide either way
   if (!want && (modal || busy || DRILL || fadeOn())) ME.camT = 0;
   else ME.camT = want ? Math.min(1, ME.camT + dt/.38) : Math.max(0, ME.camT - dt/.28);
   const e = sstep(0, 1, ME.camT);
-  if (e <= 0){ fpEye(); cam.position.copy(_cv); ME.tpShown = false; ME.dist = ME.sh = ME.hold = 0; ME.up = TPV.up; return; }
-  if (e < 1 || !ME.tpShown) fpEye(); else ME.px = ME.pz = 0;
+  if (e <= 0){ fpEye(); cam.position.copy(_cv); ME.tpShown = false; ME.dist = ME.sh = ME.hold = ME.near = ME.nearT = 0; ME.up = TPV.up; return; }
+  const blendFP = e < 1 || ME.near > 0 || !ME.tpShown;
+  if (blendFP) fpEye(); else ME.px = ME.pz = 0;
   const fx = _cv.x, fy = _cv.y, fz = _cv.z;
   /* third person: a pivot over your head and out over the right shoulder, the camera back from it along the view.
      The orbit's own pitch is limited so it neither digs into the floor nor goes over the top. */
-  const fresh = !ME.tpShown;
+  const fresh = !ME.tpShown && !ME.near;
   const hx = P.x, hz = P.z, rx = cos, rz = -sin;
   const po = clamp(P.pitch, -1.15, .75), cp = Math.cos(po);
   _cd.set(sin*cp, -Math.sin(po), cos*cp);                      // from the pivot towards the camera (behind the view)
   // and where it is swinging to as you turn (the last frames' turn, a moment ahead)
   const yv = fresh || !(dt > 0) ? 0 : wrapA(P.yaw - ME.lastYaw)/dt; ME.lastYaw = P.yaw;
-  ME.yawV = fresh ? 0 : ME.yawV + (yv - ME.yawV)*(1 - Math.exp(-12*dt));
-  const ya = P.yaw + clamp(ME.yawV*.16, -.6, .6);
+  ME.yawV = fresh ? 0 : ME.yawV + (yv - ME.yawV)*(1 - Math.exp(-18*dt));
+  const yl = clamp(ME.yawV*.2, -.9, .9), ya = P.yaw + yl, yh = P.yaw + yl/2;
   _cd2.set(Math.sin(ya)*cp, _cd.y, Math.cos(ya)*cp);
+  _cd3.set(Math.sin(yh)*cp, _cd.y, Math.cos(yh)*cp);         // (and halfway there: a jamb can be between the two)
   const want0 = (TPV.dist + TPV.sprint*P.sprint)*e, sw = TPV.side*e;
   // where your head will be in a moment: what is coming (a doorway, a lintel, a jamb) is made room for before you get there
   let ax = hx, az = hz;
   const vl = Math.hypot(P.vx, P.vz);
   if (vl > .3){ const L = clamp(camCast(hx, P.eye, hz, P.vx/vl, 0, P.vz/vl, vl*.3 + .3) - .3, 0, vl*.3); ax += P.vx/vl*L; az += P.vz/vl*L; }
+  // and how much higher (or lower) it will be by then, on a flight of stairs: the flight overhead comes down to meet it
+  const rise = clamp(egx*(ax - hx) + egz*(az - hz), -.6, .6);
   // how far back the camera can go from a pivot at (x, z), s out over the shoulder, u above your eyes: the drawn
   // geometry and the doors, less a margin
   const reach = (x, z, s, u, c = _cd) => clamp(camCast(x + rx*s, P.eye + u, z + rz*s, c.x, c.y, c.z, want0 + TPV.margin) - TPV.margin, 0, want0);
-  // its height: over your head — or lower, ducking under a door's lintel or a low ceiling, when the way back from
-  // over your head is (or in a moment will be) blocked close behind you and a lower one is not
+  /* its height: over your head — or lower, ducking under a door's lintel or a low ceiling, when the way back from over
+     your head is (or in a moment will be) blocked close behind you and a lower one is not; or higher, craned up over
+     your head, when what is close behind you is low (a counter, a bed, a bench) and the room above lets it */
   let uG = TPV.up;
-  { const ok = u => Math.min(reach(hx, hz, 0, u), reach(ax, az, 0, u));
+  { const ok = u => Math.min(reach(hx, hz, 0, u), reach(ax, az, 0, u + rise));
     let best = ok(TPV.up);
-    if (best < .75*want0) for (const u of [-.14, -.34]){ const v = ok(u); if (v > best + .3){ best = v; uG = u; } } }
-  ME.up = fresh ? uG : ME.up + (uG - ME.up)*(1 - Math.exp(-(uG < ME.up ? 12 : 3)*dt));
+    if (best < .75*want0) for (const u of [-.14, -.34]){ const v = ok(u); if (v > best + .3){ best = v; uG = u; } }
+    if (best < TPV.minShow + .45){
+      const head = camCast(hx, P.eye, hz, 0, 1, 0, TPV.crane + TPV.margin + r) - TPV.margin - r;
+      for (const u of [TPV.crane*.6, TPV.crane]) if (u <= head){ const v = ok(u); if (v > best + .3){ best = v; uG = u; } }
+    } }
+  ME.up = fresh ? uG : ME.up + (uG - ME.up)*(1 - Math.exp(-(uG < ME.up ? 12 : 5)*dt));
+  // never higher than the room over your head allows right now (a lintel coming over as you walk under it)
+  if (ME.up > TPV.up){ const head = camCast(hx, P.eye, hz, 0, 1, 0, ME.up + r + .05) - r - .05; if (head < ME.up) ME.up = Math.max(TPV.up, head); }
   const hy = P.eye + ME.up;
   // the shoulder: as far out as the room beside the head allows — beside it now, where it is going, and back along
   // the camera's path, so a door recess or an alcove beside you does not throw the camera at the wall behind
@@ -795,34 +872,55 @@ function viewStep(dt){
   // the shoulder eases both ways (quickly in, gently out), but never past what the room beside the head allows
   ME.sh = fresh ? shG : ME.sh + (shG - ME.sh)*(1 - Math.exp(-(shG < ME.sh ? 16 : 4.5)*dt));
   ME.sh = Math.min(ME.sh, shMax);
-  /* the distance: anything in the camera's way pulls it in at once (it is never inside or behind a wall); a wall
-     that will be behind it in a moment, or not seeing you, brings it in quickly but smoothly; it goes back out
-     gently, and not until the way has stayed clear a moment */
+  /* the distance. Only what would put the camera into something — its near plane through a wall, a jamb, a door —
+     pulls it in at once (it is never inside or behind a wall). Anything else that asks it in (the margin kept from a
+     wall, a wall that will be behind it in a moment as you turn or walk, not seeing you) brings it in over three or
+     four frames, at most TPV.inSpeed; it goes back out gently, never faster than TPV.outSpeed, and not until the way
+     has stayed clear a moment */
+  const hardRaw = clamp(camCast(hx + rx*ME.sh, hy, hz + rz*ME.sh, _cd.x, _cd.y, _cd.z, want0 + r) - r, 0, want0);
   const hard = reach(hx, hz, ME.sh, ME.up);
-  let d = Math.min(hard, dG, turning ? reach(hx, hz, ME.sh, ME.up, _cd2) : hard);
-  if (moving) for (const k of [.35, .7, 1]) d = Math.min(d, reach(hx + (ax - hx)*k, hz + (az - hz)*k, ME.sh, ME.up));
+  let d = Math.min(hard, dG);
+  if (turning) d = Math.min(d, reach(hx, hz, ME.sh, ME.up, _cd2), reach(hx, hz, ME.sh, ME.up, _cd3));
+  if (moving) for (const k of [.35, .7, 1]) d = Math.min(d, reach(hx + (ax - hx)*k, hz + (az - hz)*k, ME.sh, ME.up + rise*k));
   ME.hold = Math.max(0, ME.hold - dt);
   if (fresh){ ME.dist = d; ME.hold = .2; }
   else {
-    if (hard < ME.dist){ ME.dist = hard; ME.hold = .2; }
-    if (d < ME.dist - 1e-3){ ME.dist += Math.max((d - ME.dist)*(1 - Math.exp(-14*dt)), -TPV.inSpeed*dt); ME.hold = .2; }
-    else if (!ME.hold) ME.dist += (d - ME.dist)*(1 - Math.exp(-4.5*dt));
+    if (hardRaw < ME.dist){ ME.dist = hardRaw; ME.hold = .2; }
+    if (d < ME.dist - 1e-3){ ME.dist += Math.max((d - ME.dist)*(1 - Math.exp(-24*dt)), -TPV.inSpeed*dt); ME.hold = .2; }
+    else if (!ME.hold) ME.dist += Math.min((d - ME.dist)*(1 - Math.exp(-4.5*dt)), TPV.outSpeed*dt);
   }
   const place = () => { _cp.set(hx + rx*ME.sh + _cd.x*ME.dist, hy + _cd.y*ME.dist, hz + rz*ME.sh + _cd.z*ME.dist); camPush(_cp, r); };
   place();
-  // whatever the easing, it never stays where you are out of sight (a jamb swinging in as you turn): it goes straight
-  // to the place found above that sees you
-  if (!seesMe(_cp.x, _cp.y, _cp.z)){ ME.sh = Math.min(shG, shMax); ME.dist = dG; ME.hold = .2; place(); }
-  // gliding between the eye and the orbit
-  if (e < 1) _cp.set(fx + (_cp.x - fx)*e, fy + (_cp.y - fy)*e, fz + (_cp.z - fz)*e);
-  // too close to the head to show it (backed into a corner, nowhere it can see you from): your own eyes, until there is room
+  // whatever the easing, it never stays where you are out of sight (a jamb swinging in as you turn): it comes in to
+  // the place found above that sees you — only ever in, never jumping out
+  if (!seesMe(_cp.x, _cp.y, _cp.z) && dG < ME.dist){ ME.sh = Math.min(ME.sh, shG, shMax); ME.dist = dG; ME.hold = .2; place(); }
+  /* no room to show you from (your back to a wall, nowhere it can see you from): the camera does not cut to your
+     eyes — it glides into them over a quarter of a second, your body fading out as it passes (meStep), and glides back
+     out the same way once there has been room behind you for a moment. Only once it is all the way in is it first
+     person. */
   const away = Math.hypot(_cp.x - P.x, _cp.y - (P.eye + .05), _cp.z - P.z);
-  const show = ME.tpShown ? away > TPV.minShow - .06 : away > TPV.minShow;
-  if (!show && ME.tpShown){ fpEye(); }
-  ME.tpShown = show;
-  if (show) cam.position.copy(_cp); else cam.position.set(_cv.x, _cv.y, _cv.z);
+  const cramped = away < TPV.minShow || d < TPV.minShow - .05;
+  if (cramped){ ME.nearT = .35; }
+  else if (d > TPV.minShow + .3) ME.nearT = Math.max(0, ME.nearT - dt);
+  const nearWant = ME.nearT > 0;
+  if (fresh && nearWant) ME.near = 1;
+  else ME.near = clamp(ME.near + (nearWant ? dt : -dt)/TPV.glide, 0, 1);
+  // all the way in, it waits at the near end, so that when it comes back out it starts from there, not from wherever
+  // the room behind you would have let it be meanwhile
+  if (ME.near >= 1) ME.dist = Math.min(ME.dist, TPV.minShow + .1);
+  if (!blendFP && ME.near > 0) fpEye();
+  // gliding between the eye and the orbit (V, and no room) — along a line kept clear of whatever is beside it
+  const k = e*(1 - sstep(0, 1, ME.near));
+  if (k < 1 && k > 0){
+    _cp.set(fx + (_cp.x - fx)*k, fy + (_cp.y - fy)*k, fz + (_cp.z - fz)*k);
+    const lx = _cp.x - fx, ly = _cp.y - fy, lz = _cp.z - fz, L = Math.hypot(lx, ly, lz);
+    if (L > 1e-3){ const t = Math.max(0, Math.min(L, camCast(fx, fy, fz, lx/L, ly/L, lz/L, L + r) - r)); if (t < L) _cp.set(fx + lx/L*t, fy + ly/L*t, fz + lz/L*t); }
+    camPush(_cp, r);
+  }
+  // (decided by k itself, not by ME.near: within a hair of 1 the eased blend already rounds to the eye)
+  ME.tpShown = k > 0;
+  cam.position.copy(ME.tpShown ? _cp : _cv);
 }
-
 /* the camera's collision: every triangle of the place's fixed geometry (the big batched meshes), sorted once into
    1 m cells when the place is built, and a ray walks the cells it passes through (Amanatides–Woo). Doors and other
    things that move are not in it: their collision boxes are tested instead. */
@@ -872,12 +970,14 @@ function camGridBuild(){
 }
 const _I4 = new THREE.Matrix4();
 // the distance along a ray (unit direction) to the first thing it meets, up to len
-function camCast(ox, oy, oz, dx, dy, dz, len){
+// (skip: a box [min, max] — collision boxes that overlap it are not tested: the furniture a spot is part of)
+function camCast(ox, oy, oz, dx, dy, dz, len, skip){
   let best = len;
   // things that move (doors) and anything solid: the collision boxes
   const ix = 1/(dx || 1e-12), iy = 1/(dy || 1e-12), iz = 1/(dz || 1e-12);
   for (const s of W.solids){
     if (s.off) continue;
+    if (skip && s.x0 < skip[1][0] && s.x1 > skip[0][0] && s.y0 < skip[1][1] && s.y1 > skip[0][1] && s.z0 < skip[1][2] && s.z1 > skip[0][2]) continue;
     if (ox > s.x0 && ox < s.x1 && oy > s.y0 && oy < s.y1 && oz > s.z0 && oz < s.z1) continue;
     let a = (s.x0 - ox)*ix, b = (s.x1 - ox)*ix, t0 = Math.min(a, b), t1 = Math.max(a, b);
     a = (s.y0 - oy)*iy; b = (s.y1 - oy)*iy; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
@@ -966,28 +1066,47 @@ function rayBox(o, d, a, b){
   }
   return t0;
 }
+/* what you are looking at, within reach. Only what you can see: the ray stops at the first wall, floor, partition
+   or closed door in the way (camCast: the drawn geometry and the collision boxes), so nothing is offered through a
+   wall. A spot's own body may stand a little proud of its aim box (a fridge's handle, a bed's frame), so what the ray
+   meets within SEE_SLACK in front of the box still counts as the spot itself. */
+const SEE_SLACK = .12;
 function target(){
   if (locked()) return null;
   cam.updateMatrixWorld();
   cam.getWorldPosition(_o); cam.getWorldDirection(_d);
   // in third person you aim with the crosshair, but reach from where you stand: the ray starts level with your head
   if (ME.tpShown || ME.camT > 0){ const k = (P.x - _o.x)*_d.x + (P.eye - _o.y)*_d.y + (P.z - _o.z)*_d.z; if (k > 0) _o.addScaledVector(_d, k); }
-  let best = null, bt = REACH;
+  let best = null, bt = REACH, bbox = null;
   for (const sp of W.spots){
     if (!sp.aim || (sp.when && !sp.when())) continue;
-    const [a, b] = typeof sp.aim === "function" ? sp.aim() : sp.aim;
-    const t = rayBox(_o, _d, a, b);
-    if (t < bt){ bt = t; best = sp; }
+    const box = typeof sp.aim === "function" ? sp.aim() : sp.aim;
+    const t = rayBox(_o, _d, box[0], box[1]);
+    if (t < bt){ bt = t; best = sp; bbox = box; }
   }
+  // (anything further along the same ray is behind the same wall, so the nearest is the only one to check; the
+  // collision box of the furniture the spot is part of — a fridge round its shelves — is not in the way of it)
+  if (best && camCast(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z, bt, bbox) < bt - SEE_SLACK) best = null;
   if (best) return best;
   let bd = 1e9;
   for (const sp of W.spots){
     if ((sp.aim && !sp.near) || (sp.when && !sp.when()) || sp.x == null) continue;
     if (Math.abs((sp.y || 1) - (P.feet + 1)) > 2.4) continue;
     const d = Math.hypot(sp.x - P.x, sp.z - P.z);
-    if (d < sp.r && d < bd){ bd = d; best = sp; }
+    if (d < sp.r && d < bd && seesSpot(sp)){ bd = d; best = sp; }
   }
   return best;
+}
+// the proximity spots (a bench, the bus stop, a drill's marker): within their radius and not behind a wall — a line
+// from your eyes to the spot, or to a point above it (the spot itself may sit inside the bench or the shelter) is clear
+function seesSpot(sp){
+  const sy = sp.y == null ? 1.2 : sp.y;
+  for (const y of [sy, Math.max(sy, P.eye)]){
+    const dx = sp.x - P.x, dy = y - P.eye, dz = sp.z - P.z, D = Math.hypot(dx, dy, dz);
+    if (D < .3) return true;
+    if (camCast(P.x, P.eye, P.z, dx/D, dy/D, dz/D, D) >= D - .6) return true;
+  }
+  return false;
 }
 
 function use(sp){
@@ -1093,10 +1212,26 @@ function quality(real, cpu){
     Q.scale = Math.min(1, +(Q.scale + .1).toFixed(2)); Q.good = 0; Q.upAt = Q.t; Q.pending = true;
   }
 }
+/* how much of the sky over your head is roofed over: five rays from your eyes, straight up and leaning 30° four ways,
+   ten times a second; 0 out in the open, 1 under a ceiling, in between under a shelter or a canopy. Eased, so walking
+   in through a door the light inside comes up over half a second or so */
+const COVER = {v:0, want:0, t:0, snap:true};
+const COVER_RAYS = [[0, 1, 0], [.5, .866, 0], [-.5, .866, 0], [0, .866, .5], [0, .866, -.5]];
+function coverStep(real){
+  const snap = forceSky || COVER.snap; COVER.snap = false;
+  if ((COVER.t -= real) <= 0 || snap){
+    COVER.t = .1;
+    let n = 0;
+    for (const [dx, dy, dz] of COVER_RAYS) if (camCast(P.x, P.eye, P.z, dx, dy, dz, 14) < 14) n++;
+    COVER.want = n/COVER_RAYS.length;
+  }
+  COVER.v = snap ? COVER.want : COVER.v + (COVER.want - COVER.v)*(1 - Math.exp(-4*real));
+  return COVER.v;
+}
 function skyStep(real){
   if (!SKY) return;
   const h = hour();
-  SKY.update(h, P, real);
+  SKY.update(h, P, real, coverStep(real));
   SKY.lights(real || .016, {x:P.x, y:P.eye, z:P.z});
   skyT -= real;
   if (skyT <= 0 || forceSky){ skyT = .5; SKY.refresh(renderer, scene, h, P, forceSky); forceSky = false; }
@@ -1121,7 +1256,7 @@ function loop(t){
   // in third person that is 2.6 m behind you, so the position goes back to your own head. The camera's own position
   // stays readable as VIEW.cx/cy/cz for anyone who needs what the camera can see rather than where you are
   VIEW.cx = VIEW.x; VIEW.cy = VIEW.y; VIEW.cz = VIEW.z;
-  VIEW.x = P.x; VIEW.y = P.eye; VIEW.z = P.z;
+  VIEW.x = P.x; VIEW.y = P.eye; VIEW.z = P.z; VIEW.feet = P.feet;
   if (real > 0 && real < .5) quality(real, performance.now() - t0);
   // a save every 45 s or so, but only at a quiet moment (see persist); after two minutes of never stopping, anyway
   if ((saveT += real) > 45){ saveDue = true; saveT = 0; }
@@ -1192,12 +1327,15 @@ function resize(){
 // raw mouse counts where the browser allows it (no OS acceleration, and free of the stray jumps some browsers
 // put in accelerated pointer-lock movement); anything else falls back to an ordinary lock
 let rawMouse = false, freshLock = false;
+const RAW_OK = (() => { try { const b = navigator.userAgentData && navigator.userAgentData.brands; return !!(b && b.some(x => /Chromium/.test(x.brand))); } catch(e){ return false; } })();
 function lock(cv){
   if (!LIFE.running || locked() || document.pointerLockElement === cv) return;
   const plain = () => { rawMouse = false; try { const q = cv.requestPointerLock(); if (q && q.catch) q.catch(() => {}); } catch(e){} };
   try {
     const p = cv.requestPointerLock({unadjustedMovement:true});
-    if (p && p.then) p.then(() => { rawMouse = true; }, plain); else rawMouse = false;
+    // only Chromium implements unadjustedMovement; another browser may take the lock and ignore the option, and its
+    // movement is then not raw at all — so the lock counts as raw only where the option can have been honoured
+    if (p && p.then) p.then(() => { rawMouse = RAW_OK && document.pointerLockElement === cv; }, plain); else rawMouse = false;
   } catch(e){ plain(); }
 }
 /* Stray jumps. Ordinary (non-raw) pointer lock in some browsers now and then reports one event with a jump in it —
@@ -1205,9 +1343,10 @@ function lock(cv){
    sudden (Chrome adds a whole frame's movement into one event, so a flick at a low frame rate is hundreds of counts at
    once), so size alone decides nothing and nothing the same way as you are turning, or from rest, is ever held back:
    it turns the view at once. Only an event that is large, far larger than the movement just before it, AND the
-   other way to a turn in progress waits for one frame. If the next event goes on the way the turn was going, it was a
-   jump and is dropped; if it goes the new way too (you really did snap back), both are applied; if no more comes on
-   that axis, it is applied on the next frame. Raw input never jumps, and nothing in it is ever held. */
+   other way to a turn in progress is held — but never past the next frame drawn. If another event comes before then
+   and goes on the way the turn was going, it was a jump and is dropped; if it goes the new way too (you really did
+   snap back), both are applied; if nothing contradicts it, it is applied at the start of the next frame, so a real
+   flick is on screen in the very next frame. Raw input never jumps, and nothing in it is ever held. */
 const MA = {x:{prev:0, hold:0, age:0}, y:{prev:0, hold:0, age:0}, t:0, frame:16};
 function mouseAxis(a, m){
   let out = 0;
@@ -1220,13 +1359,13 @@ function mouseAxis(a, m){
   a.prev = m;
   return out + m;
 }
-// once a frame, before the camera is set: a held event that nothing contradicted is let through. A pause longer than
-// a couple of frames is a hand at rest, and what comes after it is judged from rest
+// once a frame, before the camera is set: a held event that nothing contradicted since is let through. A pause longer
+// than a couple of frames is a hand at rest, and what comes after it is judged from rest
 function mouseFrame(){
   if (performance.now() - MA.t > Math.max(60, 2.5*MA.frame)) MA.x.prev = MA.y.prev = 0;
   let mx = 0, my = 0;
-  if (MA.x.hold && ++MA.x.age >= 2){ mx = MA.x.hold; MA.x.hold = 0; }
-  if (MA.y.hold && ++MA.y.age >= 2){ my = MA.y.hold; MA.y.hold = 0; }
+  if (MA.x.hold && ++MA.x.age >= 1){ mx = MA.x.hold; MA.x.prev = MA.x.hold; MA.x.hold = 0; }
+  if (MA.y.hold && ++MA.y.age >= 1){ my = MA.y.hold; MA.y.prev = MA.y.hold; MA.y.hold = 0; }
   if (mx || my) look(mx, my);
 }
 function look(mx, my){

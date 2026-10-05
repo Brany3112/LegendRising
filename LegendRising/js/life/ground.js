@@ -215,10 +215,23 @@ function drillBoard(x, z, ry, title, sub){
   for (const s of [-1, 1]) rb(f, s*.42, 0, 0, .05, 1.0, .05, .02, PC.darkSteel, {rx:s*0});
   const t = textTex(512, 256, g => {
     g.fillStyle = "#14202c"; g.fillRect(0, 0, 512, 256); g.fillStyle = "#c8f060"; g.fillRect(0, 0, 512, 10);
-    g.fillStyle = "#c8f060"; g.font = `800 30px "Barlow Condensed", sans-serif`; g.fillText("DRILL STATION", 28, 58);
-    g.fillStyle = "#fff"; g.font = `800 60px "Barlow Condensed", sans-serif`; g.fillText(title.toUpperCase(), 28, 128);
-    g.fillStyle = "#b9c7d6"; g.font = `600 28px "Barlow", sans-serif`; g.fillText(sub, 28, 186);
-    g.fillStyle = "#c8f060"; g.font = `700 26px "Barlow", sans-serif`; g.fillText("Stand on the marker · press E", 28, 230);
+    // every line measured and set no wider than the board (456 px between the margins): a long title shrinks to fit,
+    // a long line under it breaks onto two before it would have to shrink much
+    const MAX = 456, font = (wt, px, fam) => `${wt} ${px}px ${fam}`;
+    const fit = (text, wt, px, fam) => { g.font = font(wt, px, fam); const tw = g.measureText(text).width; if (tw > MAX){ px = Math.floor(px*MAX/tw); g.font = font(wt, px, fam); } return px; };
+    const BC = `"Barlow Condensed", "Arial Narrow", sans-serif`, BA = `"Barlow", sans-serif`;
+    g.fillStyle = "#c8f060"; fit("DRILL STATION", 800, 30, BC); g.fillText("DRILL STATION", 28, 58);
+    g.fillStyle = "#fff"; fit(title.toUpperCase(), 800, 60, BC); g.fillText(title.toUpperCase(), 28, 124);
+    g.fillStyle = "#b9c7d6"; g.font = font(600, 28, BA);
+    if (g.measureText(sub).width <= MAX) g.fillText(sub, 28, 180);
+    else {
+      const w = sub.split(" ");
+      let k = w.length - 1; while (k > 1 && g.measureText(w.slice(0, k).join(" ")).width > MAX) k--;
+      const l1 = w.slice(0, k).join(" "), l2 = w.slice(k).join(" ");
+      const px = Math.min(fit(l1, 600, 25, BA), fit(l2, 600, 25, BA));
+      g.font = font(600, px, BA); g.fillText(l1, 28, 168); g.fillText(l2, 28, 197);
+    }
+    g.fillStyle = "#c8f060"; fit("Stand on the marker · press E", 700, 26, BA); g.fillText("Stand on the marker · press E", 28, 234);
   });
   const [wx, wz] = worldPt(f, 0, .03);
   rb(f, 0, .55, -.01, 1.0, .5, .04, .02, 0x1b2026);
@@ -333,7 +346,8 @@ function stand(clubName){
   rbox(0, 3.9, -29.35, 7.6, .25, 4.5, .08, 0x1c2126);
   rbox(0, 2.9, -27.36, 4.0, .05, .06, .02, 0xfff1c8, {key:"lamp"});
   sign("PLAYERS' TUNNEL", 0, 3.4, -27.33, 0, 3.4);
-  for (const dx of [-2.6, 2.6]) rbox(dx, 0, -27.33, .16, 2.9, .06, .03, 0xc8f060, {key:"neon"});
+  for (const dx of [-2.6, 2.6]) rbox(dx, 0, -27.33, .16, 2.9, .06, .03, 0xc8f060, {key:"neon", solid:true});
+  solid(-1.5, 1.5, -28.6, -28.49, 0, 2.4);                  // the doors and their push bars
   lightSrc({x:0, y:2.6, z:-26.6, color:0xfff1c8, intensity:6, distance:8, indoor:true});
 }
 
@@ -437,21 +451,26 @@ function clubhouse(clubName){
   // the kit man at his laundry trolley in the corner by the window, sorting the bibs into it (a counter-high top, so
   // he stands at it with his head up rather than bowing over a bench)
   kitHamper(23.3, 4.95, 0);
-  staffer(23.3, 4.3, 0, {role:"kitman", seed:15, kit, pose:{mode:"counter", counter:.84, reach:.5}, when:m => m >= 7*60 + 30 && m < 19*60, minute:ctx.minute});
+  // (the hamper's near rail is at z 4.69: he stands a hand's width off it, his hands on the rail)
+  staffer(23.3, 4.48, 0, {role:"kitman", seed:15, kit, pose:{mode:"counter", counter:.84, reach:.25}, when:m => m >= 7*60 + 30 && m < 19*60, minute:ctx.minute});
   noticeBoard(22.645, 1.55, 5.2, Math.PI/2, [["TODAY", "Shirts on pegs", "boots outside!"], ["RECOVERY", "Ice bath 20 min", "after every session"], ["KIT", "Bibs in the wash", "basket please"], ["SQUAD", "Team photo", "Friday 9:30"]]);
   lightSrc({x:26.2, y:2.7, z:6.8, color:0xf2f6ff, intensity:8, distance:10, indoor:true});
   for (const z of [5, 8.5]) rbox(26.2, g0 - .3, z, 3, .05, .4, .02, 0xf6f8ff, {key:"lamp"});
   // the staff office
-  const od = desk(26.6, 15.6, Math.PI, 1.8, 0x6b4a2c);
+  // the desk faces the door; his screen and keyboard face him, on the far side of it (z 15.25–15.95)
+  const od = desk(26.6, 15.6, 0, 1.8, 0x6b4a2c);
   const osc = textTex(256, 160, g => { g.fillStyle = "#101820"; g.fillRect(0, 0, 256, 160); g.fillStyle = "#4ea8ff"; for (let i = 0; i < 6; i++) g.fillRect(16, 20 + i*22, 60 + (i*53) % 160, 10); });
-  monitor(od, -.4, .77, .05, osc, .5);
+  monitor(od, -.1, .77, -.12, osc, .5);
+  rb(od, -.1, .77, .2, .42, .018, .14, .006, 0x1d1f22);                       // the keyboard
+  chair(26.6, 16.22, Math.PI);
   chair(26.0, 14.6, 0); chair(27.2, 14.6, 0);
   tacticsBoard(23.6, 15.2, Math.PI/2, "THIS WEEK");
   const sh = shelfUnit(29.45, 13.8, -Math.PI/2, 2.4, 1.8, 0x4b5258);
   for (let i = 0; i < 4; i++) cy(sh, -.9 + i*.6, .98, 0, .1, .07, .32, 0xd9b45a, {seg:10, key:"metal"});
   for (let i = 0; i < 3; i++) rb(sh, -.8 + i*.8, 1.6, 0, .3, .2, .25, .02, [0xc8463a, 0x2c66b8, 0x3f8a48][i]);
   // the manager keeps office hours: in before the squad, gone after the evening's work (never while you're looking)
-  const boss = staffer(26.6, 16.3, Math.PI, {role:"manager", seed:4, hair:0x9a9a9a, when:m => m >= 7*60 + 45 && m < 19*60 + 30, minute:ctx.minute});
+  // sat at his desk (the seat top at .5, the desk's near edge .27 ahead of the seat's middle), at his keyboard
+  const boss = staffer(26.6, 16.22, Math.PI, {role:"manager", seed:4, hair:0x9a9a9a, pose:{mode:"typing", seat:.5, desk:.77, reach:.4}, when:m => m >= 7*60 + 45 && m < 19*60 + 30, minute:ctx.minute});
   spot({aim:[[26, .8, 15.9], [27.2, 2, 16.7]], x:26.6, z:15.2, when:() => boss.g.visible, label:"The manager", get hint(){ return `${typeof roleOutlook === "function" ? roleOutlook() : ""} · open the hub (Q) to talk to him`; }, hold:.2,
     run:() => ctx.note(`The manager looks up from his screen. “${(G() && G().trust >= 25) ? "Keep doing what you are doing." : (G() && G().trust >= 8) ? "Train hard, be on time, and you'll get your minutes." : "I need to see more from you in training."}”`)});
   lightSrc({x:26.2, y:2.7, z:13.6, color:0xfff0d8, intensity:7, distance:9, indoor:true});

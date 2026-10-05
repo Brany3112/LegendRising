@@ -34,12 +34,25 @@ export function sph(f, lx, ly, lz, r, color, o = {}){
   if (o.sx || o.sy || o.sz) g.scale(o.sx || 1, o.sy || 1, o.sz || 1);
   put(f, g, lx, ly, lz, color, o);
 }
-// a solid in the frame's own axes (only for frames turned by quarter turns)
+// a solid in the frame's own axes: w along local x, d along local z, centred at (lx, lz). Turned by a quarter turn it is
+// one box; turned by any other angle the footprint is cut into short pieces along its length, each boxed round where
+// it really is, so a board set at an angle blocks along its whole length without a fat square round it
 export function fsolid(f, lx, lz, w, d, y0, y1){
-  const quarter = Math.abs(f.s) > .5;
-  const ww = quarter ? d : w, dd = quarter ? w : d;
-  const cx = f.x + lx*f.c + lz*f.s, cz = f.z - lx*f.s + lz*f.c;
-  return solid(cx - ww/2, cx + ww/2, cz - dd/2, cz + dd/2, f.y + y0, f.y + y1);
+  const cx = f.x + lx*f.c + lz*f.s, cz = f.z - lx*f.s + lz*f.c, ac = Math.abs(f.c), as = Math.abs(f.s);
+  if (ac < 1e-3 || as < 1e-3){
+    const ww = as > .5 ? d : w, dd = as > .5 ? w : d;
+    return solid(cx - ww/2, cx + ww/2, cz - dd/2, cz + dd/2, f.y + y0, f.y + y1);
+  }
+  // the long axis is cut into n pieces about as long as the short one is wide
+  const alongX = w >= d, L = alongX ? w : d, Sh = alongX ? d : w, n = Math.max(1, Math.min(12, Math.ceil(L/Math.max(Sh, .15))));
+  const out = [];
+  for (let i = 0; i < n; i++){
+    const t = -L/2 + L*(i + .5)/n, pw = alongX ? L/n : w, pd = alongX ? d : L/n;
+    const px = cx + (alongX ? t*f.c : t*f.s), pz = cz + (alongX ? -t*f.s : t*f.c);
+    const hx = (Math.abs(pw*f.c) + Math.abs(pd*f.s))/2, hz = (Math.abs(pw*f.s) + Math.abs(pd*f.c))/2;
+    out.push(solid(px - hx, px + hx, pz - hz, pz + hz, f.y + y0, f.y + y1));
+  }
+  return out.length === 1 ? out[0] : out;
 }
 export function worldPt(f, lx, lz){ return [f.x + lx*f.c + lz*f.s, f.z - lx*f.s + lz*f.c]; }
 
@@ -129,16 +142,22 @@ export function goal(x, z, dir, w = 6, h = 2.2, depth = 1.6){
     g.computeVertexNormals();
     const n = new THREE.Mesh(g, m); const [wx, wz] = worldPt(f, s*w/2, 0); n.position.set(wx, 0, wz); n.rotation.y = f.ry; W.scene.add(n);
   }
-  const [ax, az] = worldPt(f, -w/2, 0), [bx, bz] = worldPt(f, w/2, depth);
-  solid(Math.min(ax, bx) - .08, Math.max(ax, bx) + .08, Math.min(az, bz) - .08, Math.max(az, bz) + .08, 0, h + .1);
+  // solid where the frame and the net really are, the mouth left open: the posts, the crossbar (from its underside
+  // up), the two side nets with their stanchions, and the back net
+  fsolid(f, -w/2, 0, .16, .16, 0, h + .07); fsolid(f, w/2, 0, .16, .16, 0, h + .07);
+  fsolid(f, 0, 0, w + .16, .16, h - .07, h + .1);
+  for (const s of [-1, 1]) fsolid(f, s*w/2, depth/2, .1, depth + .06, 0, h + .07);
+  fsolid(f, 0, depth, w + .1, .1, 0, h + .07);
 }
 export function cornerFlag(x, z){
   const f = frame(x, z);
   cy(f, 0, 0, 0, .02, .02, 1.5, PC.white, {seg:6});
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute([0, 1.48, 0, .36, 1.36, 0, 0, 1.22, 0], 3)); g.computeVertexNormals();
-  put(f, g, 0, 0, 0, 0xe8462e);
-  const g2 = g.clone(); g2.rotateY(Math.PI); put(f, g2, 0, 0, 0, 0xe8462e);
+  // the flag, from both sides: the same triangle twice in its own place, once wound each way (put() moves the
+  // geometry it is given into the world, so each side is made fresh rather than cloned from a placed one)
+  const tri = P => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); g.computeVertexNormals(); return g; };
+  put(f, tri([0, 1.48, 0, .36, 1.36, 0, 0, 1.22, 0]), 0, 0, 0, 0xe8462e);
+  put(f, tri([0, 1.48, 0, 0, 1.22, 0, .36, 1.36, 0]), 0, 0, 0, 0xe8462e);
+  solid(x - .05, x + .05, z - .05, z + .05, 0, 1.5);
 }
 export function dugout(x, z, ry, len = 5, seat = PC.blue){
   const f = frame(x, z, ry);
@@ -156,7 +175,8 @@ export function dugout(x, z, ry, len = 5, seat = PC.blue){
     rb(f, lx, .5, .52, .46, .5, .07, .04, seat, {key:"gloss", rx:-.1});
   }
   rb(f, 0, 0, .32, len, .42, .3, .02, 0x4b5258);
-  fsolid(f, 0, .3, len + .4, 1.0, 0, 2.3);
+  // the shelter from the back of its back wall (.74) to the front edge of its side panels (−.55), a hair over each
+  fsolid(f, 0, .1, len + .4, 1.32, 0, 2.3);
 }
 export function floodlight(x, z, aimX, aimZ, h = 13){
   const f = frame(x, z, Math.atan2(aimX - x, aimZ - z));
@@ -364,6 +384,7 @@ export function bush(x, z, s = 1, y = 0){
   sph(f, 0, .35*s, 0, .55*s, c, {detail:1, flat:true, sy:.75});
   sph(f, .45*s, .3*s, .1*s, .38*s, c, {detail:1, flat:true, sy:.8});
   sph(f, -.4*s, .28*s, -.1*s, .4*s, c, {detail:1, flat:true, sy:.8});
+  solid(x - .75*s, x + .75*s, z - .45*s, z + .45*s, y, y + .7*s);
 }
 export function hedge(x0, z0, x1, z1, h = 1.1){
   const len = Math.hypot(x1 - x0, z1 - z0), f = frame((x0 + x1)/2, (z0 + z1)/2, Math.atan2(x1 - x0, z1 - z0) - Math.PI/2);
@@ -394,7 +415,7 @@ export function planter(x, z, w = 1.4, y = 0){
   const f = frame(x, z, 0, y);
   rb(f, 0, 0, 0, w, .5, .6, .06, 0x8a8780, {seg:1, flat:false, tex:"concrete"});
   rb(f, 0, .44, 0, w - .1, .05, .5, .02, 0x4a3a2c);
-  bush(x, z, .7*w/1.4, y + .2);
+  bush(x, z, .7*w/1.4, y + .2);       // the shrub's own solid covers what spills over the sides
   solid(x - w/2, x + w/2, z - .3, z + .3, y, y + .5);
 }
 export function car(x, z, ry, color){

@@ -4,7 +4,7 @@
    torso and limbs, a shaped head with a face, hair with a real silhouette, clothes that are part of the body's
    own surface rather than painted on) bound to a 20-bone rig, drawn with one shared material. Bodies are
    cached by shape, so team-mates with the same build/kit cut/hair share the same buffers and only carry their
-   own colours. A far LOD (a few hundred triangles, no face) takes over at distance, and a single instanced
+   own colours. A far LOD (about a thousand triangles, the face reduced to a few flat shapes) takes over at distance, and a single instanced
    blob under everyone grounds them without redrawing the sun's shadow map.
 
    ---- the API ----
@@ -44,8 +44,9 @@
               the person's height: the backside rests on it. Feet land ~.45 m ahead; the hands lie on the thighs.
        "typing" {seat:.47, desk:.74, reach:.4, keys} (sitting, hands on a desk in front; heights and reach in world metres;
               keys:false — no keyboard: the hands rest flat on the table top, still: a café table, a book)
-       "counter" {counter:1.0, reach:.34} (standing, both palms flat on a counter top that high, reach ahead of the
-              feet; the body leans in from the hips as far as it must — a low desk makes a lean on the desk)
+       "counter" {counter:1.0, reach:.34, lean, work} (standing, both palms flat on a counter top that high, reach ahead of
+              the feet, a hip's width apart, elbows soft; the body leans in as far as it must but no more than ~12° (lean:
+              radians overrides it; a top below hip height allows a little more); work:true — busy at it, wiping, moving things)
        Hands that rest on something lie flat on it (palm within ~1 cm of the top, whatever the height).
        "clipboard" (the coach: board in the left hand, writing now and then, watching)
        Any state may carry look:yaw to turn the head.
@@ -105,13 +106,15 @@ const BUILDS = {
 function dims(look){
   const b = BUILDS[look.build] || BUILDS.average, f = look.sex === "f", old = Math.round(sstep(45, 78, look.age || 25)*4)/4;
   // the head is a little over 1/7.3 of the height (a touch larger than life, the way stylised figures read best), its
-  // crown at the full height, so a bigger head brings the chin down and shortens the neck rather than adding height
-  const hs = (f ? .955 : 1)*1.055;
+  // crown at the full height, so a bigger head brings the chin down and shortens the neck rather than adding height.
+  // A woman's smaller head sits a little lower on a slimmer (not thinner-than-life) neck, with the shoulders a touch
+  // higher: the same short neck as a man's, not a long stalk
+  const hs = (f ? .955 : 1)*1.055, drop = f ? .024 : 0;
   return {f, old, hs, hipY:.93, kneeY:.5, ankY:.085, hipX:f ? .087 : .09, hipsY:.96, spineY:1.08, chestY:1.26, neckY:1.5, headY:1.62,
-    shY:f ? 1.425 : 1.435, shX:(f ? .166 : .18)*b.sh, elbowL:.285, foreL:.245,
+    shY:f ? 1.432 : 1.435, shX:(f ? .166 : .18)*b.sh, elbowL:.285, foreL:.245,
     sh:b.sh*(f ? .9 : 1), ch:b.ch*(f ? .9 : 1), wa:b.wa*(f ? .86 : 1) + old*.05, hp:b.hp*(f ? 1.09 : 1), arm:b.arm*(f ? .86 : 1), leg:b.leg*(f ? 1.02 : 1),
-    belly:b.belly*(f ? .3 : 1) + old*.5, mus:b.mus*(f ? .3 : 1), bust:f ? 1 : 0, nk:b.nk*(f ? .84 : 1),
-    hc:[0, 1.80 - .117*hs, .012]};
+    belly:b.belly*(f ? .3 : 1) + old*.5, mus:b.mus*(f ? .3 : 1), bust:f ? 1 : 0, nk:b.nk*(f ? .92 : 1),
+    hc:[0, 1.80 - .117*hs - drop, .012]};
 }
 function restPos(D){
   const P = [];
@@ -631,7 +634,7 @@ function build(look, det, noHead){
      a tie, lapels) go on the far body too, so nothing changes colour when it takes over; the small ones only up close */
   if (g.collar === "v" && !noHead){
     decal(G, torsoHit, [[[-.045, 1.505], [.045, 1.505], [0, 1.43]]], 1, .004, S.skin, wTorso);
-    if (near) decal(G, torsoHit, [...stroke([[-.05, 1.51], [0, 1.425], [.05, 1.51]], .014)], 1, .005, S.trim, wTorso);
+    decal(G, torsoHit, [...stroke([[-.05, 1.51], [0, 1.425], [.05, 1.51]], .014)], 1, .005, S.trim, wTorso);
   }
   if (g.tie && !jacketish) decal(G, torsoHit, [...fan([[-.009, 1.495], [.009, 1.495], [.006, 1.47], [-.006, 1.47]]), ...fan([[-.008, 1.47], [.008, 1.47], [.02, 1.19], [0, 1.165], [-.02, 1.19]])], 1, .006, S.tie, wTorso);
   if (jacketish){
@@ -642,8 +645,9 @@ function build(look, det, noHead){
     decal(G, torsoHit, [...stroke([[-.085, 1.5], [-.012, vb + .02]], .022), ...stroke([[.085, 1.5], [.012, vb + .02]], .022)], 1, .006, S.top, wTorso, .82);
     if (g.top === "suit" && near) for (const y of [1.2, 1.1]) decal(G, torsoHit, fan([0, 1, 2, 3, 4].map(k => [Math.cos(k/5*TAU)*.007, y + Math.sin(k/5*TAU)*.007])), 1, .005, S.dark, wTorso);
   }
+  // (the crest on the far body too: a patch of colour that would otherwise blink out at the switch)
+  if (g.crest) decal(G, torsoHit, fan([[.06, 1.385], [.09, 1.385], [.09, 1.36], [.075, 1.345], [.06, 1.36]]), 1, near ? .004 : .007, S.trim, wTorso);
   if (near){
-    if (g.crest) decal(G, torsoHit, fan([[.06, 1.385], [.09, 1.385], [.09, 1.36], [.075, 1.345], [.06, 1.36]]), 1, .004, S.trim, wTorso);
     if (g.zip) decal(G, torsoHit, stroke([[0, 1.5], [0, hem + .05]], .007), 1, .004, S.trim, wTorso);
     if (g.placket){ const bot = g.collar === "polo" ? 1.38 : g.tuck ? 1.05 : 1.0; decal(G, torsoHit, stroke([[0, 1.5], [0, bot]], .016), 1, .003, S.trim, wTorso);
       for (let y = 1.46; y > bot + .02; y -= .075) decal(G, torsoHit, fan([0, 1, 2, 3, 4].map(k => [Math.cos(k/5*TAU)*.0045, y + Math.sin(k/5*TAU)*.0045])), 1, .0045, S.dark, wTorso); }
@@ -678,7 +682,7 @@ function build(look, det, noHead){
       const lat = (HR[i].lat + r.lat)/2/D2R, lon = Math.abs(wrap((k + .5)/nh*TAU))/D2R;
       return lon < 112 && (lat < -24 || (lon > 55 && lat < -8)) ? S.stubble : S.skin; }});
     headHit = G.hit; G.hit = null;
-    if (near) face(G, D, F, look, headHit, hf);
+    face(G, D, F, look, headHit, hf, !near);              // (the far body too, plainer: no face popping on and off)
     const specs = near && (look.props || []).includes("glasses");
     if (specs) G.hit = [];
     hair(G, D, F, look, hf, near);
@@ -726,8 +730,9 @@ function shoe(G, D, s, g, near){
   }
 }
 
-/* the face: eyes (whites, irises, a lid line), brows, a nose, a mouth, ears — cast onto the faceted head */
-function face(G, D, F, look, hit, hf){
+/* the face: eyes (whites, irises, a lid line), brows, a nose, a mouth, ears — cast onto the faceted head. lite: the far
+   body's (a few triangles each, no lid line), so the face reads the same from 13 m as from 16 */
+function face(G, D, F, look, hit, hf, lite = false){
   const hc = D.hc, hs = D.hs, es = .031*(F.eyes || 1), nose = F.nose || 1, brow = F.brow || 1;
   const onF = (x, y, lift) => { const o = [hc[0] + x*hs, hc[1] + y*hs, 2], t = ray(hit, o, [0, 0, -1]); return t < 0 ? null : [o[0], o[1], 2 - t + lift, HEADW]; };
   const poly = (pts, lift, slot, sh = 1, out = [0, 0, 1]) => { const P = pts.map(p => onF(p[0], p[1], lift)); if (P.some(p => !p)) return; const c = P.reduce((s, p) => [s[0] + p[0]/P.length, s[1] + p[1]/P.length, s[2] + p[2]/P.length], [0, 0, 0]); c.push(HEADW);
@@ -736,15 +741,20 @@ function face(G, D, F, look, hit, hf){
   for (const s of [1, -1]){
     const ex = s*es, ey = .004;
     const white = [], iris = [], lid = [];
-    for (let k = 0; k < 8; k++){ const a = k/8*TAU; white.push([ex + Math.cos(a)*.0125, ey + Math.sin(a)*.0068 + s*Math.cos(a)*.0008]); }
-    for (let k = 0; k < 7; k++){ const a = k/7*TAU; iris.push([ex - s*.0006 + Math.cos(a)*.006, ey - .0004 + Math.sin(a)*.006]); }
-    poly(white, .0014, S.white);
-    poly(iris, .0026, S.iris);
-    for (let k = 0; k <= 4; k++){ const a = (20 + k*35)*D2R; lid.push([ex + Math.cos(a)*.0128, ey + Math.sin(a)*.0074 + s*Math.cos(a)*.0008]); }
-    const lidTri = stroke(lid, .0028); for (const [a, b, c] of lidTri){ const A = onF(a[0], a[1], .003), Bq = onF(b[0], b[1], .003), Cq = onF(c[0], c[1], .003); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lash, 1, 1, 1, [0, 0, 1]); }
+    const nw = lite ? 6 : 8, ni = lite ? 5 : 7;
+    for (let k = 0; k < nw; k++){ const a = k/nw*TAU; white.push([ex + Math.cos(a)*.0125, ey + Math.sin(a)*.0068 + s*Math.cos(a)*.0008]); }
+    for (let k = 0; k < ni; k++){ const a = k/ni*TAU; iris.push([ex - s*.0006 + Math.cos(a)*.006, ey - .0004 + Math.sin(a)*.006]); }
+    // (the far head's facets are coarser: everything on it stands a little further off them)
+    const lf = lite ? 2.2 : 1;
+    poly(white, .0014*lf, S.white);
+    poly(iris, .0026*lf, S.iris);
+    if (!lite){
+      for (let k = 0; k <= 4; k++){ const a = (20 + k*35)*D2R; lid.push([ex + Math.cos(a)*.0128, ey + Math.sin(a)*.0074 + s*Math.cos(a)*.0008]); }
+      const lidTri = stroke(lid, .0028); for (const [a, b, c] of lidTri){ const A = onF(a[0], a[1], .003), Bq = onF(b[0], b[1], .003), Cq = onF(c[0], c[1], .003); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lash, 1, 1, 1, [0, 0, 1]); }
+    }
     // brow
-    const by = .03 + (brow - 1)*.004, bw = .006*brow;
-    const bpts = [[ex - s*.013, by - .002], [ex + s*.001, by + .0035], [ex + s*.016, by - .0015]];
+    const by = .03 + (brow - 1)*.004, bw = .006*brow*(lite ? 1.15 : 1);
+    const bpts = lite ? [[ex - s*.013, by - .001], [ex + s*.016, by]] : [[ex - s*.013, by - .002], [ex + s*.001, by + .0035], [ex + s*.016, by - .0015]];
     for (const [a, b, c] of stroke(bpts, bw)){ const A = onF(a[0], a[1], .003), Bq = onF(b[0], b[1], .003), Cq = onF(c[0], c[1], .003); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.brow, 1, 1, 1, [0, 0, 1]); }
     // ear: a flattened shell standing off the side of the head
     const ey2 = .006, ez = -.006, side = [hc[0] + s*.2, hc[1] + ey2*hs, hc[2] + ez*hs], t = ray(hit, side, [-s, 0, 0]);
@@ -765,10 +775,10 @@ function face(G, D, F, look, hit, hf){
     G.tri(L, Cb, T, S.skin, .8, .72, .9, [-.3, -1, .4]); G.tri(T, Cb, Rn, S.skin, .9, .72, .8, [.3, -1, .4]);
   }
   // mouth: a lip line with a softer lower lip
-  const mw = .02, my = -.071;
+  const mw = .02, my = -.071, ml = lite ? .0035 : 0;
   const up = [[-mw, my + .0015], [-mw*.45, my + .0005], [0, my + .0018], [mw*.45, my + .0005], [mw, my + .0015]];
-  for (const [a, b, c] of stroke(up, .0045)){ const A = onF(a[0], a[1], .002 + beardLift), Bq = onF(b[0], b[1], .002 + beardLift), Cq = onF(c[0], c[1], .002 + beardLift); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lips, 1, 1, 1, [0, 0, 1]); }
-  poly([[-mw*.7, my - .003], [0, my - .0065], [mw*.7, my - .003], [0, my - .0018]], .0018 + beardLift, S.lips, 1.1);
+  for (const [a, b, c] of stroke(up, .0045)){ const A = onF(a[0], a[1], .002 + beardLift + ml), Bq = onF(b[0], b[1], .002 + beardLift + ml), Cq = onF(c[0], c[1], .002 + beardLift + ml); if (A && Bq && Cq) G.tri(A, Bq, Cq, S.lips, 1, 1, 1, [0, 0, 1]); }
+  poly([[-mw*.7, my - .003], [0, my - .0065], [mw*.7, my - .003], [0, my - .0018]], .0018 + beardLift + ml, S.lips, 1.1);
 }
 
 /* glasses: two softly squared rims in one plane a little in front of the eyes, a bridge over the nose, and arms that
@@ -998,12 +1008,14 @@ function colours(sp, pal){
   for (let i = 0; i < n; i++){ const s = sp.slot[i]*3, f = sp.shade[i]*65535; a[i*3] = Math.min(65535, pal[s]*f); a[i*3 + 1] = Math.min(65535, pal[s + 1]*f); a[i*3 + 2] = Math.min(65535, pal[s + 2]*f); }
   return new THREE.BufferAttribute(a, 3, true);
 }
+const SPORTY = new Set(["kit", "training", "gk", "tracksuit"]);
 function palette(look){
   const o = look.outfit || {}, skin = hex(look.skin) ?? 0xd9a882, hair = hex(look.hairColor) ?? 0x2e2018;
   const top = hex(o.shirt) ?? 0x2c66b8, legs = (garb(o).legwear === "kitshorts" || garb(o).legwear === "shorts") ? (hex(o.shorts) ?? hex(o.trousers)) : (hex(o.trousers) ?? hex(o.shorts));
   const bottom = legs ?? 0x2f3540, lum = new THREE.Color(top), L = .3*lum.r + .59*lum.g + .11*lum.b;
   const C = {skin, hair, lips:mixHex(shadeHex(skin, .82), 0x9a4a46, .3), brow:shadeHex(hair, .8), white:0xeeeae2, iris:hex(look.eyes) ?? 0x3a2618,
-    top, trim:hex(o.trim) ?? (L > .6 ? shadeHex(top, .55) : mixHex(top, 0xffffff, .75)), bottom, btrim:hex(o.btrim) ?? shadeHex(bottom, .7),
+    // a kit's or a tracksuit's trim stands out; an ordinary top's collar ribbing and cuffs are its own colour, a shade off
+    top, trim:hex(o.trim) ?? (SPORTY.has(o.type) ? (L > .6 ? shadeHex(top, .55) : mixHex(top, 0xffffff, .75)) : L < .025 ? mixHex(top, 0xffffff, .06) : shadeHex(top, .78)), bottom, btrim:hex(o.btrim) ?? shadeHex(bottom, .7),
     socks:hex(o.socks) ?? top, strim:hex(o.sockTrim) ?? hex(o.trim) ?? 0xf2f2f0, shoe:hex(o.shoes) ?? 0x18191c, sole:hex(o.sole) ?? (garb(o).footwear === "trainers" ? 0xeeeeea : 0x2a2a2a),
     stripe:hex(o.stripe) ?? 0xf2f2f0, bib:hex(o.bib) ?? 0xd8ff3a, glove:hex(o.glove) ?? 0xe8e8e2, gtrim:hex(o.gloveTrim) ?? 0x1c1c22, inner:hex(o.inner) ?? 0xf2f2ee,
     tie:hex(o.tie) ?? 0x7a1f2b, prop:0x5b4330, paper:0xf2f0e8, num:hex(o.numCol) ?? (L > .55 ? 0x1b1d22 : 0xf4f4f0), stubble:mixHex(skin, hair, .32), fade:mixHex(skin, hair, .62),
@@ -1104,8 +1116,8 @@ export function human(look = {}, opts = {}){
   const r = rng((look.seed | 0) + 77);
   const h = {g, look, D, bones, skel, near, far, num, isHuman:true, pose:new Float32Array(NP), from:new Float32Array(NP), tgt:new Float32Array(NP),
     rest:rest.map((p, i) => { const q = PAR[i] < 0 ? [0, 0, 0] : rest[PAR[i]]; return new THREE.Vector3(p[0] - q[0], p[1] - q[1], p[2] - q[2]); }),
-    bw:1, mode:"", at:0, t:r()*100, ph:r(), v:0, mw:0, gw:0, lod:1, seed:r(), stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1};
-  g.scale.setScalar(h.scale);
+    bw:1, mode:"", at:0, t:r()*100, ph:r(), v:0, turn:0, ry0:null, mw:0, gw:0, lod:1, seed:r(), stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1};
+  g.scale.setScalar(h.scale); g.userData.human = h;
   h.dispose = () => {
     LIVE.delete(h);
     for (const m of [near, far]) if (m){ for (const k of SHARED) m.geometry.deleteAttribute(k); m.geometry.dispose(); }
@@ -1126,6 +1138,11 @@ export function playerRig(look = {}, o = {}){
 /* ---------- once a frame, before drawing: near or far body, numbers up close, and the blobs underfoot ---------- */
 // where the camera (in first person: you) was at the last frame drawn, so people can step out of your way
 export const VIEW = {x:0, y:-99, z:0, fx:0, fz:-1, scene:null};          // fx, fz: the way the camera looks, flat
+/* onFirstView(fn): fn(VIEW) runs once, just before the first frame of the place being built now is drawn — VIEW then
+   holds where the camera is for that frame (the first moment anyone knows where you arrived), so whatever stands in
+   your face can be moved before anybody sees it */
+const FIRST = {gen:null, fns:[]};
+export function onFirstView(fn){ if (FIRST.gen !== W.ticks){ FIRST.gen = W.ticks; FIRST.fns = []; } FIRST.fns.push(fn); hook(W.scene); }
 let BLOBS = null;
 const _cam = new THREE.Vector3(), _mx = new THREE.Matrix4(), _q0 = new THREE.Quaternion(), _sc = new THREE.Vector3(), _ps = new THREE.Vector3();
 function blobs(){
@@ -1147,6 +1164,7 @@ function hook(scene){
     prev.call(this, renderer, sc, camera, rt);
     camera.getWorldPosition(_cam); VIEW.x = _cam.x; VIEW.y = _cam.y; VIEW.z = _cam.z; VIEW.scene = sc;
     { const e = camera.matrixWorld.elements, l = Math.hypot(e[8], e[10]) || 1; VIEW.fx = -e[8]/l; VIEW.fz = -e[10]/l; }
+    if (FIRST.gen === W.ticks && FIRST.fns.length){ const fns = FIRST.fns; FIRST.fns = []; for (const fn of fns) try { fn(VIEW); } catch(err){ console.error(err); } }
     let n = 0;
     const bl = blobs();
     for (const h of LIVE){
@@ -1259,11 +1277,11 @@ function plantHand(h, T, s, x, y, z, dir, up = _UPV, pole = POLE, follow = .5){
 }
 // bend forward from the hips (hips, spine and chest share it, the head stays level, the seat goes back for balance) until
 // the shoulders are near enough to reach (x, y, z) with the elbows a little bent; the feet stay where they stood
-function leanTo(h, T, x, y, z, feet, straight = .9){
+function leanTo(h, T, x, y, z, feet, straight = .9, most = 1.3){
   const D = h.D, base = [T[B.hips*3], T[B.spine*3], T[B.chest*3], T[B.neck*3], T[B.head*3], T[62]], reach = straight*(D.elbowL + D.foreL);
   const set = a => { T[B.hips*3] = base[0] + a*.35; T[B.spine*3] = base[1] + a*.45; T[B.chest*3] = base[2] + a*.2; T[B.neck*3] = base[3] - a*.32; T[B.head*3] = base[4] - a*.26; T[62] = base[5] - a*.13; };
   const gap = a => { set(a); return _V.setFromMatrixPosition(frameOf(h, T, B.uaL, _Ms)).distanceTo(_P.set(x, y, z)); };
-  let lo = 0, hi = 1.3;
+  let lo = 0, hi = most;
   if (gap(0) > reach){ for (let i = 0; i < 7; i++){ const m = (lo + hi)/2; if (gap(m) > reach) lo = m; else hi = m; } set(hi); }
   else set(0);
   feet();
@@ -1368,12 +1386,17 @@ function loco(h, T, st, dt){
   h.ph = (h.ph + G.f*dt) % 1;
   const L = v/G.f, Ds = L*duty, zc0 = lerp(Ds/2 - .04, .38*Ds - .05, R);
   const pL = h.ph, yaw = lerp(.1, .15, R)*Math.min(1, v/1.2), cL = Math.cos(TAU*pL), mid = Math.cos(TAU*2*(pL - duty/2));
+  // turning (h.turn, rad/s, from how the body's group turns): a planted foot stays where it was put on the ground while
+  // the body turns over it — in the body's own frame it swings round the other way, through its contact (and the swing
+  // carries it from where it left the ground to where the turned body will put it down)
+  // (a turn faster than a planted foot can sensibly pivot through, ±20° a contact, is left to the stride itself)
+  const Tst = duty/G.f, om = clamp(h.turn || 0, -.7/Tst, .7/Tst);
   // pelvis: swings with the legs, drops onto the swing side, bobs (up at mid-stance walking, down running)
   let dy = lerp(-.012 + .012*mid, -.035 - .006*Math.min(v, 8) - .022*mid, R);
   const feet = [];
   for (const s of [1, -1]){
-    const p = s > 0 ? pL : (pL + .5) % 1, x = s*(D.hipX - .004 - .022*R);
-    let z, y, pitch, toe;
+    const p = s > 0 ? pL : (pL + .5) % 1;
+    let x = s*(D.hipX - .004 - .022*R), z, y, pitch, toe;
     if (p < duty){ [z, y, pitch, toe] = stancePose(p/duty, zc0 - p/duty*Ds, R); }
     else {
       const u = (p - duty)/(1 - duty), A = stancePose(1, zc0 - Ds, R), Bp = stancePose(0, zc0, R);
@@ -1385,6 +1408,17 @@ function loco(h, T, st, dt){
       y = lerp(A[1], Bp[1], u) + G.lift*lerp(Math.sin(Math.PI*u), Math.sin(Math.PI*(1 - Math.pow(1 - u, 1.4))), R);   // running: up early, set down softly
       pitch = lerp(A[2], Bp[2], sstep(0, 1, u)) + lerp(-.18, .35, R)*Math.sin(Math.PI*u);
       toe = lerp(-A[2], 0, sstep(0, .4, u));                         // carries on from toe-off: no flick
+    }
+    if (om){
+      // where the straight-line stride puts the foot τ s from mid-stance, moved to where the same spot on the ground is
+      // for a body going round the bend (stance); the swing carries the difference from lift-off to landing
+      const tAt = q => (q - .5)*Tst;
+      if (p < duty) [x, z] = turnFix(x, z, tAt(p/duty), v, om);
+      else {
+        const u = (p - duty)/(1 - duty), A = stancePose(1, zc0 - Ds, R), Bp = stancePose(0, zc0, R);
+        const a = turnFix(x, A[0], tAt(1), v, om), b = turnFix(x, Bp[0], tAt(0), v, om), k = sstep(0, 1, u);
+        x += lerp(a[0] - x, b[0] - x, k); z += lerp(a[1] - A[0], b[1] - Bp[0], k);
+      }
     }
     // how much this foot holds the hips down: fully while planted, easing out after toe-off and back in before landing
     const hold = p < duty ? 1 : (u => Math.max(1 - sstep(0, .35, u), sstep(.55, 1, u)))((p - duty)/(1 - duty));
@@ -1409,6 +1443,13 @@ function loco(h, T, st, dt){
     R3(T, fa, -(e0 + .25*R*(1 - c)/2 + .1*(1 - R)*(1 - c)/2), -s*(.25 + .2*R), 0);
     R3(T, hd, lerp(.1, -.05, R), 0, 0);
   }
+}
+/* a spot on the ground at (x, z) in the body's frame τ s from mid-stance as the straight-line stride has it (the body
+   gone v·τ straight on), for a body turning at om rad/s instead: the body has gone round an arc and turned with it */
+function turnFix(x, z, tau, v, om){
+  const a = om*tau, X = x, Z = z + v*tau, k = Math.abs(a) < 1e-6 ? 1 : Math.sin(a)/a, kc = Math.abs(a) < 1e-6 ? a/2 : (1 - Math.cos(a))/a;
+  const dX = X - v*tau*kc, dZ = Z - v*tau*k, c = Math.cos(a), sn = Math.sin(a);
+  return [dX*c - dZ*sn, dX*sn + dZ*c];
 }
 // standing ↔ moving: the stride fades in and out over a third of a second, whatever the speed asks for,
 // and a first step starts from the foot that is already under the body (no frame-one jump into mid-stride)
@@ -1508,10 +1549,14 @@ function celebrate(h, T, st){
 }
 const _Ms = new THREE.Matrix4(), _Hv = new THREE.Vector3(), _Dv = new THREE.Vector3(), _Uv = new THREE.Vector3();
 const STRETCHES = [
-  (h, T) => {                                                                       // quad: heel to the backside
-    const D = h.D; T[61] = -.01; R3(T, B.spine, .06); legIK(h, T, 1, D.hipX - .02, D.ankY, 0, 0);
-    const [th, sh, ft] = LEG(-1); R3(T, th, .2, 0, -.03); R3(T, sh, 2.25); R3(T, ft, .7);
-    R3(T, ARM(-1)[0], .62, 0, -.18); R3(T, ARM(-1)[1], -.4, 0, 0); R3(T, ARM(1)[0], -.1, 0, .55); R3(T, ARM(1)[1], -.3);
+  (h, T) => {                                                                       // quad: heel to the backside, held there
+    const D = h.D; T[61] = -.015; R3(T, B.spine, .07, 0, -.05); R3(T, B.chest, .02, 0, -.04); legIK(h, T, 1, D.hipX - .02, D.ankY, 0, 0);
+    const [th, sh, ft] = LEG(-1); R3(T, th, .12, 0, -.03); R3(T, sh, 2.5); R3(T, ft, .8);
+    // the right hand round the top of the raised foot (the wrist just behind the instep, the fingers over it), the left
+    // arm out to the side for balance
+    frameOf(h, T, ft, _Ms); _Hv.set(0, .085, .045).applyMatrix4(_Ms);
+    armIK(h, T, -1, _Hv.x, _Hv.y, _Hv.z, .6, .35, [.35, .1, -1]);
+    R3(T, ARM(1)[0], -.22, 0, .62); R3(T, ARM(1)[1], -.35); R3(T, ARM(1)[2], 0, 0, .15);
   },
   (h, T) => {                                                                       // hamstring: heel out, fold forward
     const D = h.D; T[61] = -.12; R3(T, B.hips, .35); R3(T, B.spine, .45); R3(T, B.chest, .15); R3(T, B.neck, -.3);
@@ -1560,13 +1605,35 @@ function sit(h, T, st, typing){
     plantHand(h, T, s, _Hv.x, _Hv.y, _Hv.z, _Dv.set(-e[4] - s*.18, -e[5], -e[6]), _Uv.set(e[8], e[9], e[10]), [.5, -.3, -.8]);
   }
 }
-// standing at a counter (or leaning on a desk), both hands flat on the top: the body leans in as far as it must
+/* standing at a counter (or leaning on a desk), both hands flat on the top, a hip's width apart, the elbows soft. The
+   body leans in only as far as it must, and never more than ~12° (st.lean, radians, overrides; a desk or counter below
+   hip height lets it lean a little further, as you would to put your hands on a low table). A top too far off for that
+   is met as near as the arms reach. st.work: busy at it (the barista) — one hand wiping in small circles, then the
+   other moving something along the top, now and then both still, head down over the work */
 function counter(h, T, st){
   idle(h, T, st);
-  const D = h.D, sc = h.scale || 1, wy = (st.counter || 1.0)/sc + PALM + .003, reach = (st.reach || .34)/sc, wx = D.shX*.95;
-  T[60] *= .3; T[B.spine*3] += .05; T[B.spine*3 + 1] *= .5; T[B.neck*3 + 1] *= .5; T[B.head*3 + 1] *= .5;
-  leanTo(h, T, wx, wy, reach, () => { for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0); }, .95);
-  for (const s of [1, -1]) plantHand(h, T, s, s*wx, wy, reach, _Dv.set(-s*.28, 0, 1), _UPV, [.45, -.15, -.9]);
+  const D = h.D, sc = h.scale || 1, top = (st.counter || 1.0)/sc, wy = top + PALM + .003, reach = (st.reach || .34)/sc, wx = D.hipX + .07;
+  T[60] *= .3; T[B.spine*3] += .03; T[B.spine*3 + 1] *= .5; T[B.neck*3 + 1] *= .5; T[B.head*3 + 1] *= .5;
+  const most = st.lean != null ? st.lean : .16 + Math.max(0, .95 - top)*2.4;
+  leanTo(h, T, wx, wy, reach, () => { for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0); }, .95, most);
+  let wk = 0;
+  for (const s of [1, -1]){
+    let x = s*wx, z = reach;
+    if (st.work){
+      // a 9 s round: the right hand wipes (0–4 s), both rest (4–5.5 s), the left hand slides a cup across and back (5.5–8 s)
+      const c = (h.t + h.seed*9) % 9, wipe = sstep(0, .4, c)*(1 - sstep(3.6, 4, c)), slide = sstep(5.5, 5.9, c)*(1 - sstep(7.6, 8, c));
+      if (s < 0 && wipe > 0){ const a = h.t*5.2; x += Math.cos(a)*.045*wipe; z += Math.sin(a)*.035*wipe - .02*wipe; }
+      if (s > 0 && slide > 0){ const k = Math.sin((c - 5.5)/2.5*Math.PI); x -= .08*k*slide; z += .05*k*slide; }
+      wk = Math.max(wk, wipe, slide);
+    }
+    // out of reach even leaning in: the hand comes back along the top as far as the (nearly straight) arm needs
+    _V.setFromMatrixPosition(frameOf(h, T, ARM(s)[0], _Ms));
+    const L = .97*(D.elbowL + D.foreL), dx = x - _V.x, dy = wy - _V.y, room = L*L - dx*dx - dy*dy;
+    if (room > 0) z = Math.min(z, _V.z + Math.sqrt(room));
+    plantHand(h, T, s, x, wy, z, _Dv.set(-s*.28, 0, 1), _UPV, [.45, -.15, -.9]);
+  }
+  // eyes on the work (more so while busy)
+  T[B.neck*3] += .1 + .12*wk; T[B.head*3] += .08 + .1*wk;
 }
 function clipboard(h, T, st){
   idle(h, T, st);
@@ -1605,6 +1672,12 @@ export function animateHuman(h, dt, state = "idle"){
   if (!MODES[mode]) mode = "move";
   if (mode !== h.mode){ h.from.set(h.pose); h.bw = 0; h.mode = mode; h.at = 0; h.bdur = 0; }
   h.at += dt; h.t += dt;
+  // how fast the body is being turned (its group's yaw, frame to frame; a jump is a placement, not a turn)
+  if (dt > 0){
+    const ry = h.g.rotation.y;
+    if (h.ry0 != null){ const d = wrap(ry - h.ry0); h.turn += ((Math.abs(d) < .5 ? clamp(d/dt, -4, 4) : 0) - h.turn)*(1 - Math.exp(-15*dt)); }
+    h.ry0 = ry;
+  }
   const T = h.tgt; T.fill(0); h.gw = 0;
   MODES[mode](h, T, st, dt);
   // a change of mode is blended over .3 s, longer when the body has further to go (getting up off the grass)

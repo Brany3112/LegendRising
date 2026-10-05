@@ -56,10 +56,10 @@ export function miniMarket(c){
   const b = {x0:17.5, x1:30, z0:-5.5, z1:3}, H = 4.2;
   // shell: brick on the sides, a big glass front, a flat roof with a parapet
   const brick = 0x9c4e38, BT = {tex:"brick"};
-  wall("x", b.z1 - .125, b.x0, b.x1, 0, H, .25, brick, [[19.9, 21.5, 0, 2.4], [22.2, 29.4, .45, 2.85]], BT);
+  wall("x", b.z1 - .125, b.x0, b.x1, 0, H, .25, brick, [[19.9, 21.5, 0, 2.4], [22.2, 29.4, .45, 2.85, "glass"]], BT);
   wall("x", b.z0 + .125, b.x0, b.x1, 0, H, .25, brick, [], BT);
   wall("z", b.x0 + .125, b.z0, b.z1, 0, H, .25, brick, [], BT);
-  wall("z", b.x1 - .125, b.z0, b.z1, 0, H, .25, brick, [[-3.6, 1.6, .45, 2.85]], BT);
+  wall("z", b.x1 - .125, b.z0, b.z1, 0, H, .25, brick, [[-3.6, 1.6, .45, 2.85, "glass"]], BT);
   roofTop(b, H, {wall:brick, tex:"brick", parapet:.5});
   const ff = facer("+z", b), fs = facer("+x", b);
   pilasters(ff, 12.5, H, [[2.2, 4.2], [4.6, 12.0]]); pilasters(fs, 8.5, H, [[1.3, 6.7]]); pilasters(facer("-x", b), 8.5, H);
@@ -95,7 +95,7 @@ export function miniMarket(c){
   rb(fc, -.5, 1.21, -.12, .32, .22, .03, .02, 0x3d7a5a, {rx:-.3, key:"screen"});
   rb(fc, .55, 1.05, .1, .5, .3, .3, .03, 0xf2c230);                      // a box of chocolate bars
   fsolid(fc, 0, 0, 2.3, .85, 0, 1.05);
-  staffer(18.15, 1.1, Math.PI/2, {role:"shopkeeper", shirt:0x2f7d4a, seed:11, minute:ctx.minute});
+  staffer(18.25, 1.1, Math.PI/2, {role:"shopkeeper", shirt:0x2f7d4a, seed:11, minute:ctx.minute});        // .22 behind the counter (x 18.475)
   // customers: one paying at the till (they come and go through the day), one browsing the middle aisle
   const open = m => m >= 6*60 + 30 && m < 23*60 + 30;
   regulars([
@@ -164,7 +164,7 @@ function decor(id){
     const at = (i, role, seed, typing, when) => { const q = seats[i], d = Math.hypot(q.x - q.table.x, q.z - q.table.z);
       return {role, seed, x:q.x, z:q.z, ry:q.ry, solid:false, when, state:typing ? {mode:"typing", keys:false, seat:q.seat, desk:q.table.top, reach:d - q.table.r + .17} : {mode:"sit", seat:q.seat}}; };
     const span = (...r) => m => { for (let i = 0; i < r.length; i += 2) if (m >= r[i]*60 && m < r[i + 1]*60) return true; return false; };
-    return {title:"CORNER CAFÉ", sub:"COFFEE · CAKES · BREAKFAST", color:"#6b3f22", staff:[8.5, -4.45, 0],
+    return {title:"CORNER CAFÉ", sub:"COFFEE · CAKES · BREAKFAST", color:"#6b3f22", staff:[8.5, -4.22, 0],
       customers:[at(0, "customer", 71, true, span(7.25, 11.5, 14.5, 18.75)), at(3, "customer", 83, false, span(9, 13, 16, 20.5)),
         at(4, "customer", 97, true, span(11.75, 14.75, 17.5, 21)), at(5, "customer", 109, false, span(12, 14.5, 17.25, 20.75))]};
   }
@@ -184,7 +184,7 @@ function decor(id){
     fsolid(f, 0, 0, 3.7, .8, 0, 1.1);
     bike(4.6, -1, 0); bike(4.6, .8, 0);
     for (let i = 0; i < 6; i++) cy(frame(12.6, -2 + i*.45), 0, .4, 0, .12, .12, .07, [0xe2722e, 0xe0a52e, PC.teal][i % 3], {seg:12, rz:Math.PI/2});
-    return {title:"SPORTS CENTRE", sub:"MEMBERSHIPS · CLASSES · GYM", color:"#2f4a6a", staff:[8.5, -4.5, 0]};
+    return {title:"SPORTS CENTRE", sub:"MEMBERSHIPS · CLASSES · GYM", color:"#2f4a6a", staff:[8.5, -4.42, 0]};
   }
   if (id === "academy"){
     for (let i = 0; i < 6; i++) cone(5 + i*1.4, -1 + (i % 2)*.8, i % 2 ? PC.orange : PC.yellow);
@@ -203,12 +203,13 @@ function decor(id){
   }
   // video editing
   for (const x of [5, 9]){
-    const d = desk(x, -3.6, Math.PI, 1.8, 0x3b3f45);
+    const d = desk(x, -3.6, 0, 1.8, 0x3b3f45);          // screens and keyboard face the chair, on the +z side
     const tx = textTex(256, 160, g => { g.fillStyle = "#14171c"; g.fillRect(0, 0, 256, 160); for (let i = 0; i < 6; i++){ g.fillStyle = ["#2c66b8", "#c8463a", "#3f9a52", "#f2c230"][i % 4]; g.fillRect(14 + i*38, 110, 32, 12); } g.fillStyle = "#c8f060"; g.fillRect(14, 132, 228, 3); g.fillStyle = "#2a3646"; g.fillRect(14, 14, 228, 86); });
-    monitor(d, -.4, .77, .05, tx, .55); monitor(d, .4, .77, .05, tx, .55);
-    chair(x, -2.7, Math.PI);
+    monitor(d, -.4, .77, -.12, tx, .55); monitor(d, .4, .77, -.12, tx, .55);
+    rb(d, 0, .77, .18, .44, .018, .14, .006, 0x1d1f22);
+    chair(x, -3.0, Math.PI);          // pulled in to the desk: its near edge .25 ahead of the seat's middle
   }
-  return {title:"CUT & GRADE", sub:"VIDEO EDITING · HIGHLIGHT REELS", color:"#24324a", staff:[9, -2.7, Math.PI], pose:{mode:"typing", seat:.5, desk:.77, reach:.6}, noSolid:true};
+  return {title:"CUT & GRADE", sub:"VIDEO EDITING · HIGHLIGHT REELS", color:"#24324a", staff:[9, -3.0, Math.PI], pose:{mode:"typing", seat:.5, desk:.77, reach:.4}, noSolid:true};
 }
 export function workplace(c){
   ctx = c;
@@ -225,7 +226,7 @@ export function workplace(c){
   for (const sx of [.18, 12.82]) downpipe(ff, sx, H);
   roofTop(b, H, {wall:brick, tex:"brick"});
   // the unit itself: a dark shopfront with a lined door, mullions and a stone sill
-  wall("x", b.z1 - .125, b.x0, b.x1, 0, g0, .25, 0x2a2e33, [[4, 5.6, 0, 2.4], [6.2, 14.4, .45, 2.8]], {key:"metal"});
+  wall("x", b.z1 - .125, b.x0, b.x1, 0, g0, .25, 0x2a2e33, [[4, 5.6, 0, 2.4], [6.2, 14.4, .45, 2.8, "glass"]], {key:"metal"});
   wall("z", b.x0 + .125, -5, b.z1, 0, g0, .25, 0xe6e1d6, [], PT);
   wall("z", b.x1 - .125, -5, b.z1, 0, g0, .25, 0xe6e1d6, [], PT);
   wall("x", -5 + .1, b.x0, b.x1, 0, g0, .2, 0xe6e1d6, [], PT);
@@ -244,6 +245,7 @@ export function workplace(c){
   // where you clock in
   const ci = frame(13.8, -4.75);
   rb(ci, 0, 1.1, 0, .34, .46, .1, .04, 0x23272b);
+  fsolid(ci, 0, 0, .34, .1, 1.1, 1.56);
   const tx = textTex(128, 160, g => { g.fillStyle = "#0e2a1d"; g.fillRect(0, 0, 128, 160); g.fillStyle = "#c8f060"; g.font = "bold 22px sans-serif"; g.textAlign = "center"; g.fillText("CLOCK", 64, 52); g.fillText("IN", 64, 80); g.fillStyle = "#fff"; g.font = "14px sans-serif"; g.fillText("Tap your card", 64, 120); });
   const [wx, wz] = worldPt(ci, 0, .051); label(tx, wx, 1.33, wz, .26, .33, 0, {glow:.8});
   spot({aim:[[13.4, .9, -4.9], [14.2, 1.8, -4.4]], x:13.8, z:-4.2, r:1.6, near:true, label:"Clock in", get hint(){ return `Start a shift · ${typeof jobLabel === "function" ? jobLabel() : "your job"}`; }, hold:.3, run:() => ctx.work()});

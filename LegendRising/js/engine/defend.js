@@ -102,7 +102,7 @@ function updateJockey(dt){
   // he is past you
   if (!goalSide && gap < 2.2 && a.y < p.y - .4) return beaten();
   if (gap > 6.5 && a.y < p.y + 1) return beaten();
-  if (M.defend === "shepherd" && M.press > .55 && M.jockT > 3.2) return endMoment("tackleWin", "Shepherded him away from goal and out of it. Nothing given.");
+  if (M.defend === "shepherd" && M.press > .55 && M.jockT > 3.2){ M.defOut = "shepherd"; return endMoment("tackleWin", "Shepherded him away from goal and out of it. Nothing given."); }
   // the heavy touch — the ball leaves his feet and the window opens
   const chance = dt*(.22 + M.press*1.25);
   if (M.jockT > .9 && Math.random() < chance) return openWindow();
@@ -206,7 +206,7 @@ function tackleWon(){
 function pokeLoose(){
   MT.my.tackles = (MT.my.tackles || 0) + 1;
   skillXP("tackling", 14);
-  flash("Poked clear");
+  flash("Poked clear"); M.defOut = "poke";
   return endMoment("tackleWin", "Not clean, but you got enough on it and the danger is gone.");
 }
 function foulGiven(){
@@ -215,6 +215,7 @@ function foulGiven(){
   const last = M.defend === "last";
   const inBox = M.att.y < 16.5 && Math.abs(M.att.x - 34) < 20;
   const card = bookMe(last ? "red" : inBox ? "yellow" : (Math.random() < .3 ? "yellow" : ""));
+  M.defOut = last ? "red" : inBox ? "pen" : card ? "yellow" : "fk";
   if (last) return endMoment("foul", "You brought him down as the last man. That is a red card.");
   if (inBox) return endMoment("foul", "You caught him inside the box. Penalty.");
   return endMoment("foul", card ? "You went through him. Booked." : "You caught his legs. Free kick.");
@@ -224,7 +225,9 @@ function buildOutlet(){
   const R = MT.roleNames;
   return ["CAM", "LW", "RW", "ST"].map(role => {
     const t = R[role];
-    return {role, name:t.name, pid:t.id, x:clamp(M.p.x + rnd(-14, 14), 3, 65), y:clamp(M.p.y - rnd(6, 16), 4, 40)};
+    const x = clamp(M.p.x + rnd(-14, 14), 3, 65), y = clamp(M.p.y - rnd(6, 16), 4, 40);
+    // nobody has picked them up yet: open, and moving with the ball at the angle they start at
+    return {role, name:t.name, pid:t.id, x, y, st:"open", vx:0, vy:0, ox:x - M.p.x, oy:y - M.p.y};
   });
 }
 

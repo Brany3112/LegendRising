@@ -109,8 +109,8 @@ function renderMatchScreen(){
     <canvas id="pitch" aria-label="Pitch"></canvas>
     <div class="scorebug glass">
       <div class="sb-comp">${esc(compLabel(f))}</div>
-      <div class="sb-row"><span class="sb-team"><i class="dot" style="background:${hk}"></i>${esc(sideName(f,"h"))}</span>
-        <span class="sb-score" id="sc">0 – 0</span><span class="sb-team"><i class="dot" style="background:${ak}"></i>${esc(sideName(f,"a"))}</span></div>
+      <div class="sb-row"><span class="sb-team"><i class="dot" style="background:${hk}"></i><span class="sb-nm" title="${esc(sideName(f,"h"))}">${esc(sideName(f,"h"))}</span></span>
+        <span class="sb-score" id="sc">0 – 0</span><span class="sb-team"><i class="dot" style="background:${ak}"></i><span class="sb-nm" title="${esc(sideName(f,"a"))}">${esc(sideName(f,"a"))}</span></span></div>
       <div class="sb-min" id="mn">Pre-match</div>
     </div>
     <div class="match-hud glass">
@@ -321,8 +321,20 @@ function showPre(e){
   const dh = MT.dream && DREAM_HINT[e.type] ? `<p class="dream-hint">✨ ${DREAM_HINT[e.type]}</p>` : "";
   card(`<div class="eyebrow">${esc(MT.label)}</div><h2>${esc(momentTitle(e.type))}</h2><p>${esc(DESC[e.type] || "")}</p>${dh}${help}<button class="btn" onclick="A.playMoment()">Play</button>`);
 }
+// a pass you played this moment: the attempt, and the completion if it found its man (whatever happened next)
+function notePass(){
+  const my = MT.my;
+  if (M.isPass && !M.passCounted){ my.passAtt++; M.passCounted = true; }
+  if (M.passDone && !M.passLogged){
+    M.passLogged = true;
+    const long = M.passDone.len >= 22; if (long) my.lpass++; else my.spass++;
+    say(`${S.player.name} finds ${esc(M.passDone.name)} — ${long ? "lovely long ball" : "crisp pass"}.`);
+  }
+}
 function momentOver(){
-  const my = MT.my, r = M.result, sh = M.shot, ai = M.ai;
+  const my = MT.my, r = M.result, ai = M.ai;
+  // only a ball you struck at goal is your shot: a pass you played, or one a team-mate hit, is not
+  const sh = M.shot && (M.myShot || M.shooting) ? M.shot : null;
   my.dribbles += M.dribbles;
   // skill experience for what you just did
   if (!MT.dream){
@@ -342,19 +354,24 @@ function momentOver(){
   let title = "", text = M.resultText, hl = null;
   // defending: winning it, being beaten, or giving one away
   if (r === "tackleWin" || r === "beaten" || r === "foul"){
-    if (r === "tackleWin"){ title = M.type === "aerial" ? "WON THE HEADER" : M.type === "intercept" ? "READ IT" : "WON THE BALL"; }
-    else if (r === "beaten"){ my.beaten++; title = "BEATEN"; }
-    else { title = MT.sentOff ? "SENT OFF" : my.cards ? "BOOKED" : "FOUL"; }
-    const ic = r === "tackleWin" ? "🛡" : r === "foul" ? "🟨" : "⚠";
-    hl = {icon:ic, kind:r, text:`${title.toLowerCase()} · ${M.type === "aerial" ? "aerial duel" : M.type === "intercept" ? "interception" : "tackle"}`};
+    const air = M.type === "aerial", read = M.type === "intercept", o = M.defOut || "";
+    let line;
+    if (r === "tackleWin"){
+      title = air ? "WON THE HEADER" : read ? "READ IT" : o === "shepherd" ? "HELD HIM UP" : "WON THE BALL";
+      line = air ? "Won the header and cleared it" : read ? "Read the pass: interception" : o === "shepherd" ? "Shepherded him away from goal"
+        : o === "poke" ? "Poked it clear with a tackle" : "Won the ball with a tackle";
+    } else if (r === "beaten"){
+      my.beaten++; title = "BEATEN";
+      line = air ? "Beaten in the air" : read ? "Too late to cut out the pass" : M.defend === "last" ? "Beaten as the last man" : "Beaten one-on-one";
+    } else {
+      title = o === "red" ? "SENT OFF" : o === "yellow" || o === "pen" ? "BOOKED" : "FOUL";
+      line = o === "red" ? "Sent off for a last-man foul" : o === "pen" ? "Booked, and a penalty given away" : o === "yellow" ? "Booked for a foul" : "Gave away a free kick";
+    }
+    const ic = r === "tackleWin" ? "🛡" : r === "foul" ? (o === "red" ? "🟥" : o === "fk" ? "⚠" : "🟨") : "⚠";
+    hl = {icon:ic, kind:r, text:line};
   }
   const mate = ai ? W.players[ai.mate.pid] : null;
-  if (M.isPass && !M.passCounted){ my.passAtt++; M.passCounted = true; }
-  if (M.passDone && !M.passLogged){                       // the pass found its man, whatever happened next
-    M.passLogged = true;
-    const long = M.passDone.len >= 22; if (long) my.lpass++; else my.spass++;
-    say(`${S.player.name} finds ${esc(M.passDone.name)} — ${long ? "lovely long ball" : "crisp pass"}.`);
-  }
+  notePass();
   if (M.deflectTo && ai){
     // your shot cannoned off a defender into a team-mate's path; what happened next is his
     my.shots++;
@@ -367,10 +384,11 @@ function momentOver(){
       // the pass arrived; what happened next is your team-mate's run and shot
       const long = M.passLen >= 22, t = M.passTo;
       if (r === "goal"){
+        const fin = M.shot ? M.shot.dist : Math.hypot(M.ball.x - 34, M.ball.y);     // where he hit it from
         my.assists++; MT.score[0]++; MT.usGoals.push({s:mate.id, a:S.meId});
-        title = "ASSIST!"; text = `${sname(mate)} drives on and finishes from ${Math.round(sh.dist)}m. What a ball from ${S.player.name}!`;
+        title = "ASSIST!"; text = `${sname(mate)} drives on and finishes from ${Math.round(fin)}m. What a ball from ${S.player.name}!`;
         say(`GOAL! ${sname(mate)} scores — assisted by ${S.player.name}. ${scoreText()}`, "goal");
-        hl = {icon:"🅰", kind:"assist", text:`Assist · pass to ${t.role} ${sname(mate)} · ${Math.round(M.passLen)}m ball, finished from ${Math.round(sh.dist)}m`};
+        hl = {icon:"🅰", kind:"assist", text:`Assist · pass to ${t.role} ${sname(mate)} · ${Math.round(M.passLen)}m ball, finished from ${Math.round(fin)}m`};
       } else {
         title = long ? "Great long ball" : "Pass completed";
         const end = {saved:`${sname(mate)}'s shot is saved.`, miss:`${sname(mate)} drags it wide.`, post:`${sname(mate)} hits the post!`, bar:`${sname(mate)} rattles the bar!`, blocked:`${sname(mate)}'s shot is blocked.`, aiLost:M.resultText}[r] || `${sname(mate)} keeps the move alive.`;
@@ -398,6 +416,11 @@ function momentOver(){
       say(`${S.player.name}: ${M.resultText}`);
       hl = {icon:r === "saved" ? "🧤" : "✖", kind:"shot", text:`Shot from ${Math.round(sh.dist)}m · ${title.toLowerCase()}${wood}${M.gaveBack ? ` · after a one-two with ${esc(M.gaveBack.name)}` : ""}`};
     }
+  } else if (M.gaveBack){
+    // he gave it back and it went no further: the one-two broke down before you could get a shot away
+    my.lost++; title = "Lost it";
+    say(`${esc(M.gaveBack.name)} plays it back to ${S.player.name}, but the one-two breaks down.`);
+    hl = {icon:"✖", kind:"lost", text:`One-two with ${M.gaveBack.role} ${esc(M.gaveBack.name)} broke down`};
   } else { if (r === "lost") my.lost++; title = "Lost it"; say(`${S.player.name} loses the ball.`); }
   if (M.injury){ meP().inj = M.injury; title = "Injured"; text += ` You're hurt and have to come off — out for about ${M.injury} week${M.injury > 1 ? "s" : ""}.`; MT.events = MT.events.filter((e, i) => i <= MT.i || e.kind !== "moment"); say(`${S.player.name} goes down injured and is replaced.`, "bad"); }
   const stamF = staminaF();
@@ -409,6 +432,13 @@ function momentOver(){
     MT.events.splice(MT.i + 1, 0, {min:MT.minute, kind:"moment", type:"corner", chained:true});
   updateBoard(); updateMatchHUD();
   NEED_DRAW = true;
+  // the team's numbers on the full-time card include what happened in your moments, not only the simulated play
+  if (MT.stats && !MT.dream){
+    const st = MT.stats, aiShot = !!(M.shot && M.shot.ai) && ["goal", "saved", "miss", "post", "bar", "blocked", "corner"].includes(r);
+    st.shots[0] += (M.deflectTo && ai ? 1 : sh ? Math.max(1, M.shotCount || 1) : 0) + (aiShot ? 1 : 0);
+    if (r === "corner") st.corners[0]++;
+    if (r === "foul" && (M.defOut === "yellow" || M.defOut === "pen")) st.cards[0]++;            // the card row counts yellows
+  }
   const scored = r === "goal";
   if (hl) MT.highlights.push(Object.assign({min:MT.minute, rec:M.rec}, hl));
   const rec = M.rec, label = hl ? hl.text : "";
@@ -429,6 +459,7 @@ function finishMatch(){
   clearTimeout(MT.timer); MT.running = false;
   matchSkillsOff();
   if (MT.dream) return wakeUp();
+  MT.holdToasts = true;          // the full-time card is coming: what full time toasts waits until you leave (ui/main.js)
   if (MT.stad.crowd >= 8000 && Math.random() < .35 && S.skills.composure < 99){ S.skills.composure++; toast("Big-game experience: Composure +1", "good"); }
   const my = MT.my, [us, th] = MT.score, res = us > th ? "W" : us < th ? "L" : "D", f = MT.f, me = meP();
   // marked for the job you were given: a defender is judged on keeping them out and using the ball,
@@ -523,6 +554,7 @@ function finishMatch(){
     ${aroundHtml ? `<div class="eyebrow" style="margin-top:12px">Around the league</div><div class="around">${aroundHtml}</div>` : ""}
     <div class="row gap8 center">${motm ? `<button class="btn ghost" onclick="openSheet('press')">🎙 Talk to the press</button>` : ""}<button class="btn" onclick="A.leaveMatch()">Continue</button></div>`, "ft");
   MT.ftCard();
+  MT.holdToasts = false;
   setTimeout(() => odoRun($("#ov")), 260);      // let the card settle, then roll the numbers
 }
 

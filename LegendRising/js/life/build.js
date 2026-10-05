@@ -453,6 +453,12 @@ export function wall(axis, fixed, a, b, y0, y1, t, color, holes = [], o = {}){
       if (o.solid !== false) axis === "x" ? solid(c.s0, c.s1, fixed - t/2, fixed + t/2, h0, h1) : solid(fixed - t/2, fixed + t/2, c.s0, c.s1, h0, h1);
     }
   });
+  // a glazed hole (a fifth entry "glass": a shop window, the glass laid in it by whoever cut it) is open to the eye
+  // but not to your body: it blocks like the wall round it
+  if (o.solid !== false) for (const h of holes) if (h[4] === "glass"){
+    const s0 = Math.max(a, h[0]), s1 = Math.min(b, h[1]), q0 = Math.max(y0, h[2]), q1 = Math.min(y1, h[3]);
+    if (s1 > s0 && q1 > q0) axis === "x" ? solid(s0, s1, fixed - t/2, fixed + t/2, q0, q1) : solid(fixed - t/2, fixed + t/2, s0, s1, q0, q1);
+  }
 }
 // a box without the faces that look along the given directions: [[axis index (0 x, 1 y, 2 z), sign], ...]
 function openEnds(geo, drop){

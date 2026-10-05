@@ -11,7 +11,7 @@
    Everyone who moves is drawn without a sun shadow (the shadow map is not redrawn every frame): the blob under
    them grounds them. People who come and go with the time of day only do it where you can't see them. */
 import {THREE, W, solid} from "./build.js";
-import {human, animateHuman, lookFor, playerRig, hashStr, rng, CONTACT, BONE, VIEW} from "./human.js";
+import {human, animateHuman, lookFor, playerRig, hashStr, rng, CONTACT, BONE, VIEW, onFirstView} from "./human.js";
 export {human, animateHuman, lookFor, playerRig, CONTACT, BONE, VIEW};
 
 const col = c => c == null ? null : typeof c === "number" ? c : new THREE.Color().setStyle(String(c)).getHex();
@@ -49,17 +49,33 @@ export function animate(p, dt, mode, speed = 1){
 const PITCH_LITTER = [[-1.5, -6.15, .3], [-1.5, -5.05, .3], [-1.5, -8.15, .3], [-1.5, -7.05, .3], [-1.5, -10.15, .3], [-1.5, -9.05, .3],
   [-17, -9, .3], [-17, -11, .3], [-15, -9, .3], [-15, -11, .3], [18, -8.5, .3], [-6.4, -20.4, .2], [6.8, -18.7, .2], [-9.5, -16.6, .9],
   [-9.5, -15, .7], [0, -15, .7], [15, -13.5, .7], [5.5, -7.6, .7]];
-// how close a segment a→b comes to the things in the way (solids standing on the floor, and round markers)
+/* the drills' own lanes, which nobody should stand in or pass a ball across (ground.js DRILLS and RINGS): the passing
+   drill's line from its spot to each ring, the shots from the shooting spot at the goal mouth, the heading machine's
+   lob and the header back at the goal, the interception machine's passes. ground.js may pass its own as o.lanes
+   ({a:[x, z], b:[x, z], r}: keep r + the lane's need off the line) and o.rings ([x, z] — the painted rings, 1.3 m) */
+const RINGS_AT = [[-9, -8.5], [9.5, -21.5], [-11, -22], [10, -9.2], [-3.5, -23.5], [4, -6.8]];
+const DRILL_LANES = [...RINGS_AT.map(([x, z]) => ({a:[0, -15], b:[x, z], r:.7})), ...[-18.5, -15, -11.5].map(gz => ({a:[-9.5, -15], b:[-21.5, gz], r:.7})),
+  {a:[19.1, -23.8], b:[15, -13.5], r:.7}, {a:[15, -13.5], b:[21.5, -15], r:.7}, {a:[12.5, -7.6], b:[-2, -7.6], r:.7}];
+const segPt = (px, pz, ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, L = dx*dx + dz*dz || 1, t = Math.max(0, Math.min(1, ((px - ax)*dx + (pz - az)*dz)/L)); return Math.hypot(ax + dx*t - px, az + dz*t - pz); };
+// how close a segment a→b comes to the things in the way (solids standing on the floor, round markers [x, z, r], and
+// lanes {a, b, r})
 function clearance(ax, az, bx, bz, avoid){
   let m = 1e9;
-  const segPt = (px, pz) => { const dx = bx - ax, dz = bz - az, L = dx*dx + dz*dz || 1, t = Math.max(0, Math.min(1, ((px - ax)*dx + (pz - az)*dz)/L)); return Math.hypot(ax + dx*t - px, az + dz*t - pz); };
+  const n = Math.ceil(Math.hypot(bx - ax, bz - az)/.25) + 1;
   for (const q of W.solids){
     if (q.off || q.y0 > 1.6 || q.y1 < .05) continue;
     // distance from the segment to the box: sample along the segment (boxes here are small next to the lanes)
-    const n = Math.ceil(Math.hypot(bx - ax, bz - az)/.25) + 1;
     for (let i = 0; i <= n; i++){ const x = ax + (bx - ax)*i/n, z = az + (bz - az)*i/n; m = Math.min(m, Math.hypot(Math.max(q.x0 - x, 0, x - q.x1), Math.max(q.z0 - z, 0, z - q.z1))); }
   }
-  for (const [x, z, r] of avoid) m = Math.min(m, segPt(x, z) - r);
+  for (const o of avoid){
+    if (Array.isArray(o)){ m = Math.min(m, segPt(o[0], o[1], ax, az, bx, bz) - o[2]); continue; }
+    // a lane: the nearer of the two segments' ends to the other one, or zero where they cross
+    const [cx, cz] = o.a, [dx, dz] = o.b;
+    let d = Math.min(segPt(ax, az, cx, cz, dx, dz), segPt(bx, bz, cx, cz, dx, dz), segPt(cx, cz, ax, az, bx, bz), segPt(dx, dz, ax, az, bx, bz));
+    const cr = (px, pz, qx, qz, rx, rz) => (qx - px)*(rz - pz) - (qz - pz)*(rx - px);
+    if (cr(ax, az, bx, bz, cx, cz)*cr(ax, az, bx, bz, dx, dz) < 0 && cr(cx, cz, dx, dz, ax, az)*cr(cx, cz, dx, dz, bx, bz) < 0) d = 0;
+    m = Math.min(m, d - o.r);
+  }
   return m;
 }
 // slide a lane sideways (perpendicular to it) until it's clear by `need`; the nearest clear spot wins.
@@ -88,8 +104,9 @@ function sideProfile(A, B, inN, obst){
   const OFF = []; for (let o = -OUT; o <= MAXIN + 1e-6; o += .1) OFF.push(+o.toFixed(2));
   const K = OFF.length, S = K*2, ob = obst.map(o => { const px = o[0] - A.x, pz = o[1] - A.z; return [px*tx + pz*tz, px*inN.x + pz*inN.z, o[2], o[3]]; }).filter(o => o[0] > -2 && o[0] < L + 2);
   const blocked = (u, off, half) => { for (const [uo, lo, r, pitchSide] of ob){ const du2 = u - uo;
-    if (Math.hypot(du2, off - lo) < r + half + .08) return true;
-    if (pitchSide && off < lo && Math.abs(du2) < r + half + .5) return true; } return false; };
+    if (Math.hypot(du2, off - lo) < r + half + .14) return true;
+    // (only a person standing by THIS straight: one across the pitch from it is no reason to block it all)
+    if (pitchSide && off < lo && lo < MAXIN + r + half + 1 && lo > -OUT - r - half - 1 && Math.abs(du2) < r + half + .5) return true; } return false; };
   const cost = new Float64Array(N*S).fill(Infinity), from = new Int32Array(N*S).fill(-1);
   for (let i = 0; i < N; i++){
     const u = Math.min(L, i*du);
@@ -111,43 +128,82 @@ function sideProfile(A, B, inN, obst){
   const offs = new Float32Array(N), wids = new Float32Array(N).fill(1);
   let end = -1, bc = Infinity; for (let st = 0; st < S; st++) if (cost[(N - 1)*S + st] < bc){ bc = cost[(N - 1)*S + st]; end = (N - 1)*S + st; }
   for (let i = N - 1, p = end; i >= 0 && p >= 0; i--, p = from[p]){ const st = p - i*S; offs[i] = OFF[st % K]; wids[i] = st >= K ? 0 : 1; }
-  // smoothed a little, read between samples
-  const sm = a => a.map((v, i) => (a[Math.max(0, i - 1)] + 2*v + a[Math.min(N - 1, i + 1)])/4);
-  const O = sm(offs), Wd = sm(wids.map((v, i) => Math.min(v, wids[Math.max(0, i - 1)], wids[Math.min(N - 1, i + 1)])));
-  const read = (a, u) => { const f = Math.max(0, Math.min(N - 1, u/du)), i = Math.min(N - 2, Math.floor(f)); return a[i] + (a[i + 1] - a[i])*(f - i); };
+  // smoothed over a couple of metres (a runner eases across and closes up over a few strides, so his feet keep their
+  // grip), read between samples. The narrow stretches are widened by three metres each way first (and eased in and out over a few more), so the group has
+  // closed up before it reaches what it closes up for
+  const sm = a => a.map((v, i) => (a[Math.max(0, i - 1)] + 2*v + a[Math.min(N - 1, i + 1)])/4), sm3 = a => sm(sm(sm(a)));
+  const O = sm3(offs), Wd = sm3(sm3(wids.map((v, i) => { let m = v; for (let j = Math.max(0, i - 6); j <= Math.min(N - 1, i + 6); j++) m = Math.min(m, wids[j]); return m; })));
+  // (a Catmull-Rom curve through the samples: no kink at each one, so a runner's heading never jumps)
+  const read = (a, u) => { const f = Math.max(0, Math.min(N - 1, u/du)), i = Math.max(0, Math.min(N - 2, Math.floor(f))), t = f - i;
+    const p0 = a[Math.max(0, i - 1)], p1 = a[i], p2 = a[i + 1], p3 = a[Math.min(N - 1, i + 2)], t2 = t*t, t3 = t2*t;
+    return .5*(2*p1 + (p2 - p0)*t + (2*p0 - 5*p1 + 4*p2 - p3)*t2 + (3*p1 - p0 - 3*p2 + p3)*t3); };
   return {L, off:u => read(O, u), wid:u => read(Wd, u)};
 }
-function lapLoop(x0, x1, z0, z1, R, obst){
+/* the corners are quarter circles, each as tight as it may be: a corner with something standing in it (the heading
+   drill's ball machine) is drawn wider, its arc and the ends of the straights either side of it kept clear of every
+   obstacle by CLEAR past the group's width. The straights' swerves fade out over the 1.5 m next to each corner. */
+const CLEAR = .35, FADE = 1.5;
+function lapLoop(x0, x1, z0, z1, R0, obst){
   // near side (z1) left→right, down the right side, back along the far side (z0), up the left side
   const SIDES = [[{x:x0, z:z1}, {x:x1, z:z1}, {x:0, z:-1}], [{x:x1, z:z1}, {x:x1, z:z0}, {x:-1, z:0}], [{x:x1, z:z0}, {x:x0, z:z0}, {x:0, z:1}], [{x:x0, z:z0}, {x:x0, z:z1}, {x:1, z:0}]];
   const prof = SIDES.map(([A, B, n]) => sideProfile(A, B, n, obst));
-  const P = [], c = [[x1 - R, z1 - R], [x1 - R, z0 + R], [x0 + R, z0 + R], [x0 + R, z1 - R]];
-  const ln = [[[x0 + R, z1], [x1 - R, z1]], [[x1, z1 - R], [x1, z0 + R]], [[x1 - R, z0], [x0 + R, z0]], [[x0, z0 + R], [x0, z1 - R]]];
+  // corner i is the end of side i and the start of side i + 1: its point, and the way in from it along x and z
+  const CN = [[x1, z1, -1, -1], [x1, z0, -1, 1], [x0, z0, 1, 1], [x0, z1, 1, -1]];
+  const tp = (u, Rs, Re, L) => ss(Rs, Rs + FADE, u)*ss(Re, Re + FADE, L - u);
+  const hits = (x, z, half) => { for (const o of obst) if (Math.hypot(x - o[0], z - o[1]) < o[2] + half + CLEAR) return true; return false; };
+  const Rc = [R0, R0, R0, R0], RMAX = Math.min((x1 - x0)/2.2, (z1 - z0)/2.2, 9);
+  // the straight k at distance u from its start, with its swerve (for the corner test)
+  const onSide = (k, u, R, out) => {
+    const [A, B, n] = SIDES[k], pr = prof[k], L = pr.L, Rs = k === 0 ? Rc[3] : Rc[k - 1], Re = Rc[k], f = tp(u, Rs, Re, L), o = pr.off(u)*f;
+    out.x = A.x + (B.x - A.x)*u/L + n.x*o; out.z = A.z + (B.z - A.z)*u/L + n.z*o; out.half = ONE + (HALF - ONE)*(1 - (1 - pr.wid(u))*f);
+    return out;
+  };
+  const tmp = {};
   for (let i = 0; i < 4; i++){
-    const [p, q] = ln[i]; P.push({line:true, p, q, len:Math.hypot(q[0] - p[0], q[1] - p[1])});
-    P.push({line:false, c:c[i], a0:i*Math.PI/2, len:R*Math.PI/2});
+    const [cx, cz, sx, sz] = CN[i];
+    const blocked = R => {
+      Rc[i] = R;
+      const ox = cx + sx*R, oz = cz + sz*R;
+      for (let k = 0; k <= 16; k++){ const a = k/16*Math.PI/2; if (hits(ox - sx*R*Math.sin(a), oz - sz*R*Math.cos(a), HALF)) return true; }
+      // and the fading ends of the two straights either side
+      const kIn = i, kOut = (i + 1) % 4, Lin = prof[kIn].L;
+      for (let u = 0; u <= FADE + 1e-6; u += .25){
+        onSide(kIn, Lin - R - u, R, tmp); if (hits(tmp.x, tmp.z, tmp.half)) return true;
+        onSide(kOut, R + u, R, tmp); if (hits(tmp.x, tmp.z, tmp.half)) return true;
+      }
+      return false;
+    };
+    let R = R0; while (R < RMAX && blocked(R)) R += .1;
+    Rc[i] = R;
+  }
+  const P = [], c = CN.map(([cx, cz, sx, sz], i) => [cx + sx*Rc[i], cz + sz*Rc[i]]);
+  const ln = [[[x0 + Rc[3], z1], [x1 - Rc[0], z1]], [[x1, z1 - Rc[0]], [x1, z0 + Rc[1]]], [[x1 - Rc[1], z0], [x0 + Rc[2], z0]], [[x0, z0 + Rc[2]], [x0, z1 - Rc[3]]]];
+  for (let i = 0; i < 4; i++){
+    const [p, q] = ln[i]; P.push({line:true, p, q, len:Math.hypot(q[0] - p[0], q[1] - p[1]), k:i, Rs:i === 0 ? Rc[3] : Rc[i - 1], Re:Rc[i]});
+    P.push({line:false, c:c[i], R:Rc[i], a0:i*Math.PI/2, len:Rc[i]*Math.PI/2});
   }
   const total = P.reduce((t, q) => t + q.len, 0);
   const base = (s, out) => {
     s = ((s % total) + total) % total; let i = 0; while (s > P[i].len && i < P.length - 1){ s -= P[i].len; i++; }
     const q = P[i];
-    out.w = 1;
+    out.w = 1; out.left = q.len - s;
     if (q.line){
-      const f = s/(q.len || 1), k = i >> 1, pr = prof[k], u = R + s, tp = ss(R*.4, R + .8, u)*ss(R*.4, R + .8, pr.L - u), n = SIDES[k][2];
-      const o = pr.off(u)*tp;
-      out.x = q.p[0] + (q.q[0] - q.p[0])*f + n.x*o; out.z = q.p[1] + (q.q[1] - q.p[1])*f + n.z*o; out.side = k; out.w = 1 - (1 - pr.wid(u))*tp;
-    } else { const a = q.a0 + s/R; out.x = q.c[0] + R*Math.sin(a); out.z = q.c[1] + R*Math.cos(a); out.side = -1; }
+      const f = s/(q.len || 1), k = q.k, pr = prof[k], u = q.Rs + s, t = tp(u, q.Rs, q.Re, pr.L), n = SIDES[k][2];
+      const o = pr.off(u)*t;
+      out.x = q.p[0] + (q.q[0] - q.p[0])*f + n.x*o; out.z = q.p[1] + (q.q[1] - q.p[1])*f + n.z*o; out.side = k; out.w = 1 - (1 - pr.wid(u))*t;
+    } else { const a = q.a0 + s/q.R; out.x = q.c[0] + q.R*Math.sin(a); out.z = q.c[1] + q.R*Math.cos(a); out.side = -1; }
     return out;
   };
   const A = {}, Bq = {};
-  return {total, prof, at(s, out){
+  return {total, prof, R:Rc, at(s, out){
     base(s, out); base(s - .15, A); base(s + .15, Bq);
     const dx = Bq.x - A.x, dz = Bq.z - A.z, l = Math.hypot(dx, dz) || 1; out.ux = dx/l; out.uz = dz/l;
     return out;
   }};
 }
 export function teamSession(o){
-  // o: {kit:[a,b], when:() => bool, centre:{x,z}, coach:{x,z,ry}, ballMesh:() => Mesh, lap?:[{x,z}...], avoid?:[[x,z,r]...]}
+  // o: {kit:[a,b], when:() => bool, centre:{x,z}, coach:{x,z,ry}, ballMesh:() => Mesh, lap?:[{x,z}...], avoid?:[[x,z,r]...],
+  //     pairs?:[[{x,z}, {x,z}, bib]...], lanes?:[{a:[x,z], b:[x,z], r}...], rings?:[[x,z]...]}
   const root = new THREE.Group(); W.scene.add(root);
   const [a, b] = o.kit || ["#2c66b8", "#ffffff"];
   const base = hashStr(String(a) + String(b)) % 100000, r = rng(base + 11);
@@ -156,11 +212,16 @@ export function teamSession(o){
   let k = 0;
   const player = extra => human(lookFor("footballer", base + 31*(++k), Object.assign({kit:[a, b, a], number:nums[k]}, extra)));
   const actors = [], c = o.centre;
-  const avoid = [...(o.avoid || PITCH_LITTER), [o.coach.x, o.coach.z, .6]];
-  // the passing pairs, facing each other across an open strip
-  const lanes = o.pairs || [[{x:c.x - 7, z:c.z - 7}, {x:c.x - 1.6, z:c.z - 7}, false], [{x:c.x + 3.5, z:c.z - 4.2}, {x:c.x + 9.5, z:c.z - 4.2}, "#d8ff3a"]];
+  const avoid = [...(o.avoid || PITCH_LITTER), [o.coach.x, o.coach.z, .6]], rings = o.rings || RINGS_AT;
+  // the drills' lanes and rings: a pair stands, and passes, at least 1.6 m off any line a drill's ball travels and
+  // 2.3 m from the middle of a ring
+  const drillAvoid = [...(o.lanes || DRILL_LANES), ...rings.map(([x, z]) => [x, z, 1.4])];
+  // the passing pairs, facing each other across an open strip: out of the way of every drill, in the two far
+  // quarters of the pitch (left of the centre circle behind the shooting drill's mannequins, and right of it
+  // short of the heading drill's ball machine)
+  const lanes = o.pairs || [[{x:-16.3, z:-21.35}, {x:-11.65, z:-18.65}, false], [{x:15.85, z:-21.85}, {x:13.15, z:-17.15}, "#d8ff3a"]];
   for (const [p1, p2, bib] of lanes){
-    const sh = clearLane(p1, p2, .9, avoid), L = Math.hypot(p2.x - p1.x, p2.z - p1.z) || 1, nx = -(p2.z - p1.z)/L*sh, nz = (p2.x - p1.x)/L*sh;
+    const sh = clearLane(p1, p2, .9, [...avoid, ...drillAvoid]), L = Math.hypot(p2.x - p1.x, p2.z - p1.z) || 1, nx = -(p2.z - p1.z)/L*sh, nz = (p2.x - p1.x)/L*sh;
     const P = [player({bib, training:!!bib}), player({bib, training:!!bib})];
     P[0].g.position.set(p1.x + nx, 0, p1.z + nz); P[1].g.position.set(p2.x + nx, 0, p2.z + nz);
     P[0].g.rotation.y = Math.atan2(p2.x - p1.x, p2.z - p1.z); P[1].g.rotation.y = Math.atan2(p1.x - p2.x, p1.z - p2.z);
@@ -179,6 +240,8 @@ export function teamSession(o){
   const x0 = Math.min(...lp.map(p => p.x)), x1 = Math.max(...lp.map(p => p.x)), z0 = Math.min(...lp.map(p => p.z)), z1 = Math.max(...lp.map(p => p.z));
   const obst = avoid.map(([x, z, r]) => [x, z, r, 0]);
   obst.push([o.coach.x, o.coach.z, .75, 1]);
+  // the painted rings: the runners keep 2 m from the middle of each (the group's edge 70 cm clear of the paint)
+  for (const [x, z] of rings) obst.push([x, z, 1.7, 0]);
   // small things standing about (boards, machines, goals' posts) as circles; long walls and fences are left out
   for (const q of W.solids){ if (q.off || q.y0 > 1.6 || q.y1 < .05 || Math.max(q.x1 - q.x0, q.z1 - q.z0) > 3) continue; obst.push([(q.x0 + q.x1)/2, (q.z0 + q.z1)/2, Math.hypot(q.x1 - q.x0, q.z1 - q.z0)/2, 0]); }
   const loop = lapLoop(x0, x1, z0, z1, Math.min(2.6, (x1 - x0)/3, (z1 - z0)/3), obst);
@@ -192,7 +255,13 @@ export function teamSession(o){
   const coach = human(lookFor("coach", base + 3, {kit:[a, b]}), {cast:false});
   coach.g.position.set(o.coach.x, 0, o.coach.z); coach.g.rotation.y = o.coach.ry || 0;
   root.add(coach.g);
-  const coachSolid = solid(o.coach.x - .35, o.coach.x + .35, o.coach.z - .35, o.coach.z + .35, 0, 1.9);
+  // everyone standing on the pitch is solid while the session is on (you walk round them, not through them); made
+  // after the lanes and the lap were laid out, which already keep clear of them
+  const solids = [solid(o.coach.x - .35, o.coach.x + .35, o.coach.z - .35, o.coach.z + .35, 0, 1.9)];
+  for (const ac of actors) for (const h of ac.kind === "pair" ? ac.P : ac.kind === "stretch" ? [ac.P] : []){
+    const x = h.g.position.x, z = h.g.position.z; solids.push(solid(x - .25, x + .25, z - .25, z + .25, 0, 1.85));
+  }
+  for (const q of solids) q.off = true;                              // until the session is seen to be on
   const tmp = new THREE.Vector3(), lpt = {};
   // a spot by a player's right foot, d metres in front of him
   const footSpot = (P, d, out) => { const y = P.g.rotation.y; return out.set(P.g.position.x + Math.sin(y)*d - Math.cos(y)*.12, .11, P.g.position.z + Math.cos(y)*d + Math.sin(y)*.12); };
@@ -205,7 +274,7 @@ export function teamSession(o){
   let on = null;
   W.anims.push(dt => {
     const now = !!o.when();
-    if (now !== on){ on = now; root.visible = now; coachSolid.off = !now; }
+    if (now !== on){ on = now; root.visible = now; for (const q of solids) q.off = !now; }
     if (!now) return;
     // where each runner would be on the lap: beside or behind the others, or in single file where it's narrow
     loop.at(group.d, lpt); const w = lpt.w, side = lpt.side;
@@ -232,10 +301,14 @@ export function teamSession(o){
       }
     }
     if (!hit && (group.clear += dt) > .6) group.dir = 0;
-    group.off += (want - group.off)*(1 - Math.exp(-(hit ? 5 : 2)*dt));
+    // a few paces across, not a jump sideways: at most 1.2 m/s (they ease up while they can't get round you yet)
+    group.off += Math.max(-1.2*dt, Math.min(1.2*dt, (want - group.off)*(1 - Math.exp(-(hit ? 5 : 2)*dt))));
+    if (hit && Math.abs(want - group.off) > .5) slow = Math.max(slow, Math.min(1, (Math.abs(want - group.off) - .5)/.8));
     group.slow += (slow - group.slow)*(1 - Math.exp(-5*dt));
-    // one pace, a little quicker down the far side
-    group.v += ((side === 2 ? 5.9 : 3.3)*(1 - .8*group.slow) - group.v)*(1 - Math.exp(-(group.slow > .05 ? 3 : .9)*dt));
+    // one pace, striding out down the far side: the change of pace eased in over a couple of seconds, and back down
+    // to a jog well before the corner at the end of it
+    const fast = side === 2 && lpt.left > 12;
+    group.v += ((fast ? 5.9 : 3.3)*(1 - .8*group.slow) - group.v)*(1 - Math.exp(-(group.slow > .05 ? 3 : fast ? .5 : .8)*dt));
     group.d += group.v*dt;
     for (const ac of actors){
       if (ac.kind === "pair"){
@@ -272,19 +345,27 @@ export function teamSession(o){
       } else if (ac.kind === "lap"){
         // his place in the group, swung out round you if you're in the way
         const q = ac.q, lat = q.lat + group.off, x = q.x - q.uz*lat, z = q.z + q.ux*lat;
-        // the legs are driven by how fast he really goes (quicker on the outside of a bend)
-        if (ac.px != null && dt > 0){ const sp = Math.hypot(x - ac.px, z - ac.pz)/dt; ac.v += (sp - ac.v)*(1 - Math.exp(-10*dt)); }
-        ac.px = x; ac.pz = z; ac.P.g.position.set(x, 0, z);
-        const yaw = Math.atan2(q.ux, q.uz);
-        if (ac.yaw == null) ac.yaw = yaw;
-        let dy = yaw - ac.yaw; while (dy > Math.PI) dy -= Math.PI*2; while (dy < -Math.PI) dy += Math.PI*2;
-        ac.yaw += dy*(1 - Math.exp(-8*dt)); ac.P.g.rotation.y = ac.yaw;
+        /* he faces the way he really goes, frame to frame (round a bend, swinging out round you, closing up into
+           single file), turning no faster than a runner can; the legs are driven by how fast he goes that way
+           (quicker on the outside of a bend) — so the planted foot stays planted */
+        if (ac.yaw == null) ac.yaw = Math.atan2(q.ux, q.uz);
+        let fwd = ac.v;
+        if (ac.px != null && dt > 0){
+          const vx = (x - ac.px)/dt, vz = (z - ac.pz)/dt, sp = Math.hypot(vx, vz);
+          if (sp > .4){
+            let dy = Math.atan2(vx, vz) - ac.yaw; while (dy > Math.PI) dy -= Math.PI*2; while (dy < -Math.PI) dy += Math.PI*2;
+            ac.yaw += Math.max(-4*dt, Math.min(4*dt, dy*(1 - Math.exp(-25*dt))));
+          }
+          fwd = Math.max(0, vx*Math.sin(ac.yaw) + vz*Math.cos(ac.yaw));
+        }
+        ac.v += (fwd - ac.v)*(1 - Math.exp(-14*dt));
+        ac.px = x; ac.pz = z; ac.P.g.position.set(x, 0, z); ac.P.g.rotation.y = ac.yaw;
         animateHuman(ac.P, dt, {mode:"move", speed:ac.v});
       } else animateHuman(ac.P, dt, "stretch");
     }
     animateHuman(coach, dt, "clipboard");
   });
-  return {root, coach, actors, group, loop:{x0, x1, z0, z1, path:loop}};
+  return {root, coach, actors, group, solids, loop:{x0, x1, z0, z1, path:loop, obst}};
 }
 
 /* ---------- the cast of a place: nobody twice ----------
@@ -317,7 +398,10 @@ function inSight(x, z){
 
 /* ---------- someone at work: behind a counter, at a desk, in the office ---------- */
 const JOB_ROLE = {cafe:"barista", store:"clerk", courier:"dispatcher", gym:"gym", academy:"coach", photo:"photographer", edit:"editor", video:"editor"};
-const POSE = {manager:{mode:"counter", counter:.77, reach:.45}, shopkeeper:{mode:"counter", counter:1.05, reach:.36}, barista:{mode:"counter", counter:1.05, reach:.38}, gym:{mode:"counter", counter:1.1, reach:.34},
+/* how each job stands. A counter pose's reach is how far ahead of the feet the hands go when no counter is found in front
+   (one that is: its own height, the hands ONTO it past its near edge, and the person stood a natural distance off it) */
+const POSE = {manager:{mode:"idle", arms:"behind"}, shopkeeper:{mode:"counter", counter:1.05, reach:.4, onto:.16}, barista:{mode:"counter", counter:1.05, reach:.4, onto:.18, work:true},
+  gym:{mode:"counter", counter:1.1, reach:.4, onto:.16},
   coach:{mode:"clipboard"}, office:{mode:"idle", arms:"behind"}, courier:{mode:"idle", arms:"hips"}, dispatcher:{mode:"idle", arms:"folded"}, clerk:{mode:"idle", arms:"behind"},
   photographer:{mode:"idle", arms:"folded"}, editor:{mode:"idle", arms:"behind"}, physio:{mode:"idle", arms:"folded"}, kitman:{mode:"idle", arms:"behind"}, receptionist:{mode:"idle", arms:"behind"}};
 function roleOf(o){
@@ -341,7 +425,7 @@ function counterAhead(x, z, ry, y0){
       let a = (lo - p)/d, b = (hi - p)/d; if (a > b) [a, b] = [b, a];
       t0 = Math.max(t0, a); t1 = Math.min(t1, b);
     }
-    if (ok && t0 <= t1 && t0 > .1 && (!best || t0 < best.d)) best = {top:q.y1 - y0, d:t0};
+    if (ok && t0 <= t1 && t0 > .1 && (!best || t0 < best.d)) best = {top:q.y1 - y0, d:t0, q};
   }
   return best;
 }
@@ -349,6 +433,23 @@ function counterAhead(x, z, ry, y0){
        when(minute) → bool: only there at those times (they come and go while you aren't looking), minute()} */
 export function staffer(x, z, ry, o = {}){
   const role = roleOf(o);
+  // shop counters stand in front of the till workers; elsewhere they simply stand about
+  let st = o.pose || POSE[role] || {mode:"idle"};
+  if (!o.pose && st.mode === "counter" && role === "shopkeeper" && o.seed !== 11 && W.zone !== "ground") st = {mode:"idle", arms:"behind"};
+  /* hands on the counter (or desk) actually in front of them: its top, and the hands a little way onto it. Someone put
+     further back from it than a person stands at a counter steps up to it (to .24 m off its edge: the body clear of
+     it by a hand's width), so nobody stretches out over it */
+  if (!o.pose && st.mode === "counter"){
+    const c = counterAhead(x, z, ry, o.y || 0);
+    if (c){
+      let go = Math.max(0, c.d - .24);
+      // (not into anything else standing there: a bin, a stool, a wall end)
+      const free = (px, pz) => !W.solids.some(q => !q.off && q !== c.q && q.y1 - (o.y || 0) > .15 && q.y0 - (o.y || 0) < 1.7 && px + .28 > q.x0 && px - .28 < q.x1 && pz + .28 > q.z0 && pz - .28 < q.z1);
+      while (go > 0 && !free(x + Math.sin(ry)*go, z + Math.cos(ry)*go)) go = Math.max(0, go - .05);
+      x += Math.sin(ry)*go; z += Math.cos(ry)*go;
+      st = Object.assign({}, st, {counter:c.top, reach:c.d - go + (st.onto ?? .15)});
+    }
+  }
   let look = o.look;
   if (!look){
     const sh = col(o.shirt), out = {};
@@ -363,11 +464,6 @@ export function staffer(x, z, ry, o = {}){
   const h = human(look, {cast:true});
   h.g.position.set(x, o.y || 0, z); h.g.rotation.y = ry;
   W.scene.add(h.g);
-  // shop counters stand in front of the till workers; elsewhere they simply stand about
-  let st = o.pose || POSE[role] || {mode:"idle"};
-  if (!o.pose && st.mode === "counter" && role === "shopkeeper" && o.seed !== 11 && W.zone !== "ground") st = {mode:"idle", arms:"behind"};
-  // hands on the counter (or desk) actually in front of them: its top and how far off its near edge is
-  if (!o.pose && st.mode === "counter"){ const c = counterAhead(x, z, ry, o.y || 0); if (c) st = Object.assign({}, st, {counter:c.top, reach:Math.min(.7, Math.max(.3, c.d + .13))}); }
   animateHuman(h, 0, st); h.bw = 1; animateHuman(h, 0, st);         // already in place when you walk in
   const sol = o.noSolid ? null : solid(x - .3, x + .3, z - .3, z + .3, o.y || 0, (o.y || 0) + 1.9);
   let on = true;
@@ -379,7 +475,7 @@ export function staffer(x, z, ry, o = {}){
     }
     if (on) animateHuman(h, dt, st);
   });
-  h.role = role;
+  h.role = role; h.st = st;
   return h;
 }
 
@@ -450,7 +546,7 @@ function turn(P, yaw, dt, k = 6){
    between its 20 cm samples), keep to the right of it, swing round you and round anyone coming the other way — or
    stand aside, or wait, and turn back if it stays blocked — and never step into a solid or onto a raised floor:
    every point of a route knows how far to each side it is clear. One mesh each, no sun shadow. */
-const ROAD_R = .3, KEEP = .3, NEED = .62;
+const ROAD_R = .3, KEEP = .3, NEED = .62, YOU_NEED = .9;
 // the ground under (x, z) (the road's surface, a pavement, a kerb) and whether a body of radius r fits there: against
 // the solids and floors near one route only (fl, so)
 function groundY(x, z, fl = W.floors){
@@ -537,33 +633,72 @@ export function pedestrians(o){
   const bad = routes.reduce((n, R) => n + R.S.filter(a => !a.ok).length, 0);                 // route points not clear (a test reads it)
   const N = o.max ?? 6, wantNow = () => Math.min(N, Math.max(0, Math.round(o.count(dayMin(o)))));
   const first = wantNow();
+  // a walker put at w.s on its route (on the ground there, w.lat to the side of the line)
+  const put = w => { const R = w.R, a = R.at(w.s = ((w.s % R.len) + R.len) % R.len, w.b), x = a.x - a.uz*w.lat, z = a.z + a.ux*w.lat; w.y = R.ground(x, z); w.h.g.position.set(x, w.y, z); };
+  /* the walker's body as a solid (25 cm each way, head high), wherever it is now: off while they aren't out, and never
+     switched on while it overlaps you, so it can't close round you and trap you. Nor do they step into you (see the
+     walk below): bumped up against you, they stop. VIEW is where you were at the last frame drawn; you may have gone
+     on up to a sprint's frame (13 cm) since, so "against you" allows for that */
+  const sep = (x, z) => Math.max(Math.abs(VIEW.x - x), Math.abs(VIEW.z - z)), bumps = (x, z) => sep(x, z) < .25 + .27 + .14;
+  const body = w => {
+    const q = w.sol, p = w.h.g.position;
+    q.x0 = p.x - .25; q.x1 = p.x + .25; q.z0 = p.z - .25; q.z1 = p.z + .25; q.y0 = w.y; q.y1 = w.y + 1.8;
+    q.off = !w.on || (q.off && VIEW.scene === W.scene && bumps(p.x, p.z));
+  };
   for (let i = 0; i < N; i++){
     const R = routes[i % routes.length], dir = (i >> 1) % 2 ? -1 : 1;
     const look = castLook("pedestrian", (o.seed || 500) + i*131);
     const h = human(look, {cast:false});
     W.scene.add(h.g);
-    const w = {h, R, dir, s:R.len*((i*.37 + .11) % 1), v:0, base:1.2 + ((i*.29) % 1)*.35, lat:-KEEP*dir, yaw:null, on:false, pause:0, cool:0, wait:0, px:null, pz:null, vis:0, y:0, b:{}};
-    const a = R.at(w.s, w.b); w.y = R.ground(a.x - a.uz*w.lat, a.z + a.ux*w.lat);
-    h.g.position.set(a.x - a.uz*w.lat, w.y, a.z + a.ux*w.lat); h.g.rotation.y = Math.atan2(a.ux*dir, a.uz*dir);
+    const w = {h, R, dir, s:R.len*((i*.37 + .11) % 1), v:0, base:1.2 + ((i*.29) % 1)*.35, lat:-KEEP*dir, yaw:null, on:false, pause:0, cool:0, wait:0, px:null, pz:null, vis:0, y:0, b:{}, sol:null};
+    put(w);
+    h.g.rotation.y = Math.atan2(w.b.ux*dir, w.b.uz*dir);
     // the ones out at this hour are already out when you arrive (nothing has been drawn yet, so nobody sees them
     // appear); after that they come and go only where you can't see
     w.on = i < first; h.g.visible = w.on;
     if (w.on) animateHuman(h, 0, {mode:"move", speed:w.base});
     walkers.push(w);
+    // a body you bump into, not walk through (see body() below)
+    w.sol = solid(0, 0, 0, 0, 0, 1.8); w.sol.off = true; body(w);
   }
-  const ob = [], TMP = {};
+  /* when you arrive (off the bus, out of a door) nobody is standing in your face: before the first frame of the place is
+     drawn, anyone within 1.5 m of where you are, or of the line from the camera to you (third person), moves on along
+     their way until they are clear. Nothing has been seen yet, so nobody sees them move */
+  onFirstView(V => {
+    const ax = V.x, az = V.z, bx = V.x + (V.fx || 0)*3.2, bz = V.z + (V.fz || 0)*3.2;
+    const near = (x, z) => segPt(x, z, ax, az, bx, bz) < 1.5;
+    for (const w of walkers){
+      if (!w.on || !near(w.h.g.position.x, w.h.g.position.z)) continue;
+      const s0 = w.s;
+      for (let k = 1; k <= 60; k++){
+        // try ahead of them first, then behind, a little further each time
+        w.s = s0 + w.dir*(k % 2 ? 1 : -1)*Math.ceil(k/2)*.5; put(w);
+        if (!near(w.h.g.position.x, w.h.g.position.z)) break;
+      }
+      w.px = null; w.h.g.rotation.y = w.yaw = Math.atan2(w.b.ux*w.dir, w.b.uz*w.dir); body(w);
+      w.h.g.updateMatrixWorld(true);
+    }
+  });
+  const ob = [], TMP = {}, you = {x:0, z:0, vx:0, vz:0, ok:false};
   W.anims.push(dt => {
     if (!(dt > 0)) return;
     const want = wantNow(), here = VIEW.scene === W.scene;
+    // how you are moving (from where you were last frame), so someone you come up on from behind or beside can tell
+    if (here){
+      if (you.ok){ const k = 1 - Math.exp(-10*dt); you.vx += ((VIEW.x - you.x)/dt - you.vx)*k; you.vz += ((VIEW.z - you.z)/dt - you.vz)*k; }
+      if (!you.ok || Math.hypot(VIEW.x - you.x, VIEW.z - you.z) > 3){ you.vx = you.vz = 0; }
+      you.x = VIEW.x; you.z = VIEW.z; you.ok = true;
+    } else you.ok = false;
     walkers.forEach((w, i) => {
       const h = w.h, should = i < want;
       if (should !== w.on && !inSight(h.g.position.x, h.g.position.z)){ w.on = should; h.g.visible = should; if (should){ w.v = 0; w.yaw = null; w.px = null; } }
-      if (!w.on) return;
+      if (!w.on){ w.sol.off = true; return; }
       const R = w.R, a = R.at(w.s, w.b), fx = a.ux*w.dir, fz = a.uz*w.dir;
       // a pause at a kerb: stand, look one way and the other, then go
       if (w.pause > 0){
         w.pause -= dt; w.v = 0; w.vis = 0;
         animateHuman(h, dt, {mode:"idle", look:Math.sin((1.6 - w.pause)*2.4)*.7});
+        body(w);
         return;
       }
       /* who is in the way ahead: you, and anyone coming the other way (or on the other loop). Each is measured
@@ -573,31 +708,48 @@ export function pedestrians(o){
          meeting each step their own way. */
       const [rl, rr] = R.room(w.s, w.dir, 3.2), lo = -rr, hi = rl;
       let latT = -KEEP*w.dir, slow = 0, close = 9;
+      // (you get a little more room than another walker would: a stranger passing a pace off your shoulder, not brushing it)
       ob.length = 0;
-      if (here) ob.push(VIEW.x, VIEW.z);
-      for (const q of walkers) if (q !== w && q.on && (q.R !== R || q.dir !== w.dir)) ob.push(q.h.g.position.x, q.h.g.position.z);
+      if (here) ob.push(VIEW.x, VIEW.z, YOU_NEED);
+      for (const q of walkers) if (q !== w && q.on && (q.R !== R || q.dir !== w.dir)) ob.push(q.h.g.position.x, q.h.g.position.z, NEED);
       let best = null;
-      for (let k = 0; k < ob.length; k += 2){
-        const dx = ob[k] - a.x, dz = ob[k + 1] - a.z, ahead = dx*fx + dz*fz, pl = -dx*a.uz + dz*a.ux;
+      for (let k = 0; k < ob.length; k += 3){
+        const dx = ob[k] - a.x, dz = ob[k + 1] - a.z, ahead = dx*fx + dz*fz, pl = -dx*a.uz + dz*a.ux, need = ob[k + 2];
         if (ahead < -.3 || ahead > 3.2 || Math.abs(pl - w.lat) > 2) continue;
         // right in front, still not clear of it: ease up, and stop short of touching
         if (ahead > 0 && Math.abs(pl - w.lat) < NEED*.85) close = Math.min(close, ahead);
-        if (Math.abs(pl - latT) < NEED && (!best || ahead < best[0])) best = [ahead, pl];
+        if (Math.abs(pl - latT) < need && (!best || ahead < best[0])) best = [ahead, pl, need];
       }
       let aside = false;
       if (best){
-        const [ahead, pl] = best, left = pl + NEED, right = pl - NEED, okL = left <= hi, okR = right >= lo;
+        const [ahead, pl, need0] = best;
+        // the room it would like, if the way ahead has it; else the least it needs
+        let need = need0, left = pl + need, right = pl - need, okL = left <= hi, okR = right >= lo;
+        if (!okL && !okR && need > NEED){ need = NEED; left = pl + need; right = pl - need; okL = left <= hi; okR = right >= lo; }
         if (okL && (!okR || Math.abs(left - w.lat) < Math.abs(right - w.lat))) latT = left;
         else if (okR) latT = right;
         else {
           // no way past along the next few metres: stop a good pace short — and if there's room to one side right
           // here, stand aside there and let them by
           slow = 1 - Math.max(0, Math.min(1, (ahead - 1.1)/1.4));
-          const l2 = pl + NEED <= a.l, r2 = pl - NEED >= -a.r;
-          if (l2 || r2){ latT = l2 && (!r2 || Math.abs(pl + NEED - w.lat) < Math.abs(pl - NEED - w.lat)) ? pl + NEED : pl - NEED; aside = true; }
+          const l2 = pl + need <= a.l, r2 = pl - need >= -a.r;
+          if (l2 || r2){ latT = l2 && (!r2 || Math.abs(pl + need - w.lat) < Math.abs(pl - need - w.lat)) ? pl + need : pl - need; aside = true; }
         }
       }
       if (close < 9) slow = Math.max(slow, 1 - Math.max(0, Math.min(1, (close - .5)/.7)));
+      /* you, beside them or coming up behind (they only look ahead above): close by and closing on them, or right at
+         their shoulder, they step across to give you room — to the far side of the line from you, if there's room here */
+      if (here){
+        const p = h.g.position, dx = VIEW.x - p.x, dz = VIEW.z - p.z, d = Math.hypot(dx, dz), ahead = dx*fx + dz*fz;
+        const closing = d > 1e-3 ? (w.v*ahead - you.vx*dx - you.vz*dz)/d : 0;          // how fast the gap shrinks
+        if (ahead < .3 && d < 1.8 && (d < 1 || closing > .5)){
+          // which way: away from you, chosen once and kept while you're there (no dithering across your line)
+          const pl = -(VIEW.x - a.x)*a.uz + (VIEW.z - a.z)*a.ux;
+          if (!w.dodge) w.dodge = pl >= w.lat ? -1 : 1;
+          const want2 = pl + w.dodge*NEED*1.1;
+          latT = Math.max(-a.r, Math.min(a.l, want2)); aside = true;
+        } else if (d > 2.2) w.dodge = 0;
+      }
       latT = aside ? Math.max(-a.r, Math.min(a.l, latT)) : Math.max(lo, Math.min(hi, latT));
       // a side-step is a few paces, not a skip: at most .9 m/s across
       w.lat += Math.max(-.9*dt, Math.min(.9*dt, (latT - w.lat)*(1 - Math.exp(-3*dt))));
@@ -621,10 +773,13 @@ export function pedestrians(o){
         const gone = (((p.d - s0)*w.dir % R.len) + R.len) % R.len;
         if (gone > 1e-6 && gone <= step){ s1 = p.d; w.pause = p.pause; w.cool = 12; break; }
       }
+      const lat0 = w.lat;
       w.s = ((s1 % R.len) + R.len) % R.len;
-      const b = R.at(w.s, w.b);
+      let b = R.at(w.s, w.b);
       { const c = Math.max(-b.r, Math.min(b.l, w.lat)); w.lat += Math.max(-1.5*dt, Math.min(1.5*dt, c - w.lat)); }   // never into a post, a bin or a wall
-      const x = b.x - b.uz*w.lat, z = b.z + b.ux*w.lat;
+      let x = b.x - b.uz*w.lat, z = b.z + b.ux*w.lat;
+      // never a step into you: a body bumped up against you stops there (you are solid to them as they are to you)
+      if (here && w.px != null && bumps(x, z) && sep(x, z) < sep(w.px, w.pz) - 1e-4){ w.s = s0; w.lat = lat0; w.v = 0; b = R.at(w.s, w.b); x = w.px; z = w.pz; }
       // the ground under the feet, met over a few centimetres of stride (a kerb is a step up or down, not a ramp)
       const moved = w.px == null ? 1 : Math.hypot(x - w.px, z - w.pz), gy = R.ground(x, z);
       w.y += (gy - w.y)*(1 - Math.exp(-(moved/(gy > w.y ? .03 : .035) + dt*2)));
@@ -636,10 +791,9 @@ export function pedestrians(o){
       if (w.yaw == null) w.yaw = yaw;
       let d = yaw - w.yaw; while (d > Math.PI) d -= Math.PI*2; while (d < -Math.PI) d += Math.PI*2;
       w.yaw += d*(1 - Math.exp(-5*dt)); h.g.rotation.y = w.yaw;
-      // far away, the legs are worked out every other frame
-      const far = Math.hypot(x - VIEW.x, z - VIEW.z) > 25;
-      if (far && (w.skip = !w.skip)){ w.acc = (w.acc || 0) + dt; return; }
-      animateHuman(h, dt + (w.acc || 0), {mode:"move", speed:w.vis}); w.acc = 0;
+      // (every frame, near or far: legs worked out every other frame slide on the frames between, with the body going on)
+      animateHuman(h, dt, {mode:"move", speed:w.vis});
+      body(w);
     });
   });
   return {walkers, routes, bad};

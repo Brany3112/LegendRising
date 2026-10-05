@@ -79,7 +79,15 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ---------- hub ---------- */
-.hub{min-height:100%;padding:14px 14px 90px;display:grid;gap:14px;align-content:start}
+.hub{min-height:100%;padding:14px 14px calc(90px + env(safe-area-inset-bottom,0px));display:grid;gap:14px;align-content:start}
+/* on a phone (either way up) the Phone button lives in the hub's header rather than floating over the tiles */
+.tb-phone{display:none;position:relative}
+.tb-phone .badge{position:absolute;top:-6px;right:-6px}
+@media (max-width:720px),(max-height:520px){
+  .tb-phone{display:inline-grid}
+  body:has(#app .hub) #phoneRoot:not(.open) .phone-tab,body.life.hub-out #phoneRoot:not(.open) .phone-tab{opacity:0;pointer-events:none;transform:translateY(24px)}
+  .hub{padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}
+}
 .topbar{border-radius:var(--r);padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
 .tb-club{display:flex;align-items:center;gap:10px;flex:1;min-width:240px}
 .tb-club b{font-family:var(--display);font-size:1.5rem;display:block;line-height:1} .tb-club span{font-size:.84rem;color:var(--muted)}
@@ -132,7 +140,9 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 .scorebug{position:absolute;top:12px;left:50%;transform:translateX(-50%);border-radius:16px;padding:6px 16px 8px;text-align:center;z-index:3;min-width:min(560px,94vw)}
 .sb-comp{font-size:.7rem;color:var(--lime);letter-spacing:.12em;text-transform:uppercase;font-weight:700}
 .sb-row{display:flex;align-items:center;justify-content:center;gap:12px;font-family:var(--display);font-weight:800;font-size:1.25rem}
-.sb-team{display:flex;align-items:center;gap:6px;max-width:34vw;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.sb-team{display:flex;align-items:center;gap:6px;max-width:34vw;min-width:0;white-space:nowrap}
+.sb-team .dot{flex:0 0 auto}
+.sb-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-score{font-size:1.9rem;color:var(--gold);min-width:80px}
 .sb-min{font-family:var(--display);font-size:1rem;color:#c9d6e3}
 .dot{display:inline-block;width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.5)}
@@ -850,6 +860,8 @@ body.low .odo-strip{will-change:auto}
     scrollbar-gutter:stable; align-self:start; align-content:start}
   /* the right column shares itself out: headlines take the top third, the league table the rest */
   .hub-grid > .col-news{display:flex; flex-direction:column; gap:14px; min-height:0; overflow:hidden}
+  /* the right column stops short of the floating Phone button in the corner, so it never sits on the table */
+  .hub-grid > .col-news{margin-bottom:62px}
   .col-news > .news-card{flex:0 1 auto; min-height:0; max-height:36%; display:flex; flex-direction:column}
   .col-news > .lgpanel-card{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:10px}
   .lgpanel-card > .lgbody{flex:1 1 auto; min-height:0; max-height:none}
@@ -1372,11 +1384,38 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
 @media (max-width:640px){ .dr-card{top:calc(var(--hud-pad) + 96px);min-width:0;max-width:calc(100vw - 24px);width:calc(100vw - 24px)} }
 
 @media (max-height:560px){ .lf-center{top:16%} .lf-prompt{top:calc(50% + 28px)} .lf-busy{top:58%} }
+/* short landscape screens (a phone on its side): the look editor's stage takes the row it is given, and the day
+   summary tightens up with its buttons always in reach */
+@media (max-height:520px){
+  .lf-panel.look .lk-stage{min-height:0}
+  .lk-side{grid-template-rows:minmax(0,1fr) auto}
+  .lk-bar{flex-wrap:nowrap;gap:4px} .lk-bar .seg{padding:2px;gap:2px} .lk-bar .seg button{padding:.3em .5em;font-size:.78rem}
+  .lk-drag{display:none}
+  .lf-panel.look .lpn{padding:12px 16px 10px}
+  .lf-panel.look .lpn-head{margin-bottom:6px} .lf-panel.look .lpn-head h3{font-size:1.25rem}
+  .lk-foot{padding-top:8px}
+  .lf-panel.day .lpn{padding-bottom:0}
+  .ds h2{font-size:1.45rem;margin:2px 0 6px}
+  .ds-row{padding:4px 2px;font-size:.82rem}
+  .ds-next{margin:8px 0 8px;font-size:.8rem}
+  .ds-btns{position:sticky;bottom:0;padding:10px 0 12px;background:linear-gradient(180deg,rgba(11,19,31,0),rgba(11,19,31,.98) 34%)}
+}
+/* holding the keypad phone on a short screen it reaches the top: the money and energy move out from behind it */
+@media (max-height:640px) and (min-width:621px){
+  body.life .hud-tr{transition:right .3s cubic-bezier(.2,.9,.25,1)}
+  body.life.hand .hud-tr{right:calc(max(20px,3vw) + min(290px,(100vh - 24px)*.4754) + 30px)}
+}
 /* ---------- the match: your options when a chance opens up ---------- */
 .decide{position:absolute;left:50%;bottom:clamp(70px,13vh,130px);transform:translateX(-50%) translateY(10px);width:min(760px,94vw);display:grid;gap:8px;opacity:0;pointer-events:none;
   transition:opacity .2s,transform .3s var(--ease);z-index:6}
 .decide.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
 .decide.top{bottom:auto;top:calc(var(--sb-bottom,84px) + 34px)}
+/* beside the play, when both the bottom (the play) and the top (the goal) are taken */
+.decide.side{left:auto;right:16px;bottom:auto;top:50%;width:min(260px,30vw);transform:translateY(calc(-50% + 10px))}
+.decide.side.on{transform:translateY(-50%)}
+.decide.side.l{left:16px;right:auto}
+.decide.side .dc-opts{grid-template-columns:1fr}
+.decide.side .dc-head{flex-wrap:wrap;gap:6px 12px}
 .dc-head{display:flex;align-items:center;gap:12px;justify-content:center}
 .dc-head b{font-family:var(--display);font-weight:800;font-size:1.1rem;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 2px 10px #000}
 .dc-timer{width:140px;height:5px;border-radius:4px;background:rgba(255,255,255,.18);overflow:hidden}
