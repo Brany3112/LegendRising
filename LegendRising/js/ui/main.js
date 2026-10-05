@@ -734,7 +734,7 @@ const A = {
     render(`<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world — clubs, squads, fixtures…</p></div></section>`);
     setTimeout(() => { newCareer(CR); save(); screenOffers(); }, 50);
   },
-  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); if (!S.tutDone && S.week === 0) return startTutorial(); renderHub(); enterCity();
+  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); if (!S.tutDone && S.week === 0 && !window.startLife) return startTutorial(); renderHub(); enterCity();
     },      // nothing announces itself after an update — the flag in the top bar has the notes when you want them
   replayDream(){
     if (!S){ const d = load(); if (!d) return; resume(d); }
@@ -745,7 +745,9 @@ const A = {
     const o = S.offerSet.list[i], ctx = S.offerSet.ctx; S.offerSet = null;
     joinClub(o); if (ctx === "start"){ addNews("you", `A career begins at ${W.clubs[o.club].nm}`, "Liga 4. Keypad phone. Big dreams.", "me"); msg("Branyfon", "Welcome! Use ▲▼ to move, the centre key to select, the red key to go back."); }
     save();
-    if (ctx === "start" && !S.tutDone) return startTutorial();
+    // a new career goes straight to the city: the first-day introduction (intro.js) starts there, and the dream comes
+    // the first night you sleep (tutorial.js); without the 3D world, the dream is the introduction
+    if (ctx === "start" && !S.tutDone && !window.startLife) return startTutorial();
     renderHub();
     if (!document.body.classList.contains("life")) enterCity();
   },

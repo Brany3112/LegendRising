@@ -7,7 +7,7 @@ const FD = {basket:{}};
 ICONS.foodies = "🍔"; ICON_BG.foodies = "linear-gradient(135deg,#ff6a3a,#ffb347)"; APP_TITLE.foodies = "Foodies";
 function fdTotal(){ let t = 0, n = 0; for (const [k, q] of Object.entries(FD.basket)) if (FOOD[k] && q > 0){ t += FOOD[k].foodies*q; n += q; } return {t, n, all:n ? t + FOODIES_FEE : 0}; }
 function fdAdd(k, d){ FD.basket[k] = clamp((FD.basket[k] || 0) + d, 0, 9); smRefresh(); }
-function fdWhere(){ return typeof lifeZone === "function" && lifeZone() === "ground" ? "the gym fridge" : "your flat"; }
+function fdWhere(){ return "wherever you are"; }
 function fdOrder(){
   const r = foodiesOrder(FD.basket);
   if (!r.ok){ toast(r.why, "bad"); return; }
@@ -29,7 +29,7 @@ APPVIEWS.foodies = t => {
     }).join("");
   }).join("");
   return {title:"Foodies", html:`<div class="fo-hero"><b>Hungry?</b><span>Delivered to ${fdWhere()} · ${eurFull(FOODIES_FEE)} delivery</span></div>
-    ${pending.length ? `<div class="fo-h">On the way</div>${pending.map(o => `<div class="fo-order"><span>${Object.entries(o.items).map(([k, q]) => `${q}× ${FOOD[k] ? FOOD[k].name : k}`).join(", ")}</span><b>${fmtTime(o.eta % 1440)}</b><em>to ${o.where === "ground" ? "the gym" : "home"}</em></div>`).join("")}` : ""}
+    ${pending.length ? `<div class="fo-h">On the way</div>${pending.map(o => `<div class="fo-order"><span>${Object.entries(o.items).map(([k, q]) => `${q}× ${FOOD[k] ? FOOD[k].name : k}`).join(", ")}</span><b>${fmtTime(o.eta % 1440)}</b><em>${o.where === "ground" ? "to the gym" : o.where === "home" ? "to home" : "to you"}</em></div>`).join("")}` : ""}
     ${groups}
     <div class="fo-foot"><div><span>${tot.n} item${tot.n === 1 ? "" : "s"}${tot.n ? ` + ${eurFull(FOODIES_FEE)} delivery` : ""}</span><b>${eurFull(tot.all)}</b></div>
       <button class="btn sm" ${tot.n && S.money >= tot.all ? "" : "disabled"} onclick="fdOrder()">${tot.n && S.money < tot.all ? "Not enough money" : "Order"}</button></div>`};

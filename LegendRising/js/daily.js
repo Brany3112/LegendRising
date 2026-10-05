@@ -252,6 +252,7 @@ function timeChecks(){
   for (const o of S.orders.slice()) if (now >= o.eta){
     S.orders = S.orders.filter(x => x !== o);
     for (const [k, n] of Object.entries(o.items || {})) if (FOOD[k]) S.inv[k] = (S.inv[k] || 0) + n;
+    o.at = typeof window !== "undefined" && window.lifePlace ? window.lifePlace() : "";
     dailyEmit("delivered", o);
   }
   // an energy drink wearing off
@@ -368,6 +369,17 @@ function sleepNight(tier){
   S.boost = null;
   return {mins, hours, fatigue:Math.round(S.fatigue - f0), energy:Math.round(S.energy - e0)};
 }
+/* hold E on the bed: asleep for exactly one day — the clock moves on 24 hours, to this time tomorrow. Slept out, but a
+   day without food leaves you hungry */
+function sleepFullDay(tier){
+  const f0 = S.fatigue, e0 = S.energy;
+  dailyPass(1440, "sleep");
+  const mult = 1 + ((typeof energyMult === "function" ? energyMult() : 1) - 1)*.5;
+  S.fatigue = clamp(S.fatigue - [70, 78, 86][tier || 0]*mult, 0, 100);
+  S.energy = clamp(S.energy + (6 + (tier || 0)*3), 0, 100);
+  S.boost = null;
+  return {mins:1440, hours:24, fatigue:Math.round(S.fatigue - f0), energy:Math.round(S.energy - e0)};
+}
 function nap(tier){
   const f0 = S.fatigue;
   dailyPass(120, "sleep");
@@ -417,15 +429,16 @@ function buyFood(id, qty){
   return true;
 }
 function invCount(kind){ return Object.entries(FOOD).filter(([k, it]) => !kind || it.kind === kind).reduce((a, [k]) => a + (S.inv[k] || 0), 0); }
-// Foodies: pay now, it turns up later wherever you are
+// Foodies: pay now, and a courier finds you some time later wherever you are by then (at home, at the training centre,
+// in the clubhouse, at work, out in town); what you ordered goes into your food, the same in every fridge
 function foodiesOrder(items){
   let total = FOODIES_FEE, n = 0;
   for (const [k, q] of Object.entries(items)) if (FOOD[k] && q > 0){ total += FOOD[k].foodies*q; n += q; }
   if (!n) return {ok:false, why:"Your basket is empty."};
   if (S.money < total) return {ok:false, why:"Not enough money."};
   spend(total);
-  const where = lifeZone() === "ground" ? "ground" : "home";
-  const eta = absNow() + (where === "ground" ? ri(45, 70) : ri(30, 50));
+  const where = "you";
+  const eta = absNow() + ri(25, 75);
   const o = {id:Date.now().toString(36), items:Object.fromEntries(Object.entries(items).filter(([k, q]) => q > 0)), eta, where, total};
   S.orders.push(o);
   if (typeof save === "function") save();

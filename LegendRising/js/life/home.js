@@ -3,7 +3,7 @@
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
 import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
-import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, PC} from "./props.js";
+import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, ball as propBall, PC} from "./props.js";
 import {miniMarket, workplace} from "./shops.js";
 import {barbershop} from "./barber.js";
 import {fillFridge} from "./fridge.js";
@@ -32,7 +32,7 @@ const winsOf = d => { const a = APT[d], w = a.x1 - a.x0; return [a.x0 + w*.3, a.
 
 const G = () => (typeof S !== "undefined" ? S : null);
 let ctx = null, H = null;
-export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null, street:null, mirror:null};
+export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null, street:null, mirror:null, pane:null, plate:null, slam:null, win:null};
 
 /* ================= facades =================
    A facade is dressed in layers that stand a few centimetres proud of the wall, so nothing shares a face with
@@ -264,9 +264,7 @@ function myBlock(F, D){
   for (const s of [.18, 13.82]) downpipe(fb, s, H4);
   roofTop(BLD, H4, {wall:brick, tex:"brick"});
   // the real windows of your flat, and of the stairwell
-  for (const x of winsOf(D)){
-    if (D <= 2) realWin(x, F*LH, 3, 1); else realWin(x, F*LH, -9, -1);
-  }
+  winsOf(D).forEach((x, i) => { if (D <= 2) realWin(x, F*LH, 3, 1, i === 0); else realWin(x, F*LH, -9, -1, i === 0); });
   for (let k = 0; k < 3; k++) realWin(-12.75, k*LH + 1.6 + .1, -9, -1);
 
   // slabs: a hole in each one for the stairs; the underside is the ceiling of the storey below. Each stops 2 cm short
@@ -315,8 +313,11 @@ function myBlock(F, D){
     skirting("z", -0.27, -3.99, -2.31, base + .02, -1); skirting("z", -13.73, -3.99, -2.31, base + .02, 1);
     for (const x of [-11.5, -6.5, -2]){ rbox(x, top - .05, -3.15, .6, .05, .3, .02, 0xfff3d6, {key:"lamp"}); rbox(x, top - .02, -3.15, .66, .02, .36, .01, C.darkMetal); }
     lightSrc({x:-7, y:top - .3, z:-3.1, color:0xfff0d0, intensity:5, distance:9, indoor:true});
+    const nb = D === 1 ? 3 : D === 2 ? 4 : D === 3 ? 1 : 2, onb = G().onb || {};
+    const slamDue = !onb.slam && G().flags && !G().flags.ApartmentTutorialCompleted;
     for (let d = 1; d <= 4; d++){
       if (L === F && d === D) continue;
+      if (L === F && d === nb && slamDue){ neighbourDoor(L, d); continue; }
       staticDoor(L, d);
     }
     // the corridor face of your own door's opening
@@ -459,7 +460,7 @@ function wallRail(o, f, x, wx){
   for (const u of [.3, f.L/2, f.L - .3]){ const y = f.pitch(u) + hr - .05; beam(wx, y, A(u), x, y, A(u), .02, .02, 0x3c4248, {key:"metal"}); }
 }
 /* a window that is really a hole in the wall, with glass you can see through. b0: the sill's height over base */
-function realWin(x, base, face, s){
+function realWin(x, base, face, s, mine){
   const b = base + .9, t = b + 1.45, w = 1.1, h = w/2, zo = face, zi = face - s*.25, zm = face - s*.11;
   const Zs = (d0, d1) => { const a = zo - s*d0, c = zo - s*d1; return [Math.min(a, c), Math.max(a, c)]; };   // d measured inwards from the outside face
   const bx = (x0, x1, y0, y1, d0, d1, c, key) => { const [a, c2] = Zs(d0, d1); box(x0, y0, a, x1, y1, c2, c, {ao:false, jit:0, key}); };
@@ -478,7 +479,8 @@ function realWin(x, base, face, s){
   ib(x - h + .03, x - h + .11, b + .035, t - .03); ib(x + h - .11, x + h - .03, b + .035, t - .03);
   ib(x - h + .11, x + h - .11, t - .11, t - .03); ib(x - h + .11, x + h - .11, b + .035, b + .11);
   ib(x - .035, x + .035, b + .11, t - .11);
-  bx(x - h + .11, x - .035, b + .11, t - .11, .108, .112, 0xa9c2d2, "glass");
+  if (mine){ const [z0, z1] = Zs(.108, .112); HOME.pane = paneOf(x - h + .11, x - .035, b + .11, t - .11, z0, z1, s); }
+  else bx(x - h + .11, x - .035, b + .11, t - .11, .108, .112, 0xa9c2d2, "glass");
   bx(x + .035, x + h - .11, b + .11, t - .11, .108, .112, 0xa9c2d2, "glass");
   // the window board inside, a little wider than the hole, standing out over the radiator (14 cm off the wall) and no
   // further; it is solid, so you stand at it rather than in it
@@ -617,7 +619,7 @@ export function hingedDoor(o){
   if (o.plate){
     const pm = new THREE.Mesh(new THREE.PlaneGeometry(.16, .08), new THREE.MeshLambertMaterial({map:plateTex(o.plate)}));
     pm.position.set(W_/2, 1.62, -o.into*dir*(T/2 + .003)); pm.rotation.y = o.into*dir > 0 ? Math.PI : 0;
-    g.add(pm);
+    g.add(pm); var plateMesh = pm;
   }
   W.scene.add(g);
   const xa = dir > 0 ? o.hingeX : o.hingeX - W_, xb = dir > 0 ? o.hingeX + W_ : o.hingeX;
@@ -628,10 +630,10 @@ export function hingedDoor(o){
   const at = a => { const r = base + spin*a; return [Math.cos(r), -Math.sin(r)]; };
   // turn the leaf to a, unless that would swing it into you
   const turnTo = a => { D.a = guard.reach(D.a, a, at); };
-  const D = {g, a:0, target:0, sol, leaf, dragging:false, get open(){ return D.a > .4; },
+  const D = {g, a:0, target:0, sol, leaf, dragging:false, rate:6, plate:typeof plateMesh === "undefined" ? null : plateMesh, get open(){ return D.a > .4; },
     toggle(){ D.target = D.a > .4 ? 0 : 1.65; }};
   W.anims.push(dt => {
-    if (Math.abs(D.target - D.a) > 1e-4) turnTo(D.a + (D.target - D.a)*(1 - Math.exp(-6*dt)));
+    if (Math.abs(D.target - D.a) > 1e-4) turnTo(D.a + (D.target - D.a)*(1 - Math.exp(-D.rate*dt)));
     g.rotation.y = base + spin*D.a;
     // the closed box stays until the leaf is clear of the frame; the leaf's own boxes take over as soon as it moves
     sol.off = D.a > SHUT;
@@ -639,13 +641,144 @@ export function hingedDoor(o){
     guard.set(ux, uz, D.a > .01, dt);
   });
   const box3 = new THREE.Box3();
-  spot({kind:"drag", label:o.label || "Door", get hint(){ return D.open ? "Close the door" : "Open the door"; }, y:o.base + 1.2,
+  if (!o.noSpot) spot({kind:"drag", label:o.label || "Door", get hint(){ return D.open ? "Close the door" : "Open the door"; }, y:o.base + 1.2,
     aim:() => { g.updateMatrixWorld(); box3.setFromObject(leaf); box3.expandByScalar(.06); return [box3.min.toArray(), box3.max.toArray()]; },
     spin, get angle(){ return D.a; }, toggle:() => D.toggle(),
     drag(da){ turnTo(Math.max(0, Math.min(1.75, D.a + da))); D.target = D.a; },
     hinge(){ return g.getWorldPosition(new THREE.Vector3()); },
     edge(){ g.updateMatrixWorld(); return g.localToWorld(new THREE.Vector3(W_*.95, 1.0, 0)); }});
   return D;
+}
+
+/* ================= the first morning's damage =================
+   The left pane of your flat's first window is a mesh of its own, in one of three states (S.home.win): whole, smashed
+   by a football (jagged teeth of glass left in the frame), and a day later taped over with plastic sheeting. */
+const PANE_MAT = () => new THREE.MeshStandardMaterial({color:0x9fb7c6, transparent:true, opacity:.34, roughness:.06, metalness:.1, depthWrite:false, side:THREE.DoubleSide});
+function paneOf(x0, x1, y0, y1, z0, z1, s){
+  const g = new THREE.Group(), zc = (z0 + z1)/2, P = {x0, x1, y0, y1, z:zc, s, g, state:""};
+  W.scene.add(g);
+  P.set = state => {
+    if (P.state === state) return; P.state = state;
+    while (g.children.length){ const c = g.children.pop(); c.geometry && c.geometry.dispose(); c.material && (c.material.map && c.material.map.dispose(), c.material.dispose()); }
+    if (state === "ok"){ const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), PANE_MAT()); m.position.set((x0 + x1)/2, (y0 + y1)/2, zc); m.renderOrder = 2; g.add(m); }
+    else if (state === "broken"){
+      // teeth of glass round the frame, the middle gone
+      const w = x1 - x0, h = y1 - y0, v = [], r = (k => () => { k = (k*16807) % 2147483647; return k/2147483647; })(97);
+      const tooth = (ax, ay, bx, by, cx, cy) => v.push(ax, ay, zc, bx, by, zc, cx, cy, zc);
+      const n = 5;
+      for (let i = 0; i < n; i++){
+        const a = x0 + w*i/n, b = x0 + w*(i + 1)/n, m = (a + b)/2 + (r() - .5)*w/n*.6;
+        tooth(a, y0, b, y0, m, y0 + h*(.08 + r()*.22)); tooth(b, y1, a, y1, m, y1 - h*(.06 + r()*.18));
+      }
+      for (let i = 0; i < 4; i++){
+        const a = y0 + h*i/4, b = y0 + h*(i + 1)/4, m = (a + b)/2 + (r() - .5)*h/4*.5;
+        tooth(x0, b, x0, a, x0 + w*(.1 + r()*.25), m); tooth(x1, a, x1, b, x1 - w*(.08 + r()*.22), m);
+      }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(v, 3)); geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, PANE_MAT()); m.material.opacity = .5; m.renderOrder = 2; g.add(m);
+    } else {
+      // plastic sheeting pulled over the hole and taped round the frame, a little slack, catching the light
+      const w = x1 - x0, h = y1 - y0, cv = document.createElement("canvas"); cv.width = 128; cv.height = 192;
+      const c = cv.getContext("2d"); c.fillStyle = "rgba(236,240,242,.62)"; c.fillRect(0, 0, 128, 192);
+      c.strokeStyle = "rgba(255,255,255,.55)"; c.lineWidth = 2;
+      for (let i = 0; i < 9; i++){ c.beginPath(); const yy = 10 + i*21; c.moveTo(0, yy); c.bezierCurveTo(40, yy + 14, 80, yy - 12, 128, yy + 6); c.stroke(); }
+      c.fillStyle = "rgba(176,138,82,.95)"; c.fillRect(0, 0, 128, 12); c.fillRect(0, 180, 128, 12); c.fillRect(0, 0, 12, 192); c.fillRect(116, 0, 12, 192);
+      c.fillRect(30, 0, 14, 40); c.fillRect(86, 152, 14, 40);
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+      const geo = new THREE.PlaneGeometry(w, h, 6, 8), pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++){ const px = pos.getX(i)/w + .5, py = pos.getY(i)/h + .5, edge = Math.min(px, 1 - px, py, 1 - py); pos.setZ(i, -s*Math.min(.035, edge*.12)*(1 + .4*Math.sin(px*9 + py*7))); }
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({map:tex, transparent:true, roughness:.35, metalness:0, side:THREE.DoubleSide, depthWrite:false}));
+      m.position.set((x0 + x1)/2, (y0 + y1)/2, zc); if (s < 0) m.rotation.y = Math.PI; m.renderOrder = 2; g.add(m);
+    }
+  };
+  return P;
+}
+// the window as it should be now: smashed for a day, then plastic for good
+export function winRefresh(){
+  const h = G() && G().home, P = HOME.pane; if (!h || !P) return;
+  const w = h.win || {state:"ok"};
+  if (w.state === "broken" && typeof absNow === "function" && absNow() - (w.at || 0) >= 1440) w.state = "plastic";
+  P.set(w.state === "broken" ? "broken" : w.state === "plastic" ? "plastic" : "ok");
+}
+/* The number on your door. It is on the corridor face of the leaf; a neighbour slamming their door on the first
+   morning shakes it off, and from then on it drops off every time your door is opened or closed — and you pick it
+   up (hold the left button) and put it back (click the door). S.home.plate: "door" | "floor"; plateAt where it lies. */
+function plateSetup(D, F, A){
+  const h = G().home, pm = D.plate; if (!pm) return;
+  pm.material.side = THREE.DoubleSide;
+  const local = pm.position.clone(), rotY = pm.rotation.y, floorY = F*LH + .021, out = -A.s;
+  const PL = HOME.plate = {mesh:pm, state:h.plate === "floor" ? "floor" : "door", busy:false, D};
+  const toFloor = (x, z, r) => { W.scene.attach(pm); pm.position.set(x, floorY + .004, z); pm.rotation.set(-Math.PI/2, 0, r); };
+  if (PL.state === "floor"){
+    const at = h.plateAt || {x:A.door + .3, z:A.wz - A.s*.1 + out*.45, r:.4};
+    toFloor(at.x, at.z, at.r);
+  }
+  // off the door, tumbling into the corridor, flat on the lino
+  PL.fall = (o = {}) => {
+    if (PL.state !== "door" || PL.busy) return;
+    PL.busy = true; PL.state = "falling";
+    D.g.updateMatrixWorld(true); W.scene.attach(pm);
+    const v = new THREE.Vector3((Math.random() - .5)*.5, .6 + (o.hard ? .5 : 0), out*(.55 + Math.random()*.4)), spin = new THREE.Vector3(3 + Math.random()*4, Math.random()*3, 2 + Math.random()*3);
+    let t = 0, bounced = false;
+    W.anims.push(function fallStep(dt){
+      if (PL.state !== "falling") return;
+      t += dt; v.y -= 9.8*dt;
+      pm.position.addScaledVector(v, dt);
+      pm.rotation.x += spin.x*dt; pm.rotation.y += spin.y*dt; pm.rotation.z += spin.z*dt;
+      if (pm.position.y <= floorY + .02 && v.y < 0){
+        if (!bounced && v.y < -1.2){ bounced = true; v.y *= -.28; v.x *= .5; v.z *= .5; spin.multiplyScalar(.4); return; }
+        const r = Math.random()*Math.PI*2; toFloor(pm.position.x, pm.position.z, r);
+        PL.state = "floor"; PL.busy = false; h.plate = "floor"; h.plateAt = {x:+pm.position.x.toFixed(3), z:+pm.position.z.toFixed(3), r:+r.toFixed(3)};
+        if (window.lifeOnb) window.lifeOnb("plateFell");
+      }
+    });
+  };
+  PL.slot = () => { D.g.updateMatrixWorld(true); return D.g.localToWorld(local.clone()); };
+  // pick it up from the floor
+  const bb = () => { const p = pm.position; return [[p.x - .14, p.y - .02, p.z - .14], [p.x + .14, p.y + .1, p.z + .14]]; };
+  spot({kind:"pick", label:`Room number · ${h.apt}`, hint:"Hold left click to pick it up", aim:bb, when:() => PL.state === "floor", time:.45,
+    pick(){
+      PL.state = "carried";
+      return {id:"plate", mesh:pm, tilt:-.25, hint:`Put it back on your door: aim at the door and click.`,
+        drop(){ if (PL.state === "carried"){ PL.state = "floor"; } }};
+    }});
+  // and back on the door, where it belongs
+  spot({kind:"place", takes:"plate", label:`Your door · ${h.apt}`, hint:"Click to put the number back on", get aim(){ const p = PL.slot(); return [[p.x - .3, p.y - .3, p.z - .3], [p.x + .3, p.y + .3, p.z + .3]]; },
+    place(c){
+      PL.state = "fixing"; const from = pm.position.clone(), q0 = pm.quaternion.clone(), to = PL.slot();
+      D.g.updateMatrixWorld(true); const q1 = new THREE.Quaternion(); D.g.getWorldQuaternion(q1); q1.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)));
+      let t = 0;
+      W.anims.push(function fixStep(dt){
+        if (PL.state !== "fixing") return;
+        t = Math.min(1, t + dt/.32); const e = t*t*(3 - 2*t);
+        pm.position.lerpVectors(from, PL.slot(), e); pm.quaternion.slerpQuaternions(q0, q1, e);
+        if (t >= 1){
+          D.g.attach(pm); pm.position.copy(local); pm.rotation.set(0, rotY, 0);
+          PL.state = "door"; h.plate = "door"; delete h.plateAt;
+          // a little flash of the brass, so you see it took
+          pm.material.emissive = new THREE.Color(0xffd27a); pm.material.emissiveIntensity = 1.2;
+          let k = 0; W.anims.push(function glow(dt2){ if (k > 1) return; k += dt2/.6; pm.material.emissiveIntensity = Math.max(0, 1.2*(1 - k)); });
+          if (typeof FEED === "object") FEED.chip(`Room number ${h.apt} is back on the door`, "good");
+          if (window.lifeOnb) window.lifeOnb("plateFixed");
+        }
+      });
+    }});
+  // every time the door is opened or closed, it falls off again. (It is meant to. Do not fix this.)
+  let was = D.open;
+  W.anims.push(() => { const o = D.open; if (o !== was){ was = o; if (PL.state === "door") PL.fall(); } });
+}
+/* the neighbour across the corridor, door ajar on the first morning, until it is slammed (intro.js calls HOME.slam) */
+function neighbourDoor(L, d){
+  const a = APT[d], base = L*LH, z = a.wz - a.s*.1, side = d <= 2 ? -1 : 1, col = DOOR_COL[(L*4 + d*3) % DOOR_COL.length];
+  doorway("x", d <= 2 ? -2.2 : -4.1, a.door - .5, a.door + .5, base, 2.1, .2, {faces:[side], color:0x4a3f36, proud:.05, sill:base + .024, sillColor:0x9a958c});
+  // the dark of their hall, seen through the gap
+  box(a.door - .55, base, Math.min(z + a.s*.12, z + a.s*1.3), a.door + .55, base + 2.2, Math.max(z + a.s*.12, z + a.s*1.3), 0x0d0d0f, {ao:false, jit:0});
+  const N = hingedDoor({hingeX:a.door - .47, z, base:base + .026, width:.94, height:2.044, into:a.s, color:col, plate:`${L}0${d}`, noSpot:true});
+  N.a = N.target = .5;
+  HOME.slam = () => { N.rate = 30; N.target = 0; W.shadowDirty = true; };
+  spot({x:a.door, y:base + 1.2, z:z - a.s*.5, aim:[[a.door - .55, base, Math.min(z, z - a.s*.5)], [a.door + .55, base + 2.2, Math.max(z, z - a.s*.5)]],
+    label:`Flat ${L}0${d}`, hint:"Not yours — locked", hold:.15, run:() => ctx.note(`Locked. Somebody else lives at ${L}0${d}.`)});
 }
 
 /* ================= your flat ================= */
@@ -761,7 +894,7 @@ function myFlat(F, D){
   makeBed();
   spot({x:X(Wd - .6), y:base + .6, z:Z(Dp - 1.1), aim:[[Math.min(X(Wd - 1.5), X(Wd)), base, zr(Dp - 2.15, Dp - .1)[0]], [X(Wd), base + .9, zr(Dp - 2.15, Dp - .1)[1]]],
     label:"Bed", get hint(){ const m = ctx.minute() % 1440; return m >= 19*60 || m < 5*60 ? "Sleep · wake tomorrow at 7:00 AM" : "Have a nap · 2 hours"; }, hold:1.2,
-    run:() => ctx.sleep()});
+    run:() => ctx.sleep(), long:{time:2, label:"sleep through the entire day", run:() => ctx.sleepDay()}});
   // a hot bath takes the ache out of your legs
   spot({aim:[[Math.min(X(.05), X(1.95)), base, Math.min(Z(.05), Z(.8))], [Math.max(X(.05), X(1.95)), base + .6, Math.max(Z(.05), Z(.8))]],
     x:X(1), z:Z(.45), label:"Bath", hint:"Hot bath · 30 min · eases fatigue", hold:.5, run:() => ctx.bath()});
@@ -781,6 +914,9 @@ function myFlat(F, D){
   // your front door, from both sides
   const into = s;
   HOME.door = hingedDoor({hingeX:A.door - .47, z:A.wz - s*.1, base:base + .026, width:.94, height:2.044, into, color:0x6e4b34, label:`Flat ${G().home.apt}`, plate:G().home.apt});
+  plateSetup(HOME.door, F, A);
+  // the football that came in through the window on the first morning, where it rolled to a stop
+  if (G().home.win && G().home.win.state !== "ok"){ const [w0] = winsOf(D); propBall(w0 + .35, base + .13, Z(Dp - .75)); }
   doorway("x", A.wz - s*.1, A.door - .5, A.door + .5, base, 2.1, .2, {faces:[s], lining:0, proud:.05, color:0xf0eee8});
 
   // a clock on the wall that tells the time you live by
@@ -1157,6 +1293,7 @@ export function buildHome(c){
   miniMarket(ctx);
   workplace(ctx);
   finishBatches();
+  winRefresh();
   // people out on the street: an eastern loop over the zebra and back across the junction, a western one that
   // crosses at the quiet end; a handful at the busy times of day, nobody in the small hours
   HOME.street = pedestrians({minute:ctx.minute, seed:H.seed + 500, max:6, count:streetCount, routes:[
@@ -1169,7 +1306,8 @@ export function buildHome(c){
     bus:{x:3, z:15.3, y:.12, yaw:0}            // under the shelter roof, clear of the bench behind
   };
 }
-export function homeTick(){ drawClock(); }
+let winT = 0;
+export function homeTick(){ drawClock(); if (++winT > 120){ winT = 0; winRefresh(); } }
 // how many people are out walking at a minute of the day
 function streetCount(m){
   const h = m/60;
@@ -1177,7 +1315,7 @@ function streetCount(m){
 }
 export function resetHome(){ for (const k of Object.keys(HOME)) HOME[k] = k === "curtains" ? [] : null; }
 export function homeRefresh(){
-  refreshFridge();
+  refreshFridge(); winRefresh();
   if (HOME.bed && HOME.bed.tier !== bedTier()) makeBed();
   drawMail();
 }

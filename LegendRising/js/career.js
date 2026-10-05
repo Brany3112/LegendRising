@@ -175,6 +175,9 @@ function resume(data){
   if (S.awards) S.awards = S.awards.filter(a => !/^0 /.test(a.name || ""));
   if (!S.workrate) S.workrate = 2;
   if (S.tutDone == null) S.tutDone = true;
+  // careers from before the first-day introduction have long since found their way about
+  if (!S.flags || typeof S.flags !== "object") S.flags = {CharacterCreated:true, FirstTimeIntroductionCompleted:true, ApartmentTutorialCompleted:true, GameplayTutorialCompleted:true, TrainingCenterTutorialCompleted:true};
+  if (!S.onb || typeof S.onb !== "object") S.onb = {stage:S.flags.TrainingCenterTutorialCompleted ? "done" : "intro"};
   assignTeamPos();                  // your preferred and team positions (saves from before there were seventeen)
   indexSquads();
   dailyEnsure();                    // the daily-life fields, and new skills for careers made before them
@@ -377,7 +380,10 @@ function newCareer(cr){
     energy:85, fatigue:10, chem:0, money:100, workrate:2, tutDone:false, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0, v2:true},
     inv:{drink:2, max:0, sandwich:3, meal:2, fruit:3, water:4, pasta:1}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
     contract:null, trust:0, raise:null, ban:0, cards:{y:0, r:0, run:0}, seasonMy:blankMy(), careerMy:blankMy(), ratings:[], awards:[], trophies:[], news:[], msgs:[], requests:[],
-    locks:{}, pendingMove:null, actions:3, weekDone:{}, history:[], meId:-1, rivalId:-1, offerSet:null, social:null, purchases:[], speed:2, lastMatch:null, promiseLog:[]};
+    locks:{}, pendingMove:null, actions:3, weekDone:{}, history:[], meId:-1, rivalId:-1, offerSet:null, social:null, purchases:[], speed:2, lastMatch:null, promiseLog:[],
+    // the first-day introduction, one step at a time (intro.js); each is kept the moment it is done
+    flags:{CharacterCreated:true, FirstTimeIntroductionCompleted:false, ApartmentTutorialCompleted:false, GameplayTutorialCompleted:false, TrainingCenterTutorialCompleted:false},
+    onb:{stage:"intro"}};
   genWorld();
   // you join the world as a player with no club yet
   const me = newPlayer(cr.nat, POSITIONS[cr.pref].world, 17, overall(), -1);

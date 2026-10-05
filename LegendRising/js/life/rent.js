@@ -14,7 +14,9 @@ export function ensureHome(){
   for (const k of ["drink", "max", "sandwich", "meal"]) s.inv[k] = s.inv[k] || 0;
   if (!s.life) s.life = {day:1, min:7*60};
   if (!s.home){
-    const floor = 1 + Math.floor(Math.random()*3), door = 1 + Math.floor(Math.random()*4);
+    // a new career's flat looks onto the street (doors 1 and 2), where the first morning happens (intro.js)
+    const fresh = !!(s.flags && !s.flags.FirstTimeIntroductionCompleted);
+    const floor = 1 + Math.floor(Math.random()*3), door = 1 + Math.floor(Math.random()*(fresh ? 2 : 4));
     const now = absMonth(s), rent = 55 + 5*Math.floor(Math.random()*5);
     const apt = `${floor}0${door}`;
     s.home = {floor, door, apt, rent, freeUntil:now + 3, billed:now, bills:[], letters:[], lightMin:0,
@@ -27,6 +29,9 @@ export function ensureHome(){
       `From then on the bill arrives here at the start of every month. Lights left on cost money.`);
   }
   if (!s.home.curtains) s.home.curtains = [false, false];
+  // the number on your door ("door" | "floor", where it lies) and the window the football came through
+  if (s.home.plate !== "floor") s.home.plate = "door";
+  if (!s.home.win || typeof s.home.win !== "object") s.home.win = {state:"ok", at:0};
   return s.home;
 }
 function letter(h, from, title, text, extra = {}){

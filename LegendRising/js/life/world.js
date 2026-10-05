@@ -12,6 +12,7 @@ import {createSky} from "./sky.js";
 import {startDrill, startReps, startSession, drillWarmup} from "./drills.js";
 import {human, animateHuman, BONE, VIEW} from "./human.js";
 import {bodyLook} from "./look.js";
+import {onboardInit, onboardStart, onboardTick, onboardZone} from "./intro.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 export const LIFE = {min:7*60, day:1, wd:0, zone:"home", running:false};
@@ -57,7 +58,8 @@ function onDaily(type, d){
   if (!LIFE.running && type !== "season") return;
   if (type === "delivered"){
     refreshFridge(); refreshGymFridge();
-    FEED.center("Foodies delivered", `Your order is in ${d.where === "ground" ? "the gym fridge" : "your fridge at home"}`, {kind:"food", icon:"🍔"});
+    const what = Object.entries(d.items || {}).map(([k, q]) => `${q}× ${typeof FOOD === "object" && FOOD[k] ? FOOD[k].name : k}`).join(", ");
+    FEED.center("Foodies delivered", `The courier found you ${d.at || placeName()} · ${what || "your order"} · it's in your food now`, {kind:"food", icon:"🍔"});
   } else if (type === "late") FEED.chip(`Late for training · Manager trust ${d.d}`, "bad");
   else if (type === "settled"){
     if (d.k.startsWith("absent")) FEED.chip(`Missed training · Manager trust ${Math.round(d.d)}`, "bad");
@@ -69,6 +71,21 @@ function onDaily(type, d){
 }
 if (typeof dailyOn === "function") dailyOn(onDaily);
 
+/* where you are, in words: for a courier who comes to find you */
+function placeName(){
+  const x = P.x, z = P.z;
+  if (LIFE.zone === "ground"){
+    if (x > 17.5 && z > 3 && z < 17) return "in the clubhouse";
+    if (Math.abs(x) < 13.5 && z > 3.5 && z < 16.5) return "in the gym";
+    return z < 2 ? "out on the training pitch" : "at the training centre";
+  }
+  if (x > -14 && x < 0 && z > -9 && z < 3) return P.feet > 2 ? "at your flat" : "in your block";
+  if (x > 2 && x < 15 && z > -9 && z < 3) return "at work";
+  if (x > 17.5 && x < 30 && z > -5.5 && z < 3) return "in the Mini Market";
+  if (x > 0 && x < 14 && z > 17 && z < 24.5) return "at the barber's";
+  return "out in town";
+}
+window.lifePlace = placeName;
 /* ---------- what you can do ---------- */
 function note(t){
   const n = document.getElementById("lifeNote"); if (!n) return;
@@ -92,6 +109,8 @@ function doSleep(){
     const r = sleepNight(bedTier());
     startNewDay(); sync(); forceSky = true;
     persist(true);
+    // the first night: you dream (tutorial.js), and wake up to the morning in the flat
+    if (!s.tutDone && window.lifeDream){ window.lifeDream(); return; }
     morning(r);
   }, 2000);
 }
@@ -268,7 +287,17 @@ window.lifeModalSet = on => {
 const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:() => LIFE.min,
   wait:where => openWait(where), reps, drill, session, computer:where => openComputer(where), shop:() => openShop("market"), vend:() => openShop("vend"),
   water, work, bath, iceBath, warm:() => warm(), look:() => { if (typeof openLookEditor === "function") openLookEditor("mirror"); },
-  barber:() => { if (typeof openBarber === "function") openBarber(); }};
+  barber:() => { if (typeof openBarber === "function") openBarber(); }, sleepDay};
+/* a whole day asleep: hold E on the bed. Exactly 24 hours of the clock pass — not to the next morning, not a nap */
+function sleepDay(){
+  const s = G(); if (!s || busy) return;
+  fade(() => {
+    const r = typeof sleepFullDay === "function" ? sleepFullDay(bedTier()) : null;
+    startNewDay(); sync(); forceSky = true; persist(true);
+    FEED.center(todayName(), `You slept the whole day · ${clockText()}`, {kind:"day", icon:"☾", ms:3200});
+    if (r) note(`Twenty-four hours later. Fatigue ${r.fatigue <= 0 ? "−" + Math.abs(r.fatigue) : "+" + r.fatigue} · you wake up starving.`);
+  }, 2200);
+}
 
 /* ---------- zones ---------- */
 function clearScene(){
@@ -283,6 +312,7 @@ function clearScene(){
 let spawns = {};
 function enterZone(zone, at){
   if (DRILL) endDrillNow();
+  if (CARRY && CARRY.drop) CARRY.drop(); CARRY = null; HOLD = null; PICK = null;
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(scene);
   if (zone === "ground"){ resetHome(); spawns = buildGround(ctx); }
@@ -295,6 +325,7 @@ function enterZone(zone, at){
   forceSky = true; skyStep(0);
   hudMeters.e = hudMeters.f = null;
   warm();
+  onboardZone(zone);
 }
 // Shaders are compiled and textures uploaded the first time something is drawn — which, with frustum culling,
 // is the first time you turn to face it: a hitch exactly while you move the mouse. Do it all up front instead —
@@ -443,7 +474,81 @@ function groundAt(x, z, feet){
   return best;
 }
 const tutOn = () => { const t = document.getElementById("tutRoot"); return !!(t && t.classList.contains("on")); };
-const locked = () => !!(window.lifeMoveLocked && window.lifeMoveLocked()) || modal || tutOn();
+const locked = () => !!(window.lifeMoveLocked && window.lifeMoveLocked()) || modal || tutOn() || CINE.on;
+/* ---------- cinematics (intro.js): the camera is driven, you are not ----------
+   While one runs, nothing you press moves you or uses anything, the clock stands still and the HUD steps aside.
+   frame(dt, cam) puts the camera where the shot wants it; me: "hide" (no body), "tp" (your body stands where you are,
+   facing meYaw, seen like anyone else) or "fp" (the first-person body, for a shot that ends in your eyes). */
+const CINE = {on:false, frame:null, me:"hide", meYaw:0, walk:0, shake:0, shakeT:0};
+function cineBegin(o = {}){
+  CINE.on = true; CINE.frame = o.frame || null; CINE.me = o.me || "hide"; CINE.meYaw = o.meYaw != null ? o.meYaw : P.yaw; CINE.walk = 0;
+  for (const k in keys) keys[k] = false; grab = null; HOLD = null; PICK = null;
+  P.vx = P.vz = 0; P.speed = 0; P.sprint = 0;
+  document.body.classList.add("cine");
+  if (document.exitPointerLock && document.pointerLockElement) document.exitPointerLock();
+}
+function cineEnd(){
+  if (!CINE.on) return;
+  CINE.on = false; CINE.frame = null; CINE.shake = 0;
+  for (const k in keys) keys[k] = false;
+  ME.camT = 0; ME.tpShown = false; ME.near = ME.nearT = 0; ME.yaw = P.yaw;
+  if (ME.tp) meFade(1);
+  document.body.classList.remove("cine");
+  lastPrompt = null; hudCtxT = 0; hudMeters.e = hudMeters.f = null;
+  if (cam){ cam.fov = B.fov; cam.updateProjectionMatrix(); }
+}
+window.lifeCine = () => CINE.on;
+// the camera of a cinematic, and the body it may show
+function cineStep(dt){
+  if (CINE.frame) CINE.frame(dt, cam);
+  if (CINE.shakeT > 0){ CINE.shakeT -= dt; const a = CINE.shake*Math.max(0, CINE.shakeT)/.35; cam.position.x += (Math.random() - .5)*a; cam.position.y += (Math.random() - .5)*a; }
+  if (!ME.fp || !ME.tp) return;
+  ME.fp.g.visible = false;
+  ME.tp.g.visible = CINE.me === "tp";
+  if (CINE.me === "tp"){
+    const h = ME.tp; ME.yaw = CINE.meYaw;
+    h.g.position.set(P.x, P.feet, P.z); h.g.rotation.y = ME.yaw + Math.PI;
+    animateHuman(h, dt, CINE.walk > 0 ? {mode:"move", speed:CINE.walk, look:0} : {mode:"idle", look:0});
+    feetIK(h);
+    const c = cam.position; meFade(sstep(.3, .56, Math.hypot(c.x - P.x, c.y - P.eye - .05, c.z - P.z)/ME.scale));
+  }
+}
+function shake(a = .06, t = .35){ CINE.shake = a; CINE.shakeT = t; }
+/* ---------- holding E (a spot with long:{time, run, label}) and holding the left button (a spot of kind "pick") ----------
+   A tap of E still does what E always did; holding it fills the ring on the prompt and does the long thing when full.
+   Holding the left button on something you can pick up lifts it into your hands; with it in your hands, a click on
+   where it goes (a spot of kind "place" that takes it) puts it there. */
+let HOLD = null, PICK = null, CARRY = null;
+const _ch = new THREE.Vector3(), _cq = new THREE.Quaternion();
+function holdStep(dt){
+  const p = document.getElementById("lifePrompt");
+  if (HOLD){
+    if (!keys.e || locked()) HOLD = null;
+    else {
+      HOLD.t += dt;
+      const k = Math.min(1, Math.max(0, (HOLD.t - .15)/HOLD.sp.long.time));
+      if (p){ p.style.setProperty("--hold", k.toFixed(3)); p.classList.toggle("holding", HOLD.t > .15); }
+      if (k >= 1){ const sp = HOLD.sp; HOLD = null; HOLD_DONE = true; if (p) p.classList.remove("holding"); sp.long.run(); }
+    }
+  }
+  if (PICK){
+    if (!MOUSE_L || locked() || held !== PICK.sp) PICK = null;
+    else {
+      PICK.t += dt;
+      const k = Math.min(1, PICK.t/(PICK.sp.time || .45));
+      if (p){ p.style.setProperty("--hold", k.toFixed(3)); p.classList.add("holding"); }
+      if (k >= 1){ const sp = PICK.sp; PICK = null; if (p) p.classList.remove("holding"); CARRY = sp.pick(); if (CARRY) note(CARRY.hint || "Got it."); }
+    }
+  }
+  if (!HOLD && !PICK && p && p.classList.contains("holding")) p.classList.remove("holding");
+  // what you carry rides in front of you, low and to the right
+  if (CARRY && CARRY.mesh){
+    cam.updateMatrixWorld(); _ch.set(.2, -.2, -.48).applyMatrix4(cam.matrixWorld);
+    CARRY.mesh.position.copy(_ch); cam.getWorldQuaternion(_cq); CARRY.mesh.quaternion.copy(_cq);
+    if (CARRY.tilt) CARRY.mesh.rotateX(CARRY.tilt);
+  }
+}
+let MOUSE_L = false, HOLD_DONE = false;
 // exact critically damped spring of x (and its rate v) towards 0 over dt: no overshoot from rest, no frame-rate dependence
 function spring(o, kx, kv, w, dt){
   const x = o[kx], v = o[kv], e = Math.exp(-w*dt), k = (v + w*x)*dt;
@@ -476,10 +581,12 @@ function step(dt, real){
   if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)){ B.fovSet = B.fov; cam.fov = B.fov; cam.updateProjectionMatrix(); }
   // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
   cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
-  viewStep(dt);
-  meStep(dt);
-  if (LIFE.zone === "ground") tunnel();
-  held = DRILL ? null : (grab || target());
+  if (CINE.on) cineStep(dt);
+  else { viewStep(dt); meStep(dt); }
+  if (LIFE.zone === "ground" && !CINE.on) tunnel();
+  held = DRILL || CINE.on ? null : (grab || target());
+  holdStep(dt);
+  onboardTick(dt);
   hud(held);
 }
 // are you pressed up against something (a wall, the edge of the zone, a drill's box) on that side?
@@ -1104,6 +1211,8 @@ function target(){
   let best = null, bt = REACH, bbox = null;
   for (const sp of W.spots){
     if (!sp.aim || (sp.when && !sp.when())) continue;
+    if (sp.kind === "place" && !(CARRY && sp.takes === CARRY.id)) continue;
+    if (sp.kind === "pick" && CARRY) continue;
     const box = typeof sp.aim === "function" ? sp.aim() : sp.aim;
     const t = rayBox(_o, _d, box[0], box[1]);
     if (t < bt){ bt = t; best = sp; bbox = box; }
@@ -1186,9 +1295,10 @@ function hud(near){
   p.classList.add("on");
   const lab = p.querySelector(".lp-label"), hin = p.querySelector(".lp-hint");
   if (lab.textContent !== near.label) lab.textContent = near.label;
-  const hint = near.hint || "";
+  const hint = (near.hint || "") + (near.long ? ` · hold E: ${near.long.label}` : "");
   if (hin.textContent !== hint) hin.textContent = hint;
   p.classList.toggle("drag", near.kind === "drag");
+  p.classList.toggle("mouse", near.kind === "pick" || near.kind === "place");
 }
 /* ---------- the host a drill drives the world through ---------- */
 const host = {
@@ -1286,7 +1396,7 @@ function loop(t){
   step(dt, Math.min(real, .5));
   // the clock runs on its own, faster while you are on the move; it stops while a panel or the hub is up
   if (busy) stepBusy(Math.min(real, .1));
-  else if (!modal && !DRILL && !tutOn() && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
+  else if (!modal && !DRILL && !tutOn() && !CINE.on && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
   skyStep(Math.min(real, .1));
   if (LIFE.zone === "home") homeTick();
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
@@ -1346,6 +1456,7 @@ export function startLife(opts = {}){
   keysT = 0; document.getElementById("lifeKeys").classList.remove("faded");
   const h = s.home, first = h.letters.some(l => !l.read) && LIFE.day === 1;
   const f = todaysFixture();
+  if (onboardStart()) return;                      // a new career: the first-day introduction takes it from here
   if (opts.later){ noteWhenClear(opts.later); mailNews(); return; }
   tunnelQuiet = false;
   note(opts.msg || (first ? `This is your flat, ${h.apt}. Your uncle paid the first three months — check your mailbox in the lobby.`
@@ -1441,9 +1552,13 @@ function bindInput(cv){
   addEventListener("mousedown", e => {
     if (e.button !== 0 || document.pointerLockElement !== cv) return;
     if (DRILL){ DRILL.input("down", "mouse"); return; }
+    MOUSE_L = true;
+    if (CINE.on) return;
     if (held && held.kind === "drag") grab = held;
+    if (held && held.kind === "pick" && !CARRY) PICK = {sp:held, t:0};
+    if (held && held.kind === "place" && CARRY && held.takes === CARRY.id){ const c = CARRY; CARRY = null; held.place(c); }
   });
-  addEventListener("mouseup", e => { if (e.button !== 0) return; grab = null; if (DRILL && document.pointerLockElement === cv) DRILL.input("up", "mouse"); });
+  addEventListener("mouseup", e => { if (e.button !== 0) return; MOUSE_L = false; PICK = null; grab = null; if (DRILL && document.pointerLockElement === cv) DRILL.input("up", "mouse"); });
   addEventListener("mousemove", e => {
     if (document.pointerLockElement !== cv || locked()) return;
     let mx = e.movementX || 0, my = e.movementY || 0;
@@ -1470,16 +1585,26 @@ function bindInput(cv){
     keys[k === " " ? "space" : k] = true;
     if (k === "h" && !e.repeat){ const el = document.getElementById("lifeKeys"); el.classList.toggle("faded"); keysT = -999; }
     if (k === "v" && !e.repeat) toggleView();
-    if (k === "e" && !e.repeat && !locked()){ const t = held || target(); if (t) use(t); }
+    if (k === "e" && !e.repeat && !locked()){ const t = held || target(); HOLD_DONE = false; if (t){ if (t.long) HOLD = {sp:t, t:0}; else use(t); } }
   });
   addEventListener("keyup", e => {
     const k = e.key.toLowerCase(); keys[k === " " ? "space" : k] = false;
+    // a spot that can be held: a short press is the ordinary use, released before the ring has filled
+    if (k === "e" && HOLD){ const h = HOLD; HOLD = null; if (h.t < .35 && !HOLD_DONE && !locked()) use(h.sp); }
     if (DRILL && k === " ") DRILL.input("up", " ");
   });
-  addEventListener("blur", () => { for (const k in keys) keys[k] = false; grab = null; });
+  addEventListener("blur", () => { for (const k in keys) keys[k] = false; grab = null; HOLD = null; PICK = null; MOUSE_L = false; });
 }
 window.LIFE = LIFE; window.startLife = startLife; window.stopLife = stop; window.resumeLife = resumeLife;
 // handles for automated tests
+/* ---------- what the introduction (intro.js) drives the world through ---------- */
+onboardInit({
+  P, keys, cam:() => cam, scene:() => scene, renderer:() => renderer, place, note, fade, persist, enterZone, warm,
+  minute:() => LIFE.min, zone:() => LIFE.zone, spots:() => W.spots, solids:() => W.solids, eye:() => EYE, camCast, sstep,
+  cineBegin, cineEnd, cine:CINE, shake, ME, meFade, B, hudReset:() => { lastPrompt = null; hudCtxT = 0; },
+  carrying:() => CARRY, spawn:k => spawns[k], relock:() => { if (window.lifeRelock) window.lifeRelock(); }, mailNews:() => mailNews(), forceSky:() => { forceSky = true; }
+});
+
 window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,

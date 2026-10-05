@@ -49,6 +49,14 @@ function countdown(done){
   show();
 }
 
+/* ---------- 0. the first night in the city: the world steps aside for the dream, and you wake up back in it ---------- */
+function dreamTonight(){
+  if (window.stopLife) window.stopLife();
+  document.body.classList.remove("life", "cine");
+  const lr = document.getElementById("lifeRoot"); if (lr) lr.style.display = "none";
+  startTutorial();
+}
+window.lifeDream = dreamTonight;
 /* ---------- 1. falling asleep ---------- */
 function startTutorial(){
   setPhoneVisible(false); closeSheet();
@@ -57,7 +65,7 @@ function startTutorial(){
   render(`<section class="dreamscape"><div class="dream-orb"></div><div class="dream-z"><span>z</span><span>z</span><span>Z</span></div>
     <div class="dream-caption">${esc(S.player.name)} · the night before</div></section>`, "dream");
   setTimeout(() => LAST_SCREEN === "dream" && !S.tutDone && tutShow([
-    {title:"The night before", text:`Tomorrow is your first game for <b>${esc(c.nm)}</b>. You're 17. You can't sleep.`},
+    {title:"Your first night in the city", text:`Your first game for <b>${esc(c.nm)}</b> is days away. You're 17. You can't sleep.`},
     {title:"You close your eyes…", text:"The noise of 88,000 people fills your head. Floodlights. Your name on a giant screen."},
     {title:"In this dream, you're the best", text:"Every skill is <b>maxed at 99</b>. Pace, power, curl, dribbling, composure — everything. Enjoy it. Learn the game."},
     {title:"The Dream XI vs the Legends", text:"Let's see what you can do.", button:"Enter the dream ▸"}
