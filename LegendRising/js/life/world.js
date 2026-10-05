@@ -230,8 +230,29 @@ window.lifeAfterMatch = (played) => {
   if (s.life.min < end) dailyPass(end - s.life.min, "match");
   if (played) S.fatigue = clamp(S.fatigue + played, 0, 100);
   sync(); LIFE.zone = "ground";
-  if (window.startLife) window.startLife({zone:"ground", at:"tunnel", msg:`Full time. You walk back out of the tunnel — it's ${clockText()}. The bus home is by the gate.`});
+  // you come out standing in the tunnel mouth: its "closed" bar would only tell you what you've just done, so it keeps
+  // quiet until you walk off (or back into the mouth); and the line saying where you are waits its turn behind the
+  // honour cards and toasts full time brings (ui/main.js holds them until now, then they all land at once)
+  tunnelQuiet = true;
+  if (window.startLife) window.startLife({zone:"ground", at:"tunnel", msg:"", later:`Full time. You walk back out of the tunnel — it's ${clockText()}. The bus home is by the gate.`});
 };
+/* a note that waits until nothing else is talking: no honour or milestone card open or queued, and no toast on screen
+   for a moment (held toasts come one after another with a short gap between them). It gives up after two minutes, or
+   if you've left the world or the zone it was about */
+let noteLaterT = 0;
+function noteWhenClear(t){
+  clearTimeout(noteLaterT);
+  const zone = LIFE.zone, t0 = performance.now(); let quiet = 0;
+  const busyNow = () => { const r = document.getElementById("tutRoot");
+    return !!((r && r.classList.contains("on")) || (typeof HONOUR_QUEUE === "object" && HONOUR_QUEUE.length) || document.querySelector(".toast")); };
+  const tick = () => {
+    if (!LIFE.running || LIFE.zone !== zone || performance.now() - t0 > 120000) return;
+    quiet = busyNow() ? 0 : quiet + 1;
+    if (quiet >= 4) return note(t);
+    noteLaterT = setTimeout(tick, 250);
+  };
+  noteLaterT = setTimeout(tick, 250);
+}
 function mail(){
   modal = true; for (const k in keys) keys[k] = false;
   document.exitPointerLock && document.exitPointerLock();
@@ -1018,7 +1039,7 @@ function camCast(ox, oy, oz, dx, dy, dz, len, skip){
 }
 
 /* walking up to the tunnel: the match gets ready as you come, and starts when you reach it */
-let tunnelInfo = null, tunnelGo = false, tunnelAge = 0;
+let tunnelInfo = null, tunnelGo = false, tunnelAge = 0, tunnelQuiet = false;
 // " · 2–1" for a game already played today, from the world's results
 function playedScore(f){ const w = typeof gameWorld === "function" ? gameWorld() : null, d = w && w.done && w.done[f.key]; return d && d.hg != null ? ` · ${d.hg}–${d.ag}` : ""; }
 function matchToday(){
@@ -1040,7 +1061,9 @@ function matchToday(){
 function tunnel(){
   const bar = document.getElementById("lifeMatch"), fadeEl = document.getElementById("lifeFade");
   const d = Math.hypot(P.x, P.z + 27.2);
-  if (d > 11 || tunnelGo || DRILL){ if (bar) bar.classList.remove("on"); if (!tunnelGo && fadeEl.dataset.tun){ fadeEl.style.opacity = "0"; delete fadeEl.dataset.tun; } tunnelInfo = null; return; }
+  // just back from full time (lifeAfterMatch): quiet until you leave the tunnel's reach or step back into its mouth
+  if (tunnelQuiet && (d > 11 || d < 1.4)) tunnelQuiet = false;
+  if (d > 11 || tunnelGo || DRILL || tunnelQuiet){ if (bar) bar.classList.remove("on"); if (!tunnelGo && fadeEl.dataset.tun){ fadeEl.style.opacity = "0"; delete fadeEl.dataset.tun; } tunnelInfo = null; return; }
   if (!tunnelInfo || ++tunnelAge > 45){ tunnelInfo = matchToday(); tunnelAge = 0; }
   bar.classList.add("on");
   bar.classList.toggle("off", !tunnelInfo.ok);
@@ -1116,7 +1139,7 @@ function use(sp){
   if (sp.run) sp.run();
 }
 /* ---------- the overlay ---------- */
-let lastPrompt = null, hudCtxT = 0;
+let lastPrompt = null, hudCtxT = 0, hudCtxText = null, hudCtxClr = 0;
 const hudMeters = {e:null, f:null};
 function hud(near){
   const s = G(); if (!s) return;
@@ -1131,7 +1154,23 @@ function hud(near){
     if (cx){
       const f = todaysFixture(), so = sessionOn();
       const t = f ? `Match · ${clockText(fixtureSlot(f).min)}` : so ? "Team training" : trainingDay() && LIFE.min < SESSION.start ? `Training ${clockText(SESSION.start)}` : "";
-      if (cx.textContent !== t){ cx.textContent = t; cx.classList.toggle("on", !!t); cx.classList.toggle("match", !!f); }
+      if (t !== hudCtxText){
+        hudCtxText = t; clearTimeout(hudCtxClr);
+        if (t){ cx.textContent = t; cx.classList.add("on"); cx.classList.toggle("match", !!f); }
+        else {
+          // the pill fades out with its words still in it; they go once it has gone (an empty pill never shows). Its
+          // opacity is read back until it is out (a slow frame can hold a fade up), for four seconds at most
+          cx.classList.remove("on");
+          const t0 = performance.now();
+          const clr = () => {
+            if (hudCtxText) return;
+            let op = 0; try { op = +getComputedStyle(cx).opacity || 0; } catch(e){}
+            if (op > .02 && performance.now() - t0 < 4000){ hudCtxClr = setTimeout(clr, 120); return; }
+            cx.textContent = ""; cx.classList.remove("match");
+          };
+          hudCtxClr = setTimeout(clr, 120);
+        }
+      }
     }
   }
   // the meters are only written when what they show has changed: no style work in a frame where nothing moved
@@ -1298,7 +1337,7 @@ export function startLife(opts = {}){
   ensureHome(); dailyEnsure(); sync();
   document.getElementById("lifeRoot").style.display = "block";
   boot();
-  FEED.reset(); FEED.moneySync(true);
+  FEED.reset(); FEED.moneySync(true); hudCtxT = 0;       // (and the line under the clock is brought up to date at once)
   const zone = opts.zone || "home";
   enterZone(zone, opts.at || (zone === "home" ? "bed" : "bus"));
   if (zone === "ground") arriveForTraining();
@@ -1306,6 +1345,8 @@ export function startLife(opts = {}){
   keysT = 0; document.getElementById("lifeKeys").classList.remove("faded");
   const h = s.home, first = h.letters.some(l => !l.read) && LIFE.day === 1;
   const f = todaysFixture();
+  if (opts.later){ noteWhenClear(opts.later); mailNews(); return; }
+  tunnelQuiet = false;
   note(opts.msg || (first ? `This is your flat, ${h.apt}. Your uncle paid the first three months — check your mailbox in the lobby.`
     : f ? `${todayName()}, ${clockText()}. Match day — kick-off at ${clockText(fixtureSlot(f).min)}.` : `${todayName()}, ${clockText()}. ${trainingDay() ? `Training is at ${clockText(SESSION.start)} — the bus takes ${BUS_MIN} minutes.` : todayLine() + "."}`));
   mailNews();

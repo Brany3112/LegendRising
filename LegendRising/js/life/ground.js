@@ -331,7 +331,9 @@ function stand(clubName){
   solid(-26, 26, -35, -28.6, 0, 7);
   // the tunnel comes out of the middle of the stand: two cheeks and a lintel round a lit recess, double doors at the back
   const TN = 0x6e747a, TC = {tex:"concrete", ao:false, jit:0};
-  box(-3.6, 0, -31.5, -2.4, 3.9, -27.4, TN, Object.assign({solid:true}, TC)); box(2.4, 0, -31.5, 3.6, 3.9, -27.4, TN, Object.assign({solid:true}, TC));
+  box(-3.6, 0, -31.5, -2.4, 3.9, -27.4, TN, TC); box(2.4, 0, -31.5, 3.6, 3.9, -27.4, TN, TC);
+  // (each cheek solid in two pieces, so the front one is small enough for the squad's lap to see it and run round it)
+  for (const [a, b_] of [[-3.6, -2.4], [2.4, 3.6]]){ solid(a, b_, -31.5, -28.6, 0, 3.9); solid(a, b_, -28.6, -27.4, 0, 3.9); }
   box(-2.4, 2.8, -31.5, 2.4, 3.9, -27.4, TN, TC);
   box(-2.4, 0, -31.5, 2.4, 2.8, -28.6, 0x5c6268, Object.assign({solid:true}, TC));
   box(-2.4, 0, -28.6, 2.4, .02, -27.4, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
@@ -537,7 +539,12 @@ export function buildGround(c){
   const kit = typeof kitOf === "function" && myClub && myClub() ? kitOf(myClub().nm) : ["#2c66b8", "#ffffff"];
   GROUND.session = teamSession({kit, when:() => typeof sessionOn === "function" && G() && sessionOn(),
     centre:{x:-11, z:-14}, coach:{x:-6, z:-5.4, ry:Math.PI}, ballMesh:ballMesh,
-    lap:[{x:-20.4, z:-5}, {x:20.4, z:-5}, {x:20.4, z:-25.2}, {x:-20.4, z:-25.2}]});
+    // the lap goes round the outside of the pitch, on the grass: behind both goals (every way across the pitch's ends
+    // is somebody's drill, the shots at one goal and the headers at the other, and a lap down the goal lines would run
+    // through the goal mouths), its ends 4.1 m back where the nets end 1.6 m back, so the runners stay 3.5 m or more
+    // clear of the goal mouths and the six-yard boxes; and along the stand outside the far touchline, behind the heading
+    // drill's ball machine and the corner flags (it swings in round the tunnel's cheeks)
+    lap:[{x:-25.6, z:-5}, {x:25.6, z:-5}, {x:25.6, z:-27.2}, {x:-25.6, z:-27.2}]});
   spot({x:-6, y:1.2, z:-5.4, r:2.2, near:true, when:() => typeof sessionOn === "function" && sessionOn(), label:"Coach", hint:"Join the team session · 90 min", run:() => ctx.session()});
   finishBatches();
   return {bus:{x:-14, z:23.2, y:0, yaw:0}, tunnel:{x:0, z:-25.2, y:0, yaw:Math.PI}};

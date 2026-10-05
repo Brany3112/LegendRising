@@ -624,13 +624,43 @@ function screenSeasonEnd(sum){
 // it waits until you leave the ground, then they come one after another
 const TOAST_HELD = [];
 const toastNow = toast;
+// an award's toast ("🏆 Your first appearance") says what an honour card is saying, or is about to (the card is
+// queued just after the toast is sent): while that card is up or waiting, the card is enough
+function honourCarded(title){
+  if (typeof HONOUR_QUEUE === "object" && HONOUR_QUEUE.some(h => h && h[2] === title)) return true;
+  const h3 = document.querySelector("#tutRoot.on .honour h3");
+  return !!(h3 && h3.textContent === title);
+}
+const isAwardToast = (msg, kind) => kind === "gold" && typeof msg === "string" && msg.startsWith("🏆 ");
+function toastOut(msg, kind){
+  if (isAwardToast(msg, kind) && honourCarded(msg.slice(3))) return;
+  toastNow(msg, kind); placeToasts();
+}
 toast = function(msg, kind){
   if (typeof MT !== "undefined" && MT && MT.holdToasts){ TOAST_HELD.push([msg, kind]); return; }
-  toastNow(msg, kind);
+  if (isAwardToast(msg, kind)) queueMicrotask(() => toastOut(msg, kind));    // once its card, if any, is queued
+  else toastOut(msg, kind);
 };
 function flushHeldToasts(){
   const q = TOAST_HELD.splice(0);
-  q.forEach(([msg, kind], i) => setTimeout(() => toastNow(msg, kind), 700 + i*3300));
+  q.forEach(([msg, kind], i) => setTimeout(() => toastOut(msg, kind), 700 + i*3300));
+}
+// in the street a toast sits at the bottom, where the narrative note (#lifeNote) also sits on a wide screen: while the
+// note is up, toasts rise to just above it, and settle back once it has faded
+function placeToasts(){
+  const ts = document.querySelectorAll("body > .toast"), n = document.getElementById("lifeNote");
+  if (n && !placeToasts.mo && typeof MutationObserver === "function"){
+    placeToasts.mo = new MutationObserver(() => { clearTimeout(placeToasts.t);
+      if (n.classList.contains("on")) placeToasts(); else placeToasts.t = setTimeout(placeToasts, 380); });
+    placeToasts.mo.observe(n, {attributes:true, attributeFilter:["class"]});
+  }
+  if (!ts.length) return;
+  let lift = "";
+  if (n && n.classList.contains("on") && document.body.classList.contains("life") && !document.body.classList.contains("in-match") && n.offsetParent){
+    const r = n.getBoundingClientRect(), H = window.innerHeight, th = Math.max(...[...ts].map(t => t.offsetHeight)) || 48;
+    if (r.height > 0 && r.bottom > H - 26 - th - 10 && r.top < H) lift = Math.round(H - r.top + 10) + "px";
+  }
+  ts.forEach(t => { if (t.style.bottom !== lift) t.style.bottom = lift; });
 }
 const A = {
   newGame(n){ useSlot(n || 1); CR = null; screenCreate(); },

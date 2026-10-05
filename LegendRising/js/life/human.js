@@ -58,7 +58,9 @@
        object or a camera needs to follow a hand or the chest.
    CONTACT = {kick, pass, trap, header}: the t at which foot (or head) meets the ball.
    VIEW = {x, y, z, fx, fz, scene}: where the camera (you, in first person) was at the last frame drawn, and the way it
-       looked (flat) — people use it to get out of your way, and to come and go only where you aren't looking.
+       looked (flat) — people use it to come and go only where you aren't looking.
+   you() → {x, z, here, n}: where you are now (the fresher of VIEW and your own body as last posed) — people use it to
+       get out of your way and never to step into you.
    Budget: ~3.2k triangles near / ~1k far, ONE draw call per person (+1 for the shirt number within 9.5 m),
    one more for all the blobs together. Bodies switch to the far LOD beyond 15 m.
 */
@@ -1137,7 +1139,27 @@ export function playerRig(look = {}, o = {}){
 
 /* ---------- once a frame, before drawing: near or far body, numbers up close, and the blobs underfoot ---------- */
 // where the camera (in first person: you) was at the last frame drawn, so people can step out of your way
-export const VIEW = {x:0, y:-99, z:0, fx:0, fz:-1, scene:null};          // fx, fz: the way the camera looks, flat
+// (x is read through an accessor so that every time anyone sets it — drawing, world.js after drawing, putting you somewhere
+// — is counted: you() below then knows whether VIEW or your own body is the fresher word on where you are)
+let FIX = 0, NOTE = 0;
+const _VX = {x:0};
+export const VIEW = {get x(){ return _VX.x; }, set x(v){ _VX.x = v; FIX++; }, y:-99, z:0, fx:0, fz:-1, scene:null};   // fx, fz: the way the camera looks, flat
+/* you(): where you are now, as best anyone can tell — {x, z, here (you are in the place being stepped), n (changes with
+   every new fix)}. VIEW is set after each frame is drawn, but the world is also stepped without drawing: a long frame
+   lived in slices, a test driving it step by step. Your own body (world.js poses it, named "me-fp" or "me-tp", where
+   you stand once a step, after everyone else has moved) is noted as it is posed; whichever of the two was set last is
+   the answer. (In first person the body may stand a few cm back from where you are, leaning off a wall.) */
+const YOU = {x:0, z:0, scene:null, fix:-1}, HERE = {x:0, z:0, here:false, n:0};
+function noteYou(h){
+  let o = h.g; while (o.parent) o = o.parent;
+  YOU.scene = o.isScene ? o : null; YOU.x = h.g.position.x; YOU.z = h.g.position.z; YOU.fix = FIX; NOTE++;
+}
+export function you(){
+  const rig = !!YOU.scene && YOU.fix === FIX;
+  HERE.x = rig ? YOU.x : VIEW.x; HERE.z = rig ? YOU.z : VIEW.z; HERE.n = FIX + NOTE;
+  HERE.here = !!W.scene && (rig ? YOU.scene === W.scene : VIEW.scene === W.scene || YOU.scene === W.scene);
+  return HERE;
+}
 /* onFirstView(fn): fn(VIEW) runs once, just before the first frame of the place being built now is drawn — VIEW then
    holds where the camera is for that frame (the first moment anyone knows where you arrived), so whatever stands in
    your face can be moved before anybody sees it */
@@ -1663,6 +1685,10 @@ const _st = {mode:"idle"}, ACCEL = 7;
 const toward = (v, target, dt) => Math.abs(target - v) < .02 ? target : v + clamp((target - v)*(1 - Math.exp(-10*dt)), -ACCEL*dt, ACCEL*dt);
 export function animateHuman(h, dt, state = "idle"){
   let st = state;
+  // your own body, posed where you stand: note where that is (see you())
+  // (named after it is made, so asked every time: a body is posed while it is being made)
+  const nm = h.g.name;
+  if (nm === "me-fp" || nm === "me-tp") noteYou(h);
   if (typeof st === "string"){ _st.mode = st; _st.speed = PRESET[st]; st = _st; for (const k of ["t", "look", "arms", "dir", "seat", "desk", "counter", "reach", "amp", "keys"]) delete _st[k]; }
   let mode = st.mode || "idle";
   // the speed the legs are animated at follows the one asked for, but a body can only speed up or slow down so fast

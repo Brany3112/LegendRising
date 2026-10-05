@@ -1013,10 +1013,17 @@ function figTagsBegin(px, py, ball){
   FIG_TAGN = 0; const KH = FIG.kh*scale, X = sx(px), Y = sy(py);
   figTagRect(X - .55*KH, figTopY(py, 0) - 12*DPR, X + .55*KH, Y + .45*KH);
   if (ball){ const p = ballScreen(ball), r = Math.max(3, .26*scale) + 3*DPR; figTagRect(p.x - r, p.y - r, p.x + r, p.y + r); }
+  // the decision cards (and their heading) sit over the picture: a tag under them goes to one side or over his head
+  const dc = M && !REP && M.phase === "decide" && document.getElementById("decide");
+  if (dc && dc.offsetParent){ const cr = cv.getBoundingClientRect(), dr = dc.getBoundingClientRect();
+    figTagRect((dr.left - cr.left)*DPR, (dr.top - cr.top)*DPR, (dr.right - cr.left)*DPR, (dr.bottom - cr.top)*DPR); }
 }
 function figTagFree(x, y, w, h){ for (let i = 0; i < FIG_TAGN; i++){ const r = FIG_TAGR[i]; if (x < r[2] && x + w > r[0] && y < r[3] && y + h > r[1]) return false; } return true; }
 function figTag(name, label, col, wx_, wy_, call, K){
   const c = cx, KH = FIG.kh*scale, h = (call ? 20 : 18)*DPR, pad = 7*DPR, gap = 6*DPR, X = sx(wx_), Y = sy(wy_);
+  // a man off the picture gets a marker on its edge pointing out to him, never a tag pinned beside someone else
+  // (up under the scorebug and the hint counts as off: a tag there would be read through the hint's words)
+  if (X < 0 || X > cv.width || Y + .3*KH < HUDB || figTopY(wy_, 0) > cv.height) return figEdgeTag(name, call, K, X, Y - .4*KH);
   c.font = font(800, call ? 14 : 12); const nw = c.measureText(name).width;
   let lw = 0; if (label){ c.font = font(800, 11); lw = c.measureText(label).width + 10*DPR; }
   const w = nw + pad*2 + (label ? lw + gap - pad*.5 : 0), cxm = v => Math.round(clamp(v, 4*DPR, cv.width - w - 4*DPR));
@@ -1024,7 +1031,7 @@ function figTag(name, label, col, wx_, wy_, call, K){
   let x = cxm(X - w/2), y = Math.round(Y + .3*KH);
   if (!figTagFree(x, y, w, h)){
     const r = cxm(X - .45*KH), l = cxm(X + .45*KH - w), up = Math.round(figTopY(wy_, 0) - h - 2*DPR);
-    if (figTagFree(r, y, w, h)) x = r; else if (figTagFree(l, y, w, h)) x = l; else if (figTagFree(x, up, w, h)) y = up;
+    if (figTagFree(r, y, w, h)) x = r; else if (figTagFree(l, y, w, h)) x = l; else if (up >= HUDB && figTagFree(x, up, w, h)) y = up;
   }
   figTagRect(x, y, x + w, y + h);
   if (y > cv.height || y + h < 0) return;
@@ -1035,6 +1042,49 @@ function figTag(name, label, col, wx_, wy_, call, K){
   if (label){ const lx = x + pad + nw + gap, lh = h - 6*DPR;
     c.fillStyle = col; c.globalAlpha = .18; roundRect(c, lx, y + 3*DPR, lw, lh, lh/2); c.fill(); c.globalAlpha = 1;
     c.font = font(800, 11); c.fillStyle = col; c.fillText(label, lx + 5*DPR, y + h/2 + .5*DPR); }
+}
+// the edge marker: a smaller, dimmer pill with a dashed edge, on the side of the picture he is off (or just under the
+// hint when he is up under the scorebug), with an arrow at its end pointing straight out to him. It steps along that
+// edge until it covers no one — you, the ball, another tag, or any man on the pitch — or else it is left out
+function figManFree(x, y, w, h){
+  if (!M || REP) return true;
+  const KH = FIG.kh*scale;
+  const hit = o => { if (!o || o.gone) return false; const X = sx(o.x); return x < X + .32*KH && x + w > X - .32*KH && y < sy(o.y) + .12*KH && y + h > figTopY(o.y, 0); };
+  if (hit(M.p) || hit(M.gk)) return false;
+  if (M.mates) for (const t of M.mates) if (hit(t)) return false;
+  if (M.defs) for (const d of M.defs) if (hit(d)) return false;
+  return true;
+}
+function figEdgeTag(name, call, K, X, Y){
+  const c = cx, h = 17*DPR, pad = 6*DPR, aw = 11*DPR, m = 4*DPR;
+  c.font = font(800, 11); const nw = c.measureText(name).width, w = nw + pad*2 + aw;
+  const top = Math.max(m, HUDB + 2*DPR), bot = cv.height - h - m;
+  if (bot <= top) return;
+  // which way he is: off a side, or above / below the picture
+  const a = X < 0 ? Math.PI : X > cv.width ? 0 : Y < cv.height/2 ? -Math.PI/2 : Math.PI/2;
+  const x = Math.round(clamp(X - w/2, m, cv.width - w - m)), y0 = clamp(Y - h/2, top, bot);
+  const ok = yy => figTagFree(x, yy, w, h) && figManFree(x, yy, w, h);
+  let y = Math.round(y0);
+  if (!ok(y)){
+    const st = h + 3*DPR; let found = false;
+    for (let k = 1; k <= 16 && !found; k++){
+      const dn = Math.round(y0 + k*st), up = Math.round(y0 - k*st);
+      if (dn <= bot && ok(dn)){ y = dn; found = true; } else if (up >= top && ok(up)){ y = up; found = true; }
+    }
+    if (!found) return;                                             // nowhere clear: better no marker than a wrong one
+  }
+  figTagRect(x, y, x + w, y + h);
+  const right = a === 0, ax = right ? x + w - pad*.55 - aw/2 : x + pad*.55 + aw/2, ay = y + h/2;
+  const ca = Math.cos(a), sa = Math.sin(a), r = aw*.44;
+  c.globalAlpha = .92;
+  c.fillStyle = "rgba(6,12,20,.74)"; roundRect(c, x, y, w, h, h/2); c.fill();
+  c.setLineDash([3*DPR, 3*DPR]); c.strokeStyle = call ? "#ffd75a" : K ? K.shirt : "rgba(255,255,255,.4)"; c.lineWidth = 1.25*DPR;
+  roundRect(c, x, y, w, h, h/2); c.stroke(); c.setLineDash([]);
+  c.fillStyle = call ? "#ffd75a" : "rgba(255,255,255,.92)";
+  c.beginPath(); c.moveTo(ax + ca*r, ay + sa*r); c.lineTo(ax - ca*r*.6 - sa*r*.8, ay - sa*r*.6 + ca*r*.8); c.lineTo(ax - ca*r*.6 + sa*r*.8, ay - sa*r*.6 - ca*r*.8); c.closePath(); c.fill();
+  c.textAlign = "left"; c.textBaseline = "middle"; c.fillStyle = call ? "#ffd75a" : "rgba(255,255,255,.88)";
+  c.fillText(name, right ? x + pad : x + pad + aw, y + h/2 + .5*DPR);
+  c.globalAlpha = 1;
 }
 // you: lined up behind the ball you face where you aim, you strike through it, you throw it in from over your head
 function figPoseMe(R){
@@ -1111,13 +1161,56 @@ function drawOverlay(){
   if (!M.throwIn && (M.phase === "kick" || M.phase === "flight" || M.phase === "done")) drawMiniContact();
   drawHint(HL);
   if (M.phase === "dribble") drawClockBar(clamp(1 - M.t/M.limit, 0, 1));
-  if (M.flash && typeof M.flash.t === "string" && M.flash.t){
-    const life = M.flash.life, pop = 1 + Math.max(0, life - 1)*1.5;
-    c.globalAlpha = clamp(life*1.5, 0, 1); c.textAlign = "center"; c.textBaseline = "middle";
-    c.font = font(800, 46*pop); c.lineWidth = 6*DPR; c.strokeStyle = "rgba(0,0,0,.55)";
-    const fy = M.phase === "contact" ? cv.height*.12 : cv.height*.42;
-    c.strokeText(M.flash.t, cv.width/2, fy); c.fillStyle = "#ffd75a"; c.fillText(M.flash.t, cv.width/2, fy); c.globalAlpha = 1;
+  if (M.flash && typeof M.flash.t === "string" && M.flash.t) drawFlash(M.flash);
+}
+/* the flash ("Options!", "Skinned him!"): a short word across the pitch. It is placed, each frame, in the band that
+   covers least of what you must read — you, the ball and every name tag first, then the other men — under the hint
+   and above the decision cards or the power bar, as near the middle as that allows, and it glides when it moves */
+const FLASH_AV = []; let FLASH_AVN = 0;
+function flashAvoid(x0, y0, x1, y1, wt){ let r = FLASH_AV[FLASH_AVN]; if (!r){ r = [0, 0, 0, 0, 0]; FLASH_AV[FLASH_AVN] = r; } r[0] = x0; r[1] = y0; r[2] = x1; r[3] = y1; r[4] = wt; FLASH_AVN++; }
+function flashMan(o){ if (!o || o.gone) return; const KH = FIG.kh*scale, X = sx(o.x); flashAvoid(X - .4*KH, figTopY(o.y, 0), X + .4*KH, sy(o.y) + .15*KH, 1); }
+function drawFlash(f){
+  const c = cx, life = f.life, pop = 1 + Math.max(0, life - 1)*.8, maxW = cv.width - 32*DPR;
+  const px0 = clamp(cv.height/DPR*.07, 24, 34);                  // a short screen (a phone on its side) gets a smaller word
+  let px = px0; c.font = font(800, px); const tw0 = c.measureText(f.t).width;
+  if (tw0*1.16 > maxW) px *= maxW/(tw0*1.16);                    // a long one on a phone: smaller, never off the sides
+  const tw = tw0*px/px0, th = px*1.16*DPR, x0 = cv.width/2 - tw*.58 - 8*DPR, x1 = cv.width/2 + tw*.58 + 8*DPR;
+  let target; FLASH_AVN = 0;
+  const cost = (y, hardOnly) => { let sc = 0;
+    for (let i = 0; i < FLASH_AVN; i++){ const r = FLASH_AV[i]; if (hardOnly && r[4] < 8) continue;
+      const ox = Math.min(x1, r[2]) - Math.max(x0, r[0]), oy = Math.min(y + th, r[3]) - Math.max(y, r[1]);
+      if (ox > 0 && oy > 0) sc += ox*oy*r[4]; }
+    return sc; };
+  if (M.phase === "contact") target = Math.max(cv.height*.12, HUDB + th/2 + 6*DPR);
+  else {
+    for (let i = 0; i < FIG_TAGN; i++){ const r = FIG_TAGR[i]; flashAvoid(r[0], r[1], r[2], r[3], 8); }   // you, the ball, the tags
+    if (M.mates) for (const t of M.mates) flashMan(t);
+    if (M.defs) for (const d of M.defs) flashMan(d);
+    flashMan(M.gk); flashMan(M.att); flashMan(M.rival); flashMan(M.recv);
+    if (DEFEND_PHASES[M.phase]) { const KH = FIG.kh*scale, X = sx(M.p.x); flashAvoid(X - .45*KH, figTopY(M.p.y, 0), X + .45*KH, sy(M.p.y) + .2*KH, 8); }
+    const b = ballScreen(M.ball); flashAvoid(b.x - 10*DPR, b.y - 10*DPR, b.x + 10*DPR, b.y + 10*DPR, 8);
+    const lo = cv.height - 64*DPR;                                 // the power bar and the pressure meter sit down there
+    const dc = M.phase === "decide" && document.getElementById("decide");
+    if (dc && dc.offsetParent){                                   // the cards: under the picture, or in a side column
+      const cr = cv.getBoundingClientRect(), dr = dc.getBoundingClientRect();
+      flashAvoid((dr.left - cr.left)*DPR, (dr.top - cr.top)*DPR - 30*DPR, (dr.right - cr.left)*DPR, (dr.bottom - cr.top)*DPR, 8);
+    }
+    const hi = HUDB + 6*DPR, pref = cv.height*.36;
+    let best = 1e18;
+    for (let y = hi; y + th <= lo || y === hi; y += 6*DPR){
+      const sc = cost(y, false) + Math.abs(y + th/2 - pref)*.5;  // all else equal, nearest the middle
+      if (sc < best){ best = sc; target = y + th/2; }
+      if (y + th > lo) break;
+    }
   }
+  // it glides to a new place, unless where it is now covers you, the ball or a tag: then it goes at once
+  if (f.y == null || !Number.isFinite(f.y) || (cost(f.y - th/2, true) > 0 && cost(target - th/2, true) < cost(f.y - th/2, true))) f.y = target;
+  else if (FRAME_DT > 0) f.y += (target - f.y)*Math.min(1, FRAME_DT*10);
+  if (!Number.isFinite(f.y)) f.y = cv.height*.36;
+  c.globalAlpha = clamp(life*1.8, 0, 1); c.textAlign = "center"; c.textBaseline = "middle";
+  c.font = font(800, px*pop); c.lineWidth = 5*DPR; c.strokeStyle = "rgba(0,0,0,.55)";
+  c.strokeText(f.t, cv.width/2, f.y); c.fillStyle = "#ffd75a"; c.fillText(f.t, cv.width/2, f.y); c.globalAlpha = 1;
+  c.textAlign = "left";
 }
 function lerpFrames(f, g, t){
   if (!g) return f;
@@ -1168,6 +1261,7 @@ function draw(dt){
     drawReplayScene(lerpFrames(REP.frames[i], REP.frames[i + 1], REP.i - i));
     drawReplayHud(); return;
   }
+  FIG_TAGN = 0;                                       // this frame's tags (a defending moment draws none)
   if (M && MT) (DEFEND_PHASES[M.phase] && M.att !== undefined || DEFEND_PHASES[M.phase]) ? drawDefendScene() : draw2DScene();
   if (MT) drawChant();
   if (M && MT) drawOverlay();

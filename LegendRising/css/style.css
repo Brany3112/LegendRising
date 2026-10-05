@@ -992,6 +992,7 @@ body:not(.life) .lp-notch, body:not(.life) .lp-away{display:none}
 .hud-ctx{font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#d5e3f0;padding:3px 10px;border-radius:99px;background:rgba(9,15,24,.5);
   border:1px solid var(--hud-line);opacity:0;transform:translateY(-4px);transition:opacity .4s,transform .4s var(--ease);white-space:nowrap}
 .hud-ctx.on{opacity:1;transform:none} .hud-ctx.match{color:var(--gold);border-color:rgba(255,215,90,.35)}
+.hud-ctx:empty{visibility:hidden}   /* fades in place at its own size (opacity and a 4px slide only); with no words it is never a bare pill */
 /* top right: money, then the two meters */
 .hud-tr{position:absolute;top:calc(var(--hud-pad) + env(safe-area-inset-top,0px));right:calc(var(--hud-pad) + env(safe-area-inset-right,0px));display:grid;justify-items:end;gap:6px;
   pointer-events:none;z-index:2}
