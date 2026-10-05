@@ -227,9 +227,10 @@ function openShift(){
     <div class="shift-top"><span class="ji">${job.icon}</span><div><b>${esc(rank.name)}</b><span>${esc(rank.blurb || "")}</span></div></div>
     ${top ? `<p class="lpn-p">You're at the top of the ladder — shifts are just pay now.</p>` : `${pbar(pctOf(js.xp, jobNeed()), "job")}<div class="pc-row"><span>Experience</span><b>${js.xp} / ${jobNeed()} XP</b></div>`}
     <div class="shift-opts">
-      <button class="shift-opt" ${late || tired ? "disabled" : ""} onclick="shiftGo(2)"><b>2-hour shift</b><span>≈ ${eurFull(p2.pay)} · +${p2.xp} XP</span><em>until ${fmtTime(m + 120)}</em></button>
-      <button class="shift-opt" ${late4 || tired ? "disabled" : ""} onclick="shiftGo(4)"><b>4-hour shift</b><span>≈ ${eurFull(p4.pay)} · +${p4.xp} XP</span><em>until ${fmtTime(m + 240)}</em></button>
+      <button class="shift-opt" ${late || tired ? "disabled" : ""} onclick="shiftGo(2)"><b>2-hour shift</b><span>${eurFull(Math.round(p2.pay*.7))}–${eurFull(Math.round(p2.pay*1.25))} · up to +${Math.round(p2.xp*1.4*1.2)} XP</span><em>until about ${fmtTime(m + 120)}</em></button>
+      <button class="shift-opt" ${late4 || tired ? "disabled" : ""} onclick="shiftGo(4)"><b>4-hour shift</b><span>${eurFull(Math.round(p4.pay*.7))}–${eurFull(Math.round(p4.pay*1.25))} · up to +${Math.round(p4.xp*1.4*1.2)} XP</span><em>until about ${fmtTime(m + 240)}</em></button>
     </div>
+    <p class="lpn-p shift-how">You do the work: how well you do it sets the pay and the XP, and quick work gets you out early. Esc clocks you out, paid for what you've done.</p>
     <p class="lpn-foot">${tired ? "You're too hungry to work. Eat something first." : late ? "We close at 11:00 PM — come back tomorrow from 7:00 AM." : `Work burns energy and adds fatigue. ${trainEff() < .75 ? "You're tired, so you'll learn less on this shift." : ""}`}</p>`);
 }
 function shiftGo(hours){

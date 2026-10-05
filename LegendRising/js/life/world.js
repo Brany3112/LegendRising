@@ -18,6 +18,7 @@ import {onboardInit, onboardStart, onboardTick, onboardZone} from "./intro.js";
 import * as INV from "./inv.js";
 import {refreshParcels, resetParcels, parcelStep, pointName, parcelText} from "./parcels.js";
 import {MINI, miniInput, miniStep, screwIn, startMini} from "./mini.js";
+import {runShift} from "./jobs.js";
 import {BM, buildInit, buildEnter, buildExit, buildKey, buildStep, buildPan} from "./buildmode.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -237,25 +238,20 @@ function iceBath(){
   timeLapse(20, "rest", "Ice bath", () => { S.fatigue = clamp(S.fatigue - 14, 0, 100); FEED.chip("Ice bath · −14 fatigue", "good"); persist(); }, {icon:"🧊", dur:2});
 }
 function water(){ S.fatigue = clamp(S.fatigue - 2, 0, 100); S.energy = clamp(S.energy + 1, 0, 100); S.hyd = clamp(num(S.hyd, 82) + 14, 0, 100); pass(2); FEED.chip("Cup of water · +14 hydration · −2 fatigue", "good"); }
-// a shift at work: the clock runs, the job bar fills as you go, the pay comes at the end
-window.lifeShift = plan => {
-  const tasks = (JOB_TASKS[jobState().id] || ["Working"]);
-  let given = 0, promo = null;
-  const before = () => ({pct:jobState().xp/jobNeed(), rank:myJob().rank});
-  timeLapse(plan.hours*60, "work", k => `On shift · ${tasks[Math.min(tasks.length - 1, Math.floor(k*tasks.length))]}`, () => {
-    shiftPay(plan);
-    if (promo){ setTimeout(() => { FEED.center(promo.newJob ? "New job" : "Promoted", promo.newJob ? `${promo.job.name} · ${jobWhereLine(promo.job.id)}` : `${promo.job.name} · ${promo.to.name}`, {kind:"level", icon:"★"}); promoBox(promo, plan.pay); }, 500); }
-    note(`Shift done at ${clockText()} · ${eurFull(plan.pay)} earned.`);
-    persist();
-  }, {icon:myJob().job.icon, dur:plan.hours >= 4 ? 5.5 : 3.4, tick:(k) => {
-    const want = Math.round(plan.xp*k), part = want - given;
-    if (part >= Math.max(1, Math.round(plan.xp/8)) || (k >= 1 && part > 0)){
-      const b = before(); given = want;
-      const p = shiftXp(part); if (p) promo = p;
-      FEED.job(part, b);
-    }
-  }});
-};
+// a shift at work: you do the job (jobs.js), task by task, the clock moving on as you go; the pay and the job XP
+// come at the end, by how well (and how quickly) you worked
+window.lifeShift = plan => runShift(plan, {pass:m => pass(m, "work"), minute:() => LIFE.min, clock:() => clockText(), done:r => {
+  sync();
+  if (!r || !r.done){ note("You clock out again without doing anything. Nobody's impressed."); persist(); return; }
+  shiftPay(Object.assign({}, plan, {hours:r.hours, pay:r.pay}));
+  const b = {pct:jobState().xp/jobNeed(), rank:myJob().rank};
+  const promo = r.xp ? shiftXp(r.xp) : null;
+  if (r.xp) FEED.job(r.xp, b);
+  FEED.chip(`Shift pay · +${eurFull(r.pay)}${r.tips ? ` (€${r.tips} tips)` : ""}`, "good");
+  note(r.early ? `Clocked out early at ${clockText()} · ${r.done} of ${r.N} ${r.unit} · ${eurFull(r.pay)}.` : `Shift done at ${clockText()} · ${Math.round(r.q*100)}% · ${eurFull(r.pay)} earned.`);
+  if (promo) setTimeout(() => { FEED.center(promo.newJob ? "New job" : "Promoted", promo.newJob ? `${promo.job.name} · ${jobWhereLine(promo.job.id)}` : `${promo.job.name} · ${promo.to.name}`, {kind:"level", icon:"★"}); promoBox(promo, r.pay); }, 500);
+  persist(true);
+}});
 // jobs where you deal with customers will not have you on the floor smelling like a changing room
 const FACE_JOBS = ["cafe", "store", "gym", "academy", "photo"];
 function work(){
@@ -1849,4 +1845,4 @@ window.__life = {P, keys, B, Q, W, HOME, LIFE, compassStep:dt => compassStep(dt,
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,
-  INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels, MINI, miniInput, BM, buildEnter, buildExit, buildKey, lockKey:() => lockKey(P), robbed, homeTick};
+  INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels, MINI, miniInput, miniStep, BM, buildEnter, buildExit, buildKey, lockKey:() => lockKey(P), robbed, homeTick};

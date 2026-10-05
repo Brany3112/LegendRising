@@ -166,11 +166,6 @@ const JOB_LEGACY = ["cafe", "store", "courier", "photo", "edit"];
 const JOB_TOP = {j:JOBS.length - 1, r:2};
 // a four-hour shift is worth about this much experience; a rank needs `need` shifts' worth
 const JOB_XP_PER_SHIFT = 50;
-// what you actually do on a shift, for the progress card at work
-const JOB_TASKS = {cafe:["Washing up", "Pulling shots", "Clearing tables", "Restocking cups"], store:["Stacking shelves", "On the till", "Counting stock", "Facing up the aisles"],
-  courier:["Loading the bag", "Cross-town run", "Doorstep drop-offs", "Back to dispatch"], gym:["Front desk", "Wiping down machines", "Inductions", "Locking up"],
-  academy:["Laying out cones", "Running drills", "Small-sided games", "Talking to parents"], photo:["Setting up lights", "Portrait session", "Sorting the shots", "Editing selects"],
-  edit:["Logging footage", "Rough cut", "Colour grade", "Exporting the reel"]};
 function jobAt(j, r){ const job = JOBS[clamp(j|0, 0, JOBS.length - 1)]; return {job, rank:job.ranks[clamp(r|0, 0, job.ranks.length - 1)]}; }
 // mall: things you buy once (except drinks)
 const SHOP = [
