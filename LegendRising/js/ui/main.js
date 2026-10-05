@@ -637,9 +637,12 @@ function toastOut(msg, kind){
   toastNow(msg, kind); placeToasts();
 }
 toast = function(msg, kind){
-  if (typeof MT !== "undefined" && MT && MT.holdToasts){ TOAST_HELD.push([msg, kind]); return; }
-  if (isAwardToast(msg, kind)) queueMicrotask(() => toastOut(msg, kind));    // once its card, if any, is queued
-  else toastOut(msg, kind);
+  const hold = typeof MT !== "undefined" && MT && MT.holdToasts;     // read now: full time lifts the hold before a microtask runs
+  const send = () => hold ? TOAST_HELD.push([msg, kind]) : toastOut(msg, kind);
+  // an award is judged once its card, if any, is queued (the line after the toast): with a card it is dropped for
+  // good, so it never turns up later as a second announcement of a card already read and closed
+  if (isAwardToast(msg, kind)) queueMicrotask(() => { if (!honourCarded(msg.slice(3))) send(); });
+  else send();
 };
 function flushHeldToasts(){
   const q = TOAST_HELD.splice(0);

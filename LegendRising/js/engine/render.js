@@ -846,8 +846,11 @@ function barColor(t){
   const c = t < .5 ? W_.map((v,i) => lerp(v, G[i], t/.5)) : G.map((v,i) => lerp(v, R[i], (t-.5)/.5));
   return `rgb(${c.map(Math.round).join(",")})`;
 }
+function powerBarGeom(){ const w = Math.min(cv.width*.46, 520*DPR), h = Math.max(26*DPR, w*.1); return {w, h, x:(cv.width - w)/2, y:cv.height - h - 34*DPR}; }
+// the bar with its frame and the label over it, as [x0, y0, x1, y1]
+function powerBarRect(){ const g = powerBarGeom(); return [g.x - 6*DPR, g.y - 30*DPR, g.x + g.w + 6*DPR, g.y + g.h + 6*DPR]; }
 function drawPowerBar(pw, label){
-  const c = cx, w = Math.min(cv.width*.46, 520*DPR), h = Math.max(26*DPR, w*.1), x = (cv.width - w)/2, y = cv.height - h - 34*DPR;
+  const c = cx, {w, h, x, y} = powerBarGeom();
   const n = 10, pad = h*.18, iw = w - pad*2, ih = h - pad*2, cw = iw/n;
   c.save();
   c.fillStyle = "rgba(0,0,0,.72)"; roundRect(c, x - 6*DPR, y - 6*DPR, w + 12*DPR, h + 12*DPR, h*.35); c.fill();
@@ -1013,10 +1016,15 @@ function figTagsBegin(px, py, ball){
   FIG_TAGN = 0; const KH = FIG.kh*scale, X = sx(px), Y = sy(py);
   figTagRect(X - .55*KH, figTopY(py, 0) - 12*DPR, X + .55*KH, Y + .45*KH);
   if (ball){ const p = ballScreen(ball), r = Math.max(3, .26*scale) + 3*DPR; figTagRect(p.x - r, p.y - r, p.x + r, p.y + r); }
-  // the decision cards (and their heading) sit over the picture: a tag under them goes to one side or over his head
-  const dc = M && !REP && M.phase === "decide" && document.getElementById("decide");
-  if (dc && dc.offsetParent){ const cr = cv.getBoundingClientRect(), dr = dc.getBoundingClientRect();
-    figTagRect((dr.left - cr.left)*DPR, (dr.top - cr.top)*DPR, (dr.right - cr.left)*DPR, (dr.bottom - cr.top)*DPR); }
+  if (!M || REP) return;
+  // what sits over the picture — the decision cards (and their heading), the power bar and its label while you aim,
+  // the action buttons — is out of bounds too: a tag under them goes to one side or over his head
+  if (M.phase === "aim"){ const r = powerBarRect(); figTagRect(r[0], r[1], r[2], r[3]); }
+  const cr = cv.getBoundingClientRect();
+  const dom = el => { if (!el || !el.offsetParent) return; const dr = el.getBoundingClientRect(); if (dr.width < 1 || dr.height < 1) return;
+    figTagRect((dr.left - cr.left)*DPR, (dr.top - cr.top)*DPR, (dr.right - cr.left)*DPR, (dr.bottom - cr.top)*DPR); };
+  if (M.phase === "decide") dom(document.getElementById("decide"));
+  const ar = document.getElementById("actrow"); if (ar && getComputedStyle(ar).visibility !== "hidden" && ar.offsetHeight) dom(ar);
 }
 function figTagFree(x, y, w, h){ for (let i = 0; i < FIG_TAGN; i++){ const r = FIG_TAGR[i]; if (x < r[2] && x + w > r[0] && y < r[3] && y + h > r[1]) return false; } return true; }
 function figTag(name, label, col, wx_, wy_, call, K){
@@ -1028,9 +1036,12 @@ function figTag(name, label, col, wx_, wy_, call, K){
   let lw = 0; if (label){ c.font = font(800, 11); lw = c.measureText(label).width + 10*DPR; }
   const w = nw + pad*2 + (label ? lw + gap - pad*.5 : 0), cxm = v => Math.round(clamp(v, 4*DPR, cv.width - w - 4*DPR));
   // under him, centred; or still under him but hanging off to one side; or else over his head
+  // (a tag that would run off the bottom of the picture goes over his head at once)
   let x = cxm(X - w/2), y = Math.round(Y + .3*KH);
-  if (!figTagFree(x, y, w, h)){
-    const r = cxm(X - .45*KH), l = cxm(X + .45*KH - w), up = Math.round(figTopY(wy_, 0) - h - 2*DPR);
+  const up = Math.round(figTopY(wy_, 0) - h - 2*DPR), below = y + h <= cv.height - 2*DPR;
+  if (!below && up >= HUDB) y = up;
+  else if (!figTagFree(x, y, w, h)){
+    const r = cxm(X - .45*KH), l = cxm(X + .45*KH - w);
     if (figTagFree(r, y, w, h)) x = r; else if (figTagFree(l, y, w, h)) x = l; else if (up >= HUDB && figTagFree(x, up, w, h)) y = up;
   }
   figTagRect(x, y, x + w, y + h);
@@ -1062,14 +1073,28 @@ function figEdgeTag(name, call, K, X, Y){
   if (bot <= top) return;
   // which way he is: off a side, or above / below the picture
   const a = X < 0 ? Math.PI : X > cv.width ? 0 : Y < cv.height/2 ? -Math.PI/2 : Math.PI/2;
-  const x = Math.round(clamp(X - w/2, m, cv.width - w - m)), y0 = clamp(Y - h/2, top, bot);
-  const ok = yy => figTagFree(x, yy, w, h) && figManFree(x, yy, w, h);
-  let y = Math.round(y0);
-  if (!ok(y)){
-    const st = h + 3*DPR; let found = false;
-    for (let k = 1; k <= 16 && !found; k++){
-      const dn = Math.round(y0 + k*st), up = Math.round(y0 - k*st);
-      if (dn <= bot && ok(dn)){ y = dn; found = true; } else if (up >= top && ok(up)){ y = up; found = true; }
+  const x0 = clamp(X - w/2, m, cv.width - w - m), y0 = clamp(Y - h/2, top, bot);
+  const ok = (xx, yy) => figTagFree(xx, yy, w, h) && figManFree(xx, yy, w, h);
+  let x = Math.round(x0), y = Math.round(y0);
+  if (!ok(x, y)){
+    // it slides along its own edge: up and down the side he is off, or across the top or the bottom, then (top and
+    // bottom only) a row further in
+    let found = false;
+    if (a === 0 || a === Math.PI){
+      const st = h + 3*DPR;
+      for (let k = 1; k <= 16 && !found; k++){
+        const dn = Math.round(y0 + k*st), up = Math.round(y0 - k*st);
+        if (dn <= bot && ok(x, dn)){ y = dn; found = true; } else if (up >= top && ok(x, up)){ y = up; found = true; }
+      }
+    } else {
+      const st = 12*DPR, rows = [y0, a < 0 ? y0 + h + 3*DPR : y0 - h - 3*DPR];
+      for (const yr of rows){ if (found || yr < top || yr > bot) continue;
+        for (let k = 0; k <= 40 && !found; k++){
+          const r = Math.round(x0 + k*st), l = Math.round(x0 - k*st), yy = Math.round(yr);
+          if (r <= cv.width - w - m && ok(r, yy)){ x = r; y = yy; found = true; } else if (l >= m && ok(l, yy)){ x = l; y = yy; found = true; }
+          if (r > cv.width - w - m && l < m) break;
+        }
+      }
     }
     if (!found) return;                                             // nowhere clear: better no marker than a wrong one
   }
@@ -1163,53 +1188,75 @@ function drawOverlay(){
   if (M.phase === "dribble") drawClockBar(clamp(1 - M.t/M.limit, 0, 1));
   if (M.flash && typeof M.flash.t === "string" && M.flash.t) drawFlash(M.flash);
 }
-/* the flash ("Options!", "Skinned him!"): a short word across the pitch. It is placed, each frame, in the band that
-   covers least of what you must read — you, the ball and every name tag first, then the other men — under the hint
-   and above the decision cards or the power bar, as near the middle as that allows, and it glides when it moves */
+/* the flash ("Options!", "Skinned him!"): a short word across the pitch. It is placed, each frame, where it covers
+   none of what you must read: you, the ball and every name tag, the decision cards and the power bar — and, if it
+   can, none of the other men either. It looks under the hint and above the cards or the power bar, along the middle
+   first and then to either side, and at a smaller size when the full one fits nowhere; it glides when it moves. Where
+   nothing is clear of you, the ball and the tags, it is not drawn at all: the word is a flourish, they are the game */
 const FLASH_AV = []; let FLASH_AVN = 0;
 function flashAvoid(x0, y0, x1, y1, wt){ let r = FLASH_AV[FLASH_AVN]; if (!r){ r = [0, 0, 0, 0, 0]; FLASH_AV[FLASH_AVN] = r; } r[0] = x0; r[1] = y0; r[2] = x1; r[3] = y1; r[4] = wt; FLASH_AVN++; }
 function flashMan(o){ if (!o || o.gone) return; const KH = FIG.kh*scale, X = sx(o.x); flashAvoid(X - .4*KH, figTopY(o.y, 0), X + .4*KH, sy(o.y) + .15*KH, 1); }
+// what a box (centre x, y; half width hw, height th) covers: [of you / the ball / tags / cards, of the other men]
+function flashCover(x, y, hw, th){
+  let hard = 0, soft = 0; const x0 = x - hw, x1 = x + hw, y0 = y - th/2, y1 = y + th/2;
+  for (let i = 0; i < FLASH_AVN; i++){ const r = FLASH_AV[i];
+    const ox = Math.min(x1, r[2]) - Math.max(x0, r[0]), oy = Math.min(y1, r[3]) - Math.max(y0, r[1]);
+    if (ox > 0 && oy > 0){ if (r[4] >= 8) hard += ox*oy; else soft += ox*oy; } }
+  return [hard, soft];
+}
 function drawFlash(f){
   const c = cx, life = f.life, pop = 1 + Math.max(0, life - 1)*.8, maxW = cv.width - 32*DPR;
   const px0 = clamp(cv.height/DPR*.07, 24, 34);                  // a short screen (a phone on its side) gets a smaller word
-  let px = px0; c.font = font(800, px); const tw0 = c.measureText(f.t).width;
-  if (tw0*1.16 > maxW) px *= maxW/(tw0*1.16);                    // a long one on a phone: smaller, never off the sides
-  const tw = tw0*px/px0, th = px*1.16*DPR, x0 = cv.width/2 - tw*.58 - 8*DPR, x1 = cv.width/2 + tw*.58 + 8*DPR;
-  let target; FLASH_AVN = 0;
-  const cost = (y, hardOnly) => { let sc = 0;
-    for (let i = 0; i < FLASH_AVN; i++){ const r = FLASH_AV[i]; if (hardOnly && r[4] < 8) continue;
-      const ox = Math.min(x1, r[2]) - Math.max(x0, r[0]), oy = Math.min(y + th, r[3]) - Math.max(y, r[1]);
-      if (ox > 0 && oy > 0) sc += ox*oy*r[4]; }
-    return sc; };
-  if (M.phase === "contact") target = Math.max(cv.height*.12, HUDB + th/2 + 6*DPR);
+  c.font = font(800, px0); const tw0 = c.measureText(f.t).width;
+  const fit = tw0*1.16 > maxW ? maxW/(tw0*1.16) : 1;            // a long one on a phone: smaller, never off the sides
+  FLASH_AVN = 0;
+  if (M.phase === "contact"){ f.k = 1; f.x = cv.width/2; f.y = Math.max(cv.height*.12, HUDB + px0*fit*.58*DPR + 6*DPR); f.show = true; }
   else {
-    for (let i = 0; i < FIG_TAGN; i++){ const r = FIG_TAGR[i]; flashAvoid(r[0], r[1], r[2], r[3], 8); }   // you, the ball, the tags
+    for (let i = 0; i < FIG_TAGN; i++){ const r = FIG_TAGR[i]; flashAvoid(r[0], r[1], r[2], r[3], 8); }   // you, the ball, the tags, the cards, the bar
     if (M.mates) for (const t of M.mates) flashMan(t);
     if (M.defs) for (const d of M.defs) flashMan(d);
     flashMan(M.gk); flashMan(M.att); flashMan(M.rival); flashMan(M.recv);
-    if (DEFEND_PHASES[M.phase]) { const KH = FIG.kh*scale, X = sx(M.p.x); flashAvoid(X - .45*KH, figTopY(M.p.y, 0), X + .45*KH, sy(M.p.y) + .2*KH, 8); }
+    const KH = FIG.kh*scale, X = sx(M.p.x); flashAvoid(X - .45*KH, figTopY(M.p.y, 0) - 4*DPR, X + .45*KH, sy(M.p.y) + .2*KH, 8);
     const b = ballScreen(M.ball); flashAvoid(b.x - 10*DPR, b.y - 10*DPR, b.x + 10*DPR, b.y + 10*DPR, 8);
-    const lo = cv.height - 64*DPR;                                 // the power bar and the pressure meter sit down there
     const dc = M.phase === "decide" && document.getElementById("decide");
-    if (dc && dc.offsetParent){                                   // the cards: under the picture, or in a side column
+    if (dc && dc.offsetParent){                                   // the cards and their heading: under the picture, or in a side column
       const cr = cv.getBoundingClientRect(), dr = dc.getBoundingClientRect();
       flashAvoid((dr.left - cr.left)*DPR, (dr.top - cr.top)*DPR - 30*DPR, (dr.right - cr.left)*DPR, (dr.bottom - cr.top)*DPR, 8);
     }
-    const hi = HUDB + 6*DPR, pref = cv.height*.36;
-    let best = 1e18;
-    for (let y = hi; y + th <= lo || y === hi; y += 6*DPR){
-      const sc = cost(y, false) + Math.abs(y + th/2 - pref)*.5;  // all else equal, nearest the middle
-      if (sc < best){ best = sc; target = y + th/2; }
-      if (y + th > lo) break;
+    if (M.phase === "aim"){ const r = powerBarRect(); flashAvoid(r[0], r[1], r[2], r[3], 8); }
+    const lo = cv.height - 64*DPR, hi = HUDB + 6*DPR, prefY = cv.height*.36, mx = cv.width/2, step = 6*DPR;
+    // the size it had stays the most it can have, so a word never swells again as the men move
+    let best = null;
+    for (const k of [1, .8, .64]){
+      if (f.k != null && k > f.k + 1e-6) continue;
+      const th = px0*fit*k*1.16*DPR + 8*DPR, hw = tw0*fit*k*.58 + 8*DPR, xs = [mx];
+      for (let d = cv.width/10; mx + d + hw <= cv.width - 8*DPR; d += cv.width/10) xs.push(mx - d, mx + d);
+      for (const x of xs) for (let y = hi + th/2; y + th/2 <= lo || y === hi + th/2; y += step){
+        const [hard, soft] = flashCover(x, y, hw, th);
+        const sc = (hard > 0 ? 1e9 + hard : 0) + soft*40 + Math.abs(y - prefY)*.5 + Math.abs(x - mx)*.8;
+        if (!best || sc < best.sc) best = {sc, x, y, k, hard, soft};
+        if (y + th/2 > lo) break;
+      }
+      if (best && best.hard === 0 && best.soft === 0) break;     // clear of everyone at this size
     }
+    if (!best || best.hard > 0){ f.show = false; return; }        // nowhere clear of you, the ball and the tags
+    // it stays where it is while that is as clear as the best place (and not much further from the middle); it glides
+    // to a new place when the way there crosses no one, and otherwise goes there at once
+    const th = px0*fit*best.k*1.16*DPR + 8*DPR, hw = tw0*fit*best.k*.58 + 8*DPR;
+    const here = f.show && f.k === best.k && Number.isFinite(f.x) && Number.isFinite(f.y) ? flashCover(f.x, f.y, hw, th) : null;
+    const hereSc = here ? (here[0] > 0 ? 1e9 : 0) + here[1]*40 + Math.abs(f.y - prefY)*.5 + Math.abs(f.x - mx)*.8 : 1e18;
+    if (hereSc > best.sc + 24*DPR){
+      let clear = !!here && FRAME_DT > 0;
+      for (let i = 1; i <= 6 && clear; i++){ const q = i/6, cv_ = flashCover(f.x + (best.x - f.x)*q, f.y + (best.y - f.y)*q, hw, th); if (cv_[0] > 0 || cv_[1] > 0) clear = false; }
+      if (clear){ const g = Math.min(1, FRAME_DT*10); f.x += (best.x - f.x)*g; f.y += (best.y - f.y)*g; }
+      else { f.x = best.x; f.y = best.y; }
+    }
+    f.k = best.k; f.show = true;
   }
-  // it glides to a new place, unless where it is now covers you, the ball or a tag: then it goes at once
-  if (f.y == null || !Number.isFinite(f.y) || (cost(f.y - th/2, true) > 0 && cost(target - th/2, true) < cost(f.y - th/2, true))) f.y = target;
-  else if (FRAME_DT > 0) f.y += (target - f.y)*Math.min(1, FRAME_DT*10);
-  if (!Number.isFinite(f.y)) f.y = cv.height*.36;
+  if (!Number.isFinite(f.x) || !Number.isFinite(f.y)){ f.x = cv.width/2; f.y = cv.height*.36; }
   c.globalAlpha = clamp(life*1.8, 0, 1); c.textAlign = "center"; c.textBaseline = "middle";
-  c.font = font(800, px*pop); c.lineWidth = 5*DPR; c.strokeStyle = "rgba(0,0,0,.55)";
-  c.strokeText(f.t, cv.width/2, f.y); c.fillStyle = "#ffd75a"; c.fillText(f.t, cv.width/2, f.y); c.globalAlpha = 1;
+  c.font = font(800, px0*fit*f.k*pop); c.lineWidth = 5*DPR*f.k; c.strokeStyle = "rgba(0,0,0,.55)";
+  c.strokeText(f.t, f.x, f.y); c.fillStyle = "#ffd75a"; c.fillText(f.t, f.x, f.y); c.globalAlpha = 1;
   c.textAlign = "left";
 }
 function lerpFrames(f, g, t){

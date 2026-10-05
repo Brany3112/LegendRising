@@ -49,16 +49,17 @@ const fixNow = () => { const f = you(); return {x:f.x, z:f.z, fx:f.x, fz:f.z, vx
 const GUARD_E = .72, GUARD_C = .25 + .27 + .04;
 /* (measured from where you were last seen, the margins grown by as far as you could have gone since at the pace you
    were going, whichever way you turned: you may have run on, turned, or been stopped by something) */
-function into(m, x, z, ox, oz){
-  if (!m.here) return false;
-  const px = m.fx, pz = m.fz, u = m.u;
+function nearer(px, pz, u, x, z, ox, oz){
   const c = Math.max(Math.abs(px - x), Math.abs(pz - z)), e = Math.hypot(px - x, pz - z);
   return (c < GUARD_C + u && c < Math.max(Math.abs(px - ox), Math.abs(pz - oz)) - 1e-4) || (e < GUARD_E + u && e < Math.hypot(px - ox, pz - oz) - 1e-4);
 }
+// (and no nearer where you most likely are by now, carried on from that fix)
+const into = (m, x, z, ox, oz) => m.here && (nearer(m.fx, m.fz, m.u, x, z, ox, oz) || nearer(m.x, m.z, .02, x, z, ox, oz));
 // a moving body's solid (25 cm each way, head high) follows it; never switched on while it overlaps you (it would close
 // round you and trap you), and off while the body isn't out
 function follow(q, m, x, z, y, on, top = 1.8){
   q.x0 = x - .25; q.x1 = x + .25; q.z0 = z - .25; q.z1 = z + .25; q.y0 = y; q.y1 = y + top;
+  // (one already on when you are put down on top of it is left on: you can only step out of it, see world.js)
   q.off = !on || (q.off && m.here && Math.max(Math.abs(m.fx - x), Math.abs(m.fz - z)) < GUARD_C + m.u);
 }
 
@@ -291,7 +292,7 @@ export function teamSession(o){
   // small things standing about (boards, machines, goals' posts) as circles; long walls and fences are left out
   for (const q of W.solids){ if (q.off || q.y0 > 1.6 || q.y1 < .05 || Math.max(q.x1 - q.x0, q.z1 - q.z0) > 3) continue; obst.push([(q.x0 + q.x1)/2, (q.z0 + q.z1)/2, Math.hypot(q.x1 - q.x0, q.z1 - q.z0)/2, 0]); }
   const loop = lapLoop(x0, x1, z0, z1, Math.min(2.6, (x1 - x0)/3, (z1 - z0)/3), obst);
-  const group = {d:0, v:3.3, off:0, slow:0, dir:0, clear:0, held:0};
+  const group = {d:0, v:3.3, off:0, slow:0, dir:0, clear:0};
   // three abreast, closing up into single file where the lap is narrow: [beside, behind] and [behind in single file]
   [[.55, 0, 0], [-.55, -.5, -1.05], [0, -1.6, -2.1]].forEach(([side, back, file]) => {
     const P = player({}); root.add(P.g);
@@ -311,6 +312,8 @@ export function teamSession(o){
   // ... and the runners too, each a body that goes round with him (see follow(): never switched on round you)
   const runners = actors.filter(ac => ac.kind === "lap"), bodies = runners.map(ac => (ac.sol = solid(0, 0, 0, 0, 0, 1.85), ac.sol.off = true, ac.sol));
   const track = youTracker(), lc = {};
+  // (going round you, one doesn't step into another either)
+  const bumpsRunner = (ac, x, z) => { for (const o of runners){ if (o === ac || o.px == null) continue; const e = Math.hypot(o.px - x, o.pz - z); if (e < .5 && e < Math.hypot(o.px - ac.px, o.pz - ac.pz) - 1e-4) return true; } return false; };
   const tmp = new THREE.Vector3(), lpt = {};
   // a spot by a player's right foot, d metres in front of him
   const footSpot = (P, d, out) => { const y = P.g.rotation.y; return out.set(P.g.position.x + Math.sin(y)*d - Math.cos(y)*.12, .11, P.g.position.z + Math.cos(y)*d + Math.sin(y)*.12); };
@@ -352,36 +355,46 @@ export function teamSession(o){
     }
     if (!hit && (group.clear += dt) > .6) group.dir = 0;
     // a few paces across, not a jump sideways: at most 1.2 m/s (they ease up while they can't get round you yet)
-    const off0 = group.off, d0 = group.d;
     group.off += Math.max(-1.2*dt, Math.min(1.2*dt, (want - group.off)*(1 - Math.exp(-(hit ? 5 : 2)*dt))));
     if (hit && Math.abs(want - group.off) > .5) slow = Math.max(slow, Math.min(1, (Math.abs(want - group.off) - .5)/.8));
     group.slow += (slow - group.slow)*(1 - Math.exp(-5*dt));
+    // one held up behind you (below) drops back from his place in the group: the others ease up and wait for him
+    let lag = 0; for (const ac of runners) lag = Math.max(lag, ac.lag || 0);
+    const wait = Math.max(0, Math.min(1, (lag - .6)/1.2));
     // one pace, striding out down the far side: the change of pace eased in over a couple of seconds, and back down
     // to a jog well before the corner at the end of it
     const fast = side === 2 && lpt.left > 12;
-    group.v += ((fast ? 5.9 : 3.3)*(1 - .8*group.slow) - group.v)*(1 - Math.exp(-(group.slow > .05 ? 3 : fast ? .5 : .8)*dt));
-    /* where each runner goes this step: on round the lap and across. None of them ever steps into you (into()): if the
-       step would take one nearer, the group takes only the step across (out round you), or only the step on, or else
-       stands where it is a moment — and its pace with it — until it can get round you or you move */
-    const fits = (d, off) => {
-      loop.at(d, lc); const w2 = lc.w; let ok = true;
-      for (const ac of runners){
-        const c = ac.c || (ac.c = {}); loop.at(d + ac.back*w2 + ac.file*(1 - w2), c);
-        const lat = ac.side*w2 + off; c.X = c.x - c.uz*lat; c.Z = c.z + c.ux*lat;
-        if (ok && ac.px != null && into(me, c.X, c.Z, ac.px, ac.pz)) ok = false;
+    group.v += ((fast ? 5.9 : 3.3)*(1 - .8*group.slow)*(1 - wait) - group.v)*(1 - Math.exp(-(group.slow > .05 || wait > 0 ? 3 : fast ? .5 : .8)*dt));
+    group.d += group.v*dt;
+    /* where each runner goes this step: towards his place in the group (catching up on it at a little over its pace).
+       None of them ever steps into you (into()): if that step would take him nearer, he takes the same length of step
+       turned off round you — the least turn that works, away from your side first — and failing every one, he stands
+       a moment until you move (and the rest wait for him) */
+    loop.at(group.d, lc); const w2 = lc.w;
+    for (const ac of runners){
+      const c = ac.c || (ac.c = {}); loop.at(group.d + ac.back*w2 + ac.file*(1 - w2), c);
+      const lat = ac.side*w2 + group.off, tx = c.x - c.uz*lat, tz = c.z + c.ux*lat;
+      const sv = ac.tx == null || !(dt > 0) ? group.v : Math.hypot(tx - ac.tx, tz - ac.tz)/dt;
+      ac.tx = tx; ac.tz = tz;
+      if (ac.px == null){ c.X = tx; c.Z = tz; ac.lag = 0; continue; }
+      let mx = tx - ac.px, mz = tz - ac.pz; const ml = Math.hypot(mx, mz), lim = (Math.min(sv, 7) + 1.5)*dt;
+      if (ml > lim){ mx *= lim/ml; mz *= lim/ml; }
+      let X = ac.px + mx, Z = ac.pz + mz;
+      if (into(me, X, Z, ac.px, ac.pz) || bumpsRunner(ac, X, Z)){
+        X = ac.px; Z = ac.pz;
+        const L = Math.hypot(mx, mz);
+        if (L > 1e-5){
+          // turned away from you first (you on his left: he bears right)
+          const away = mx*(me.z - ac.pz) - mz*(me.x - ac.px) > 0 ? 1 : -1;
+          // (a squeeze between two of the others is only a brush of shoulders: if nothing else will do, he takes it)
+          search: for (const mate of [true, false]) for (const t of [0, .45, .9, 1.35, 1.8]) for (const sg of t ? [away, -away] : [1]){
+            const ca = Math.cos(t*sg), sa = Math.sin(t*sg), nx = ac.px + mx*ca + mz*sa, nz = ac.pz - mx*sa + mz*ca;
+            if (!into(me, nx, nz, ac.px, ac.pz) && !(mate && bumpsRunner(ac, nx, nz))){ X = nx; Z = nz; break search; }
+          }
+        }
       }
-      return ok;
-    };
-    let d1 = d0 + group.v*dt, off1 = group.off;
-    if (!fits(d1, off1)){
-      if (fits(d0, off1)) d1 = d0;
-      else if (fits(d1, off0)) off1 = off0;
-      else { fits(d0, off0); d1 = d0; off1 = off0; }
-      if (d1 === d0){ group.v = 0; group.slow = 1; }
+      c.X = X; c.Z = Z; ac.lag = Math.hypot(tx - X, tz - Z);
     }
-    // held up a while (you are standing where the way round you led them): they try round your other side
-    if (d1 === d0 && group.v === 0){ if ((group.held += dt) > 1.2){ group.dir = 0; group.held = 0; } } else group.held = 0;
-    group.d = d1; group.off = off1;
     for (const ac of actors){
       if (ac.kind === "pair"){
         const A = ac.P[ac.who], Bp = ac.P[1 - ac.who];
