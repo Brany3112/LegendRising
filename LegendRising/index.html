@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=2026.10.05a">
+<link rel="stylesheet" href="css/style.css?v=2026.10.05b">
 </head>
 <body>
 <!-- the stadium backdrop lives outside #app so re-drawing a screen never restarts it -->
@@ -42,29 +42,29 @@
 <div id="lifeDim"></div>
 <div id="lifePhone"><div class="lp-screen"><div id="app"></div></div><div class="lp-frame"></div></div>
 <div id="lifeFade"></div>
-<script>window.FF_BUILD = "2026.10.05a";</script>
+<script>window.FF_BUILD = "2026.10.05b";</script>
 <!-- the 3D world is ES modules that import each other by plain relative paths: this map gives every one of those
      imports this build's version, so a returning player never runs a fresh world.js against a cached build.js.
      Bump it together with FF_BUILD and every ?v= below. -->
 <script type="importmap">
 {
   "imports": {
-    "./js/life/build.js": "./js/life/build.js?v=2026.10.05a",
-    "./js/life/drills.js": "./js/life/drills.js?v=2026.10.05a",
-    "./js/life/fridge.js": "./js/life/fridge.js?v=2026.10.05a",
-    "./js/life/ground.js": "./js/life/ground.js?v=2026.10.05a",
-    "./js/life/home.js": "./js/life/home.js?v=2026.10.05a",
-    "./js/life/human.js": "./js/life/human.js?v=2026.10.05a",
-    "./js/life/look.js": "./js/life/look.js?v=2026.10.05a",
-    "./js/life/npc.js": "./js/life/npc.js?v=2026.10.05a",
-    "./js/life/phone.js": "./js/life/phone.js?v=2026.10.05a",
-    "./js/life/props.js": "./js/life/props.js?v=2026.10.05a",
-    "./js/life/rent.js": "./js/life/rent.js?v=2026.10.05a",
-    "./js/life/shops.js": "./js/life/shops.js?v=2026.10.05a",
-    "./js/life/sky.js": "./js/life/sky.js?v=2026.10.05a",
-    "./js/life/world.js": "./js/life/world.js?v=2026.10.05a",
-    "./vendor/three.module.js": "./vendor/three.module.js?v=2026.10.05a",
-    "./vendor/three.core.js": "./vendor/three.core.js?v=2026.10.05a"
+    "./js/life/build.js": "./js/life/build.js?v=2026.10.05b",
+    "./js/life/drills.js": "./js/life/drills.js?v=2026.10.05b",
+    "./js/life/fridge.js": "./js/life/fridge.js?v=2026.10.05b",
+    "./js/life/ground.js": "./js/life/ground.js?v=2026.10.05b",
+    "./js/life/home.js": "./js/life/home.js?v=2026.10.05b",
+    "./js/life/human.js": "./js/life/human.js?v=2026.10.05b",
+    "./js/life/look.js": "./js/life/look.js?v=2026.10.05b",
+    "./js/life/npc.js": "./js/life/npc.js?v=2026.10.05b",
+    "./js/life/phone.js": "./js/life/phone.js?v=2026.10.05b",
+    "./js/life/props.js": "./js/life/props.js?v=2026.10.05b",
+    "./js/life/rent.js": "./js/life/rent.js?v=2026.10.05b",
+    "./js/life/shops.js": "./js/life/shops.js?v=2026.10.05b",
+    "./js/life/sky.js": "./js/life/sky.js?v=2026.10.05b",
+    "./js/life/world.js": "./js/life/world.js?v=2026.10.05b",
+    "./vendor/three.module.js": "./vendor/three.module.js?v=2026.10.05b",
+    "./vendor/three.core.js": "./vendor/three.core.js?v=2026.10.05b"
   }
 }
 </script>
@@ -72,43 +72,43 @@
 <div id="phoneRoot" class="hidden"></div>
 <div id="tutRoot" class="tut"></div>
 <!-- Plain scripts (not modules) so the game also runs by double-clicking index.html. Order matters. -->
-<script src="js/data/clubs.js?v=2026.10.05a"></script>
-<script src="js/data/names.js?v=2026.10.05a"></script>
-<script src="js/data/game.js?v=2026.10.05a"></script>
-<script src="js/data/positions.js?v=2026.10.05a"></script>
-<script src="js/data/clothes.js?v=2026.10.05a"></script>
-<script src="js/util.js?v=2026.10.05a"></script>
-<script src="js/world.js?v=2026.10.05a"></script>
-<script src="js/firebase-config.js?v=2026.10.05a"></script>
-<script src="js/awards.js?v=2026.10.05a"></script>
-<script src="js/career.js?v=2026.10.05a"></script>
-<script src="js/daily.js?v=2026.10.05a"></script>
-<script src="js/online.js?v=2026.10.05a"></script>
-<script src="js/social.js?v=2026.10.05a"></script>
-<script src="js/social_quick.js?v=2026.10.05a"></script>
-<script src="js/engine/physics.js?v=2026.10.05a"></script>
-<script src="js/engine/render.js?v=2026.10.05a"></script>
-<script src="js/engine/defend.js?v=2026.10.05a"></script>
-<script src="js/engine/moment.js?v=2026.10.05a"></script>
-<script src="js/engine/decide.js?v=2026.10.05a"></script>
-<script src="js/match.js?v=2026.10.05a"></script>
-<script src="js/ui/main.js?v=2026.10.05a"></script>
-<script src="js/ui/feed.js?v=2026.10.05a"></script>
-<script src="js/ui/panels.js?v=2026.10.05a"></script>
-<script src="js/ui/phone.js?v=2026.10.05a"></script>
-<script src="js/ui/smart.js?v=2026.10.05a"></script>
-<script src="js/ui/foodies.js?v=2026.10.05a"></script>
-<script src="js/ui/apps_social.js?v=2026.10.05a"></script>
-<script src="js/ui/apps_scout.js?v=2026.10.05a"></script>
-<script src="js/ui/apps_rank.js?v=2026.10.05a"></script>
-<script src="js/ui/apps_stats.js?v=2026.10.05a"></script>
-<script src="js/ui/office.js?v=2026.10.05a"></script>
-<script src="js/ui/barber.js?v=2026.10.05a"></script>
-<script src="js/ui/odo.js?v=2026.10.05a"></script>
-<script src="js/ui/admin.js?v=2026.10.05a"></script>
-<script src="js/ui/tutorial.js?v=2026.10.05a"></script>
-<script src="js/life/phone.js?v=2026.10.05a"></script>
-<script type="module" src="js/life/world.js?v=2026.10.05a"></script>
-<script src="js/main.js?v=2026.10.05a"></script>
+<script src="js/data/clubs.js?v=2026.10.05b"></script>
+<script src="js/data/names.js?v=2026.10.05b"></script>
+<script src="js/data/game.js?v=2026.10.05b"></script>
+<script src="js/data/positions.js?v=2026.10.05b"></script>
+<script src="js/data/clothes.js?v=2026.10.05b"></script>
+<script src="js/util.js?v=2026.10.05b"></script>
+<script src="js/world.js?v=2026.10.05b"></script>
+<script src="js/firebase-config.js?v=2026.10.05b"></script>
+<script src="js/awards.js?v=2026.10.05b"></script>
+<script src="js/career.js?v=2026.10.05b"></script>
+<script src="js/daily.js?v=2026.10.05b"></script>
+<script src="js/online.js?v=2026.10.05b"></script>
+<script src="js/social.js?v=2026.10.05b"></script>
+<script src="js/social_quick.js?v=2026.10.05b"></script>
+<script src="js/engine/physics.js?v=2026.10.05b"></script>
+<script src="js/engine/render.js?v=2026.10.05b"></script>
+<script src="js/engine/defend.js?v=2026.10.05b"></script>
+<script src="js/engine/moment.js?v=2026.10.05b"></script>
+<script src="js/engine/decide.js?v=2026.10.05b"></script>
+<script src="js/match.js?v=2026.10.05b"></script>
+<script src="js/ui/main.js?v=2026.10.05b"></script>
+<script src="js/ui/feed.js?v=2026.10.05b"></script>
+<script src="js/ui/panels.js?v=2026.10.05b"></script>
+<script src="js/ui/phone.js?v=2026.10.05b"></script>
+<script src="js/ui/smart.js?v=2026.10.05b"></script>
+<script src="js/ui/foodies.js?v=2026.10.05b"></script>
+<script src="js/ui/apps_social.js?v=2026.10.05b"></script>
+<script src="js/ui/apps_scout.js?v=2026.10.05b"></script>
+<script src="js/ui/apps_rank.js?v=2026.10.05b"></script>
+<script src="js/ui/apps_stats.js?v=2026.10.05b"></script>
+<script src="js/ui/office.js?v=2026.10.05b"></script>
+<script src="js/ui/barber.js?v=2026.10.05b"></script>
+<script src="js/ui/odo.js?v=2026.10.05b"></script>
+<script src="js/ui/admin.js?v=2026.10.05b"></script>
+<script src="js/ui/tutorial.js?v=2026.10.05b"></script>
+<script src="js/life/phone.js?v=2026.10.05b"></script>
+<script type="module" src="js/life/world.js?v=2026.10.05b"></script>
+<script src="js/main.js?v=2026.10.05b"></script>
 </body>
 </html>

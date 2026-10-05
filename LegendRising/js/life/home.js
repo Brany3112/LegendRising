@@ -675,15 +675,17 @@ function paneOf(x0, x1, y0, y1, z0, z1, s){
         tooth(x0, b, x0, a, x0 + w*(.1 + r()*.25), m); tooth(x1, a, x1, b, x1 - w*(.08 + r()*.22), m);
       }
       const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(v, 3)); geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, PANE_MAT()); m.material.opacity = .5; m.renderOrder = 2; g.add(m);
+      const m = new THREE.Mesh(geo, PANE_MAT()); m.material.opacity = .78; m.material.color.setHex(0xd6e4ec); m.renderOrder = 2; g.add(m);
     } else {
       // plastic sheeting pulled over the hole and taped round the frame, a little slack, catching the light
       const w = x1 - x0, h = y1 - y0, cv = document.createElement("canvas"); cv.width = 128; cv.height = 192;
-      const c = cv.getContext("2d"); c.fillStyle = "rgba(236,240,242,.62)"; c.fillRect(0, 0, 128, 192);
+      const c = cv.getContext("2d"); c.fillStyle = "rgba(232,238,241,.8)"; c.fillRect(0, 0, 128, 192);
       c.strokeStyle = "rgba(255,255,255,.55)"; c.lineWidth = 2;
       for (let i = 0; i < 9; i++){ c.beginPath(); const yy = 10 + i*21; c.moveTo(0, yy); c.bezierCurveTo(40, yy + 14, 80, yy - 12, 128, yy + 6); c.stroke(); }
       c.fillStyle = "rgba(176,138,82,.95)"; c.fillRect(0, 0, 128, 12); c.fillRect(0, 180, 128, 12); c.fillRect(0, 0, 12, 192); c.fillRect(116, 0, 12, 192);
       c.fillRect(30, 0, 14, 40); c.fillRect(86, 152, 14, 40);
+      // and a cross of tape over the middle, where the ball went through
+      c.save(); c.translate(64, 96); for (const a of [.55, -.55]){ c.save(); c.rotate(a); c.fillRect(-80, -6, 160, 12); c.restore(); } c.restore();
       const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
       const geo = new THREE.PlaneGeometry(w, h, 6, 8), pos = geo.attributes.position;
       for (let i = 0; i < pos.count; i++){ const px = pos.getX(i)/w + .5, py = pos.getY(i)/h + .5, edge = Math.min(px, 1 - px, py, 1 - py); pos.setZ(i, -s*Math.min(.035, edge*.12)*(1 + .4*Math.sin(px*9 + py*7))); }
@@ -1307,7 +1309,7 @@ export function buildHome(c){
   };
 }
 let winT = 0;
-export function homeTick(){ drawClock(); if (++winT > 120){ winT = 0; winRefresh(); } }
+export function homeTick(){ drawClock(); const t = performance.now(); if (t - winT > 2000){ winT = t; winRefresh(); } }
 // how many people are out walking at a minute of the day
 function streetCount(m){
   const h = m/60;

@@ -193,6 +193,14 @@ const CHANTS = {
 
 /* Patch notes — newest first. The flag button in the top bar opens these; nothing pops up on its own. */
 const PATCH = [
+  {v:"2026.10.05b", date:"5 October", title:"Your first day in the city", items:[
+    "A new character screen: your player large and turning in the light beside four steps — who you are, where you play, how you look, what you're good at. Everything you change shows at once.",
+    "Pick your position on a real pitch: seventeen of them, from full-back and wing-back to CDM, CAM, the wide forwards and the No. 9. Every club now has its own formation, and if yours has no place for you, the manager plays you in the nearest role (a CAM in a 4-4-2 plays central midfield). Your preferred position and the one you actually play are kept apart.",
+    "Fade & Co., the barber across the road from your block: new cuts, beards and colours for a price, with the barber's own styles kept for players the town has heard of.",
+    "A new career starts with your uncle showing you the city, a football through your window (taped up with plastic the next day), a slammed door, a room number that will not stay on its door, a tour of the flat and of the training centre — once, and never again.",
+    "Hold E on your bed for two seconds to sleep through a whole day. Foodies couriers now find you wherever you are.",
+    "The dream match now comes on your first night's sleep.",
+    "Steps, kerbs, road markings, roofs and windows no longer flicker, and shadows are sharper and stop crawling along edges as the sun moves."]},
   {v:"2026.10.04a", date:"4 October", title:"A footballer's life, one day at a time", items:[
     "Sleeping now takes you to the next morning — never further. A week is seven days you live through, and it turns over in the night from Sunday to Monday, when your wage goes in.",
     "Two meters to manage: energy, which is food, and fatigue, which only rest really clears. Training tired is worth less and tires you more; eat, sleep, sit down, take an ice bath. Energy drinks give a lift and then wear off.",

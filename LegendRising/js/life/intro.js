@@ -34,7 +34,7 @@ function el(id, cls, parent){
 function uiOn(on){
   el("cineBars", "cine-bars").classList.toggle("on", on);
   const sk = el("cineSkip", "cine-skip");
-  if (!sk.dataset.b){ sk.dataset.b = 1; sk.innerHTML = `<button type="button">Skip ▸▸</button>`; sk.firstChild.addEventListener("click", e => { e.stopPropagation(); skipNow(); }); }
+  if (!sk.dataset.b){ sk.dataset.b = 1; sk.innerHTML = `<button type="button">Skip ▸▸ <kbd>Tab</kbd></button>`; sk.firstChild.addEventListener("click", e => { e.stopPropagation(); skipNow(); }); }
   sk.classList.toggle("on", on);
   if (!on){ subOff(); infoOff(); }
 }
@@ -49,7 +49,7 @@ function say(who, text, o = {}){
   let n = 0;
   return new Promise(res => {
     SUB.res = res;
-    const hold = o.hold != null ? o.hold : Math.max(1.6, text.split(/\s+/).length*.3 + .8);
+    const hold = o.hold != null ? o.hold : Math.max(1.6, text.split(/\s+/).length*.22 + 1);
     // the line stays up for its reading time, then goes (unless the next one follows straight on: o.keep)
     const finish = () => { clearInterval(SUB.typing); p.textContent = text; SUB.done = true; SUB.t = setTimeout(() => { if (SUB.res === res){ SUB.res = null; if (!o.keep) box.classList.remove("on"); res(); } }, hold*1000); };
     if (o.instant || matchMedia("(prefers-reduced-motion: reduce)").matches){ finish(); return; }
@@ -91,6 +91,7 @@ addEventListener("keydown", e => {
   if (!H || !H.cine.on) return;
   const k = e.key;
   if (k === " " || k === "Enter" || k.toLowerCase() === "e"){ e.preventDefault(); e.stopPropagation(); if (!e.repeat) advance(); }
+  else if (k === "Tab"){ e.preventDefault(); if (!e.repeat) skipNow(); }
   else if (k === "Escape"){ e.preventDefault(); e.stopPropagation(); }
 }, true);
 
@@ -409,6 +410,7 @@ function guideDone(){
 const BUS = {x:3, y:.12, z:15.4};
 function busGoal(){
   if (FL().TrainingCenterTutorialCompleted || !FL().GameplayTutorialCompleted) return;
+  if (H.zone() === "ground"){ if (!H.cine.on) centreTour(); return; }      // (already there)
   goal("Take the bus to reach your team's training center.", BUS);
   if (H.zone() === "home") marker(BUS.x, 3.1, BUS.z);
 }
@@ -433,9 +435,10 @@ function solidAt(x, y, z, m = .3){
 // a place to film t from: round it at a few distances, out of every wall, with a clear line to it
 function bestView(t, pref = 0, rs = [3.4, 4.4, 2.6, 5.5], up = 1.5){
   let best = null, bs = -1e9;
+  const outdoor = t.z < 2 || t.z > 17;                 // the pitch and the gate: higher, looking down past the clutter
   for (const r of rs) for (let i = 0; i < 16; i++){
-    const a = pref + (i % 2 ? 1 : -1)*Math.ceil(i/2)*Math.PI/8, p = V(t.x + Math.sin(a)*r, t.y + up, t.z + Math.cos(a)*r);
-    if (solidAt(p.x, p.y, p.z)) continue;
+    const a = pref + (i % 2 ? 1 : -1)*Math.ceil(i/2)*Math.PI/8, p = V(t.x + Math.sin(a)*r, t.y + up + (outdoor ? .9 : 0), t.z + Math.cos(a)*r);
+    if (solidAt(p.x, p.y, p.z, .6)) continue;
     const d = p.distanceTo(t), dir = t.clone().sub(p).normalize();
     if (H.camCast(p.x, p.y, p.z, dir.x, dir.y, dir.z, d) < d - .4) continue;
     const sc = -Math.abs(Math.ceil(i/2))*.4 - Math.abs(r - 3.6)*.3;

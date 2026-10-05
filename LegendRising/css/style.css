@@ -1588,7 +1588,7 @@ body.cine #lifeRoot .lf-keys, body.cine #lifeRoot .lf-note, body.cine #lifeRoot 
 @keyframes mclick{0%,60%{opacity:.2}70%,85%{opacity:1}100%{opacity:.2}}
 @media (max-width:700px){ .onb-goal{max-width:calc(100% - 32px);top:64px} .cine-info{top:auto;bottom:calc(min(9vh,80px) + 140px);right:16px} }
 /* the page on how your days work */
-.lf-panel.guide .lpn{width:min(760px,100%);max-height:min(760px,100%);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
+.lf-panel.guide .lpn{width:min(760px,100%);height:min(720px,calc(100vh - 32px));max-height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
 .gd-body{overflow:auto;padding-right:6px;display:grid;gap:6px;scrollbar-width:thin}
 .gd-row{display:grid;grid-template-columns:34px 1fr;gap:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.035);border:1px solid var(--line)}
 .gd-row i{font-style:normal;font-size:1.25rem;line-height:1.3}
@@ -1599,3 +1599,4 @@ body.cine #lifeRoot .lf-keys, body.cine #lifeRoot .lf-note, body.cine #lifeRoot 
 .gd-more li b{color:var(--ink)}
 .gd-foot{display:flex;justify-content:flex-end;padding-top:12px;margin-top:8px;border-top:1px solid var(--line)}
 .gd-foot .btn{min-width:120px}
+.cine-skip kbd{font:inherit;font-size:.72rem;padding:0 .35em;margin-left:4px;border-radius:5px;background:rgba(255,255,255,.12)}

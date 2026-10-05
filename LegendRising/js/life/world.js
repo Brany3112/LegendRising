@@ -485,7 +485,6 @@ function cineBegin(o = {}){
   for (const k in keys) keys[k] = false; grab = null; HOLD = null; PICK = null;
   P.vx = P.vz = 0; P.speed = 0; P.sprint = 0;
   document.body.classList.add("cine");
-  if (document.exitPointerLock && document.pointerLockElement) document.exitPointerLock();
 }
 function cineEnd(){
   if (!CINE.on) return;
