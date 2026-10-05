@@ -94,7 +94,7 @@ function gym(){
   box(x0 + .25, 3.45, z0 + .25, x0 + .28, 3.55, z1 - .25, 0xc8f060, {ao:false}); box(x1 - .28, 3.45, z0 + .25, x1 - .25, 3.55, z1 - .25, 0xc8f060, {ao:false});
   // the roof: a slim overhanging slab with a metal edge, and plant on top
   rbox(0, H, 10, x1 - x0 + .5, .32, z1 - z0 + .5, .06, 0x3b4249, {key:"metal"});
-  box(x0, H - .02, z0, x1, H, z1, 0xe8e3d8, {ao:false, tex:"paint"});
+  box(x0 + .25, H - .02, z0 + .25, x1 - .25, H, z1 - .25, 0xe8e3d8, {ao:false, tex:"paint"});
   for (const [ax, az] of [[-8, 8], [-5.6, 8], [7, 12]]){ rbox(ax, H + .32, az, 1.6, .9, 1.0, .06, 0xc9cdd0, {key:"metal"}); cyl(ax, H + 1.22, az, .38, .02, 0x2a2d30, {seg:14}); }
   for (const x of [-8, 0, 8]) for (const z of [7, 13]) rbox(x, H - .08, z, 2.6, .06, .5, .03, 0xfff6e0, {key:"lamp"});
   for (const x of [-8, 0, 8]) lightSrc({x, y:H - .5, z:10, color:0xfff2dc, intensity:10, distance:14, indoor:true});

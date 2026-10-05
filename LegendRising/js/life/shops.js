@@ -70,7 +70,7 @@ export function miniMarket(c){
   wall("z", b.x0 + .26, b.z0 + .25, b.z1 - .25, 0, H, .02, 0xeae6dc, [], PT);
   wall("z", b.x1 - .26, b.z0 + .25, b.z1 - .25, 0, H, .02, 0xeae6dc, [[-3.6, 1.6, .45, 2.85]], PT);
   box(b.x0 + .25, .02, b.z0 + .27, b.x1 - .25, .9, b.z0 + .3, 0x2f7d4a, {ao:false, jit:0});
-  box(b.x0, H - .02, b.z0, b.x1, H, b.z1, 0xe8e3d8, {ao:false, jit:0, tex:"paint"});
+  box(b.x0 + .27, H - .02, b.z0 + .27, b.x1 - .27, H, b.z1 - .27, 0xe8e3d8, {ao:false, jit:0, tex:"paint"});   // the ceiling, inside the skins
   // the glass front and the side window, in slim dark frames
   box(22.2, .45, b.z1 - .14, 29.4, 2.85, b.z1 - .1, 0xa9c2d2, {key:"glass", ao:false, jit:0});
   // lined like the side window, so neither the brick nor the paint skin shows its cut edge round the glass
@@ -236,7 +236,7 @@ export function workplace(c){
   shopDoor(4, 5.6, b.z1 - .125, .25, 2.4, 0x1f2226);
   box(b.x0 + .25, 0, -4.9, b.x1 - .25, .02, b.z1 - .25, 0xffffff, {tex:js.id === "cafe" || js.id === "photo" ? "planks" : "shopfloor", ao:false, jit:0});
   floor(b.x0 + .25, b.x1 - .25, -4.9, b.z1 - .25, .02);
-  box(b.x0 + .25, g0 - .05, -4.9, b.x1 - .25, g0, b.z1 - .25, 0xe8e3d8, {ao:false, tex:"paint"});
+  box(b.x0 + .25, g0 - .05, -4.8, b.x1 - .25, g0, b.z1 - .25, 0xe8e3d8, {ao:false, tex:"paint"});
   const d = decor(js.id);
   // the fascia: a board in the business's colour across the whole front, lettered, lit from under its lip
   box(2.3, 2.9, b.z1, 14.7, 3.48, b.z1 + .1, parseInt(d.color.slice(1), 16), {ao:false, jit:0});

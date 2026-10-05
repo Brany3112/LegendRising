@@ -1318,11 +1318,11 @@ function boot(){
   if (renderer) return;
   const cv = document.getElementById("lifeCanvas");
   renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true, powerPreference:"high-performance"});
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;      // PCF with a radius (sky.js): soft edges, no stair-stepping
   renderer.shadowMap.autoUpdate = false;                 // shadows are redrawn only when the sun or you have moved
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1;
   scene = new THREE.Scene();
-  cam = new THREE.PerspectiveCamera(74, 1, .05, 600);
+  cam = new THREE.PerspectiveCamera(74, 1, .1, 600);   // a 10 cm near plane: twice the depth precision of 5 cm, and the eye is kept further than that from any wall
   SKY = createSky(renderer); gpuInit();
   resize(); addEventListener("resize", () => { Q.pending = true; });
   bindInput(cv);

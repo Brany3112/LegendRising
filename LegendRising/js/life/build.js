@@ -206,6 +206,7 @@ export function addGeo(geo, color, o = {}){
   for (let i = 1; i < p.length; i += 3){ if (p[i] < y0) y0 = p[i]; if (p[i] > y1) y1 = p[i]; }
   const ao = o.ao !== false && (y1 - y0) > .35;
   const per = o.tex ? tex(o.tex).userData.per : 1;
+  if (globalThis.__zf) zfLog(p, n, key, _c.getHex());
   for (let i = 0; i < p.length; i += 3){
     const x = p[i], y = p[i+1], z = p[i+2], nx = n[i], ny = n[i+1], nz = n[i+2];
     b.pos.push(x, y, z); b.nor.push(nx, ny, nz);
@@ -221,6 +222,44 @@ export function addGeo(geo, color, o = {}){
   }
   if (g !== geo) g.dispose();
   geo.dispose();
+}
+/* ---------- a z-fighting finder for development: set window.__zf = [] before a zone is built, then call
+   zfReport(). Every axis-aligned triangle is logged with its plane; two pieces whose faces look the same way, lie in
+   the same plane and overlap fight for the same pixels — they flicker as the camera moves. ---------- */
+let zfSrc = 0;
+function zfLog(p, n, key, col){
+  const src = ++zfSrc, L = globalThis.__zf;
+  // where it came from: the first stack frame outside this file (dev only)
+  const at = globalThis.__zfStack ? ((new Error().stack || "").split("\n").find(l => /\.js/.test(l) && !/build\.js/.test(l)) || "").replace(/.*\/js\//, "").replace(/\)$/, "") : "";
+  for (let i = 0; i < p.length; i += 9){
+    // the face's own normal (a rounded box's vertex normals lean at its edges)
+    const ux = p[i+3] - p[i], uy = p[i+4] - p[i+1], uz = p[i+5] - p[i+2], vx = p[i+6] - p[i], vy = p[i+7] - p[i+1], vz = p[i+8] - p[i+2];
+    let nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx; const nl = Math.hypot(nx, ny, nz); if (nl < 1e-9) continue;
+    nx /= nl; ny /= nl; nz /= nl; if (nx*n[i] + ny*n[i+1] + nz*n[i+2] < 0){ nx = -nx; ny = -ny; nz = -nz; }
+    const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+    const a = ay > .999 ? 1 : ax > .999 ? 0 : az > .999 ? 2 : -1; if (a < 0) continue;
+    const u = (a + 1) % 3, v = (a + 2) % 3, sg = (a === 0 ? nx : a === 1 ? ny : nz) > 0 ? 1 : -1;
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (let k = 0; k < 9; k += 3){ const pu = p[i + k + u], pv = p[i + k + v]; if (pu < u0) u0 = pu; if (pu > u1) u1 = pu; if (pv < v0) v0 = pv; if (pv > v1) v1 = pv; }
+    L.push({src, at, key, col, a, sg, d:p[i + a], u0, u1, v0, v1});
+  }
+}
+export function zfReport(tol = 2e-4, minArea = 4e-4){
+  const L = globalThis.__zf || [], groups = new Map(), out = [], seen = new Set();
+  for (const t of L){ const g = `${t.a}${t.sg}:${Math.round(t.d/tol)}`; (groups.get(g) || groups.set(g, []).get(g)).push(t); }
+  for (const [, ts] of groups){
+    if (ts.length < 2) continue;
+    for (let i = 0; i < ts.length; i++) for (let j = i + 1; j < ts.length; j++){
+      const A = ts[i], B = ts[j]; if (A.src === B.src || Math.abs(A.d - B.d) > tol) continue;
+      const w = Math.min(A.u1, B.u1) - Math.max(A.u0, B.u0), h = Math.min(A.v1, B.v1) - Math.max(A.v0, B.v0);
+      if (w <= 1e-3 || h <= 1e-3 || w*h < minArea) continue;
+      const k = A.src < B.src ? `${A.src}-${B.src}` : `${B.src}-${A.src}`; if (seen.has(k)) continue; seen.add(k);
+      const ax = "xyz"[A.a], U = "xyz"[(A.a + 1) % 3], V = "xyz"[(A.a + 2) % 3];
+      out.push({plane:`${A.sg > 0 ? "+" : "-"}${ax}=${A.d.toFixed(3)}`, at:`${U} ${Math.max(A.u0, B.u0).toFixed(2)}..${Math.min(A.u1, B.u1).toFixed(2)}, ${V} ${Math.max(A.v0, B.v0).toFixed(2)}..${Math.min(A.v1, B.v1).toFixed(2)}`,
+        a:`${A.key} #${A.col.toString(16)}`, b:`${B.key} #${B.col.toString(16)}`, same:A.key === B.key && A.col === B.col, area:+(w*h).toFixed(3), from:A.at + " | " + B.at});
+    }
+  }
+  return out.sort((p, q) => (p.same - q.same) || q.area - p.area);
 }
 export function box(x0, y0, z0, x1, y1, z1, color, o = {}){
   if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0]; if (z1 < z0) [z0, z1] = [z1, z0];

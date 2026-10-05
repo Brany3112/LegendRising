@@ -54,7 +54,7 @@ function band(f, s0, s1, y0, y1, d0, d1, c, gaps = [], o = {ao:false}){
 export function decoWin(f, s, y, lit){
   const w = 1.1, h = 1.45, b = y + .9, t = b + h, fr = .07, O = {jit:0, ao:false};
   // the pane: glossy dark glass, or a lit room at night; now and then a blind half down behind it
-  f.box(s - w/2, s + w/2, b, t, .004, .014, lit ? 0x3a4a58 : C.glass, {key:lit ? "lit" : "gloss", jit:.25, ao:false});
+  f.box(s - w/2 + .03, s + w/2 - .03, b + .03, t - .03, .004, .014, lit ? 0x3a4a58 : C.glass, {key:lit ? "lit" : "gloss", jit:.25, ao:false});
   if (rnd() < .45){ const bl = h*(.15 + rnd()*.5); f.box(s - w/2 + fr, s + w/2 - fr, t - fr - bl, t - fr, .014, .02, rnd() < .5 ? C.blind : 0xe9e6de, O); }
   // the frame, a mullion and a transom
   f.box(s - w/2, s - w/2 + fr, b, t, 0, .06, C.frame, O); f.box(s + w/2 - fr, s + w/2, b, t, 0, .06, C.frame, O);
@@ -88,7 +88,9 @@ function rboxF(f, s, y, d, w, h, depth, c, o = {}){
 }
 // a stone step in front of a door, with the floor you stand on
 function stepF(f, s0, s1, d0, d1, top){
-  f.box(s0, s1, 0, top, d0, d1, C.step, {tex:"concrete", jit:0, ao:false});
+  // the tread stops at the nosing, and under the nosing the riser is cut down to meet it: no two faces share a plane
+  f.box(s0, s1, 0, top, d0, d1 - .03, C.step, {tex:"concrete", jit:0, ao:false});
+  f.box(s0, s1, 0, top - .03, d1 - .03, d1, C.step, {tex:"concrete", jit:0, ao:false});
   f.box(s0 - .02, s1 + .02, top - .03, top, d1 - .03, d1 + .02, 0xc7c2b8, {ao:false, jit:0});
   const [x0, z0] = f.at(s0, d0), [x1, z1] = f.at(s1, d1);
   floor(x0, x1, z0, z1, top);
@@ -334,7 +336,7 @@ function skirting(axis, fixed, a, b, base, side, gaps = []){
 function entrance(){
   const x0 = -10.25, x1 = -8.75, z = 2.875;
   // the landing and its step (the pavement is at .12, the lobby at G0)
-  rbox(-9.5, 0, 3.55, 2.9, G0, 1.1, .03, C.step, {tex:"concrete", jit:0});
+  rbox(-9.5, 0, 3.55, 2.9, G0 - .03, 1.1, .03, C.step, {tex:"concrete", jit:0});      // the block stops under the stone cap: one top, not two
   box(-10.95, G0 - .03, 3.0, -8.05, G0, 4.12, 0xc9c4ba, {ao:false, jit:0});
   floor(-10.95, -8.05, 3.0, 4.1, G0); floor(x0, x1, 2.7, 3.05, G0);            // and across the threshold
   rbox(-9.5, G0, 2.15, 1.3, .006, .8, .004, 0x3a3631, {jit:0});                    // a doormat inside
@@ -365,8 +367,8 @@ function stairs(){
   for (let L = 0; L < 3; L++){
     const base = L*LH, land = base + 1.6, y0 = L ? base : G0;
     // landing: a slab with a terrazzo top and a nosing on the edge over the well
-    box(S_.w, land - .25, S_.back, S_.e, land - .02, S_.mid, C.ceiling, {tex:"paint", ao:false, jit:0});
-    box(S_.w, land - .02, S_.back, S_.e, land, S_.mid, 0xffffff, {tex:"terrazzo", ao:false, jit:0});
+    box(S_.w + .01, land - .25, S_.back + .01, S_.e - .01, land - .02, S_.mid, C.ceiling, {tex:"paint", ao:false, jit:0});
+    box(S_.w + .01, land - .02, S_.back + .01, S_.e - .01, land, S_.mid, 0xffffff, {tex:"terrazzo", ao:false, jit:0});
     floor(S_.w, S_.e, S_.back, S_.mid, land);
     box(S_.well[0], land - .035, S_.mid, S_.well[1], land + .002, S_.mid + .03, 0xe4dfd6, {tex:"terrazzo", ao:false, jit:0});
     // the two flights
@@ -375,8 +377,8 @@ function stairs(){
     const o2 = {axis:"z", a0:S_.mid, a1:S_.front, s0:S_.f2[0], s1:S_.f2[1], y0:land, y1:base + LH, n:9};
     const f1 = flight(o1), f2 = flight(o2);
     // wall strings and, on the well side, a steel stringer
-    stringer(o1, f1, S_.w, S_.f1[0], 0xd9d4ca, .08, .02);
-    stringer(o2, f2, S_.f2[1], S_.e, 0xd9d4ca, .08, .02);
+    stringer(o1, f1, S_.w + .01, S_.f1[0], 0xd9d4ca, .08, .02);
+    stringer(o2, f2, S_.f2[1], S_.e - .01, 0xd9d4ca, .08, .02);
     // (painted steel: a bare metal finish has next to no diffuse colour, and these faces look across the well, lit
     // only from the side by the landing lights, so by night they would go flat black)
     stringer(o1, f1, S_.f1[1], S_.f1[1] + .05, 0x464d55, .1, .03, {key:"paint"});
@@ -427,7 +429,7 @@ function dado(o, f, s0, s1, land, foot){
   else { const lo = P.shift(); P.unshift([ST.back + .01, land - .35], [ST.back + .01, land + 1.0]); P.push(lo); }   // round the outline in order: the low foot point closes it
   extrude("z", P, s0, s1, C.green, {tex:"paint", jit:0});
   const Q = [...edge(.98), [f.A(f.L), o.y1 + .98], [f.A(f.L), o.y1 + 1.02], ...edge(1.02).reverse()];
-  extrude("z", Q, s0 + (s0 < -11 ? .006 : -.004), s1 + (s0 < -11 ? .004 : -.006), 0x4c6a57, {jit:0});
+  extrude("z", Q, s0 + (s0 < -11 ? .006 : -.009), s1 + (s0 < -11 ? .009 : -.006), 0x4c6a57, {jit:0});   // 1 mm proud of the strings each side
 }
 // balusters on the stringer, a timber handrail on top, newel posts at both ends
 function balustrade(o, f, x, rail, steel){
@@ -685,7 +687,7 @@ function myFlat(F, D){
   // the bath across the far end, the toilet on the left, the sink on the right: a clear path between
   rb(fr(1, .425), 0, 0, 0, 1.9, .565, .75, .06, C.white, {seg:2, key:"gloss"});
   rb(fr(1, .425), 0, .5, 0, 1.72, .07, .57, .05, 0xdde8ec, {key:"gloss"});                       // the tub, filled to just under the rim
-  rb(fr(1, .425), 0, .51, 0, 1.6, .06, .47, .04, 0xa9c4cf, {key:"glass"});
+  rb(fr(1, .425), 0, .51, 0, 1.6, .052, .47, .04, 0xa9c4cf, {key:"glass"});                      // the water, 8 mm under the tub's top
   solid(X(.05), X(1.95), ...zr(.05, .8), base, base + .56);
   cy(fr(1.75, .09), 0, .58, 0, .022, .026, .1, C.metal, {seg:8, key:"metal"});
   rb(fr(1.75, .14), 0, .66, 0, .04, .03, .12, .015, C.metal, {key:"metal"});
@@ -956,8 +958,8 @@ function mailboxes(){
   for (let f = 1; f <= 3; f++) for (let d = 1; d <= 4; d++) names[`${f}0${d}`] = rnd() < .12 ? "" : `${pick(pool.f)[0]}. ${pick(pool.l)}`;
   names[h.apt] = G().player.name;
   // the cabinet on the lobby wall
-  rbox(-6.22, .98, -.4, .24, 1.11, 2.48, .02, 0x5a3f28, {seg:2});
-  rbox(-6.23, 2.09, -.4, .26, .05, 2.56, .02, 0x3f2c1c);
+  rbox(-6.235, .98, -.4, .24, 1.11, 2.48, .02, 0x5a3f28, {seg:2});
+  rbox(-6.245, 2.09, -.4, .26, .05, 2.56, .02, 0x3f2c1c);
   solid(-6.36, -6.1, -1.68, .88, .98, 2.14);          // you stand in front of it, not in it
   const t = textTex(1024, 448, () => {});
   HOME.mailTex = {tex:t, names};
@@ -1002,15 +1004,17 @@ function streets(){
   // roads, pavements, kerbs and markings
   box(-60, -.2, -60, 80, 0, 80, 0xffffff, {tex:"grass", ao:false, jit:0});
   box(-34, 0, 6, 46, .01, 14, 0xffffff, {tex:"asphalt", ao:false, jit:0});
-  box(34, 0, -12, 42, .011, 32, 0xffffff, {tex:"asphalt", ao:false, jit:0});
-  const pave = (x0, x1, z0, z1) => { box(x0, 0, z0, x1, .12, z1, 0xffffff, {tex:"slabs", ao:false, jit:0}); floor(x0, x1, z0, z1, .12); };
-  pave(-34, 34, 3, 6); pave(-34, 31, 14, 17); pave(31, 34, -12, 6); pave(42, 45, -12, 32); pave(31, 34, 14, 32);
+  box(34, 0, -12, 42, .01, 6, 0xffffff, {tex:"asphalt", ao:false, jit:0}); box(34, 0, 14, 42, .01, 32, 0xffffff, {tex:"asphalt", ao:false, jit:0});
+  // each pavement's slabs stop where its kerb begins (k: [x0, x1, z0, z1] of the slab part), so no top lies under a kerb's
+  const pave = (x0, x1, z0, z1, k = [x0, x1, z0, z1]) => { box(k[0], 0, k[2], k[1], .12, k[3], 0xffffff, {tex:"slabs", ao:false, jit:0}); floor(x0, x1, z0, z1, .12); };
+  pave(-34, 34, 3, 6, [-34, 33.82, 3, 5.82]); pave(-34, 31, 14, 17, [-34, 31, 14.18, 17]); pave(31, 34, -12, 3, [31, 33.82, -12, 3]);
+  pave(42, 45, -12, 32, [42.18, 45, -12, 32]); pave(31, 34, 14, 32, [31, 33.82, 14.18, 32]);
   // kerb stones along the road edges: a lighter strip, its top a hair above the slabs
   const K = 0xc4c1b9, KO = {ao:false, jit:0, tex:"concrete"};
-  box(-34, 0, 5.82, 34, .124, 6.0, K, KO); box(-34, 0, 14, 31, .124, 14.18, K, KO);
-  box(33.82, 0, -12, 34, .124, 6, K, KO); box(33.82, 0, 14, 34, .124, 32, K, KO); box(42, 0, -12, 42.18, .124, 32, K, KO);
-  for (let x = -32; x < 33; x += 4) box(x, .012, 9.93, x + 2, .016, 10.07, 0xe9e7df, {ao:false, jit:0});
-  for (let z = -10; z < 31; z += 4) box(37.93, .013, z, 38.07, .017, z + 2, 0xe9e7df, {ao:false, jit:0});
+  box(-34, 0, 5.82, 34, .124, 6.0, K, KO); box(-34, 0, 14, 33.82, .124, 14.18, K, KO);
+  box(33.82, 0, -12, 34, .124, 5.82, K, KO); box(33.82, 0, 14.18, 34, .124, 32, K, KO); box(42, 0, -12, 42.18, .124, 32, K, KO);
+  for (let x = -32; x < 33; x += 4) if (x + 2 < -1.2 || x > 7.2) box(x, .012, 9.93, x + 2, .016, 10.07, 0xe9e7df, {ao:false, jit:0});   // broken for the zebra
+  for (let z = -10; z < 31; z += 4) if (z + 2 < 6 || z > 14) box(37.93, .012, z, 38.07, .016, z + 2, 0xe9e7df, {ao:false, jit:0});   // and at the junction
   for (let x = -1; x < 7; x += .9) box(x, .012, 6.3, x + .5, .016, 13.7, 0xeceae2, {ao:false, jit:0});   // zebra to the stop
   // the other blocks on your side and across the road
   const near = [[-31, -16]], far = [[-31, -17], [-15, -2], [0, 14], [16, 30]];
@@ -1021,9 +1025,9 @@ function streets(){
   for (const [x, z, w, d, h] of [[-50, -30, 14, 12, 15], [-20, -32, 16, 12, 18], [10, -34, 14, 12, 15], [40, -30, 14, 12, 21], [-48, 40, 14, 12, 18], [0, 44, 18, 12, 15], [62, 18, 12, 18, 18], [-52, 10, 12, 18, 15]]){
     const c = pick([0x9b6a58, 0xb0a490, 0x8a96a1, 0xb3694c]);
     rbox(x + w/2, 0, z + d/2, w, h, d, .1, c, {tex:"paint", jit:.05});
-    for (let y = 3.9; y < h - 1; y += LH){
+    for (let y = 3.9; y + 1.3 < h - .3; y += LH){
       box(x - .02, y, z + .8, x + w + .02, y + 1.3, z + d - .8, 0x3a4652, {key:"gloss", ao:false, jit:.1});
-      box(x + .8, y, z - .02, x + w - .8, y + 1.3, z + d + .02, 0x3a4652, {key:"gloss", ao:false, jit:.1});
+      for (const [za, zb] of [[z - .02, z + .8], [z + d - .8, z + d + .02]]) box(x + .8, y, za, x + w - .8, y + 1.3, zb, 0x3a4652, {key:"gloss", ao:false, jit:.1});
     }
     box(x - .06, h, z - .06, x + w + .06, h + .12, z + d + .06, C.coping, {key:"metal", ao:false, jit:0});
   }
@@ -1031,7 +1035,7 @@ function streets(){
   const fence = (x0, z0, x1, z1, y = .12) => {
     box(x0, y, z0, x1, y + 1.8, z1, 0x8c7458, {solid:true, ao:false, tex:"planks", jit:.04});
     const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len/2)), ax = Math.abs(x1 - x0) > Math.abs(z1 - z0);
-    for (let i = 0; i <= n; i++){ const t = i/n, x = x0 + (x1 - x0)*t, z = z0 + (z1 - z0)*t; rbox(x, y, z, .1, 1.95, .1, .012, 0x4a3a2a, {jit:0}); }
+    for (let i = 0; i <= n; i++){ const t = i/n, x = x0 + (x1 - x0)*t, z = z0 + (z1 - z0)*t; rbox(x, y, z, .14, 1.95, .14, .012, 0x4a3a2a, {jit:0}); }   // thicker than the boards, so their faces never meet
     box(x0 - (ax ? 0 : .03), y + 1.8, z0 - (ax ? .03 : 0), x1 + (ax ? 0 : .03), y + 1.85, z1 + (ax ? .03 : 0), 0x4a3a2a, {ao:false, jit:0});
   };
   for (const [x0, x1] of [[-16, -14], [0, 2], [15, 17.5], [30, 31]]) fence(x0, 2.9, x1, 3.0);
@@ -1056,7 +1060,7 @@ function streets(){
 }
 function barrier(x0, z0, x1, z1){
   box(x0, 0, z0, x1, 1.1, z1, 0x5f666c, {solid:true, ao:false, key:"metal"});
-  for (let x = x0; x < x1 - .4; x += .8) box(x, .65, z0 - .03, x + .4, .95, z1 + .03, x % 1.6 < .8 ? 0xd23c2c : 0xf2f0ea, {ao:false, jit:0});
+  for (let x = x0 + .02; x < x1 - .4; x += .8) box(x, .65, z0 - .03, x + .4, .95, z1 + .03, x % 1.6 < .8 ? 0xd23c2c : 0xf2f0ea, {ao:false, jit:0});
   for (let x = x0 + .3; x < x1; x += 2.8) rbox(x, 0, (z0 + z1)/2, .14, 1.15, .3, .03, 0x3d4347, {jit:0});
 }
 export function tree(x, z, s){

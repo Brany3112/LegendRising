@@ -99,7 +99,7 @@ export function createSky(renderer){
 
   const sun = new THREE.DirectionalLight(0xffffff, 2);
   sun.castShadow = true;
-  sun.shadow.bias = -.0004; sun.shadow.normalBias = .03;
+  sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; sun.shadow.radius = 2.5;   // vogel-disk PCF: soft edge instead of stair-steps
   const hemi = new THREE.HemisphereLight(0xc4dcff, 0x9a9184, 1);
   const pool = Array.from({length:6}, () => { const l = new THREE.PointLight(0xffe0b0, 0, 12, 1.6); l.userData.src = null; l.userData.cur = 0; return l; });
   const fog = new THREE.Fog(0xc8d8e8, 60, 260);
@@ -107,6 +107,8 @@ export function createSky(renderer){
   const dir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmp = new THREE.Color();
   const shadowAt = {key:"", d:new THREE.Vector3(0, -2, 0)}, shadowDir = new THREE.Vector3(0, 1, 0), mid = {x:0, z:0, half:46};
   let assignT = 0, shadowSize = 0, shadeT = 0, shadeForce = true;
+  const SHADOW_HALF = 30, _eye = new THREE.Vector3(), _zero = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _look = new THREE.Matrix4();
+  const _rt = new THREE.Vector3(), _upv = new THREE.Vector3(), _c0 = new THREE.Vector3();
 
   const SAMPLE = {sunI:0, hemiI:0, stars:0, lamps:0, exposure:1, env:.5};
   function sample(h){
@@ -180,13 +182,17 @@ export function createSky(renderer){
         if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
         force = true;
       }
-      // one shadow frustum over the whole zone (its centre, wide enough for any sun bearing), set once per zone
-      const b = W.bounds, key = b ? `${b.x0},${b.x1},${b.z0},${b.z1}` : "";
+      /* the shadow area follows you: 60 m across, so a shadow-map texel is under 3 cm (a whole-zone frustum made it
+         5–7 cm, and every edge — a step, a kerb, a canopy — came out as a crawling staircase). It moves on a 4 m grid,
+         so it is redrawn only when you have walked a fair way, and shade() snaps its centre to whole texels so the
+         edges stay put between redraws. Casters further off still throw their shadows in: the light's depth range
+         reaches 240 m back towards the sun. */
+      const fx = focus ? focus.x : 0, fz = focus ? focus.z : 0, gx = Math.round(fx/4)*4, gz = Math.round(fz/4)*4;
+      const key = `${gx},${gz}`;
       if (key !== shadowAt.key){
-        shadowAt.key = key;
-        if (b){ mid.x = (b.x0 + b.x1)/2; mid.z = (b.z0 + b.z1)/2; mid.half = Math.max(30, Math.ceil(Math.hypot(b.x1 - b.x0, b.z1 - b.z0)/2 + 8)); }
+        shadowAt.key = key; mid.x = gx; mid.z = gz; mid.half = SHADOW_HALF;
         const c = sun.shadow.camera; c.left = -mid.half; c.right = mid.half; c.top = mid.half; c.bottom = -mid.half; c.near = 1; c.far = 240; c.updateProjectionMatrix();
-        force = true;
+        shadeForce = true;
       }
       if (force) shadeForce = true;
       // reflections follow the sky every nine minutes of game time
@@ -213,8 +219,15 @@ export function createSky(renderer){
       if (!shadeForce && (shadeT > 0 || shadowAt.d.angleTo(shadowDir) <= step)) return false;
       shadeForce = false; shadeT = low ? .5 : .2;
       shadowAt.d.copy(shadowDir);
-      sun.target.position.set(mid.x, 0, mid.z);
-      sun.position.set(mid.x + shadowDir.x*100, shadowDir.y*100 + 4, mid.z + shadowDir.z*100);
+      // the centre, snapped to whole texels across the light's view, so a redraw never shifts an edge by part of one
+      const texel = 2*mid.half/(shadowSize || 2048);
+      _eye.set(shadowDir.x, shadowDir.y, shadowDir.z); _look.lookAt(_eye, _zero, _up);
+      _rt.setFromMatrixColumn(_look, 0); _upv.setFromMatrixColumn(_look, 1);
+      _c0.set(mid.x, 0, mid.z);
+      const du = _c0.dot(_rt), dv = _c0.dot(_upv);
+      _c0.addScaledVector(_rt, Math.round(du/texel)*texel - du).addScaledVector(_upv, Math.round(dv/texel)*texel - dv);
+      sun.target.position.copy(_c0);
+      sun.position.set(_c0.x + shadowDir.x*100, _c0.y + shadowDir.y*100, _c0.z + shadowDir.z*100);
       renderer.shadowMap.needsUpdate = true;
       return true;
     },
