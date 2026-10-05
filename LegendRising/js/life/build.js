@@ -83,6 +83,40 @@ const MAKERS = {
     g.fillStyle = "rgba(150,120,76,.13)";
     for (let y = 16; y < 256; y += 32) for (let x = 48; x < 256; x += 64){ const yy = y + (x % 128 > 64 ? 16 : 0); g.beginPath(); g.moveTo(x, yy - 4); g.lineTo(x + 3, yy); g.lineTo(x, yy + 4); g.lineTo(x - 3, yy); g.fill(); }
     noise(g, 256, 256, 1200, .05); return finish(c, 1.6); },
+  // the wallpaper a new career moves in with: old, yellowed, water-stained, torn off in strips to the grey plaster
+  paperTorn(){ const [c, g] = canvas(256, 256);
+    g.fillStyle = "#d3c49c"; g.fillRect(0, 0, 256, 256);
+    // the ghost of an old pattern
+    g.fillStyle = "rgba(120,95,55,.12)";
+    for (let y = 8; y < 256; y += 28) for (let x = 10; x < 256; x += 36){ g.beginPath(); g.arc(x + (y % 56 ? 18 : 0), y, 4, 0, 7); g.fill(); }
+    blots(g, 256, 7, 18, 46, "120,85,40", .32);              // water stains
+    blots(g, 256, 5, 8, 20, "70,60,30", .25);
+    // strips torn away: ragged grey plaster with a shadow under the curling edge
+    const tear = (x, y, w, h) => {
+      g.fillStyle = "#9b978c"; g.beginPath(); g.moveTo(x, y);
+      for (let k = 0; k <= 8; k++) g.lineTo(x + w*k/8 + (Math.random() - .5)*6, y + (Math.random() - .5)*6);
+      for (let k = 8; k >= 0; k--) g.lineTo(x + w*k/8 + (Math.random() - .5)*8, y + h + (Math.random() - .5)*10);
+      g.closePath(); g.fill();
+      g.fillStyle = "rgba(60,50,30,.35)"; g.fillRect(x - 2, y - 3, w + 4, 3);
+      g.fillStyle = "rgba(240,230,200,.5)"; g.fillRect(x + w*.2, y + h - 2, w*.5, 3);
+    };
+    tear(30, 40, 26, 70); tear(150, 120, 34, 96); tear(200, 10, 20, 40); tear(80, 190, 40, 50);
+    for (let i = 0; i < 120; i++){ g.fillStyle = `rgba(40,60,30,${Math.random()*.35})`; g.fillRect(Math.random()*256, 220 + Math.random()*36, 2, 2); }   // mould low down
+    noise(g, 256, 256, 2500, .1); return finish(c, 1.6); },
+  paperCream(){ const [c, g] = canvas(256, 256);
+    g.fillStyle = "#efe6d2"; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = "rgba(175,150,105,.12)";
+    for (let y = 0; y < 256; y += 32) for (let x = 0; x < 256; x += 32){ g.beginPath(); g.moveTo(x + 16, y + 6); g.lineTo(x + 22, y + 16); g.lineTo(x + 16, y + 26); g.lineTo(x + 10, y + 16); g.fill(); }
+    noise(g, 256, 256, 900, .04); return finish(c, 1.4); },
+  paperSage(){ const [c, g] = canvas(256, 256);
+    g.fillStyle = "#a9b89a"; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = "rgba(240,245,230,.35)"; g.lineWidth = 2;
+    for (let y = 0; y < 256; y += 64) for (let x = 0; x < 256; x += 64){ g.beginPath(); g.arc(x + 32, y + 32, 18, 0, 7); g.stroke(); g.beginPath(); g.moveTo(x + 32, y + 14); g.lineTo(x + 32, y + 50); g.stroke(); }
+    noise(g, 256, 256, 900, .05); return finish(c, 1.6); },
+  paperNavy(){ const [c, g] = canvas(256, 256);
+    g.fillStyle = "#33415c"; g.fillRect(0, 0, 256, 256);
+    for (let x = 0; x < 256; x += 32){ g.fillStyle = "rgba(220,200,140,.55)"; g.fillRect(x + 14, 0, 3, 256); g.fillStyle = "rgba(255,255,255,.06)"; g.fillRect(x, 0, 12, 256); }
+    noise(g, 256, 256, 900, .06); return finish(c, 1.6); },
   tiles(){ const [c, g] = canvas(256, 256);
     g.fillStyle = "#8b9299"; g.fillRect(0, 0, 256, 256);
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++){ const v = 214 + Math.random()*20; g.fillStyle = `rgb(${v},${v + 3},${v + 6})`; g.fillRect(x*32 + 1.5, y*32 + 1.5, 29, 29); }
@@ -593,7 +627,7 @@ export function boxPart(w, h, d, color, x = 0, y = 0, z = 0, o = {}){
 export function begin(scene){
   W.scene = scene;
   W.solids.length = 0; W.floors.length = 0; W.ramps.length = 0; W.spots.length = 0; W.anims.length = 0;
-  W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = []; W.bikes = []; W.fridges = [];
+  W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = []; W.bikes = []; W.fridges = []; W.store = null;
   batches.clear();
 }
 const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber"]);

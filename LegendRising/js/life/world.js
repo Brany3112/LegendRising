@@ -15,6 +15,8 @@ import {bodyLook} from "./look.js";
 import {onboardInit, onboardStart, onboardTick, onboardZone} from "./intro.js";
 import * as INV from "./inv.js";
 import {refreshParcels, resetParcels, parcelStep, pointName, parcelText} from "./parcels.js";
+import {MINI, miniInput, miniStep, screwIn, startMini} from "./mini.js";
+import {BM, buildInit, buildEnter, buildExit, buildKey, buildStep, buildPan} from "./buildmode.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 export const LIFE = {min:7*60, day:1, wd:0, zone:"home", running:false};
@@ -291,7 +293,10 @@ window.lifeModalSet = on => {
 const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:() => LIFE.min,
   wait:where => openWait(where), reps, drill, session, computer:where => openComputer(where), shop:() => openShop("market"), vend:() => openShop("vend"),
   water, work, bath, iceBath, warm:() => warm(), look:() => { if (typeof openLookEditor === "function") openLookEditor("mirror"); },
-  barber:() => { if (typeof openBarber === "function") openBarber(); }, sleepDay};
+  barber:() => { if (typeof openBarber === "function") openBarber(); }, sleepDay,
+  // hands-on jobs (mini.js), and putting something back in your hands when one is abandoned
+  screw:o => screwIn(o), mini:o => startMini(o), giveBack:it => { if (it && !INV.take(it) && !INV.stow(it)) INV.addDrop({zone:LIFE.zone, x:P.x, y:P.feet + .02, z:P.z, ry:0, item:it}); },
+  timeLapse:(mins, act, label, done, o) => timeLapse(mins, act, label, done, o), hand:() => INV.hand(), take:it => INV.take(it), release:() => INV.release(), persist};
 /* a whole day asleep: hold E on the bed. Exactly 24 hours of the clock pass — not to the next morning, not a nap */
 function sleepDay(){
   const s = G(); if (!s || busy) return;
@@ -317,6 +322,7 @@ function clearScene(){
 let spawns = {};
 function enterZone(zone, at){
   if (DRILL) endDrillNow();
+  if (BM.on) buildExit();
   HOLD = null; heldMeshDrop(); flyEnd(); resetParcels();
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(scene);
@@ -480,7 +486,7 @@ function groundAt(x, z, feet){
   return best;
 }
 const tutOn = () => { const t = document.getElementById("tutRoot"); return !!(t && t.classList.contains("on")); };
-const locked = () => !!(window.lifeMoveLocked && window.lifeMoveLocked()) || modal || tutOn() || CINE.on;
+const locked = () => !!(window.lifeMoveLocked && window.lifeMoveLocked()) || modal || tutOn() || CINE.on || !!MINI.on || BM.on;
 /* ---------- cinematics (intro.js): the camera is driven, you are not ----------
    While one runs, nothing you press moves you or uses anything, the clock stands still and the HUD steps aside.
    frame(dt, cam) puts the camera where the shot wants it; me: "hide" (no body), "tp" (your body stands where you are,
@@ -574,7 +580,7 @@ function handStep(){
   if (it !== HELD.it){ heldMeshDrop(); HELD.it = it; if (it){ HELD.mesh = INV.itemMesh(it); HELD.mesh.renderOrder = 5; scene.add(HELD.mesh); } }
   const m = HELD.mesh; if (!m) return;
   const d = INV.ITEMS[it.id] || {}, hold = d.hold || {pos:[.2, -.2, -.48], rot:[0, 0, 0]};
-  m.visible = !CINE.on && !(DRILL && DRILL.view);
+  m.visible = !CINE.on && !(DRILL && DRILL.view) && !BM.on;
   if (ME.tpShown && ME.tp && ME.tp.g.visible){
     // third person: in the right hand, or held out in front for a box
     const h = ME.tp;
@@ -656,6 +662,12 @@ function flyStep(dt){
 // at rest: lying where it stopped, flat on its side or its base, and it can be picked up
 function flyLand(f){
   FLY.splice(FLY.indexOf(f), 1);
+  // something from a shop, not paid for, thrown out of the shop: the staff come out for it
+  const st = W.store, p = f.m.position;
+  if (f.it.unpaid && st && !(p.x > st.x0 && p.x < st.x1 && p.z > st.z0 && p.z < st.z1)){
+    scene.remove(f.m); note(`Somebody from the shop comes out and takes the ${INV.itemName(f.it).toLowerCase()} back in. Pay for it first.`);
+    return;
+  }
   const big = INV.ITEMS[f.it.id] && INV.ITEMS[f.it.id].big;
   f.m.rotation.set(big ? 0 : (f.it.id === "paper" ? Math.PI/2 : 0), f.m.rotation.y, 0);
   const d = {zone:f.zone, x:+f.m.position.x.toFixed(3), y:+f.m.position.y.toFixed(3), z:+f.m.position.z.toFixed(3), ry:+f.m.rotation.y.toFixed(3), rx:+f.m.rotation.x.toFixed(3), item:f.it};
@@ -707,11 +719,12 @@ function step(dt, real){
   if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)){ B.fovSet = B.fov; cam.fov = B.fov; cam.updateProjectionMatrix(); }
   // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
   cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
-  if (CINE.on) cineStep(dt);
+  if (BM.on){ buildPan(keys, dt); buildStep(dt, cam); if (ME.fp) ME.fp.g.visible = false; if (ME.tp) ME.tp.g.visible = false; }
+  else if (CINE.on) cineStep(dt);
   else if (DRILL && DRILL.view && ME.tp) drillViewStep(dt);
   else { viewStep(dt); meStep(dt); }
   if (LIFE.zone === "ground" && !CINE.on) tunnel();
-  held = DRILL || CINE.on ? null : (grab || target());
+  held = DRILL || CINE.on || BM.on ? null : (grab || target());
   holdStep(dt);
   onboardTick(dt);
   hud(held);
@@ -1526,8 +1539,9 @@ function loop(t){
   if (Q.pending) resize();
   step(dt, Math.min(real, .5));
   // the clock runs on its own, faster while you are on the move; it stops while a panel or the hub is up
+  if (MINI.on) miniStep(Math.min(real, .1));
   if (busy) stepBusy(Math.min(real, .1));
-  else if (!modal && !DRILL && !tutOn() && !CINE.on && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
+  else if (!modal && !DRILL && !tutOn() && !CINE.on && !MINI.on && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
   skyStep(Math.min(real, .1));
   if (LIFE.zone === "home") homeTick();
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
@@ -1679,10 +1693,12 @@ function bindInput(cv){
   document.addEventListener("pointerlockchange", () => {
     const on = document.pointerLockElement === cv;
     lockLost = !on && !!DRILL;
+    if (!on && MINI.on && !MINI.on.spec.free) miniInput("key", "escape", true);           // Esc took the pointer: that is giving up
     freshLock = on; MA.x.prev = MA.y.prev = MA.x.hold = MA.y.hold = 0;
     const dh = document.getElementById("lifeDrill"); if (dh) dh.classList.toggle("paused", lockLost);
   });
   addEventListener("mousedown", e => {
+    if (MINI.on && document.pointerLockElement === cv){ miniInput("down", e.button); return; }
     if (e.button !== 0 || document.pointerLockElement !== cv) return;
     if (DRILL){ DRILL.input("down", "mouse"); return; }
     MOUSE_L = true;
@@ -1690,8 +1706,9 @@ function bindInput(cv){
     if (held && held.kind === "drag") grab = held;
     if (!locked() && clickUse()) return;
   });
-  addEventListener("mouseup", e => { if (e.button !== 0) return; MOUSE_L = false; grab = null; if (DRILL && document.pointerLockElement === cv) DRILL.input("up", "mouse"); });
+  addEventListener("mouseup", e => { if (MINI.on){ miniInput("up", e.button); return; } if (e.button !== 0) return; MOUSE_L = false; grab = null; if (DRILL && document.pointerLockElement === cv) DRILL.input("up", "mouse"); });
   addEventListener("mousemove", e => {
+    if (MINI.on && document.pointerLockElement === cv){ miniInput("move", e.movementX || 0, e.movementY || 0); return; }
     if (document.pointerLockElement !== cv || locked()) return;
     let mx = e.movementX || 0, my = e.movementY || 0;
     // the first event after the lock is taken can carry the jump of the cursor into the lock
@@ -1708,6 +1725,8 @@ function bindInput(cv){
     if (window.lifePanelOpen && window.lifePanelOpen()) return;
     if (window.lifeMode && window.lifeMode() === "hub") return;
     const k = e.key.toLowerCase();
+    if (MINI.on){ e.preventDefault(); if (!e.repeat) miniInput("key", k, true); return; }
+    if (BM.on){ if (["w","a","s","d"].includes(k)){ keys[k] = true; e.preventDefault(); } else if (!e.repeat){ e.preventDefault(); buildKey(k); } return; }
     if (["w","a","s","d","e","shift"," "].includes(k)) e.preventDefault();
     if (DRILL){
       if (k === "escape" || k === " " || k === "e"){ if (!e.repeat) DRILL.input("down", k); }
@@ -1719,10 +1738,12 @@ function bindInput(cv){
     if (k === "v" && !e.repeat) toggleView();
     if ((k === "1" || k === "2") && !e.repeat && !locked()) INV.swap(+k - 1);
     if (k === "g" && !e.repeat) throwHand();
+    if (k === "b" && !e.repeat && !locked()) buildEnter();
     if (k === "e" && !e.repeat && !locked()){ const t = held || target(); HOLD_DONE = false; if (t){ if (t.long) HOLD = {sp:t, t:0}; else use(t); } }
   });
   addEventListener("keyup", e => {
     const k = e.key.toLowerCase(); keys[k === " " ? "space" : k] = false;
+    if (MINI.on){ miniInput("key", k, false); return; }
     // a spot that can be held: a short press is the ordinary use, released before the ring has filled
     if (k === "e" && HOLD){ const h = HOLD; HOLD = null; if (h.t < .35 && !HOLD_DONE && !locked()) use(h.sp); }
     if (DRILL && k === " ") DRILL.input("up", " ");
@@ -1739,8 +1760,20 @@ onboardInit({
   carrying:() => INV.hand(), spawn:k => spawns[k], relock:() => { if (window.lifeRelock) window.lifeRelock(); }, mailNews:() => mailNews(), forceSky:() => { forceSky = true; }
 });
 
+buildInit({P, cam:() => cam, scene:() => scene, canvas:() => renderer.domElement, note, persist, zone:() => LIFE.zone,
+  // back in your own eyes: the camera as it was, the pointer back, and you clear of anything just put where you stood
+  done(){
+    cam.near = .1; cam.fov = B.fov; cam.updateProjectionMatrix();
+    for (const k in keys) keys[k] = false;
+    findInside();
+    if (inside.length){
+      for (let r = .3; r < 3; r += .2) for (let a = 0; a < 6.28; a += .5){ const x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r; if (!hits(x, z)){ P.x = x; P.z = z; r = 9; break; } }
+    }
+    renderer.shadowMap.needsUpdate = true; W.shadowDirty = true;
+    if (window.lifeRelock) setTimeout(() => window.lifeRelock(), 30);
+  }});
 window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,
-  INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels};
+  INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels, MINI, miniInput, BM, buildEnter, buildExit, buildKey};

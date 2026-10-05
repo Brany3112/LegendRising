@@ -1,14 +1,15 @@
 /* ============ LIFE: the neighbourhood ============
    A few streets of brick blocks. Only one door in the whole street is yours: the block on the near
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
-import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo} from "./build.js";
+import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo, tex} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
 import {onYou} from "./inv.js";
 import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, ball as propBall, PC} from "./props.js";
 import {miniMarket, workplace} from "./shops.js";
 import {barbershop} from "./barber.js";
+import {furnitureStore} from "./store.js";
 import {fillFridge} from "./fridge.js";
-import {furnish, pieceOf, bedTierNow, footprint} from "./furniture.js";
+import {furnish, pieceOf, bedTierNow, footprint, powerOn} from "./furniture.js";
 import {deliveryPoint} from "./parcels.js";
 import {pedestrians, VIEW} from "./npc.js";
 
@@ -864,23 +865,48 @@ function myFlat(F, D){
   for (const k of [-.36, .36]) lb(ru + k - .02, ru + k + .02, Dp - .1, Dp - .06, .02, .16, 0xc9c6bd, {ao:false, jit:0});
   for (let k = -.4; k <= .41; k += .1) lb(ru + k - .012, ru + k + .012, Dp - .145, Dp - .14, .18, .68, 0xc9c6bd, {ao:false, jit:0});
 
-  // the light: a bare bulb on a flex, and a switch by the door
-  const bu = Wd*.55, bv = Dp*.55;
+  // the light: a flex from the ceiling and a bakelite lamp holder — with a bare bulb in it once you have bought one and
+  // screwed it in (a new career's flat has none) — and a switch by the door
+  const bu = Wd*.55, bv = Dp*.55, fx = G().home.fx;
   cyl(X(bu), top - .5, Z(bv), .006, .5, 0x1c1c1c, {seg:4});
   cyl(X(bu), top - .04, Z(bv), .06, .04, 0xe8e4da, {seg:10});
+  cyl(X(bu), top - .565, Z(bv), .021, .07, 0x1d1b19, {seg:10});
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(.055, 10, 8), new THREE.MeshStandardMaterial({color:0xfff6e0, emissive:0xffd590, emissiveIntensity:0}));
-  bulb.position.set(X(bu), top - .58, Z(bv)); W.scene.add(bulb);
-  const lamp = lightSrc({x:X(bu), y:top - .7, z:Z(bv), color:0xffd8a0, intensity:7, distance:11, decay:1.4, indoor:true, on:() => !!(G() && G().home && G().home.light)});
+  bulb.scale.set(1, 1.15, 1); bulb.position.set(X(bu), top - .62, Z(bv)); W.scene.add(bulb);
+  const lit = () => { const h = G() && G().home; return !!(h && h.light && h.fx && h.fx.bulb && powerOn()); };
+  const lamp = lightSrc({x:X(bu), y:top - .7, z:Z(bv), color:0xffd8a0, intensity:7, distance:11, decay:1.4, indoor:true, on:lit});
   const su = du + .78 < Wd - .2 ? du + .78 : du - .78;
   lb(su - .05, su + .05, .02, .035, 1.18, 1.32, 0xf2efe6, {ao:false});
   HOME.light = {
-    set(on){ const h = G().home; h.light = on; bulb.material.emissiveIntensity = on ? 2.2 : 0; },
-    get on(){ return !!G().home.light; }
+    set(on){ const h = G().home; h.light = on; this.show(); },
+    show(){ bulb.visible = !!G().home.fx.bulb; bulb.material.emissiveIntensity = lit() ? 2.2 : 0; },
+    get on(){ return !!G().home.light; }, bulb
   };
-  HOME.light.set(G().home.light);
+  HOME.light.show();
+  W.anims.push(() => { const e = lit() ? 2.2 : 0; if (bulb.material.emissiveIntensity !== e || bulb.visible !== !!fx.bulb) HOME.light.show(); });
   spot({x:X(su), y:base + 1.25, z:Z(.04), aim:[[X(su) - .2, base + 1.0, Math.min(Z(0), Z(.3))], [X(su) + .2, base + 1.5, Math.max(Z(0), Z(.3))]],
-    label:"Light switch", get hint(){ return HOME.light.on ? "Turn the light off" : "Turn the light on"; }, hold:.08,
-    run:() => HOME.light.set(!HOME.light.on)});
+    label:"Light switch", get hint(){ return !G().home.fx.bulb ? "There's no bulb in the light" : !powerOn() ? "No power in the block today" : HOME.light.on ? "Turn the light off" : "Turn the light on"; }, hold:.08,
+    run:() => {
+      HOME.light.set(!HOME.light.on);
+      if (!G().home.fx.bulb) ctx.note("Click. Nothing. There's no bulb in the light — the furniture store next to your block sells them for €3.");
+      else if (!powerOn()) ctx.note("Click. Nothing. The power's off in the whole block today.");
+    }});
+  // the empty holder: with a bulb in your hand, click it to screw the bulb in
+  const sy = top - .6;
+  spot({kind:"place", takes:"bulb", label:"Light fitting", hint:"Click to screw the bulb in", when:() => !G().home.fx.bulb,
+    aim:[[X(bu) - .16, sy - .14, Z(bv) - .16], [X(bu) + .16, sy + .12, Z(bv) + .16]],
+    place(it){
+      bulb.visible = true; bulb.position.y = sy - .05; bulb.rotation.y = 0;
+      ctx.screw({title:"Screw in the bulb", icon:"💡", turns:2.5,
+        turn:(k, d) => { bulb.rotation.y += d*.6; bulb.position.y = sy - .05 + .03*Math.min(1, k); },
+        done:() => {
+          const h = G().home; h.fx.bulb = true; h.light = true; bulb.position.set(X(bu), top - .62, Z(bv)); HOME.light.show();
+          if (typeof FEED === "object") FEED.chip("Bulb in · the light works", "good");
+          ctx.note("Let there be light. Don't leave it on when you go out — it's on the electricity bill.");
+          if (typeof save === "function") save();
+        },
+        cancel:() => { bulb.visible = false; ctx.giveBack(it); }});
+    }});
 
   // windows: one curtain each, sliding left to open and right to close
   HOME.curtains = winsOf(D).map((x, i) => curtain(x, base, A.ext, s, i));
@@ -888,6 +914,11 @@ function myFlat(F, D){
   // what is in the room: the bed, the fridge and whatever else you have bought, each where you put it
   HOME.flat = {A, base, s, Wd, Dp, X, Z, F, D};
   furnish(HOME.flat, ctx);
+  // the walls take new wallpaper: with a roll in your hand, click any wall of the room
+  const zr2 = (v0, v1) => [Math.min(Z(v0), Z(v1)), Math.max(Z(v0), Z(v1))];
+  for (const [a, b] of [[[X(2.1), base + .15, zr2(0, .06)[0]], [X(Wd), base + 2.8, zr2(0, .06)[1]]], [[X(0), base + .15, zr2(Dp - .06, Dp)[0]], [X(Wd), base + 2.8, zr2(Dp - .06, Dp)[1]]],
+    [[X(0), base + .15, zr2(2.3, Dp)[0]], [X(.06), base + 2.8, zr2(2.3, Dp)[1]]], [[X(Wd - .06), base + .15, zr2(0, Dp)[0]], [X(Wd), base + 2.8, zr2(0, Dp)[1]]]])
+    spot({kind:"place", takes:"paper", label:"Wall", hint:"Click to hang the new wallpaper · about 1½ hours", aim:[a, b], place(it){ hangPaper(it); }});
   // a hot bath takes the ache out of your legs
   spot({aim:[[Math.min(X(.05), X(1.95)), base, Math.min(Z(.05), Z(.8))], [Math.max(X(.05), X(1.95)), base + .6, Math.max(Z(.05), Z(.8))]],
     x:X(1), z:Z(.45), label:"Bath", hint:"Hot bath · 30 min · eases fatigue", hold:.5, run:() => ctx.bath()});
@@ -965,6 +996,20 @@ function curtain(x, base, ext, s, i){
   spot({x, y:base + 1.6, z:zIn, aim:[[x - .85, base + .8, Math.min(zIn, zIn - s*.4)], [x + .85, base + 2.6, Math.max(zIn, ext)]],
     label:"Curtain", get hint(){ return Cn.closed ? "Open the curtain" : "Close the curtain"; }, hold:.12, run:() => Cn.toggle()});
   return Cn;
+}
+
+/* ---------- the wallpaper: the flat's walls all share one texture (the "t:paper" batch), so a new one is a new map ---------- */
+const PAPER_TEX = {torn:"paperTorn", stripe:"paper", cream:"paperCream", sage:"paperSage", navy:"paperNavy"};
+const PAPER_NAME = {torn:"the old torn wallpaper", stripe:"striped wallpaper", cream:"cream wallpaper", sage:"sage wallpaper", navy:"navy stripe wallpaper"};
+export function applyPaper(){ const m = W.mats["t:paper"]; if (!m) return; m.map = tex(PAPER_TEX[G().home.fx.paper] || "paper"); m.needsUpdate = true; }
+function hangPaper(it){
+  const want = it.paper || "cream";
+  ctx.timeLapse(90, "work", k => k < .3 ? "Stripping the old paper" : k < .55 ? "Pasting" : "Hanging the new wallpaper, strip by strip", () => {
+    G().home.fx.paper = want; applyPaper();
+    if (typeof FEED === "object") FEED.chip("New wallpaper up", "good");
+    ctx.note(`Done — ${PAPER_NAME[want]} all round. It looks like somebody lives here now.`);
+    ctx.persist(true);
+  }, {icon:"🧻", dur:3.2});
 }
 
 /* ---------- the bed and the fridge: furniture.js (the tier of each is the one standing in your flat) ---------- */
@@ -1077,8 +1122,8 @@ function streets(){
   for (let z = -10; z < 31; z += 4) if (z + 2 < 6 || z > 14) box(37.93, .012, z, 38.07, .016, z + 2, 0xe9e7df, {ao:false, jit:0});   // and at the junction
   for (let x = -1; x < 7; x += .9) box(x, .012, 6.3, x + .5, .016, 13.7, 0xeceae2, {ao:false, jit:0});   // zebra to the stop
   // the other blocks on your side and across the road
-  const near = [[-31, -16]], far = [[-31, -17], [-15, -2], [0, 14], [16, 30]];
-  near.forEach(([x0, x1], i) => block({x0, x1, z0:-9, z1:3}, "+z", C.brick[(i + 1) % C.brick.length], {doorAt:(x1 - x0)*.3}));
+  const far = [[-31, -17], [-15, -2], [0, 14], [16, 30]];
+  furnitureStore(ctx);                               // the block to your right as you come out: the furniture store downstairs
   far.forEach(([x0, x1], i) => { if (i !== 2) block({x0, x1, z0:17, z1:29}, "-z", C.brick[(i + 3) % C.brick.length], {doorAt:(x1 - x0)*.3, floors:4}); });
   barbershop(ctx);                                  // the third one across the road: the barber's on its ground floor
   [[-6, 7], [9, 21], [23, 32]].forEach(([z0, z1], i) => block({x0:45, x1:57, z0, z1}, "-x", C.brick[(i + 2) % C.brick.length], {doorAt:(z1 - z0)*.4}));
@@ -1219,6 +1264,7 @@ export function buildHome(c){
   miniMarket(ctx);
   workplace(ctx);
   finishBatches();
+  applyPaper();
   winRefresh();
   // people out on the street: an eastern loop over the zebra and back across the junction, a western one that
   // crosses at the quiet end; a handful at the busy times of day, nobody in the small hours
