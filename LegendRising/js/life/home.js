@@ -396,8 +396,8 @@ function stairs(){
     // wall by the west one), so each flight's well face is lit from across the well rather than edge-on from over it
     rbox(-10.6, land + 2.2, S_.back + .07, .5, .12, .12, .04, 0xfff3d6, {key:"lamp"});
     rbox(S_.w + .07, land + 2.2, -7.9, .12, .12, .5, .04, 0xfff3d6, {key:"lamp"});
-    lightSrc({x:-10.6, y:land + 2.05, z:-8.35, color:0xffe8c8, intensity:3.5, distance:8, indoor:true});
-    lightSrc({x:S_.w + .4, y:land + 2.05, z:-7.9, color:0xffe8c8, intensity:3.5, distance:8, indoor:true});
+    lightSrc({x:-10.6, y:land + 2.05, z:-8.35, color:0xffe8c8, intensity:4.5, distance:8, indoor:true});
+    lightSrc({x:S_.w + .4, y:land + 2.05, z:-7.9, color:0xffe8c8, intensity:4.5, distance:8, indoor:true});
   }
   // under the second flight: a store cupboard with a door, closed off from the well
   const P = [[S_.mid, 0], [S_.mid, 1.6 + .178 - .32], [S_.front, LH - .32], [S_.front, 0]];
@@ -477,10 +477,11 @@ function realWin(x, base, face, s){
   ib(x - .035, x + .035, b + .11, t - .11);
   bx(x - h + .11, x - .035, b + .11, t - .11, .108, .112, 0xa9c2d2, "glass");
   bx(x + .035, x + h - .11, b + .11, t - .11, .108, .112, 0xa9c2d2, "glass");
-  // the window board inside, a little wider than the hole
-  bx(x - h - .08, x + h + .08, b - .04, b + .035, .11 + .035, .25 + .24, 0xece9e2);
-  bx(x - h - .08, x + h + .08, b - .12, b - .04, .25 + .2, .25 + .24, 0xe2ded6);
-  { const [z0, z1] = Zs(.25, .25 + .24); solid(x - h - .08, x + h + .08, z0, z1, b - .12, b + .035); }      // it stands out into the room
+  // the window board inside, a little wider than the hole, standing out over the radiator (14 cm off the wall) and no
+  // further; it is solid, so you stand at it rather than in it
+  bx(x - h - .08, x + h + .08, b - .04, b + .035, .11 + .035, .25 + .16, 0xece9e2);
+  bx(x - h - .08, x + h + .08, b - .12, b - .04, .25 + .12, .25 + .16, 0xe2ded6);
+  { const [z0, z1] = Zs(.25, .25 + .16); solid(x - h - .08, x + h + .08, z0, z1, b - .12, b + .035); }
 }
 function plate(text, x, y, z, ry){ label(plateTex(text), x, y, z, .16, .08, ry); }
 const DOOR_COL = [0x6e4b34, 0x7a3a2e, 0x5b6168, 0x5a4636, 0x3f4a3e];

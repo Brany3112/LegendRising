@@ -229,9 +229,9 @@ function drillBoard(x, z, ry, title, sub){
       let k = w.length - 1; while (k > 1 && g.measureText(w.slice(0, k).join(" ")).width > MAX) k--;
       const l1 = w.slice(0, k).join(" "), l2 = w.slice(k).join(" ");
       const px = Math.min(fit(l1, 600, 25, BA), fit(l2, 600, 25, BA));
-      g.font = font(600, px, BA); g.fillText(l1, 28, 168); g.fillText(l2, 28, 197);
+      g.font = font(600, px, BA); g.fillText(l1, 28, 164); g.fillText(l2, 28, 192);
     }
-    g.fillStyle = "#c8f060"; fit("Stand on the marker · press E", 700, 26, BA); g.fillText("Stand on the marker · press E", 28, 234);
+    g.fillStyle = "#c8f060"; fit("Stand on the marker · press E", 700, 26, BA); g.fillText("Stand on the marker · press E", 28, 236);
   });
   const [wx, wz] = worldPt(f, 0, .03);
   rb(f, 0, .55, -.01, 1.0, .5, .04, .02, 0x1b2026);
@@ -347,7 +347,7 @@ function stand(clubName){
   rbox(0, 2.9, -27.36, 4.0, .05, .06, .02, 0xfff1c8, {key:"lamp"});
   sign("PLAYERS' TUNNEL", 0, 3.4, -27.33, 0, 3.4);
   for (const dx of [-2.6, 2.6]) rbox(dx, 0, -27.33, .16, 2.9, .06, .03, 0xc8f060, {key:"neon", solid:true});
-  solid(-1.5, 1.5, -28.6, -28.49, 0, 2.4);                  // the doors and their push bars
+  solid(-1.5, 1.5, -28.6, -28.5, 0, 2.4);                   // the doors and their push bars
   lightSrc({x:0, y:2.6, z:-26.6, color:0xfff1c8, intensity:6, distance:8, indoor:true});
 }
 
