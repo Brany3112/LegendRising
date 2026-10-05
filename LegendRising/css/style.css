@@ -1001,14 +1001,21 @@ body:not(.life) .lp-notch, body:not(.life) .lp-away{display:none}
 .hud-money.up{animation:mUp .9s var(--ease)} .hud-money.down{animation:mDown .9s var(--ease)}
 @keyframes mUp{25%{color:#9df07a;transform:scale(1.06)}}
 @keyframes mDown{25%{color:#ff8a8d;transform:scale(.97)}}
-.hud-needs{display:grid;gap:5px;padding:7px 10px;background:var(--hud-bg);border:1px solid var(--hud-line);border-radius:var(--hud-r);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-.need{display:flex;align-items:center;gap:7px}
-.need svg{width:12px;height:12px;fill:#9fb2c6;flex:none}
-.need.en svg{fill:#58e0cf} .need.fa svg{fill:#c0a6ff}
-.nb{width:clamp(70px,7vw,104px);height:5px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden}
+/* your needs: four labelled meters, big enough to read at a glance — energy (food), hydration, fatigue, hygiene */
+.hud-needs{display:grid;gap:6px;padding:9px 12px 9px 11px;background:var(--hud-bg);border:1px solid var(--hud-line);border-radius:var(--hud-r);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.need{display:grid;grid-template-columns:16px 72px auto 28px;align-items:center;gap:7px;position:relative}
+.need svg{width:15px;height:15px;fill:#9fb2c6;flex:none}
+.need span{font-size:.74rem;font-weight:700;letter-spacing:.04em;color:#cfdbe7;text-transform:uppercase}
+.need b{font-family:var(--display);font-weight:800;font-size:.95rem;text-align:right;color:#eef3f8;font-variant-numeric:tabular-nums}
+.need em{display:none}
+.need.en svg{fill:#58e0cf} .need.fa svg{fill:#c0a6ff} .need.hy svg{fill:#4ea8ff} .need.hg svg{fill:#9fe0b0}
+.nb{width:clamp(96px,9vw,140px);height:8px;border-radius:5px;background:rgba(255,255,255,.12);overflow:hidden}
 .nb i{display:block;height:100%;border-radius:inherit;transition:width .5s var(--ease)}
 .need.en .nb i{background:linear-gradient(90deg,#16c2b0,#58e0cf)} .need.fa .nb i{background:linear-gradient(90deg,#8d6bff,#d06bff)}
-.need.low svg{animation:needPulse 1.1s ease-in-out infinite} .need.en.low .nb i{background:#ff6a5a} .need.fa.low .nb i{background:linear-gradient(90deg,#ff7a4a,#ff4a6a)}
+.need.hy .nb i{background:linear-gradient(90deg,#2c7be5,#6fc3ff)} .need.hg .nb i{background:linear-gradient(90deg,#3fae6a,#9fe0b0)}
+.need.low svg{animation:needPulse 1.1s ease-in-out infinite} .need.low b{color:#ff8a7a}
+.need.en.low .nb i,.need.hy.low .nb i{background:#ff6a5a} .need.fa.low .nb i{background:linear-gradient(90deg,#ff7a4a,#ff4a6a)} .need.hg.low .nb i{background:linear-gradient(90deg,#9a7a3a,#c8a04a)}
+@media (max-width:700px){ .need{grid-template-columns:14px auto 24px} .need span{display:none} .nb{width:90px} }
 @keyframes needPulse{50%{opacity:.35}}
 .hud-mchips{display:grid;gap:4px;justify-items:end;min-height:0}
 .mchip{font-family:var(--display);font-weight:800;font-size:.82rem;letter-spacing:.04em;padding:3px 10px;border-radius:99px;opacity:0;transform:translateY(-6px);

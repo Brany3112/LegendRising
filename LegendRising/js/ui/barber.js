@@ -61,6 +61,8 @@ function openBarber(){
   if (!S || !S.player) return;
   const now = window.LIFE ? window.LIFE.min : S.life.min;
   if (!barberOpen(now)) return window.lifeNote ? window.lifeNote(`Closed. ${BARBER.name} is open ${fmtTime(BARBER.open)} – ${fmtTime(BARBER.close)}.`) : null;
+  // nobody cuts the hair of someone who smells like the bottom of a kit bag
+  if (num(S.odor, 0) >= ODOR_SMELLY - 5) return window.lifeNote ? window.lifeNote(`The barber holds up a hand before you reach the chair. "Shower first, friend. Then come back."`) : null;
   LK.where = "barber"; LK.saved = false; LK.view = "face"; LK.kind = "casual"; LK.o = null; LK.only = null;
   LK.draft = JSON.parse(JSON.stringify(lookSane(S.player.look, lookSeedOf(S))));
   BRB.base = Object.assign({}, LK.draft); BRB.tab = "hair";

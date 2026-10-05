@@ -14,9 +14,10 @@ const SESSION = {start:10*60, end:17*60, late:10*60 + 15};
 const KICKOFF = {F:[5, 17*60], L:[5, 19*60], C:[2, 19*60], E:[1, 20*60], N:[4, 19*60 + 45], D:[5, 19*60]};
 const TUNNEL_OPEN = 90;            // minutes before kick-off you can walk out
 const MATCH_LEN = 115;             // kick-off to walking back out of the tunnel
-// meters per game minute for each kind of time. e: energy burnt, f: fatigue gained (negative recovers)
-const ACT = {idle:{e:.035, f:.012}, walk:{e:.04, f:.014}, bus:{e:.03, f:0}, rest:{e:.03, f:-.06},
-  sleep:{e:0, f:0}, work:{e:.05, f:.03}, train:{e:.04, f:.02}, match:{e:0, f:0}, shop:{e:.03, f:0}};
+// meters per game minute for each kind of time. e: energy burnt, f: fatigue gained (negative recovers),
+// o: odour built up (sweat; a shower takes it all away), h: hydration lost (drinks put it back)
+const ACT = {idle:{e:.035, f:.012, o:.006, h:.024}, walk:{e:.04, f:.014, o:.012, h:.032}, bus:{e:.03, f:0, o:.008, h:.022}, rest:{e:.03, f:-.06, o:.004, h:.02},
+  sleep:{e:0, f:0, o:.008, h:.014}, work:{e:.05, f:.03, o:.035, h:.04}, train:{e:.04, f:.02, o:.06, h:.07}, match:{e:0, f:0, o:.12, h:.14}, shop:{e:.03, f:0, o:.008, h:.026}};
 
 const pad2 = n => String(n).padStart(2, "0");
 // the football world, for the first-person modules (which have a W of their own for the scene)
@@ -145,6 +146,8 @@ function dailyEnsure(){
   if (S.player) S.player.look = lookSane(S.player.look, lookSeedOf(S));
   S.energy = clamp(num(S.energy, 80), 0, 100);
   S.fatigue = clamp(num(S.fatigue, 12), 0, 100);
+  S.odor = clamp(num(S.odor, 12), 0, 100);              // 0 fresh out of the shower, 100 nobody will stand next to you
+  S.hyd = clamp(num(S.hyd, 82), 0, 100);                // 100 well watered, 0 parched
   S.chem = clamp(num(S.chem, 20), 0, 100);
   S.trust = clamp(num(S.trust, 0), -30, 80);
   S.money = Math.round(num(S.money, 0));
@@ -222,6 +225,8 @@ function todayLine(){
 function needsTick(mins, act){
   const r = ACT[act] || ACT.idle;
   S.energy = clamp(S.energy - r.e*mins, 0, 100);
+  S.odor = clamp(num(S.odor, 12) + (r.o || 0)*mins, 0, 100);
+  S.hyd = clamp(num(S.hyd, 82) - (r.h || 0)*mins*(S.fatigue > 70 ? 1.15 : 1), 0, 100);
   let f = r.f*mins;
   // still up in the small hours: the body notices
   if (act !== "sleep" && S.life.min >= 60 && S.life.min < 6*60) f += .05*mins;
@@ -232,17 +237,28 @@ function trainEff(){
   const f = S.fatigue, e = S.energy;
   const fe = f <= 45 ? 1 : clamp(1 - (f - 45)/70, .25, 1);
   const ee = e >= 40 ? 1 : clamp(.4 + e/66, .4, 1);
-  return fe*ee;
+  // thirsty legs train badly too
+  const h = num(S.hyd, 82), he = h >= 35 ? 1 : clamp(.7 + .3*h/35, .7, 1);
+  return fe*ee*he;
 }
 function effLabel(){ const e = trainEff(); return e >= .95 ? "Fresh" : e >= .75 ? "Good" : e >= .5 ? "Tired" : "Exhausted"; }
 // the cost of doing something hard. Pushing on when you are already spent costs half as much again.
 function exert(fat, en){
   const heavy = S.fatigue > 70 ? 1.5 : 1;
+  S.odor = clamp(num(S.odor, 12) + fat*.55, 0, 100);                // hard work is sweaty work
+  S.hyd = clamp(num(S.hyd, 82) - fat*.45, 0, 100);
   S.fatigue = clamp(S.fatigue + fat*heavy*(S.staff && S.staff.fitCoach ? .85 : 1), 0, 100);
   S.energy = clamp(S.energy - en*(carTier() >= 2 ? .85 : 1)*(S.staff && S.staff.nutri ? .9 : 1), 0, 100);
 }
 function fatigueLabel(f){ f = num(f, S.fatigue); return f < 20 ? "Fresh" : f < 45 ? "A little tired" : f < 70 ? "Tired" : f < 85 ? "Exhausted" : "Running on empty"; }
 function energyLabel(e){ e = num(e, S.energy); return e >= 75 ? "Well fed" : e >= 45 ? "Fine" : e >= 25 ? "Hungry" : "Starving"; }
+function odorLabel(o){ o = num(o, S.odor); return o < 20 ? "Fresh" : o < 45 ? "Fine" : o < 60 ? "Sweaty" : o < 75 ? "Smelly" : "Stinking"; }
+function hydLabel(h){ h = num(h, S.hyd); return h >= 70 ? "Hydrated" : h >= 45 ? "Fine" : h >= 25 ? "Thirsty" : "Parched"; }
+// how much you smell decides who will deal with you: shops and the barber turn you away from SMELLY
+const ODOR_SMELLY = 75, ODOR_SWEATY = 60;
+function drinkTo(it, mult = 1){ if (it && it.hyd) S.hyd = clamp(num(S.hyd, 82) + it.hyd*clamp(num(mult, 1), .3, 1.2), 0, 100); }
+// a wash: a shower takes the smell away, a bath the smell and some of the ache
+function wash(kind){ S.odor = 0; if (kind === "bath") S.fatigue = clamp(S.fatigue - 10, 0, 100); }
 
 /* ---------- the clock ---------- */
 const DAILY = {listeners:[], seasonPending:null};
@@ -425,7 +441,7 @@ function startNewDay(){ S.today = freshToday(); }
 function consume(id, mult = 1){
   const it = FOOD[id]; if (!it) return {ok:false, why:"Nothing like that here."};
   if (!(S.inv[id] > 0)) return {ok:false, why:`You have no ${it.name.toLowerCase()} left.`};
-  if (it.kind !== "recovery" && S.energy >= 98 && !(it.fatigue < 0)) return {ok:false, why:"You're full — save it for later."};
+  if (it.kind !== "recovery" && S.energy >= 98 && !(it.fatigue < 0) && !(it.hyd > 0 && num(S.hyd, 82) < 95)) return {ok:false, why:"You're full — save it for later."};
   S.inv[id]--;
   mult = clamp(num(mult, 1), .1, 2);
   let gain = it.energy*(typeof energyMult === "function" ? energyMult() : 1)*mult;

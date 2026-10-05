@@ -477,6 +477,15 @@ function clubhouse(clubName){
   rb(ib, 0, .5, 0, 1.3, .06, .75, .1, 0x8fd0e8, {key:"glass"});
   fsolid(ib, 0, 0, 1.5, .95, 0, .62);
   spot({aim:[[27.8, 0, 8.7], [29.4, .9, 9.7]], label:"Ice bath", hint:"20 min · cold, but your legs will thank you", hold:.5, run:() => ctx.iceBath()});
+  // two showers against the wall to the office: a tiled tray, a pipe up the wall and a head on an arm
+  box(23.4, .02, 9.55, 26.8, .045, 10.38, 0xffffff, {tex:"tiles", ao:false, jit:0});
+  for (const x of [24.3, 25.9]){
+    cyl(x, .9, 10.34, .016, 1.25, 0xb9bec2, {seg:8, key:"metal"});
+    box(x - .02, 2.12, 10.12, x + .02, 2.16, 10.36, 0xb9bec2, {key:"metal", ao:false});
+    cyl(x, 2.06, 10.1, .07, .05, 0xd5d9dc, {seg:12, key:"metal"});
+    box(x - .05, 1.15, 10.3, x + .05, 1.3, 10.38, 0xd5d9dc, {key:"metal", ao:false});
+  }
+  spot({aim:[[23.5, 0, 9.5], [26.7, 2.2, 10.4]], label:"Showers", get hint(){ return `Shower · 10 min · ${typeof odorLabel === "function" ? odorLabel() : "clean"} now`; }, hold:.3, run:() => ctx.shower()});
   // the staff who look after you here: the physio by the ice bath and the kit man sorting the bibs, in the day
   const kit = typeof kitOf === "function" && typeof myClub === "function" && myClub() ? kitOf(myClub().nm) : ["#2c66b8", "#ffffff"];
   staffer(29.25, 10.0, -Math.PI*.78, {role:"physio", seed:12, kit, when:m => m >= 8*60 + 30 && m < 18*60, minute:ctx.minute});

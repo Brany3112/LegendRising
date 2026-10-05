@@ -187,12 +187,16 @@ function stepBusy(real){
 }
 window.lifeWaitFor = mins => timeLapse(mins, "rest", "Taking a breather", () => { note(`It's ${clockText()}. Fatigue ${Math.round(S.fatigue)} · Energy ${Math.round(S.energy)}.`); persist(); }, {icon:"☕"});
 function bath(){
-  timeLapse(30, "rest", "Hot bath", () => { S.fatigue = clamp(S.fatigue - 10, 0, 100); FEED.chip("Hot bath · −10 fatigue", "good"); persist(); }, {icon:"🛁", dur:2});
+  timeLapse(30, "rest", "Hot bath", () => { wash("bath"); FEED.chip("Hot bath · clean · −10 fatigue", "good"); persist(); }, {icon:"🛁", dur:2});
+}
+// a quick shower: clean in ten minutes, at home or in the dressing room
+function shower(){
+  timeLapse(10, "rest", "Shower", () => { wash("shower"); FEED.chip("Showered · fresh", "good"); persist(); }, {icon:"🚿", dur:1.4});
 }
 function iceBath(){
   timeLapse(20, "rest", "Ice bath", () => { S.fatigue = clamp(S.fatigue - 14, 0, 100); FEED.chip("Ice bath · −14 fatigue", "good"); persist(); }, {icon:"🧊", dur:2});
 }
-function water(){ S.fatigue = clamp(S.fatigue - 2, 0, 100); S.energy = clamp(S.energy + 1, 0, 100); pass(2); FEED.chip("Cup of water · −2 fatigue", "good"); }
+function water(){ S.fatigue = clamp(S.fatigue - 2, 0, 100); S.energy = clamp(S.energy + 1, 0, 100); S.hyd = clamp(num(S.hyd, 82) + 14, 0, 100); pass(2); FEED.chip("Cup of water · +14 hydration · −2 fatigue", "good"); }
 // a shift at work: the clock runs, the job bar fills as you go, the pay comes at the end
 window.lifeShift = plan => {
   const tasks = (JOB_TASKS[jobState().id] || ["Working"]);
@@ -212,8 +216,11 @@ window.lifeShift = plan => {
     }
   }});
 };
+// jobs where you deal with customers will not have you on the floor smelling like a changing room
+const FACE_JOBS = ["cafe", "store", "gym", "academy", "photo"];
 function work(){
   if (!shiftOpen()) return note("Closed. Shifts run from 7:00 AM to 11:00 PM.");
+  if (num(S.odor, 0) >= ODOR_SMELLY && FACE_JOBS.includes(jobState().id)) return note(`The manager takes one sniff and steps back. "Not in front of the customers like that. Go home and have a shower."`);
   openShift();
 }
 function trainCheck(){
@@ -292,7 +299,7 @@ window.lifeModalSet = on => {
 };
 const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:() => LIFE.min,
   wait:where => openWait(where), reps, drill, session, computer:where => openComputer(where), shop:() => openShop("market"), vend:() => openShop("vend"),
-  water, work, bath, iceBath, warm:() => warm(), look:() => { if (typeof openLookEditor === "function") openLookEditor("mirror"); },
+  water, work, bath, shower, iceBath, warm:() => warm(), look:() => { if (typeof openLookEditor === "function") openLookEditor("mirror"); },
   barber:() => { if (typeof openBarber === "function") openBarber(); }, sleepDay,
   // hands-on jobs (mini.js), and putting something back in your hands when one is abandoned
   screw:o => screwIn(o), mini:o => startMini(o), giveBack:it => { if (it && !INV.take(it) && !INV.stow(it)) INV.addDrop({zone:LIFE.zone, x:P.x, y:P.feet + .02, z:P.z, ry:0, item:it}); },
@@ -335,7 +342,7 @@ function enterZone(zone, at){
   const p = typeof at === "object" && at ? at : spawns[at] || spawns[zone === "home" ? "bed" : "bus"];
   place(p);
   forceSky = true; skyStep(0);
-  hudMeters.e = hudMeters.f = null;
+  hudMeters.e = hudMeters.f = hudMeters.h = hudMeters.o = null;
   warm();
   onboardZone(zone);
 }
@@ -505,7 +512,7 @@ function cineEnd(){
   ME.camT = 0; ME.tpShown = false; ME.near = ME.nearT = 0; ME.yaw = P.yaw;
   if (ME.tp) meFade(1);
   document.body.classList.remove("cine");
-  lastPrompt = null; hudCtxT = 0; hudMeters.e = hudMeters.f = null;
+  lastPrompt = null; hudCtxT = 0; hudMeters.e = hudMeters.f = hudMeters.h = hudMeters.o = null;
   if (cam){ cam.fov = B.fov; cam.updateProjectionMatrix(); }
 }
 window.lifeCine = () => CINE.on;
@@ -1394,7 +1401,14 @@ function use(sp){
 }
 /* ---------- the overlay ---------- */
 let lastPrompt = null, hudCtxT = 0, hudCtxText = null, hudCtxClr = 0;
-const hudMeters = {e:null, f:null};
+const hudMeters = {e:null, f:null, h:null, o:null};
+function meter(k, id, v, low, word){
+  const t = Math.round(clamp(v, 0, 100)) + "";
+  if (t === hudMeters[k]) return;
+  const el = document.getElementById(id); if (!el) return;
+  hudMeters[k] = t; el.style.width = t + "%";
+  const row = el.closest(".need"); if (row){ row.classList.toggle("low", low); const b = row.querySelector("b"); if (b) b.textContent = t; row.title = word; const w = row.querySelector("em"); if (w) w.textContent = word; }
+}
 function hud(near){
   const s = G(); if (!s) return;
   const c = document.getElementById("lifeClock");
@@ -1428,9 +1442,10 @@ function hud(near){
     }
   }
   // the meters are only written when what they show has changed: no style work in a frame where nothing moved
-  const ev = clamp(s.energy, 0, 100).toFixed(1), fv = clamp(s.fatigue, 0, 100).toFixed(1);
-  if (ev !== hudMeters.e){ const en = document.getElementById("lifeEnergy"); if (en){ hudMeters.e = ev; en.style.width = ev + "%"; en.parentNode.parentNode.classList.toggle("low", s.energy < 25); } }
-  if (fv !== hudMeters.f){ const fa = document.getElementById("lifeFatigue"); if (fa){ hudMeters.f = fv; fa.style.width = fv + "%"; fa.parentNode.parentNode.classList.toggle("low", s.fatigue > 75); } }
+  meter("e", "lifeEnergy", s.energy, s.energy < 25, energyLabel(s.energy));
+  meter("h", "lifeHyd", num(s.hyd, 82), num(s.hyd, 82) < 25, hydLabel(num(s.hyd, 82)));
+  meter("f", "lifeFatigue", s.fatigue, s.fatigue > 75, fatigueLabel(s.fatigue));
+  meter("o", "lifeHyg", 100 - num(s.odor, 0), num(s.odor, 0) >= ODOR_SMELLY, odorLabel(num(s.odor, 0)));
   FEED.moneySync();
   const p = document.getElementById("lifePrompt");
   if (!p) return;

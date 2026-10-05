@@ -921,7 +921,8 @@ function myFlat(F, D){
     spot({kind:"place", takes:"paper", label:"Wall", hint:"Click to hang the new wallpaper · about 1½ hours", aim:[a, b], place(it){ hangPaper(it); }});
   // a hot bath takes the ache out of your legs
   spot({aim:[[Math.min(X(.05), X(1.95)), base, Math.min(Z(.05), Z(.8))], [Math.max(X(.05), X(1.95)), base + .6, Math.max(Z(.05), Z(.8))]],
-    x:X(1), z:Z(.45), label:"Bath", hint:"Hot bath · 30 min · eases fatigue", hold:.5, run:() => ctx.bath()});
+    x:X(1), z:Z(.45), label:"Bath", get hint(){ return `Shower · 10 min · ${typeof odorLabel === "function" ? odorLabel() : "clean"} now`; }, hold:.3, run:() => ctx.shower(),
+    long:{time:1.5, label:"a hot bath · 30 min · clean, and eases fatigue", run:() => ctx.bath()}});
 
   // your front door, from both sides
   const into = s;

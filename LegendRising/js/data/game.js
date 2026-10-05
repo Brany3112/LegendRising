@@ -27,16 +27,16 @@ const SKILL_HOW = {
 /* Everything you can eat or drink. energy is the food/energy meter, fatigue a change to tiredness
    (negative helps). mins is how long it takes. store is the Mini Market price, foodies the delivered one. */
 const FOOD = {
-  fruit:   {name:"Banana & apple",   icon:"🍌", kind:"food",     energy:7,  fatigue:-1,  mins:5,  store:1, foodies:2,  shelf:"food"},
-  sandwich:{name:"Sandwich",         icon:"🥪", kind:"food",     energy:14, fatigue:0,   mins:10, store:3, foodies:4,  shelf:"food"},
-  meal:    {name:"Ready meal",       icon:"🍱", kind:"food",     energy:26, fatigue:0,   mins:20, store:5, foodies:7,  shelf:"food"},
-  pasta:   {name:"Chicken pasta",    icon:"🍝", kind:"food",     energy:34, fatigue:-3,  mins:20, store:7, foodies:9,  shelf:"food"},
-  water:   {name:"Water",            icon:"💧", kind:"drink",    energy:2,  fatigue:-2,  mins:2,  store:1, foodies:2,  shelf:"drink"},
-  iso:     {name:"Isotonic drink",   icon:"🧃", kind:"drink",    energy:8,  fatigue:-4,  mins:2,  store:2, foodies:3,  shelf:"drink"},
-  drink:   {name:"Energy-UP",        icon:"⚡", kind:"energy",   energy:22, fatigue:0,   mins:2,  store:3, foodies:4,  shelf:"drink"},
-  max:     {name:"Energy-UP MAX",    icon:"⚡", kind:"energy",   energy:40, fatigue:0,   mins:2,  store:7, foodies:9,  shelf:"drink"},
-  shake:   {name:"Protein shake",    icon:"🥤", kind:"recovery", energy:10, fatigue:-8,  mins:5,  store:4, foodies:6,  shelf:"drink"},
-  rub:     {name:"Muscle rub",       icon:"🧴", kind:"recovery", energy:0,  fatigue:-12, mins:10, store:6, foodies:8,  shelf:"door"}
+  fruit:   {name:"Banana & apple",   icon:"🍌", kind:"food",     energy:7,  fatigue:-1,  mins:5,  store:1, foodies:2,  shelf:"food", hyd:6},
+  sandwich:{name:"Sandwich",         icon:"🥪", kind:"food",     energy:14, fatigue:0,   mins:10, store:3, foodies:4,  shelf:"food", hyd:0},
+  meal:    {name:"Ready meal",       icon:"🍱", kind:"food",     energy:26, fatigue:0,   mins:20, store:5, foodies:7,  shelf:"food", hyd:3},
+  pasta:   {name:"Chicken pasta",    icon:"🍝", kind:"food",     energy:34, fatigue:-3,  mins:20, store:7, foodies:9,  shelf:"food", hyd:2},
+  water:   {name:"Water",            icon:"💧", kind:"drink",    energy:2,  fatigue:-2,  mins:2,  store:1, foodies:2,  shelf:"drink", hyd:30},
+  iso:     {name:"Isotonic drink",   icon:"🧃", kind:"drink",    energy:8,  fatigue:-4,  mins:2,  store:2, foodies:3,  shelf:"drink", hyd:26},
+  drink:   {name:"Energy-UP",        icon:"⚡", kind:"energy",   energy:22, fatigue:0,   mins:2,  store:3, foodies:4,  shelf:"drink", hyd:10},
+  max:     {name:"Energy-UP MAX",    icon:"⚡", kind:"energy",   energy:40, fatigue:0,   mins:2,  store:7, foodies:9,  shelf:"drink", hyd:8},
+  shake:   {name:"Protein shake",    icon:"🥤", kind:"recovery", energy:10, fatigue:-8,  mins:5,  store:4, foodies:6,  shelf:"drink", hyd:16},
+  rub:     {name:"Muscle rub",       icon:"🧴", kind:"recovery", energy:0,  fatigue:-12, mins:10, store:6, foodies:8,  shelf:"door", hyd:0}
 };
 const FOOD_KINDS = [["food","Food"], ["drink","Drinks"], ["energy","Energy"], ["recovery","Recovery"]];
 /* Furniture for your flat, tier 1 (the worst) to 6 (the best). A bed's tier is how well you sleep in it, a fridge's how
