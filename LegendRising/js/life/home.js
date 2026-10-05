@@ -8,6 +8,8 @@ import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bi
 import {miniMarket, workplace} from "./shops.js";
 import {barbershop} from "./barber.js";
 import {fillFridge} from "./fridge.js";
+import {furnish, pieceOf, bedTierNow, footprint} from "./furniture.js";
+import {deliveryPoint} from "./parcels.js";
 import {pedestrians, VIEW} from "./npc.js";
 
 const C = {
@@ -33,7 +35,7 @@ const winsOf = d => { const a = APT[d], w = a.x1 - a.x0; return [a.x0 + w*.3, a.
 
 const G = () => (typeof S !== "undefined" ? S : null);
 let ctx = null, H = null;
-export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null, street:null, mirror:null, pane:null, plate:null, slam:null, win:null};
+export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null, street:null, mirror:null, pane:null, plate:null, slam:null, win:null, flat:null};
 
 /* ================= facades =================
    A facade is dressed in layers that stand a few centimetres proud of the wall, so nothing shares a face with
@@ -855,23 +857,7 @@ function myFlat(F, D){
   hingedDoor({hingeX:X(1.42), dir:-1, z:Z(2.25), base:base + .036, width:.84, height:1.934, into:-s, color:0xe6e1d6, label:"Bathroom"});
   lb(.85, 1.25, .95, 1.35, LH - .28, LH - .25, 0xfff3d6, {key:"lamp", ao:false});
 
-  // the room: a table and a chair by the wall, a radiator under the window, a rug
-  const tv0 = Dp - 1.65, tv1 = Dp - 1.05, WD = 0x9a6b42, WD2 = 0x6b4a2c;
-  rb(fr(.535, vc(tv0, tv1)), 0, .72, 0, .83, .04, .6, .018, WD);
-  rb(fr(.535, vc(tv0, tv1)), 0, .64, 0, .73, .08, .5, .016, WD2);                              // the apron under the top
-  for (const [u, v] of [[.185, tv0 + .065], [.885, tv0 + .065], [.185, tv1 - .065], [.885, tv1 - .065]]) cy(fr(u, v), 0, 0, 0, .024, .017, .72, WD2, {seg:8});
-  solid(X(.12), X(.95), ...zr(tv0, tv1), base, base + .76);
-  // a mug by the chair and a side plate at the far corner, both clear of the laptop (u .35–.71, v tv0 + .175–.425)
-  cyl(X(.84), base + .76, Z(tv0 + .16), .045, .1, 0xe8e2d6, {seg:10});
-  cyl(X(.23), base + .76, Z(tv0 + .47), .1, .015, 0xf0eee8, {seg:14});
-  // the chair, facing the table: a seat with rounded edges, turned legs, two back posts with slats between
-  const cu0 = 1.02, cu1 = 1.45, cv0 = tv0 + .08, cv1 = tv0 + .52;
-  rb(fr(vc(cu0, cu1), vc(cv0, cv1)), 0, .43, 0, .43, .045, .44, .02, 0x7a5233);
-  for (const [u, v] of [[cu0 + .035, cv0 + .035], [cu0 + .035, cv1 - .035]]) cy(fr(u, v), 0, 0, 0, .019, .015, .43, 0x5b3d24, {seg:8});
-  for (const v of [cv0 + .035, cv1 - .035]) cy(fr(cu1 - .03, v), 0, 0, 0, .021, .017, .93, 0x5b3d24, {seg:8});
-  for (const y of [.62, .8]) rb(fr(cu1 - .03, vc(cv0, cv1)), 0, y, 0, .025, .09, .4, .012, 0x7a5233);
-  solid(X(cu0), X(cu1), ...zr(cv0, cv1), base, base + .9);
-  lb(.3, 2.0, Dp - 2.1, Dp - .7, .02, .028, 0x7b3b33, {ao:false, jit:0});
+  // the radiator under the window (the room's furniture is yours: furniture.js puts it where you put it)
   const [w1] = winsOf(D);
   const ru = w1 - A.x0;
   lb(ru - .45, ru + .45, Dp - .14, Dp - .05, .16, .7, 0xe7e4dc);
@@ -899,27 +885,12 @@ function myFlat(F, D){
   // windows: one curtain each, sliding left to open and right to close
   HOME.curtains = winsOf(D).map((x, i) => curtain(x, base, A.ext, s, i));
 
-  // the bed (upgradable) against the side wall, the fridge beside the door
-  HOME.bed = {u:Wd, v:Dp, X, Z, base, s, group:null, sol:solid(X(Wd - 1.15), X(Wd - .1), ...zr(Dp - 2.15, Dp - .1), base, base + .6)};
-  makeBed();
-  spot({x:X(Wd - .6), y:base + .6, z:Z(Dp - 1.1), aim:[[Math.min(X(Wd - 1.5), X(Wd)), base, zr(Dp - 2.15, Dp - .1)[0]], [X(Wd), base + .9, zr(Dp - 2.15, Dp - .1)[1]]],
-    label:"Bed", get hint(){ const m = ctx.minute() % 1440; return m >= 19*60 || m < 5*60 ? "Sleep · wake tomorrow at 7:00 AM" : "Have a nap · 2 hours"; }, hold:1.2,
-    run:() => ctx.sleep(), long:{time:2, label:"sleep through the entire day", run:() => ctx.sleepDay()}});
+  // what is in the room: the bed, the fridge and whatever else you have bought, each where you put it
+  HOME.flat = {A, base, s, Wd, Dp, X, Z, F, D};
+  furnish(HOME.flat, ctx);
   // a hot bath takes the ache out of your legs
   spot({aim:[[Math.min(X(.05), X(1.95)), base, Math.min(Z(.05), Z(.8))], [Math.max(X(.05), X(1.95)), base + .6, Math.max(Z(.05), Z(.8))]],
     x:X(1), z:Z(.45), label:"Bath", hint:"Hot bath · 30 min · eases fatigue", hold:.5, run:() => ctx.bath()});
-  // the laptop on the table: your stats, your week, your career
-  const lt = frame(X(.53), Z(tv0 + .3), s > 0 ? Math.PI : 0, base + .76);
-  rb(lt, 0, 0, 0, .36, .018, .25, .008, 0x2b2f34, {key:"metal"});
-  rb(lt, 0, .012, -.115, .36, .23, .012, .008, 0x2b2f34, {key:"metal", rx:-.28});
-  const scr = textTex(256, 160, g => { const gr = g.createLinearGradient(0, 0, 0, 160); gr.addColorStop(0, "#14243a"); gr.addColorStop(1, "#0a1220"); g.fillStyle = gr; g.fillRect(0, 0, 256, 160);
-    g.fillStyle = "#c8f060"; g.font = "bold 20px sans-serif"; g.fillText("CLUB PORTAL", 16, 32); g.fillStyle = "rgba(255,255,255,.75)"; g.font = "14px sans-serif";
-    for (let i = 0; i < 4; i++){ g.fillRect(16, 52 + i*24, 90 + (i*37) % 110, 8); } });
-  const [lsx, lsz] = worldPt(lt, 0, -.105);
-  const lsm = label(scr, lsx, base + .76 + .125, lsz, .32, .2, lt.ry, {glow:.9, rough:.2}); lsm.rotateX(-.28);
-  spot({aim:[[X(.53) - .25, base + .7, Math.min(Z(tv0 + .05), Z(tv0 + .55))], [X(.53) + .25, base + 1.05, Math.max(Z(tv0 + .05), Z(tv0 + .55))]],
-    label:"Laptop", hint:"Check your stats, your week and your career", hold:.2, run:() => ctx.computer("home")});
-  fridge(X, Z, base, Wd, s);
 
   // your front door, from both sides
   const into = s;
@@ -996,105 +967,9 @@ function curtain(x, base, ext, s, i){
   return Cn;
 }
 
-/* ---------- the bed: an old wooden one, and better ones from the Mall ---------- */
-export function bedTier(){ const s = G(); return s && s.items ? (s.items.bed2 ? 2 : s.items.mattress ? 1 : 0) : 0; }
-function makeBed(){
-  const B = HOME.bed; if (!B) return;
-  if (B.group){ W.scene.remove(B.group); B.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
-  const tier = bedTier(); B.tier = tier;
-  const g = new THREE.Group(), w = tier === 2 ? 1.4 : 1.0, len = 2.0;
-  const wood = tier === 2 ? 0x3b3f45 : C.wood, dark = tier === 2 ? 0x2c2f33 : C.wood2;
-  // every piece rounded off, and the pieces of one colour merged: the bed is five meshes however many parts it has
-  const parts = new Map(), put = (c, geo) => { if (!parts.has(c)) parts.set(c, []); parts.get(c).push(geo); };
-  const rg = (c, w_, h, d, x, y, z, r = .02) => put(c, roundedBoxGeo(w_, h, d, Math.min(r, w_/2 - .002, h/2 - .002, d/2 - .002), 2).translate(x, y, z));
-  // head at local +z: turned posts with a cap, side rails, a foot rail, a shaped headboard
-  for (const [x, z, h] of [[-w/2, len/2, 1.05], [w/2, len/2, 1.05], [-w/2, -len/2, .78], [w/2, -len/2, .78]]){
-    put(dark, new THREE.CylinderGeometry(.042, .048, h, 10).translate(x, h/2, z));
-    put(dark, new THREE.SphereGeometry(.05, 10, 6).translate(x, h + .01, z));
-  }
-  for (const x of [-w/2, w/2]) rg(wood, .06, .18, len - .08, x, .34, 0);
-  rg(wood, w - .06, .16, .05, 0, .5, -len/2);
-  const sh = new THREE.Shape(); sh.moveTo(-w/2 + .04, 0); sh.lineTo(-w/2 + .04, .5); sh.quadraticCurveTo(0, .8, w/2 - .04, .5); sh.lineTo(w/2 - .04, 0); sh.lineTo(-w/2 + .04, 0);
-  put(wood, new THREE.ExtrudeGeometry(sh, {depth:.05, bevelEnabled:true, bevelThickness:.012, bevelSize:.012, bevelSegments:1, curveSegments:8}).translate(0, .42, len/2 - .05));
-  const mattress = tier >= 1 ? .2 : .14;
-  rg(0xe9e4d6, w - .08, mattress, len - .1, 0, .42 + mattress/2, 0, .05);
-  const blanket = tier === 2 ? 0x2d4058 : tier === 1 ? 0x5a6b78 : C.blanket;
-  const bt = .42 + mattress;
-  // the blanket over the top, falling over both sides and the foot, folded back under the pillow
-  rg(blanket, w + .04, .05, len*.74, 0, bt + .02, -len*.12, .025);
-  for (const x of [-(w/2 + .005), w/2 + .005]) rg(blanket, .03, .28, len*.74, x, bt - .1, -len*.12, .012);
-  rg(blanket, w + .04, .26, .03, 0, bt - .1, -len/2 - .005, .012);
-  rg(blanket, w + .04, .07, .16, 0, bt + .04, len*.25 + .02, .03);                               // the fold
-  for (const x of tier === 2 ? [-.33, .33] : [0]) rg(0xf1eee6, tier === 2 ? .55 : .62, .12, .36, x, bt + .07, len/2 - .32, .05);
-  for (const [c, list] of parts){ const m = part(mergeGeos(list), c, {cast:true}); m.receiveShadow = true; g.add(m); }
-  g.position.set(B.X(B.u - w/2 - .12), B.base, B.Z(B.v - 1.12));
-  if (B.s < 0) g.rotation.y = Math.PI;
-  W.scene.add(g); B.group = g;
-  B.sol.x0 = B.X(B.u - w - .14); B.w = w;
-}
-
-/* ---------- the fridge: drag the doors open, take what you bought ---------- */
-function fridge(X, Z, base, Wd, s){
-  const u0 = Wd - .68, u1 = Wd, v0 = 1.2, v1 = 1.9;
-  const lb = (a0, a1, b0, b1, y0, y1, c, o = {}) => box(X(a0), base + y0, Z(b0), X(a1), base + y1, Z(b1), c, Object.assign({ao:false}, o));
-  const rl = (a0, a1, b0, b1, y0, y1, c, r, o = {}) => rbox((X(a0) + X(a1))/2, base + y0, (Z(b0) + Z(b1))/2, Math.abs(X(a1) - X(a0)), y1 - y0, Math.abs(Z(b1) - Z(b0)), r, c, Object.assign({seg:2}, o));
-  // the cabinet: rounded sides and back down to the floor, a dark kick plinth set back under the doors, a divider,
-  // and a top that overhangs it all with a soft edge
-  rl(u1 - .05, u1, v0, v1, 0, 1.58, C.fridge, .018);
-  rl(u0, u1, v0, v0 + .042, 0, 1.58, C.fridge, .018); rl(u0, u1, v1 - .042, v1, 0, 1.58, C.fridge, .018);
-  rl(u0 - .008, u1 + .004, v0 - .008, v1 + .008, 1.57, 1.64, C.fridge, .028);
-  rl(u0 + .05, u1 - .05, v0 + .04, v1 - .04, 0, .072, 0x34363a, .02);
-  rl(u0 + .005, u1 - .05, v0 + .04, v1 - .04, 1.1, 1.14, C.fridge, .018);
-  lb(u1 - .06, u1 - .05, v0 + .04, v1 - .04, .07, 1.57, 0xf5f5f0, {key:"lamp"});          // the inside lights up
-  lb(u0 + .02, u1 - .06, v0 + .04, v0 + .05, .07, 1.57, 0xf2f2ee); lb(u0 + .02, u1 - .06, v1 - .05, v1 - .04, .07, 1.57, 0xf2f2ee);
-  lb(u0 + .02, u1 - .06, v0 + .04, v1 - .04, .07, .08, 0xeeeeea);
-  lb(u0 + .04, u1 - .06, v0 + .04, v1 - .04, .55, .57, 0xd5e2e6);
-  lb(u0 + .04, u1 - .06, v0 + .04, v1 - .04, 1.14, 1.15, 0xeeeeea);
-  solid(X(u0 - .02), X(u1), Math.min(Z(v0), Z(v1)), Math.max(Z(v0), Z(v1)), base, base + 1.62);
-  const doors = [[.07, 1.09, "Fridge"], [1.14, 1.6, "Freezer"]].map(([y0, y1, name]) => {
-    const g = new THREE.Group(); g.position.set(X(u0), base, Z(v1));
-    const h = y1 - y0, wv = v1 - v0;
-    const leaf = part(roundedBoxGeo(.05, h - .006, wv - .004, .018, 2).translate(-.025, y0 + h/2, -s*wv/2), C.fridge, {cast:true}); g.add(leaf);
-    g.add(boxPart(.008, h - .06, wv - .06, 0xf2f2ee, .002, y0 + h/2, -s*wv/2));            // the inside of the door
-    // a chrome bar handle on two stand-offs near the free edge
-    const hy = name === "Fridge" ? y1 - .32 : y0 + .2, hz = -s*(wv - .07), hl = name === "Fridge" ? .34 : .22;
-    g.add(part(mergeGeos([new THREE.CylinderGeometry(.011, .011, hl, 8).translate(-.083, hy, hz),
-      ...[-1, 1].map(k => new THREE.CylinderGeometry(.008, .008, .036, 6).rotateZ(Math.PI/2).translate(-.066, hy + k*(hl/2 - .03), hz))]), C.metal, {mat:{metalness:.75, roughness:.3}}));
-    W.scene.add(g);
-    const Dd = {g, leaf, a:0, target:0, name};
-    const box3 = new THREE.Box3();
-    // the open door is solid where it stands, and stops short of you rather than swinging through you
-    const guard = leafGuard(X(u0), Z(v1), wv, base + y0, base + y1, 7, .085), dirOf = a => [-s*Math.sin(s*a), -s*Math.cos(s*a)];
-    const turnTo = a => { Dd.a = guard.reach(Dd.a, a, dirOf); };
-    W.anims.push(dt => {
-      if (Math.abs(Dd.target - Dd.a) > 1e-4) turnTo(Dd.a + (Dd.target - Dd.a)*(1 - Math.exp(-7*dt)));
-      g.rotation.y = s*Dd.a;
-      const [ux, uz] = dirOf(Dd.a); guard.set(ux, uz, Dd.a > .06, dt);
-    });
-    spot({kind:"drag", label:name, get hint(){ return Dd.a > .5 ? "Close it" : "Open it"; }, y:base + y0 + h/2,
-      aim:() => { g.updateMatrixWorld(); box3.setFromObject(leaf); box3.expandByScalar(.03); return [box3.min.toArray(), box3.max.toArray()]; },
-      spin:s, get angle(){ return Dd.a; }, toggle(){ Dd.target = Dd.a > .5 ? 0 : 1.75; },
-      drag(da){ turnTo(Math.max(0, Math.min(1.9, Dd.a + da))); Dd.target = Dd.a; },
-      hinge(){ return g.getWorldPosition(new THREE.Vector3()); },
-      edge(){ g.updateMatrixWorld(); return g.localToWorld(new THREE.Vector3(-.05, y0 + h/2, -s*wv*.95)); }
-    });
-    return Dd;
-  });
-  const items = new THREE.Group(); W.scene.add(items);
-  HOME.fridge = {doors, items, X, Z, base, u0, u1, v0, v1, s};
-  refreshFridge();
-}
-export function refreshFridge(){
-  const F = HOME.fridge; if (!F) return;
-  if (!F.fill){
-    const open = () => F.doors[0].a > 1.0;
-    const at = (u, v) => [F.X(u), F.Z(v)];
-    const slots = y => [0, 1].flatMap(row => [0, 1, 2].map(col => at(F.u0 + .2 + row*.2, F.v0 + .14 + col*.19)));
-    const lo = [Math.min(F.X(F.u0), F.X(F.u1)) - .01, F.base + .07, Math.min(F.Z(F.v0), F.Z(F.v1))], hi = [Math.max(F.X(F.u0), F.X(F.u1)), F.base + 1.1, Math.max(F.Z(F.v0), F.Z(F.v1))];
-    F.fill = {group:F.items, open, ctx, shelves:[{y:F.base + .08, kind:"food", slots:slots()}, {y:F.base + .58, kind:"drink", slots:slots()}], across:[0, .045], emptyAim:[lo, hi]};
-  }
-  fillFridge(F.fill);
-}
+/* ---------- the bed and the fridge: furniture.js (the tier of each is the one standing in your flat) ---------- */
+export function bedTier(){ return bedTierNow(); }
+export function refreshFridge(){ const q = pieceOf("fridge"); if (q && q.fridge) fillFridge(q.fridge.fill); }
 
 /* ---------- the mailboxes in the lobby ---------- */
 function mailboxes(){
@@ -1164,6 +1039,24 @@ export function drawMail(){
     if (mine && unread()){ g.fillStyle = "#e23b2e"; g.fillRect(x + cw - 54, y + 12, 40, 22); g.fillStyle = "#fff"; g.font = "bold 14px sans-serif"; g.fillText("POST", x + cw - 34, y + 24); }
   }
   M.tex.needsUpdate = true;
+}
+
+/* the delivery table: where couriers leave what you ordered (parcels.js) — in the lobby, to the right of the door as
+   you look out, against the front wall, with a sign over it */
+function deliveryTable(){
+  const x0 = -13.05, x1 = -11.55, z0 = 2.2, z1 = 2.7, y = G0, top = y + .78;
+  rbox((x0 + x1)/2, top - .04, (z0 + z1)/2, x1 - x0, .04, z1 - z0, .015, 0x8a5a35);
+  rbox((x0 + x1)/2, top - .14, (z0 + z1)/2, x1 - x0 - .1, .1, z1 - z0 - .08, .012, 0x6e4529);
+  for (const [x, z] of [[x0 + .05, z0 + .05], [x1 - .05, z0 + .05], [x0 + .05, z1 - .05], [x1 - .05, z1 - .05]]) rbox(x, y, z, .045, .74, .045, .01, 0x5e3c23);
+  solid(x0, x1, z0, z1, y, top);
+  const t = textTex(512, 120, g => {
+    g.fillStyle = "#1f3a5a"; g.fillRect(0, 0, 512, 120); g.fillStyle = "#f2c230"; g.fillRect(0, 0, 512, 10);
+    g.fillStyle = "#fff"; g.font = "800 46px 'Barlow Condensed', 'Arial Narrow', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("DELIVERIES · LIVRĂRI", 256, 52);
+    g.font = "600 20px 'Barlow', sans-serif"; g.fillStyle = "rgba(255,255,255,.8)"; g.fillText("Couriers leave parcels here", 256, 94);
+  });
+  label(t, (x0 + x1)/2, y + 1.62, 2.731, 1.0, .235, Math.PI, {glow:.25});
+  const yy = top + .002, zc = (z0 + z1)/2;
+  deliveryPoint("home", "the delivery table in your lobby", [[x0 + .32, yy, zc, .25], [(x0 + x1)/2, yy, zc, -.15], [x1 - .32, yy, zc, .35]]);
 }
 
 /* ================= the streets ================= */
@@ -1315,6 +1208,7 @@ export function buildHome(c){
   myBlock(H.floor, H.door);
   myFlat(H.floor, H.door);
   mailboxes();
+  deliveryTable();
   // the way in
   HOME.entrance = hingedDoor({hingeX:-10.22, z:2.875, base:G0 + .014, width:1.44, height:2.306, into:-1, color:0x2f3a44, glass:true, label:"Your block"});
   // lamps in the lobby, flush with the ceiling
@@ -1331,12 +1225,24 @@ export function buildHome(c){
   HOME.street = pedestrians({minute:ctx.minute, seed:H.seed + 500, max:6, count:streetCount, routes:[
     [[1.4, 4.75], [30.8, 4.75], [32.75, 4.95], [32.75, 5.5, 1.4, 1], [32.75, 14.5, 1.4, -1], [30.6, 14.85], [6.3, 14.85], [5.75, 14.62], [1.4, 14.62], [1.1, 14.3, 1.3, 1], [1.1, 5.55, 1.3, -1]],
     [[-1.2, 4.45], [-28.0, 4.45], [-28.7, 5.5, 1.4, 1], [-28.7, 14.5, 1.4, -1], [-28.0, 14.85], [-1.2, 14.85], [-.6, 14.35, 1.2, 1], [-.6, 5.55, 1.2, -1]]]});
-  const A = APT[H.door], Wd = A.x1 - A.x0, Dp = Math.abs(A.ext - A.wz);
-  const base = H.floor*LH;
   return {
-    bed:{x:A.x0 + Wd - (HOME.bed.w || 1) - .65, z:A.wz + A.s*(Dp - 1.5), y:base, yaw:A.s > 0 ? 0 : Math.PI},
+    bed:besideBed(),
     bus:{x:3, z:15.3, y:.12, yaw:0}            // under the shelter roof, clear of the bench behind
   };
+}
+// where you wake up: beside your bed, on its open side, facing into the room
+function besideBed(){
+  const F = HOME.flat, q = pieceOf("bed"), base = F.base;
+  const cx = F.A.x0 + (F.A.x1 - F.A.x0)/2, cz = F.A.wz + F.s*F.Dp*.6;
+  if (!q) return {x:cx, z:cz, y:base, yaw:0};
+  const ax = Math.cos(q.p.ry), az = -Math.sin(q.p.ry), off = q.model.w/2 + .55;
+  const inFlat = (x, z) => x > F.A.x0 + .35 && x < F.A.x1 - .35 && Math.abs(z - F.A.wz) > 2.4 && Math.abs(z - F.A.wz) < F.Dp - .35;
+  const free = (x, z) => !W.solids.some(b => !b.off && b.y1 > base + .4 && b.y0 < base + 1.7 && x + .26 > b.x0 && x - .26 < b.x1 && z + .26 > b.z0 && z - .26 < b.z1);
+  for (const k of [-1, 1]){
+    const x = q.wx + ax*off*k, z = q.wz + az*off*k;
+    if (inFlat(x, z) && free(x, z)) return {x, z, y:base, yaw:Math.atan2(-(cx - x), -(cz - z))};
+  }
+  return {x:cx, z:cz, y:base, yaw:0};
 }
 let winT = 0;
 export function homeTick(){ drawClock(); const t = performance.now(); if (t - winT > 2000){ winT = t; winRefresh(); } }
@@ -1348,6 +1254,5 @@ function streetCount(m){
 export function resetHome(){ for (const k of Object.keys(HOME)) HOME[k] = k === "curtains" ? [] : null; }
 export function homeRefresh(){
   refreshFridge(); winRefresh();
-  if (HOME.bed && HOME.bed.tier !== bedTier()) makeBed();
   drawMail();
 }

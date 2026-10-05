@@ -11,6 +11,7 @@
         then fades to black and hands you back.
    Leave in the middle of any of it and the part you were in starts again the next time; nothing is lost and nothing is
    shown twice. Every cinematic ends with the camera, the keys, the mouse and the HUD handed back (world.js cineEnd). */
+import {bedTierNow} from "./furniture.js";
 import {THREE, W, LH} from "./build.js";
 import {HOME, APT} from "./home.js";
 import {human, animateHuman, lookFor} from "./human.js";
@@ -318,6 +319,7 @@ function flatBox(){
 }
 function inFlat(){ const b = flatBox(), P = H.P; return P.x > b.x0 + .1 && P.x < b.x1 - .1 && P.z > b.z0 + .2 && P.z < b.z1 - .1 && Math.abs(P.feet - b.base) < .6; }
 function spotAt(label){
+  if (Array.isArray(label)){ for (const l of label){ const t = spotAt(l); if (t) return t; } return null; }
   const sp = H.spots().find(s => s.label === label || (typeof s.label === "string" && s.label.startsWith(label)));
   if (!sp) return null;
   try { const a = typeof sp.aim === "function" ? sp.aim() : sp.aim; if (a) return V((a[0][0] + a[1][0])/2, (a[0][1] + a[1][1])/2, (a[0][2] + a[1][2])/2); } catch(e){}
@@ -348,18 +350,26 @@ async function tour(){
     const corner = V(b.x0 + (b.x1 - b.x0)*.75, b.base + 2.15, b.Zv(2.6));
     await go(corner, mid, 1.6);
     await step(say("Uncle Nelu", `So — here it is. Small, but it's yours. Let me show you around, ${name}.`));
+    // what the flat has in it decides what he says about it: a new career's is the worst in the block
+    const fx = h.fx || {}, has = id => (fx.furn || []).some(p => p.id === id), bedT = typeof bedTierNow === "function" ? bedTierNow() : 2;
+    const fridgeT = (fx.furn || []).map(p => FURN[p.id]).filter(f => f && f.kind === "fridge").map(f => f.tier)[0] || 2;
     const stops = [
-      ["Bed", "Bed", [["How", "Hold E for 2 seconds"], ["Gives", "You sleep through the entire day: exactly one day passes"], ["Tap E", "A two-hour nap — or, at night, sleep until 7:00 AM"]],
-        "Hold E for 2 seconds to sleep through the entire day."],
-      ["Fridge", "Fridge", [["How", "E to open it, E on what you want"], ["Gives", "Energy — some food takes fatigue away too"], ["Shared", "The fridge in the training centre's clubhouse holds the same food: one stock, two fridges"]],
-        "Your fridge. Eat to keep your energy up — and the clubhouse fridge at the training centre has the same food in it."],
+      [["Bed", "Mattress"], bedT <= 1 ? "Mattress" : "Bed", [["How", "Hold E for 2 seconds"], ["Gives", "You sleep through the entire day: exactly one day passes"], ["Tap E", "A two-hour nap — or, at night, sleep until 7:00 AM"],
+        ...(bedT <= 1 ? [["Better", "A real bed sleeps better — the furniture store next door sells them"]] : [])],
+        bedT <= 1 ? "Your bed. Well — a mattress. Hold E for 2 seconds on it to sleep through the entire day. A proper bed would do your legs more good." : "Hold E for 2 seconds to sleep through the entire day."],
+      ["Fridge", "Fridge", [["How", "E to open it, E on what you want"], ["Gives", "Energy — some food takes fatigue away too"], ["Keeps", `This one keeps ${Math.round(FRIDGE_KEEP[fridgeT - 1]*100)}% of what food is worth — a better fridge keeps more`], ["Shared", "The fridge in the training centre's gym holds the same food: one stock, two fridges"]],
+        fridgeT <= 1 ? "The fridge. It wheezes and it's half rust — food out of it does you half the good. Save up for a better one." : "Your fridge. Eat to keep your energy up — and the fridge in the training centre's gym has the same food in it."],
       ["Curtain", "The store", [["Where", "The Mini Market, on the corner of your street"], ["How", "Take what you want off the shelves, pay at the till"], ["Gives", "Food and drinks, put straight into your fridge at home"]],
         "The Mini Market's on the corner. Whatever you buy there goes straight into your fridge."],
-      ["Laptop", "Phone · Foodies", [["How", "Tab for your phone, then Foodies"], ["Gives", "Food brought to you, wherever you are when it arrives — home, the training centre, the clubhouse, work or out in town"], ["When", "Any time; the courier turns up some time later"]],
-        "No time to shop? Order on your phone. The courier finds you wherever you are."],
-      ["Laptop", "Laptop", [["How", "E at the table"], ["Gives", "Your stats, your skills, your week and your career"]],
-        "And the laptop: how you're doing, what's on this week."],
-      ["Light switch", "Lights", [["How", "E on the switch by the door"], ["Costs", "Lights left on go on the electricity bill"], ["Also", "The bath eases fatigue (30 min); the bathroom mirror changes your look — the barber across the road does new cuts"]],
+      ["Fridge", "Phone · Foodies", [["How", "Tab for your phone, then Foodies"], ["Gives", "Food delivered to the table in your lobby — or to the shelf inside the gym door, if you order from the training centre"], ["Then", "Left click the bag to pick it up and carry it to a fridge: the food goes in when you get close"]],
+        "No time to shop? Order on your phone. The courier leaves the bag on the table downstairs — carry it up to the fridge."],
+      ...(has("laptop") ? [["Laptop", "Laptop", [["How", "E at the table"], ["Gives", "Your stats, your skills, your week and your career"]],
+        "And the laptop: how you're doing, what's on this week."]]
+        : [["Light switch", "No laptop yet", [["For now", "Your phone (Tab) and the hub (Q) have your stats, your week and your career"], ["Later", "The furniture store next to your block sells a laptop — and a table to put it on"]],
+        "No table, no chair, no laptop. Your phone will have to do for now."]]),
+      fx.bulb === false ? ["Light switch", "No bulb", [["Problem", "The light has no bulb in it"], ["Fix", "Buy a bulb at the furniture store next to your block (€3), bring it home and screw it in"], ["Costs", "Lights left on go on the electricity bill"]],
+        "And there's no bulb in the light. The furniture store next door sells them — three euros. Get one before it gets dark."]
+      : ["Light switch", "Lights", [["How", "E on the switch by the door"], ["Costs", "Lights left on go on the electricity bill"], ["Also", "The bath eases fatigue (30 min); the bathroom mirror changes your look — the barber across the road does new cuts"]],
         "Switch the light off when you go out. Electricity isn't free — that part's on you."]
     ];
     for (const [label, title, rows, line] of stops){
@@ -390,7 +400,8 @@ function guide(){
       ${row("🏟", "Matches", "Your fixtures are on your phone and on the club computer. On match day go to the training centre and walk out through the tunnel before kick-off.")}
       ${row("🎯", "Training on your own", "Any time the centre is open: skill drills on the pitch (30 min) and gym sets (45 min). Each one trains particular skills. It costs energy and adds fatigue.")}
       ${row("💼", "Work", "Your job is next door to your block. Clock in between 7:00 AM and 11:00 PM for a 2- or 4-hour shift: money and job XP, and better jobs as you go.")}
-      ${row("🍽", "Food", "Eat from your fridge — at home or at the clubhouse, it's the same food. Buy more at the Mini Market or order Foodies on your phone; the courier finds you wherever you are.")}
+      ${row("🍽", "Food", "Eat from your fridge — at home or in the training centre's gym, it's the same food, and a better fridge keeps more of its goodness. Buy more at the Mini Market, or order Foodies on your phone: the bag is left on the delivery table in your lobby (or the shelf inside the gym door) — pick it up and carry it to a fridge.")}
+      ${row("✋", "Your hands", "Left click picks things up. 1 and 2 put what's in your hand in a pocket (and take it out again); G drops it. Bigger things — a furniture box — you carry in both arms.")}
       ${row("🛏", "Rest", "Sleep at night to bring fatigue down; tap E on the bed for a nap, or hold E for 2 seconds to sleep a whole day. A bath or the ice bath helps too.")}
       <details class="gd-more"><summary>${row("👔", "Talk to the manager · the clubhouse", "Find him in his office at the training centre and open the hub (Q). Tap to see what you can talk about.")}</summary>
         <ul><li><b>Playing time</b> — ask why you're on the bench, or for more minutes.</li><li><b>Trust</b> — how much he believes in you, and what moves it: training, attendance, results.</li>

@@ -29,10 +29,26 @@ export function ensureHome(){
       `From then on the bill arrives here at the start of every month. Lights left on cost money.`);
   }
   if (!s.home.curtains) s.home.curtains = [false, false];
+  // a brand-new career (its first day, nothing bought) moves into the worst flat; anything older keeps what it had
+  ensureFx(s.home, !s.home.fx && (s.week || 0) === 0 && (s.life.day || 1) <= 1 && !(s.items && (s.items.bed2 || s.items.mattress)));
   // the number on your door ("door" | "floor", where it lies) and the window the football came through
   if (s.home.plate !== "floor") s.home.plate = "door";
   if (!s.home.win || typeof s.home.win !== "object") s.home.win = {state:"ok", at:0};
   return s.home;
+}
+/* What is in your flat (furniture.js) and what state it is in: S.home.fx. A new career moves into the worst flat in the
+   block — a mattress on the floor, a fridge that wheezes, no table, no chair, no laptop, the wallpaper hanging off and
+   no bulb in the light. A career from before this all existed keeps what it had: the furniture it was living with
+   is the tier-2 kind, the bed it bought is better still. */
+export function ensureFx(h, fresh){
+  if (h.fx && h.fx.v) return h.fx;
+  const s = G();
+  if (fresh) h.fx = {v:1, paper:"torn", bulb:false, lock:"broken", locked:false, furn:[{id:"bed1"}, {id:"fridge1"}]};
+  else {
+    const bt = s.items && s.items.bed2 ? 4 : s.items && s.items.mattress ? 3 : 2;
+    h.fx = {v:1, paper:"stripe", bulb:true, lock:"broken", locked:false, furn:[{id:"bed" + bt}, {id:"fridge2"}, {id:"table"}, {id:"chair"}, {id:"laptop"}, {id:"rug"}]};
+  }
+  return h.fx;
 }
 function letter(h, from, title, text, extra = {}){
   h.letters.push(Object.assign({id:h.nextId++, from, title, text, read:false}, extra));

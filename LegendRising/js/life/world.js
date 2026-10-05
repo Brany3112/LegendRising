@@ -14,6 +14,7 @@ import {human, animateHuman, BONE, VIEW} from "./human.js";
 import {bodyLook} from "./look.js";
 import {onboardInit, onboardStart, onboardTick, onboardZone} from "./intro.js";
 import * as INV from "./inv.js";
+import {refreshParcels, resetParcels, parcelStep, pointName, parcelText} from "./parcels.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 export const LIFE = {min:7*60, day:1, wd:0, zone:"home", running:false};
@@ -56,11 +57,12 @@ document.addEventListener("visibilitychange", () => { if (document.hidden && sav
 window.lifePass = (m, act) => pass(m, act);
 // news from the day as it happens
 function onDaily(type, d){
+  if (type === "delivered" && !LIFE.running) return;      // (resumeLife puts it on its table)
   if (!LIFE.running && type !== "season") return;
   if (type === "delivered"){
-    refreshFridge(); refreshGymFridge();
-    const what = Object.entries(d.items || {}).map(([k, q]) => `${q}× ${typeof FOOD === "object" && FOOD[k] ? FOOD[k].name : k}`).join(", ");
-    FEED.center("Foodies delivered", `The courier found you ${d.at || placeName()} · ${what || "your order"} · it's in your food now`, {kind:"food", icon:"🍔"});
+    // the bag is on its delivery point: on it now if you are in that place, waiting there if you are not
+    if (LIFE.zone === d.where) refreshParcels();
+    FEED.center("Foodies delivered", `${parcelText(d.items) || "Your order"} · waiting on ${pointName(d.where)} · carry it to a fridge`, {kind:"food", icon:"🍔"});
   } else if (type === "late") FEED.chip(`Late for training · Manager trust ${d.d}`, "bad");
   else if (type === "settled"){
     if (d.k.startsWith("absent")) FEED.chip(`Missed training · Manager trust ${Math.round(d.d)}`, "bad");
@@ -120,11 +122,12 @@ function morning(r){
   FEED.center(todayName(), f ? `Match day · ${oppName(f)} · ${clockText(fixtureSlot(f).min)}` : todayLine(), {kind:"day", icon:"☀", ms:3200});
   note(`${r.hours >= 7 ? "A full night's sleep" : `${Math.round(r.hours)} hours' sleep`} · fatigue ${r.fatigue <= 0 ? "−" + Math.abs(r.fatigue) : "+" + r.fatigue} · ${S.energy < 40 ? "you wake up hungry — eat breakfast." : "breakfast is in the fridge."}`);
 }
-function eat(id){
-  const r = consume(id); sync();
+// mult: how much of its goodness the fridge it came out of has kept (furniture.js, ground.js)
+function eat(id, mult = 1){
+  const r = consume(id, mult); sync();
   if (!r.ok) return note(r.why);
   refreshFridge(); refreshGymFridge();
-  FEED.chip(`${r.item.name} · ${r.gain ? `+${r.gain} energy` : ""}${r.fat ? ` ${r.fat < 0 ? "−" : "+"}${Math.abs(r.fat)} fatigue` : ""}`.trim(), "good");
+  FEED.chip(`${r.item.name} · ${r.gain ? `+${r.gain} energy` : ""}${r.fat ? ` ${r.fat < 0 ? "−" : "+"}${Math.abs(r.fat)} fatigue` : ""}${mult < .999 ? ` · fridge keeps ${Math.round(mult*100)}%` : ""}`.trim(), mult < .75 ? "" : "good");
   persist();
 }
 window.lifeFridgeChanged = () => { refreshFridge(); refreshGymFridge(); };
@@ -314,7 +317,7 @@ function clearScene(){
 let spawns = {};
 function enterZone(zone, at){
   if (DRILL) endDrillNow();
-  HOLD = null; heldMeshDrop(); flyEnd();
+  HOLD = null; heldMeshDrop(); flyEnd(); resetParcels();
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(scene);
   if (zone === "ground"){ resetHome(); spawns = buildGround(ctx); }
@@ -548,6 +551,14 @@ function holdStep(dt){
   if (!HOLD && p && p.classList.contains("holding")) p.classList.remove("holding");
   handStep(dt);
   flyStep(dt);
+  // a delivery bag in your hand, brought up to a fridge: the food goes in
+  if (!locked()) parcelStep(P, (it, f) => {
+    refreshFridge(); refreshGymFridge();
+    const keep = f.mult ? f.mult() : 1;
+    FEED.chip(`Put away · ${parcelText(it.items)}`, "good");
+    note(`You put the food away in ${f.name}.${keep < .999 ? ` (This fridge keeps ${Math.round(keep*100)}% of what food is worth.)` : ""}`);
+    persist();
+  });
 }
 /* ---------- what you carry (inv.js): your hand and two pockets ----------
    A left click on something you can pick up (a spot of kind "pick": its pick() hands over the item) puts it in your
@@ -1588,6 +1599,7 @@ export function stop(){ if (saveDue) saveNowIf(); LIFE.running = false; if (raf)
 export function resumeLife(){
   if (!document.body.classList.contains("life") || !renderer) return;
   if (LIFE.zone === "home") homeRefresh(); else refreshGymFridge();
+  refreshParcels();                                  // (a bag may have arrived while the hub was up)
   tunnelInfo = null; sync(); forceSky = true;
   mailNews();
   if (!LIFE.running){ document.getElementById("lifeRoot").style.display = "block"; LIFE.running = true; last = performance.now(); raf = requestAnimationFrame(loop); }
@@ -1731,4 +1743,4 @@ window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, g
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,
-  INV, clickUse, throwHand, get fly(){ return FLY; }};
+  INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels};

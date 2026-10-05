@@ -156,6 +156,7 @@ function dailyEnsure(){
   if (firstDay && !Object.keys(FOOD).some(k => FOOD[k].kind === "food" && S.inv[k] > 0))
     Object.assign(S.inv, {sandwich:S.inv.sandwich + 2, meal:S.inv.meal + 1, fruit:S.inv.fruit + 2, water:S.inv.water + 2});
   if (!Array.isArray(S.orders)) S.orders = [];
+  if (!Array.isArray(S.parcels)) S.parcels = [];
   if (!S.today || typeof S.today !== "object") S.today = freshToday();
   const ft = freshToday();
   for (const k of Object.keys(ft)) if (S.today[k] == null || (typeof ft[k] === "number" && !isFinite(S.today[k]))) S.today[k] = ft[k];
@@ -165,6 +166,22 @@ function dailyEnsure(){
   if (S.job && !S.job.v2){ S.job.xp = Math.round(num(S.job.xp, 0)*JOB_XP_PER_SHIFT); S.job.v2 = true; }
   if (S.job) S.job.xp = Math.max(0, Math.round(num(S.job.xp, 0)));
 }
+
+/* ---------- the club's training centre: what your club can afford ----------
+   1 (a Liga 4 club's shed: worn pitch, rusty weights, a fridge on its last legs) to 6 (an elite academy). It follows the
+   club's standing, so a move up the leagues is a move into better facilities. */
+const FAC_NAME = ["Extremely poor", "Poor", "Basic", "Good", "Very good", "Elite"];
+function clubFacTier(c){
+  try {
+    c = c || (typeof myClub === "function" ? myClub() : null);
+    if (!c) return 1;
+    const r = num(c.rep, 0);
+    return r < 250 ? 1 : r < 700 ? 2 : r < 1500 ? 3 : r < 3500 ? 4 : r < 6000 ? 5 : 6;
+  } catch(e){ return 1; }
+}
+function clubFridgeMult(){ return FRIDGE_KEEP[clubFacTier() - 1]*(typeof lifeEventOn === "function" && lifeEventOn("power") && lifeZone() === "home" ? .7 : 1); }
+// how much a gym rep is worth on equipment of this tier
+const GYM_XP = [.6, .75, .9, 1, 1.15, 1.3];
 
 /* ---------- the schedule: when the team trains and when you play ---------- */
 function fixtureSlot(f){ const k = KICKOFF[f && f.kind] || KICKOFF.L; return {wd:k[0], min:k[1]}; }
@@ -248,12 +265,13 @@ function dailyPass(mins, act){
 }
 function timeChecks(){
   const now = absNow();
-  // Foodies orders arriving
+  // Foodies orders arriving: a bag left at the delivery point it was sent to — the table in your lobby, or the shelf by
+  // the gym door at the training centre — waiting for you to carry it to a fridge
   for (const o of S.orders.slice()) if (now >= o.eta){
     S.orders = S.orders.filter(x => x !== o);
-    for (const [k, n] of Object.entries(o.items || {})) if (FOOD[k]) S.inv[k] = (S.inv[k] || 0) + n;
-    o.at = typeof window !== "undefined" && window.lifePlace ? window.lifePlace() : "";
-    dailyEmit("delivered", o);
+    const at = o.where === "ground" ? "ground" : "home";
+    (S.parcels || (S.parcels = [])).push({id:o.id, items:o.items || {}, at, t:now});
+    dailyEmit("delivered", Object.assign({}, o, {where:at}));
   }
   // an energy drink wearing off
   if (S.boost && now >= S.boost.at){
@@ -364,8 +382,9 @@ function sleepNight(tier){
   dailyPass(mins, "sleep");
   const hours = mins/60, q = clamp(hours/7.5, .35, 1.1);
   const mult = 1 + ((typeof energyMult === "function" ? energyMult() : 1) - 1)*.5;
-  S.fatigue = clamp(S.fatigue - [52, 60, 68][tier || 0]*q*mult, 0, 100);
-  S.energy = clamp(S.energy + (10 + (tier || 0)*4)*q, 0, 100);
+  const bt = clamp(Math.round(num(tier, 2)), 1, 6) - 1;
+  S.fatigue = clamp(S.fatigue - BED_REST[bt]*q*mult, 0, 100);
+  S.energy = clamp(S.energy + BED_FED[bt]*q, 0, 100);
   S.boost = null;
   return {mins, hours, fatigue:Math.round(S.fatigue - f0), energy:Math.round(S.energy - e0)};
 }
@@ -375,15 +394,16 @@ function sleepFullDay(tier){
   const f0 = S.fatigue, e0 = S.energy;
   dailyPass(1440, "sleep");
   const mult = 1 + ((typeof energyMult === "function" ? energyMult() : 1) - 1)*.5;
-  S.fatigue = clamp(S.fatigue - [70, 78, 86][tier || 0]*mult, 0, 100);
-  S.energy = clamp(S.energy + (6 + (tier || 0)*3), 0, 100);
+  const bt = clamp(Math.round(num(tier, 2)), 1, 6) - 1;
+  S.fatigue = clamp(S.fatigue - (BED_REST[bt] + 18)*mult, 0, 100);
+  S.energy = clamp(S.energy + BED_FED[bt]*.6, 0, 100);
   S.boost = null;
   return {mins:1440, hours:24, fatigue:Math.round(S.fatigue - f0), energy:Math.round(S.energy - e0)};
 }
 function nap(tier){
   const f0 = S.fatigue;
   dailyPass(120, "sleep");
-  S.fatigue = clamp(S.fatigue - (10 + (tier || 0)*2), 0, 100);
+  S.fatigue = clamp(S.fatigue - (6 + clamp(Math.round(num(tier, 2)), 1, 6)*2), 0, 100);
   S.energy = clamp(S.energy - 2, 0, 100);
   return {fatigue:Math.round(S.fatigue - f0)};
 }
@@ -400,12 +420,15 @@ function daySummary(){
 function startNewDay(){ S.today = freshToday(); }
 
 /* ---------- eating, drinking, buying ---------- */
-function consume(id){
+/* mult: how much of its goodness the food still has — the fridge it came out of keeps only so much (furniture.js:
+   a beaten-up one half). It scales what it gives you, never what it costs you */
+function consume(id, mult = 1){
   const it = FOOD[id]; if (!it) return {ok:false, why:"Nothing like that here."};
   if (!(S.inv[id] > 0)) return {ok:false, why:`You have no ${it.name.toLowerCase()} left.`};
   if (it.kind !== "recovery" && S.energy >= 98 && !(it.fatigue < 0)) return {ok:false, why:"You're full — save it for later."};
   S.inv[id]--;
-  let gain = it.energy*(typeof energyMult === "function" ? energyMult() : 1);
+  mult = clamp(num(mult, 1), .1, 2);
+  let gain = it.energy*(typeof energyMult === "function" ? energyMult() : 1)*mult;
   if (it.kind === "energy"){
     // a can lifts you, and then it lets you down. The second one does less, the third less again.
     const n = S.today.drinks || 0; gain *= Math.pow(.6, n); S.today.drinks = n + 1;
@@ -413,11 +436,13 @@ function consume(id){
   }
   const e0 = S.energy;
   S.energy = clamp(S.energy + gain, 0, 100);
-  S.fatigue = clamp(S.fatigue + (it.fatigue || 0), 0, 100);
+  const fat = (it.fatigue || 0) < 0 ? it.fatigue*mult : (it.fatigue || 0);
+  S.fatigue = clamp(S.fatigue + fat, 0, 100);
   S.today.eaten++; S.today.food += S.energy - e0;
+  if (typeof drinkTo === "function") drinkTo(it, mult);
   dailyPass(it.mins, "idle");
   if (typeof save === "function") save();
-  return {ok:true, gain:Math.round(S.energy - e0), fat:it.fatigue || 0, item:it};
+  return {ok:true, gain:Math.round(S.energy - e0), fat:Math.round(fat*10)/10, item:it, mult};
 }
 function spend(n){ n = Math.round(n); if (S.money < n) return false; S.money -= n; S.today.spent += n; return true; }
 function earn(n){ n = Math.round(n); S.money += n; S.today.earned += n; }
@@ -429,15 +454,16 @@ function buyFood(id, qty){
   return true;
 }
 function invCount(kind){ return Object.entries(FOOD).filter(([k, it]) => !kind || it.kind === kind).reduce((a, [k]) => a + (S.inv[k] || 0), 0); }
-// Foodies: pay now, and a courier finds you some time later wherever you are by then (at home, at the training centre,
-// in the clubhouse, at work, out in town); what you ordered goes into your food, the same in every fridge
+// Foodies: pay now, and some time later a courier leaves the bag at a delivery point: the table in your lobby, or the
+// shelf by the gym door if you ordered from the training centre. It is yours to carry to a fridge (either one: they
+// hold the same food)
 function foodiesOrder(items){
   let total = FOODIES_FEE, n = 0;
   for (const [k, q] of Object.entries(items)) if (FOOD[k] && q > 0){ total += FOOD[k].foodies*q; n += q; }
   if (!n) return {ok:false, why:"Your basket is empty."};
   if (S.money < total) return {ok:false, why:"Not enough money."};
   spend(total);
-  const where = "you";
+  const where = lifeZone() === "ground" ? "ground" : "home";
   const eta = absNow() + ri(25, 75);
   const o = {id:Date.now().toString(36), items:Object.fromEntries(Object.entries(items).filter(([k, q]) => q > 0)), eta, where, total};
   S.orders.push(o);

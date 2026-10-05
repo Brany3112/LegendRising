@@ -39,6 +39,45 @@ const FOOD = {
   rub:     {name:"Muscle rub",       icon:"🧴", kind:"recovery", energy:0,  fatigue:-12, mins:10, store:6, foodies:8,  shelf:"door"}
 };
 const FOOD_KINDS = [["food","Food"], ["drink","Drinks"], ["energy","Energy"], ["recovery","Recovery"]];
+/* Furniture for your flat, tier 1 (the worst) to 6 (the best). A bed's tier is how well you sleep in it, a fridge's how
+   much of its food's goodness it keeps (the first one keeps half). store: where it is sold — "furn" the tier-2 furniture
+   store next to your block, "casa" the big showroom out of town; nothing sells tier 1, you start with it.
+   box: the size of the carton it comes in [w, h, d] (metres). The rest are the things you put in a room. */
+const FURN = {
+  bed1:   {kind:"bed", tier:1, name:"Floor mattress", desc:"A thin mattress on the floor.", price:0, box:[1, .3, .8]},
+  bed2:   {kind:"bed", tier:2, name:"Wooden single bed", desc:"An old pine bed. Off the floor, at least.", price:95, store:"furn", box:[1.1, .4, .9]},
+  bed3:   {kind:"bed", tier:3, name:"Single bed, sprung mattress", desc:"A proper mattress. Sleep better.", price:240, store:"casa", box:[1.1, .45, .9]},
+  bed4:   {kind:"bed", tier:4, name:"Double bed", desc:"Room to stretch out.", price:520, store:"casa", box:[1.3, .5, 1]},
+  bed5:   {kind:"bed", tier:5, name:"Upholstered double", desc:"Padded headboard, deep mattress.", price:1350, store:"casa", box:[1.4, .55, 1.05]},
+  bed6:   {kind:"bed", tier:6, name:"King-size bed", desc:"Hotel sleep, every night.", price:3600, store:"casa", box:[1.5, .6, 1.1]},
+  fridge1:{kind:"fridge", tier:1, name:"Beaten-up fridge", desc:"Dented, rusty, wheezing. Keeps half of what food is worth.", price:0, box:[.7, 1.5, .7]},
+  fridge2:{kind:"fridge", tier:2, name:"Old fridge-freezer", desc:"It works. Keeps 70% of what food is worth.", price:140, store:"furn", box:[.8, 1.7, .75]},
+  fridge3:{kind:"fridge", tier:3, name:"Fridge-freezer", desc:"Keeps 80% of what food is worth.", price:330, store:"casa", box:[.7, 1.85, .7]},
+  fridge4:{kind:"fridge", tier:4, name:"Steel fridge-freezer", desc:"Keeps 90% of what food is worth.", price:680, store:"casa", box:[.8, 1.9, .75]},
+  fridge5:{kind:"fridge", tier:5, name:"Side-by-side fridge", desc:"Keeps all of what food is worth.", price:1500, store:"casa", box:[1, 1.9, .8]},
+  fridge6:{kind:"fridge", tier:6, name:"Glass-front smart fridge", desc:"Keeps food at its best: 110%.", price:3900, store:"casa", box:[1, 1.95, .8]},
+  table:  {kind:"table", tier:2, name:"Kitchen table", desc:"Somewhere to eat that isn't the floor.", price:55, store:"furn", box:[.9, .2, .7]},
+  chair:  {kind:"chair", tier:2, name:"Wooden chair", desc:"Goes with the table.", price:20, store:"furn", box:[.5, .6, .5]},
+  laptop: {kind:"laptop", tier:2, name:"Laptop", desc:"Your stats, your week, your career — at home. Put it on a table.", price:260, store:"furn", box:[.45, .1, .35], small:true},
+  sofa:   {kind:"sofa", tier:2, name:"Two-seat sofa", desc:"Sit down after training: rest eases fatigue.", price:180, store:"furn", box:[1.4, .6, .8]},
+  wardrobe:{kind:"wardrobe", tier:2, name:"Wardrobe", desc:"Clothes off the floor.", price:120, store:"furn", box:[1, .5, .6]},
+  shelf:  {kind:"shelf", tier:2, name:"Bookshelf", desc:"Trophies, one day.", price:45, store:"furn", box:[.8, .3, .4]},
+  rug:    {kind:"rug", tier:2, name:"Rug", desc:"Covers the worst of the floor.", price:30, store:"furn", box:[.3, .3, 1.4]},
+  plant:  {kind:"plant", tier:2, name:"Pot plant", desc:"Something alive in here.", price:15, store:"furn", box:[.4, .5, .4]},
+  lamp:   {kind:"lamp", tier:2, name:"Floor lamp", desc:"A second light, for the evenings.", price:35, store:"furn", box:[.3, .3, 1.2]},
+  tv:     {kind:"tv", tier:2, name:"TV on a stand", desc:"Watch the highlights.", price:220, store:"furn", box:[1, .6, .3]}
+};
+// what a bed of each tier does for a night (fatigue off, energy back) and how much of its food a fridge keeps
+const BED_REST = [42, 52, 60, 68, 74, 80], BED_FED = [6, 10, 14, 18, 22, 26];
+const FRIDGE_KEEP = [.5, .7, .8, .9, 1, 1.1];
+// the small things the furniture store sells, picked off the shelf and paid for at the till (life/inv.js items)
+const HARDWARE = {
+  bulb:{name:"Light bulb", price:3, desc:"For the bare socket in your ceiling."},
+  lock:{name:"Door lock", price:24, desc:"A proper deadlock. Fit it to your front door."},
+  paperCream:{name:"Wallpaper · cream", price:28, item:"paper", col:0xe8dcc0, paper:"cream", desc:"Enough rolls for one room."},
+  paperSage:{name:"Wallpaper · sage", price:32, item:"paper", col:0xa9b89a, paper:"sage", desc:"Enough rolls for one room."},
+  paperNavy:{name:"Wallpaper · navy stripe", price:38, item:"paper", col:0x3b4a66, paper:"navy", desc:"Enough rolls for one room."}
+};
 const FOODIES_FEE = 2;
 /* Where you play. The order is the pitch, back to front — asking to move up or down walks this list.
    blurb is what the position asks of you; chances is roughly how much of a game you spend in front of goal. */
@@ -122,8 +161,8 @@ const SHOP = [
   {id:"max", cat:"Energy", name:"Energy-UP MAX", desc:"+60 energy at half-time (more with a better home).", price:7, stack:true},
   {id:"sandwich", cat:"Food", name:"Sandwich", desc:"Goes in your fridge. Eat it at home or at the gym: +14 energy.", price:3, stack:true},
   {id:"meal", cat:"Food", name:"Ready meal", desc:"Goes in your fridge. A proper dinner: +26 energy.", price:5, stack:true},
-  {id:"mattress", cat:"Bed", name:"Better mattress", desc:"A night in your own bed gives +60 energy instead of +45.", price:120},
-  {id:"bed2", cat:"Bed", name:"New double bed", desc:"Proper sleep: +75 energy every night.", price:420},
+  {id:"mattress", cat:"Bed", name:"Better mattress", desc:"A night in your own bed gives +60 energy instead of +45.", price:120, life:false},
+  {id:"bed2", cat:"Bed", name:"New double bed", desc:"Proper sleep: +75 energy every night.", price:420, life:false},
   {id:"flat", cat:"Home", tier:1, name:"Rented flat", desc:"Your own bed. Drinks and rest give 15% more energy, +5 recovery every week.", price:1500},
   {id:"house", cat:"Home", tier:2, name:"House", desc:"Proper sleep. Drinks and rest give 30% more energy, +10 weekly recovery.", price:60000},
   {id:"villa", cat:"Home", tier:3, name:"Villa with a recovery pool", desc:"Drinks and rest give 50% more energy, +15 weekly recovery.", price:900000},

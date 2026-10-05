@@ -29,10 +29,12 @@ function itemMesh(id){
   }
   return g;
 }
-const hintFor = it => {
-  const bits = [];
-  if (it.energy) bits.push(`+${it.energy} energy`);
-  if (it.fatigue) bits.push(`${it.fatigue < 0 ? "−" : "+"}${Math.abs(it.fatigue)} fatigue`);
+// what it will do for you, out of this fridge (mult: how much of its goodness the fridge has kept)
+const hintFor = (it, mult = 1) => {
+  const bits = [], e = Math.round(it.energy*mult), f = it.fatigue < 0 ? Math.round(it.fatigue*mult*10)/10 : it.fatigue;
+  if (it.energy) bits.push(`+${e} energy`);
+  if (it.fatigue) bits.push(`${f < 0 ? "−" : "+"}${Math.abs(f)} fatigue`);
+  if (mult < .999) bits.push(`this fridge keeps ${Math.round(mult*100)}%`);
   return `${it.kind === "food" ? "Eat it" : it.kind === "recovery" ? (it.name === "Muscle rub" ? "Use it" : "Drink it") : "Drink it"} · ${bits.join(" · ")}`;
 };
 /* F: {group, shelves:[{y, kind, slots:[[x,z]]}], open:() => bool, ctx, emptyAim:[[...],[...]]} */
@@ -62,11 +64,11 @@ export function fillFridge(F){
       F.group.add(m); m.updateMatrixWorld(true); box.expandByObject(m);
     }
     box.expandByScalar(.03);
-    W.spots.push({fridge:F, label:`${it.name}${n > 1 ? ` ×${n}` : ""}`, hint:hintFor(it), hold:.3, when:F.open,
-      aim:[box.min.toArray(), box.max.toArray()], run:() => F.ctx.eat(id)});
+    W.spots.push({fridge:F, label:`${it.name}${n > 1 ? ` ×${n}` : ""}`, get hint(){ return hintFor(it, F.mult ? F.mult() : 1); }, hold:.3, when:F.open,
+      aim:[box.min.toArray(), box.max.toArray()], run:() => F.ctx.eat(id, F.mult ? F.mult() : 1)});
   }
   if (!owned.length && F.emptyAim){
     W.spots.push({fridge:F, label:"Empty fridge", hint:"Buy food at the Mini Market, or order on Foodies", hold:.2, when:F.open, aim:F.emptyAim,
-      run:() => F.ctx.note("Nothing in here. The Mini Market on your street sells food — or order on Foodies.")});
+      run:() => F.ctx.note("Nothing in here. The Mini Market on your street sells food — or order on Foodies and carry the bag up to a fridge.")});
   }
 }

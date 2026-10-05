@@ -11,6 +11,7 @@ import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, ma
 import {teamSession, staffer} from "./npc.js";
 import {cabinet} from "./props.js";
 import {fillFridge} from "./fridge.js";
+import {deliveryPoint} from "./parcels.js";
 
 let ctx = null;
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -146,6 +147,13 @@ function gym(){
   spot({aim:[[11.7, 0, 12.3], [12.8, 1.9, 13.2]], label:"Vending machine", hint:"Drinks and snacks · pay by card", hold:.2, run:() => ctx.vend()});
   waterCooler(12.4, 11.3, -Math.PI/2);
   spot({aim:[[12.1, 0, 11.0], [12.7, 1.4, 11.6]], label:"Water cooler", hint:"A cup of water · −2 fatigue", hold:.2, run:() => ctx.water()});
+  // the delivery shelf: just inside the door, on your right as you come in — where Foodies couriers leave your bag
+  rbox(1.8, .76, 15.46, 1.1, .04, .46, .015, 0x8f979e, {key:"metal"});
+  rbox(1.8, .3, 15.46, 1.0, .03, .4, .01, 0x8f979e, {key:"metal"});
+  for (const [x, z] of [[1.3, 15.27], [2.3, 15.27], [1.3, 15.65], [2.3, 15.65]]) rbox(x, 0, z, .04, .78, .04, .01, 0x3b4249, {key:"metal"});
+  solid(1.25, 2.35, 15.23, 15.69, 0, .8);
+  sign("DELIVERIES", 1.8, 1.75, 15.72, Math.PI, 1.1);
+  deliveryPoint("ground", "the delivery shelf inside the gym door", [[1.5, .802, 15.46, .3], [2.1, .802, 15.46, -.2]]);
   bench(9.3, 15.35, 0, 2.6);
   spot({x:9.3, y:.8, z:15, r:1.8, aim:[[8, 0, 14.9], [10.6, 1, 15.7]], near:true, label:"Bench", hint:"Sit down and let time pass", run:() => ctx.wait("gym")});
   kitBag(4.2, 15.2, .2, 0x1f2e4a); bottle(10.4, .45, 15.3);
@@ -188,7 +196,10 @@ function gymFridge(x, z){
   const items = new THREE.Group(); W.scene.add(items);
   const slots = y => [-.22, 0, .22].map(lx => worldPt(f, lx, .12));
   const [ex0, ez0] = worldPt(f, -.35, .3), [ex1, ez1] = worldPt(f, .35, -.25);
-  GROUND.fridge = {group:items, ctx, open:() => D.a > 1.0, ry:f.ry,
+  // the club's own fridge keeps what the club's facilities can (the training centre's tier); you put food in from in front of it
+  const [fx, fz] = worldPt(f, 0, .8);
+  (W.fridges || (W.fridges = [])).push({x:fx, z:fz, y:0, name:"the gym fridge", mult:() => clubFridgeMult()});
+  GROUND.fridge = {group:items, ctx, open:() => D.a > 1.0, ry:f.ry, mult:() => clubFridgeMult(),
     shelves:[{y:.24, kind:"food", slots:slots()}, {y:.66, kind:"food", slots:slots()}, {y:1.08, kind:"drink", slots:slots()}, {y:1.5, kind:"drink", slots:slots()}],
     across:[-.045, 0], emptyAim:[[Math.min(ex0, ex1), .1, Math.min(ez0, ez1)], [Math.max(ex0, ex1), 1.8, Math.max(ez0, ez1)]]};
   fillFridge(GROUND.fridge);

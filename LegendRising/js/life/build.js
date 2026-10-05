@@ -593,7 +593,7 @@ export function boxPart(w, h, d, color, x = 0, y = 0, z = 0, o = {}){
 export function begin(scene){
   W.scene = scene;
   W.solids.length = 0; W.floors.length = 0; W.ramps.length = 0; W.spots.length = 0; W.anims.length = 0;
-  W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = []; W.bikes = [];
+  W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = []; W.bikes = []; W.fridges = [];
   batches.clear();
 }
 const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber"]);

@@ -544,8 +544,10 @@ function openSheet(kind){
       <p class="muted small">Costs ${trainCost()} energy and one action.</p>`;
   } else if (kind === "mall"){
     const lifeNow = typeof lifeMode === "function" && lifeMode();
-    const cats = [...new Set(SHOP.map(s => s.cat))].filter(c => !lifeNow || (c !== "Food" && c !== "Energy"));
-    body = `<h2>Mall</h2><p class="muted">You have ${eur(S.money)}.${lifeNow ? " Food and drinks: the Mini Market on your street, or Foodies on your phone." : ""}</p>` + cats.map(cat => `<h4>${cat}</h4><div class="shopgrid">${SHOP.filter(s => s.cat === cat).map(it => {
+    // in the first-person world food, drinks and furniture are bought in person, in the shops on your street
+    const sold = SHOP.filter(s => !lifeNow || s.life !== false);
+    const cats = [...new Set(sold.map(s => s.cat))].filter(c => !lifeNow || (c !== "Food" && c !== "Energy"));
+    body = `<h2>Mall</h2><p class="muted">You have ${eur(S.money)}.${lifeNow ? " Food and drinks: the Mini Market on your street, or Foodies on your phone. Beds, fridges and furniture: the furniture store next to your block." : ""}</p>` + cats.map(cat => `<h4>${cat}</h4><div class="shopgrid">${sold.filter(s => s.cat === cat).map(it => {
       const owned = it.stack ? false : it.id === "smartphone" ? S.phone === "smart" : !!S.items[it.id];
       const outgrown = it.tier && ((it.cat === "Home" && homeTier() > it.tier) || (it.cat === "Car" && carTier() > it.tier));
       return `<div class="shopitem ${owned ? "owned" : ""}"><div class="row between"><b>${it.name}</b><span class="price">${eur(it.price)}</span></div><p class="muted small">${it.desc}${it.stack ? ` · you have ${S.inv[it.id] || 0}` : ""}</p>
