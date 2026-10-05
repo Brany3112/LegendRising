@@ -193,6 +193,11 @@ const CHANTS = {
 
 /* Patch notes — newest first. The flag button in the top bar opens these; nothing pops up on its own. */
 const PATCH = [
+  {v:"2026.10.05c", date:"5 October", title:"The gym comes alive", items:[
+    "Gym sets are played out in front of you: squats with the bar on your back, curls, box jumps, quick feet down the ladder, the treadmill and the bike — and every rep looks like how well you timed it.",
+    "The mailboxes are back on the lobby wall, and yours glows until you've read your post. Three days before a month ends, an unpaid bill brings a reminder.",
+    "Your room number now shows on the outside of your door when you put it back.",
+    "Team-mates running laps go round you without cutting through goals, stands or dugouts."]},
   {v:"2026.10.05b", date:"5 October", title:"Your first day in the city", items:[
     "A new character screen: your player large and turning in the light beside four steps — who you are, where you play, how you look, what you're good at. Everything you change shows at once.",
     "Pick your position on a real pitch: seventeen of them, from full-back and wing-back to CDM, CAM, the wide forwards and the No. 9. Every club now has its own formation, and if yours has no place for you, the manager plays you in the nearest role (a CAM in a 4-4-2 plays central midfield). Your preferred position and the one you actually play are kept apart.",
