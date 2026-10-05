@@ -78,6 +78,24 @@ const HARDWARE = {
   paperSage:{name:"Wallpaper · sage", price:32, item:"paper", col:0xa9b89a, paper:"sage", desc:"Enough rolls for one room."},
   paperNavy:{name:"Wallpaper · navy stripe", price:38, item:"paper", col:0x3b4a66, paper:"navy", desc:"Enough rolls for one room."}
 };
+/* The world's names, and where each job's workplace is. The café is next door to your block; the store and the
+   courier depot are further along the road at the end of your street; the better jobs are out of town, in Arini, the
+   new part of Dumbrava — an hour and twenty minutes up the line by bus (life/units.js builds them, life/town.js the town).
+   zone: which map it is on; area: where, in a few words; how: the way there. */
+const PLACES = {city:"Valea Albă", town:"Dumbrava", hood:"Arini"};
+const JOB_WHERE = {
+  cafe:{zone:"home", area:"Strada Teiului", how:"next door to your block", street:"Strada Teiului"},
+  store:{zone:"home", area:"Strada Morii", how:"first left at the end of your street, a little way up on the left", street:"Strada Morii"},
+  courier:{zone:"home", area:"Bulevardul Gării", how:"right at the end of your street, past the park and the car park", street:"Bulevardul Gării"},
+  gym:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"},
+  academy:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"},
+  photo:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"},
+  edit:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"}
+};
+// "Your new workplace is in Arini." / "… on Strada Morii."
+function jobWhereLine(id){ const w = JOB_WHERE[id]; if (!w) return ""; return `Your new workplace is ${w.zone === "town" ? "in" : "on"} ${w.area}.`; }
+// the bus: minutes between any two stops on Line 14
+const BUS_ROUTES = {home:{ground:40, town:80}, ground:{home:40, town:100}, town:{home:80, ground:100}};
 const FOODIES_FEE = 2;
 /* Where you play. The order is the pitch, back to front — asking to move up or down walks this list.
    blurb is what the position asks of you; chances is roughly how much of a game you spend in front of goal. */

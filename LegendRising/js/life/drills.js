@@ -3,7 +3,8 @@
    read the ball machine yourself — how close you get is what you learn. In the gym each set is a
    run of reps you time. Everything is worth more fresh and fed, and less when you are spent. */
 import {THREE, W} from "./build.js";
-import {DRILLS, RINGS, PITCH, ballMesh, GROUND, barbell, dumbbell} from "./ground.js";
+import {DRILLS, RINGS, PITCH, ballMesh, GROUND} from "./ground.js";
+import {barbell, dumbbell} from "./gymclub.js";
 import {CONTACT, plyoPath} from "./human.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -383,7 +384,16 @@ const SETS = {
 /* Where each set is done and how it is filmed: where you stand (x, z, facing yaw), the equipment, and the camera's place
    in your own frame (right, up, back — back is negative, so in front of you), looking at a point in the same frame. */
 const NEAR = (list, P) => list.reduce((a, b) => Math.hypot(b[0] - P.x, b[1] - P.z) < Math.hypot(a[0] - P.x, a[1] - P.z) ? b : a);
+/* the piece you are at: the nearest of its kind in this gym (gymclub.js puts each one in W.stations), with how the set
+   is filmed for it; a gym built before stations (none listed) falls back to the club gym's own places */
+const CAMS = {squat:{cam:[1.9, 1.35, -2.5], at:[0, 1.0, 0]}, dumbbell:{cam:[1.5, 1.4, -2.3], at:[0, 1.1, 0]}, plyo:{cam:[1.5, 1.75, 2.6], at:[0, 1.0, .5]},
+  ladder:{cam:[2.4, 1.6, 1.0], at:[0, .9, 1.8]}, treadmill:{cam:[1.7, 1.55, 2.1], at:[0, 1.15, 0]}, bike:{cam:[1.9, 1.3, -1.2], at:[0, .95, .1]}};
 function station(kind, P){
+  const list = W.stations && W.stations[kind];
+  if (list && list.length){
+    const s = list.reduce((a, b) => Math.hypot(b.x - P.x, b.z - P.z) < Math.hypot(a.x - P.x, a.z - P.z) ? b : a);
+    return Object.assign({y:0}, CAMS[kind], s);
+  }
   switch (kind){
     case "squat": return {x:-9.6, z:6.75, yaw:Math.PI, y:0, cam:[1.9, 1.35, -2.5], at:[0, 1.0, 0]};
     case "dumbbell": return {x:-11.05, z:10.2, yaw:-Math.PI/2, y:0, cam:[1.5, 1.4, -2.3], at:[0, 1.1, 0]};
@@ -411,6 +421,8 @@ export function startReps(kind, H){
   D.z = zone(); D.m = 0; D.dir = 1;
   const speed = () => .75 + D.rep*.09;
   const st = station(kind, H.P), sin = Math.sin(st.yaw), cos = Math.cos(st.yaw);
+  // tired old kit is worth less than good kit (GYM_XP, by the gym's tier)
+  const kitXP = typeof GYM_XP === "object" && st.tier ? GYM_XP[Math.max(1, Math.min(6, st.tier)) - 1] : 1;
   // your frame: forward is where you face (-sin, -cos), right is (cos, -sin)
   const W2 = (r, f) => [st.x + r*cos - f*sin, st.z - r*sin - f*cos];
   H.place({x:st.x, z:st.z, y:0, yaw:st.yaw});
@@ -420,8 +432,8 @@ export function startReps(kind, H){
   // the props: the rack's own bar off its hooks, or a pair of dumbbells from the rack
   const sc = H.scene();
   let bar = null, bells = null;
-  if (kind === "squat"){ bar = GROUND.rackBar || barbell(); if (!bar.parent) sc.add(bar); }
-  if (kind === "dumbbell"){ bells = [dumbbell(0xe2722e), dumbbell(0xe2722e)]; bells.forEach(b => sc.add(b)); }
+  if (kind === "squat"){ bar = st.bar || barbell(); if (!bar.parent) sc.add(bar); }
+  if (kind === "dumbbell"){ bells = [dumbbell(st.color || 0xe2722e), dumbbell(st.color || 0xe2722e)]; bells.forEach(b => sc.add(b)); }
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion(), _o = new THREE.Vector3();
   D.props = h => {
     const hl = h.bones[8], hr = h.bones[11];            // the hands (human.js BONE.haL, haR)
@@ -510,7 +522,7 @@ export function startReps(kind, H){
     if (D.phase !== "go") return;
     const off = Math.abs(D.m - D.z.c), half = D.z.w/2;
     const q = off <= half ? .55 + .45*(1 - off/half) : off <= half*2 ? .25 : 0;
-    let x = trainXP(set.main, 4 + 10*q); if (set.side && q > 0) x += trainXP(set.side[0], (1 + 3*q)*set.side[1]*3);
+    let x = trainXP(set.main, (4 + 10*q)*kitXP); if (set.side && q > 0) x += trainXP(set.side[0], (1 + 3*q)*set.side[1]*3*kitXP);
     D.xp += x; D.scores.push(q);
     A.grade = GRADE(q);
     const words = {squat:["Deep and clean", "Good rep", "Half a rep", "Grinding it out"], dumbbell:["Perfect curl", "Good rep", "Swinging it", "Couldn't lift it"],
@@ -522,7 +534,7 @@ export function startReps(kind, H){
     D.phase = "anim"; D.t = 0; hudSet(D); hudTiming(false);
   };
   const cleanup = () => {
-    if (bar && bar === GROUND.rackBar && bar.userData.home){ bar.position.copy(bar.userData.home); bar.rotation.set(0, 0, 0); }
+    if (bar && bar === st.bar && bar.userData.home){ bar.position.copy(bar.userData.home); bar.rotation.set(0, 0, 0); }
     else if (bar) sc.remove(bar);
     if (bells) bells.forEach(b => sc.remove(b));
     // you step away from the equipment, facing it
@@ -546,7 +558,7 @@ export function startReps(kind, H){
       H.endDrill(); H.note(done ? `Stopped after ${done} reps. You keep the ${D.xp} XP.` : "Set cancelled.");
     }
   };
-  hudSet(D, {hint:"Press Space, E or click when the marker is in the green"});
+  hudSet(D, {hint:`Press Space, E or click when the marker is in the green${st.tier ? ` · tier ${st.tier} kit · ${Math.round(kitXP*100)}% XP` : ""}`});
   return D;
 }
 const kf3 = (t, K) => { if (t <= K[0][0]) return K[0][1]; for (let i = 1; i < K.length; i++) if (t <= K[i][0]){ const u = (t - K[i - 1][0])/(K[i][0] - K[i - 1][0]), e = u*u*(3 - 2*u); return K[i - 1][1] + (K[i][1] - K[i - 1][1])*e; } return K[K.length - 1][1]; };

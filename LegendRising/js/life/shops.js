@@ -1,14 +1,12 @@
-/* ============ LIFE: the corner store and the place you work ============
-   Two ground-floor units on your side of the street. The Mini Market on the corner sells what you
-   eat and drink, open all hours, warm light spilling out at night. Next door to your block is where
-   your day job is — the sign, the counter and the clutter change with whatever job you hold. */
-import {THREE, W, LH, box, rbox, wall, solid, floor, ramp, spot, label, textTex, lightSrc, pool, reseed, rnd, pick, doorway, extrude, reveal} from "./build.js";
-import {frame, rb, cy, sph, fsolid, worldPt, shelfUnit, desk, monitor, chair, cafeChair, bike, cone, ball, bibs, kitBag, cabinet, PC} from "./props.js";
-import {staffer, regulars, jobRole} from "./npc.js";
-import {facer, decoWin, pilasters, roofTop, downpipe} from "./home.js";
+/* ============ LIFE: the corner store ============
+   The Mini Market on the corner of your street sells what you eat and drink, open all hours, warm light spilling
+   out at night. (The places people work — the café next door among them — are life/units.js.) */
+import {box, rbox, wall, solid, floor, ramp, spot, label, textTex, lightSrc, pool, reseed, rnd, pick, doorway, extrude, reveal} from "./build.js";
+import {frame, rb, cy, sph, fsolid, shelfUnit, cabinet} from "./props.js";
+import {staffer, regulars} from "./npc.js";
+import {facer, pilasters, roofTop} from "./home.js";
 
 let ctx = null;
-const G = () => (typeof S !== "undefined" ? S : null);
 
 // shelves of colourful packets, so a shop reads as a shop from the door
 function goods(f, lx, lz, w, levels, seed){
@@ -139,125 +137,4 @@ export function miniMarket(c){
   for (const [x, z] of [[23.2, -1.6], [26.4, -1.6]]) spot({aim:[[x - .5, 0, -3.5], [x + .5, 1.7, .3]], label:"Shelves", hint:"Pay at the till · or press E to shop", hold:.2, run:() => ctx.shop()});
   spot({aim:[[20.2, 0, -5.3], [28.8, 2.2, -4.5]], label:"Drinks fridges", hint:"Pay at the till · or press E to shop", hold:.2, run:() => ctx.shop()});
   floor(b.x0 + .25, b.x1 - .25, b.z0 + .25, b.z1 - .25, .02);
-}
-
-/* ================= your workplace ================= */
-// what the unit looks like inside for each job
-function decor(id){
-  if (id === "cafe"){
-    const f = frame(8.5, -3.6, Math.PI);
-    rb(f, 0, 0, 0, 5.2, 1.0, .7, .04, 0x5b3d24); rb(f, 0, 1.0, 0, 5.3, .05, .8, .02, 0xe9e2d4, {key:"gloss"});
-    rb(f, -1.4, 1.05, 0, .5, .45, .4, .06, 0x8f979e, {key:"metal"}); rb(f, -1.4, 1.18, -.22, .3, .1, .05, .02, 0x2b2f34);
-    for (let i = 0; i < 6; i++) cy(f, .2 + i*.18, 1.05, .1, .04, .035, .09, PC.white, {seg:10});
-    fsolid(f, 0, 0, 5.3, .8, 0, 1.05);
-    // bistro tables, a chair either side facing in, a cup at most places
-    const seats = [];
-    for (const [x, z] of [[5.6, -.6], [8.8, .6], [12, -.6]]){
-      const t = frame(x, z); cy(t, 0, 0, 0, .05, .25, .04, PC.dark); cy(t, 0, .04, 0, .04, .04, .7, PC.dark, {seg:8}); cy(t, 0, .74, 0, .38, .38, .04, 0xf2efe8, {seg:18});
-      for (const s of [-1, 1]){
-        const top = cafeChair(x + s*.68, z, -s*Math.PI/2);
-        seats.push({x:x + s*.68, z, ry:-s*Math.PI/2, seat:top, table:{x, z, top:.78, r:.38}});
-        cy(t, s*.2, .78, (s > 0 ? .06 : -.06), .035, .03, .08, PC.white, {seg:10});
-      }
-      solid(x - 1, x + 1, z - .5, z + .5, 0, .8);
-    }
-    // the regulars: someone over a coffee and the paper in the morning, a couple at lunch, the after-work crowd
-    const at = (i, role, seed, typing, when) => { const q = seats[i], d = Math.hypot(q.x - q.table.x, q.z - q.table.z);
-      return {role, seed, x:q.x, z:q.z, ry:q.ry, solid:false, when, state:typing ? {mode:"typing", keys:false, seat:q.seat, desk:q.table.top, reach:d - q.table.r + .17} : {mode:"sit", seat:q.seat}}; };
-    const span = (...r) => m => { for (let i = 0; i < r.length; i += 2) if (m >= r[i]*60 && m < r[i + 1]*60) return true; return false; };
-    return {title:"CORNER CAFÉ", sub:"COFFEE · CAKES · BREAKFAST", color:"#6b3f22", staff:[8.5, -4.22, 0],
-      customers:[at(0, "customer", 71, true, span(7.25, 11.5, 14.5, 18.75)), at(3, "customer", 83, false, span(9, 13, 16, 20.5)),
-        at(4, "customer", 97, true, span(11.75, 14.75, 17.5, 21)), at(5, "customer", 109, false, span(12, 14.5, 17.25, 20.75))]};
-  }
-  if (id === "store"){
-    for (const x of [5.5, 9, 12.5]){ const f = shelfUnit(x, -1.6, Math.PI/2, 3.4, 1.6, 0x5a6168); goods(f, 0, .12, 3.2, [.08, .61, 1.14], x*31); goods(f, 0, -.12, 3.2, [.08, .61, 1.14], x*37); }
-    return {title:"NEIGHBOURHOOD STORE", sub:"GROCERIES · HOUSEHOLD", color:"#8a2d2d", staff:[13.9, 1.4, -Math.PI/2],
-      customers:[{role:"customer", seed:61, x:6.2, z:-1.4, ry:-Math.PI/2, browse:{a:[6.2, -2.9], b:[6.2, -.3], face:-Math.PI/2}, when:m => m >= 8*60 && m < 21*60, solid:[.5, .5]}]};
-  }
-  if (id === "courier"){
-    for (const x of [4, 7, 10]){ const f = shelfUnit(x, -4.6, 0, 2.6, 1.9, 0x4b5258); reseed(x*7);
-      for (let L = 0; L < 3; L++) for (let k = 0; k < 5; k++) rb(f, -1.05 + k*.5, .12 + L*.6, 0, .4 + rnd()*.05, .3 + rnd()*.15, .35, .03, 0xc49a62, {jit:.1}); }
-    bike(12, -1.5, Math.PI/2); kitBag(6, .4, .3, 0x1b6f9a); kitBag(7.2, .2, -.2, 0x1b6f9a);
-    return {title:"CITY COURIER", sub:"DISPATCH · DEPOT 4", color:"#1b5f8a", staff:[9.6, -2.6, 0]};
-  }
-  if (id === "gym"){
-    const f = frame(8.5, -3.8, Math.PI); rb(f, 0, 0, 0, 3.6, 1.05, .7, .1, 0x23272c, {seg:2}); rb(f, 0, 1.05, 0, 3.7, .05, .8, .02, PC.lime);
-    fsolid(f, 0, 0, 3.7, .8, 0, 1.1);
-    bike(4.6, -1, 0); bike(4.6, .8, 0);
-    for (let i = 0; i < 6; i++) cy(frame(12.6, -2 + i*.45), 0, .4, 0, .12, .12, .07, [0xe2722e, 0xe0a52e, PC.teal][i % 3], {seg:12, rz:Math.PI/2});
-    return {title:"SPORTS CENTRE", sub:"MEMBERSHIPS · CLASSES · GYM", color:"#2f4a6a", staff:[8.5, -4.42, 0]};
-  }
-  if (id === "academy"){
-    for (let i = 0; i < 6; i++) cone(5 + i*1.4, -1 + (i % 2)*.8, i % 2 ? PC.orange : PC.yellow);
-    for (const [x, z] of [[6, -3.5], [8.5, -3.8], [11, -3.3]]) ball(x, .11, z);
-    const g = frame(12.6, -2.5, -Math.PI/2); for (const s of [-1, 1]) cy(g, s*.9, 0, 0, .04, .04, 1.1, PC.white); cy(g, 0, 1.1, 0, .04, .04, 1.88, PC.white, {rz:Math.PI/2});
-    bibs(4.4, .5, -4.4, 0, 0xd8ff3a); rb(frame(4.4, -4.4), 0, 0, 0, 1.2, .5, .5, .05, 0x3b4249);
-    return {title:"YOUTH ACADEMY", sub:"UNDER 9s TO UNDER 16s", color:"#2f7d4a", staff:[9.4, -2.2, 0]};
-  }
-  if (id === "photo"){
-    const t = frame(10.5, -3.9); rb(t, 0, 0, 0, 3.6, 2.6, .05, .02, 0xd8dcd6); rb(t, 0, 0, .05, 3.6, .02, 1.6, .02, 0xd8dcd6);
-    const tri = frame(7.5, -.8, Math.PI);
-    for (const a of [0, 2.1, 4.2]) cy(tri, Math.cos(a)*.25, 0, Math.sin(a)*.25, .015, .02, 1.45, PC.dark, {seg:6});
-    rb(tri, 0, 1.4, 0, .22, .16, .14, .03, PC.black);
-    for (const s of [-1, 1]){ const sb = frame(10.5 + s*2.4, -1.5, s*.6); cy(sb, 0, 0, 0, .02, .02, 1.7, PC.dark, {seg:6}); rb(sb, 0, 1.6, 0, .7, .7, .3, .05, 0xf8f8f4, {key:"lamp"}); }
-    return {title:"PHOTO STUDIO", sub:"PORTRAITS · SPORT · EVENTS", color:"#3a3346", staff:[10.5, -2.9, 0]};
-  }
-  // video editing
-  for (const x of [5, 9]){
-    const d = desk(x, -3.6, 0, 1.8, 0x3b3f45);          // screens and keyboard face the chair, on the +z side
-    const tx = textTex(256, 160, g => { g.fillStyle = "#14171c"; g.fillRect(0, 0, 256, 160); for (let i = 0; i < 6; i++){ g.fillStyle = ["#2c66b8", "#c8463a", "#3f9a52", "#f2c230"][i % 4]; g.fillRect(14 + i*38, 110, 32, 12); } g.fillStyle = "#c8f060"; g.fillRect(14, 132, 228, 3); g.fillStyle = "#2a3646"; g.fillRect(14, 14, 228, 86); });
-    monitor(d, -.4, .77, -.12, tx, .55); monitor(d, .4, .77, -.12, tx, .55);
-    rb(d, 0, .77, .18, .44, .018, .14, .006, 0x1d1f22);
-    chair(x, -3.0, Math.PI);          // pulled in to the desk: its near edge .25 ahead of the seat's middle
-  }
-  return {title:"CUT & GRADE", sub:"VIDEO EDITING · HIGHLIGHT REELS", color:"#24324a", staff:[9, -3.0, Math.PI], pose:{mode:"typing", seat:.5, desk:.77, reach:.4}, noSolid:true};
-}
-export function workplace(c){
-  ctx = c;
-  const b = {x0:2, x1:15, z0:-9, z1:3}, floors = 4, H = floors*LH, g0 = 3.2;
-  const s = G(), js = typeof jobState === "function" ? jobState() : {id:"cafe"};
-  // upstairs is flats like everywhere else
-  const brick = 0xa8392f, PT = {tex:"paint"};
-  box(b.x0, g0, b.z0, b.x1, H, b.z1, brick, {solid:true, tex:"brick", ao:false});
-  box(b.x0, 0, b.z0, b.x1, g0, -5, brick, {solid:true, tex:"brick", ao:false});
-  const ff = facer("+z", b);
-  for (let L = 1; L < floors; L++) for (const sx of [2.2, 5.4, 8.6, 11.8]) decoWin(ff, sx, L*LH, rnd() < .3);
-  pilasters(ff, 13, H, [[1.85, 12.55]]);
-  for (const side of ["+x", "-x"]){ const g = facer(side, b); pilasters(g, 12, H); }
-  for (const sx of [.18, 12.82]) downpipe(ff, sx, H);
-  roofTop(b, H, {wall:brick, tex:"brick"});
-  // the unit itself: a dark shopfront with a lined door, mullions and a stone sill
-  wall("x", b.z1 - .125, b.x0, b.x1, 0, g0, .25, 0x2a2e33, [[4, 5.6, 0, 2.4], [6.2, 14.4, .45, 2.8, "glass"]], {key:"metal"});
-  wall("z", b.x0 + .125, -5, b.z1, 0, g0, .25, 0xe6e1d6, [], PT);
-  wall("z", b.x1 - .125, -5, b.z1, 0, g0, .25, 0xe6e1d6, [], PT);
-  wall("x", -5 + .1, b.x0, b.x1, 0, g0, .2, 0xe6e1d6, [], PT);
-  box(6.2, .45, b.z1 - .14, 14.4, 2.8, b.z1 - .1, 0xa9c2d2, {key:"glass", ao:false, jit:0});
-  for (const x of [8.25, 10.3, 12.35]) box(x - .04, .45, b.z1 - .18, x + .04, 2.8, b.z1 + .02, 0x2a2e33, {key:"metal", ao:false});
-  box(6.1, .38, b.z1 - .27, 14.5, .46, b.z1 + .1, 0xc7c2b8, {ao:false, jit:0});           // through the wall: a window board inside too
-  shopDoor(4, 5.6, b.z1 - .125, .25, 2.4, 0x1f2226);
-  box(b.x0 + .25, 0, -4.9, b.x1 - .25, .02, b.z1 - .25, 0xffffff, {tex:js.id === "cafe" || js.id === "photo" ? "planks" : "shopfloor", ao:false, jit:0});
-  floor(b.x0 + .25, b.x1 - .25, -4.9, b.z1 - .25, .02);
-  box(b.x0 + .25, g0 - .05, -4.8, b.x1 - .25, g0, b.z1 - .25, 0xe8e3d8, {ao:false, tex:"paint"});
-  const d = decor(js.id);
-  // the fascia: a board in the business's colour across the whole front, lettered, lit from under its lip
-  box(2.3, 2.9, b.z1, 14.7, 3.48, b.z1 + .1, parseInt(d.color.slice(1), 16), {ao:false, jit:0});
-  fascia(d.title, d.sub, 8.5, 3.19, b.z1 + .105, 11.6, d.color, 0, .52);
-  box(2.6, 2.87, b.z1 + .02, 14.4, 2.9, b.z1 + .08, 0xfff1d0, {key:"lamp", ao:false, jit:0});
-  // where you clock in
-  const ci = frame(13.8, -4.75);
-  rb(ci, 0, 1.1, 0, .34, .46, .1, .04, 0x23272b);
-  fsolid(ci, 0, 0, .34, .1, 1.1, 1.56);
-  const tx = textTex(128, 160, g => { g.fillStyle = "#0e2a1d"; g.fillRect(0, 0, 128, 160); g.fillStyle = "#c8f060"; g.font = "bold 22px sans-serif"; g.textAlign = "center"; g.fillText("CLOCK", 64, 52); g.fillText("IN", 64, 80); g.fillStyle = "#fff"; g.font = "14px sans-serif"; g.fillText("Tap your card", 64, 120); });
-  const [wx, wz] = worldPt(ci, 0, .051); label(tx, wx, 1.33, wz, .26, .33, 0, {glow:.8});
-  spot({aim:[[13.4, .9, -4.9], [14.2, 1.8, -4.4]], x:13.8, z:-4.2, r:1.6, near:true, label:"Clock in", get hint(){ return `Start a shift · ${typeof jobLabel === "function" ? jobLabel() : "your job"}`; }, hold:.3, run:() => ctx.work()});
-  spot({x:4.8, y:1.2, z:2.4, r:1.6, near:true, label:d.title.replace(/\b\w+/g, w => w[0] + w.slice(1).toLowerCase()), hint:"Your workplace · clock in at the back", hold:.2, run:() => ctx.note("Clock in at the terminal on the back wall to start a shift.")});
-  lightSrc({x:6, y:2.9, z:-1, color:0xfff0d8, intensity:8, distance:10, indoor:true});
-  lightSrc({x:11.5, y:2.9, z:-1, color:0xfff0d8, intensity:8, distance:10, indoor:true});
-  pool(10.3, 4.4, 3.2, .125);
-  for (const x of [5, 9, 13]) box(x - .5, g0 - .1, -1.2, x + .5, g0 - .05, -.8, 0xfff6e0, {key:"lamp", ao:false});
-  // the staff dressed for the job, and whoever is in as a customer at this time of day
-  // (in for the hours the shifts run, 7:00 AM to 11:00 PM: not standing in the dark after closing)
-  if (d.staff) staffer(d.staff[0], d.staff[1], d.staff[2], {role:jobRole(js.id), seed:21, pose:d.pose, noSolid:d.noSolid, when:m => m >= 6*60 + 45 && m < 23*60, minute:ctx.minute});
-  if (d.customers) regulars(d.customers, {minute:ctx.minute});
-  return {door:{x:4.8, z:4.2}};
 }

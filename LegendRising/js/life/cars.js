@@ -1,10 +1,14 @@
 /* ============ LIFE: cars ============
    Low-poly, rounded, readable cars in three shapes — a boxy hatchback, a wedge of a sports coupé and a big old muscle
    car with a blower through its bonnet — each a side profile pushed out to the car's width with soft bevels, a glass
-   house on top, real wheels with rims, lamps that glow at night. They are objects of their own (a group), so a car can
-   come and go: one parked across your front door, the squad's cars leaving the training ground.
-   car(kind, color, o) → THREE.Group, nose at local +x, standing on y = 0; .userData.size = [length, height, width]. */
-import {THREE, part, roundedBoxGeo, mergeGeos, lmat} from "./build.js";
+   house on top, real wheels with rims, lamps. Built once as a list of pieces in the car's own frame (nose at local +x,
+   standing on y = 0), each piece tagged with what it is made of; then either
+   · bakeCar(kind, color, x, z, ry) — poured into the zone's static batches (build.js addGeo): a parked car costs no
+     draw calls of its own, however many line the streets; or
+   · car(kind, color) → THREE.Group — a car that can come and go (one parked across your front door, the squad's cars
+     leaving the training ground): one mesh per material, the wheels separate so they can turn, its own lamps that
+     can be switched on (.userData.lamps(on)). .userData.size = [length, height, width]. */
+import {THREE, roundedBoxGeo, mergeGeos, lmat, addGeo} from "./build.js";
 
 const KINDS = {
   // side profiles: [x, y] round the body from the front bumper, length along x (front +x), height y; then glass
@@ -15,59 +19,98 @@ const KINDS = {
   muscle:{L:4.6, W:1.9, wheel:.35, wx:[1.5, -1.42], body:[[2.3, .3], [2.32, .62], [2.15, .78], [.6, .86], [-1.55, .88], [-2.25, .86], [-2.32, .7], [-2.3, .32], [-2.1, .22], [2.1, .22]],
     cabin:[[.42, .86], [-.18, 1.3], [-1.08, 1.32], [-1.6, .9]], blower:true, stripes:true}
 };
-const GLASS = () => lmat(0x24303a, {roughness:.08, metalness:.4});
 function profileGeo(pts, width, bevel){
   const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) sh.lineTo(p[0], p[1]); sh.closePath();
   const g = new THREE.ExtrudeGeometry(sh, {depth:width - bevel*2, bevelEnabled:true, bevelThickness:bevel, bevelSize:bevel*.8, bevelSegments:2, curveSegments:1});
   g.translate(0, 0, -(width - bevel*2)/2);
   return g;
 }
-function wheel(r, wd, rim){
-  const g = new THREE.Group();
-  const tyre = new THREE.Mesh(new THREE.CylinderGeometry(r, r, wd, 18), lmat(0x17181a, {roughness:.9})); tyre.rotation.x = Math.PI/2; g.add(tyre);
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(r*.62, r*.62, wd + .02, 12), lmat(rim, {metalness:.8, roughness:.3})); hub.rotation.x = Math.PI/2; g.add(hub);
-  for (let i = 0; i < 5; i++){ const sp = new THREE.Mesh(new THREE.BoxGeometry(r*.12, r*1.1, .02), lmat(0x2a2d31)); sp.rotation.z = i/5*Math.PI*2; sp.position.z = wd/2 + .012; g.add(sp); const sp2 = sp.clone(); sp2.position.z = -wd/2 - .012; g.add(sp2); }
-  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  return g;
-}
-export function car(kind = "hatch", color = 0x2c66b8, o = {}){
-  const K = KINDS[kind] || KINDS.hatch, g = new THREE.Group(), W = K.W;
-  const paint = lmat(color, {metalness:.35, roughness:.32}), dark = lmat(0x1d1f22, {roughness:.6}), chrome = lmat(0xc9cdd1, {metalness:.85, roughness:.25});
-  const body = new THREE.Mesh(profileGeo(K.body, W, .08), paint); body.castShadow = true; body.receiveShadow = true; g.add(body);
-  const cab = new THREE.Mesh(profileGeo(K.cabin, W - .14, .07), GLASS()); cab.castShadow = true; g.add(cab);
-  // the pillars and the roof skin over the glass: a thin body-colour band round the cabin's top
+/* what each piece is made of: for a moving car, the material (lmat: shared between cars of a colour); for a parked one,
+   the static batch it joins (key) and its colour there */
+const LOOK = {
+  paint:{m:c => lmat(c, {metalness:.35, roughness:.32}), key:"paint"},
+  stripe:{m:c => lmat(c, {roughness:.35}), key:"paint"},
+  glass:{m:() => lmat(0x24303a, {roughness:.08, metalness:.4}), key:"gloss", c:0x1c252e},
+  dark:{m:() => lmat(0x1d1f22, {roughness:.6}), key:"plain", c:0x1d1f22},
+  chrome:{m:() => lmat(0xc9cdd1, {metalness:.85, roughness:.25}), key:"metal", c:0xc9cdd1},
+  tyre:{m:() => lmat(0x17181a, {roughness:.9}), key:"plain", c:0x17181a},
+  rim:{key:"metal"},
+  head:{key:"gloss", c:0xf2eee0}, tail:{key:"gloss", c:0xa5221b}, ind:{key:"gloss", c:0xe0963a}
+};
+// the pieces of a car: [{geo, look, color, wheel}] in its own frame
+function pieces(kind, color, o){
+  const K = KINDS[kind] || KINDS.hatch, W = K.W, L2 = K.L/2, P = [];
+  const put = (geo, look, x = 0, y = 0, z = 0, c = color) => { geo.translate(x, y, z); P.push({geo, look, color:c}); return geo; };
+  put(profileGeo(K.body, W, .08), "paint");
+  put(profileGeo(K.cabin, W - .14, .07), "glass");
+  // the roof skin over the glass: a thin body-colour band round the cabin's top
   const top = K.cabin.slice(1, 3), rx0 = top[1][0], rx1 = top[0][0], ry = Math.max(top[0][1], top[1][1]);
-  const roof = new THREE.Mesh(roundedBoxGeo(rx1 - rx0 + .06, .06, W - .12, .03, 1), paint); roof.position.set((rx0 + rx1)/2, ry + .01, 0); roof.castShadow = true; g.add(roof);
-  // bumpers, sills, grille, lamps
-  const add = (geo, m, x, y, z) => { const mm = new THREE.Mesh(geo, m); mm.position.set(x, y, z); mm.castShadow = true; g.add(mm); return mm; };
-  const L2 = K.L/2;
-  add(roundedBoxGeo(.12, .16, W - .04, .05, 1), dark, L2 - .02, .28, 0);
-  add(roundedBoxGeo(.12, .16, W - .04, .05, 1), dark, -L2 + .02, .3, 0);
-  add(roundedBoxGeo(K.L - 1.2, .08, .04, .02, 1), dark, 0, .24, W/2 - .01); add(roundedBoxGeo(K.L - 1.2, .08, .04, .02, 1), dark, 0, .24, -W/2 + .01);
-  add(roundedBoxGeo(.04, .12, W*.42, .02, 1), dark, L2 + .02, .5, 0);
-  const head = new THREE.MeshStandardMaterial({color:0xfff6dc, emissive:0xfff0c8, emissiveIntensity:.25, roughness:.2});
-  const tail = new THREE.MeshStandardMaterial({color:0xc8261f, emissive:0xff2a1a, emissiveIntensity:.35, roughness:.3});
-  const ind = new THREE.MeshStandardMaterial({color:0xf2a43a, emissive:0xf2a43a, emissiveIntensity:.15, roughness:.3});
+  put(roundedBoxGeo(rx1 - rx0 + .06, .06, W - .12, .03, 1), "paint", (rx0 + rx1)/2, ry + .01, 0);
+  // bumpers, sills, grille
+  put(roundedBoxGeo(.12, .16, W - .04, .05, 1), "dark", L2 - .02, .28, 0);
+  put(roundedBoxGeo(.12, .16, W - .04, .05, 1), "dark", -L2 + .02, .3, 0);
+  for (const s of [1, -1]) put(roundedBoxGeo(K.L - 1.2, .08, .04, .02, 1), "dark", 0, .24, s*(W/2 - .01));
+  put(roundedBoxGeo(.04, .12, W*.42, .02, 1), "dark", L2 + .02, .5, 0);
   for (const s of [1, -1]){
-    add(roundedBoxGeo(.05, .1, .3, .03, 1), head, L2 - .04, .55, s*(W/2 - .28));
-    add(roundedBoxGeo(.05, .05, .1, .02, 1), ind, L2 - .05, .42, s*(W/2 - .14));
-    add(roundedBoxGeo(.05, .1, .34, .03, 1), tail, -L2 + .04, .62, s*(W/2 - .26));
+    put(roundedBoxGeo(.05, .1, .3, .03, 1), "head", L2 - .04, .55, s*(W/2 - .28));
+    put(roundedBoxGeo(.05, .05, .1, .02, 1), "ind", L2 - .05, .42, s*(W/2 - .14));
+    put(roundedBoxGeo(.05, .1, .34, .03, 1), "tail", -L2 + .04, .62, s*(W/2 - .26));
     // door lines and a handle, mirrors
-    add(new THREE.BoxGeometry(.012, .42, .004), dark, .45, .58, s*(W/2 + .002));
-    add(new THREE.BoxGeometry(.012, .42, .004), dark, -.7, .6, s*(W/2 + .002));
-    add(roundedBoxGeo(.12, .03, .03, .012, 1), chrome, .1, .72, s*(W/2 + .01));
-    add(roundedBoxGeo(.1, .07, .1, .02, 1), paint, K.cabin[0][0] - .05, K.cabin[0][1] + .1, s*(W/2 + .05));
+    put(new THREE.BoxGeometry(.012, .42, .004), "dark", .45, .58, s*(W/2 + .002));
+    put(new THREE.BoxGeometry(.012, .42, .004), "dark", -.7, .6, s*(W/2 + .002));
+    put(roundedBoxGeo(.12, .03, .03, .012, 1), "chrome", .1, .72, s*(W/2 + .01));
+    put(roundedBoxGeo(.1, .07, .1, .02, 1), "paint", K.cabin[0][0] - .05, K.cabin[0][1] + .1, s*(W/2 + .05));
   }
-  if (K.spoiler){ add(roundedBoxGeo(.24, .04, W - .1, .015, 1), paint, -L2 + .1, 1.02, 0); for (const s of [1, -1]) add(new THREE.BoxGeometry(.05, .16, .04), dark, -L2 + .14, .92, s*(W/2 - .3)); }
-  if (K.blower){ add(roundedBoxGeo(.42, .2, .5, .05, 1), chrome, 1.0, .88, 0); add(roundedBoxGeo(.3, .12, .42, .04, 1), dark, 1.0, 1.02, 0); }
-  if (K.stripes && o.stripe !== false){ const sm = lmat(o.stripe || 0xd8261f, {roughness:.35}); for (const z of [-.18, .18]) add(new THREE.BoxGeometry(K.L - .5, .012, .16), sm, -.02, .885, z); }
-  // the wheels, in arches cut dark into the body
+  if (K.spoiler){ put(roundedBoxGeo(.24, .04, W - .1, .015, 1), "paint", -L2 + .1, 1.02, 0); for (const s of [1, -1]) put(new THREE.BoxGeometry(.05, .16, .04), "dark", -L2 + .14, .92, s*(W/2 - .3)); }
+  if (K.blower){ put(roundedBoxGeo(.42, .2, .5, .05, 1), "chrome", 1.0, .88, 0); put(roundedBoxGeo(.3, .12, .42, .04, 1), "dark", 1.0, 1.02, 0); }
+  if (K.stripes && o.stripe !== false) for (const z of [-.18, .18]) put(new THREE.BoxGeometry(K.L - .5, .012, .16), "stripe", -.02, .885, z, o.stripe || 0xd8261f);
+  // the wheels, in arches cut dark into the body: a tyre, a rim, five spokes each side
+  const rim = o.rim || 0xb9bec2, r = K.wheel, wd = .22;
   for (const x of K.wx) for (const s of [1, -1]){
-    add(new THREE.CylinderGeometry(K.wheel + .07, K.wheel + .07, .02, 16, 1, false, 0, Math.PI).rotateX(Math.PI/2).rotateZ(Math.PI/2), dark, x, K.wheel + .02, s*(W/2 + .003));
-    const w = wheel(K.wheel, .22, o.rim || 0xb9bec2); w.position.set(x, K.wheel, s*(W/2 - .1)); g.add(w);
+    put(new THREE.CylinderGeometry(r + .07, r + .07, .02, 16, 1, false, 0, Math.PI).rotateX(Math.PI/2).rotateZ(Math.PI/2), "dark", x, r + .02, s*(W/2 + .003));
+    const wz = s*(W/2 - .1), wheel = [];
+    wheel.push({geo:new THREE.CylinderGeometry(r, r, wd, 18).rotateX(Math.PI/2), look:"tyre"});
+    wheel.push({geo:new THREE.CylinderGeometry(r*.62, r*.62, wd + .02, 12).rotateX(Math.PI/2), look:"rim", color:rim});
+    for (let i = 0; i < 5; i++) for (const f of [1, -1]) wheel.push({geo:new THREE.BoxGeometry(r*.12, r*1.1, .02).rotateZ(i/5*Math.PI*2).translate(0, 0, f*(wd/2 + .012)), look:"dark"});
+    P.push({wheel, at:[x, r, wz]});
   }
-  g.userData.size = [K.L + .1, 1.45, W + .1];
-  g.userData.lamps = [head, tail];
+  return {P, K};
+}
+const lookMat = (look, color) => look === "rim" ? lmat(color, {metalness:.8, roughness:.3}) : LOOK[look].m(color);
+/* a parked car, for good: poured into the static batches at (x, z), turned ry. Returns its size [L, H, W]. */
+const _m = new THREE.Matrix4(), _w = new THREE.Matrix4(), _q = new THREE.Quaternion(), _y = new THREE.Vector3(0, 1, 0);
+export function bakeCar(kind, color, x, z, ry, o = {}){
+  const {P, K} = pieces(kind, color, o);
+  _m.compose(new THREE.Vector3(x, o.y || .01, z), _q.setFromAxisAngle(_y, ry), new THREE.Vector3(1, 1, 1));
+  const pour = (geo, look, c, m) => { const L = LOOK[look]; addGeo(geo, L.c != null ? L.c : c, {matrix:m, key:L.key, ao:false, jit:0}); };
+  for (const p of P){
+    if (p.wheel){ _w.copy(_m).multiply(new THREE.Matrix4().makeTranslation(p.at[0], p.at[1], p.at[2])); for (const q of p.wheel) pour(q.geo, q.look, q.color || 0, _w); }
+    else pour(p.geo, p.look, p.color, _m);
+  }
+  return [K.L + .1, 1.45, K.W + .1];
+}
+/* a car that can come and go: one mesh per material, a group per wheel (spin it: .userData.wheels), lamps of its own */
+export function car(kind = "hatch", color = 0x2c66b8, o = {}){
+  const {P, K} = pieces(kind, color, o), g = new THREE.Group(), by = new Map();
+  const head = new THREE.MeshStandardMaterial({color:0xfff6dc, emissive:0xfff0c8, emissiveIntensity:.08, roughness:.2});
+  const tail = new THREE.MeshStandardMaterial({color:0xc8261f, emissive:0xff2a1a, emissiveIntensity:.12, roughness:.3});
+  const ind = lmat(0xf2a43a, {roughness:.3});
+  const matOf = (look, c) => look === "head" ? head : look === "tail" ? tail : look === "ind" ? ind : lookMat(look, c);
+  const add = (geo, m) => { if (!by.has(m)) by.set(m, []); by.get(m).push(geo); };
+  const wheels = [];
+  for (const p of P){
+    if (!p.wheel){ add(p.geo, matOf(p.look, p.color)); continue; }
+    const w = new THREE.Group(), wb = new Map();
+    for (const q of p.wheel){ const m = matOf(q.look, q.color); if (!wb.has(m)) wb.set(m, []); wb.get(m).push(q.geo); }
+    for (const [m, list] of wb){ const mesh = new THREE.Mesh(mergeGeos(list), m); mesh.castShadow = true; w.add(mesh); }
+    w.position.set(p.at[0], p.at[1], p.at[2]); g.add(w); wheels.push(w);
+  }
+  for (const [m, list] of by){ const mesh = new THREE.Mesh(mergeGeos(list), m); mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh); }
+  g.userData.size = [K.L + .1, 1.45, K.W + .1];
+  g.userData.wheels = wheels; g.userData.wheelR = K.wheel;
+  // headlights and tail lights on (driving at night) or off (parked)
+  g.userData.lamps = on => { head.emissiveIntensity = on ? 2.2 : .08; tail.emissiveIntensity = on ? 1.6 : .12; };
+  g.userData.dispose = () => { head.dispose(); tail.dispose(); g.traverse(c => { if (c.isMesh) c.geometry.dispose(); }); };
   return g;
 }
 export const CAR_KINDS = Object.keys(KINDS);

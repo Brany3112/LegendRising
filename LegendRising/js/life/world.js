@@ -7,6 +7,8 @@
 import {THREE, W, begin} from "./build.js";
 import {buildHome, homeTick, homeRefresh, resetHome, HOME, drawMail, refreshFridge, bedTier, lockKey, drawNotices} from "./home.js";
 import {buildGround, refreshGymFridge, GROUND} from "./ground.js";
+import {buildTown} from "./town.js";
+import {compassInit, compassStep, compassReset} from "./compass.js";
 import {ensureHome, checkMail, openMail, closeMail, mailOpen} from "./rent.js";
 import {createSky} from "./sky.js";
 import {startDrill, startReps, startSession, drillWarmup} from "./drills.js";
@@ -81,7 +83,8 @@ function onDaily(type, d){
 }
 if (typeof dailyOn === "function") dailyOn(onDaily);
 
-/* where you are, in words: for a courier who comes to find you */
+/* where you are, in words: for a courier who comes to find you. Every shop and workplace says where its floor is
+   (W.places: b, the box it stands on, and at, the words) */
 function placeName(){
   const x = P.x, z = P.z;
   if (LIFE.zone === "ground"){
@@ -89,11 +92,11 @@ function placeName(){
     if (Math.abs(x) < 13.5 && z > 3.5 && z < 16.5) return "in the gym";
     return z < 2 ? "out on the training pitch" : "at the training centre";
   }
-  if (x > -14 && x < 0 && z > -9 && z < 3) return P.feet > 2 ? "at your flat" : "in your block";
-  if (x > 2 && x < 15 && z > -9 && z < 3) return "at work";
-  if (x > 17.5 && x < 30 && z > -5.5 && z < 3) return "in the Mini Market";
-  if (x > 0 && x < 14 && z > 17 && z < 24.5) return "at the barber's";
-  return "out in town";
+  if (LIFE.zone === "home" && x > -14 && x < 0 && z > -9 && z < 3) return P.feet > 2 ? "at your flat" : "in your block";
+  const p = W.places.find(q => q.b && q.at && x > q.b.x0 && x < q.b.x1 && z > q.b.z0 && z < q.b.z1);
+  if (p) return p.at;
+  if (LIFE.zone === "town") return z > 11 ? `in ${PLACES.hood}, ${PLACES.town}` : `on Strada Mare, ${PLACES.town}`;
+  return z < -6 && x > 30 ? "up Strada Morii" : z > 17 && x > 30 ? "down Bulevardul Gării" : "out on Strada Teiului";
 }
 window.lifePlace = placeName;
 /* ---------- what you can do ---------- */
@@ -141,54 +144,83 @@ function eat(id, mult = 1){
   persist();
 }
 window.lifeFridgeChanged = () => { refreshFridge(); refreshGymFridge(); };
+/* the bus, Line 14: you choose where to (panels.js openBus), the screen goes dark and the ride plays out on a card —
+   the clock running through the minutes the route takes (game.js BUS_ROUTES) — and you step off at the other end */
+const STOP_NAME = {home:"Strada Teiului", ground:"Training Centre", town:PLACES.town};
 function bus(to){
-  if (busy) return;
-  fade(() => {
-    const leaving = LIFE.zone;
-    pass(BUS_MIN, "bus");
-    enterZone(to, "bus");
-    if (to === "ground"){
-      arriveForTraining();
-      const a = S.life.att, td = trainingDay(), f = todaysFixture();
-      if (f) note(`${clockText()}. Match day — kick-off ${clockText(fixtureSlot(f).min)}. The tunnel opens at ${clockText(fixtureSlot(f).min - TUNNEL_OPEN)}.`);
-      else if (!td) note(`${clockText()}. No team training today — the gym and the drills are yours.`);
-      else if (LIFE.min < SESSION.start) note(`You're here at ${clockText()}. Training starts at ${clockText(SESSION.start)} — the gym is open, or sit on the bench.`);
-      else if (LIFE.min < SESSION.end) note(a.status === "late" ? `${clockText()}. Training started at ${clockText(SESSION.start)}. The manager saw you come in late.` : `${clockText()}. Training's on — the squad is out on the pitch.`);
-      else note(`${clockText()}. The session finished at ${clockText(SESSION.end)}. The gym is still open.`);
-    } else {
-      note(`Home at ${clockText()}. Your block is across the road — the Mini Market is on the corner.`);
-      // what today's training did for you in the dressing room shows up once you're home
-      const a = S.life.att;
-      if (leaving === "ground" && a && a.chem > .1 && !a.told){
-        a.told = true;
-        setTimeout(() => FEED.center(`Team Chemistry +${a.chem.toFixed(1)}`, `From today with the squad · now ${Math.round(S.chem)} · ${chemLabel()}`, {kind:"chem", icon:"◆"}), 900);
-      }
-    }
-    persist(true);
-  }, 1100);
+  if (busy || !STOP_NAME[to] || to === LIFE.zone) return;
+  const from = LIFE.zone, mins = (BUS_ROUTES[from] || {})[to] || BUS_MIN;
+  const o = document.getElementById("lifeFade");
+  modal = true; for (const k in keys) keys[k] = false;
+  o.style.transition = "opacity .45s ease"; o.style.opacity = "1";
+  setTimeout(() => {
+    timeLapse(mins, "bus", "Line 14", () => {
+      enterZone(to, "bus");
+      arrive(from, to);
+      persist(true);
+      setTimeout(() => { o.style.transition = "opacity .55s ease"; o.style.opacity = "0"; setTimeout(() => { const c = o.querySelector(".ride"); if (c && !busy) c.remove(); }, 600); }, 120);
+    }, {icon:"🚌", dur:clamp(mins/60*1.7, 2.2, 3.6), ride:{from:STOP_NAME[from], to:STOP_NAME[to], mins}});
+  }, 480);
 }
+// stepping off: what is going on where you have come to
+function arrive(leaving, to){
+  if (to === "ground"){
+    arriveForTraining();
+    const a = S.life.att, td = trainingDay(), f = todaysFixture();
+    if (f) note(`${clockText()}. Match day — kick-off ${clockText(fixtureSlot(f).min)}. The tunnel opens at ${clockText(fixtureSlot(f).min - TUNNEL_OPEN)}.`);
+    else if (!td) note(`${clockText()}. No team training today — the gym and the drills are yours.`);
+    else if (LIFE.min < SESSION.start) note(`You're here at ${clockText()}. Training starts at ${clockText(SESSION.start)} — the gym is open, or sit on the bench.`);
+    else if (LIFE.min < SESSION.end) note(a.status === "late" ? `${clockText()}. Training started at ${clockText(SESSION.start)}. The manager saw you come in late.` : `${clockText()}. Training's on — the squad is out on the pitch.`);
+    else note(`${clockText()}. The session finished at ${clockText(SESSION.end)}. The gym is still open.`);
+    return;
+  }
+  if (to === "town"){
+    const w = JOB_WHERE[jobState().id], mine = w && w.zone === "town";
+    note(`${PLACES.town}, ${clockText()}. Strada Mare — ${mine ? `${myJob().job.name} is along the road (JOB on the compass), ` : ""}Casa Nova at the far end, ${PLACES.hood}'s houses down the side street.`);
+    return;
+  }
+  note(`Home at ${clockText()}. Your block is across the road — the Mini Market is on the corner.`);
+  // what today's training did for you in the dressing room shows up once you're home
+  const a = S.life.att;
+  if (leaving === "ground" && a && a.chem > .1 && !a.told){
+    a.told = true;
+    setTimeout(() => FEED.center(`Team Chemistry +${a.chem.toFixed(1)}`, `From today with the squad · now ${Math.round(S.chem)} · ${chemLabel()}`, {kind:"chem", icon:"◆"}), 900);
+  }
+}
+window.lifeBus = to => bus(to);
 // a stretch of time passing on screen: the clock runs fast and you watch it
+// (o.ride: a bus ride — the card is drawn on the black of the fade, from one stop to the other, the bus moving along)
 function timeLapse(mins, act, label, done, o = {}){
   if (busy) return;
-  const el = document.getElementById("lifeBusy");
-  busy = {mins, done:0, act, label, cb:done, dur:o.dur || clamp(mins/60*1.4, 1.2, 3.6), t:0, tick:o.tick};
+  let el = document.getElementById("lifeBusy");
+  if (o.ride){
+    const f = document.getElementById("lifeFade"), old = f.querySelector(".ride"); if (old) old.remove();
+    el = document.createElement("div"); el.className = "ride"; f.appendChild(el);
+    el.innerHTML = `<div class="rd-line"><span class="rd-no">14</span><b class="lb-label"></b></div>
+      <div class="rd-route"><span>${o.ride.from}</span><div class="rd-track lb-bar"><i></i><em>🚌</em></div><span>${o.ride.to}</span></div>
+      <div class="rd-time"><span class="lb-time"></span><small>${o.ride.mins >= 60 ? `${Math.floor(o.ride.mins/60)} h ${o.ride.mins % 60 ? (o.ride.mins % 60) + " min" : ""}` : o.ride.mins + " min"}</small></div>`;
+  }
+  busy = {mins, done:0, act, label, cb:done, dur:o.dur || clamp(mins/60*1.4, 1.2, 3.6), t:0, tick:o.tick, el, ride:!!o.ride};
   modal = true; for (const k in keys) keys[k] = false;
-  if (el){ el.innerHTML = `<div class="lb-card"><span class="lb-ico">${o.icon || "⏩"}</span><div><b class="lb-label"></b><span class="lb-time"></span></div><div class="lb-bar"><i></i></div></div>`; el.classList.add("on"); }
+  if (el && !o.ride){ el.innerHTML = `<div class="lb-card"><span class="lb-ico">${o.icon || "⏩"}</span><div><b class="lb-label"></b><span class="lb-time"></span></div><div class="lb-bar"><i></i></div></div>`; el.classList.add("on"); }
+  if (el) paintBusy(busy, 0);
+}
+function paintBusy(b, k){
+  const el = b.el; if (!el) return;
+  const lab = typeof b.label === "function" ? b.label(k) : b.label;
+  el.querySelector(".lb-label").textContent = lab; el.querySelector(".lb-time").textContent = clockText();
+  el.querySelector(".lb-bar i").style.width = (k*100).toFixed(1) + "%";
+  el.style.setProperty("--k", k.toFixed(3));
 }
 function stepBusy(real){
   const b = busy; if (!b) return;
   b.t += real;
   const k = Math.min(1, b.t/b.dur), want = b.mins*k, d = want - b.done;
   if (d > 0){ pass(d, b.act); b.done = want; if (b.tick) b.tick(k, d); }
-  const el = document.getElementById("lifeBusy");
-  if (el){
-    const lab = typeof b.label === "function" ? b.label(k) : b.label;
-    el.querySelector(".lb-label").textContent = lab; el.querySelector(".lb-time").textContent = clockText();
-    el.querySelector(".lb-bar i").style.width = (k*100).toFixed(1) + "%";
-  }
+  paintBusy(b, k);
   if (k >= 1){
     busy = null; modal = false;
-    if (el) el.classList.remove("on");
+    if (b.el && !b.ride) b.el.classList.remove("on");
     if (b.cb) b.cb();
     if (window.lifeRelock) window.lifeRelock();
   }
@@ -212,7 +244,7 @@ window.lifeShift = plan => {
   const before = () => ({pct:jobState().xp/jobNeed(), rank:myJob().rank});
   timeLapse(plan.hours*60, "work", k => `On shift · ${tasks[Math.min(tasks.length - 1, Math.floor(k*tasks.length))]}`, () => {
     shiftPay(plan);
-    if (promo){ setTimeout(() => { FEED.center("Promoted", `${promo.job.name} · ${promo.to.name}`, {kind:"level", icon:"★"}); promoBox(promo, plan.pay); if (window.lifeModalSet) {} }, 500); }
+    if (promo){ setTimeout(() => { FEED.center(promo.newJob ? "New job" : "Promoted", promo.newJob ? `${promo.job.name} · ${jobWhereLine(promo.job.id)}` : `${promo.job.name} · ${promo.to.name}`, {kind:"level", icon:"★"}); promoBox(promo, plan.pay); }, 500); }
     note(`Shift done at ${clockText()} · ${eurFull(plan.pay)} earned.`);
     persist();
   }, {icon:myJob().job.icon, dur:plan.hours >= 4 ? 5.5 : 3.4, tick:(k) => {
@@ -312,7 +344,8 @@ const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:(
   // hands-on jobs (mini.js), and putting something back in your hands when one is abandoned
   screw:o => screwIn(o), mini:o => startMini(o), giveBack:it => { if (it && !INV.take(it) && !INV.stow(it)) INV.addDrop({zone:LIFE.zone, x:P.x, y:P.feet + .02, z:P.z, ry:0, item:it}); },
   timeLapse:(mins, act, label, done, o) => timeLapse(mins, act, label, done, o), hand:() => INV.hand(), take:it => INV.take(it), release:() => INV.release(), persist,
-  place:p => place(p), robbed:lost => robbed(lost)};
+  place:p => place(p), robbed:lost => robbed(lost),
+  busMenu:() => { if (typeof openBus === "function") openBus(LIFE.zone); }};
 // thieves have been: the money's gone, and you are told so plainly
 function robbed(lost){
   setTimeout(() => {
@@ -354,7 +387,9 @@ function enterZone(zone, at){
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(scene);
   if (zone === "ground"){ resetHome(); spawns = buildGround(ctx); }
+  else if (zone === "town"){ resetHome(); GROUND.fridge = null; spawns = buildTown(ctx); }
   else { GROUND.fridge = null; spawns = buildHome(ctx); }
+  compassReset();
   camGridBuild();
   spawnDrops();
   meBuild();
@@ -1579,6 +1614,7 @@ function loop(t){
   else if (!modal && !DRILL && !tutOn() && !CINE.on && !MINI.on && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
   skyStep(Math.min(real, .1));
   if (LIFE.zone === "home") homeTick();
+  compassStep(Math.min(real, .1), P);
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; renderer.shadowMap.needsUpdate = true; }
   gpuBegin(); renderer.render(scene, cam); gpuEnd();
@@ -1617,6 +1653,7 @@ function boot(){
   SKY = createSky(renderer); gpuInit();
   resize(); addEventListener("resize", () => { Q.pending = true; });
   bindInput(cv);
+  compassInit({zone:() => LIFE.zone});
 }
 function mailNews(){
   const n = checkMail();
@@ -1808,7 +1845,7 @@ buildInit({P, cam:() => cam, scene:() => scene, canvas:() => renderer.domElement
     renderer.shadowMap.needsUpdate = true; W.shadowDirty = true;
     if (window.lifeRelock) setTimeout(() => window.lifeRelock(), 30);
   }});
-window.__life = {P, keys, B, Q, W, HOME, LIFE, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
+window.__life = {P, keys, B, Q, W, HOME, LIFE, compassStep:dt => compassStep(dt, P), bus:to => bus(to), get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,

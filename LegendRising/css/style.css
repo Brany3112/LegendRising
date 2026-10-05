@@ -1684,3 +1684,46 @@ body.building #lifeCanvas{cursor:crosshair}
 .nb-item p{margin:4px 0 0;font-size:.86rem;color:#c9d6e3;line-height:1.4}
 .nb-item em{display:inline-block;margin-top:6px;font-style:normal;font-size:.72rem;font-weight:700;color:#ffd08a;text-transform:uppercase;letter-spacing:.05em}
 .nb-item.warn{background:rgba(255,90,80,.12);border-color:rgba(255,110,90,.4)} .nb-item.warn b{color:#ffb4ac}
+/* ---------- the compass: a strip across the top, the points sliding by as you turn, markers for the places here ---------- */
+.lf-compass{position:absolute;left:50%;top:calc(var(--hud-pad) + env(safe-area-inset-top,0px));transform:translateX(-50%);width:min(560px,calc(100vw - 2*clamp(200px,24vw,300px)));
+  min-width:260px;height:30px;pointer-events:none;z-index:3;transition:opacity .4s ease}
+.cp-dial{position:absolute;inset:0;border-radius:99px;background:var(--hud-bg);border:1px solid var(--hud-line);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent)}
+.cp-strip{position:absolute;left:0;top:0;height:100%;will-change:transform}
+.cp-strip .cp-tk{position:absolute;top:9px;width:1px;height:12px;margin-left:-.5px;background:rgba(255,255,255,.45)}
+.cp-strip .cp-tk.min{top:11px;height:8px;background:rgba(255,255,255,.22)}
+.cp-strip .cp-pt{position:absolute;top:50%;transform:translate(-50%,-50%);font-family:var(--display);font-weight:800;font-size:.74rem;letter-spacing:.06em;color:#c9d6e3}
+.cp-strip .cp-pt.main{font-size:.95rem;color:#fff}
+.cp-needle{position:absolute;left:50%;top:-3px;width:0;height:0;margin-left:-5px;border:5px solid transparent;border-top-color:var(--lime);filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.cp-marks{position:absolute;left:0;top:34px;width:100%;height:0}
+.cp-mk{position:absolute;left:0;top:0;display:grid;justify-items:center;gap:1px;opacity:0;transition:transform .25s var(--ease);will-change:transform,opacity;white-space:nowrap}
+.cp-mk i{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(9,15,24,.72);border:1px solid rgba(255,255,255,.22);box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.cp-mk svg{width:13px;height:13px;fill:#fff}
+.cp-mk b{font-family:var(--display);font-weight:800;font-size:.62rem;letter-spacing:.09em;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.85);line-height:1}
+.cp-mk span{font-size:.58rem;font-weight:700;color:#c9d6e3;text-shadow:0 1px 3px rgba(0,0,0,.85);line-height:1;font-variant-numeric:tabular-nums}
+.cp-mk.k-home i{background:#3b6d2a;border-color:#c8f060} .cp-mk.k-job i{background:#8a5a1c;border-color:#ffd25a}
+.cp-mk.k-bus i{background:#1d4f8a;border-color:#6fb4ff} .cp-mk.k-goal i{background:#4a6a10;border-color:var(--lime)} .cp-mk.k-goal svg{fill:var(--lime)}
+.cp-mk.k-train i{background:#1f5a3a;border-color:#6fe0a0} .cp-mk.k-gym i,.cp-mk.k-club i{background:#4a3a6a;border-color:#b9a0ff}
+.cp-mk.k-shop i,.cp-mk.k-furniture i,.cp-mk.k-barber i{background:#5a2f2a;border-color:#ff9a7a}
+.cp-mk.sub b::after{content:" · JOB";color:#ffd25a}
+body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass, body.in-match #lifeCompass{opacity:0}
+/* the objective and the match bar sit under the compass now */
+.onb-goal{top:calc(var(--hud-pad) + 104px)}
+.lf-match{top:calc(var(--hud-pad) + 104px)}
+/* the bus: where to, and the ride on the black (the clock running, the bus moving along the line) */
+.bus-list .bus-opt{padding:12px 14px}
+.bus-opt i{font-style:normal;font-size:1.3rem;width:30px;text-align:center}
+.bus-opt b{flex:1;display:grid;gap:2px} .bus-opt b em{font-style:normal;font-size:.72rem;font-weight:600;color:#9fb2c6}
+.bus-opt span{display:grid;justify-items:end;gap:2px;font-size:.9rem;letter-spacing:.03em} .bus-opt span em{font-style:normal;font-family:var(--body);font-size:.7rem;font-weight:700;color:#9fb2c6}
+#lifeFade .ride{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,86vw);display:grid;gap:18px;color:#fff;font-family:var(--body);text-align:center}
+.ride .rd-line{display:flex;align-items:center;justify-content:center;gap:10px}
+.ride .rd-no{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#1d6fc4;font-family:var(--display);font-weight:800;font-size:1.1rem}
+.ride .rd-line b{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:.14em;text-transform:uppercase;color:#c9d6e3}
+.ride .rd-route{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;font-weight:700;font-size:.9rem}
+.ride .rd-track{position:relative;height:4px;border-radius:4px;background:rgba(255,255,255,.18)}
+.ride .rd-track i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:#6fb4ff}
+.ride .rd-track em{position:absolute;top:50%;left:calc(var(--k,0)*100%);transform:translate(-50%,-62%);font-style:normal;font-size:1.5rem}
+.ride .rd-time{display:grid;gap:4px} .ride .lb-time{font-family:var(--display);font-weight:800;font-size:2.4rem;font-variant-numeric:tabular-nums}
+.ride .rd-time small{font-size:.75rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9fb2c6}
+.promo-where{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:rgba(255,210,90,.1);border:1px solid rgba(255,210,90,.3);font-weight:800;color:#ffd25a;display:grid;gap:3px}
+.promo-where span{font-weight:600;font-size:.8rem;color:#c9d6e3}

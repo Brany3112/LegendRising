@@ -18,6 +18,7 @@
 <!-- the first-person world: everything here is test-build only -->
 <div id="lifeRoot" style="display:none">
   <canvas id="lifeCanvas"></canvas>
+  <div id="lifeCompass" class="lf-compass" aria-hidden="true"><div class="cp-dial"><div class="cp-strip"></div></div><i class="cp-needle"></i><div class="cp-marks"></div></div>
   <div class="hud-tl"><div class="hud-clock"><b id="lifeClock">7:00 AM</b><span id="lifeDay">Monday</span></div><div id="lifeCtx" class="hud-ctx"></div></div>
   <div class="hud-tr">
     <div id="lifeMoney" class="hud-money">€0</div>
@@ -52,19 +53,33 @@
 <script type="importmap">
 {
   "imports": {
+    "./js/life/barber.js": "./js/life/barber.js?v=2026.10.05c",
     "./js/life/build.js": "./js/life/build.js?v=2026.10.05c",
+    "./js/life/buildmode.js": "./js/life/buildmode.js?v=2026.10.05c",
+    "./js/life/cars.js": "./js/life/cars.js?v=2026.10.05c",
+    "./js/life/compass.js": "./js/life/compass.js?v=2026.10.05c",
     "./js/life/drills.js": "./js/life/drills.js?v=2026.10.05c",
     "./js/life/fridge.js": "./js/life/fridge.js?v=2026.10.05c",
+    "./js/life/furniture.js": "./js/life/furniture.js?v=2026.10.05c",
     "./js/life/ground.js": "./js/life/ground.js?v=2026.10.05c",
+    "./js/life/gymclub.js": "./js/life/gymclub.js?v=2026.10.05c",
     "./js/life/home.js": "./js/life/home.js?v=2026.10.05c",
     "./js/life/human.js": "./js/life/human.js?v=2026.10.05c",
+    "./js/life/intro.js": "./js/life/intro.js?v=2026.10.05c",
+    "./js/life/inv.js": "./js/life/inv.js?v=2026.10.05c",
     "./js/life/look.js": "./js/life/look.js?v=2026.10.05c",
+    "./js/life/mini.js": "./js/life/mini.js?v=2026.10.05c",
     "./js/life/npc.js": "./js/life/npc.js?v=2026.10.05c",
+    "./js/life/parcels.js": "./js/life/parcels.js?v=2026.10.05c",
     "./js/life/phone.js": "./js/life/phone.js?v=2026.10.05c",
     "./js/life/props.js": "./js/life/props.js?v=2026.10.05c",
     "./js/life/rent.js": "./js/life/rent.js?v=2026.10.05c",
+    "./js/life/roads.js": "./js/life/roads.js?v=2026.10.05c",
     "./js/life/shops.js": "./js/life/shops.js?v=2026.10.05c",
     "./js/life/sky.js": "./js/life/sky.js?v=2026.10.05c",
+    "./js/life/store.js": "./js/life/store.js?v=2026.10.05c",
+    "./js/life/town.js": "./js/life/town.js?v=2026.10.05c",
+    "./js/life/units.js": "./js/life/units.js?v=2026.10.05c",
     "./js/life/world.js": "./js/life/world.js?v=2026.10.05c",
     "./vendor/three.module.js": "./vendor/three.module.js?v=2026.10.05c",
     "./vendor/three.core.js": "./vendor/three.core.js?v=2026.10.05c"

@@ -399,7 +399,7 @@ function guide(){
       ${row("⚽", "Team training · 10:00 AM – 5:00 PM", "On training days (Monday to Friday, unless there's a game) the squad trains at the training centre. Be there on time and join the coach on the pitch: XP across your skills, Team Chemistry and the manager's trust. Turning up late or not at all costs you trust.")}
       ${row("🏟", "Matches", "Your fixtures are on your phone and on the club computer. On match day go to the training centre and walk out through the tunnel before kick-off.")}
       ${row("🎯", "Training on your own", "Any time the centre is open: skill drills on the pitch (30 min) and gym sets (45 min). Each one trains particular skills. It costs energy and adds fatigue.")}
-      ${row("💼", "Work", "Your job is next door to your block. Clock in between 7:00 AM and 11:00 PM for a 2- or 4-hour shift: money and job XP, and better jobs as you go.")}
+      ${row("💼", "Work", `Your job — ${myJob().job.name} — is ${JOB_WHERE[jobState().id].how}. Clock in between 7:00 AM and 11:00 PM for a 2- or 4-hour shift: money and job XP, and better jobs as you go — further along the road, then out in ${PLACES.town}. It's JOB on the compass at the top of the screen.`)}
       ${row("🍽", "Food", "Eat from your fridge — at home or in the training centre's gym, it's the same food, and a better fridge keeps more of its goodness. Buy more at the Mini Market, or order Foodies on your phone: the bag is left on the delivery table in your lobby (or the shelf inside the gym door) — pick it up and carry it to a fridge.")}
       ${row("✋", "Your hands", "Left click picks things up. 1 and 2 put what's in your hand in a pocket (and take it out again); G drops it. Bigger things — a furniture box — you carry in both arms.")}
       ${row("🛏", "Rest", "Sleep at night to bring fatigue down; tap E on the bed for a nap, or hold E for 2 seconds to sleep a whole day. A bath or the ice bath helps too.")}
@@ -418,13 +418,17 @@ function guideDone(){
   busGoal();
   H.relock();
 }
-const BUS = {x:3, y:.12, z:15.4};
+// the stop you take the bus from, wherever you are
+const BUS = {home:{x:3, y:.12, z:15.4}, town:{x:-12, y:.12, z:9.4}};
 function busGoal(){
   if (FL().TrainingCenterTutorialCompleted || !FL().GameplayTutorialCompleted) return;
   if (H.zone() === "ground"){ if (!H.cine.on) centreTour(); return; }      // (already there)
-  goal("Take the bus to reach your team's training center.", BUS);
-  if (H.zone() === "home") marker(BUS.x, 3.1, BUS.z);
+  const at = BUS[H.zone()] || BUS.home;
+  goal("Take the bus to reach your team's training center.", Object.assign({zone:H.zone()}, at));
+  marker(at.x, 3.1, at.z);
 }
+// the objective, for the compass: where it is and which area it is in
+window.lifeGoal = () => GOAL.text && GOAL.at ? GOAL.at : null;
 // a lime diamond turning over the bus stop, bobbing
 function marker(x, y, z){
   if (GOAL.marker && GOAL.marker.parent) return;

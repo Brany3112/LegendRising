@@ -17,18 +17,18 @@ const eur = n => "€" + Math.round(n).toLocaleString("en-GB");
 export const STORE = {name:"Mobila Bună", sub:"FURNITURE & HOME · TIER 2", b:{x0:-31, x1:-16, z0:-9, z1:3}, open:8*60, close:21*60};
 let ctx = null;
 
-// a price card on a little stand in front of a piece
-function priceTag(x, z, ry, name, price){
+// a price card on a little stand in front of a piece, in the shop's colours
+function priceTag(x, z, ry, name, price, brand = "MOBILA BUNĂ", col = "#c8463a"){
   const f = frame(x, z, ry);
   cy(f, 0, 0, 0, .1, .12, .03, 0x2b2f34, {seg:12}); cy(f, 0, .03, 0, .012, .012, .78, 0x8f979e, {seg:6, key:"metal"});
   const t = textTex(256, 160, g => {
-    g.fillStyle = "#f6f2e8"; g.fillRect(0, 0, 256, 160); g.fillStyle = "#c8463a"; g.fillRect(0, 0, 256, 34);
-    g.fillStyle = "#fff"; g.font = "800 22px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("MOBILA BUNĂ", 128, 18);
+    g.fillStyle = "#f6f2e8"; g.fillRect(0, 0, 256, 160); g.fillStyle = col; g.fillRect(0, 0, 256, 34);
+    g.fillStyle = "#fff"; g.font = "800 22px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(brand, 128, 18);
     g.fillStyle = "#1d2328"; g.font = "700 22px 'Barlow', sans-serif";
     const words = name.split(" "); let line = "", y = 62; const lines = [];
     for (const w of words){ const t2 = (line + " " + w).trim(); if (g.measureText(t2).width > 230){ lines.push(line); line = w; } else line = t2; } lines.push(line);
     lines.slice(0, 2).forEach((l, i) => g.fillText(l, 128, y + i*26));
-    g.fillStyle = "#c8463a"; g.font = "800 40px 'Barlow Condensed', sans-serif"; g.fillText(eur(price), 128, 136);
+    g.fillStyle = col; g.font = "800 40px 'Barlow Condensed', sans-serif"; g.fillText(eur(price), 128, 136);
   });
   const [lx, lz] = worldPt(f, 0, .012);
   label(t, lx, .9, lz, .3, .19, ry, {rough:.6});
@@ -262,11 +262,12 @@ export function furnitureStore(c){
     if (alarm > 0){ alarm -= dt; const on = Math.sin(alarm*18) > 0 ? 2.5 : 0; for (const gm of gates) gm.material.emissiveIntensity = alarm > 0 ? on : 0; }
   });
 }
-function storeOpen(m){ const t = m == null ? (ctx ? ctx.minute() : 600) : m; const d = ((t % 1440) + 1440) % 1440; return d >= STORE.open && d < STORE.close; }
+function storeOpen(m, shop = STORE){ const t = m == null ? (ctx ? ctx.minute() : 600) : m; const d = ((t % 1440) + 1440) % 1440; return d >= shop.open && d < shop.close; }
+const hours = shop => `${fmtTime(shop.open)} – ${fmtTime(shop.close)}`;
 // hold E on a piece on the floor: pay, it is boxed up in a puff of packing, and the box is in your arms
-function buyBig(id, m, sp){
+function buyBig(id, m, sp, shop = STORE){
   const f = FURN[id];
-  if (!storeOpen()) return ctx.note("The store is closed. Mobila Bună is open 8:00 AM – 9:00 PM.");
+  if (!storeOpen(null, shop)) return ctx.note(`${shop.name} is closed. It's open ${hours(shop)}.`);
   if (INV.hand()) return ctx.note("Your hands are full. Pocket what you're holding (1 or 2) or drop it (G) — a box needs both arms.");
   if (!spend(f.price)) return ctx.note(`You need ${eur(f.price)} for the ${f.name.toLowerCase()}.`);
   const p = m.g.position; puff(p.x, .3, p.z);
@@ -279,3 +280,89 @@ function buyBig(id, m, sp){
   ctx.note("Boxed up and in your arms. Carry it home and press B in your flat to set it up.");
   if (typeof save === "function") save();
 }
+
+/* ============ Casa Nova: the big showroom in Dumbrava ============
+   Out of town, on Strada Mare: a tall white box with a glass front, where the good beds and fridges are (tiers 3 to 6,
+   FURN store "casa"). Buying works as at Mobila Bună — hold E on a piece, it comes boxed into your arms — and the box
+   rides home with you on the bus. b: the building's footprint; its front looks out at +z. */
+export const CASA = {name:"Casa Nova", open:9*60, close:20*60};
+export function showroom(c, b){
+  ctx = c;
+  const H = 5.0, g0 = 4.4, render = 0xeceae4, dark = 0x2b3238, door = [b.x0 + 2.2, b.x0 + 3.8], glass = [b.x0 + 4.6, b.x1 - .6];
+  // the shell: rendered walls on a dark plinth, a glass front, a flat roof behind a parapet
+  const PT = {tex:"paint"};
+  wall("x", b.z1 - .125, b.x0, b.x1, 0, H, .25, dark, [[door[0], door[1], 0, 2.5], [glass[0], glass[1], .3, 4.1, "glass"]], {key:"metal"});
+  wall("z", b.x0 + .125, b.z0, b.z1, 0, H, .25, render, [], PT);
+  wall("z", b.x1 - .125, b.z0, b.z1, 0, H, .25, render, [], PT);
+  wall("x", b.z0 + .125, b.x0, b.x1, 0, H, .25, render, [], PT);
+  box(b.x0 - .02, 0, b.z0 - .02, b.x0 + .02, .5, b.z1, 0x8f9499, {tex:"concrete", ao:false, jit:0});
+  box(b.x1 - .02, 0, b.z0 - .02, b.x1 + .02, .5, b.z1, 0x8f9499, {tex:"concrete", ao:false, jit:0});
+  box(b.x0 + .25, g0, b.z0 + .25, b.x1 - .25, g0 + .2, b.z1 - .25, 0x9a958c, {tex:"concrete", ao:false, jit:0});
+  box(b.x0 - .06, H, b.z0 - .06, b.x1 + .06, H + .1, b.z1 + .06, 0x6a7178, {key:"metal", ao:false, jit:0});
+  box(glass[0], .3, b.z1 - .14, glass[1], 4.1, b.z1 - .1, 0xa9c2d2, {key:"glass", ao:false, jit:0});
+  for (let x = glass[0] + 2.4; x < glass[1] - .5; x += 2.4) box(x - .05, .3, b.z1 - .18, x + .05, 4.1, b.z1 + .02, dark, {key:"metal", ao:false});
+  box(glass[0] - .05, .22, b.z1 - .27, glass[1] + .05, .3, b.z1 + .1, 0xc7c2b8, {ao:false, jit:0});
+  // the door: a lined opening with the step level with the pavement, a mat inside
+  box(door[0] + .03, 0, b.z1 - .25, door[1] - .03, .12, b.z1, 0xb4afa6, {tex:"concrete", ao:false, jit:0}); floor(door[0], door[1], b.z1 - .25, b.z1, .12);
+  box(door[0], 0, b.z1 - 1.1, door[1], .02, b.z1 - .25, 0x3a3f46, {ao:false, jit:0});
+  // inside: a pale polished floor, white walls, a ceiling of light panels
+  const ix0 = b.x0 + .25, ix1 = b.x1 - .25, iz0 = b.z0 + .25, iz1 = b.z1 - .25;
+  box(ix0, 0, iz0, ix1, .02, iz1, 0xe9e6df, {tex:"terrazzo", ao:false, jit:0}); floor(ix0, ix1, iz0, iz1, .02);
+  box(ix0, g0 - .04, iz0, ix1, g0, iz1, 0xf4f2ee, {ao:false, tex:"paint"});
+  for (let x = ix0 + 2.5; x < ix1 - 1; x += 4) for (const z of [iz0 + 2.6, iz0 + 6.6, iz0 + 10]) box(x - .8, g0 - .08, z - .25, x + .8, g0 - .04, z + .25, 0xfff8ec, {key:"lamp", ao:false});
+  for (const [x, z] of [[ix0 + 4, iz0 + 3], [ix0 + 13, iz0 + 3], [ix0 + 8.5, iz1 - 3]]) lightSrc({x, y:g0 - .5, z, color:0xfff6e8, intensity:10, distance:13, indoor:true});
+  box(ix0 + .01, .02, iz0 + .01, ix1 - .01, .5, iz0 + .03, 0x1f4a5a, {ao:false, jit:0});
+  pool((glass[0] + glass[1])/2, b.z1 + 1.4, 3.6, .125);
+  // the name across the top of the glass, lit
+  box(b.x0 + .3, 4.2, b.z1, b.x1 - .3, 4.9, b.z1 + .1, 0x1f4a5a, {ao:false, jit:0});
+  const ft = textTex(2048, 96, g => {
+    g.fillStyle = "#1f4a5a"; g.fillRect(0, 0, 2048, 96); g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(0, 0, 2048, 5);
+    g.fillStyle = "#fff"; g.font = "800 60px 'Barlow Condensed', 'Arial Narrow', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("CASA NOVA", 640, 50);
+    g.font = "700 28px 'Barlow', sans-serif"; g.fillStyle = "rgba(255,255,255,.85)"; g.fillText("SHOWROOM · BEDS · KITCHENS · TIERS 3–6", 1400, 52);
+  });
+  label(ft, (b.x0 + b.x1)/2, 4.55, b.z1 + .105, b.x1 - b.x0 - .8, (b.x1 - b.x0 - .8)*96/2048, 0, {glow:.75, rough:.4});
+  box(b.x0 + .5, 4.17, b.z1 + .02, b.x1 - .5, 4.2, b.z1 + .08, 0xfff1d0, {key:"lamp", ao:false, jit:0});
+  const dx = (door[0] + door[1])/2;
+  spot({x:dx, y:1.2, z:b.z1 + .4, r:1.6, near:true, label:"Casa Nova", get hint(){ return storeOpen(null, CASA) ? `Furniture showroom · open till ${fmtTime(CASA.close)}` : `Closed · opens at ${fmtTime(CASA.open)}`; }, hold:.2,
+    run:() => ctx.note(storeOpen(null, CASA) ? "Beds along the back wall, fridges down the left. Tiers 3 to 6 — the box rides home with you on the bus." : `Closed. Casa Nova is open ${hours(CASA)}.`)});
+  // the floor: beds along the back wall, fridges down the side, each with its price
+  const show = [["bed3", ix0 + 4.2, Math.PI], ["bed4", ix0 + 8.0, Math.PI], ["bed5", ix0 + 12.1, Math.PI], ["bed6", ix0 + 16.6, Math.PI]]
+    .map(([id, x, ry]) => [id, x, iz0 + BEDLEN(id)/2 + .2, ry])
+    .concat([["fridge3", 1.65], ["fridge4", 3.15], ["fridge5", 4.85], ["fridge6", 6.75]].map(([id, dz]) => [id, null, iz0 + dz, Math.PI/2]));
+  for (const [id, x0, z, ry] of show){
+    const f = FURN[id], m = pieceModel(id); if (!m) continue;
+    const x = x0 == null ? ix0 + m.len/2 + .12 : x0;
+    m.g.position.set(x, 0, z); m.g.rotation.y = ry; W.scene.add(m.g);
+    const q = Math.round(ry/(Math.PI/2)) & 1, hw = (q ? m.len : m.w)/2, hd = (q ? m.w : m.len)/2;
+    solid(x - hw, x + hw, z - hd, z + hd, 0, Math.min(1.9, m.h));
+    // the card stands in front of it, facing you as you walk up
+    if (q) priceTag(x + hw + .4, z, Math.PI/2, f.name, f.price, "CASA NOVA", "#1f4a5a");
+    else priceTag(x + .1, z + hd + .4, 0, f.name, f.price, "CASA NOVA", "#1f4a5a");
+    const aim = [[x - hw - .05, 0, z - hd - .05], [x + hw + .05, Math.min(2.1, m.h + .1), z + hd + .05]];
+    const sp = spot({aim, label:f.name, get hint(){ return `${eur(f.price)} · tier ${f.tier} · ${f.desc}`; }, hold:.2,
+      run:() => ctx.note(`${f.name} · tier ${f.tier} · ${eur(f.price)}. Hold E to buy it — it comes boxed, for you to carry home on the bus and set up (B, in your flat).`),
+      long:{time:1, label:`buy · ${eur(f.price)}`, run:() => buyBig(id, m, sp, CASA)}});
+  }
+  // signs over the two ranges
+  for (const [t, x, z, ry] of [["BEDROOM · TIERS 3–6", ix0 + 10.4, iz0 + 3.0, 0], ["KITCHEN · FRIDGES", ix0 + 1.6, iz0 + 4.2, Math.PI/2]]){
+    const tt = textTex(512, 96, g => { g.fillStyle = "#14202c"; g.fillRect(0, 0, 512, 96); g.fillStyle = "#3fa7a0"; g.fillRect(0, 86, 512, 10); g.fillStyle = "#fff"; g.font = "800 40px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(t, 256, 44); });
+    if (ry){ label(tt, x + .011, 3.2, z, 1.8, .34, Math.PI/2, {glow:.2}); label(tt, x - .011, 3.2, z, 1.8, .34, -Math.PI/2, {glow:.2}); box(x - .01, 3.03, z - .92, x + .01, 3.37, z + .92, 0x1b2026, {ao:false, jit:0}); }
+    else { label(tt, x, 3.2, z + .011, 1.8, .34, 0, {glow:.2}); label(tt, x, 3.2, z - .011, 1.8, .34, Math.PI, {glow:.2}); box(x - .92, 3.03, z - .01, x + .92, 3.37, z + .01, 0x1b2026, {ao:false, jit:0}); }
+    for (const s of [-1, 1]) if (ry) box(x - .005, 3.37, z + s*.8 - .005, x + .005, g0 - .04, z + s*.8 + .005, 0x8f979e, {key:"metal", ao:false}); else box(x + s*.8 - .005, 3.37, z - .005, x + s*.8 + .005, g0 - .04, z + .005, 0x8f979e, {key:"metal", ao:false});
+  }
+  // a room set in the middle, to show what a flat could look like (display only)
+  for (const [id, x, z, ry] of [["rug", ix0 + 11, iz1 - 4.2, 0], ["sofa", ix0 + 11, iz1 - 5.6, 0], ["lamp", ix0 + 12.6, iz1 - 5.9, 0], ["plant", ix0 + 9.3, iz1 - 5.8, 0]]){
+    const p = pieceModel(id); if (!p) continue;
+    p.g.position.set(x, 0, z); p.g.rotation.y = ry; W.scene.add(p.g);
+    if (!p.flat) solid(x - p.w/2, x + p.w/2, z - p.len/2, z + p.len/2, 0, Math.min(1.6, p.h));
+  }
+  // the sales desk by the door, somebody behind it, a pair of plants
+  const desk = frame(ix1 - 3.2, iz1 - 2.2);
+  rb(desk, 0, 0, 0, 2.6, .98, .7, .05, 0xf4f2ee, {key:"gloss"}); rb(desk, 0, .98, 0, 2.7, .04, .78, .02, 0x1f4a5a);
+  rb(desk, .7, 1.02, -.1, .4, .26, .03, .02, 0x1d1f22);
+  fsolid(desk, 0, 0, 2.7, .78, 0, 1.05);
+  staffer(ix1 - 3.2, iz1 - 2.95, 0, {role:"shopkeeper", shirt:0x1f4a5a, seed:57, minute:ctx.minute, when:m => storeOpen(m, CASA)});
+  for (const [x, z] of [[ix1 - .5, iz0 + .5], [ix1 - .5, iz1 - .6]]){ const p = pieceModel("plant"); if (p){ p.g.position.set(x, 0, z); W.scene.add(p.g); solid(x - .25, x + .25, z - .25, z + .25, 0, 1.2); } }
+  W.places.push({name:"Casa Nova", kind:"furniture", x:dx, z:b.z1 + .6, at:"in Casa Nova", b:{x0:b.x0, x1:b.x1, z0:b.z0, z1:b.z1}});
+}
+const BEDLEN = id => ({bed3:2.0, bed4:2.0, bed5:2.05, bed6:2.1})[id] || 2;

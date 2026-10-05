@@ -187,7 +187,7 @@ function openWait(where){
   if (td && m < SESSION.start) opts.unshift([SESSION.start - m, `Until training · ${fmtTime(SESSION.start)}`]);
   const o = nextOrder(); if (o && o.eta > absNow()) opts.unshift([o.eta - absNow(), `Until your Foodies order · ${fmtTime(o.eta % 1440)}`]);
   if (f){ const open = fixtureSlot(f).min - TUNNEL_OPEN; if (m < open) opts.unshift([open - m, `Until the tunnel opens · ${fmtTime(open)}`]); }
-  lpShow("wait", `${lpHead("Take a seat", where === "gym" ? "Gym · bench" : "Training ground · bench")}
+  lpShow("wait", `${lpHead("Take a seat", ({gym:"Gym · bench", park:"Park bench · Bulevardul Gării", square:`Bench · Piața ${PLACES.hood}`})[where] || "Training ground · bench")}
     <p class="lpn-p">Sitting down eases fatigue a little and lets the clock run. It's ${fmtTime(m)}.</p>
     <div class="wait-list">${opts.slice(0, 5).map(([mins, l]) => `<button class="wait-opt" onclick="waitGo(${Math.round(mins)})"><b>${esc(l)}</b><span>${Math.round(mins) >= 60 ? `${Math.floor(mins/60)}h ${Math.round(mins) % 60 ? Math.round(mins) % 60 + "m" : ""}` : Math.round(mins) + " min"}</span></button>`).join("")}</div>
     <p class="lpn-foot">Fatigue ${Math.round(S.fatigue)} · Energy ${Math.round(S.energy)} — you'll get a little hungrier while you wait.</p>`);
@@ -195,6 +195,27 @@ function openWait(where){
 function waitGo(mins){
   lpClose(true);
   if (window.lifeWaitFor) window.lifeWaitFor(mins);
+}
+
+/* =============================== the bus: Line 14 ===============================
+   Three stops: your street, the training centre and Dumbrava. Where to, how long it takes (game.js BUS_ROUTES) and
+   when you would get there; the clock runs while you ride (life/world.js bus). */
+const BUS_STOPS = {home:{name:"Strada Teiului", sub:`${PLACES.city} · home`, icon:"🏠"}, ground:{name:"Team Training Center", sub:"The club's training ground", icon:"⚽"},
+  town:{name:PLACES.town, sub:`Strada Mare · ${PLACES.hood} · Casa Nova`, icon:"🏘"}};
+const busDur = m => m >= 60 ? `${Math.floor(m/60)} HOUR${m >= 120 ? "S" : ""}${m % 60 ? ` ${m % 60} MINUTES` : ""}` : `${m} MINUTES`;
+function openBus(from){
+  const m = S.life.min, R = BUS_ROUTES[from] || {}, td = trainingDay(), f = todaysFixture();
+  const js = jobState(), jw = JOB_WHERE[js.id];
+  const why = k => k === "ground" ? (f ? "Match day" : td && m < SESSION.end ? `Training ${fmtTime(SESSION.start)}` : "") : jw && jw.zone === k && k !== "home" ? "Your job" : "";
+  const order = ["ground", "town", "home"].filter(k => k !== from && R[k]);
+  lpShow("bus", `${lpHead("Line 14", `Bus stop · ${BUS_STOPS[from] ? BUS_STOPS[from].name : ""}`)}
+    <p class="lpn-p">Where to? It's ${fmtTime(m)} — the clock runs on while you ride.</p>
+    <div class="wait-list bus-list">${order.map(k => `<button class="wait-opt bus-opt" onclick="busGo('${k}')"><i>${BUS_STOPS[k].icon}</i><b>${esc(BUS_STOPS[k].name)}<em>${esc([BUS_STOPS[k].sub, why(k)].filter(Boolean).join(" · "))}</em></b><span>${busDur(R[k])}<em>arrive ${fmtTime(m + R[k])}</em></span></button>`).join("")}</div>
+    <p class="lpn-foot">Hungry or tired? Sort it before you go — there's nothing to eat on the bus.</p>`);
+}
+function busGo(to){
+  lpClose(true);
+  if (window.lifeBus) setTimeout(() => window.lifeBus(to), 60);
 }
 
 /* =============================== work: clock in =============================== */

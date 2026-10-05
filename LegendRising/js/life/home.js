@@ -4,10 +4,12 @@
 import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo, tex} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
 import {onYou} from "./inv.js";
-import {frame, rb, cy, worldPt, tree as propTree, streetLamp, car as propCar, bin, bollard, planter, bench as propBench, ball as propBall, PC} from "./props.js";
-import {miniMarket, workplace} from "./shops.js";
+import {frame, rb, cy, worldPt, tree as propTree, streetLamp, bin, bollard, planter, bench as propBench, ball as propBall, PC} from "./props.js";
+import {miniMarket} from "./shops.js";
+import {jobUnit, TX} from "./units.js";
 import {barbershop} from "./barber.js";
 import {furnitureStore} from "./store.js";
+import {extendStreets, parked} from "./roads.js";
 import {fillFridge} from "./fridge.js";
 import {furnish, pieceOf, bedTierNow, footprint, powerOn} from "./furniture.js";
 import {deliveryPoint} from "./parcels.js";
@@ -163,7 +165,7 @@ export function roofTop(b, h, o = {}){
   }
 }
 /* a block nobody lets you into */
-function block(b, face, color, o = {}){
+export function block(b, face, color, o = {}){
   const floors = o.floors || 4, h = floors*LH, tx = wallTex(color);
   // the mass, with its vertical edges softened a touch
   rbox((b.x0 + b.x1)/2, 0, (b.z0 + b.z1)/2, b.x1 - b.x0, h, b.z1 - b.z0, .06, color, {solid:true, tex:tx, jit:.04});
@@ -182,8 +184,8 @@ function block(b, face, color, o = {}){
   // its front door is locked, and it tells you so
   if (o.doorAt != null){
     const [x, z] = f.at(o.doorAt, .2);
-    spot({x, y:1.2, z, aim:[[x - .8, 0, z - .8], [x + .8, 2.4, z + .8]], label:"Front door", hint:"Locked — you don't live here", hold:.15,
-      run:() => ctx.note("Locked. You don't live in this block.")});
+    spot({x, y:1.2, z, aim:[[x - .8, 0, z - .8], [x + .8, 2.4, z + .8]], label:o.doorLabel || "Front door", hint:o.doorHint || "Locked — you don't live here", hold:.15,
+      run:() => ctx.note(o.doorNote || "Locked. You don't live in this block.")});
   }
 }
 const sideFaces = face => face[1] === "z" ? ["+x", "-x"] : ["+z", "-z"];
@@ -1262,19 +1264,20 @@ function deliveryTable(){
 /* ================= the streets ================= */
 function streets(){
   // roads, pavements, kerbs and markings
-  box(-60, -.2, -60, 80, 0, 80, 0xffffff, {tex:"grass", ao:false, jit:0});
+  box(-60, -.2, -80, 90, 0, 112, 0xffffff, {tex:"grass", ao:false, jit:0});
   box(-34, 0, 6, 46, .01, 14, 0xffffff, {tex:"asphalt", ao:false, jit:0});
-  box(34, 0, -12, 42, .01, 6, 0xffffff, {tex:"asphalt", ao:false, jit:0}); box(34, 0, 14, 42, .01, 32, 0xffffff, {tex:"asphalt", ao:false, jit:0});
+  // the road across the end of your street runs on both ways now: north up Strada Morii, south down Bulevardul Gării
+  box(34, 0, -62, 42, .01, 6, 0xffffff, {tex:"asphalt", ao:false, jit:0}); box(34, 0, 14, 42, .01, 94, 0xffffff, {tex:"asphalt", ao:false, jit:0});
   // each pavement's slabs stop where its kerb begins (k: [x0, x1, z0, z1] of the slab part), so no top lies under a kerb's
   const pave = (x0, x1, z0, z1, k = [x0, x1, z0, z1]) => { box(k[0], 0, k[2], k[1], .12, k[3], 0xffffff, {tex:"slabs", ao:false, jit:0}); floor(x0, x1, z0, z1, .12); };
-  pave(-34, 34, 3, 6, [-34, 33.82, 3, 5.82]); pave(-34, 31, 14, 17, [-34, 31, 14.18, 17]); pave(31, 34, -12, 3, [31, 33.82, -12, 3]);
-  pave(42, 45, -12, 32, [42.18, 45, -12, 32]); pave(31, 34, 14, 32, [31, 33.82, 14.18, 32]);
+  pave(-34, 34, 3, 6, [-34, 33.82, 3, 5.82]); pave(-34, 31, 14, 17, [-34, 31, 14.18, 17]); pave(31, 34, -62, 3, [31, 33.82, -62, 3]);
+  pave(42, 45, -62, 94, [42.18, 45, -62, 94]); pave(31, 34, 14, 94, [31, 33.82, 14.18, 94]);
   // kerb stones along the road edges: a lighter strip, its top a hair above the slabs
   const K = 0xc4c1b9, KO = {ao:false, jit:0, tex:"concrete"};
   box(-34, 0, 5.82, 34, .124, 6.0, K, KO); box(-34, 0, 14, 33.82, .124, 14.18, K, KO);
-  box(33.82, 0, -12, 34, .124, 5.82, K, KO); box(33.82, 0, 14.18, 34, .124, 32, K, KO); box(42, 0, -12, 42.18, .124, 32, K, KO);
+  box(33.82, 0, -62, 34, .124, 5.82, K, KO); box(33.82, 0, 14.18, 34, .124, 94, K, KO); box(42, 0, -62, 42.18, .124, 94, K, KO);
   for (let x = -32; x < 33; x += 4) if (x + 2 < -1.2 || x > 7.2) box(x, .012, 9.93, x + 2, .016, 10.07, 0xe9e7df, {ao:false, jit:0});   // broken for the zebra
-  for (let z = -10; z < 31; z += 4) if (z + 2 < 6 || z > 14) box(37.93, .012, z, 38.07, .016, z + 2, 0xe9e7df, {ao:false, jit:0});   // and at the junction
+  for (let z = -60; z < 92; z += 4) if (z + 2 < 6 || z > 14) box(37.93, .012, z, 38.07, .016, z + 2, 0xe9e7df, {ao:false, jit:0});   // and at the junction
   for (let x = -1; x < 7; x += .9) box(x, .012, 6.3, x + .5, .016, 13.7, 0xeceae2, {ao:false, jit:0});   // zebra to the stop
   // the other blocks on your side and across the road
   const far = [[-31, -17], [-15, -2], [0, 14], [16, 30]];
@@ -1283,7 +1286,8 @@ function streets(){
   barbershop(ctx);                                  // the third one across the road: the barber's on its ground floor
   [[-6, 7], [9, 21], [23, 32]].forEach(([z0, z1], i) => block({x0:45, x1:57, z0, z1}, "-x", C.brick[(i + 2) % C.brick.length], {doorAt:(z1 - z0)*.4}));
   // far away blocks so the sky has an edge: a mass, rows of dark windows, a coping
-  for (const [x, z, w, d, h] of [[-50, -30, 14, 12, 15], [-20, -32, 16, 12, 18], [10, -34, 14, 12, 15], [40, -30, 14, 12, 21], [-48, 40, 14, 12, 18], [0, 44, 18, 12, 15], [62, 18, 12, 18, 18], [-52, 10, 12, 18, 15]]){
+  for (const [x, z, w, d, h] of [[-50, -30, 14, 12, 15], [-20, -32, 16, 12, 18], [-6, -58, 14, 12, 15], [16, -78, 16, 12, 21], [52, -80, 14, 12, 18], [64, -40, 12, 18, 21],
+    [-48, 40, 14, 12, 18], [0, 44, 18, 12, 15], [64, 18, 12, 18, 18], [-52, 10, 12, 18, 15], [-4, 74, 16, 12, 18], [62, 64, 12, 18, 15], [28, 104, 18, 12, 18]]){
     const c = pick([0x9b6a58, 0xb0a490, 0x8a96a1, 0xb3694c]);
     rbox(x + w/2, 0, z + d/2, w, h, d, .1, c, {tex:"paint", jit:.05});
     for (let y = 3.9; y + 1.3 < h - .3; y += LH){
@@ -1292,17 +1296,12 @@ function streets(){
     }
     box(x - .06, h, z - .06, x + w + .06, h + .12, z + d + .06, C.coping, {key:"metal", ao:false, jit:0});
   }
-  // timber fences closing the gaps between blocks and the ends of the streets: boards, a capping rail, posts
-  const fence = (x0, z0, x1, z1, y = .12) => {
-    box(x0, y, z0, x1, y + 1.8, z1, 0x8c7458, {solid:true, ao:false, tex:"planks", jit:.04});
-    const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len/2)), ax = Math.abs(x1 - x0) > Math.abs(z1 - z0);
-    for (let i = 0; i <= n; i++){ const t = i/n, x = x0 + (x1 - x0)*t, z = z0 + (z1 - z0)*t; rbox(x, y, z, .14, 1.95, .14, .012, 0x4a3a2a, {jit:0}); }   // thicker than the boards, so their faces never meet
-    box(x0 - (ax ? 0 : .03), y + 1.8, z0 - (ax ? .03 : 0), x1 + (ax ? 0 : .03), y + 1.85, z1 + (ax ? .03 : 0), 0x4a3a2a, {ao:false, jit:0});
-  };
+  // timber fences closing the gaps between blocks and the ends of the streets (fence(), below)
   for (const [x0, x1] of [[-16, -14], [0, 2], [15, 17.5], [30, 31]]) fence(x0, 2.9, x1, 3.0);
   for (const [x0, x1] of [[-17, -15], [-2, 0], [14, 16]]) fence(x0, 17, x1, 17.1);
   fence(-33.2, 3, -33.1, 17);
-  barrier(31, -6.2, 45, -6.0); barrier(31, 29.4, 45, 29.6);
+  barrier(31, -61.9, 45, -61.7); barrier(31, 93.6, 45, 93.8);      // where the two roads end
+  extendStreets(ctx);
   fence(-31, 17, -34, 17.1); fence(30, 17, 31, 17.1); fence(-34, 2.9, -31, 3);
   // trees, street lamps, bins and bollards, all standing on the pavement
   // (every tree stands in front of a fence or a blank stretch of wall: none in front of a garage, a door, a shop or a
@@ -1317,9 +1316,16 @@ function streets(){
   planter(-.9, 3.8, 1.5, .12);
   propBench(-19.5, 16.2, Math.PI, 2.2, {y:.12});
   // parked cars
-  propCar(-24, 7.1, 0, 0x8a2b2b); propCar(-12, 12.9, Math.PI, 0x3b5b7a); propCar(9.5, 7.1, 0, 0xd8d6cf); propCar(36, 20, Math.PI/2, 0x2f3a2f);
+  parked(-24, 7.1, 0, 2, "hatch"); parked(-12, 12.9, Math.PI, 3, "sport"); parked(9.5, 7.1, 0, 0, "hatch"); parked(35.1, 20, Math.PI/2, 1, "muscle");
   // the bus stop across the road
   busStop(3, 15.2);
+}
+// a timber fence: boards, a capping rail, posts
+export function fence(x0, z0, x1, z1, y = .12){
+  box(x0, y, z0, x1, y + 1.8, z1, 0x8c7458, {solid:true, ao:false, tex:"planks", jit:.04});
+  const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len/2)), ax = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+  for (let i = 0; i <= n; i++){ const t = i/n, x = x0 + (x1 - x0)*t, z = z0 + (z1 - z0)*t; rbox(x, y, z, .14, 1.95, .14, .012, 0x4a3a2a, {jit:0}); }   // thicker than the boards, so their faces never meet
+  box(x0 - (ax ? 0 : .03), y + 1.8, z0 - (ax ? .03 : 0), x1 + (ax ? 0 : .03), y + 1.85, z1 + (ax ? .03 : 0), 0x4a3a2a, {ao:false, jit:0});
 }
 function barrier(x0, z0, x1, z1){
   box(x0, 0, z0, x1, 1.1, z1, 0x5f666c, {solid:true, ao:false, key:"metal"});
@@ -1331,20 +1337,6 @@ export function tree(x, z, s){
   rbox(x, .12, z, 1.3, .02, 1.3, .3, 0x4a3a2c, {jit:0});
 }
 export function lampPost(x, z, dir){ streetLamp(x, z, dir, .12); }
-function car(x, z, ry, color){
-  const g = new THREE.Group();
-  const add = (m) => { m.castShadow = true; m.receiveShadow = true; g.add(m); return m; };
-  add(boxPart(4.1, .62, 1.72, color, 0, .62, 0));
-  add(boxPart(2.2, .55, 1.56, color, -.2, 1.2, 0));
-  add(boxPart(2.1, .46, 1.58, 0x25303a, -.2, 1.2, 0));
-  add(boxPart(.06, .14, 1.5, 0xf4f0d8, 2.06, .7, 0)); add(boxPart(.06, .14, 1.5, 0xa52a2a, -2.06, .72, 0));
-  for (const [wx, wz] of [[1.3, .86], [-1.3, .86], [1.3, -.86], [-1.3, -.86]]){
-    const w = add(part(new THREE.CylinderGeometry(.33, .33, .24, 12), 0x1c1d1f)); w.rotation.x = Math.PI/2; w.position.set(wx, .33, wz);
-  }
-  g.position.set(x, 0, z); g.rotation.y = ry; W.scene.add(g);
-  const hw = Math.abs(Math.cos(ry)) > .5 ? 2.1 : .9, hd = Math.abs(Math.cos(ry)) > .5 ? .9 : 2.1;
-  solid(x - hw, x + hw, z - hd, z + hd, 0, 1.5);
-}
 // the advert (left, 0–.7) and the timetable (right, top) printed on one canvas
 function stopTex(){
   return textTex(512, 512, g => {
@@ -1402,7 +1394,7 @@ export function buildHome(c){
   ctx = c;
   H = ensureHome();
   reseed(H.seed);
-  W.bounds = {x0:-32.8, x1:44.6, z0:-8.7, z1:29.2};
+  W.bounds = {x0:-32.8, x1:58.8, z0:-61.4, z1:93.4};
   streets();
   reseed(H.seed + 3);
   myBlock(H.floor, H.door);
@@ -1416,10 +1408,18 @@ export function buildHome(c){
   // lamps in the lobby, flush with the ceiling
   lightSrc({x:-10, y:2.6, z:-1, color:0xffe2b0, intensity:9, distance:9, indoor:true, on:powerOn});
   for (const z of [-1, 1.6]){ rbox(-10, 2.9, z, .5, .05, .5, .02, 0xfff3d6, {key:"lampB"}); rbox(-10, 2.93, z, .56, .02, .56, .01, C.darkMetal); }
-  spot({x:3, y:1.2, z:15.4, r:2.6, aim:[[1.2, 0, 14.6], [4.8, 2.7, 16.8]], near:true, label:"Bus stop", hint:"Bus to the training ground · 40 min", hold:3, run:() => ctx.bus("ground")});
+  spot({x:3, y:1.2, z:15.4, r:2.6, aim:[[1.2, 0, 14.6], [4.8, 2.7, 16.8]], near:true, label:"Bus stop · Strada Teiului", hint:"Line 14 · the training centre, Dumbrava", hold:.4, run:() => ctx.busMenu()});
   reseed(H.seed + 11);
   miniMarket(ctx);
-  workplace(ctx);
+  // the first job, next door to your block (units.js: the same shop shell as every other workplace)
+  jobUnit("cafe", TX("+z", 8.5, -3), ctx, {zone:"home", floors:3, brick:0xa8392f});
+  // the places the compass knows on these streets, and the words for being in them (world.js placeName)
+  W.places.push({name:"Home", kind:"home", x:-9.5, z:3.6},
+    {name:"Mini Market", kind:"shop", x:20.7, z:3.6, at:"in the Mini Market", b:{x0:17.5, x1:30, z0:-5.5, z1:3}},
+    {name:"Mobila Bună", kind:"furniture", x:-17.95, z:3.6, at:"in Mobila Bună", b:{x0:-31, x1:-16, z0:-9, z1:3}},
+    {name:"Fade & Co.", kind:"barber", x:11.9, z:16.6, at:"at the barber's", b:{x0:0, x1:14, z0:17, z1:24.5}},
+    {name:"Bus stop", kind:"bus", x:3, z:15.2},
+    {name:"Park", kind:"park", x:31, z:51.5, at:"in the park", b:{x0:18, x1:31, z0:49, z1:69}});
   finishBatches();
   applyPaper();
   winRefresh();

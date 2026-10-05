@@ -428,8 +428,10 @@ export function hedge(x0, z0, x1, z1, h = 1.1){
   solid(Math.min(x0, x1) - .4, Math.max(x0, x1) + .4, Math.min(z0, z1) - .4, Math.max(z0, z1) + .4, 0, h);
 }
 // a modern street lamp. dir: which way the arm reaches (in z)
-export function streetLamp(x, z, dir = 1, y = 0){
-  const f = frame(x, z, dir > 0 ? 0 : Math.PI, y);
+// a street lamp on the pavement, its head reaching out over the road: towards −z (dir 1) or +z (dir −1), or any way
+// with ry (−π/2: towards +x, π/2: towards −x)
+export function streetLamp(x, z, dir = 1, y = 0, ry){
+  const f = frame(x, z, ry != null ? ry : dir > 0 ? 0 : Math.PI, y);
   cy(f, 0, 0, 0, .1, .13, .35, 0x2f3438, {seg:10});
   cy(f, 0, .35, 0, .055, .075, 5.0, 0x3b4146, {seg:10, key:"metal"});
   for (let i = 0; i < 5; i++){ const a = i/4*Math.PI/2; cy(f, 0, 5.3 + Math.sin(a)*.3, -(.3 - Math.cos(a)*.3), .045, .045, .2, 0x3b4146, {seg:8, rx:a}); }

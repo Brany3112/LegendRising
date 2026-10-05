@@ -11,11 +11,13 @@ import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, ma
 import {teamSession, staffer} from "./npc.js";
 import {cabinet} from "./props.js";
 import {fillFridge} from "./fridge.js";
+import {rack, dumbbellRack, plyoBoxes, ladderLane, treadmill, spinBike, barbell, dumbbell} from "./gymclub.js";
+export {barbell, dumbbell};
 import {deliveryPoint} from "./parcels.js";
 
 let ctx = null;
 const G = () => (typeof S !== "undefined" ? S : null);
-export const GROUND = {fridge:null, session:null};
+export const GROUND = {fridge:null, session:null, tier:3};
 // the pitch, and where each drill happens on it
 export const PITCH = {x0:-21.5, x1:21.5, z0:-26, z1:-4, cz:-15, goalW:6, goalH:2.2};
 export const DRILLS = {
@@ -28,63 +30,7 @@ export const RINGS = [[-9, -8.5], [9.5, -21.5], [-11, -22], [10, -9.2], [-3.5, -
 
 /* ---------- the gym ---------- */
 const GY = {wall:0xe1dbcf, dark:0x2b2f34, grey:0xa5aba7, teal:0x2f8f86};
-function treadmill(x, z){
-  const f = frame(x, z);
-  rb(f, 0, 0, .1, .92, .24, 1.9, .08, 0x45474a, {seg:2});
-  rb(f, 0, .24, .15, .74, .015, 1.7, .01, 0x26282a);
-  for (const s of [-1, 1]) rb(f, s*.37, .2, -.86, .07, 1.15, .07, .03, GY.grey, {key:"metal", rz:-s*.04});
-  rb(f, 0, 1.28, -.92, .98, .42, .12, .06, GY.dark, {rx:.45, seg:2});
-  rb(f, 0, 1.36, -.86, .66, .26, .02, .02, 0x2f6f9a, {rx:.45, key:"screen"});
-  for (const s of [-1, 1]) cy(f, s*.37, 1.05, -.6, .022, .022, .5, GY.grey, {seg:8, rx:Math.PI/2, key:"metal"});
-  fsolid(f, 0, .05, .94, 2.1, 0, 1.4);
-}
-function rack(x, z){
-  const f = frame(x, z);
-  rb(f, 0, 0, 0, 1.6, .06, .95, .02, GY.dark);
-  for (const s of [-1, 1]){ rb(f, s*.6, .06, -.25, .09, 2.1, .09, .02, GY.grey, {key:"metal"}); rb(f, s*.6, .06, .25, .09, 2.1, .09, .02, GY.grey, {key:"metal"}); rb(f, s*.6, 2.12, 0, .09, .07, .6, .02, GY.grey, {key:"metal"}); }
-  // the bar and its plates are one piece of their own: you take it off the hooks for a set (drills.js) and put it back
-  GROUND.rackBar = barbell(); GROUND.rackBar.position.set(x, 1.45, z - .1); GROUND.rackBar.userData.home = GROUND.rackBar.position.clone(); W.scene.add(GROUND.rackBar);
-  rb(f, 0, .42, 1.55, .34, .1, 1.2, .04, 0x2a2b2d, {seg:2});
-  for (const dz of [1.1, 2.0]) rb(f, 0, 0, dz, .26, .42, .07, .02, GY.grey, {key:"metal"});
-  fsolid(f, 0, 0, 1.7, 1.0, 0, 2.2); fsolid(f, 0, 1.55, .4, 1.25, 0, .55);
-}
-// a barbell: the bar along x, a plate at each end (teal and black, like the rest of the gym)
-export function barbell(){
-  const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({color:0xc9cdd0, metalness:.8, roughness:.3});
-  const bar = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, 2.0, 10), steel); bar.rotation.z = Math.PI/2; g.add(bar);
-  for (const s of [-1, 1]){
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(.23, .23, .06, 20), new THREE.MeshStandardMaterial({color:s < 0 ? GY.teal : 0x2b2c2e, roughness:.6}));
-    p.rotation.z = Math.PI/2; p.position.x = s*.78; g.add(p);
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, .05, 10), steel); c.rotation.z = Math.PI/2; c.position.x = s*.84; g.add(c);
-  }
-  g.traverse(o => { if (o.isMesh){ o.castShadow = true; } });
-  return g;
-}
-export function dumbbell(color = 0x2b2c2e){
-  const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({color:0x9aa0a4, metalness:.8, roughness:.35}), m = new THREE.MeshStandardMaterial({color, roughness:.55});
-  const h = new THREE.Mesh(new THREE.CylinderGeometry(.017, .017, .2, 8), steel); h.rotation.z = Math.PI/2; g.add(h);
-  for (const s of [-1, 1]){ const b = new THREE.Mesh(new THREE.BoxGeometry(.06, .12, .12), m); b.position.x = s*.1; g.add(b); }
-  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  return g;
-}
-function dumbbellRack(x, z, ry){
-  const f = frame(x, z, ry);
-  for (const s of [-1, 1]) rb(f, s*.85, 0, 0, .06, .85, .5, .02, 0x2a2b2d, {key:"metal"});
-  rb(f, 0, .78, -.08, 1.8, .04, .38, .02, GY.grey, {key:"metal"}); rb(f, 0, .4, .02, 1.8, .04, .44, .02, GY.grey, {key:"metal"});
-  const ends = [0xe2722e, 0xe0a52e, GY.teal, 0x2b2c2e, 0xc8463a];
-  for (let i = 0; i < 6; i++) for (const [y, zz] of [[.87, -.08], [.49, .02]]){
-    const lx = -.72 + i*.29;
-    cy(f, lx, y, zz, .018, .018, .2, 0x9aa0a4, {seg:6, rx:Math.PI/2, key:"metal"});
-    for (const e of [-.1, .1]) rb(f, lx, y - .06, zz + e, .12, .12, .05, .025, ends[(i + (y > .7 ? 0 : 2)) % 5], {center:false});
-  }
-  fsolid(f, 0, 0, 1.8, .55, 0, .95);
-}
-function ladderDrill(x, z0, z1){
-  box(x - 1.3, .025, z0, x + 1.3, .04, z1, 0xffffff, {tex:"turf", ao:false, jit:0});
-  for (let z = z0 + .6; z < z1 - 2.6; z += .5) box(x - .45, .041, z, x + .45, .046, z + .05, 0xf2f2ee, {ao:false, jit:0});
-  for (const dx of [-.45, .45]) box(x + dx - .025, .041, z0 + .6, x + dx + .025, .046, z1 - 2.6, 0xf2f2ee, {ao:false, jit:0});
-  for (let i = 0; i < 4; i++) cone(x + (i % 2 ? .55 : -.55), z1 - 2.2 + i*.5, PC.orange, .7);
-}
+// (the equipment itself — racks, dumbbells, plyo boxes, the sprint lane, treadmills, bikes — is gymclub.js, in six tiers)
 function gym(){
   const x0 = -13, x1 = 13, z0 = 4, z1 = 16, H = 4.2;
   box(x0, 0, z0, x1, .03, z1, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
@@ -124,22 +70,27 @@ function gym(){
   rbox(0, 2.66, z1 + .6, 2.6, .12, 1.25, .04, 0x3b4249, {key:"metal"});
   box(-.45, 2.64, z1 + .55, .45, 2.66, z1 + .65, 0xfff1d0, {key:"lamp", ao:false, jit:0});
   lightSrc({x:0, y:2.5, z:z1 + .7, color:0xffe8c8, intensity:4, distance:6});
+  // the kit is as good as the club can afford (clubFacTier: from a rusting Liga 4 shed to an elite academy)
+  const t = typeof clubFacTier === "function" ? clubFacTier() : 3;
+  GROUND.tier = t;
   // power corner: the rack, dumbbells, plyo boxes
-  rack(-9.6, 6.8);
-  dumbbellRack(-12.25, 10.2, Math.PI/2);
-  for (const [i, h] of [[0, .45], [1, .6], [2, .75]]) plyoBox(-8.6 + i*1.1, 13.6, 0, h);
+  rack(-9.6, 6.8, t);
+  dumbbellRack(-12.25, 10.2, Math.PI/2, t);
+  plyoBoxes(-7.5, 13.6, t, 1);
   spot({aim:[[-10.5, 0, 6.1], [-8.7, 2.2, 8.6]], x:-9.6, z:7.6, label:"Squat rack", hint:"Strength set · power · 45 min", run:() => ctx.reps("squat")});
   spot({aim:[[-12.6, 0, 9.2], [-11.7, 1.1, 11.2]], x:-12, z:10.2, label:"Dumbbells", hint:"Strength set · power · 45 min", run:() => ctx.reps("dumbbell")});
   spot({aim:[[-9.1, 0, 13.2], [-5.9, .9, 14.0]], x:-7.5, z:13.6, label:"Plyo boxes", hint:"Jump set · jumping · 45 min", run:() => ctx.reps("plyo")});
   // pace: the sprint lane
-  ladderDrill(0, 4.6, 15.2);
+  ladderLane(0, 4.6, 15.2, t);
   spot({aim:[[-1.3, 0, 4.6], [1.3, 1.0, 12.6]], x:0, z:8, label:"Sprint ladder", hint:"Speed set · pace · 45 min", run:() => ctx.reps("ladder")});
   // stamina: treadmills facing the window, a bike
   for (const x of [5.4, 7.6, 9.8]){
-    treadmill(x, 6.9);
-    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:"Endurance run · stamina · 45 min", run:() => ctx.reps("treadmill")});
+    // at the bottom tier one of them has given up
+    const broken = t <= 2 && x === 9.8;
+    treadmill(x, 6.9, t, {broken});
+    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order — has been for months" : "Endurance run · stamina · 45 min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
   }
-  bike(5.6, 10.8, 0); bike(7.6, 10.8, 0);
+  spinBike(5.6, 10.8, 0, t); spinBike(7.6, 10.8, 0, t);
   spot({aim:[[4.9, 0, 10.4], [8.4, 1.2, 11.2]], x:6.6, z:10.8, label:"Exercise bike", hint:"Intervals · stamina and pace · 45 min", run:() => ctx.reps("bike")});
   // the refreshment corner: the fridge for your food, a vending machine, water, and a bench to wait on
   gymFridge(12.25, 14.6);
@@ -573,7 +524,10 @@ export function buildGround(c){
     [-46, -6, 10, 18, 7, 0x8b5a4a], [46, -4, 10, 20, 6, 0x9a8e7e], [-30, -48, 30, 10, 10, 0x7b8691], [24, -48, 24, 10, 12, 0x8b8f94]])
     rbox(x, 0, z, w, h, d, .2, c);
   busStop(-14, 24.6, {y:.02});
-  spot({x:-14, y:1.2, z:24.8, r:2.6, aim:[[-16, 0, 23.9], [-12, 2.7, 26.1]], near:true, label:"Bus stop", hint:"Bus home · 40 min", run:() => ctx.bus("home")});
+  spot({x:-14, y:1.2, z:24.8, r:2.6, aim:[[-16, 0, 23.9], [-12, 2.7, 26.1]], near:true, label:"Bus stop · Training Centre", hint:"Line 14 · home, Dumbrava", hold:.4, run:() => ctx.busMenu()});
+  // the places the compass knows here
+  W.places.push({name:"Training pitch", kind:"train", x:0, z:-12}, {name:"Gym", kind:"gym", x:0, z:16.9}, {name:"Clubhouse", kind:"club", x:17.6, z:10.1},
+    {name:"Bus stop", kind:"bus", x:-14, z:24.6});
   // the squad, out on the pitch during the session
   const kit = typeof kitOf === "function" && myClub && myClub() ? kitOf(myClub().nm) : ["#2c66b8", "#ffffff"];
   GROUND.session = teamSession({kit, when:() => typeof sessionOn === "function" && G() && sessionOn(),

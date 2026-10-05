@@ -79,6 +79,7 @@ function promoBox(p, paid){
       <h3>You've been promoted for your hard work</h3>
       <p class="muted small">${p.newJob ? `${esc(p.job.name)} took you on.` : `${esc(p.job.name)}.`} You're now <b>${esc(p.to.name)}</b>${p.to.blurb ? ` — ${esc(p.to.blurb)}` : ""}</p>
       <div class="promo-pay"><span class="old">${esc(p.from.name)}<b>${payRange(p.from)}</b></span><i>→</i><span class="new">${esc(p.to.name)}<b>${payRange(p.to)}</b></span></div>
+      ${p.newJob && typeof jobWhereLine === "function" && JOB_WHERE[p.job.id] ? `<p class="promo-where">${esc(jobWhereLine(p.job.id))}<span>${esc(JOB_WHERE[p.job.id].how[0].toUpperCase() + JOB_WHERE[p.job.id].how.slice(1))}. It's JOB on your compass.</span></p>` : ""}
       ${paid != null ? `<p class="muted small">That shift paid ${eur(paid)}.</p>` : ""}
       <div class="tut-foot end"><button class="btn sm" id="promoOk" onclick="closeConfirm()">OK</button></div></div>`;
   const b = $("#promoOk"); if (b) b.focus();
@@ -405,7 +406,7 @@ function renderHubInner(){
         <div class="fxlist">${fxHtml}</div>
         ${cta}
         <div class="activities week-acts">
-          ${life ? `<div class="tile info" title="Your workplace is on your street, next to your block"><span class="ti">${myJob().job.icon}</span><span>${esc(jobLabel())}</span><span class="tile-why">Clock in at work, on your street</span></div>`
+          ${life ? `<div class="tile info" title="Your workplace: ${esc(JOB_WHERE[jobState().id].how)}"><span class="ti">${myJob().job.icon}</span><span>${esc(jobLabel())}</span><span class="tile-why">Clock in at work · ${esc(JOB_WHERE[jobState().id].area)}</span></div>`
             : tile("work", jobLabel(), myJob().job.icon, S.actions && S.energy >= 8 && !inj, workWhy(inj))}
           ${tile("mall", "Mall", "🛍", true)}
           ${tile("clothes", "Clothes", "👕", true)}
