@@ -1816,3 +1816,5 @@ body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass,
 .dk-btns{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media (max-width:640px){ .cf{grid-template-columns:1fr;justify-items:center} .dk-desk{grid-template-columns:1fr} .jb-stats{gap:8px;font-size:.74rem} }
 .bus-opt[disabled]{opacity:.45;cursor:not-allowed} .bus-opt[disabled]:hover{background:rgba(255,255,255,.04);border-color:var(--line)}
+/* the keypad phone takes the mouse while it's out: a line under the pointer lights, a click chooses it */
+.kp-item{cursor:pointer} .kp-item:not(.sel):hover{background:rgba(47,127,193,.35)}

@@ -245,6 +245,20 @@ const CHANTS = {
 
 /* Patch notes — newest first. The flag button in the top bar opens these; nothing pops up on its own. */
 const PATCH = [
+  {v:"2026.10.05d", date:"5 October", title:"A city to live in", items:[
+    "Every job has a place of its own: the Corner Café next door, the Neighbourhood Store up Strada Morii, City Courier down Bulevardul Gării past the park, and the better jobs out in Arini, a new part of Dumbrava — an hour and twenty minutes on the Line 14 bus. A new job tells you where it is.",
+    "Shifts are played now: coffees made to the ticket, a basket through the till and the right change, the courier's shortest run, the sports centre's front desk, the free player for the academy's kids, the photo shoot, cuts on the beat. How well and how quickly you work sets the pay and the XP — and quick work gets you out early.",
+    "A compass across the top of the screen: home, your job, the bus, the shops, the gym and the training centre, for wherever you are.",
+    "The bus asks where you're going — the training centre, Dumbrava or home — and the clock runs while you ride. Dumbrava has its square, its town hall, Casa Nova's showroom and Arini's streets of houses.",
+    "Your hands and two pockets: left click picks things up, 1 and 2 put them away and take them out, G drops them.",
+    "Foodies leaves your bag on the table in the lobby (or the shelf inside the gym door): carry it to a fridge. Beds and fridges come in six tiers, and you start at the bottom — a mattress on the floor and a fridge that keeps half of what food is worth.",
+    "Your first flat is grim: no bulb, no table, bare walls. Mobila Bună, next door, sells furniture (it comes boxed — carry it home and press B to place it), bulbs, locks and wallpaper over a real till. Casa Nova, in Dumbrava, has the good beds and fridges.",
+    "Hygiene and hydration join energy and fatigue on a bigger HUD. Smell bad enough and the barber and the customer-facing jobs turn you away — shower at home or in the dressing room.",
+    "Things happen: thieves (fit a lock and use it — F), power cuts, a car parked across your front door (climb out through the lobby window). The notice board in the lobby warns you.",
+    "The training centre looks like the club that owns it — a worn pitch and a damp clubhouse at the bottom, striped grass and a banner at the top — and its gym kit comes in six tiers that change what a set is worth. IronWorks, a private gym up Strada Morii, sells memberships.",
+    "Training runs 10:00 AM to 4:00 PM. At four the squad walks off to their cars and the bus; at five the centre locks up and sends you home.",
+    "The keypad phone takes the mouse: the wheel scrolls, a click chooses, Esc goes back.",
+    "Fixed: box jumps no longer teleport you, the exercise bike pedals forwards, lights don't pop on in the evening, and no tree stands in front of a garage."]},
   {v:"2026.10.05c", date:"5 October", title:"The gym comes alive", items:[
     "Gym sets are played out in front of you: squats with the bar on your back, curls, box jumps, quick feet down the ladder, the treadmill and the bike — and every rep looks like how well you timed it.",
     "The mailboxes are back on the lobby wall, and yours glows until you've read your post. Three days before a month ends, an unpaid bill brings a reminder.",

@@ -222,29 +222,22 @@ export function furnitureStore(c){
       }
     }
   });
-  // paying: everything scanned is yours, and waits at the end of the counter
-  const bag = [];
+  // paying: everything scanned is yours, and waits at the end of the counter — left there, it stays there (it's a
+  // thing lying in the shop, saved like anything else you put down: world.js ctx.dropAt) until you pick it up
   spot({aim:[[rx - .15, .85, rz - .15], [rx + .15, 1.3, rz + .15]], label:"Card reader", get hint(){ return T.total ? `Pay ${eur(T.total)}` : "Put your things on the belt first"; }, hold:.2,
     run:() => {
       if (!T.items.length) return ctx.note(belt.length ? "Wait for the cashier to scan it." : "Nothing to pay for. Put what you want on the belt.");
       if (!spend(T.total)) return ctx.note(`Card declined — you need ${eur(T.total)}. Take something off the belt? (Leave it and it goes back on the shelf.)`);
-      const paid = T.total;
-      for (const e of T.items){ belt.splice(belt.indexOf(e), 1); e.it.unpaid = false; delete e.it.store; bag.push(e); }
+      const paid = T.total, n0 = INV.dropsOf("home").filter(d => d.till).length;
+      T.items.forEach((e, i) => {
+        belt.splice(belt.indexOf(e), 1); e.it.unpaid = false; delete e.it.store;
+        const k = n0 + i; ctx.dropAt(e.it, -19.25 - Math.floor(k/4)*.2, top + .02, .45 + (k % 4)*.13, 0, {mesh:e.m, tag:{till:true}});
+      });
       T.items = []; T.total = 0; drawTill();
-      layBag();
       if (typeof FEED === "object") FEED.chip(`Paid ${eur(paid)}`, "good");
       ctx.note(`Paid ${eur(paid)}. Your things are at the end of the counter.`);
       if (typeof save === "function") save();
     }});
-  const layBag = () => {
-    W.spots = W.spots.filter(sp => !sp.bagged);
-    bag.forEach((e, i) => {
-      e.m.position.set(-19.25 - Math.floor(i/4)*.2, top + .02, .45 + (i % 4)*.13);
-      const bb = new THREE.Box3();
-      W.spots.push({kind:"pick", bagged:e, label:e.it.name, hint:"Paid · left click to take it", aim:() => { bb.setFromObject(e.m); bb.expandByScalar(.06); return [bb.min.toArray(), bb.max.toArray()]; },
-        pick(){ bag.splice(bag.indexOf(e), 1); W.scene.remove(e.m); layBag(); return e.it; }});
-    });
-  };
   // the way out: anything you have not paid for sets the alarm off, and the cashier takes it back
   let was = false, alarm = 0;
   W.anims.push(dt => {

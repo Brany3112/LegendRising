@@ -12,6 +12,7 @@ import {showroom} from "./store.js";
 import {pedestrians} from "./npc.js";
 
 let ctx = null;
+export const TOWNZ = {street:null};
 const HOUSE_COL = [0xefe3c8, 0xe9d8a6, 0xcfdde6, 0xf0cdb4, 0xf4f1ea, 0xd9e2c4, 0xe8c9c0];
 const ROOF_COL = [0x9a3b2a, 0x7a4a32, 0x5a3b2e, 0x8a2f2a, 0x4a4f55];
 
@@ -152,8 +153,9 @@ export function buildTown(c){
   parked(-36, 1.1, 0, 3); parked(46, 6.9, Math.PI, 6, "sport"); parked(-2.9, 34, Math.PI/2, 9); parked(2.9, 48, -Math.PI/2, 12, "muscle");
   finishBatches();
   // people out and about: along Strada Mare and down into Arini
-  pedestrians({minute:ctx.minute, seed:777, max:5, count:m => { const h = m/60; return h < 6 ? 0 : h < 8 ? 2 : h < 20 ? 4 : h < 22 ? 2 : 0; }, routes:[
-    [[-60, -1.4], [60, -1.4], [60, 9.6], [-60, 9.6]],
+  // (the south side keeps to the kerb half of the pavement, in front of the bus shelter)
+  TOWNZ.street = pedestrians({minute:ctx.minute, seed:777, max:5, count:m => { const h = m/60; return h < 6 ? 0 : h < 8 ? 2 : h < 20 ? 4 : h < 22 ? 2 : 0; }, routes:[
+    [[-60, -1.4], [60, -1.4], [60, 8.7], [-60, 8.7]],
     [[-5.6, 12], [-5.6, 56], [5.6, 56], [5.6, 12]]]});
   // the places the compass knows here (the jobs and Casa Nova put themselves on it)
   W.places.push({name:"Bus stop", kind:"bus", x:-12, z:9.4}, {name:`Piața ${HOOD}`, kind:"square", x:-9, z:-6, at:`in Piața ${HOOD}`, b:{x0:-25.5, x1:7.5, z0:-15, z1:-3}});

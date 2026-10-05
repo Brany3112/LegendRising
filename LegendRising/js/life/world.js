@@ -7,7 +7,7 @@
 import {THREE, W, begin} from "./build.js";
 import {buildHome, homeTick, homeRefresh, resetHome, HOME, drawMail, refreshFridge, bedTier, lockKey, drawNotices} from "./home.js";
 import {buildGround, refreshGymFridge, GROUND} from "./ground.js";
-import {buildTown} from "./town.js";
+import {buildTown, TOWNZ} from "./town.js";
 import {compassInit, compassStep, compassReset} from "./compass.js";
 import {ensureHome, checkMail, openMail, closeMail, mailOpen} from "./rent.js";
 import {createSky} from "./sky.js";
@@ -341,6 +341,8 @@ const ctx = {note, fade, pass, sleep, eat, bus, toMatch, openMail:mail, minute:(
   screw:o => screwIn(o), mini:o => startMini(o), giveBack:it => { if (it && !INV.take(it) && !INV.stow(it)) INV.addDrop({zone:LIFE.zone, x:P.x, y:P.feet + .02, z:P.z, ry:0, item:it}); },
   timeLapse:(mins, act, label, done, o) => timeLapse(mins, act, label, done, o), hand:() => INV.hand(), take:it => INV.take(it), release:() => INV.release(), persist,
   place:p => place(p), robbed:lost => robbed(lost),
+  // something left lying here for good (it is saved with the place, and is there when you come back): x.mesh to reuse one
+  dropAt:(it, x, y, z, ry = 0, x2 = {}) => { const d = Object.assign({zone:LIFE.zone, x, y, z, ry, item:it}, x2.tag || {}); INV.addDrop(d); dropSpot(d, x2.mesh || INV.itemMesh(it)); return d; },
   busMenu:() => { if (typeof openBus === "function") openBus(LIFE.zone); }};
 // thieves have been: the money's gone, and you are told so plainly
 function robbed(lost){
@@ -1623,7 +1625,7 @@ function loop(t){
   // the clock runs on its own, faster while you are on the move; it stops while a panel or the hub is up
   if (MINI.on) miniStep(Math.min(real, .1));
   if (busy) stepBusy(Math.min(real, .1));
-  else if (!modal && !DRILL && !tutOn() && !CINE.on && !MINI.on && document.pointerLockElement){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
+  else if (!modal && !DRILL && !tutOn() && !CINE.on && !MINI.on && (document.pointerLockElement || (window.lifeMode && window.lifeMode() === "hand"))){ pass(Math.min(real, .1)*(moving ? TIME_RATE_MOVING : TIME_RATE), moving ? "walk" : "idle"); }
   skyStep(Math.min(real, .1));
   if (LIFE.zone === "home") homeTick();
   else if (LIFE.zone === "ground") closingTime();
@@ -1642,7 +1644,7 @@ function loop(t){
   if (saveDue){
     saveDueT += real;
     const still = !P.speed && !Object.keys(keys).some(k => keys[k]) && performance.now() - mouseT > 1200 && !grab;
-    if (!busy && ((still && !DRILL) || modal || !document.pointerLockElement) || saveDueT > 120) saveNowIf();
+    if (!MINI.on && (!busy && ((still && !DRILL) || modal || !document.pointerLockElement) || saveDueT > 120)) saveNowIf();
   }
   keysT += real; if (keysT > 22) document.getElementById("lifeKeys").classList.add("faded");
   if (DAILY.seasonPending && !busy && !modal && !DRILL) seasonOver();
@@ -1786,6 +1788,8 @@ function bindInput(cv){
     if (MINI.on && document.pointerLockElement === cv){ miniInput("down", e.button); return; }
     if (e.button !== 0 || document.pointerLockElement !== cv) return;
     if (DRILL){ DRILL.input("down", "mouse"); return; }
+    // the keypad phone in your hand: the left button chooses on it, it doesn't pick anything up
+    if (window.lifeMode && window.lifeMode() === "hand" && window.kpMouseOk && window.kpMouseOk()) return;
     MOUSE_L = true;
     if (CINE.on) return;
     if (held && held.kind === "drag") grab = held;
@@ -1858,7 +1862,7 @@ buildInit({P, cam:() => cam, scene:() => scene, canvas:() => renderer.domElement
     renderer.shadowMap.needsUpdate = true; W.shadowDirty = true;
     if (window.lifeRelock) setTimeout(() => window.lifeRelock(), 30);
   }});
-window.__life = {P, keys, B, Q, W, HOME, LIFE, GROUND, compassStep:dt => compassStep(dt, P), bus:to => bus(to), closingTime, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
+window.__life = {P, keys, B, Q, W, HOME, LIFE, GROUND, TOWNZ, compassStep:dt => compassStep(dt, P), bus:to => bus(to), closingTime, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
   get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,

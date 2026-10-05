@@ -70,7 +70,7 @@ function keypadHTML(){
   if (v.lines){ const L = v.lines.slice(K.scroll, K.scroll + (v.items ? 4 : rows)); body += L.map(l => `<div class="kp-line">${esc(l)}</div>`).join(""); }
   if (v.items){
     const start = Math.max(0, Math.min(K.sel - 2, v.items.length - (v.lines ? 3 : rows)));
-    body += v.items.slice(start, start + (v.lines ? 3 : rows)).map((it, i) => `<div class="kp-item ${start + i === K.sel ? "sel" : ""}"><span>${esc(it.l)}</span>${it.r ? `<em>${it.r}</em>` : ""}</div>`).join("");
+    body += v.items.slice(start, start + (v.lines ? 3 : rows)).map((it, i) => `<div class="kp-item ${start + i === K.sel ? "sel" : ""}" onclick="kpPick(${start + i})"><span>${esc(it.l)}</span>${it.r ? `<em>${it.r}</em>` : ""}</div>`).join("");
   }
   const t = phoneTime();
   const key = (k, cls, html) => `<button class="kk ${cls}" onclick="kpKey('${k}')" aria-label="${k}">${html}</button>`;
@@ -99,6 +99,8 @@ function kpKey(k){
   else if (k === "ok") kpSelect(v);
   renderPhone();
 }
+// a click on a line of the menu: that one, chosen
+function kpPick(i){ const K = PH.kp, v = kpView(); if (!v.items || !v.items[i]) return; K.sel = i; kpKey("ok"); }
 function kpGo(view, data){ const K = PH.kp; K.hist.push({view:K.view, sel:K.sel, data:K.data}); K.view = view; K.data = data; K.sel = 0; K.scroll = 0; }
 function kpBack(){ const K = PH.kp, p = K.hist.pop(); if (p){ K.view = p.view; K.sel = p.sel; K.data = p.data; K.scroll = 0; } else { K.view = "home"; K.sel = 0; } }
 function kpSelect(v){
@@ -120,6 +122,18 @@ function kpSelect(v){
     case "info": K.view = "home"; K.hist = []; K.sel = 0; return;
   }
 }
+/* the mouse on the keypad phone: the wheel moves up and down the menu (a trackpad's flood of small steps is gathered
+   into whole ones), a click on a line chooses it — and with the pointer locked (walking about with it in your hand),
+   the left button chooses the highlighted line (life/world.js). Esc goes back a screen, and out at the top. */
+let kpWheel = 0, kpWheelT = 0;
+window.addEventListener("wheel", e => {
+  if (!PH.open || !S || MT || S.phone !== "keypad") return;
+  const now = performance.now(); if (now - kpWheelT > 400) kpWheel = 0; kpWheelT = now;
+  kpWheel += e.deltaMode === 1 ? e.deltaY*40 : e.deltaY;
+  while (Math.abs(kpWheel) >= 60){ kpKey(kpWheel > 0 ? "down" : "up"); kpWheel -= Math.sign(kpWheel)*60; }
+  e.preventDefault();
+}, {passive:false});
+window.kpMouseOk = () => { if (!PH.open || !S || MT || S.phone !== "keypad") return false; kpKey("ok"); return true; };
 window.addEventListener("keydown", e => {
   if (!PH.open || !S || MT) return;
   if (e.target && /input|textarea/i.test(e.target.tagName)) return;

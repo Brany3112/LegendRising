@@ -24,7 +24,7 @@ const ICON = {
   club:SVG('<path d="M2 14V6.4L8 2l6 4.4V14h-4.4V9.6H6.4V14z"/>'),
   goal:SVG('<path d="M8 1 13.6 8 8 15 2.4 8z"/>')
 };
-let root = null, strip = null, layer = null, H = null, W0 = 0, pxDeg = 3.4, list = [], listT = 0;
+let root = null, strip = null, layer = null, H = null, W0 = 0, pxDeg = 3.4, list = [], listT = 0, sizeT = 0;
 const marks = new Map();                           // key → {el, a, row, x, txt}
 const wrap = d => ((d + 540) % 360) - 180;
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a)/(b - a))); return t*t*(3 - 2*t); };
@@ -67,6 +67,8 @@ function wanted(){
 }
 export function compassStep(dt, P){
   if (!root || !H) return;
+  // (the strip's width is only known once the world is on screen, and changes with the window: looked at now and then)
+  if ((sizeT -= dt) <= 0){ sizeT = 1; const w = root.clientWidth; if (w && w !== W0) measure(); }
   // the dial turns with you: your bearing, clockwise from north (−z)
   const b = ((-P.yaw*180/Math.PI) % 360 + 360) % 360;
   strip.style.transform = `translateX(${(W0/2 - (b + 360)*pxDeg).toFixed(1)}px)`;

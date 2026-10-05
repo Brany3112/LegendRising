@@ -26,7 +26,7 @@
     const on = life() && handOpen() && mode === "street";
     body.classList.toggle("hand", on);
     if (on) h.textContent = smart() ? "Mouse to use the phone · Tab put it away · Q hub"
-                                    : "↑ ↓ choose · Enter select · Backspace back · Tab put it away · Q hub";
+                                    : "Wheel or ↑ ↓ choose · click or Enter select · Esc back · Tab put it away · Q hub";
   }
   window.lifePhoneChanged = hint;            // the game's phone calls this when it opens or closes
 
@@ -39,7 +39,9 @@
       return;
     }
     const r = document.getElementById("phoneRoot"); if (r) r.classList.remove("hidden");
-    if (smart() && document.exitPointerLock) document.exitPointerLock();
+    // the mouse is the phone's while it's out (the keypad phone too: wheel, click, Esc); the clock keeps running, and
+    // with the keypad phone you can still walk
+    if (document.exitPointerLock) document.exitPointerLock();
     if (window.lifeClearKeys && smart()) window.lifeClearKeys();
     openPhone(); hint();
   };

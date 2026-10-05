@@ -124,7 +124,6 @@ export function departures(o){
       animateHuman(h, 0, "idle");
     });
   };
-  const veh = (g, pts, vmax) => driveOf(g, pts, {vmax});
   W.anims.push(dt => {
     if (!(dt > 0)) return;
     const m = minute();
@@ -139,7 +138,7 @@ export function departures(o){
     }
     // the cars: a driver gets in, the lights come on, and it pulls out of its bay, through the gate and away
     for (const c of cars){
-      if (c.state === "parked" && m >= c.leaves && !c.driver){ c.state = "starting"; c.t = 0; }
+      if (c.state === "parked" && m >= c.leaves && !c.driver && !matchDay){ c.state = "starting"; c.t = 0; }
       if (c.state === "starting"){
         c.t += dt;
         if (c.t > 1.6){
@@ -155,11 +154,11 @@ export function departures(o){
       }
     }
     // the bus: when the last one walking to it is waiting at the stop (or half past four comes), it pulls in from the east
-    const walkingToBus = people.some(p => p.bus && !p.gone && !p.queued && m >= p.start - 30);
+    const walkingToBus = people.some(p => p.bus && !p.gone && !p.queued);
     if (B.state === "none" && B.queue.length && (!walkingToBus || m >= end + 30)){
       B.g = bus(); W.scene.add(B.g); B.g.position.y = .01; B.g.userData.lamps(m >= 17*60 + 30);
       B.sol = solid(0, 0, 0, 0, 0, 3); B.state = "arriving";
-      B.d = driveOf(B.g, [[95, EXIT.laneW], [40, EXIT.laneW], [EXIT.stop.x + 2.2, EXIT.laneW]], {sol:B.sol, vmax:u => u < .8 ? 10 : 3.2 + 6.8*(1 - u)*5});
+      B.d = driveOf(B.g, [[95, EXIT.laneW], [40, EXIT.laneW], [EXIT.stop.x + 2.2, EXIT.laneW]], {sol:B.sol, vmax:u => u < .8 ? 10 : .8 + 9.2*(1 - u)*5});
     }
     if (B.state === "arriving"){ B.d.step(dt); if (B.d.st.done){ B.state = "boarding"; B.t = 0; } }
     if (B.state === "boarding"){
