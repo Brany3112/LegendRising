@@ -111,7 +111,7 @@ function doSleep(){
     persist(true);
     // the first night: you dream (tutorial.js), and wake up to the morning in the flat
     if (!s.tutDone && window.lifeDream){ window.lifeDream(); return; }
-    morning(r);
+    morning(r); mailNews();
   }, 2000);
 }
 function morning(r){
@@ -296,6 +296,7 @@ function sleepDay(){
     startNewDay(); sync(); forceSky = true; persist(true);
     FEED.center(todayName(), `You slept the whole day · ${clockText()}`, {kind:"day", icon:"☾", ms:3200});
     if (r) note(`Twenty-four hours later. Fatigue ${r.fatigue <= 0 ? "−" + Math.abs(r.fatigue) : "+" + r.fatigue} · you wake up starving.`);
+    mailNews();
   }, 2200);
 }
 

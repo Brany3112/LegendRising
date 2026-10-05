@@ -522,7 +522,7 @@ export function buildGround(c){
   hedge(-29.5, 27.8, -20, 27.8); hedge(-6, 27.8, 11, 27.8);
   for (const [x, z] of [[-26, 22], [-27.5, 12], [-27, 2], [27, 1.5], [-36, -16], [36, -18], [-38, 10], [38, 12], [-20, 36], [4, 38], [24, 36]]) tree(x, z, .9 + ((x*z) % 3 + 3) % 3*.12);
   for (const [x, z] of [[-29, 18], [-29.4, 7.5], [14.6, 26.8], [-16.5, 26.6]]) bush(x, z, 1);
-  for (const [x, z, d] of [[-16, 6, -1], [16, 6, -1], [-16, 26, 1], [9, 26, 1], [17.4, 18, 1], [-24.5, 10, 1]]) streetLamp(x, z, d);
+  for (const [x, z, d] of [[-16, 6, -1], [16, 6, -1], [-18.2, 26.4, 1], [9, 26, 1], [17.4, 18, 1], [-24.5, 10, 1]]) streetLamp(x, z, d);
   // the car park, and your own car if you have one
   sign("PLAYERS & STAFF PARKING", 24.6, 2.2, 18.2, 0, 3.2, {bar:"#4ea8ff"});
   for (const x of [23.1, 26.1]) rbox(x, 0, 18.15, .08, 2.0, .08, .02, 0x3b4249, {key:"metal", solid:true});

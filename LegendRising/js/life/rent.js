@@ -61,6 +61,16 @@ export function checkMail(){
     n++;
   }
   h.bills = h.bills.filter(b => !b.paid || b.m > now - 6);
+  // three days before the month is out, a reminder for whatever is still unpaid (once a month)
+  const day = ((s.week || 0) % 4)*7 + ((s.life && s.life.wd) || 0);        // 0–27: a month is four weeks
+  const due = h.bills.filter(b => !b.paid);
+  if (day >= 25 && due.length && h.reminded !== now){
+    h.reminded = now;
+    const tot = due.reduce((t, b) => t + b.total, 0);
+    letter(h, "The landlord", "Reminder: rent due",
+      `Just a reminder that ${euro(tot)} is still owed on flat ${h.apt}. Please pay it before the end of ${monthOf(now)} — a 10% late fee is added to anything still unpaid when the next bill goes out.`);
+    n++;
+  }
   return n;
 }
 export const owed = () => { const h = G() && G().home; return h ? h.bills.filter(b => !b.paid).reduce((a, b) => a + b.total, 0) : 0; };

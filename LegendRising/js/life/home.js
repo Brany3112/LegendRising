@@ -501,7 +501,7 @@ function staticDoor(L, d){
   box(a.door + .3, base + .96, Math.min(fz, fz + side*.012), a.door + .36, base + 1.12, Math.max(fz, fz + side*.012), C.metal, {key:"metal", ao:false});
   box(a.door + .2, base + 1.0, Math.min(fz + side*.012, fz + side*.04), a.door + .36, base + 1.03, Math.max(fz + side*.012, fz + side*.04), C.metal, {key:"metal", ao:false});
   cyl(a.door, base + 1.5, fz + side*.006, .012, .012, C.metal, {seg:8, rx:Math.PI/2, key:"metal"});
-  plate(`${L}0${d}`, a.door, base + 1.68, z + side*.034, side < 0 ? Math.PI : 0);
+  plate(`${L}0${d}`, a.door, base + 1.68, z + side*.038, side < 0 ? Math.PI : 0);
   const zz = z + side*.4;
   spot({x:a.door, y:base + 1.2, z:zz, aim:[[a.door - .55, base, Math.min(z, zz)], [a.door + .55, base + 2.2, Math.max(z, zz)]],
     label:`Flat ${L}0${d}`, hint:"Not yours — locked", hold:.15, run:() => ctx.note(`Locked. Somebody else lives at ${L}0${d}.`)});
@@ -618,7 +618,8 @@ export function hingedDoor(o){
   if (o.glass){ const pane = boxPart(W_ - .26, H_*.55 + .02, .012, 0x9fb7c6, W_/2, (H_*.33 + H_*.88)/2, 0, {mat:{transparent:true, opacity:.32, roughness:.08, metalness:.1, depthWrite:false}}); pane.renderOrder = 2; g.add(pane); }
   if (o.plate){
     const pm = new THREE.Mesh(new THREE.PlaneGeometry(.16, .08), new THREE.MeshLambertMaterial({map:plateTex(o.plate)}));
-    pm.position.set(W_/2, 1.62, -o.into*dir*(T/2 + .003)); pm.rotation.y = o.into*dir > 0 ? Math.PI : 0;
+    // on the face of the raised panel (which stands 8 mm proud of the leaf), on the outside of the door
+    pm.position.set(W_/2, 1.62, -o.into*dir*(T/2 + .013)); pm.rotation.y = o.into*dir > 0 ? Math.PI : 0;
     g.add(pm); var plateMesh = pm;
   }
   W.scene.add(g);
@@ -1096,24 +1097,44 @@ function mailboxes(){
   const names = {};
   for (let f = 1; f <= 3; f++) for (let d = 1; d <= 4; d++) names[`${f}0${d}`] = rnd() < .12 ? "" : `${pick(pool.f)[0]}. ${pick(pool.l)}`;
   names[h.apt] = G().player.name;
-  // the cabinet on the lobby wall
-  rbox(-6.235, .98, -.4, .24, 1.11, 2.48, .02, 0x5a3f28, {seg:2});
-  rbox(-6.245, 2.09, -.4, .26, .05, 2.56, .02, 0x3f2c1c);
-  solid(-6.36, -6.1, -1.68, .88, .98, 2.14);          // you stand in front of it, not in it
+  // the cabinet, screwed to the lobby's east wall (its skin is at −6.12), the boxes' fronts facing into the lobby
+  rbox(-6.185, .98, -.4, .13, 1.11, 2.48, .02, 0x5a3f28, {seg:2});
+  rbox(-6.195, 2.09, -.4, .15, .05, 2.56, .02, 0x3f2c1c);
+  solid(-6.27, -6.1, -1.68, .88, .98, 2.14);          // you stand in front of it, not in it
   const t = textTex(1024, 448, () => {});
   HOME.mailTex = {tex:t, names};
   drawMail();
-  const m = label(t, -6.345, 1.535, -.4, 2.4, 1.05, -Math.PI/2);
+  const m = label(t, -6.258, 1.535, -.4, 2.4, 1.05, -Math.PI/2);
   m.material.emissive = new THREE.Color(0x000000);
   const c = h.door - 1, r = h.floor - 1;
   const z0 = -1.6 + c*.6, y0 = 2.05 - (r + 1)*.35;
   // aimed at from the lobby, yours stands a few centimetres proud of the cabinet's own box, so it is what you look
   // at whenever you look at it (the cabinet is solid: you stand at least 26 cm off its face, x −6.36)
-  spot({x:-6.4, y:y0 + .17, z:z0 + .3, aim:[[-6.42, y0, z0], [-6.1, y0 + .35, z0 + .6]],
+  mailGlow(-6.262, y0, z0);
+  spot({x:-6.4, y:y0 + .17, z:z0 + .3, aim:[[-6.34, y0, z0], [-6.1, y0 + .35, z0 + .6]],
     label:`Your mailbox · ${h.apt}`, get hint(){ const n = unread(), o = owed(); return n ? `${n} new letter${n > 1 ? "s" : ""}` : o ? `You owe €${o}` : "Nothing new"; }, hold:.3,
     run:() => ctx.openMail()});
-  spot({x:-6.4, y:1.5, z:-.4, aim:[[-6.37, .98, -1.64], [-6.1, 2.1, .84]], label:"Mailboxes", hint:"Find your name on one of them", hold:.2,
+  spot({x:-6.4, y:1.5, z:-.4, aim:[[-6.28, .98, -1.64], [-6.1, 2.1, .84]], label:"Mailboxes", hint:"Find your name on one of them", hold:.2,
     run:() => ctx.note(`Yours is the one that says ${G().player.name} · ${h.apt}.`)});
+}
+/* your box glows yellow while there is post in it you have not read: a lit frame round its door and a soft halo on
+   the cabinet, breathing slowly; it goes out the moment you have opened the box and read what was in it */
+function mailGlow(x, y0, z0){
+  const g = new THREE.Group(), y1 = y0 + .35, z1 = z0 + .6, t = .022, fm = new THREE.MeshBasicMaterial({color:0xffd84a, transparent:true, opacity:.95, toneMapped:false});
+  for (const [ya, yb, za, zb] of [[y0 - t, y0, z0 - t, z1 + t], [y1, y1 + t, z0 - t, z1 + t], [y0, y1, z0 - t, z0], [y0, y1, z1, z1 + t]]){
+    const m = new THREE.Mesh(new THREE.BoxGeometry(.012, yb - ya, zb - za), fm); m.position.set(x - .004, (ya + yb)/2, (za + zb)/2); g.add(m);
+  }
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128; const c = cv.getContext("2d"), gr = c.createRadialGradient(64, 64, 10, 64, 64, 64);
+  gr.addColorStop(0, "rgba(255,214,80,.7)"); gr.addColorStop(.55, "rgba(255,200,60,.25)"); gr.addColorStop(1, "rgba(255,190,40,0)"); c.fillStyle = gr; c.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(cv), hm = new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false});
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.15, .85), hm); halo.rotation.y = -Math.PI/2; halo.position.set(x - .006, (y0 + y1)/2, (z0 + z1)/2); g.add(halo);
+  g.visible = false; W.scene.add(g);
+  let t0 = 0, chk = 0;
+  W.anims.push(dt => {
+    t0 += dt;
+    if ((chk -= dt) <= 0){ chk = .4; g.visible = unread() > 0; }
+    if (g.visible){ const k = .65 + .35*Math.sin(t0*3); fm.opacity = .7 + .3*k; hm.opacity = k; }
+  });
 }
 export function drawMail(){
   const M = HOME.mailTex; if (!M) return;
