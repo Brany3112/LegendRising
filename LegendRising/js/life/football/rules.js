@@ -29,7 +29,7 @@ export const RULES = Object.freeze({
   HALF_CAP: 20,                              // real seconds past added time at most
   OFF: {body: 0.25, eps: 0.01, flag0: 0.35, flagK: 0.4, whistle: 0.25, border: 0.2, errP: 0.15, near: 1.5},
   ADV: {xt: 0.08, signal: 2},
-  CARD: {yellow: 0.6, red: 0.92, tactical: 0.15, injury: 0.85, injuryP: 0.08},
+  CARD: {yellow: 0.6, red: 0.92, tactical: 0.15, injury: 0.85, injuryP: 0.08, dogsoV: 3},
   SPARE_NEAR: 6,                             // the game ball is used if it lies this close to the spot
   CARRY: 3.6, CARRY_FAR: 6,                  // a ball carried in the hands: a jog near the spot, a run further out
   SERVE: 20,                                 // a ball further than this from the spot is served to the taker
@@ -192,7 +192,16 @@ export function goalScored(ms, d){
   ms.advantage = null;
   const last = b.last, ch = ms.chain;
   let scorer = last.agent, ownGoal = false;
-  const shot = ch.shot && ch.shot.team === team && !ch.shot.res ? ch.shot : null;
+  let shot = ch.shot && ch.shot.team === team && !ch.shot.res ? ch.shot : null;
+  // a save that did not keep it out (parried or tipped in, the keeper's touch the last): the shooter's goal, no save
+  const sv = ch.saved;
+  if (!shot && sv && sv.shot.team === team && last.kind === 'save' && last.team === def && ms.t - sv.t < 3){
+    shot = sv.shot;
+    if (shot.res === 'saved'){ ms.stats.saves[def] = Math.max(0, ms.stats.saves[def] - 1); ms.stats.onTarget[team] = Math.max(0, ms.stats.onTarget[team] - 1); }
+    shot.res = null; ch.shot = shot;
+    for (let i = ms.events.length - 1; i >= 0 && ms.events[i].t >= sv.t - 1e-9; i--){ const e = ms.events[i]; if (e.kind === 'save' && e.shot === shot.id) e.void = 'goal'; }
+  }
+  ch.saved = null;
   if (last.team === def){
     // a deflected shot on target is the shooter's; a defender's deliberate touch that turned it in is an own goal
     const deflected = last.kind === 'deflect' || last.kind === 'save' || last.kind === 'block';
@@ -693,15 +702,16 @@ function bookFoul(ms, f){
   const a = ms.agents[f.fouler];
   if (a && f.card) bookAgent(ms, a, f.card, 'foul');
 }
-// obvious goal-scoring opportunity: the fouled attacker within 30 m of goal heading to it with no other defender
-// between him and the goal (the keeper does not count as covering)
+// obvious goal-scoring opportunity: the fouled attacker within 30 m of goal, on the ball (or a stride from it) and
+// going at goal, with no other defender between him and the goal (the keeper does not count as covering)
 function isDogso(ms, fouler, victim){
-  const team = victim.team, dir = ms.dirs[team], gx = dir*ms.spec.hx, m = victim.m;
+  const team = victim.team, dir = ms.dirs[team], gx = dir*ms.spec.hx, m = victim.m, b = ms.ball.p;
   const d = hypot(gx - m.x, m.z);
   if (d > 30) return false;
   if (ms.poss.team !== team) return false;
-  const toward = (gx - m.x)*m.vx + (0 - m.z)*m.vz;
-  if (toward <= 0) return false;
+  if (ms.poss.ctl !== victim.id && hypot(b.x - m.x, b.z - m.z) > 1.5) return false;
+  const toward = ((gx - m.x)*m.vx + (0 - m.z)*m.vz)/(d || 1);
+  if (toward < RULES.CARD.dogsoV) return false;
   for (const o of ms.agents){
     if (o.team !== fouler.team || o === fouler || !o.onPitch || o.isGK) continue;
     if (dir*(o.m.x - m.x) > 0 && hypot(o.m.x - m.x, o.m.z - m.z) < d) return false;

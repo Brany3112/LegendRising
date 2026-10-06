@@ -405,13 +405,14 @@ function distribute(ms, a){
   if (best && kind === 'roll'){
     const d = hypot(best.m.x - from.x, best.m.z - from.z), sp = passSpeedFor(d, 7);
     const dx = (best.m.x - from.x)/d, dz = (best.m.z - from.z)/d;
-    ballRelease(b, {x: from.x + dx*0.3, y: R, z: from.z + dz*0.3}, {x: dx*sp, y: 0, z: dz*sp}, null);
+    // bowled from his hands: let go low and forward, it drops to the grass and rolls on (no jump of the ball)
+    ballRelease(b, null, {x: dx*sp, y: -3.5, z: dz*sp}, null);
     ev = released(ms, a, 'roll', best.id, sp, d);
   } else if (best){
     const d = hypot(best.m.x - from.x, best.m.z - from.z);
-    const L = solveStrike({from: {x: from.x, y: 2.0, z: from.z}, target: {x: best.m.x, y: R, z: best.m.z}, speed: clamp(Math.sqrt(9.81*d)*1.05, 8, 20),
+    const L = solveStrike({from: {x: from.x, y: from.y, z: from.z}, target: {x: best.m.x, y: R, z: best.m.z}, speed: clamp(Math.sqrt(9.81*d)*1.05, 8, 20),
       contact: 0, curl: 0, foot: 'R', kind: 'throw', rollDecel: b.rollDecel});
-    ballRelease(b, {x: from.x, y: Math.max(1.6, from.y), z: from.z}, L.v, {x: 0, y: 0, z: 0});
+    ballRelease(b, null, L.v, {x: 0, y: 0, z: 0});
     ev = released(ms, a, 'throw', best.id, hypot(L.v.x, L.v.y, L.v.z), d);
   } else {
     // the punt: drop it and volley it long toward the forwards

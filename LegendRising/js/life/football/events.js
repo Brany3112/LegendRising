@@ -64,6 +64,10 @@ export function chainKick(ms, ev){
   const ch = ms.chain, team = ev.team;
   if (ch.pass && ch.pass.team === team && ch.pass.agent !== ev.agent && !ch.pass.res) resolvePass(ms, ch.pass, 'ok', ev.agent);
   spellTouch(ms, ev.agent);
+  // a shot still open when the ball is kicked again is over: it was blocked or went nowhere near
+  if (ch.shot && !ch.shot.res && ev.intent !== 'shot' && !(ev.intent === 'header' && ev.atGoal)){
+    shotRes(ms, ch.shot, ch.shot.blockedBy != null ? 'blocked' : 'wide'); ch.shot = null;
+  }
   if (ev.intent === 'shot' || ev.intent === 'header' && ev.atGoal){
     if (ch.shot && !ch.shot.res) shotRes(ms, ch.shot, 'blocked');
     ch.shot = ev;
@@ -174,6 +178,8 @@ export function chainSave(ms, gk, outcome){
   if (ch.shot && !ch.shot.res && ch.shot.team !== gk.team){
     shotRes(ms, ch.shot, ch.shot.onTarget ? 'saved' : 'wide');
     ch.shot.savedBy = gk.id; ch.shot.saveHow = outcome;
+    // a parry or a tip that still goes in is the shooter's goal (rules.goalScored reads this)
+    ch.saved = {shot: ch.shot, t: ms.t};
     if (outcome !== 'catch' && outcome !== 'claim') ch.shot = null;
   }
   spellTouch(ms, gk.id);

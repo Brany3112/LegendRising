@@ -19,6 +19,7 @@ import {moverStep} from "../mover.js";
 import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute} from "../stamina.js";
 import {phaseAdvance, gaitModeStep} from "../gaitcore.js";
 import {createAgent, separate, bodyRec} from "./agent.js";
+import {levelled} from "./attrs.js";
 import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle, situation} from "./tactics.js";
 import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
@@ -34,10 +35,14 @@ const H = 1/60, R = BALL.R;
 
 // The tempo table (3.2.10), keyed by S.speed: frozen at kick-off, the harness's only runtime knobs (no director).
 export const TEMPO = Object.freeze({
-  2: Object.freeze({directness: 1.6, shotBias: 3.0, pressMul: 1.15}),
+  2: Object.freeze({directness: 1.25, shotBias: 1.4, pressMul: 1.15}),
   1: Object.freeze({directness: 1.15, shotBias: 1.2, pressMul: 1.08}),
   4: Object.freeze({directness: 1.4, shotBias: 1.55, pressMul: 1.25})
 });
+// The levelling of a match (calibration, 2.3 WP-E: a side 10 overall higher wins 55 to 62%): the AI players of each
+// side play this share of the gap between the two sides' mean overalls nearer the middle. The player himself plays
+// with his own numbers.
+export const LEVEL = 0.5;
 // half length in real seconds by S.speed (1.5.5): Standard 600, Long 900, Short 360; which are calibrated
 export const HALF_REAL = Object.freeze({2: 600, 1: 900, 4: 360});
 export const CALIBRATED = Object.freeze({2: true, 1: false, 4: false});
@@ -83,6 +88,9 @@ export function createMatch(cfg){
   ms.liveRating = a => liveRating(ms, a);
   // the teams
   const T = cfg.teams || [];
+  // the levelling: each side's AI players moved toward the middle of the two sides' overalls
+  const ovr = cfg.ovr && cfg.ovr.length === 2 ? cfg.ovr : null, mid = ovr ? (ovr[0] + ovr[1])/2 : 0;
+  const lev = (t, p) => ovr && !p.isMe ? levelled(p.at, -(ovr[t] - mid)*LEVEL) : p.at;
   const styles = [0, 1].map(t => (T[t] && T[t].style) || clubStyle(T[t] ? T[t].name : "T" + t));
   ms.tm = [createShape(styles[0], T[0] ? T[0].formation : null), createShape(styles[1], T[1] ? T[1].formation : null)];
   for (let t = 0; t < 2; t++){
@@ -91,7 +99,7 @@ export function createMatch(cfg){
       const p = list[i];
       if (!p) continue;
       const a = createAgent({id: ms.agents.length, pid: p.pid, team: t, slot: p.slot, arch: p.arch, isGK: !!p.isGK, isMe: !!p.isMe,
-        scale: p.scale || 1, at: p.at, energy: p.energy != null ? p.energy : 100, fatigue: p.fatigue || 0, name: p.name, number: p.number,
+        scale: p.scale || 1, at: lev(t, p), energy: p.energy != null ? p.energy : 100, fatigue: p.fatigue || 0, name: p.name, number: p.number,
         items: p.items, prefFoot: p.prefFoot, x: 0, z: 0});
       a.slotLine = (SLOT_POS[p.slot] || SLOT_POS.CM).line;
       a.baseX = p.baseX != null ? p.baseX : null;
@@ -101,7 +109,7 @@ export function createMatch(cfg){
       if (a.isGK) ms.gks[t] = a.id;
       if (a.isMe) ms.me = a.id;
     }
-    for (const p of ((T[t] && T[t].bench) || [])) ms.bench[t].push(Object.assign({used: false}, p));
+    for (const p of ((T[t] && T[t].bench) || [])) ms.bench[t].push(Object.assign({used: false}, p, {at: lev(t, p)}));
     spreadSlots(ms.agents.filter(a => a.team === t));
   }
   // the officials
@@ -340,6 +348,8 @@ export function simStep(ms, h = H){
   const hl = ms.handList; hl.length = 0;
   for (const g of ms.gks) if (g >= 0) gkHands(ms, agents[g], hl);
   ms.bw.t = ms.t;
+  // the ball's speed as it starts its integration (a kick in this step has set it)
+  const bvPre = hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z);
   ballStep(ms.ball, ms.bw, h);
   // the path cache while the ball flies with spin (10 Hz)
   const b = ms.ball;
@@ -367,7 +377,7 @@ export function simStep(ms, h = H){
     if (ms.ball === ball0 && ms.ballSwap !== ms.step){
       const d = hypot(ms.ball.p.x - bx0, ms.ball.p.y - by0, ms.ball.p.z - bz0);
       // the speed changes inside the step (a kick before the integration, drag and gravity within it): 4% and 2 mm
-      const lim = Math.max(bv0, hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z))*h*1.04 + 2e-3;
+      const lim = Math.max(bv0, bvPre, hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z))*h*1.04 + 2e-3;
       if (d - lim > ms.asserts.maxBall) ms.asserts.maxBall = d - lim;
       if (d > lim){ ms.asserts.ballJump++; if (ms.onJump) ms.onJump(d, lim, by0); }
     }

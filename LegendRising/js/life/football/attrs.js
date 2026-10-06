@@ -88,6 +88,17 @@ export function attrsForAI(p){
   return a;
 }
 
+// An AI player's attributes moved by shift points (the match's levelling of the two sides, sim.js LEVEL): every
+// skill and keeping number, the derived ones worked out again. A new object; at itself is not changed.
+export function levelled(at, shift){
+  if (!at || !shift) return at;
+  const a = Object.assign({}, at);
+  for (const k of SKILL_KEYS) if (a[k] != null) a[k] = clamp(Math.round(a[k] + shift), 20, 99);
+  derive(a);
+  if (at.gk){ a.gk = {}; for (const [k, v] of Object.entries(at.gk)) a.gk[k] = clamp(Math.round(v + shift), 20, 99); }
+  return a;
+}
+
 // a keeper's numbers for anyone who has to go in goal (an outfield player after a red card to the keeper)
 export function keeperOf(at){
   if (at.gk) return at.gk;

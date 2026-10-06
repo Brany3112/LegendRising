@@ -31,6 +31,12 @@ const sigmoid = x => 1/(1 + exp(-x));
 // 1.5.6, 3.2.3 to 3.2.5 numbers
 export const BRAIN = Object.freeze({
   HEAVY: 4,                  // heavy evaluations a step at most
+  CLEAR_FIRST: [3.0, 0.6, 32, 24],   // a loose ball in his own box with an opponent within 3 m: cleared first time 60%
+                                     // of the time, 32 m upfield toward the near touchline, struck at 24 m/s
+  CARE: [0.4, 0.5],          // tackle rate on a yellow card, and as the last man
+  SLIDE_CLOSE: 5.5,          // a slide only below this closing speed (m/s)
+  GK_SPACE: 6,               // metres the other side keeps from a keeper with the ball in his hands
+  EVAL_SLICE: 3,             // slices of a carrier's evaluation (a team-mate's passes, the crosses) a step
   OFFBALL_EVERY: 15,         // off-ball targets: agent i when step % 15 == i % 15 (4 Hz)
   PLAN_EVERY: 6,             // ball plans (who goes for it) at least every 6 steps while it is loose
   CARRIER0: 0.35, CARRIER_K: 0.002, PRESSED: 0.6,
@@ -49,8 +55,8 @@ export const BRAIN = Object.freeze({
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
   CALL_T: 2.5, CALL_COOL: 4, CALL_HALF: 20,
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
-  TACKLE_RATE: [6, 0.9, 0.3],    // per second: a ball out of his feet, a shielded one, and the factor from behind
-  SLIDE_RATE: 0.8,               // per second, chasing a ball out in front of the carrier
+  TACKLE_RATE: [4, 0.6, 0.12],    // per second: a ball out of his feet, a shielded one, and the factor from behind
+  SLIDE_RATE: 0.55,              // per second, chasing a ball out in front of the carrier
   COVER: 7, MARK: 1.8, MARK_LOOSE: 3.5, ZONE_PULL: 0.55,
   RUN_HOLD: 0.3, RUN_DEPTH: [7, 16]
 });
@@ -203,10 +209,12 @@ function prefCapUpdate(ms){
 /* ---------- who goes for the ball (3.2.5 interceptions, 3.1.2) ---------- */
 
 const FR = {m: null, prm: null, fac: null, react: 0, reachY: 0.6, reach: 0.6};
-function reachOf(ms, a, reachY, react = a.react){
+// tMax: only a reach sooner than this matters (the path is searched that far; null means later than that)
+function reachOf(ms, a, reachY, react = a.react, tMax = Infinity){
   FR.m = a.m; FR.prm = a.prm; FR.fac = a.fac; FR.react = react; FR.reachY = reachY; FR.reach = a.isGK ? 1.2 : 0.6;
-  const fr = firstReach(ms.pred, ms.predN, FR);
-  if (fr || ms.predN <= 0) return fr;
+  const nMax = tMax < Infinity ? Math.min(ms.predN, Math.ceil(tMax*30) + 2) : ms.predN;
+  const fr = firstReach(ms.pred, nMax, FR);
+  if (fr || ms.predN <= 0 || nMax < ms.predN) return fr;
   // beyond the path's 3 s horizon: the ball rests (or still rolls) at its last sample, and he gets there when he can
   const n = ms.predN, o = 4*(n - 1), P = ms.pred;
   if (!(P[o + 1] <= reachY)) return null;
@@ -215,50 +223,84 @@ function reachOf(ms, a, reachY, react = a.react){
   return {t: Math.max(P[o + 3], t), x, y: P[o + 1], z};
 }
 
-// Assign the ball plans: the intended receiver goes to meet his pass; whoever on either side gets to a loose ball first
-// goes for it (an opponent who beats the receiver to it intercepts); a high ball is headed by the first head to it.
-function ballPlans(ms){
+// A lower bound of reachOf's time, cheap: the time of the sample before the first one no run of his could be at
+// sooner (firstReach's own early-out, without asking timeToPoint), or beyond the horizon the last sample's.
+function reachLB(ms, a, reachY, react){
+  const P = ms.pred, n = ms.predN, m = a.m, prm = a.prm, fac = a.fac;
+  if (n <= 0) return 0;
+  const vTop = Math.max(0.1, sprintSpeed(prm, fac || undefined)), v0 = Math.min(m.speed || 0, vTop);
+  const a0 = Math.max(0.1, prm.a0*(fac && fac.accel != null ? fac.accel : 1)), t1 = (vTop - v0)/a0, d1 = (v0 + vTop)*0.5*t1;
+  const reach = a.isGK ? 1.2 : 0.6;
+  const tMin = d => d <= d1 ? (Math.sqrt(v0*v0 + 2*a0*d) - v0)/a0 : t1 + (d - d1)/vTop;
+  for (let k = 0; k < n; k++){
+    const o = 4*k;
+    if (!(P[o + 1] <= reachY)) continue;
+    const d = Math.max(0, hypot(P[o] - m.x, P[o + 2] - m.z) - reach);
+    if (P[o + 3] >= react + tMin(d) - 1e-9) return k > 0 ? P[o - 1] : 0;
+  }
+  const o = 4*(n - 1);
+  if (!(P[o + 1] <= reachY)) return Infinity;
+  return Math.max(P[o + 3], react + tMin(Math.max(0, hypot(P[o] - m.x, P[o + 2] - m.z) - reach)));
+}
+
+// Assign one side's ball plans: the intended receiver goes to meet his pass; whoever gets to a loose ball first goes
+// for it (an opponent who beats the receiver to it intercepts); a high ball is headed by the first head to it. The
+// two sides are planned on consecutive steps (brainStep). Only the candidates whose lower bound could still win are
+// worked out exactly (nearest first): the plans are the same as working out all eleven. The path cache may be a few
+// steps old: its times run from ms.predT, so everyone's reaction carries that age and the plan's times are from now.
+const CAND = [];
+function ballPlans(ms, team){
   const b = ms.ball, ctl = ms.poss.ctl;
-  ms.planSeq = ms.predSeq; ms.planStep = ms.step;
   // whoever was already going for it has reacted: his new estimate carries no second reaction time
-  for (const a of ms.agents){ a.wasOn = false; if (a.plan && (a.plan.kind === 'chase' || a.plan.kind === 'receive' || a.plan.kind === 'intercept')){ a.wasOn = true; a.plan = null; } }
+  for (const a of ms.agents){ if (a.team !== team) continue; a.wasOn = false; if (a.plan && (a.plan.kind === 'chase' || a.plan.kind === 'receive' || a.plan.kind === 'intercept')){ a.wasOn = true; a.plan = null; } }
   if (ctl >= 0 || b.state !== 'free' || ms.phase !== 'live') return;
+  const age = Math.max(0, ms.t - ms.predT);
   const pass = ms.chain.pass && !ms.chain.pass.res ? ms.chain.pass : null;
   const recv = pass && pass.recv >= 0 ? ms.agents[pass.recv] : null;
   const best = [null, null], bestT = [Infinity, Infinity], bestR = [null, null];
   const heads = [null, null], headT = [Infinity, Infinity], headR = [null, null];
   let recvR = null;
+  CAND.length = 0;
   for (const a of ms.agents){
+    if (a.team !== team) continue;
     if (!a.onPitch || a.role !== 'player' || a.leaving || a.sentOff || a.state === 'ground') continue;
     if (a.isGK && a.gk && a.gk.state !== 'ready' && a.gk.state !== 'set' && a.gk.state !== 'sweep') continue;
     if (a.isMe && !ms.meAI) continue;
     if (a.id === b.last.agent && ms.t - b.last.t < 0.3 && b.last.kind !== 'control') continue;
-    const s = a.scale || 1;
-    const fr = reachOf(ms, a, 1.45*s, a.wasOn ? 0 : a.react);
-    if (fr && fr.t < bestT[a.team]){ bestT[a.team] = fr.t; best[a.team] = a; bestR[a.team] = fr; }
+    const s = a.scale || 1, hy = 2.05*s + jumpHeight(a.at.jumping);
+    CAND.push({a, lb: reachLB(ms, a, 1.45*s, (a.wasOn ? 0 : a.react) + age), hlb: a.isGK ? Infinity : reachLB(ms, a, hy, a.react + age), hy});
+  }
+  CAND.sort((p, q) => p.lb - q.lb || p.a.id - q.a.id);
+  for (const c of CAND){
+    const a = c.a, tm = a.team, s = a.scale || 1;
+    // can he still matter: first to it (or the receiver within 0.4 s of the first), or a header before both
+    const needFoot = a === recv || c.lb <= bestT[tm];
+    const needHead = c.hlb < headT[tm] + 1e-9 && c.hlb < bestT[tm] + 0.3;
+    if (!needFoot && !needHead) continue;
+    // the path is searched only as far as a reach could still matter (the best so far; the receiver 0.45 s past it)
+    const fr = reachOf(ms, a, 1.45*s, (a.wasOn ? 0 : a.react) + age, bestT[tm] + (a === recv ? 0.45 : 1e-6));
+    if (fr && (fr.t < bestT[tm] || fr.t === bestT[tm] && best[tm] && a.id < best[tm].id)){ bestT[tm] = fr.t; best[tm] = a; bestR[tm] = fr; }
     if (a === recv) recvR = fr;
     // a header: the ball is up and first reachable with the head
-    if (!a.isGK && (!fr || fr.y > 1.3 || fr.t > 0.8)){
-      const hy = 2.05*s + jumpHeight(a.at.jumping);
-      const hr = reachOf(ms, a, hy);
-      if (hr && hr.y > 1.35*s && (!fr || hr.t < fr.t - 0.15) && hr.t < headT[a.team]){ headT[a.team] = hr.t; heads[a.team] = a; headR[a.team] = hr; }
+    if (needHead && !a.isGK && (!fr || fr.y > 1.3 || fr.t > 0.8)){
+      const hr = reachOf(ms, a, c.hy, a.react + age, Math.min(headT[tm], bestT[tm] + 0.3));
+      if (hr && hr.y > 1.35*s && (!fr || hr.t < fr.t - 0.15) && (hr.t < headT[tm] || hr.t === headT[tm] && heads[tm] && a.id < heads[tm].id)){ headT[tm] = hr.t; heads[tm] = a; headR[tm] = hr; }
     }
   }
   // the receiver: his own pass, unless a team-mate is much nearer to it
-  for (const team of [0, 1]){
-    let who = best[team], fr = bestR[team];
-    if (recv && recv.team === team && recvR && (!who || recvR.t <= bestT[team] + 0.4)){ who = recv; fr = recvR; }
-    const hd = heads[team];
-    if (hd && headR[team] && (!fr || headR[team].t + 0.1 < fr.t)){
-      planHeader(ms, hd, headR[team]);
-      continue;
-    }
-    if (!who || !fr) continue;
-    if (who.isMe && !ms.meAI) continue;
-    const kind = recv === who ? 'receive' : (recv && recv.team !== team ? 'intercept' : 'chase');
-    who.plan = {kind, x: fr.x, z: fr.z, t: fr.t, y: fr.y, at: ms.t, first: null, push: null};
-    planFirst(ms, who);
+  let who = best[team], fr = bestR[team];
+  if (recv && recv.team === team && recvR && (!who || recvR.t <= bestT[team] + 0.4)){ who = recv; fr = recvR; }
+  const hd = heads[team];
+  if (hd && headR[team] && (!fr || headR[team].t + 0.1 < fr.t)){
+    const hr = headR[team];
+    planHeader(ms, hd, {t: Math.max(0, hr.t - age), x: hr.x, y: hr.y, z: hr.z});
+    return;
   }
+  if (!who || !fr) return;
+  if (who.isMe && !ms.meAI) return;
+  const kind = recv === who ? 'receive' : (recv && recv.team !== team ? 'intercept' : 'chase');
+  who.plan = {kind, x: fr.x, z: fr.z, t: Math.max(0, fr.t - age), y: fr.y, at: ms.t, first: null, push: null};
+  planFirst(ms, who);
 }
 
 // a header plan: run to the spot, jump to meet it near the apex; at the attackers' end a header at goal, at the
@@ -306,6 +348,13 @@ function planFirst(ms, a){
     const d = hypot(o.m.x - p.x, o.m.z - p.z);
     if (d < nd){ nd = d; ox = o.m.x; oz = o.m.z; }
   }
+  // in his own box with a man on him: no time to bring it down, it is cleared first time, high and wide
+  const own = -dir*p.x > ms.spec.hx - 18 && Math.abs(p.z) < 22;
+  if (own && !a.isGK && p.kind !== 'receive' && nd < BRAIN.CLEAR_FIRST[0] && ms.r() < BRAIN.CLEAR_FIRST[1]){
+    const sz = p.z >= 0 ? 1 : -1;
+    p.first = {kind: 'clear', target: {x: p.x + dir*BRAIN.CLEAR_FIRST[2], y: R, z: sz*(ms.spec.hz - 5)}, contact: 1, speed: BRAIN.CLEAR_FIRST[3], firstTime: true};
+    return;
+  }
   let px = dir, pz = 0;
   if (nd < 6){ const ax = p.x - ox, az = p.z - oz, al = hypot(ax, az) || 1; px += 1.2*ax/al; pz += 1.2*az/al; }
   const pl = hypot(px, pz) || 1;
@@ -317,6 +366,15 @@ function planFirst(ms, a){
 // The options of the man on the ball and their values; picks one by the softmax (with the preference applied, and
 // counted when it changed the choice). Returns an Action, or a movement choice {kind: 'dribble'|'hold'|'shield', dir}.
 export function decideCarrier(ms, a){
+  const g = carrierOptions(ms, a);
+  let r = g.next();
+  while (!r.done) r = g.next();
+  return r.value;
+}
+// The carrier's evaluation as a sequence of slices (a generator): it yields after each team-mate's passes and after the
+// crosses, so brainStep can spread one decision over a few steps (BRAIN.EVAL_SLICE slices a step) within the step
+// budget; decideCarrier runs it through at once.
+function* carrierOptions(ms, a){
   const team = a.team, dir = ms.dirs[team], L = ms.spec.L, Wd = ms.spec.Wd, m = a.m, at = a.at;
   const tm = ms.tm[team], tempo = ms.cfg.tempo || {}, style = tm.style || {};
   const u = uOf(ms, team, m.x), w = wOf(ms, team, m.z);
@@ -366,11 +424,12 @@ export function decideCarrier(ms, a){
       add({kind, V, recv: o.id, target: {x: tx, y: R, z: tz}, speed: kind === 'pass' ? undefined : spd, contact: kind === 'lob' ? 1 : 0, off: seenOff, pOK, isMe: o.isMe});
       if (V > bestPass) bestPass = V;
     }
-    // a through ball to a runner already on his way
-    const fwd = dir*om.vx;
-    if (fwd > 3 && om.speed > 3.5 && !seenOff){
+    // a through ball to a runner already on his way, or into the space a runner holding the line is about to attack
+    const fwd = dir*om.vx, run = o.task.run, holding = !!run && !run.go && ms.t < run.until;
+    if ((fwd > 3 && om.speed > 3.5 || holding) && !seenOff){
       let t = 1.0, px = om.x, pz = om.z;
-      for (let i = 0; i < BRAIN.THROUGH_ITERS; i++){
+      if (holding){ px = run.x; pz = run.z; }
+      else for (let i = 0; i < BRAIN.THROUGH_ITERS; i++){
         px = om.x + om.vx*t; pz = om.z + om.vz*t;
         const dd = hypot(px - m.x, pz - m.z);
         t = flightTime('through', dd, passSpeedFor(dd, BRAIN.THROUGH_ARRIVE, ms.ball.rollDecel), ms.ball.rollDecel);
@@ -388,6 +447,7 @@ export function decideCarrier(ms, a){
         if (V > bestPass) bestPass = V;
       }
     }
+    yield;
   }
   // the player's own "In behind!" call: the look ground point as a through-ball option
   if (ms.call && ms.call.how === 'behind' && ms.t - ms.call.t < BRAIN.CALL_T && ms.call.point){
@@ -424,6 +484,7 @@ export function decideCarrier(ms, a){
       const V = q*clamp(0.55 + 0.45*at.passAcc/100, 0, 1);
       add({kind: 'cross', V, recv: -1, target: {x: zx, y: 1.6, z: zz}, contact: 1, speed: loftSpeedFor(dd), zone: nm});
     }
+    yield;
   }
   // 4. dribble: 7 directions, the best one is the option (the direction is a sub-choice, so seven near-equal lines
   // do not crowd the passes out of the softmax); losing it costs what the opponents would make of it here, and the
@@ -522,7 +583,6 @@ function carrierAct(ms, a, o){
       const kind = o.kind === 'lob' ? 'lob' : o.kind;
       const recv = ms.agents[o.recv];
       startKick(ms, a, {kind, target: o.target, recv: o.recv, speed: o.speed, contact: o.contact || 0, pOK: o.pOK});
-      if (recv && recv.task.run) recv.task.run.go = true;
       return;
     }
     case 'cross':
@@ -650,9 +710,13 @@ export function decideOffBall(ms, a){
       const runner = a.arch === 'ST' || a.arch === 'W' || a.arch === 'AM' || a.arch === 'CM' && a.slot !== 'CDM';
       const run = a.task.run;
       if (run && ms.t < run.until){
-        if (!run.go && ms.t >= run.goAt) run.go = true;
         if (run.go){ out.x = run.x; out.z = run.z; out.gait = 'sprint'; out.stop = 0.5; }
-        else { const hold = teamToPitch(ms, team, Math.min(au + 1, tm.lineOpp - BRAIN.RUN_HOLD), wOf(ms, team, run.z), {x: 0, z: 0}); out.x = hold.x; out.z = hold.z; out.gait = 'jog'; out.stop = 0.4; }
+        else {
+          // he holds just onside of the real line (the second-last defender or the ball) until the pass is struck
+          const line = offsidePosition(ms, a, team).line - RULES.OFF.body - BRAIN.RUN_HOLD;
+          const hold = teamToPitch(ms, team, Math.min(au + 1, line), wOf(ms, team, run.z), {x: 0, z: 0});
+          out.x = hold.x; out.z = hold.z; out.gait = 'jog'; out.stop = 0.4;
+        }
         return out;
       } else if (run) a.task.run = null;
       if (runner && !a.task.run && carrier !== a){
@@ -667,8 +731,7 @@ export function decideOffBall(ms, a){
           const depth = BRAIN.RUN_DEPTH[0] + (BRAIN.RUN_DEPTH[1] - BRAIN.RUN_DEPTH[0])*ms.r();
           const tw = clamp(wOf(ms, team, m.z) + (ms.r() - 0.5)*10, 4, Wd - 4);
           const t = teamToPitch(ms, team, Math.min(L - 4, tm.lineOpp + depth), tw, {x: 0, z: 0});
-          const next = carrier.brain.next;
-          a.task.run = {x: t.x, z: t.z, until: ms.t + 4.5, goAt: Math.max(ms.t, next - 0.35), go: false};
+          a.task.run = {x: t.x, z: t.z, until: ms.t + 4.5, go: false};
           return decideOffBall(ms, a);
         }
       }
@@ -762,6 +825,15 @@ function defenderOnLine(ms, team, a){
 }
 
 // the presser's approach to 1.6 m on the goal side, then the jockey, and the tackle when the ball is exposed
+// is he the last of his side between the carrier and the goal (the keeper apart)?
+function lastMan(ms, a, carrier){
+  const dir = ms.dirs[a.team], gx = -dir*ms.spec.hx, dc = Math.abs(gx - carrier.m.x);
+  for (const o of ms.agents){
+    if (o.team !== a.team || o === a || !o.onPitch || o.isGK || o.leaving) continue;
+    if (Math.abs(gx - o.m.x) < dc) return false;
+  }
+  return true;
+}
 function pressMove(ms, a, carrier){
   const dir = ms.dirs[a.team], cm = carrier.m, m = a.m, b = ms.ball;
   const ogx = -dir*ms.spec.hx, vx = ogx - cm.x, vz = -cm.z, vl = hypot(vx, vz) || 1;
@@ -781,7 +853,9 @@ function pressMove(ms, a, carrier){
     // ever from behind him (that is how fouls are given away)
     const exposed = cbd > 0.45 || db < cbd + 0.25;
     const behind = (cm.x - m.x)*(-sin(cm.yaw)) + (cm.z - m.z)*(-cos(cm.yaw)) > 0.4;
-    const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100);
+    // a man on a yellow card goes in less, and so does the last man before the keeper (he jockeys instead)
+    const care = (a.booked ? BRAIN.CARE[0] : 1)*(lastMan(ms, a, carrier) ? BRAIN.CARE[1] : 1);
+    const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100)*care;
     if (ms.r() < rate/60){
       const err = 0.12*(1 - a.at.tackling/110)*gauss(ms.r);
       const kind = db > 1.0 && !behind ? 'poke' : 'stand';
@@ -792,7 +866,11 @@ function pressMove(ms, a, carrier){
   // the slide: chasing at speed with the ball out in front of the carrier
   if (m.speed > BRAIN.SLIDE_V && db < 3.0 && db > 1.2 && cbd > 0.7 && b.p.y < 0.4){
     const toBall = ((b.p.x - m.x)*m.vx + (b.p.z - m.z)*m.vz)/(db*m.speed || 1);
-    if (toBall > 0.85 && ms.r() < BRAIN.SLIDE_RATE/60){
+    // hardly ever from behind the carrier (a slide through the man is a red card)
+    const behind = (cm.x - m.x)*(-sin(cm.yaw)) + (cm.z - m.z)*(-cos(cm.yaw)) > 0.4;
+    // and never at a closing speed that makes it reckless, nor on a yellow card
+    const closing = m.speed - ((cm.x - m.x)*cm.vx + (cm.z - m.z)*cm.vz)/(dc || 1);
+    if (toBall > 0.85 && !a.booked && closing < BRAIN.SLIDE_CLOSE && ms.r() < BRAIN.SLIDE_RATE*(behind ? BRAIN.TACKLE_RATE[2] : 1)/60){
       const err = 0.12*(1 - a.at.tackling/110)*gauss(ms.r);
       startTackle(ms, a, 'slide', carrier, err);
     }
@@ -1100,37 +1178,71 @@ export function brainStep(ms, h){
     for (const a of ms.agents) if (a.onPitch && a.role === 'player' && isAI(ms, a) && !a.isGK) standStill(a);
     return;
   }
-  // who goes for the ball
-  if (ms.poss.ctl < 0 && ms.ball.state === 'free' && (ms.planSeq !== ms.predSeq || ms.step - ms.planStep >= BRAIN.PLAN_EVERY)) ballPlans(ms);
+  // who goes for the ball: both sides when the path changes (or every PLAN_EVERY steps), one side a step
+  if (ms.poss.ctl < 0 && ms.ball.state === 'free'){
+    if (ms.planSeq !== ms.predSeq || ms.step - ms.planStep >= BRAIN.PLAN_EVERY){
+      ms.planSeq = ms.predSeq; ms.planStep = ms.step;
+      ms.planDue = 3; ms.planFirst = 1 - (ms.planFirst || 0);
+    }
+    if (ms.planDue){
+      const team = ms.planDue === 3 ? ms.planFirst : ms.planDue === 1 ? 0 : 1;
+      ms.planDue &= ~(1 << team);
+      ballPlans(ms, team);
+    }
+  } else ms.planDue = 0;
   if (ms.poss.ctl >= 0) for (const a of ms.agents) if (a.plan && a.plan.kind !== 'header') a.plan = null;
   prefCapUpdate(ms);
-  // the carrier
+  // the carrier: his evaluation runs over a few steps (a slice of team-mates a step); a carrier who lost the ball,
+  // or is already kicking, drops it
   const c = ctlAgent(ms);
+  let E = ms.carrierEval;
+  if (E && (!c || E.agent !== c.id || c.act || c.pendKick || ms.ball.state !== 'free')) E = ms.carrierEval = null;
   if (c && isAI(ms, c) && !c.isGK){
     const due = (ms.t >= c.brain.next || c.brain.pending) && !c.pendKick;
-    if (due && !c.act && heavy > 0 && ms.ball.state === 'free'){
-      heavy--;
+    if (!E && due && !c.act && heavy > 0 && ms.ball.state === 'free'){
       c.brain.pending = false;
       const press = pressureOn(ms, c);
       const cad = (BRAIN.CARRIER0 - BRAIN.CARRIER_K*c.at.vision)*(press > 0.5 ? BRAIN.PRESSED : 1);
       c.brain.next = ms.t + Math.max(0.12, cad);
-      const o = decideCarrier(ms, c);
-      c.hold = null;
-      carrierAct(ms, c, o);
+      E = ms.carrierEval = {agent: c.id, gen: carrierOptions(ms, c)};
+    }
+    if (E && heavy > 0){
+      heavy--;
+      let r = null;
+      for (let i = 0; i < BRAIN.EVAL_SLICE; i++){ r = E.gen.next(); if (r.done) break; }
+      if (r && r.done){
+        ms.carrierEval = null;
+        c.hold = null;
+        carrierAct(ms, c, r.value);
+      }
     }
   }
   // the player as the carrier: his team-mates call for it when they are among his best options (the HUD and audio)
   if (c && c.isMe && ms.step % 30 === 3) mateCalls(ms, c);
   // the AI player calling for the ball (harness: the player as an AI agent behaves like one who uses R)
   if (ms.meAI && ms.me >= 0 && ms.step % 20 === 11) aiMeCall(ms);
+  // a keeper with the ball in his hands is left alone to release it: nobody of theirs stands within 6 m of him
+  const gkHold = c && c.isGK && ms.ball.state === 'held' && ms.ball.holder === c.id ? c : null;
   // everyone else
   const n = ms.agents.length;
   for (let i = 0; i < n; i++){
     const a = ms.agents[i];
     if (!a.onPitch || a.role !== 'player' || a.isGK || !isAI(ms, a)) continue;
     if (a.leaving){ steer(a, a.exit.x, a.exit.z, 'jog', 0.1); continue; }
+    if (gkHold && a.team !== gkHold.team){
+      const dx = a.m.x - gkHold.m.x, dz = a.m.z - gkHold.m.z, d = hypot(dx, dz);
+      if (d < BRAIN.GK_SPACE){
+        const k = (BRAIN.GK_SPACE + 1)/(d || 1), gx = ms.dirs[gkHold.team];
+        steer(a, gkHold.m.x + (d > 0.1 ? dx*k : gx*(BRAIN.GK_SPACE + 1)), gkHold.m.z + (d > 0.1 ? dz*k : 0), 'run', 0.3, null);
+        a.state = 'run';
+        continue;
+      }
+    }
     if (a.act && a.act.kind !== 'header') continue;
     if (a === c){ carrierMove(ms, a); continue; }
+    // a runner holding the line goes the moment the pass to him is struck
+    const run = a.task.run;
+    if (run && !run.go && c && c.team === a.team && c.act && c.act.kind === 'kick' && c.act.action && c.act.action.recv === a.id){ run.go = true; a.tgtSet = false; }
     const p = a.plan;
     if (p && (p.kind === 'receive' || p.kind === 'chase' || p.kind === 'intercept')){
       // to the reach point, in time (a sprint when the margin is thin), facing the ball
@@ -1153,8 +1265,8 @@ export function brainStep(ms, h){
       if (tLeft < -0.2) a.plan = null;
       continue;
     }
-    // the presser
-    if (a.task.press === 1 && c && c.team !== a.team && ms.phase === 'live'){ pressMove(ms, a, c); continue; }
+    // the presser (never a keeper holding the ball)
+    if (a.task.press === 1 && c && c.team !== a.team && ms.phase === 'live' && !gkHold){ pressMove(ms, a, c); continue; }
     if (a.state === 'jockey') a.state = 'idle';
     // off-ball targets at 4 Hz
     if ((ms.step % BRAIN.OFFBALL_EVERY) === (a.id % BRAIN.OFFBALL_EVERY) || !a.tgtSet){

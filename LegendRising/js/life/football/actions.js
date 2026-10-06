@@ -36,8 +36,10 @@ export const ACT = Object.freeze({
   LOSE_CTL: 2.4,                                // control is lost when the ball is this far from the controller
   HEADER_LOAD: 0.18, HEADER_RECOVER: 0.25,
   THROW_DUR: 1.0, THROW_REL: 0.62, THROW_Y: 2.0,
-  BLOCK_GLANCE: 0.5, BLOCK_BACK: [0.25, 0.45],     // half the blocks glance on, half come back off the shin at this share
-  BLOCK_KEEP: [0.4, 0.7]                       // a leg block keeps this share of the ball's speed
+  BLOCK_GLANCE: 0.7, BLOCK_BACK: [0.25, 0.45],     // most blocks glance on (turned), the rest come back off the shin at this share
+  BLOCK_KEEP: [0.4, 0.7],                      // a leg block keeps this share of the ball's speed
+  BLOCK_TURN: [70, 70], BLOCK_LOOP: 4,         // degrees a glance and a square block turn it, at most; a glance loops up to 4 m/s
+  SETTLE: [0.12, 0.25, 0.6],                   // the first decision after a reception: pressed, a heavy touch, settled on it
 });
 
 /* ---------- the shared ball path cache (1.5.6) ---------- */
@@ -261,8 +263,10 @@ export function receive(ms, a, push = null, pushK = 0.5){
   onTouch(ms, a, 'control', ev);
   setCtl(ms, a);
   a.plan = null; a.drib = null; a.ctlT = ms.t;
-  a.brain.next = Math.min(a.brain.next, ms.t + (ft.heavy ? 0.25 : 0.12));
-  a.brain.pending = true;
+  // he looks up once it is under control: at once under pressure, after a heavy touch a little later, unpressed he settles it
+  const prs = pressureOn(ms, a);
+  a.brain.next = ms.t + (prs > 0.5 ? ACT.SETTLE[0] : ft.heavy ? ACT.SETTLE[1] : ACT.SETTLE[2]);
+  a.brain.pending = false;
   refreshPred(ms);
   return ev;
 }
@@ -272,10 +276,11 @@ export function block(ms, a){
   // a glancing touch sends it on, turned (often wide of where it was going); a square one sends it back off the shin
   const glance = r() < ACT.BLOCK_GLANCE;
   const k = glance ? ACT.BLOCK_KEEP[0] + (ACT.BLOCK_KEEP[1] - ACT.BLOCK_KEEP[0])*r() : -(ACT.BLOCK_BACK[0] + (ACT.BLOCK_BACK[1] - ACT.BLOCK_BACK[0])*r());
-  const spread = glance ? 45 : 70;
+  // a glance turns it hard (off the side of the boot or the shin, often looping up), a square block less
+  const spread = glance ? ACT.BLOCK_TURN[0] : ACT.BLOCK_TURN[1];
   const ang = (r() - 0.5)*2*spread*DEG, c = cos(ang), s = sin(ang);
   const vx = b.v.x*k, vz = b.v.z*k;
-  ballKick(b, {x: vx*c - vz*s, y: Math.max(0, b.v.y*k) + 0.6*r(), z: vx*s + vz*c}, null, {agent: a.id, team: a.team, kind: 'block', t: ms.t});
+  ballKick(b, {x: vx*c - vz*s, y: Math.max(0, b.v.y*k) + (glance ? ACT.BLOCK_LOOP*r() : 0.6*r()), z: vx*s + vz*c}, null, {agent: a.id, team: a.team, kind: 'block', t: ms.t});
   const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'block', quality: 0});
   chainTouch(ms, a, 'block', ev);
   onTouch(ms, a, 'block', ev);
