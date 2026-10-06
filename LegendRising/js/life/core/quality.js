@@ -24,12 +24,14 @@
    it down until the next place: the picture never pumps), and every new place starts again from the top
    (resetForZone). Slow means the frame's work is too much, not merely that frames come slowly: where the GPU can
    time itself (EXT_disjoint_timer_query_webgl2) a frame's work is the larger of its GPU and main-thread time and only
-   over 13 ms counts as slow; without the timer, a browser that holds the page to 30 fps (an energy saver) is
-   recognised (28 to 31 fps with the main thread under 10 ms) and left alone. Under Auto, eight slow seconds in a row
+   over 13 ms counts as slow; with no GPU time read in that second (no timer, or nothing drawn), a browser that holds
+   the page to 30 fps (an energy saver) is recognised (28 to 31 fps with the main thread under 10 ms) and left alone. Under Auto, eight slow seconds in a row
    at the resolution floor step the tier down for the session (gfxStepDown, util.js), at the next safe moment, and
    frames 30 to 210 after the first place is built are measured once per computer: a median frame over 13 ms (or
    under 50 fps without the timer) moves Auto's choice one tier down for good (gfxDetect measured).
-   A new size is only ever applied at the top of a frame, before it is drawn: resizing the canvas clears it. */
+   A new size is only ever applied at the top of a frame, before it is drawn: resizing the canvas clears it.
+   The screen is covered (isScreenCovered) under the opaque fade and while an opaque overlay says it is up
+   (screenCover): nothing needs drawing then, and every body is state-only (sched.js). */
 import {THREE, W, remat, rematCache, onBegin, rescaleTextures} from "../build.js";
 import {RT, FLAGS, FADE, LIFE, P as ME_P} from "./state.js";
 import {mode, modeFlags} from "./modes.js";
@@ -49,8 +51,13 @@ export const RQ = {P:null, aa:null, want:null, reason:"", pending:false, busy:fa
   canvasSubs:[], swapSubs:[], unsub:null, input:null, measure:{frame:0, cpu:[], gpu:0, gn:0, t:0, n:0, done:false}};
 
 const shadowOn = P => !P || !!(P.shadow && (P.shadow.life || P.shadow.stadium));
-const covered = () => FADE.v >= .98;
-// the screen is covered by an opaque fade: nothing needs drawing, no shadows or reflections need baking
+const fadeCovered = () => FADE.v >= .98;
+/* opaque overlays over the 3D view (a full-screen card, the hub) say so: screenCover(true, who) when they come up and
+   screenCover(false, who) when they go (DESIGN 3.9.6) */
+const COVERS = new Set();
+export function screenCover(on, who = "overlay"){ if (on) COVERS.add(who); else COVERS.delete(who); }
+const covered = () => fadeCovered() || COVERS.size > 0;
+// the screen is covered by an opaque fade or overlay: nothing needs drawing, no shadows or reflections need baking
 export function isScreenCovered(){ return covered(); }
 // the actors are all state-only while the screen is covered or a minigame or the time-lapse card is up (sched.js)
 SCHED.covered = () => covered() || !!MINI.on;
@@ -278,10 +285,10 @@ const fadeEl = () => document.getElementById("lifeFade");
 async function swap(){
   RQ.busy = true;
   const el = fadeEl(), shown = LIFE.running && el && !document.hidden;
-  const own = !!shown && !(covered() && el.style.opacity === "1");
+  const own = !!shown && !(fadeCovered() && el.style.opacity === "1");
   try {
     if (own){ FADE.boot = false; el.style.transition = "opacity .2s ease"; el.style.opacity = "1"; el.dataset.gfx = "1"; FADE.v = 1; await wait(240); }
-    if (shown && (el.style.opacity !== "1" || !covered())){ el.style.transition = "none"; el.style.opacity = "1"; el.dataset.gfx = "1"; FADE.v = 1; }
+    if (shown && (el.style.opacity !== "1" || !fadeCovered())){ el.style.transition = "none"; el.style.opacity = "1"; el.dataset.gfx = "1"; FADE.v = 1; }
     swapNow(RQ.want);
   } catch(e){ console.error("graphics change failed", e); }
   if (el && el.dataset.gfx){ delete el.dataset.gfx; el.style.transition = "opacity .3s ease"; el.style.opacity = "0"; FADE.v = 0; }

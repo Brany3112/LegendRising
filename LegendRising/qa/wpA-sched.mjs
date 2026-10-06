@@ -6,7 +6,7 @@
 //           never slower than T2; your own body T0; a body hidden behind a wall T4 (one cached ray)
 //   rates   over 2 s at 60 fps: T1 thinks every frame, T2 at 10 Hz, T3 at 5 Hz, T4 at hiddenHz; a static actor is
 //           posed at staticHz while in view and asked when() once a second
-//   cover   with the screen covered every actor is T4
+//   cover   with the screen covered (the fade, or an opaque overlay through screenCover) every actor is T4
 //
 //   QA_PORT=8772 node qa/wpA-sched.mjs        writes qa/out/wpA-sched.json
 import {launch, career, freeze, expect, report} from "./lib.mjs";
@@ -41,6 +41,12 @@ try {
     for (const id in A) A[id].tiers.length = 0;
     L.FADE.v = 1; L.stepN(10); L.FADE.v = 0;
     res.covered = Object.keys(A).filter(id => A[id].tiers.length).map(id => A[id].tiers[A[id].tiers.length - 1]);
+    // an opaque overlay says so (quality.js screenCover): the same
+    const Qm = await import("./js/life/core/quality.js");
+    for (const id in A) A[id].tiers.length = 0;
+    Qm.screenCover(true, "qa"); L.stepN(10);
+    res.overlay = {covered: Qm.isScreenCovered(), tiers: Object.keys(A).filter(id => A[id].tiers.length).map(id => A[id].tiers[A[id].tiers.length - 1])};
+    Qm.screenCover(false, "qa"); res.overlay.after = Qm.isScreenCovered();
     for (const h of hs) SCHED.remove(h);
     // occlusion: a body 4 m behind the bedroom wall you face
     L.enterZone("home", "bed"); L.FADE.v = 0; L.stepN(5); L.renderer().render(L.scene(), L.cam);
@@ -67,6 +73,7 @@ try {
   check("T4 thinks at hiddenHz (5 on Low)", th.behind >= 8 && th.behind <= 12, th.behind);
   check("static: posed at staticHz in view, when() once a second", r.anim.static >= 8 && r.anim.static <= 12 && r.when >= 2 && r.when <= 3, {anim: r.anim.static, when: r.when});
   check("covered: every actor is T4", r.covered.length > 0 && r.covered.every(x => x === 4), r.covered);
+  check("an opaque overlay (screenCover) covers like the fade, and lifts", r.overlay.covered && !r.overlay.after && r.overlay.tiers.length > 0 && r.overlay.tiers.every(x => x === 4), r.overlay);
   check("a body behind a wall is T4", r.occluded.last.length > 0 && r.occluded.last.every(x => x === 4), r.occluded);
   check("no errors", errors.length === 0, errors.slice(0, 5));
 } finally { await close(); }

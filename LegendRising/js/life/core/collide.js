@@ -260,11 +260,11 @@ export function touching(sx, sz){
    Every triangle of the place's fixed geometry (the static batches, read from the CPU copy chunks.js keeps, and the
    other fixed meshes), sorted once into 1 m cells when the place is built, and a ray walks the cells it passes through
    (Amanatides and Woo). Doors and other things that move are not in it: their collision boxes are tested instead. */
-export const CG = {tri:null, n:0, x0:0, y0:0, z0:0, nx:0, ny:0, nz:0, start:null, items:null, stamp:null, mark:0};
+export const CG = {tri:null, pl:null, n:0, x0:0, y0:0, z0:0, nx:0, ny:0, nz:0, start:null, items:null, stamp:null, mark:0};
 const CS = 1;
 const _I4 = new THREE.Matrix4();
 export function camGridBuild(){
-  CG.tri = CG.start = CG.items = CG.stamp = null; CG.n = 0;
+  CG.tri = CG.pl = CG.start = CG.items = CG.stamp = null; CG.n = 0;
   try {
     const scene = RT.scene;
     scene.updateMatrixWorld(true);
@@ -297,6 +297,15 @@ export function camGridBuild(){
       }
     }
     CG.tri = T; CG.n = n;
+    // each triangle's plane (unit normal and offset): a ray that stays on one side of it over its length cannot meet it
+    const PL = new Float32Array(n*4);
+    for (let i = 0; i < n; i++){
+      const a = i*9, e1x = T[a + 3] - T[a], e1y = T[a + 4] - T[a + 1], e1z = T[a + 5] - T[a + 2], e2x = T[a + 6] - T[a], e2y = T[a + 7] - T[a + 1], e2z = T[a + 8] - T[a + 2];
+      const nx = e1y*e2z - e1z*e2y, ny = e1z*e2x - e1x*e2z, nz = e1x*e2y - e1y*e2x, L = Math.hypot(nx, ny, nz);
+      if (L < 1e-12) continue;
+      PL[i*4] = nx/L; PL[i*4 + 1] = ny/L; PL[i*4 + 2] = nz/L; PL[i*4 + 3] = (nx*T[a] + ny*T[a + 1] + nz*T[a + 2])/L;
+    }
+    CG.pl = PL;
     const NX = CG.nx, NY = CG.ny, NZ = CG.nz, cells = NX*NY*NZ, cnt = new Int32Array(cells + 1);
     const span = (i, f) => {
       const a = i*9;
@@ -336,7 +345,7 @@ export function camCast(ox, oy, oz, dx, dy, dz, len, skip = null, out = null){
   let best = SG.ray(ox, oy, oz, dx, dy, dz, len, skip, out), tri = -1;
   if (!CG.tri) return best;
   // the drawn geometry: walk the cells along the ray
-  const T = CG.tri, NX = CG.nx, NY = CG.ny, NZ = CG.nz, st = CG.start, it = CG.items, stamp = CG.stamp;
+  const T = CG.tri, PL = CG.pl, NX = CG.nx, NY = CG.ny, NZ = CG.nz, st = CG.start, it = CG.items, stamp = CG.stamp;
   if (++CG.mark > 4e9){ stamp.fill(0); CG.mark = 1; }
   const mark = CG.mark;
   let cx = Math.floor((ox - CG.x0)/CS), cy = Math.floor((oy - CG.y0)/CS), cz = Math.floor((oz - CG.z0)/CS);
@@ -349,6 +358,9 @@ export function camCast(ox, oy, oz, dx, dy, dz, len, skip = null, out = null){
       const c = (cz*NY + cy)*NX + cx;
       for (let j = st[c], e = st[c + 1]; j < e; j++){
         const i = it[j]; if (stamp[i] === mark) continue; stamp[i] = mark;
+        // the ray from here to the nearest hit so far stays more than 0.1 mm on one side of the triangle's plane: no hit
+        const p = i*4, pnx = PL[p], pny = PL[p + 1], pnz = PL[p + 2], s0 = pnx*ox + pny*oy + pnz*oz - PL[p + 3], s1 = s0 + (pnx*dx + pny*dy + pnz*dz)*best;
+        if ((s0 > 1e-4 && s1 > 1e-4) || (s0 < -1e-4 && s1 < -1e-4)) continue;
         const a = i*9;
         // Moller and Trumbore, both faces
         const e1x = T[a + 3] - T[a], e1y = T[a + 4] - T[a + 1], e1z = T[a + 5] - T[a + 2], e2x = T[a + 6] - T[a], e2y = T[a + 7] - T[a + 1], e2z = T[a + 8] - T[a + 2];

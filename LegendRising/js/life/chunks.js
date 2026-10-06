@@ -47,7 +47,7 @@ export function finishChunks(batches){
   for (const [key, B] of batches){
     if (!B.pieces.length) continue;
     const base = key.split("|")[0], far = key.endsWith("|far"), noDetail = GLOWS.has(base) || FLOORS.has(base);
-    // the groups: one per (tile, layer), plus one for the giants
+    // the groups: one per (tile, layer, band), plus one for the giants
     const groups = new Map();
     for (const pc of B.pieces){
       const dx = pc.x1 - pc.x0, dz = pc.z1 - pc.z0, dy = pc.y1 - pc.y0;
@@ -140,17 +140,19 @@ function cull(){
    at least OCC_AREA square metres, within OCC_RANGE and big enough from where you stand to cover a cell) are drawn
    into a small depth picture (OW x OH cells), each cell only when the face covers all of it, at the face's furthest
    depth over the cell. A batch instance (a tile, storey band and key; see finishChunks) is then left out of that
-   frame's draw when every cell its bounding box covers on screen holds a face nearer
-   than the nearest corner of the box. Both sides of the test err towards drawing: a cell partly covered counts as
-   open, a box is measured by its outer rectangle and its nearest corner, a face is used only from the side it is
-   drawn from, glass, glowing panes and anything see-through never hide anything, and neither do the parts that can
-   move (they are not in the batches). Nothing is ever left out that a pixel of could show. The shadow pass is
-   untouched (it draws with the light's camera), and so is any other camera */
+   frame's draw when every cell its bounding box covers on screen holds a face nearer than the nearest corner of the
+   box. Two triangles of one flat quad count as the quad, and a wall's rows across its columns (build.js wall) are
+   added, so the seams inside a wall do not read as holes. Both sides of the test err towards drawing: a cell partly
+   covered counts as open, a box is measured by its outer rectangle and its nearest corner, a face is used only from
+   the side it is drawn from, glass, glowing panes and anything see-through never hide anything, and neither do the
+   parts that can move (they are not in the batches). Nothing is ever left out that a pixel of could show (qa/
+   wpA-occlusion.mjs draws every view with and without the test and compares). The shadow pass is untouched (it draws
+   with the light's camera), and so is any other camera */
 const OCC_AREA = .3, OCC_RANGE = 48, OCC_SIZE = .02, OW = 64, OH = 36, BW = OW >> 2, BH = OH >> 2;
 export const OC = {on:true, n:0, pts:null, nv:null, ctr:null, mi:null, inst:null, tmp:null, buf:new Float32Array(OW*OH), blk:new Float32Array(BW*BH),
-  e:new Float64Array(16), fp:new Float64Array(24), frame:-1, cam:null, near:.05, used:0, tested:0, culled:0, culledTris:0, ms:0};
+  e:new Float64Array(16), fp:new Float64Array(24), frame:-1, cam:null, r:null, near:.05, used:0, tested:0, culled:0, culledTris:0, ms:0};
 const occTmp = () => ({pts:[], nv:[], ctr:[], mi:[], inst:[]});
-function occReset(){ OC.n = 0; OC.pts = OC.nv = OC.ctr = OC.mi = OC.inst = null; OC.tmp = occTmp(); OC.frame = -1; OC.cam = null; }
+function occReset(){ OC.n = 0; OC.pts = OC.nv = OC.ctr = OC.mi = OC.inst = null; OC.tmp = occTmp(); OC.frame = -1; OC.cam = OC.r = null; }
 occReset();
 // can a key's faces hide what is behind them? Opaque, not glass, not a glowing pane, not the far skyline
 const occluder = (base, far, m) => !far && base !== "glass" && !GLOWS.has(base) && !m.transparent && !(m.alphaTest > 0) && m.opacity >= 1 && !m.alphaMap;
@@ -220,10 +222,10 @@ const PX = new Float64Array(6), PY = new Float64Array(6), PW = new Float64Array(
 const EA = new Float64Array(6), EB = new Float64Array(6), EC = new Float64Array(6), XS = new Float64Array(4), YS = new Float64Array(4), WS = new Float64Array(4);
 // the depth picture for this frame and camera (once per render)
 function occFrame(cam){
-  const f = RT.renderer ? RT.renderer.info.render.frame : 0;
-  if (OC.frame === f && OC.cam === cam) return;
+  const rend = RT.renderer, f = rend ? rend.info.render.frame : 0;
+  if (OC.frame === f && OC.cam === cam && OC.r === rend) return;
   const t0 = performance.now();
-  OC.frame = f; OC.cam = cam; OC.near = cam.near; OC.used = OC.tested = OC.culled = OC.culledTris = 0;
+  OC.frame = f; OC.cam = cam; OC.r = rend; OC.near = cam.near; OC.used = OC.tested = OC.culled = OC.culledTris = 0;
   const e = _vp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).elements, E = OC.e;
   for (let i = 0; i < 16; i++) E[i] = e[i];
   // the view's six planes (inside: a*x + b*y + c*z + d >= 0): the last row of the matrix plus or minus each other row
