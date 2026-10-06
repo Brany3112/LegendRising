@@ -107,7 +107,13 @@ export function chainControl(ms, a, how, ev){
   const p = ch.pass;
   if (p && !p.res){
     if (p.team === team) resolvePass(ms, p, p.agent === a.id ? 'lost' : 'ok', a.id);
-    else { resolvePass(ms, p, 'int', a.id); if (ev) ev.intercept = p.id; }
+    else {
+      // cut out on its way (within its travel time and a little): an interception; picked up after it ran dead or
+      // astray: a misplaced pass, the ball recovered
+      const travel = (p.dist || 20)/Math.max(4, 0.7*(p.speed || 15)) + 0.4;
+      if (ms.t - p.t <= travel){ resolvePass(ms, p, 'int', a.id); if (ev) ev.intercept = p.id; }
+      else resolvePass(ms, p, 'lost', a.id);
+    }
   }
   if (ch.shot && !ch.shot.res && ch.shot.team !== team){
     // the defending side has it: a shot that was not on target and did not go out was blocked or cleared
@@ -313,21 +319,30 @@ export function minsOn(ms, a){
 // counter keys of the rating, the archetypes, and the committed tables (the harness refits E and R0: --fit-ratings)
 const ARCHS = ['ST', 'W', 'AM', 'CM', 'DF'];
 export const RATE = {
-  R0: 6.25,
+  R0: 6.2,
   W: {
     pc: {ST: .015, W: .015, AM: .02, CM: .02, DF: .015}, pf: -.05, kp: .15, sot: .10, soff: -.04, bcm: -.25, drb: .12,
     dis: -.08, tkl: {ST: .22, W: .22, AM: .25, CM: .34, DF: .42}, int: {ST: .10, W: .10, AM: .10, CM: .12, DF: .14},
     aw: {ST: .06, W: .06, AM: .06, CM: .06, DF: .10}, al: {ST: -.04, W: -.04, AM: -.04, CM: -.04, DF: -.08}, fouls: -.08,
     offs: -.05, beaten: {ST: -.12, W: -.12, AM: -.12, CM: -.12, DF: -.18}, err: -.5
   },
+  // E: medians per 90 of the harness's starters (node qa/harness.mjs --n 48 --fit-ratings), committed by WP-E
   E: {
-    pc: {ST: 12, W: 18, AM: 24, CM: 30, DF: 26}, pf: {ST: 5, W: 6, AM: 6, CM: 5, DF: 4}, kp: {ST: 1.0, W: 1.4, AM: 1.8, CM: 1.0, DF: 0.3},
-    sot: {ST: 1.5, W: 0.9, AM: 0.9, CM: 0.4, DF: 0.15}, soff: {ST: 1.6, W: 1.0, AM: 1.0, CM: 0.6, DF: 0.3}, bcm: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
-    drb: {ST: 1.0, W: 2.0, AM: 1.6, CM: 0.9, DF: 0.3}, dis: {ST: 2.5, W: 2.5, AM: 2.2, CM: 1.4, DF: 0.6},
-    tkl: {ST: 0.5, W: 1.0, AM: 1.2, CM: 2.2, DF: 2.4}, int: {ST: 0.3, W: 0.5, AM: 0.7, CM: 1.6, DF: 2.0},
-    aw: {ST: 2.5, W: 0.8, AM: 0.6, CM: 1.2, DF: 3.0}, al: {ST: 2.5, W: 1.0, AM: 0.8, CM: 1.2, DF: 2.0},
-    fouls: {ST: 1.2, W: 1.0, AM: 1.2, CM: 1.4, DF: 1.3}, offs: {ST: 0.8, W: 0.4, AM: 0.3, CM: 0.1, DF: 0.05},
-    beaten: {ST: 0.5, W: 1.0, AM: 1.0, CM: 1.2, DF: 1.0}, err: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0}, saves: {GK: 3.0}
+    pc: {ST: 10, W: 15, AM: 12, CM: 12, DF: 14},
+    pf: {ST: 5, W: 7, AM: 4.5, CM: 5.42, DF: 7},
+    kp: {ST: 0, W: 0, AM: 1, CM: 0, DF: 0},
+    sot: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
+    soff: {ST: 1, W: 0, AM: 0, CM: 0, DF: 0},
+    drb: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
+    dis: {ST: 3, W: 3, AM: 2, CM: 3, DF: 3},
+    tkl: {ST: 0, W: 1, AM: 1, CM: 1, DF: 1},
+    int: {ST: 5, W: 6, AM: 4, CM: 5, DF: 4},
+    aw: {ST: 0, W: 0, AM: 0.5, CM: 0, DF: 0},
+    al: {ST: 0, W: 0, AM: 0.5, CM: 0, DF: 0},
+    fouls: {ST: 0, W: 0, AM: 1, CM: 1, DF: 1},
+    offs: {ST: 0.5, W: 0, AM: 0, CM: 0, DF: 0},
+    beaten: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
+    bcm: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0}, err: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0}, saves: {GK: 3.0}
   },
   G: {ST: 1.15, W: 1.10, AM: 1.0, CM: 1.0, DF: 1.25, GK: 1.25},
   A: {ST: 0.8, W: 0.95, AM: 1.05, CM: 1.05, DF: 1.0, GK: 1.0},

@@ -133,8 +133,8 @@ export function measure(ms){
     // positional discipline: -0.5 trust per 15% beyond 20%, at most -1.5 a match (3.2.11)
     const pd = c.posDisc > 0.2 ? Math.min(1.5, 0.5*Math.ceil((c.posDisc - 0.2)/0.15 - 1e-9)) : 0;
     const rating = RT[meId] != null ? RT[meId] : 6.5;
-    out.me = {arch: a.arch, slot: a.slot, touches: c.touches, shots: c.shots, defActs: c.defActs + c.blocks, mins: c.mins,
-      gapP95: inv.gapP95, groups: inv.groups, sides: sidesOf(ms, a.team), rating, trustD: (rating - 6.5)*8*(ms.cfg.friendly ? 0.5 : 1) + trustJ - pd,
+    out.me = {arch: a.arch, slot: a.slot, touches: c.touches, shots: c.shots, defActs: c.defActs, mins: c.mins,
+      gapP95: inv.gapP95, gaps: inv.gaps, groups: inv.groups, sides: sidesOf(ms, a.team), rating, trustD: (rating - 6.5)*8*(ms.cfg.friendly ? 0.5 : 1) + trustJ - pd,
       pref: out.pref};
   }
   return out;
@@ -194,7 +194,7 @@ function involvementOf(ms, a, C){
     for (const t of times){ if (t < s || t > e) continue; gaps.push(t - prev); prev = t; }
     gaps.push(e - prev);
   }
-  return {gapP95: pct(gaps, 0.95), groups, times: times.length};
+  return {gapP95: pct(gaps, 0.95), gaps: gaps.map(g => Math.round(g*10)/10), groups, times: times.length};
 }
 
 // where a team's attacks go: the third (left, centre, right as it attacks) of every pass it completes in the
@@ -236,8 +236,8 @@ export function aggregate(list){
   const by = {};
   for (const m of list){
     if (!m.me) continue;
-    const b = by[m.me.arch] || (by[m.me.arch] = {n: 0, touches: [], shots: [], defActs: [], gap: [], groups: {attack: 0, create: 0, set: 0, defend: 0}, trust: [], rating: []});
-    b.n++; b.touches.push(m.me.touches); b.shots.push(m.me.shots); b.defActs.push(m.me.defActs); b.gap.push(m.me.gapP95);
+    const b = by[m.me.arch] || (by[m.me.arch] = {n: 0, touches: [], shots: [], defActs: [], gap: [], gapsAll: [], groups: {attack: 0, create: 0, set: 0, defend: 0}, trust: [], rating: []});
+    b.n++; b.touches.push(m.me.touches); b.shots.push(m.me.shots); b.defActs.push(m.me.defActs); b.gap.push(m.me.gapP95); b.gapsAll.push(m.me.gaps || []);
     for (const g in b.groups) b.groups[g] += m.me.groups[g] || 0;
     b.trust.push(m.me.trustD); b.rating.push(m.me.rating);
   }
@@ -245,11 +245,12 @@ export function aggregate(list){
   for (const [k, b] of Object.entries(by)){
     const tot = Object.values(b.groups).reduce((a, x) => a + x, 0) || 1;
     const shares = {}; for (const g in b.groups) shares[g] = b.groups[g]/tot;
-    R.me[k] = {n: b.n, touches: mean(b.touches), shots: mean(b.shots), defActs: mean(b.defActs), gapP95: pct(b.gap, 0.95), gapMedian: median(b.gap),
+    R.me[k] = {n: b.n, touches: mean(b.touches), shots: mean(b.shots), defActs: mean(b.defActs), gapP95: pct([].concat(...b.gapsAll), 0.95), gapMedian: median(b.gap),
       shares, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating)};
   }
   const allMe = list.filter(m => m.me);
-  R.gapP95 = pct(allMe.map(m => m.me.gapP95), 0.95);
+  // the 95th percentile of every gap between the player's involvements, all matches together
+  R.gapP95 = pct([].concat(...allMe.map(m => m.me.gaps || [])), 0.95);
   R.trust = mean(allMe.map(m => m.me.trustD));
   const dec = list.reduce((a, m) => a + m.pref.decided, 0), rec = list.reduce((a, m) => a + m.pref.received, 0);
   R.prefShare = rec ? dec/rec : 0;

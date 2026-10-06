@@ -31,10 +31,12 @@ const sigmoid = x => 1/(1 + exp(-x));
 // 1.5.6, 3.2.3 to 3.2.5 numbers
 export const BRAIN = Object.freeze({
   HEAVY: 4,                  // heavy evaluations a step at most
-  CLEAR_FIRST: [3.0, 0.6, 32, 24],   // a loose ball in his own box with an opponent within 3 m: cleared first time 60%
-                                     // of the time, 32 m upfield toward the near touchline, struck at 24 m/s
-  CARE: [0.4, 0.5],          // tackle rate on a yellow card, and as the last man
+  CLEAR_FIRST: [3.0, 0.6, 32, 24, 12, 2.0],  // a loose ball in his own box with an opponent within 3 m: cleared first
+                                     // time 60% of the time, 32 m upfield toward the near touchline at 24 m/s; within 12 m
+                                     // of his goal line with the man within 2 m, out toward the corner flag
+  CARE: [0.4, 0.5, 0.35],    // tackle rate on a yellow card, as the last man, and for a forward (he harries, he rarely dives in)
   SLIDE_CLOSE: 5.5,          // a slide only below this closing speed (m/s)
+  ME_SHOOT: 1.3,
   GK_SPACE: 6,               // metres the other side keeps from a keeper with the ball in his hands
   EVAL_SLICE: 3,             // slices of a carrier's evaluation (a team-mate's passes, the crosses) a step
   OFFBALL_EVERY: 15,         // off-ball targets: agent i when step % 15 == i % 15 (4 Hz)
@@ -49,7 +51,7 @@ export const BRAIN = Object.freeze({
   HOLD_K: 0.6, SHIELD_LOSE: 0.45,
   SAFETY: [16, 0.55, 8, 0.03],   // out of play for safety: within 16 m of his goal line, pressed, 8 m off the middle; a corner costs 0.03
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
-  CROSS_T: 0.12, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
+  CROSS_T: 0.12, CROSS_V: 0.75, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
   CROSS_RUN: 0.5,            // a runner counts for a cross zone he reaches within the flight plus this
   CROSS_FROM: [30, 20],      // a cross is on within 30 m of the goal line and 20 m of the touchline
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
@@ -351,8 +353,12 @@ function planFirst(ms, a){
   // in his own box with a man on him: no time to bring it down, it is cleared first time, high and wide
   const own = -dir*p.x > ms.spec.hx - 18 && Math.abs(p.z) < 22;
   if (own && !a.isGK && p.kind !== 'receive' && nd < BRAIN.CLEAR_FIRST[0] && ms.r() < BRAIN.CLEAR_FIRST[1]){
-    const sz = p.z >= 0 ? 1 : -1;
-    p.first = {kind: 'clear', target: {x: p.x + dir*BRAIN.CLEAR_FIRST[2], y: R, z: sz*(ms.spec.hz - 5)}, contact: 1, speed: BRAIN.CLEAR_FIRST[3], firstTime: true};
+    const sz = p.z >= 0 ? 1 : -1, ogx = -dir*ms.spec.hx;
+    // close to his own goal line with the man right on him: safety first, out toward the corner flag (a corner or a
+    // throw costs less than a chance); further out, high and wide up the pitch
+    const deep = Math.abs(ogx - p.x) < BRAIN.CLEAR_FIRST[4] && nd < BRAIN.CLEAR_FIRST[5];
+    const target = deep ? {x: ogx - dir*2, y: R, z: sz*(ms.spec.hz + 4)} : {x: p.x + dir*BRAIN.CLEAR_FIRST[2], y: R, z: sz*(ms.spec.hz - 5)};
+    p.first = {kind: 'clear', target, contact: 1, speed: BRAIN.CLEAR_FIRST[3], firstTime: true};
     return;
   }
   let px = dir, pz = 0;
@@ -386,7 +392,8 @@ function* carrierOptions(ms, a){
   const gx = dir*ms.spec.hx, dGoal = hypot(gx - m.x, m.z);
   if (dGoal < 34){
     const xg = xgAt(ms, team, m.x, m.z);
-    const bias = (a.arch === 'DF' || a.arch === 'CM' ? 0.85 : 1)*(tempo.shotBias || 1)*(tm.lateShot || 1);
+    // the harness's stand-in for the player (meAI) shoots when he can, as a player chasing his own chances does
+    const bias = (a.arch === 'DF' || a.arch === 'CM' ? 0.85 : 1)*(tempo.shotBias || 1)*(tm.lateShot || 1)*(a.isMe && ms.meAI ? BRAIN.ME_SHOOT : 1);
     const V = xg*(0.6 + 0.6*at.accuracy/100)*bias;
     add({kind: 'shot', V, xg});
   }
@@ -480,7 +487,7 @@ function* carrierOptions(ms, a){
         else if (t <= tf) theirs++;
       }
       if (!ours) continue;
-      const q = 0.55*xgGeo(dir*(gx - zx), dir*zz)*clamp(0.5 + 0.25*ours - 0.12*theirs, 0.1, 1);
+      const q = BRAIN.CROSS_V*xgGeo(dir*(gx - zx), dir*zz)*clamp(0.5 + 0.25*ours - 0.12*theirs, 0.1, 1);
       const V = q*clamp(0.55 + 0.45*at.passAcc/100, 0, 1);
       add({kind: 'cross', V, recv: -1, target: {x: zx, y: 1.6, z: zz}, contact: 1, speed: loftSpeedFor(dd), zone: nm});
     }
@@ -854,7 +861,7 @@ function pressMove(ms, a, carrier){
     const exposed = cbd > 0.45 || db < cbd + 0.25;
     const behind = (cm.x - m.x)*(-sin(cm.yaw)) + (cm.z - m.z)*(-cos(cm.yaw)) > 0.4;
     // a man on a yellow card goes in less, and so does the last man before the keeper (he jockeys instead)
-    const care = (a.booked ? BRAIN.CARE[0] : 1)*(lastMan(ms, a, carrier) ? BRAIN.CARE[1] : 1);
+    const care = (a.booked ? BRAIN.CARE[0] : 1)*(lastMan(ms, a, carrier) ? BRAIN.CARE[1] : 1)*(a.slotLine === 'FWD' ? BRAIN.CARE[2] : 1);
     const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100)*care;
     if (ms.r() < rate/60){
       const err = 0.12*(1 - a.at.tackling/110)*gauss(ms.r);

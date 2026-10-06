@@ -27,8 +27,8 @@ const DEG = Math.PI/180, R = BALL.R, G = 9.81;
 
 // 1.5.3 and 3.1.7 numbers
 export const ACT = Object.freeze({
-  SAFETY: [12, 1.8, 16, 0.4],     // a clearing header for safety: within 12 m of his goal line, an attacker within 1.8 m
-                                  // or the ball faster than 16 m/s, taken 40% of the time
+  SAFETY: [16, 2.2, 15, 0.6],     // a clearing header for safety: within 16 m of his goal line, an attacker within 2.2 m
+                                  // or the ball faster than 15 m/s, taken 60% of the time
   REACH0: 0.45, REACH1: 0.90, REACH_LAT: 0.5,   // the ball's place for a strike: 0.45 to 0.90 m ahead, within 0.5 m across
   TC_MAX: 0.18, ADJUST: 0.35, SCUFF_D: 1.3,     // contact within 0.18 s; a stride adjust of at most 0.35 s; a scuff up to 1.3 m
   FOLLOW: 0.28,                                 // follow-through after contact
@@ -39,7 +39,7 @@ export const ACT = Object.freeze({
   BLOCK_GLANCE: 0.7, BLOCK_BACK: [0.25, 0.45],     // most blocks glance on (turned), the rest come back off the shin at this share
   BLOCK_KEEP: [0.4, 0.7],                      // a leg block keeps this share of the ball's speed
   BLOCK_TURN: [70, 70], BLOCK_LOOP: 4,         // degrees a glance and a square block turn it, at most; a glance loops up to 4 m/s
-  SETTLE: [0.12, 0.25, 0.6],                   // the first decision after a reception: pressed, a heavy touch, settled on it
+  SETTLE: [0.12, 0.25, 1.0],                   // the first decision after a reception: pressed, a heavy touch, settled on it
 });
 
 /* ---------- the shared ball path cache (1.5.6) ---------- */
