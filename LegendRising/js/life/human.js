@@ -1,83 +1,90 @@
 /* ============ LIFE: humans ============
-   Everybody you meet — team-mates, the coach, the manager, the woman behind the till — and your own body.
+   Owner: WP-B (Stage 1). Contract: DESIGN 1.2 (human.js), 1.4.18 (animation API), 3.5 (the animation overhaul), 3.9.6
+   (bodies: LOD3, prebuildHumans), 3.9.1 (the material on a preset change).
+   Everybody you meet (team-mates, the coach, the manager, the woman behind the till) and your own body.
    Each person is ONE skinned mesh: a faceted, vertex-coloured low-poly body (lathed elliptical rings for the
    torso and limbs, a shaped head with a face, hair with a real silhouette, clothes that are part of the body's
-   own surface rather than painted on) bound to a 20-bone rig, drawn with one shared material. Bodies are
+   own surface rather than painted on) bound to a 20-bone rig (rig.js), drawn with one shared material. Bodies are
    cached by shape, so team-mates with the same build/kit cut/hair share the same buffers and only carry their
-   own colours. A far LOD (about a thousand triangles, the face reduced to a few flat shapes) takes over at distance, and a single instanced
-   blob under everyone grounds them without redrawing the sun's shadow map.
+   own colours. A far body (about a thousand triangles, the face reduced to a few flat shapes, shared between people
+   of the same build and kit whatever their faces) takes over at distance, and beyond that a LOD3 body of about 200
+   indexed triangles; a single instanced blob under everyone grounds them without redrawing the sun's shadow map.
 
    ---- the API ----
-   lookFor(role, seed, extras) → look            a believable, seeded person for a role:
+   lookFor(role, seed, extras) -> look            a believable, seeded person for a role:
        "footballer" "goalkeeper" "coach" "manager" "shopkeeper" "barista" "customer" "office" "courier" "gym" "pedestrian"
-       "physio" "kitman" "receptionist" "clerk" "dispatcher" "photographer" "editor"
+       "physio" "kitman" "receptionist" "clerk" "dispatcher" "photographer" "editor" "referee" "linesman"
        extras are merged over the result (outfit fields merge into outfit); also extras.kit = [shirt, shorts], extras.number
-       (club staff — coach, physio, kit man — take the club's colours from extras.kit). The manager is always an older man
+       (club staff: coach, physio, kit man, take the club's colours from extras.kit). The manager is always an older man
        in a dark suit or long coat, with a tie and glasses: the one face at the club you know from across the room.
    look = {
-     sex:"m"|"f", age, skin (hex), height (≈.92–1.08, scales the whole body), build:"slim"|"average"|"athletic"|"stocky"|"muscular",
+     sex:"m"|"f", age, skin (hex), height (about .92 to 1.08, scales the whole body), build:"slim"|"average"|"athletic"|"stocky"|"muscular",
      hair:"short"|"fade"|"buzz"|"curly"|"afro"|"long"|"ponytail"|"bun"|"braids"|"cornrows"|"dreads"|"messy"|"bald"|"horseshoe"
        |"undercut"|"slick"|"spiky"|"mohawk" (the barber's), hairColor (hex), beard:""|"stubble"|"beard"|"goatee"|"full", eyes (iris hex), receding (0..1),
-     face:{jaw, nose, brow, eyes}  (each ≈ .9–1.12, eyes = spacing),
+     face:{jaw, nose, brow, eyes}  (each about .9 to 1.12, eyes = spacing),
      outfit:{type:"kit"|"training"|"gk"|"tracksuit"|"casual"|"polo"|"hoodie"|"jacket"|"suit"|"coat"|"apron"|"office",
              shirt, trim, shorts, trousers, socks, sockTrim, shoes, sole, stripe, number, numCol, bib (colour or false),
              glove, inner, tie (colour or false), apron (colour), apronCut:"bib"|"waist", belt,
              sleeves:"short"|"long", collar:"crew"|"v"|"polo"|"shirt"|"zip"|"hood"|"lapel"|"open",
              legwear:"kitshorts"|"shorts"|"trousers"|"jeans"|"trackpants", footwear:"boots"|"trainers"|"dress"},
      props:["clipboard", "glasses"], seed }
-   human(look, {cast, lod, track}) → h        h.g is a Group with the feet at its origin, facing +z. Add it anywhere.
+   human(look, {cast, lod, track}) -> h        h.g is a Group with the feet at its origin, facing +z. Add it anywhere.
        h.dispose() frees it (done for you when the place is rebuilt). cast:true lets it throw a real sun shadow
-       (only for people who stand still — the sun's shadow map is not redrawn every frame).
-   animateHuman(h, dt, state)     state is a mode string or {mode, speed, t, ...}; changes of mode are blended (.3 s,
-       up to .8 s when the body has far to go, e.g. getting up off the grass; state.blend overrides).
-       Every pose is then put on the ground: nothing of the body goes below the floor, a foot that would dip under
-       is lifted by IK, and people lying down (tackle, dive) are lowered until they rest on it.
+       (only for people who stand still: the sun's shadow map is not redrawn every frame). h.groundAt(x, z, y) may be
+       set to find the floor under a footstep (your own body does: stairs and kerbs); otherwise the feet stand on the
+       level of the group's origin.
+   animateHuman(h, dt, state, {tier}) -> h.ev    state is a mode string or {mode, speed, ...}; see the pipeline below.
        "idle" (breathing, weight shift, looking about; {arms:"hips"|"behind"|"folded"})
-       "move" {speed: m/s} — walk → jog → run → sprint from one speed value; stride length and cadence follow
-              the speed so the planted foot stays put (also "walk" "jog" "run" "sprint" as presets). The legs'
-              speed follows the one asked for at up to 7 m/s², and standing ↔ moving fades over ~.3 s, so a
-              caller that starts or stops a person dead still gets a first step, not a snap.
-       "kick" "pass" "trap" {t:0..1, amp}  — the ball leaves/meets the foot at t = CONTACT[mode]
-       "header" {t}  "tackle" {t}  "dive" {t, dir:±1}  "gkready"  "celebrate"  "stretch" (cycles four stretches)
-       "sit" {seat:.45}  — SEAT CONTRACT: put the group on the floor under the middle of the seat, facing the way
-              the person looks; seat = seat-top height in world metres (chairs .45–.48, benches .42–.45), whatever
-              the person's height: the backside rests on it. Feet land ~.45 m ahead; the hands lie on the thighs.
+       "move" {speed: m/s} (also "walk" "jog" "run" "sprint" as presets): the body is moved by its owner; the legs
+              measure that motion and step under it (gait.js): feet planted where they land, starts, stops, turns on
+              the spot and cuts as real footsteps. state.root {x, z}: where the body really is when its group carries a
+              cosmetic offset; state.intent: the speed the owner wants (a stop starts from it); state.style:
+              "normal" | "shuffle" | "backpedal" | "jockey"; state.phase: an outside gait clock (the match simulation)
+       "kick" "pass" "trap" {t:0..1, amp}: the ball leaves/meets the foot at t = CONTACT[mode]
+       "header" {t}  "tackle" {t}  "dive" {t, dir:+1 or -1}  "gkready"  "celebrate"  "stretch" (cycles four stretches)
+       "sit" {seat:.45}: SEAT CONTRACT: put the group on the floor under the middle of the seat, facing the way
+              the person looks; seat = seat-top height in world metres (chairs .45 to .48, benches .42 to .45), whatever
+              the person's height: the backside rests on it. Feet land about .45 m ahead; the hands lie on the thighs.
        "typing" {seat:.47, desk:.74, reach:.4, keys} (sitting, hands on a desk in front; heights and reach in world metres;
-              keys:false — no keyboard: the hands rest flat on the table top, still: a café table, a book)
+              keys:false: no keyboard, the hands rest flat on the table top, still: a cafe table, a book)
        "counter" {counter:1.0, reach:.34, lean, work} (standing, both palms flat on a counter top that high, reach ahead of
-              the feet, a hip's width apart, elbows soft; the body leans in as far as it must but no more than ~12° (lean:
-              radians overrides it; a top below hip height allows a little more); work:true — busy at it, wiping, moving things)
-       Hands that rest on something lie flat on it (palm within ~1 cm of the top, whatever the height).
+              the feet, a hip's width apart, elbows soft; the body leans in as far as it must but no more than about 12
+              degrees (lean: radians overrides it; a top below hip height allows a little more); work:true: busy at it,
+              wiping, moving things)
+       Hands that rest on something lie flat on it (palm within about 1 cm of the top, whatever the height).
        "clipboard" (the coach: board in the left hand, writing now and then, watching)
-       Any state may carry look:yaw to turn the head.
-   playerRig(look, {firstPerson:true}) → h     your own body for first person: no head, hair or neck — the body
-       stops at the shoulders in a low dome of shirt — same art style, same rig and animateHuman(); not tracked
+       Any state may carry look:yaw to turn the head, upper:{g, w} for a gesture over the rest, blend (seconds).
+       A change of mode is blended by inertialisation (default 0.2 s, longer for a body with far to go).
+   registerMode(name, fn(h, Te, st, dt)) a new pose by name (WP-K); EV the event bits of h.ev; footEvents(h) the
+       footfalls of the last call; prebuildHumans(looks) builds bodies ahead of need (PREBUILD: its last run's
+       slices); clashFree(colour, avoid) a kit colour that stands apart from others (lookFor's keeper and referee take
+       extras.avoid, both teams' shirts); animTier(h, tier) the tier to draw a person at (the scheduler's, never busier
+       than its distance allows; npc.js actor()); ANIM the full poses of this frame and the budget; bodies() every
+       body made (tests); footstep(h, side, x, z, yaw), touch(h, {ball}), gaitPlace(h) from gait.js.
+   playerRig(look, {firstPerson:true}) -> h     your own body for first person: no head, hair or neck (the body
+       stops at the shoulders in a low dome of shirt), same art style, same rig and animateHuman(); not tracked
        for LOD/blobs (one mesh, always near). The eyes of a 1.80 m body are at 1.68 (scale the rig by EYE/1.68),
-       and the camera wants to sit ~.1 m in front of the neck (z ≈ +.1 in the rig's frame): looking down you then
-       see the top of your chest and your arms, not the inside of a neck (further forward, ~.2, shows the feet too). h.bones[BONE.haR] etc. are the bones (BONE maps names → index) if a held
-       object or a camera needs to follow a hand or the chest.
+       and the camera wants to sit about .1 m in front of the neck (z about +.1 in the rig's frame): looking down you
+       then see the top of your chest and your arms, not the inside of a neck (further forward, about .2, shows the
+       feet too). h.bones[BONE.haR] etc. are the bones (BONE maps names to index) if a held object or a camera needs
+       to follow a hand or the chest.
    CONTACT = {kick, pass, trap, header}: the t at which foot (or head) meets the ball.
    VIEW = {x, y, z, fx, fz, scene}: where the camera (you, in first person) was at the last frame drawn, and the way it
-       looked (flat) — people use it to come and go only where you aren't looking.
-   you() → {x, z, here, n}: where you are now (the fresher of VIEW and your own body as last posed) — people use it to
+       looked (flat): people use it to come and go only where you aren't looking.
+   you() -> {x, z, here, n}: where you are now (the fresher of VIEW and your own body as last posed): people use it to
        get out of your way and never to step into you.
-   Budget: ~3.2k triangles near / ~1k far, ONE draw call per person (+1 for the shirt number within 9.5 m),
-   one more for all the blobs together. Bodies switch to the far LOD beyond 15 m.
+   Budget: about 3.2k triangles near, 1k far, 200 at LOD3, ONE draw call per person (+1 for the shirt number up
+   close), one more for all the blobs together. LOD distances, shirt numbers and the animation tiers follow GFX.P.
 */
-import {THREE, W} from "./build.js";
+import {THREE, W, lambertFor} from "./build.js";
+import {SCHED} from "./core/sched.js";
+import {TAU, D2R, clamp, lerp, sstep, wrap, kf, BN, PAR, BONE, B, ARM, LEG, NP, NQ, dims, restPos, restOffsets, R3, frameOf, legIK, armIK, plantHand, leanTo, PALM, UPV as _UPV,
+  eulerToQ, qEuler, qMul, qRot, qLog, qExp, qAngle, fkQ, newFK, solveLeg, ground, writeBones, LEGW} from "./rig.js";
+import {EV, gaitInit, gaitStep, gaitPose, gaitLegs, gaitPlace, footstep, touch} from "./gait.js";
+export {BONE, footstep, touch, gaitPlace};
 
 /* ---------- small maths ---------- */
-const TAU = Math.PI*2, D2R = Math.PI/180;
-const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-const lerp = (a, b, t) => a + (b - a)*t;
-const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
-const wrap = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
-// eased keyframes: [[t, v], ...]
-function kf(t, K){
-  if (t <= K[0][0]) return K[0][1];
-  for (let i = 1; i < K.length; i++) if (t <= K[i][0]) return lerp(K[i-1][1], K[i][1], sstep(K[i-1][0], K[i][0], t));
-  return K[K.length - 1][1];
-}
+
 export function rng(seed){
   let s = (seed >>> 0) || 0x9e3779b9;
   return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0)/4294967296; };
@@ -88,48 +95,6 @@ export const hashStr = s => { let h = 2166136261; for (let i = 0; i < s.length; 
 const hex = c => c == null || c === false ? null : typeof c === "number" ? c : new THREE.Color().setStyle(String(c)).getHex();
 function mixHex(a, b, t){ const A = new THREE.Color(a), B = new THREE.Color(b); return A.lerp(B, t).getHex(); }
 function shadeHex(a, f){ const c = new THREE.Color(a); c.r *= f; c.g *= f; c.b *= f; return c.getHex(); }
-
-/* ---------- the rig ---------- */
-const BN = ["root", "hips", "spine", "chest", "neck", "head", "uaL", "faL", "haL", "uaR", "faR", "haR", "thL", "shL", "ftL", "toL", "thR", "shR", "ftR", "toR"];
-const PAR = [-1, 0, 1, 2, 3, 4, 3, 6, 7, 3, 9, 10, 1, 12, 13, 14, 1, 16, 17, 18];
-export const BONE = Object.fromEntries(BN.map((n, i) => [n, i]));
-const B = BONE;
-const ARM = s => s > 0 ? [6, 7, 8] : [9, 10, 11], LEG = s => s > 0 ? [12, 13, 14, 15] : [16, 17, 18, 19];
-const NP = 63;                                     // pose: 20 bones × 3 rotations + the hips' offset
-
-const BUILDS = {
-  slim:     {sh:.95, ch:.92, wa:.9,  hp:.94, arm:.87, leg:.9,  belly:0,  mus:0,  nk:.94},
-  average:  {sh:1,   ch:1,   wa:1,   hp:1,   arm:1,   leg:1,   belly:.3, mus:.2, nk:1},
-  athletic: {sh:1.05, ch:1.05, wa:.95, hp:.98, arm:1.06, leg:1.06, belly:0, mus:.6, nk:1.04},
-  stocky:   {sh:1.04, ch:1.1, wa:1.18, hp:1.08, arm:1.1, leg:1.1, belly:1,  mus:.2, nk:1.1},
-  muscular: {sh:1.09, ch:1.12, wa:1.0, hp:1.0, arm:1.16, leg:1.12, belly:0, mus:1,  nk:1.1}
-};
-// body measurements for a 1.80 m frame; height is a uniform scale on top
-function dims(look){
-  const b = BUILDS[look.build] || BUILDS.average, f = look.sex === "f", old = Math.round(sstep(45, 78, look.age || 25)*4)/4;
-  // the head is a little over 1/7.3 of the height (a touch larger than life, the way stylised figures read best), its
-  // crown at the full height, so a bigger head brings the chin down and shortens the neck rather than adding height.
-  // A woman's smaller head sits a little lower on a slimmer (not thinner-than-life) neck, with the shoulders a touch
-  // higher: the same short neck as a man's, not a long stalk
-  const hs = (f ? .955 : 1)*1.055, drop = f ? .024 : 0;
-  return {f, old, hs, hipY:.93, kneeY:.5, ankY:.085, hipX:f ? .087 : .09, hipsY:.96, spineY:1.08, chestY:1.26, neckY:1.5, headY:1.62,
-    shY:f ? 1.432 : 1.435, shX:(f ? .166 : .18)*b.sh, elbowL:.285, foreL:.245,
-    sh:b.sh*(f ? .9 : 1), ch:b.ch*(f ? .9 : 1), wa:b.wa*(f ? .86 : 1) + old*.05, hp:b.hp*(f ? 1.09 : 1), arm:b.arm*(f ? .86 : 1), leg:b.leg*(f ? 1.02 : 1),
-    belly:b.belly*(f ? .3 : 1) + old*.5, mus:b.mus*(f ? .3 : 1), bust:f ? 1 : 0, nk:b.nk*(f ? .92 : 1),
-    hc:[0, 1.80 - .117*hs - drop, .012]};
-}
-function restPos(D){
-  const P = [];
-  P[B.root] = [0, 0, 0]; P[B.hips] = [0, D.hipsY, 0]; P[B.spine] = [0, D.spineY, .004]; P[B.chest] = [0, D.chestY, 0];
-  P[B.neck] = [0, D.neckY, -.012]; P[B.head] = [0, D.headY, -.004];
-  for (const s of [1, -1]){
-    const [u, f, h] = ARM(s), x = s*D.shX;
-    P[u] = [x, D.shY, -.005]; P[f] = [x, D.shY - D.elbowL, -.005]; P[h] = [x, D.shY - D.elbowL - D.foreL, -.005];
-    const [t, k, a, o] = LEG(s), lx = s*D.hipX;
-    P[t] = [lx, D.hipY, 0]; P[k] = [lx, D.kneeY, 0]; P[a] = [lx, D.ankY, 0]; P[o] = [lx, .025, .11];
-  }
-  return P;
-}
 
 /* ---------- palette slots: every vertex knows which colour of the person it is ---------- */
 const SLOTS = ["skin", "lips", "hair", "brow", "white", "iris", "top", "trim", "bottom", "btrim", "socks", "strim", "shoe", "sole", "stripe", "bib",
@@ -405,7 +370,9 @@ function headFn(D, F){
 const HEADW = wt(B.head);
 
 /* ---------- building a body ---------- */
-function build(look, det, noHead){
+/* a body's geometry, in stages (a generator: prebuildHumans spreads the stages over idle moments; shape() runs it
+   through at once) */
+function* buildSteps(look, det, noHead){
   const D = dims(look), g = garb(look.outfit), G = new Geo(), F = look.face || {};
   const near = det > 0, n = near ? 10 : 6, nl = near ? 8 : 5;
   const topOff = {kit:.01, tee:.008, shirt:.008, track:.014, hoodie:.02, jacket:.022, suit:.016}[g.top] || .01;
@@ -466,6 +433,7 @@ function build(look, det, noHead){
   if (noHead) cap(G, TR[TR.length - 1], [0, 1.44, -.01, wt(C)], S.top, .9);
   const wTorso = y => at(tst, clamp(y, tst[0].y, tst[tst.length - 1].y)).w;
 
+  yield;
   /* arms */
   for (const s of [1, -1]){
     const [U, Fa, Hd] = ARM(s), x = s*D.shX, y0 = D.shY, a = D.arm, eY = y0 - D.elbowL, wY = eY - D.foreL;
@@ -518,6 +486,7 @@ function build(look, det, noHead){
     }
   }
 
+  yield;
   /* legs */
   for (const s of [1, -1]){
     const [TH, SH, FT] = LEG(s), x = s*D.hipX, l = D.leg;
@@ -554,7 +523,7 @@ function build(look, det, noHead){
     const prof = shorts ? null : (b, off, pad) => { const below = b.y < .5, rx = below ? Math.max(b.rx + off, .052*l) : b.rx + off, rf = below ? Math.max(b.rf + off, .056*l) : b.rf + off, rb = below ? Math.max(b.rb + off, .058*l) : b.rb + off; return ell(rx, rf + pad, rb); };
     const LR = dressed(G, lst, LL, nl, prof ? {prof:(b, off, pad) => off > .001 ? prof(b, off, pad) : ell(b.rx + off, b.rf + off + pad, b.rb + off)} : {});
     // the seat of the shorts/trousers: this side of the hip ring, down the crotch seam, joined to the top of the leg
-    // (one continuous surface, like a pair of trousers — no tube poking through another)
+    // (one continuous surface, like a pair of trousers: no tube poking through another)
     const half = [], hn = TR[0].v.length;
     for (let k = 0; k <= hn/2; k++) half.push(TR[0].v[s > 0 ? k : (hn/2 + k) % hn]);
     half.push(...CROTCH);
@@ -562,6 +531,7 @@ function build(look, det, noHead){
     shoe(G, D, s, g, near);
   }
 
+  yield;
   /* bits of clothing that stand off the body */
   if (near && (g.collar === "polo" || g.collar === "shirt")){
     // a turned-down collar, open at the front
@@ -668,6 +638,7 @@ function build(look, det, noHead){
     boxG(G, addv(c, N, -.007), [.1, 0, 0], T.map(v => v*.135), N.map(v => v*.0015), S.paper, hw);
     boxG(G, addv(addv(c, T, .14), N, -.008), [.03, 0, 0], T.map(v => v*.012), N.map(v => v*.004), S.metal, hw);
   }
+  yield;
   /* the head */
   let headHit = null;
   if (!noHead){
@@ -684,17 +655,19 @@ function build(look, det, noHead){
       const lat = (HR[i].lat + r.lat)/2/D2R, lon = Math.abs(wrap((k + .5)/nh*TAU))/D2R;
       return lon < 112 && (lat < -24 || (lon > 55 && lat < -8)) ? S.stubble : S.skin; }});
     headHit = G.hit; G.hit = null;
+    yield;
     face(G, D, F, look, headHit, hf, !near);              // (the far body too, plainer: no face popping on and off)
     const specs = near && (look.props || []).includes("glasses");
     if (specs) G.hit = [];
+    yield;
     hair(G, D, F, look, hf, near);
     if (specs){ const hairHit = G.hit; G.hit = null; glasses(G, D, F, headHit, headHit.concat(hairHit)); }
-    if (look.beard === "beard" || look.beard === "goatee" || look.beard === "full") beard(G, D, hf, near, look.beard);
+    if (look.beard === "beard" || look.beard === "goatee" || look.beard === "full"){ yield; beard(G, D, hf, near, look.beard); }
   }
   return {G, torsoHit, D, hem};
 }
 
-/* shoes: a lofted last with a sole you can see, a toe, a heel, a stripe — and studs on football boots */
+/* shoes: a lofted last with a sole you can see, a toe, a heel, a stripe, and studs on football boots */
 function shoe(G, D, s, g, near){
   const [, , FT, TO] = LEG(s), lx = s*D.hipX, type = g.footwear, boot = type === "boots", dress = type === "dress";
   const sole = boot ? .011 : dress ? .012 : .024, lift = boot ? .008 : 0, Wm = boot ? .94 : dress ? .96 : 1.06, Lm = dress ? 1.05 : 1;
@@ -732,7 +705,7 @@ function shoe(G, D, s, g, near){
   }
 }
 
-/* the face: eyes (whites, irises, a lid line), brows, a nose, a mouth, ears — cast onto the faceted head. lite: the far
+/* the face: eyes (whites, irises, a lid line), brows, a nose, a mouth, ears, cast onto the faceted head. lite: the far
    body's (a few triangles each, no lid line), so the face reads the same from 13 m as from 16 */
 function face(G, D, F, look, hit, hf, lite = false){
   const hc = D.hc, hs = D.hs, es = .031*(F.eyes || 1), nose = F.nose || 1, brow = F.brow || 1;
@@ -784,7 +757,7 @@ function face(G, D, F, look, hit, hf, lite = false){
 }
 
 /* glasses: two softly squared rims in one plane a little in front of the eyes, a bridge over the nose, and arms that
-   run back over the temples — over the hair where it covers them — to rest on the root of each ear and tuck down
+   run back over the temples (over the hair where it covers them) to rest on the root of each ear and tuck down
    behind it. outer: the head and the hair (the arms lie on whichever is outermost) */
 function glasses(G, D, F, hit, outer){
   const hc = D.hc, hs = D.hs, es = .031*(F.eyes || 1);
@@ -983,17 +956,27 @@ function beard(G, D, hf, near, kind = "beard"){
 
 /* ---------- caching: bodies by shape, colours per person ---------- */
 const SHAPES = new Map();
+// the far body is shared by everyone of the same build and kit: its face is the plain one and it has no beard
+const FARFACE = {jaw:1, nose:1, brow:1, eyes:1, chin:1};
+const farLook = look => Object.assign({}, look, {face:FARFACE, beard:""});
 function shapeKey(look, det, noHead){
-  const g = garb(look.outfit), F = look.face || {}, q = v => Math.round(((v || 1) - 1)/.06);
+  const g = garb(look.outfit);
+  if (det < 0) return [det, look.sex, look.build, look.hair === "bald" || look.hair === "buzz" ? "b" : "h", g.sleeves, g.legwear, g.legs, g.gloves, g.top === "kit" ? 1 : 0, Math.round(sstep(45, 78, look.age || 25)*4)].join("|");
+  const F = look.face || {}, q = v => Math.round(((v || 1) - 1)/.06);
   return [det, noHead ? 1 : 0, look.sex, look.build, look.hair, look.beard || "", Math.round((look.receding || 0)*4), q(F.jaw), q(F.nose), q(F.brow), q(F.eyes), q(F.chin),
     g.top, g.sleeves, g.collar, g.legwear, g.footwear, g.legs, g.tuck, g.belt, g.gloves, g.bib, g.apron, g.tie, g.coat, g.hood, g.zip, g.crest, g.placket,
     (look.props || []).join("+"), Math.round(sstep(45, 78, look.age || 25)*4)].join("|");
 }
-function shape(look, det, noHead){
+// det 1 near, 0 far, -1 LOD3. A generator: it yields between the stages of the build
+function* shapeSteps(look, det, noHead){
   const key = shapeKey(look, det, noHead);
   let sp = SHAPES.get(key);
   if (sp) return sp;
-  const {G, torsoHit, D} = build(look, det, noHead), n = G.sl.length;
+  if (det < 0){ sp = lod3Shape(look, key); SHAPES.set(key, sp); return sp; }
+  const it = buildSteps(look, det, noHead);
+  let r; while (!(r = it.next()).done) yield;
+  yield;                                                 // (the packing below is a stage of its own)
+  const {G, torsoHit, D} = r.value, n = G.sl.length;
   const pos = new Float32Array(G.p), nor = new Float32Array(n*3);
   for (let i = 0; i < n; i += 3){
     const a = i*3, ux = pos[a + 3] - pos[a], uy = pos[a + 4] - pos[a + 1], uz = pos[a + 5] - pos[a + 2], vx = pos[a + 6] - pos[a], vy = pos[a + 7] - pos[a + 1], vz = pos[a + 8] - pos[a + 2];
@@ -1001,13 +984,19 @@ function shape(look, det, noHead){
     for (let k = 0; k < 3; k++){ nor[a + k*3] = nx; nor[a + k*3 + 1] = ny; nor[a + k*3 + 2] = nz; }
   }
   const g = garb(look.outfit), rough = new Uint8Array(n);
-  for (let i = 0; i < n; i++){ const nm = SLOTS[G.sl[i]]; let r = ROUGH[nm] == null ? .92 : ROUGH[nm]; if (nm === "shoe" && g.footwear === "dress") r = .3; if (nm === "shoe" && g.footwear === "trainers") r = .7; rough[i] = Math.round(r*255); }
+  for (let i = 0; i < n; i++){ const nm = SLOTS[G.sl[i]]; let rr = ROUGH[nm] == null ? .92 : ROUGH[nm]; if (nm === "shoe" && g.footwear === "dress") rr = .3; if (nm === "shoe" && g.footwear === "trainers") rr = .7; rough[i] = Math.round(rr*255); }
   sp = {key, n, D, torsoHit, slot:new Uint8Array(G.sl), shade:new Float32Array(G.sh), attr:{
     position:new THREE.BufferAttribute(pos, 3), normal:new THREE.BufferAttribute(nor, 3),
     skinIndex:new THREE.Uint8BufferAttribute(G.bi, 4), skinWeight:new THREE.BufferAttribute(new Float32Array(G.bw), 4),
     rough:new THREE.BufferAttribute(rough, 1, true)}, nums:new Map()};
   SHAPES.set(key, sp);
   return sp;
+}
+function shape(look, det, noHead){
+  if (det === 0) look = farLook(look);
+  const it = shapeSteps(look, det, noHead);
+  let r; while (!(r = it.next()).done);
+  return r.value;
 }
 const SHARED = ["position", "normal", "skinIndex", "skinWeight", "rough"];
 const _c = new THREE.Color();
@@ -1033,14 +1022,18 @@ function palette(look){
   return pal;
 }
 
-/* ---------- the shared material: matte cloth, soft skin, glossier boots — roughness rides on each vertex ---------- */
+
+/* ---------- the shared material: matte cloth, soft skin, glossier boots; roughness rides on each vertex ----------
+   One material per class, shared by every body. Which class a preset uses (Lambert or Standard) follows build.js
+   lambertFor("human"): Low is Lambert, Medium and High physical. A change of preset puts every body on the new one at
+   once (gfxOn below): human.js re-materialises its own (userData.rematBy "human.js"; quality.js leaves these alone). */
 let MAT = null, MATLOW = null;
-const lowGfx = () => typeof GFX !== "undefined" && GFX.low;
-export function humanMaterial(){
-  if (lowGfx()){ if (!MATLOW){ MATLOW = new THREE.MeshLambertMaterial({vertexColors:true, flatShading:true}); MATLOW.userData.keep = true; } return MATLOW; }
+const lowFor = () => lambertFor("human");
+export function humanMaterial(low = lowFor()){
+  if (low){ if (!MATLOW){ MATLOW = new THREE.MeshLambertMaterial({vertexColors:true, flatShading:true}); MATLOW.userData.keep = true; MATLOW.userData.rematBy = "human.js"; } return MATLOW; }
   if (!MAT){
     MAT = new THREE.MeshStandardMaterial({vertexColors:true, flatShading:true, roughness:1, metalness:0, envMapIntensity:.5});
-    MAT.userData.keep = true;
+    MAT.userData.keep = true; MAT.userData.rematBy = "human.js";
     MAT.onBeforeCompile = sh => {
       sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute float rough;\nvarying float vRough;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvRough = rough;");
       sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vRough;").replace("#include <roughnessmap_fragment>", "float roughnessFactor = vRough;");
@@ -1049,6 +1042,21 @@ export function humanMaterial(){
   }
   return MAT;
 }
+const isHumanMat = m => m === MAT || m === MATLOW;
+const MAT_SUBS = new Set();
+// fn() after the bodies changed material (me.js remakes its fading copy)
+export function onHumanRemat(fn){ MAT_SUBS.add(fn); return () => MAT_SUBS.delete(fn); }
+// every body (and every shirt number) onto the material the preset in force asks for
+export function rematHumans(){
+  const m = humanMaterial();
+  for (const h of ALL){
+    for (const k of ["near", "far", "lod3m", "num"]){ const x = h[k]; if (x && isHumanMat(x.material) && x.material !== m) x.material = m; }
+  }
+  for (const fn of MAT_SUBS) try { fn(m); } catch(e){ console.error(e); }
+  return m;
+}
+if (typeof gfxOn === "function") gfxOn(() => rematHumans());
+
 
 /* ---------- shirt numbers: stroked digits cast onto the back, one tiny extra mesh seen only up close ---------- */
 const arcP = (cx, cy, rx, ry, a0, a1, n = 10) => { const p = []; for (let i = 0; i <= n; i++){ const a = (a0 + (a1 - a0)*i/n)*D2R; p.push([cx + Math.cos(a)*rx, cy + Math.sin(a)*ry]); } return p; };
@@ -1085,9 +1093,11 @@ function numberMesh(sp, num, pal, chestY){
   return m;
 }
 
+
 /* ---------- people ---------- */
-const LIVE = new Set();
+const LIVE = new Set(), ALL = new Set();
 const IDENT = new THREE.Matrix4();
+let HID = 0;
 function normLook(look){
   const L = Object.assign({sex:"m", age:26, skin:0xd9a882, height:1, build:"average", hair:"short", hairColor:0x2e2018, beard:"", eyes:0x3a2618, receding:0, face:{}, props:[], seed:1}, look);
   L.outfit = Object.assign({type:"casual"}, look.outfit || {});
@@ -1100,15 +1110,19 @@ function normLook(look){
 export function human(look = {}, opts = {}){
   look = normLook(look);
   const noHead = !!opts.noHead, spN = shape(look, 1, noHead), spF = opts.lod === false ? null : shape(look, 0, noHead), D = spN.D;
+  const sp3 = opts.lod === false || noHead ? null : shape(look, -1, false);
   const g = new THREE.Group(); g.name = "person";
   const rest = restPos(D), bones = rest.map((r, i) => { const b = new THREE.Bone(); b.name = BN[i]; return b; });
   bones.forEach((b, i) => { const p = PAR[i], r = rest[i], pr = p < 0 ? [0, 0, 0] : rest[p]; b.position.set(r[0] - pr[0], r[1] - pr[1], r[2] - pr[2]); if (p >= 0) bones[p].add(b); });
+  // bones are posed by animateHuman, which updates their matrices itself (rig.js writeBones)
+  for (const b of bones){ b.updateMatrix(); b.matrixAutoUpdate = false; }
   g.add(bones[0]);
   const skel = new THREE.Skeleton(bones, rest.map(r => new THREE.Matrix4().makeTranslation(-r[0], -r[1], -r[2])));
   const pal = palette(look);
   const mk = sp => {
     const geo = new THREE.BufferGeometry();
     for (const k of SHARED) geo.setAttribute(k, sp.attr[k]);
+    if (sp.index) geo.setIndex(sp.index);
     geo.setAttribute("color", colours(sp, pal));
     const m = new THREE.SkinnedMesh(geo, humanMaterial());
     m.bind(skel, IDENT);
@@ -1116,26 +1130,37 @@ export function human(look = {}, opts = {}){
     m.userData.keep = true; m.receiveShadow = true; m.castShadow = !!opts.cast;
     g.add(m); return m;
   };
-  const near = mk(spN), far = spF ? mk(spF) : null;
+  const near = mk(spN), far = spF ? mk(spF) : null, lod3m = sp3 ? mk(sp3) : null;
   if (far) far.visible = false;
+  if (lod3m){ lod3m.visible = false; lod3m.castShadow = false; }
   const og = garb(look.outfit);
   let num = null;
   if (og.number && !og.bib && !noHead){ num = numberMesh(spN, og.number, pal, D.chestY); bones[B.chest].add(num); }
   const r = rng((look.seed | 0) + 77);
-  const h = {g, look, D, bones, skel, near, far, num, isHuman:true, pose:new Float32Array(NP), from:new Float32Array(NP), tgt:new Float32Array(NP),
-    rest:rest.map((p, i) => { const q = PAR[i] < 0 ? [0, 0, 0] : rest[PAR[i]]; return new THREE.Vector3(p[0] - q[0], p[1] - q[1], p[2] - q[2]); }),
-    bw:1, mode:"", at:0, t:r()*100, ph:r(), v:0, turn:0, ry0:null, mw:0, gw:0, lod:1, seed:r(), stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1};
+  const RO = restOffsets(rest);
+  const h = {g, look, D, bones, skel, near, far, lod3m, num, isHuman:true, id:++HID,
+    pose:new Float32Array(NQ), posePrev:new Float32Array(NQ), te:new Float32Array(NP), tq:new Float32Array(NQ), base:new Float32Array(3), baseOk:false,
+    rest:RO.V, restA:RO.A, inz:{on:false, t:0, w:1, x:new Float64Array(63), v:new Float64Array(63)}, upper:{w:0, g:null, st:null},
+    ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, locks:[null, null], feetTmp:[null, null],
+    bw:1, mode:"", at:0, t:r()*100, acc:0, accL:0, dtPrev:0, posed:0, sinceF:0, hid:false, gw:0, lod:1, seed:r(),
+    stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1, stag:HID % 6, groundAt:null};
+  h.sinceF = h.stag;
+  for (let i = 0; i < 20; i++) h.pose[i*4 + 3] = h.posePrev[i*4 + 3] = 1;
   g.scale.setScalar(h.scale); g.userData.human = h;
+  gaitInit(h);
   h.dispose = () => {
-    LIVE.delete(h);
-    for (const m of [near, far]) if (m){ for (const k of SHARED) m.geometry.deleteAttribute(k); m.geometry.dispose(); }
+    LIVE.delete(h); ALL.delete(h);
+    for (const m of [near, far, lod3m]) if (m){ for (const k of SHARED) m.geometry.deleteAttribute(k); m.geometry.setIndex(null); m.geometry.dispose(); }
     skel.dispose();
     if (g.parent) g.parent.remove(g);
   };
+  ALL.add(h);
   if (opts.track !== false){ LIVE.add(h); hook(W.scene); }
   animateHuman(h, 0, "idle"); h.bw = 1;
   return h;
 }
+// every body made and not yet disposed (tests: where people are, how they were posed)
+export function bodies(){ return [...ALL]; }
 // your own body, for first person: no head, no hair; arms, hands, legs and feet in the same style
 export function playerRig(look = {}, o = {}){
   const h = human(look, {noHead:o.firstPerson !== false, lod:false, track:false, cast:!!o.cast});
@@ -1143,14 +1168,90 @@ export function playerRig(look = {}, o = {}){
   return h;
 }
 
+
+/* ---------- the furthest body (LOD3): about 200 triangles, indexed, on the same skeleton ----------
+   Beyond GFX.P.lod.lod3 (30 m on Low) a person is a few pixels tall: a torso, a head with its hair on top, limbs as
+   four-sided tubes bent at the joints, shoes as boxes, in the person's own colours. Indexed (each band shares its
+   corners), so it costs a fifth of the far body's vertices. */
+function lod3Build(look){
+  const D = dims(look), g = garb(look.outfit), P = [], SL = [], SH = [], BI = [], BW = [], IX = [];
+  const vert = (x, y, z, w, slot, sh = 1) => { P.push(x, y, z); SL.push(slot); SH.push(sh); BI.push(w[0], w[2], 0, 0); BW.push(w[1], w[3], 0, 0); return SL.length - 1; };
+  // a band between two rings (each [cx, cy, cz, rx, rz, w]), n sides, one slot; caps optional
+  const band = (a, b, n, slot, sh = 1, capA = false, capB = false) => {
+    const ra = [], rb = [];
+    for (let k = 0; k < n; k++){
+      const t = (k + .5)/n*TAU, c = Math.cos(t), s = Math.sin(t);
+      ra.push(vert(a[0] + s*a[3], a[1], a[2] + c*a[4], a[5], slot, sh)); rb.push(vert(b[0] + s*b[3], b[1], b[2] + c*b[4], b[5], slot, sh));
+    }
+    const up = b[1] > a[1];
+    for (let k = 0; k < n; k++){
+      const k1 = (k + 1) % n;
+      if (up) IX.push(ra[k], ra[k1], rb[k1], ra[k], rb[k1], rb[k]); else IX.push(ra[k], rb[k1], ra[k1], ra[k], rb[k], rb[k1]);
+    }
+    const cap = (r, c, down) => { const m = vert(c[0], c[1], c[2], c[5], slot, sh*.9); for (let k = 0; k < n; k++){ const k1 = (k + 1) % n; if (down) IX.push(m, r[k1], r[k]); else IX.push(m, r[k], r[k1]); } };
+    if (capA) cap(ra, a, up); if (capB) cap(rb, b, !up);
+  };
+  // a limb along y through rings that may each sit at their own x and z
+  const H = B.hips, SP = B.spine, C = B.chest, N = B.neck, HD = B.head;
+  const shorts = g.legwear === "kitshorts" || g.legwear === "shorts", socks = g.legs === "socks";
+  const topS = S.top, botS = S.bottom;
+  // torso: the seat, the waist, the chest, the shoulders, the neck
+  const R = (y, rx, rz, w, z = 0) => [0, y, z, rx, rz, w];
+  band(R(.83, .15*D.hp, .085, wt(H)), R(.97, .16*D.hp, .1, wt(H, .6, SP, .4)), 6, botS, .9, true);
+  band(R(.97, .16*D.hp, .1, wt(H, .6, SP, .4)), R(1.2, .15*D.ch, .1 + D.belly*.01, wt(SP, .5, C, .5)), 6, topS);
+  band(R(1.2, .15*D.ch, .1 + D.belly*.01, wt(SP, .5, C, .5)), R(1.43, .17*D.sh, .085, wt(C)), 6, topS);
+  band(R(1.43, .17*D.sh, .085, wt(C)), R(1.5, .055, .055, wt(C, .5, N, .5)), 6, topS, 1);
+  // the head: the face and the hair over it
+  const bald = look.hair === "bald" || look.hair === "buzz";
+  band(R(1.5, .055, .055, wt(C, .5, N, .5)), R(1.6, .08*D.hs, .09*D.hs, wt(HD), .01), 6, S.skin);
+  band(R(1.6, .08*D.hs, .09*D.hs, wt(HD), .01), R(1.71, .085*D.hs, .095*D.hs, wt(HD), .005), 6, S.skin);
+  band(R(1.71, .085*D.hs, .095*D.hs, wt(HD), .005), R(1.795, .03, .035, wt(HD), -.005), 6, bald ? S.skin : S.hair, 1, false, true);
+  // arms: the shoulder, the elbow, the wrist, the fingertips
+  for (const s of [1, -1]){
+    const [U, Fa, Hd] = ARM(s), x = s*D.shX, y0 = D.shY, eY = y0 - D.elbowL, wY = eY - D.foreL, a = D.arm;
+    const r = (y, rr, w) => [x, y, -.005, rr*a, rr*a, w];
+    const longS = g.sleeves === "long";
+    band(r(y0, .05, wt(C, .5, U, .5)), r(eY, .04, wt(U, .5, Fa, .5)), 4, longS || g.top !== "kit" ? topS : topS);
+    band(r(eY, .04, wt(U, .5, Fa, .5)), r(wY, .03, wt(Fa, .5, Hd, .5)), 4, longS ? topS : S.skin);
+    band(r(wY, .03, wt(Fa, .5, Hd, .5)), r(wY - .15, .02, wt(Hd)), 4, g.gloves ? S.glove : S.skin, 1, false, true);
+  }
+  // legs: the hip, the hem, the knee, the ankle; the shoe a box on the foot
+  for (const s of [1, -1]){
+    const [T0, SH0, FT, TO] = LEG(s), x = s*D.hipX, l = D.leg;
+    const r = (y, rr, w) => [x, y, 0, rr*l, rr*l, w];
+    const hem = shorts ? (g.legwear === "kitshorts" ? .7 : .6) : .1;
+    band(r(D.hipY, .08, wt(H, .5, T0, .5)), r(Math.max(hem, .52), .065, wt(T0)), 4, botS);
+    if (shorts) band(r(hem, .062, wt(T0)), r(D.kneeY, .05, wt(T0, .5, SH0, .5)), 4, S.skin);
+    else band(r(.52, .062, wt(T0)), r(D.kneeY, .052, wt(T0, .5, SH0, .5)), 4, botS);
+    band(r(D.kneeY, .05, wt(T0, .5, SH0, .5)), r(.1, .035, wt(SH0, .7, FT, .3)), 4, socks ? S.socks : shorts ? S.skin : botS);
+    // the shoe: heel to toe, the front corners on the toe bone
+    const z0 = -.08, z1 = .19, hw = .045, y1 = .1;
+    const cs = [[-hw, 0, z0, wt(FT)], [hw, 0, z0, wt(FT)], [hw, 0, z1, wt(TO)], [-hw, 0, z1, wt(TO)], [-hw, y1, z0, wt(FT)], [hw, y1, z0, wt(FT)], [hw, .04, z1, wt(TO)], [-hw, .04, z1, wt(TO)]]
+      .map(([dx, y, z, w]) => vert(x + dx, y, z, w, S.shoe, .85));
+    for (const [a, b, c, d] of [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]) IX.push(cs[a], cs[c], cs[b], cs[a], cs[d], cs[c]);
+  }
+  return {P, SL, SH, BI, BW, IX, D};
+}
+function lod3Shape(look, key){
+  const L = lod3Build(look), n = L.SL.length;
+  const geo = new THREE.BufferGeometry();
+  const pos = new THREE.BufferAttribute(new Float32Array(L.P), 3), index = new THREE.BufferAttribute(n < 65535 ? new Uint16Array(L.IX) : new Uint32Array(L.IX), 1);
+  geo.setAttribute("position", pos); geo.setIndex(index); geo.computeVertexNormals();
+  const rough = new Uint8Array(n).fill(Math.round(.9*255));
+  return {key, n, D:L.D, torsoHit:null, slot:new Uint8Array(L.SL), shade:new Float32Array(L.SH), index, tris:L.IX.length/3, attr:{
+    position:pos, normal:geo.getAttribute("normal"), skinIndex:new THREE.Uint8BufferAttribute(L.BI, 4), skinWeight:new THREE.BufferAttribute(new Float32Array(L.BW), 4),
+    rough:new THREE.BufferAttribute(rough, 1, true)}, nums:new Map()};
+}
+
+
 /* ---------- once a frame, before drawing: near or far body, numbers up close, and the blobs underfoot ---------- */
 // where the camera (in first person: you) was at the last frame drawn, so people can step out of your way
-// (x is read through an accessor so that every time anyone sets it — drawing, world.js after drawing, putting you somewhere
-// — is counted: you() below then knows whether VIEW or your own body is the fresher word on where you are)
+// (x is read through an accessor so that every time anyone sets it (drawing, world.js after drawing, putting you somewhere
+// is counted): you() below then knows whether VIEW or your own body is the fresher word on where you are)
 let FIX = 0, NOTE = 0;
 const _VX = {x:0};
 export const VIEW = {get x(){ return _VX.x; }, set x(v){ _VX.x = v; FIX++; }, y:-99, z:0, fx:0, fz:-1, scene:null};   // fx, fz: the way the camera looks, flat
-/* you(): where you are now, as best anyone can tell — {x, z, here (you are in the place being stepped), n (changes with
+/* you(): where you are now, as best anyone can tell: {x, z, here (you are in the place being stepped), n (changes with
    every new fix)}. VIEW is set after each frame is drawn, but the world is also stepped without drawing: a long frame
    lived in slices, a test driving it step by step. Your own body (world.js poses it, named "me-fp" or "me-tp", where
    you stand once a step, after everyone else has moved) is noted as it is posed; whichever of the two was set last is
@@ -1166,7 +1267,7 @@ export function you(){
   HERE.here = !!W.scene && (rig ? YOU.scene === W.scene : VIEW.scene === W.scene || YOU.scene === W.scene);
   return HERE;
 }
-/* onFirstView(fn): fn(VIEW) runs once, just before the first frame of the place being built now is drawn — VIEW then
+/* onFirstView(fn): fn(VIEW) runs once, just before the first frame of the place being built now is drawn; VIEW then
    holds where the camera is for that frame (the first moment anyone knows where you arrived), so whatever stands in
    your face can be moved before anybody sees it */
 const FIRST = {gen:null, fns:[]};
@@ -1184,6 +1285,7 @@ function blobs(){
   BLOBS = new THREE.InstancedMesh(geo, m, 96); BLOBS.frustumCulled = false; BLOBS.renderOrder = 1; BLOBS.userData.keep = true; BLOBS.count = 0;
   return BLOBS;
 }
+const LOD_DEF = {near:15, back:13.5, lod3:60};
 function hook(scene){
   if (!scene || scene.userData.humans) return;
   scene.userData.humans = true;
@@ -1195,6 +1297,9 @@ function hook(scene){
     if (FIRST.gen === W.ticks && FIRST.fns.length){ const fns = FIRST.fns; FIRST.fns = []; for (const fn of fns) try { fn(VIEW); } catch(err){ console.error(err); } }
     let n = 0;
     const bl = blobs();
+    // the preset's distances (DESIGN 1.4.4): full detail within lod.near (back to it under lod.back), the far body beyond,
+    // LOD3 beyond lod.lod3 (back under 2 m less); shirt numbers within shirtNumDist
+    const GP = typeof GFX === "object" && GFX && GFX.P, Ld = GP && GP.lod ? GP.lod : LOD_DEF, numD = GP && GP.shirtNumDist || 9.5;
     for (const h of LIVE){
       // where is it: in this scene, and shown?
       let o = h.g, vis = true;
@@ -1202,10 +1307,16 @@ function hook(scene){
       if (o !== sc){ if (h.gen !== W.ticks) h.dispose(); continue; }
       if (!vis || !h.g.visible) continue;
       const e = h.g.matrixWorld.elements, d = Math.hypot(e[12] - _cam.x, e[13] - _cam.y, e[14] - _cam.z);
-      if (h.far){ if (h.lod && d > 15) h.lod = 0; else if (!h.lod && d < 13.5) h.lod = 1; h.near.visible = !!h.lod; h.far.visible = !h.lod; }
-      if (h.num) h.num.visible = !!h.lod && d < 9.5;
+      if (h.far){
+        let lv = h.lod;
+        if (d < Ld.back) lv = 1;
+        else if (d > Ld.near) lv = h.lod3m && (d > Ld.lod3 || (lv === -1 && d > Ld.lod3 - 2)) ? -1 : 0;
+        else if (lv !== 1) lv = 0;
+        if (lv !== h.lod){ h.lod = lv; h.near.visible = lv === 1; h.far.visible = lv === 0; if (h.lod3m) h.lod3m.visible = lv === -1; }
+      }
+      if (h.num) h.num.visible = h.lod === 1 && d < numD;
       if (n < bl.instanceMatrix.count){
-        const hb = h.bones[B.hips].matrixWorld.elements, s = .5*h.scale*(1 + Math.max(0, h.pose[61])*.2);
+        const hb = h.bones[B.hips].matrixWorld.elements, s = .5*h.scale*(1 + Math.max(0, h.pose[81])*.2);
         _ps.set(hb[12], e[13] + .012, hb[14]); _sc.set(s*1.05, 1, s*1.3); _q0.setFromAxisAngle(_up, Math.atan2(e[8], e[10]));
         bl.setMatrixAt(n++, _mx.compose(_ps, _q0, _sc));
       }
@@ -1216,158 +1327,39 @@ function hook(scene){
 }
 const _up = new THREE.Vector3(0, 1, 0);
 
-/* ---------- animation ---------- */
+/* ---------- animation ----------
+   animateHuman(h, dt, state, {tier}) runs one pipeline for every body (DESIGN 3.5.6):
+     1. the gait (gait.js gaitStep): the root's motion measured, the clock, footprints locked and swings planned. It runs
+        on every call at every tier: it is the body's state, and it is cheap;
+     2. the base layer: the mode's pose (locomotion's upper body, a life pose, a clip), written in Euler (Te) and turned
+        into quaternions once;
+     3. inertialisation instead of cross-fades: on a change of mode the difference between what was drawn and the new
+        pose (each bone's rotation as an axis-angle offset, the hips' shift) and how fast it was changing decay together
+        as x(t) = (x0 + (v0 + w x0) t) e^(-w t), w = 4.74/blendDur: exact for any dt, so a body posed every third frame
+        blends exactly like one posed every frame, and an interrupted transition never pops;
+     4. the upper-body layer (st.upper: a gesture over whatever the legs do, a masked slerp);
+     5. constraints after all blending: the hips' height and the legs onto the footprints (locomotion), planted feet
+        held where they stood (clips that declare plant channels), the floor (ground) for low-body clips;
+     6. the bones, written as quaternions (their matrices updated only when posed).
+   Tiers (DESIGN 3.5.9; SCHED decides, this executes): T0 and T1 a full pose update every call; T2 one every GFX.P.midDiv
+   frames and a leg pass (the gait, two leg solves and the hips' height) on the others; T3 one every farDiv frames and
+   the leg pass at half rate; T4 the state only, then one catch-up pose blended over 0.15 s when seen again. At most
+   ANIM.budget full updates a frame (24 on High, 12 on Low); T2 and T3 bodies over it wait, T0 never does. */
+export {EV};
 export const CONTACT = {kick:.42, pass:.44, trap:.42, header:.5};
 const PRESET = {walk:1.4, jog:3.2, run:5, sprint:7.6};
 const _A = new Float32Array(NP), _B = new Float32Array(NP);
-const _M = new THREE.Matrix4(), _M2 = new THREE.Matrix4(), _E = new THREE.Euler(), _Q = new THREE.Quaternion(), _V = new THREE.Vector3(), _P = new THREE.Vector3(), _ONE = new THREE.Vector3(1, 1, 1);
-const R3 = (T, b, x, y = 0, z = 0) => { T[b*3] = x; T[b*3 + 1] = y; T[b*3 + 2] = z; };
-// the body-space matrix of a bone under pose T (rest rotations are all identity)
-function frameOf(h, T, b, out){
-  const chain = []; for (let i = b; i > 0; i = PAR[i]) chain.unshift(i);
-  out.identity();
-  for (const i of chain){
-    _P.copy(h.rest[i]); if (i === B.hips){ _P.x += T[60]; _P.y += T[61]; _P.z += T[62]; }
-    _E.set(T[i*3], T[i*3 + 1], T[i*3 + 2], "XYZ"); _Q.setFromEuler(_E);
-    out.multiply(_M2.compose(_P, _Q, _ONE));
-  }
-  return out;
-}
-// how far a two-bone limb reaches for a target d away: exact until nearly straight, then easing into full stretch
-// (a hard clamp snaps the knee straight the frame the target slips out of reach)
-function softReach(d, L1, L2){
-  const mx = L1 + L2 - 1e-4, mn = Math.abs(L1 - L2) + .02, ls = .985*mx;
-  return d < mn ? mn : d <= ls ? d : ls + (mx - ls)*(1 - Math.exp(-(d - ls)/(mx - ls)));
-}
-// two-bone IK in the parent's frame: the limb hangs along -y at rest; bend = +1 (knee, shin folds back) or -1 (elbow)
-function twoBone(T, b0, b1, v, L1, L2, bend){
-  let d = v.length(); const dc = softReach(d, L1, L2); if (d < 1e-6){ v.set(0, -1, 0); d = 1; } v.multiplyScalar(dc/d); d = dc;
-  const k = Math.acos(clamp((d*d - L1*L1 - L2*L2)/(2*L1*L2), -1, 1)), a = -(L1 + L2*Math.cos(k)), bb = bend*-L2*Math.sin(k);
-  const phi = Math.asin(clamp(v.x/(-a), -1, 1)), p = a*Math.cos(phi);
-  const th = wrap(Math.atan2(v.z, v.y) - Math.atan2(bb, p));
-  T[b0*3] = th; T[b0*3 + 1] = 0; T[b0*3 + 2] = phi; T[b1*3] = bend*k;
-  return th;
-}
-function legIK(h, T, s, x, y, z, pitch = 0, toe = 0){
-  const [th, sh, ft, to] = LEG(s), D = h.D;
-  frameOf(h, T, B.hips, _M).invert();
-  _V.set(x, y, z).applyMatrix4(_M).sub(h.rest[th]);
-  const t = twoBone(T, th, sh, _V, D.hipY - D.kneeY, D.kneeY - D.ankY, 1);
-  R3(T, ft, pitch - t - T[sh*3] - T[B.hips*3]); R3(T, to, toe);
-}
-/* arm IK with an elbow pole: the wrist goes to (x, y, z) in body space, the elbow swings toward pole (in the
-   chest's frame, given for the left arm and mirrored for the right), and the forearm folds about its own x.
-   The default pole keeps the elbows back and a little out, so forearms come forward past the ribs, not through them. */
-const _Wv = new THREE.Vector3(), _Ev = new THREE.Vector3(), _Xa = new THREE.Vector3(), _Ya = new THREE.Vector3(), _Za = new THREE.Vector3(), _Pv = new THREE.Vector3();
-const POLE = [.3, -.25, -1];
-function armIK(h, T, s, x, y, z, twist = 0, wrist = 0, pole = POLE){
-  const [ua, fa, hd] = ARM(s), D = h.D, L1 = D.elbowL, L2 = D.foreL;
-  frameOf(h, T, B.chest, _M).invert();
-  _Wv.set(x, y, z).applyMatrix4(_M).sub(h.rest[ua]);
-  let d = _Wv.length(); if (d < 1e-6){ _Wv.set(0, -1, 0); d = 1; }
-  const dc = softReach(d, L1, L2); _Wv.multiplyScalar(dc/d); d = dc;
-  const u = _Ya.copy(_Wv).divideScalar(d);
-  _Pv.set(s*pole[0], pole[1], pole[2]); _Pv.addScaledVector(u, -_Pv.dot(u));
-  if (_Pv.lengthSq() < 1e-8) _Pv.set(0, 0, -1).addScaledVector(u, -u.z);
-  _Pv.normalize();
-  const ca = clamp((L1*L1 + d*d - L2*L2)/(2*L1*d), -1, 1);
-  _Ev.copy(u).multiplyScalar(ca*L1).addScaledVector(_Pv, Math.sqrt(1 - ca*ca)*L1);             // the elbow
-  // the upper arm's frame: -y down the bone, +z the way the forearm folds
-  _Ya.copy(_Ev).normalize().negate();
-  _Za.copy(_Wv).sub(_Ev); _Za.addScaledVector(_Ya, -_Za.dot(_Ya));
-  if (_Za.lengthSq() < 1e-8) _Za.copy(_Pv).negate().addScaledVector(_Ya, _Pv.dot(_Ya));
-  _Za.normalize(); _Xa.crossVectors(_Ya, _Za);
-  _Q.setFromRotationMatrix(_M2.makeBasis(_Xa, _Ya, _Za)); _E.setFromQuaternion(_Q, "XYZ");
-  R3(T, ua, _E.x, _E.y, _E.z);
-  const k = Math.PI - Math.acos(clamp((L1*L1 + L2*L2 - d*d)/(2*L1*L2), -1, 1));
-  R3(T, fa, -k, twist, 0); R3(T, hd, wrist);
-}
-/* a hand laid flat on something: the wrist goes to (x, y, z) in body space, then the hand turns so the fingers
-   point along dir and the palm lies on the surface whose up is up. The part of that turn about the forearm's own
-   axis is done by the forearm (the way a real forearm turns the palm over), only the rest at the wrist. The wrist
-   joint sits PALM above the surface when the hand lies flat. */
-const PALM = .029, _UPV = new THREE.Vector3(0, 1, 0), _Fm = new THREE.Matrix4(), _Fx = new THREE.Vector3(), _Fy = new THREE.Vector3(), _Fz = new THREE.Vector3();
-const _Qh = new THREE.Quaternion(), _Qf = new THREE.Quaternion(), _Qy = new THREE.Quaternion();
-function plantHand(h, T, s, x, y, z, dir, up = _UPV, pole = POLE, follow = .5){
-  armIK(h, T, s, x, y, z, 0, 0, pole);
-  const fa = ARM(s)[1], hd = ARM(s)[2];
-  // the fingers point partly the way the forearm comes in, so the wrist isn't bent hard sideways
-  const e = frameOf(h, T, fa, _Fm).elements;
-  _Fx.set(-e[4], -e[5], -e[6]).addScaledVector(up, (e[4]*up.x + e[5]*up.y + e[6]*up.z)).normalize();
-  _Fy.copy(dir).normalize().lerp(_Fx, follow).negate().normalize();     // the hand's -y runs along the fingers
-  _Fx.copy(up).multiplyScalar(s); _Fx.addScaledVector(_Fy, -_Fx.dot(_Fy)).normalize();   // its palm side (-s·x) faces down onto the surface
-  _Fz.crossVectors(_Fx, _Fy);
-  _Qh.setFromRotationMatrix(_Fm.makeBasis(_Fx, _Fy, _Fz));
-  _Qf.setFromRotationMatrix(frameOf(h, T, fa, _Fm)).invert().multiply(_Qh);
-  const tw = clamp(wrap(2*Math.atan2(_Qf.y, _Qf.w)), -1.9, 1.9);
-  T[fa*3 + 1] = tw; _Qf.premultiply(_Qy.setFromAxisAngle(_UPV, -tw));
-  _E.setFromQuaternion(_Qf, "XYZ"); R3(T, hd, _E.x, _E.y, _E.z);
-}
-// bend forward from the hips (hips, spine and chest share it, the head stays level, the seat goes back for balance) until
-// the shoulders are near enough to reach (x, y, z) with the elbows a little bent; the feet stay where they stood
-function leanTo(h, T, x, y, z, feet, straight = .9, most = 1.3){
-  const D = h.D, base = [T[B.hips*3], T[B.spine*3], T[B.chest*3], T[B.neck*3], T[B.head*3], T[62]], reach = straight*(D.elbowL + D.foreL);
-  const set = a => { T[B.hips*3] = base[0] + a*.35; T[B.spine*3] = base[1] + a*.45; T[B.chest*3] = base[2] + a*.2; T[B.neck*3] = base[3] - a*.32; T[B.head*3] = base[4] - a*.26; T[62] = base[5] - a*.13; };
-  const gap = a => { set(a); return _V.setFromMatrixPosition(frameOf(h, T, B.uaL, _Ms)).distanceTo(_P.set(x, y, z)); };
-  let lo = 0, hi = most;
-  if (gap(0) > reach){ for (let i = 0; i < 7; i++){ const m = (lo + hi)/2; if (gap(m) > reach) lo = m; else hi = m; } set(hi); }
-  else set(0);
-  feet();
-}
-/* ---- keeping people on the ground ----
-   After every pose: nothing of the body goes below the floor (the hips rise to clear it), a foot that would dip
-   under is lifted by IK keeping its angle, and people lying down (a slide, a keeper's dive) are lowered until
-   they rest on it. Points are [bone, x, y, z (in the bone's own frame), radius]. */
-const FK = Array.from({length:20}, () => new THREE.Matrix4());
-function fk(h, T){
-  FK[0].identity();
-  for (let i = 1; i < 20; i++){
-    _P.copy(h.rest[i]); if (i === B.hips){ _P.x += T[60]; _P.y += T[61]; _P.z += T[62]; }
-    _E.set(T[i*3], T[i*3 + 1], T[i*3 + 2], "XYZ"); _Q.setFromEuler(_E);
-    FK[i].multiplyMatrices(FK[PAR[i]], _M2.compose(_P, _Q, _ONE));
-  }
-  return FK;
-}
-const BODYPTS = [[B.hips, .09, -.1, -.06, .07], [B.hips, -.09, -.1, -.06, .07], [B.hips, 0, -.11, .05, .06], [B.spine, 0, 0, 0, .1], [B.spine, .15, -.03, 0, .05], [B.spine, -.15, -.03, 0, .05],
-  [B.chest, 0, .04, 0, .1], [B.chest, .16, .05, 0, .06], [B.chest, -.16, .05, 0, .06], [B.head, 0, .06, .01, .11]];
-for (const s of [1, -1]){
-  const [ua, fa, hd] = ARM(s), [th, sh] = LEG(s);
-  BODYPTS.push([fa, 0, 0, 0, .04], [hd, 0, -.08, .01, .03], [th, 0, -.22, 0, .07], [sh, 0, 0, .01, .05], [sh, 0, -.2, 0, .045]);
-}
-const FOOTPTS = [[0, 0, -.085, -.078], [0, .028, -.083, -.062], [0, -.028, -.083, -.062], [0, .045, -.085, .085], [0, -.045, -.085, .085], [1, 0, -.025, .08], [1, .032, -.025, .05], [1, -.032, -.025, .05]];
-const _G = new THREE.Vector3(), _Qw = new THREE.Quaternion(), _Qs = new THREE.Quaternion();
-const lowY = (F, b, x, y, z) => _G.set(x, y, z).applyMatrix4(F[b]).y;
-function footLow(F, s){ const [, , ft, to] = LEG(s); let m = 1e9; for (const [k, x, y, z] of FOOTPTS) m = Math.min(m, lowY(F, k ? to : ft, x, y, z)); return m; }
-/* raise a foot by dy, keeping the way it points and the way the knee points. The knee opens just enough for the
-   new hip–ankle distance, then the thigh turns by the smallest rotation that brings the ankle up — so a leg folded
-   out sideways (a slide, a dive) stays folded the same way and is only nudged, never re-solved into a new pose. */
-const _Qt = new THREE.Quaternion(), _Qk = new THREE.Quaternion(), _Qd = new THREE.Quaternion(), _Va = new THREE.Vector3(), _Vk = new THREE.Vector3();
-function liftFoot(h, P, F, s, dy){
-  const [th, sh, ft] = LEG(s), D = h.D, L1 = D.hipY - D.kneeY, L2 = D.kneeY - D.ankY;
-  _Qw.setFromRotationMatrix(F[ft]);
-  _M.copy(F[B.hips]).invert();
-  _Pv.setFromMatrixPosition(F[ft]); _Pv.y += dy; _Pv.applyMatrix4(_M).sub(h.rest[th]);            // where the ankle must go, from the hip
-  const k0 = P[sh*3], d = softReach(_Pv.length(), L1, L2), k1 = (k0 < 0 ? -1 : 1)*Math.acos(clamp((d*d - L1*L1 - L2*L2)/(2*L1*L2), -1, 1));
-  P[sh*3] = k1;
-  _Qk.setFromEuler(_E.set(P[sh*3], P[sh*3 + 1], P[sh*3 + 2], "XYZ"));
-  _Va.set(0, -L2, 0).applyQuaternion(_Qk); _Va.y -= L1;                                              // the ankle in the thigh's frame
-  _Qt.setFromEuler(_E.set(P[th*3], P[th*3 + 1], P[th*3 + 2], "XYZ"));
-  _Va.applyQuaternion(_Qt).normalize();
-  _Qd.setFromUnitVectors(_Va, _Vk.copy(_Pv).normalize());
-  _Qt.premultiply(_Qd); _E.setFromQuaternion(_Qt, "XYZ"); R3(P, th, _E.x, _E.y, _E.z);
-  // the ankle turned back to the foot's old angle
-  _Qs.setFromRotationMatrix(F[B.hips]).multiply(_Qt).multiply(_Qk);
-  _E.setFromQuaternion(_Qs.invert().multiply(_Qw), "XYZ"); R3(P, ft, _E.x, _E.y, _E.z);
-}
-function ground(h, P, rest){
-  let F = fk(h, P), lo = 1e9;
-  for (const [b, x, y, z, r] of BODYPTS) lo = Math.min(lo, lowY(F, b, x, y, z) - r - .008);
-  let lift = lo < 0 ? -lo : 0;
-  if (rest > 0){ const m = Math.min(lo, footLow(F, 1), footLow(F, -1)); if (m > 0) lift = -m*rest; }
-  if (Math.abs(lift) > 1e-4){ P[61] += lift; F = fk(h, P); }
-  for (const s of [1, -1]){ const m = footLow(F, s); if (m < -.002) liftFoot(h, P, F, s, -m); }
-}
-function idle(h, T, st){
+const _V = new THREE.Vector3(), _P = new THREE.Vector3();
+const _FK = newFK();
+export const ANIM = {frame:0, fpu:0, budget:24, hi:0, hiLast:0, byTier:[0, 0, 0, 0, 0], stats:{fpu:0, lp:0, so:0}};
+const budgetOf = () => { const P = typeof GFX === "object" && GFX && GFX.P; const t = P && P.tier; return P && P.animBudget ? P.animBudget : t === "low" ? 12 : t === "medium" ? 18 : 24; };
+// a new frame of the world (the scheduler's tasks run before its actors): the full-pose budget starts again
+// (hi: the T0 and T1 full poses so far this frame; hiLast: last frame's, the room the cheaper tiers leave for them)
+SCHED.task({id:"anim-frame", kind:"keep", run(){ ANIM.frame++; ANIM.hiLast = ANIM.hi; ANIM.hi = 0; ANIM.fpu = 0; ANIM.byTier.fill(0); ANIM.budget = budgetOf(); }});
+// tests (DESIGN 1.4.20): with trace on, every call logs the body's feet and footfalls
+const ANIM_LOG = typeof window === "object" ? (window.__anim = window.__anim || {trace:false, log:[]}) : {trace:false, log:[]};
+
+function idle(h, T, st, legs = true){
   const t = h.t, D = h.D, sd = h.seed*10, old = D.old;
   const w = Math.sin(t*.42 + sd)*.8 + Math.sin(t*.17 + sd*2)*.2, br = Math.sin(t*1.5 + sd);
   T[60] = .014*w; T[61] = -.004 + .0025*br - old*.01; T[62] = 0;
@@ -1380,7 +1372,7 @@ function idle(h, T, st){
     const [ua, fa, hd] = ARM(s);
     R3(T, ua, .04 + .02*Math.sin(t*.5 + s + sd) - .03*h.arm, 0, s*(.11 + .02*h.arm)); R3(T, fa, -.16 - .06*h.arm, -s*.2, 0); R3(T, hd, .08, 0, -s*.04);
   }
-  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0);
+  if (legs) for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0);
   const arms = st.arms;
   if (arms === "hips") for (const s of [1, -1]) armIK(h, T, s, s*.205, 1.0, .02, -s*.6, -.3, [1, -.2, -.25]);
   // hands clasped on the small of the back, elbows out behind
@@ -1392,105 +1384,26 @@ function idle(h, T, st){
     armIK(h, T, 1, -.025, 1.165, z + .035, -1.45, 0, [1, -.6, -.15]); armIK(h, T, -1, .025, 1.205, z + .005, 1.45, 0, [1, -.6, -.15]);
   }
 }
-// walking to sprinting. The stance foot pivots heel → flat → ball and moves back at exactly ground speed.
-function gait(v){
-  const R = sstep(1.9, 3.1, v);
-  // stride frequency (strides a second) and, running, a foot on the ground for .8–1 m of travel (a short contact
-  // as the pace rises), so the planted foot never has to reach further than a leg can without the hips dropping
-  const tab = [[0, .55], [1.4, .92], [2.2, 1.06], [3, 1.3], [5, 1.45], [7.5, 1.8], [10, 2.0]];
-  let f = tab[tab.length - 1][1]; for (let i = 1; i < tab.length; i++) if (v <= tab[i][0]){ f = lerp(tab[i - 1][1], tab[i][1], (v - tab[i - 1][0])/(tab[i][0] - tab[i - 1][0])); break; }
-  const Lc = lerp(.8, 1.0, sstep(3, 8, v));
-  return {R, f, duty:lerp(.61, clamp(Lc*f/Math.max(v, .5), .22, .45), R), lift:lerp(.075 + .01*v, Math.min(.5, .1 + .055*v), R)};
+/* standing, walking, running: the gait's upper body on the move, the idle's (breathing, a shift of weight, a look
+   about, the arms held as asked) as the body comes to a stand. The legs come from the footprints (gaitLegs) */
+const IDLE_MIX = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 60, 62];
+function loco(h, T, st, dt = 0){
+  const G = h.gait;
+  gaitPose(h, T, st, st.fac || null, dt);
+  // standing still or moving: eased (a body that stops hard settles its arms and back over a few tenths of a second)
+  const s0 = 1 - sstep(.1, .9, G.vs/h.scale);
+  G.still = G.still == null || !(dt > 0) ? s0 : G.still + (s0 - G.still)*(1 - Math.exp(-(s0 > G.still ? 6 : 10)*dt));
+  const still = G.still;
+  if (still > 1e-3){
+    idle(h, _A, st, false);
+    for (const k of IDLE_MIX) T[k] = lerp(T[k], _A[k], still);
+    T[61] = (_A[61] + .004)*still;
+  } else T[61] = 0;
+  if (st.look != null && still < 1){ const k = 1 - still; T[B.neck*3 + 1] += st.look*.45*k; T[B.head*3 + 1] += st.look*.55*k; }
 }
-function stancePose(u, zc, R){
-  const pw = u < .12 ? -.28*(1 - u/.12) : u < .55 ? 0 : .78*Math.pow((u - .55)/.45, 1.6);
-  const pr = u < .45 ? .02 : 1.0*Math.pow((u - .45)/.55, 1.4);
-  const ps = lerp(pw, pr, R);
-  if (ps < 0) return [zc + .085*Math.sin(ps) + .05*Math.cos(ps), .085*Math.cos(ps) - .05*Math.sin(ps), ps, 0];
-  return [zc + .16 + .085*Math.sin(ps) - .11*Math.cos(ps), .085*Math.cos(ps) + .11*Math.sin(ps), ps, -ps];
-}
-function loco(h, T, st, dt){
-  const D = h.D, v = h.v/h.scale, G = gait(v), R = G.R, duty = G.duty;
-  h.ph = (h.ph + G.f*dt) % 1;
-  const L = v/G.f, Ds = L*duty, zc0 = lerp(Ds/2 - .04, .38*Ds - .05, R);
-  const pL = h.ph, yaw = lerp(.1, .15, R)*Math.min(1, v/1.2), cL = Math.cos(TAU*pL), mid = Math.cos(TAU*2*(pL - duty/2));
-  // turning (h.turn, rad/s, from how the body's group turns): a planted foot stays where it was put on the ground while
-  // the body turns over it — in the body's own frame it swings round the other way, through its contact (and the swing
-  // carries it from where it left the ground to where the turned body will put it down)
-  // (a turn faster than a planted foot can sensibly pivot through, ±20° a contact, is left to the stride itself)
-  const Tst = duty/G.f, om = clamp(h.turn || 0, -.7/Tst, .7/Tst);
-  // pelvis: swings with the legs, drops onto the swing side, bobs (up at mid-stance walking, down running)
-  let dy = lerp(-.012 + .012*mid, -.035 - .006*Math.min(v, 8) - .022*mid, R);
-  const feet = [];
-  for (const s of [1, -1]){
-    const p = s > 0 ? pL : (pL + .5) % 1;
-    let x = s*(D.hipX - .004 - .022*R), z, y, pitch, toe;
-    if (p < duty){ [z, y, pitch, toe] = stancePose(p/duty, zc0 - p/duty*Ds, R); }
-    else {
-      const u = (p - duty)/(1 - duty), A = stancePose(1, zc0 - Ds, R), Bp = stancePose(0, zc0, R);
-      // the foot leaves and meets the ground moving back as fast as the ground goes by (a Hermite with the stance
-      // speed at both ends): it carries on back after toe-off and paws back into the landing, so it never skids
-      // (gentler at toe-off, where the foot is leaving the ground anyway)
-      const m = -Ds*(1 - duty)/duty*lerp(.25, 1, R), u2 = u*u, u3 = u2*u;
-      z = (2*u3 - 3*u2 + 1)*A[0] + (u3 - 2*u2 + u)*m*.4 + (3*u2 - 2*u3)*Bp[0] + (u3 - u2)*m*lerp(1, .55, R);
-      y = lerp(A[1], Bp[1], u) + G.lift*lerp(Math.sin(Math.PI*u), Math.sin(Math.PI*(1 - Math.pow(1 - u, 1.4))), R);   // running: up early, set down softly
-      pitch = lerp(A[2], Bp[2], sstep(0, 1, u)) + lerp(-.18, .35, R)*Math.sin(Math.PI*u);
-      toe = lerp(-A[2], 0, sstep(0, .4, u));                         // carries on from toe-off: no flick
-    }
-    if (om){
-      // where the straight-line stride puts the foot τ s from mid-stance, moved to where the same spot on the ground is
-      // for a body going round the bend (stance); the swing carries the difference from lift-off to landing
-      const tAt = q => (q - .5)*Tst;
-      if (p < duty) [x, z] = turnFix(x, z, tAt(p/duty), v, om);
-      else {
-        const u = (p - duty)/(1 - duty), A = stancePose(1, zc0 - Ds, R), Bp = stancePose(0, zc0, R);
-        const a = turnFix(x, A[0], tAt(1), v, om), b = turnFix(x, Bp[0], tAt(0), v, om), k = sstep(0, 1, u);
-        x += lerp(a[0] - x, b[0] - x, k); z += lerp(a[1] - A[0], b[1] - Bp[0], k);
-      }
-    }
-    // how much this foot holds the hips down: fully while planted, easing out after toe-off and back in before landing
-    const hold = p < duty ? 1 : (u => Math.max(1 - sstep(0, .35, u), sstep(.55, 1, u)))((p - duty)/(1 - duty));
-    feet.push([x, y, z, pitch, toe, hold]);
-  }
-  // keep a planted foot reachable: the hips sink rather than the foot sliding (a foot high in the air may fall short)
-  const Lm = (D.hipY - D.ankY)*.995;
-  let sink = 0;
-  for (const [x, y, z, , , hold] of feet){ if (hold <= 0) continue; const hx = x*.98, hz = 0, dh = Math.hypot(x - hx, z - hz); const maxY = y + Math.sqrt(Math.max(0, Lm*Lm - dh*dh)) - D.hipY; if (dy > maxY) sink = Math.max(sink, (dy - maxY)*hold); }
-  dy -= sink;
-  T[60] = .012*(1 - R)*Math.cos(TAU*(pL - duty/2)); T[61] = dy; T[62] = 0;
-  R3(T, B.hips, .04*R, -yaw*cL, .035*(1 - R)*Math.cos(TAU*(pL - duty/2)));
-  const lean = .03 + .09*R + .05*sstep(4.5, 8, v);
-  R3(T, B.spine, lean, yaw*.5*cL, 0); R3(T, B.chest, .02*R - .01, yaw*.8*cL, 0);
-  R3(T, B.neck, -lean*.5, -yaw*.6*cL, 0); R3(T, B.head, -lean*.25 - .02, -yaw*.35*cL, 0);
-  for (let i = 0; i < 2; i++){ const s = i ? -1 : 1, f = feet[i]; legIK(h, T, s, f[0], f[1], f[2], f[3], f[4]); }
-  // arms swing against the legs; elbows fold as the pace rises
-  const A = lerp(.22 + .14*Math.min(1, v/1.4), Math.min(1.05, .55 + .07*(v - 3)), R), e0 = lerp(.22, 1.3 + .12*sstep(5, 8, v), R);
-  for (const s of [1, -1]){
-    const [ua, fa, hd] = ARM(s), p = s > 0 ? pL : (pL + .5) % 1, c = Math.cos(TAU*p);
-    R3(T, ua, A*c - .08*R, -s*.1*R*c, s*(.1 + .05*R));
-    R3(T, fa, -(e0 + .25*R*(1 - c)/2 + .1*(1 - R)*(1 - c)/2), -s*(.25 + .2*R), 0);
-    R3(T, hd, lerp(.1, -.05, R), 0, 0);
-  }
-}
-/* a spot on the ground at (x, z) in the body's frame τ s from mid-stance as the straight-line stride has it (the body
-   gone v·τ straight on), for a body turning at om rad/s instead: the body has gone round an arc and turned with it */
-function turnFix(x, z, tau, v, om){
-  const a = om*tau, X = x, Z = z + v*tau, k = Math.abs(a) < 1e-6 ? 1 : Math.sin(a)/a, kc = Math.abs(a) < 1e-6 ? a/2 : (1 - Math.cos(a))/a;
-  const dX = X - v*tau*kc, dZ = Z - v*tau*k, c = Math.cos(a), sn = Math.sin(a);
-  return [dX*c - dZ*sn, dX*sn + dZ*c];
-}
-// standing ↔ moving: the stride fades in and out over a third of a second, whatever the speed asks for,
-// and a first step starts from the foot that is already under the body (no frame-one jump into mid-stride)
-function moveMode(h, T, st, dt){
-  idle(h, _A, st);
-  const go = h.v > .06 || (st.speed || 0) > .06;
-  if (go && h.mw < .02) h.ph = gait(Math.max(h.v, .3)/h.scale).duty*.5;
-  h.mw += ((go ? 1 : 0) - h.mw)*(1 - Math.exp(-7*dt));
-  const m = sstep(0, 1, h.mw);
-  if (m < 1e-3){ T.set(_A); return; }
-  loco(h, _B, st, dt);
-  for (let i = 0; i < NP; i++) T[i] = lerp(_A[i], _B[i], m);
-}
+const LOCO = new Set(["idle", "move", "stand"]);
+const _stand = {};
+function standLoco(h, T, st, dt){ Object.assign(_stand, st); _stand.look = 0; loco(h, T, _stand, dt); }
 // ---- actions ----
 function stand(h, T, st){ idle(h, T, Object.assign({}, st, {look:0})); }
 function kickLike(h, T, st, kind){
@@ -1518,6 +1431,7 @@ function kickLike(h, T, st, kind){
   const ao = big ? kf(t, [[0, .2], [.3, 1.0], [.6, 1.15], [1, .2]]) : kf(t, [[0, .2], [.4, .55], [1, .2]]);
   R3(T, ARM(1)[0], big ? -.5 : -.2, 0, ao); R3(T, ARM(-1)[0], big ? kf(t, [[0, .1], [.42, .6], [1, .1]]) : .25, 0, -ao*.7); R3(T, ARM(1)[1], -.4, 0, 0); R3(T, ARM(-1)[1], -.4, 0, 0);
 }
+
 function header(h, T, st){
   const t = st.t != null ? st.t : Math.min(1, h.at/1.1), D = h.D;
   const up = kf(t, [[0, 0], [.2, -.16], [.3, .1], [.48, .42], [.62, .3], [.75, -.12], [.9, -.04], [1, 0]]);
@@ -1636,7 +1550,7 @@ function sit(h, T, st, typing){
 /* standing at a counter (or leaning on a desk), both hands flat on the top, a hip's width apart, the elbows soft. The
    body leans in only as far as it must, and never more than ~12° (st.lean, radians, overrides; a desk or counter below
    hip height lets it lean a little further, as you would to put your hands on a low table). A top too far off for that
-   is met as near as the arms reach. st.work: busy at it (the barista) — one hand wiping in small circles, then the
+   is met as near as the arms reach. st.work: busy at it (the barista): one hand wiping in small circles, then the
    other moving something along the top, now and then both still, head down over the work */
 function counter(h, T, st){
   idle(h, T, st);
@@ -1757,7 +1671,7 @@ function plyoPose(h, T, st){
 }
 // on the bike: sat on the saddle, leant onto the bars, the feet going round on the pedals. st.ph is the crank angle of
 // the left pedal from the top, increasing forward: over the top the foot goes towards the bars, at the bottom it comes
-// back — the way a bike is pedalled. The bike's own cranks (props.js) are turned to the same angle
+// back, the way a bike is pedalled. The bike's own cranks (props.js) are turned to the same angle
 function bikePose(h, T, st){
   const D = h.D, sc = h.scale || 1;
   sit(h, T, {seat:(st.seat || .86)}, false);
@@ -1772,52 +1686,253 @@ function bikePose(h, T, st){
   for (const s of [1, -1]) armIK(h, T, s, s*.22, (st.barY || 1.05)/sc, (st.barZ || .55)/sc, 0, 0, [.3, -.6, -.8]);
 }
 const MODES = {
-  idle:(h, T, st) => idle(h, T, st), move:moveMode, stand, squat:squatPose, curl:curlPose, plyo:plyoPose, bike:bikePose,
+  idle:loco, move:loco, stand:standLoco, squat:squatPose, curl:curlPose, plyo:plyoPose, bike:bikePose,
   kick:(h, T, st) => kickLike(h, T, st, "kick"), pass:(h, T, st) => kickLike(h, T, st, "pass"), trap:(h, T, st) => kickLike(h, T, st, "trap"),
   header, tackle, dive, gkready:gkReady, celebrate, stretch, sit:(h, T, st) => sit(h, T, st, false), typing:(h, T, st) => sit(h, T, st, true), counter, clipboard
 };
-// how far apart two poses are: the largest turn of the hips, spine or a limb's root, or the hips' shift (×2 per metre)
-const GAPB = [B.hips, B.spine, B.chest, B.uaL, B.uaR, B.thL, B.thR, B.shL, B.shR];
-function poseGap(A, T){
-  let m = 0;
-  for (const b of GAPB) for (let c = 0; c < 3; c++) m = Math.max(m, Math.abs(T[b*3 + c] - A[b*3 + c]));
-  return Math.max(m, 2*Math.hypot(T[60] - A[60], T[61] - A[61], T[62] - A[62]));
+MODES.kick.plant = (h, st, o) => clipPlant(h, st, o, .9); MODES.pass.plant = (h, st, o) => clipPlant(h, st, o, .75); MODES.trap.plant = (h, st, o) => clipPlant(h, st, o, .75);
+// the clips that take the body low (a squat, a slide, a dive, a crouch): the only ones the floor pass runs for on Low
+// (DESIGN 3.5.9); upright clips keep their feet on the floor by their own legs
+for (const k of ["squat", "curl", "plyo", "bike", "header", "tackle", "dive", "gkready", "stretch", "celebrate"]) MODES[k].low = true;
+const lowPreset = () => { const P = typeof GFX === "object" && GFX && GFX.P; return !!(P && P.tier === "low"); };
+MODES.kick.blend = .1; MODES.pass.blend = .1; MODES.trap.blend = .15; MODES.header.blend = .12; MODES.celebrate.blend = .3; MODES.dive.blend = .06;
+function clipPlant(h, st, out, dur){ const t = st.t != null ? st.t : Math.min(1, h.at/dur); out[0] = 1; out[1] = Math.max(1 - sstep(0, .18, t), sstep(.82, 1, t)); return out; }
+/* registerMode(name, fn(h, Te, st, dt)): a pose any caller may then ask for by name (WP-K's football and keeper moves).
+   fn writes the base pose in Euler; it may carry .blend (seconds into it), .plant(h, st, out) -> out[0], out[1] how
+   planted the left and right feet are (0..1: held where they stood), .ground (false: no floor pass; true: always one),
+   .low (a clip that takes the body low: its floor pass runs on Low too, where upright clips skip it), and it may set bits
+   of h.ev (EV) with h.ev.at, the time inside dt they happened. A name "upper:<g>" is a gesture for st.upper. */
+export function registerMode(name, fn, o = {}){
+  if (!name || typeof fn !== "function") throw new Error("registerMode needs a name and a pose function");
+  if (o.blend != null) fn.blend = o.blend;
+  if (o.plant) fn.plant = o.plant;
+  if (o.ground != null) fn.ground = o.ground;
+  if (o.low != null) fn.low = o.low;
+  MODES[name] = fn;
+  return fn;
 }
-const _st = {mode:"idle"}, ACCEL = 7;
-const toward = (v, target, dt) => Math.abs(target - v) < .02 ? target : v + clamp((target - v)*(1 - Math.exp(-10*dt)), -ACCEL*dt, ACCEL*dt);
-export function animateHuman(h, dt, state = "idle"){
+// how far apart two quaternion poses are: the largest turn of the hips, spine or a limb's root, or the hips' shift (x2 a metre)
+const GAPB = [B.hips, B.spine, B.chest, B.uaL, B.uaR, B.thL, B.thR, B.shL, B.shR];
+function poseGap(A, Q){
+  let m = 0;
+  for (const b of GAPB) m = Math.max(m, qAngle(A, b*4, Q, b*4));
+  return Math.max(m, 2*Math.hypot(Q[80] - A[80], Q[81] - A[81], Q[82] - A[82]));
+}
+
+/* ---------- inertialisation ---------- */
+const _ql = new Float64Array(8), _qc = new Float64Array(4);
+// the offset that takes Q's bone i to the drawn pose D's: its rotation vector into out at o (log of D * conj(Q))
+function offsetOf(Dp, Q, i, out, o){
+  _qc[0] = -Q[i*4]; _qc[1] = -Q[i*4 + 1]; _qc[2] = -Q[i*4 + 2]; _qc[3] = Q[i*4 + 3];
+  qMul(Dp, i*4, _qc, 0, _ql, 0); qLog(_ql, 0, out, o);
+}
+function inertiaStart(h, Q, dur, still = false){
+  const I = h.inz, Dp = h.pose, Pp = h.posePrev, dtp = h.dtPrev;
+  I.w = 4.74/Math.max(.02, dur); I.t = 0; I.on = true;
+  const vel = !still && dtp > 1e-4 && h.posed > 1;
+  for (let i = 1; i < 20; i++){
+    offsetOf(Dp, Q, i, I.x, i*3);
+    if (vel){
+      offsetOf(Pp, Q, i, _ql, 4);
+      let vx = (I.x[i*3] - _ql[4])/dtp, vy = (I.x[i*3 + 1] - _ql[5])/dtp, vz = (I.x[i*3 + 2] - _ql[6])/dtp;
+      const vl = Math.hypot(vx, vy, vz); if (vl > 20){ vx *= 20/vl; vy *= 20/vl; vz *= 20/vl; }
+      I.v[i*3] = vx; I.v[i*3 + 1] = vy; I.v[i*3 + 2] = vz;
+    } else I.v[i*3] = I.v[i*3 + 1] = I.v[i*3 + 2] = 0;
+  }
+  for (let c = 0; c < 3; c++){
+    I.x[60 + c] = Dp[80 + c] - Q[80 + c];
+    I.v[60 + c] = vel ? clamp(((Dp[80 + c] - Q[80 + c]) - (Pp[80 + c] - Q[80 + c]))/dtp, -4, 4) : 0;
+  }
+}
+function inertiaApply(h, Q, dt){
+  const I = h.inz; if (!I.on) return 0;
+  I.t += dt;
+  const w = I.w, t = I.t, e = Math.exp(-w*t), a = (1 + w*t)*e, b = t*e;
+  if (a < 2e-3){ I.on = false; return 0; }
+  for (let i = 1; i < 20; i++){
+    const o = i*3, x = I.x[o]*a + I.v[o]*b, y = I.x[o + 1]*a + I.v[o + 1]*b, z = I.x[o + 2]*a + I.v[o + 2]*b;
+    if (Math.abs(x) + Math.abs(y) + Math.abs(z) < 1e-7) continue;
+    qExp(x, y, z, _ql, 0); qMul(_ql, 0, Q, i*4, Q, i*4);
+  }
+  for (let c = 0; c < 3; c++) Q[80 + c] += I.x[60 + c]*a + I.v[60 + c]*b;
+  return a;
+}
+
+/* ---------- the upper-body layer: a gesture over whatever the legs do (st.upper = {g, dir, w}) ----------
+   The gesture is a registered mode "upper:<g>"; it is laid over the base pose bone by bone, the spine 0.3 of the way,
+   the chest 0.7, the neck, head and arms all the way, times w. It comes on over 0.18 s and goes over 0.25 s. */
+const UPMASK = [[B.spine, .3], [B.chest, .7], [B.neck, 1], [B.head, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1], [11, 1]];
+const _up4 = new Float64Array(4);
+function upperLayer(h, Q, st, dt){
+  const U = h.upper, want = st.upper && MODES["upper:" + st.upper.g] ? st.upper : null;
+  if (want){ U.g = want.g; U.st = want; }
+  U.w = clamp(U.w + (want ? dt/.18 : -dt/.25), 0, 1);
+  if (U.w <= 0 || !U.g) return;
+  const w = sstep(0, 1, U.w)*(U.st && U.st.w != null ? U.st.w : 1);
+  _B.fill(0); MODES["upper:" + U.g](h, _B, U.st || {}, dt);
+  for (const [b, m] of UPMASK){
+    qEuler(_up4, 0, _B[b*3], _B[b*3 + 1], _B[b*3 + 2]);
+    slerpInto(Q, b*4, _up4, w*m);
+  }
+}
+function slerpInto(Q, o, R, t){
+  let ax = Q[o], ay = Q[o + 1], az = Q[o + 2], aw = Q[o + 3], bx = R[0], by = R[1], bz = R[2], bw = R[3];
+  let d = ax*bx + ay*by + az*bz + aw*bw;
+  if (d < 0){ bx = -bx; by = -by; bz = -bz; bw = -bw; d = -d; }
+  let k0 = 1 - t, k1 = t;
+  if (d < .9995){ const th = Math.acos(d), s = Math.sin(th); k0 = Math.sin((1 - t)*th)/s; k1 = Math.sin(t*th)/s; }
+  const x = ax*k0 + bx*k1, y = ay*k0 + by*k1, z = az*k0 + bz*k1, ww = aw*k0 + bw*k1, l = Math.hypot(x, y, z, ww) || 1;
+  Q[o] = x/l; Q[o + 1] = y/l; Q[o + 2] = z/l; Q[o + 3] = ww/l;
+}
+
+/* ---------- planted feet in clips ----------
+   A clip that declares plant channels keeps those feet where they stood when it began (world points), whatever its own
+   legs say, in proportion to how planted it says they are: a blend into or out of it never slides them. */
+const _pw = [0, 0], _fq = new Float64Array(4);
+function drawnAnkles(h, Q, out){
+  fkQ(h, Q, _FK);
+  const g = h.g, ry = g.rotation.y, c = Math.cos(ry), s = Math.sin(ry), sc = h.scale;
+  for (let i = 0; i < 2; i++){
+    const ft = LEG(i ? -1 : 1)[2], o = ft*7, x = _FK[o], y = _FK[o + 1], z = _FK[o + 2];
+    qRot(_FK, o + 3, 0, 0, 1, _ql, 0);
+    const p = out[i] || (out[i] = {});
+    p.x = g.position.x + (x*c + z*s)*sc; p.z = g.position.z + (-x*s + z*c)*sc; p.y = g.position.y + y*sc;
+    p.yaw = ry + Math.atan2(_ql[0], _ql[2]);
+  }
+  return out;
+}
+function plantLegs(h, Q, w){
+  const g = h.g, ry = g.rotation.y, c = Math.cos(ry), s = Math.sin(ry), sc = h.scale;
+  fkQ(h, Q, _FK);
+  for (let i = 0; i < 2; i++){
+    if (!(w[i] > 1e-3)) continue;
+    const L = h.locks[i]; if (!L) continue;
+    const ft = LEG(i ? -1 : 1)[2], o = ft*7;
+    const ox = (L.x - g.position.x)/sc, oz = (L.z - g.position.z)/sc;
+    const tx = ox*c - oz*s, tz = ox*s + oz*c, ty = (L.y - g.position.y)/sc;
+    _fq[0] = _FK[o + 3]; _fq[1] = _FK[o + 4]; _fq[2] = _FK[o + 5]; _fq[3] = _FK[o + 6];
+    const toe = Q[LEG(i ? -1 : 1)[3]*4], tw = 2*Math.atan2(toe, Q[LEG(i ? -1 : 1)[3]*4 + 3]);
+    solveLeg(h, Q, _FK, i ? -1 : 1, lerp(_FK[o], tx, w[i]), lerp(_FK[o + 1], ty, w[i]), lerp(_FK[o + 2], tz, w[i]), _fq, 0, tw);
+  }
+}
+
+/* ---------- the pipeline ---------- */
+const _st = {mode:"idle"};
+const STR = ["t", "look", "arms", "dir", "seat", "desk", "counter", "reach", "amp", "keys", "upper", "root", "intent", "belt", "phase", "shift", "fac", "style", "correct", "armsIn", "blend", "fatigue"];
+const FPU = 1, LP = 2, NONE = 0;
+export function animateHuman(h, dt, state = "idle", o = null){
   let st = state;
   // your own body, posed where you stand: note where that is (see you())
   // (named after it is made, so asked every time: a body is posed while it is being made)
   const nm = h.g.name;
   if (nm === "me-fp" || nm === "me-tp") noteYou(h);
-  if (typeof st === "string"){ _st.mode = st; _st.speed = PRESET[st]; st = _st; for (const k of ["t", "look", "arms", "dir", "seat", "desk", "counter", "reach", "amp", "keys"]) delete _st[k]; }
+  if (typeof st === "string"){ _st.mode = st; _st.speed = PRESET[st]; st = _st; for (const k of STR) if (k in _st) delete _st[k]; }
+  else if (PRESET[st.mode] != null && st.speed == null){ _st.mode = "move"; for (const k in st) _st[k] = st[k]; _st.speed = PRESET[st.mode]; st = _st; }
   let mode = st.mode || "idle";
-  // the speed the legs are animated at follows the one asked for, but a body can only speed up or slow down so fast
-  if (PRESET[mode] != null){ h.v = toward(h.v, st.speed != null ? st.speed : PRESET[mode], dt); mode = "move"; }
-  else if (mode === "move") h.v = toward(h.v, st.speed || 0, dt);
-  else if (mode === "idle"){ h.v = toward(h.v, 0, dt); mode = "move"; }
+  if (PRESET[mode] != null) mode = "move";
   if (!MODES[mode]) mode = "move";
-  if (mode !== h.mode){ h.from.set(h.pose); h.bw = 0; h.mode = mode; h.at = 0; h.bdur = 0; }
-  h.at += dt; h.t += dt;
-  // how fast the body is being turned (its group's yaw, frame to frame; a jump is a placement, not a turn)
-  if (dt > 0){
-    const ry = h.g.rotation.y;
-    if (h.ry0 != null){ const d = wrap(ry - h.ry0); h.turn += ((Math.abs(d) < .5 ? clamp(d/dt, -4, 4) : 0) - h.turn)*(1 - Math.exp(-15*dt)); }
-    h.ry0 = ry;
+  dt = dt > 0 ? Math.min(dt, .5) : 0;
+  const tier = o && o.tier ? o.tier : 0, fam = LOCO.has(mode), fn = MODES[mode];
+  h.ev.mask = 0; h.ev.at = 0; h.ev.side = null;
+  // a change of mode: what it starts from
+  const key = fam ? "loco" : mode;
+  if (key !== h.mode){
+    const wasLoco = h.mode === "loco";
+    if (h.posed){
+      if (fam && !wasLoco) gaitPlace(h, drawnAnkles(h, h.pose, h.feetTmp));   // back on its feet from a clip: they stay where they are
+      if (!fam && fn.plant) drawnAnkles(h, h.pose, h.locks);
+    }
+    h.blendNext = h.posed ? (st.blend || fn.blend || -1) : 0;
+    h.mode = key; h.at = 0;
   }
-  const T = h.tgt; T.fill(0); h.gw = 0;
-  MODES[mode](h, T, st, dt);
-  // a change of mode is blended over .3 s, longer when the body has further to go (getting up off the grass)
-  if (!h.bdur) h.bdur = st.blend || clamp(.3 + .28*(poseGap(h.from, T) - 1.1), .3, .8);
-  h.bw = Math.min(1, h.bw + dt/h.bdur);
-  const e = sstep(0, 1, h.bw), P = h.pose;
-  for (let i = 0; i < NP; i++) P[i] = e >= 1 ? T[i] : lerp(h.from[i], T[i], e);
-  ground(h, P, h.gw*e);
-  const bn = h.bones;
-  for (let i = 1; i < 20; i++) bn[i].rotation.set(P[i*3], P[i*3 + 1], P[i*3 + 2]);
-  const hp = bn[B.hips].position, r = h.rest[B.hips]; hp.set(r.x + P[60], r.y + P[61], r.z + P[62]);
+  h.at += dt; h.t += dt; h.acc += dt; h.accL += dt;
+  if (fam){
+    if (h.gait) h.gait.lod = tier;
+    const G = gaitStep(h, dt, st);
+    h.ev.mask |= G.ev.mask; if (G.ev.side){ h.ev.side = G.ev.side; h.ev.at = G.ev.at; }
+  }
+  if (ANIM_LOG.trace) traceLog(h);
+  // what this call does at this tier
+  let kind = FPU;
+  if (tier >= 4){ h.hid = true; ANIM.stats.so++; return h.ev; }
+  h.sinceF++;
+  if (tier === 2 || tier === 3){
+    // due every div frames (the longest waiting first when the budget is spent: it stays due), else the leg pass
+    const P = typeof GFX === "object" && GFX && GFX.P, div = tier === 2 ? (P && P.midDiv) || 2 : (P && P.farDiv) || 3;
+    const due = h.hid || h.sinceF >= div;
+    // (the budget counts the T0 and T1 poses still to come this frame: as many as last frame's, and one more in case a
+    // body came nearer)
+    if (!due || ANIM.fpu + Math.max(0, ANIM.hiLast + 1 - ANIM.hi) >= ANIM.budget) kind = tier === 2 || ((ANIM.frame + h.stag) & 1) === 0 ? LP : NONE;
+  }
+  if (!h.posed) kind = FPU;
+  // a frame the body is not posed at all (T3's other frames): it is drawn where it was last posed, so its planted feet
+  // do not ride along with the group the owner has already moved on (the group transform at the leg pass's rate)
+  if (kind === NONE){ h.g.matrixAutoUpdate = false; ANIM.stats.so++; return h.ev; }
+  if (!h.g.matrixAutoUpdate){ h.g.matrixAutoUpdate = true; h.g.updateMatrix(); }
+  if (kind === LP){
+    // the leg pass: the hips and the legs onto the footprints over the last full pose's upper body
+    if (fam && h.baseOk){
+      const Q = h.tq; Q.set(h.pose); Q[80] = h.base[0]; Q[81] = h.base[1]; Q[82] = h.base[2];
+      gaitLegs(h, Q, _FK, h.accL); h.accL = 0;
+      writeBones(h, Q, LEGW);
+      for (const b of LEGW) for (let c = 0; c < 4; c++) h.pose[b*4 + c] = Q[b*4 + c];
+      h.pose[80] = Q[80]; h.pose[81] = Q[81]; h.pose[82] = Q[82];
+    }
+    ANIM.stats.lp++;
+    return h.ev;
+  }
+  // a full pose update
+  ANIM.fpu++; ANIM.stats.fpu++; ANIM.byTier[tier]++; if (tier <= 1) ANIM.hi++;
+  const Te = h.te, Q = h.tq, adt = h.acc;
+  Te.fill(0); h.gw = 0;
+  fn(h, Te, st, adt);
+  eulerToQ(Te, Q);
+  h.base[0] = Q[80]; h.base[1] = Q[81]; h.base[2] = Q[82]; h.baseOk = fam;
+  // inertialisation: into a new mode (st.blend or the mode's own time, longer the further the body has to go), or a
+  // catch-up for a body seen again after it was hidden
+  if (h.blendNext){
+    const gap = poseGap(h.pose, Q), dur = h.blendNext > 0 ? h.blendNext : gap < .6 ? .2 : clamp(.3 + .28*(gap - 1.1), .3, .8);
+    inertiaStart(h, Q, dur);
+    h.blendNext = 0;
+  } else if (h.hid) inertiaStart(h, Q, .15, true);
+  h.hid = false;
+  const left = inertiaApply(h, Q, adt);
+  if (st.upper || h.upper.w > 0) upperLayer(h, Q, st, adt);
+  if (st.shift){ Q[80] += st.shift.x || 0; Q[81] += st.shift.y || 0; Q[82] += st.shift.z || 0; }
+  // a body-space correction worked out from this pose (your first-person body keeping its neck below the eye)
+  if (st.correct) st.correct(h, Q);
+  // the constraints, after all blending
+  if (fam){ gaitLegs(h, Q, _FK, h.accL); h.accL = 0; }
+  else {
+    if (fn.plant){ fn.plant(h, st, _pw); plantLegs(h, Q, _pw); }
+    if (fn.ground !== false && (fn.low || fn.ground === true || !lowPreset())) ground(h, Q, _FK, h.gw*(1 - left));
+  }
+  writeBones(h, Q);
+  h.posePrev.set(h.pose); h.pose.set(Q); h.dtPrev = adt; h.acc = 0; h.posed++; h.sinceF = 0;
+  return h.ev;
 }
+// the footfalls of the last call: [{side: 'L' | 'R', t (seconds into it), x, z}]
+export function footEvents(h){ return h.gait ? h.gait.falls : []; }
+/* animTier(h, tier): the tier to draw a person at, given the one the scheduler handed out: never a busier one than the
+   body's distance from the camera allows on this preset (GFX.P.animNear, animMid: T2 and T3 beyond them, T3 behind
+   the camera), and T4 (state only) while it is not shown at all. The scheduler's own tier wins when it is the cheaper
+   one (DESIGN 3.5.9: SCHED decides; until it thins people by distance itself this keeps the far ones cheap) */
+export function animTier(h, tier = 1){
+  if (tier === 0) return 0;
+  for (let o = h.g; o; o = o.parent) if (!o.visible) return 4;
+  if (!h.g.parent) return 4;
+  const P = typeof GFX === "object" && GFX && GFX.P, near = (P && P.animNear) || 25, mid = (P && P.animMid) || 70;
+  const p = h.g.position, dx = p.x - VIEW.x, dz = p.z - VIEW.z, d = Math.hypot(dx, dz, p.y - VIEW.y);
+  let t = d > mid ? 3 : d > near ? 2 : 1;
+  if (d > 4 && dx*VIEW.fx + dz*VIEW.fz < -.3*d) t = 3;
+  return Math.max(tier, t);
+}
+function traceLog(h){
+  const G = h.gait, L = ANIM_LOG.log;
+  if (L.length > 20000) L.splice(0, 5000);
+  L.push({id:h.id, t:+h.t.toFixed(4), mode:h.mode, ev:h.ev.mask, state:G ? G.state : null, feet:G ? G.feet.map(f => [f.down ? 1 : 0, +f.x.toFixed(4), +f.z.toFixed(4)]) : null});
+}
+
 
 /* ---------- looks: seeded, believable people for each role ---------- */
 const SKINS = [0xf3d3bb, 0xeac2a4, 0xdcab88, 0xc9926a, 0xb07a55, 0x8f5d3f, 0x6c4531, 0x4e3226];
@@ -1840,7 +1955,10 @@ const ROLES = {
   clerk:{age:[18, 50], fem:.5, builds:[["slim", .35], ["average", .45], ["stocky", .2]]},
   dispatcher:{age:[26, 55], fem:.3, builds:[["average", .45], ["stocky", .35], ["slim", .2]]},
   photographer:{age:[24, 48], fem:.45, builds:[["slim", .45], ["average", .45], ["athletic", .1]]},
-  editor:{age:[21, 38], fem:.4, builds:[["slim", .5], ["average", .4], ["stocky", .1]]}
+  editor:{age:[21, 38], fem:.4, builds:[["slim", .5], ["average", .4], ["stocky", .1]]},
+  // match officials: fit, in a plain kit of their own (clashFree picks its colour against both teams)
+  referee:{age:[28, 45], fem:0, builds:[["athletic", .55], ["slim", .3], ["average", .15]]},
+  linesman:{age:[27, 46], fem:0, builds:[["athletic", .45], ["slim", .35], ["average", .2]]}
 };
 ROLES.pedestrian = ROLES.customer;
 const CASUAL = {tee:[0xf2f0ea, 0x1f2125, 0x8a8f96, 0x24324a, 0x5a6b3e, 0x6e2a2f, 0xc9a23e, 0x7fa7c9, 0xc4683a, 0x3d6f6a],
@@ -1877,8 +1995,8 @@ export function lookFor(role = "pedestrian", seed = 1, x = {}){
     const [bc, bs] = pick(BOOTS);
     outfit = {type:x.training ? "training" : "kit", shirt:kit[0], shorts:kit[1], socks:kit[2] || kit[0], sockTrim:kit[1], trim:kit[1], number:x.number || 0, bib:x.bib || false, shoes:bc, stripe:bs, sole:bc === 0xf2f2f0 ? 0xd8d8d4 : 0x24262a};
   } else if (role === "goalkeeper"){
-    const team = new THREE.Color(hex(kit[0])), opts = [0x2f9e44, 0xf2c230, 0xf07a1a, 0x24262b, 0x7a3fb0, 0x1fa2c4].filter(c => { const k = new THREE.Color(c); return Math.abs(k.r - team.r) + Math.abs(k.g - team.g) + Math.abs(k.b - team.b) > .5; });
-    const c = pick(opts), [bc, bs] = pick(BOOTS);
+    // a keeper's colour of their own, clear of their team's shirts (and of both teams' in a match: x.avoid)
+    const c = clashFree(pick([0x2f9e44, 0xf2c230, 0xf07a1a, 0x24262b, 0x7a3fb0, 0x1fa2c4]), x.avoid || [kit[0], kit[1]]), [bc, bs] = pick(BOOTS);
     outfit = {type:"gk", shirt:c, trim:0x1c1d21, shorts:0x1c1d21, socks:c, sockTrim:0x1c1d21, number:x.number || 1, glove:pick([0xf2f2ee, 0xd8ff3a, 0xf06a1e]), gloveTrim:0x1c1d21, shoes:bc, stripe:bs};
   } else if (role === "coach"){
     const club = hex(kit[0]);
@@ -1918,6 +2036,11 @@ export function lookFor(role = "pedestrian", seed = 1, x = {}){
     outfit = {type:"polo", sleeves:"long", shirt:0x1b6f9a, trim:0xf2c230, legwear:"trousers", trousers:pick([0x3a3f46, 0x23262b]), shoes:0x1c1d21};
   } else if (role === "photographer"){
     outfit = {type:r() < .5 ? "jacket" : "casual", shirt:pick([0x1f2125, 0x2a2c30, 0x3d3a36]), inner:pick([0x1f2125, 0x8a8f96, 0xf2f0ea]), legwear:"jeans", trousers:pick(CASUAL.jeans), shoes:pick([0x1c1d21, 0x8a6a48])};
+  } else if (role === "referee" || role === "linesman"){
+    // the officials' kit: one colour from collar to socks (x.kit[0], black by default), dark shorts, black boots, no number
+    // (and clear of both teams' shirts when the match's kits are given: x.avoid)
+    const c = clashFree(hex(kit[0] && x.kit ? kit[0] : 0x1c1d21), x.avoid || []), dark = mixHex(c, 0x0c0d10, .6);
+    outfit = {type:"kit", shirt:c, trim:mixHex(c, 0xffffff, .55), shorts:x.kit && kit[1] ? hex(kit[1]) : 0x16171a, socks:c, sockTrim:dark, number:0, shoes:0x15161a, stripe:0x15161a, sole:0x24262a};
   } else if (role === "editor"){
     outfit = {type:"hoodie", shirt:pick([0x24324a, 0x38513a, 0x4a3b5e, 0x1f2125]), legwear:"jeans", trousers:pick(CASUAL.jeans), shoes:pick([0xf0f0ec, 0x1c1d21])};
     if (r() < .5) props = ["glasses"];
@@ -1933,3 +2056,66 @@ export function lookFor(role = "pedestrian", seed = 1, x = {}){
   if (x.outfit) look.outfit = Object.assign(look.outfit, x.outfit);
   return look;
 }
+
+/* ---------- kit colours that never clash ----------
+   clashFree(colour, avoid) -> colour: colour itself when it is at least 120 apart (RGB, 0..255) from every colour in
+   avoid, else the first of the keepers' and officials' usual colours that is, else the corner of the RGB cube that
+   stands furthest from them (two colours closer than 120 to the same corner cannot both be near another, so with up to
+   seven to avoid there is always one). Colours are numbers or any CSS colour (the clubs' hsl() kits). */
+const CLASH_MIN = 120;
+const CLASH_PREF = [0x1c1d21, 0xf2d53c, 0x2f9e44, 0xf07a1a, 0x7a3fb0, 0x1fa2c4, 0xe84393, 0xd02b2b, 0x8a8f96, 0xf2f2ee,
+  0x000000, 0xffffff, 0xff0000, 0x00ff00, 0x0000ff, 0x00ffff, 0xff00ff, 0xffff00];
+const rgb8 = c => { const v = hex(c) ?? 0; return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+export function clashFree(color, avoid = []){
+  const av = (avoid || []).filter(c => c != null && c !== false).map(rgb8);
+  const far = c => { const p = rgb8(c); let m = Infinity; for (const a of av) m = Math.min(m, Math.hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2])); return m; };
+  if (color != null && far(color) >= CLASH_MIN) return hex(color);
+  let best = CLASH_PREF[0], bd = -1;
+  for (const c of CLASH_PREF){ const d = far(c); if (d >= CLASH_MIN) return c; if (d > bd){ bd = d; best = c; } }
+  return best;
+}
+
+/* ---------- building bodies before they are needed (DESIGN 3.9.6) ----------
+   prebuildHumans(looks, {budgetMs = 3}) -> Promise: the near, far and LOD3 shapes of each look, built in idle slices
+   (each slice does at least one stage, and starts another only while one as long as the longest so far still fits in
+   budgetMs), so a squad or a stadium's 22 players come in without a hitch. A shape is built in stages (body, arms,
+   legs, clothes, head, face, hair, beard, packing), so no slice takes much more than its budget. The shape cache
+   outlives the place: a body built once is never built again. Resolves with how many shapes were built; PREBUILD
+   holds the last run's slices, the longest one, and the longest single stage (stageMs, stageAt: [job, detail, stage]). */
+const idleSlice = fn => typeof requestIdleCallback === "function" ? requestIdleCallback(fn, {timeout:250}) : setTimeout(fn, 16);
+// the last run's slices (tests: the longest one, how many there were, the longest stage and where it was)
+export const PREBUILD = {slices:0, maxMs:0, built:0, stageMs:0, stageAt:null};
+export function prebuildHumans(looks, {budgetMs = 3} = {}){
+  const jobs = [];
+  for (const l of looks || []) if (l){ const L = normLook(l); jobs.push([L, 1], [L, 0], [L, -1]); }
+  let i = 0, built = 0, gen = null, est = 0;
+  PREBUILD.slices = 0; PREBUILD.maxMs = 0; PREBUILD.built = 0; PREBUILD.stageMs = 0; PREBUILD.stageAt = null;
+  let stage = 0;
+  return new Promise(resolve => {
+    const slice = () => {
+      const t0 = performance.now();
+      PREBUILD.slices++;
+      let worked = false;
+      while (i < jobs.length){
+        // (a stage is not started unless one as long as the longest so far still fits in the slice)
+        if (worked && performance.now() - t0 + est >= budgetMs) break;
+        if (!gen){
+          const [L, det] = jobs[i], look = det === 0 ? farLook(L) : L;
+          if (SHAPES.has(shapeKey(look, det, false))){ i++; continue; }
+          gen = shapeSteps(look, det, false); stage = 0;
+        }
+        worked = true;
+        const s0 = performance.now(), ji = i;
+        if (gen.next().done){ gen = null; i++; built++; }
+        const ms = performance.now() - s0;
+        est = Math.max(est, ms);
+        if (ms > PREBUILD.stageMs){ PREBUILD.stageMs = ms; PREBUILD.stageAt = [ji, jobs[ji][1], stage]; }
+        stage++;
+      }
+      PREBUILD.maxMs = Math.max(PREBUILD.maxMs, performance.now() - t0); PREBUILD.built = built;
+      if (i >= jobs.length) resolve(built); else idleSlice(slice);
+    };
+    idleSlice(slice);
+  });
+}
+
