@@ -127,6 +127,29 @@ function cut(pace, deg = 90){
   check(m.x - x0 >= 3.9 && m.x - x0 <= 4.8 && t > 1 && maxDecel <= 7.5 + 1e-9, "sprint to stop with no input: 3.9 to 4.8 m, braking at most 7.5 m/s squared", {dist: r3(m.x - x0), t: r3(t)});
 }
 
+// 1.5.2 and 3.1.5 step 3: braking is a constant rate, 7.5 (football) and 12 (life) m/s squared, to a standstill:
+// every gait stops in v/rate seconds (to the step) over v^2/(2 rate) metres, which is what the animation's stop
+// planner (3.5.5) predicts from the same numbers. No slow tail at the end of a stop.
+{
+  const rows = [];
+  let ok = true;
+  for (const [profile, gait] of [["football", "sprint"], ["football", "jog"], ["football", "walk"], ["life", "walk"], ["life", "run"]]){
+    const prm = moverParams({pace: 50}, profile), m = createMover({yaw: EAST});
+    for (let i = 0; i < 600; i++) moverStep(m, {dx: 1, dz: 0, gait}, prm, FRESH, H);
+    const v0 = m.speed, x0 = m.x, tWant = v0/prm.brake, dWant = v0*v0/(2*prm.brake);
+    let t = 0, steady = true;
+    while (m.speed > 0 && t < 5){
+      const v = m.speed;
+      moverStep(m, {dx: 0, dz: 0}, prm, FRESH, H); t += H;
+      if (m.speed > 0 && Math.abs((v - m.speed) - prm.brake*H) > 1e-9) steady = false;
+    }
+    const d = m.x - x0;
+    if (!steady || t < tWant - 1e-9 || t > tWant + H + 1e-9 || Math.abs(d - dWant) > v0*H) ok = false;
+    rows.push(`${profile} ${gait} ${r3(v0)} m/s: ${r3(t)} s (${r3(tWant)}), ${r3(d)} m (${r3(dWant)})`);
+  }
+  check(ok, "every gait brakes at the 1.5.2 rate to a standstill: v/rate seconds, v^2/(2 rate) metres", rows);
+}
+
 // 4.1: full-speed turn radius (pace 50) 7.5 to 9.5 m; a standing player turns quickly
 {
   const prm = moverParams({pace: 50, dribbling: 50}, "football"), m = createMover({yaw: EAST});
@@ -160,6 +183,12 @@ function cut(pace, deg = 90){
   check(Math.abs(diag.speed - prm.run) < 1e-6 && diag.gait === 'run', "45 degrees off the facing is outside the 35 degree sprint cone: run", r3(diag.speed));
   const free = at(-1, 0, 'sprint', null);
   check(Math.abs(free.speed - prm.sprint) < 1e-6 && Math.abs(wrapA(free.yaw - Math.PI/2)) < 1e-9, "without a held facing the body turns and sprints", r3(free.speed));
+  // the sprint cone and the backpedal and strafe caps are measured against a held facing; a body that faces where
+  // it runs keeps its sprint through a turn, and the cut rule prices the angle
+  const turning = createMover({yaw: EAST});
+  for (let i = 0; i < 600; i++) moverStep(turning, {dx: 1, dz: 0, gait: 'sprint'}, prm, FRESH, H);
+  moverStep(turning, {dx: 0, dz: 1, gait: 'sprint'}, prm, FRESH, H);
+  check(turning.gait === 'sprint' && turning.cut > 0 && Math.abs(turning.target - prm.sprint*prm.cutFloor) < 1e-9, "a free-facing 90 degree cut keeps the sprint as its base, times the cut factor", {gait: turning.gait, target: r3(turning.target)});
   const cap = at(1, 0, 'sprint', null); const cm = createMover({yaw: EAST});
   for (let i = 0; i < 600; i++) moverStep(cm, {dx: 1, dz: 0, gait: 'sprint', speedCap: 4.4}, prm, FRESH, H);
   check(Math.abs(cm.speed - 4.4) < 1e-6 && cap.speed > 4.4, "speedCap caps the target", r3(cm.speed));
@@ -168,14 +197,27 @@ function cut(pace, deg = 90){
   check(Math.abs(half.speed - prm.jog/2) < 1e-6, "|d| below 1 is a throttle", r3(half.speed));
 }
 
-// stagger: speed capped at 2.0 for 0.35 s after a lost shoulder duel, then it recovers
+// stagger (1.5.2, 3.1.5 step 6): the speed is capped at 2.0 m/s for 0.35 s after a lost shoulder duel, from the
+// first step of it, on the line the body was running; then the run resumes at the normal acceleration
 {
   const prm = moverParams({pace: 50}, "football"), m = createMover({yaw: EAST});
   for (let i = 0; i < 600; i++) moverStep(m, {dx: 1, dz: 0, gait: 'sprint'}, prm, FRESH, H);
+  const v0 = m.speed, x0 = m.x, hd0 = m.heading;
   m.stagger = prm.staggerT;
-  let t = 0, min = m.speed, smooth = true, prev = m.speed;
-  while (t < 1.5){ moverStep(m, {dx: 1, dz: 0, gait: 'sprint'}, prm, FRESH, H); t += H; min = Math.min(min, m.speed); if (Math.abs(m.speed - prev) > 2*prm.plant*H + 1e-9) smooth = false; prev = m.speed; }
-  check(min < 2.5 && m.stagger === 0 && m.speed > min + 1 && smooth, "a stagger knocks the speed down towards 2.0 m/s without a jump, then the run resumes", {min: r3(min), after: r3(m.speed)});
+  let t = 0, maxIn = 0, steps = 0, line = true;
+  while (m.stagger > 0 && t < 2){ moverStep(m, {dx: 1, dz: 0, gait: 'sprint'}, prm, FRESH, H); t += H; steps++; maxIn = Math.max(maxIn, m.speed); if (Math.abs(wrapA(m.heading - hd0)) > 1e-9) line = false; }
+  const dist = m.x - x0;
+  check(v0 > 7.9 && maxIn <= prm.staggerCap + 1e-9 && Math.abs(t - prm.staggerT) < H/2 && dist <= prm.staggerCap*prm.staggerT + 1e-9 && line,
+    "a stagger caps the speed at 2.0 m/s for 0.35 s from its first step, on the same line", {from: r3(v0), max: r3(maxIn), steps, metres: r3(dist)});
+  let smooth = true, prev = m.speed;
+  for (let i = 0; i < 90; i++){ moverStep(m, {dx: 1, dz: 0, gait: 'sprint'}, prm, FRESH, H); if (m.speed - prev > prm.a0*H + 1e-9 || m.speed < prev - 1e-12) smooth = false; prev = m.speed; }
+  check(m.stagger === 0 && m.speed > prm.staggerCap + 2 && smooth, "after the stagger the run picks up again at the normal acceleration", r3(m.speed));
+  // a stagger from a walk changes nothing: the cap is a cap, not a shove
+  const w = createMover({yaw: EAST});
+  for (let i = 0; i < 300; i++) moverStep(w, {dx: 1, dz: 0, gait: 'walk'}, prm, FRESH, H);
+  const vw = w.speed; w.stagger = prm.staggerT;
+  moverStep(w, {dx: 1, dz: 0, gait: 'walk'}, prm, FRESH, H);
+  check(Math.abs(w.speed - vw) < 1e-12, "a stagger below 2.0 m/s leaves the speed alone", r3(w.speed));
 }
 
 // never |v| > vmax + 1e-9 and never a step longer than vmax*h + 1e-3: random intents, profiles, factors, frame times,
@@ -235,16 +277,16 @@ function cut(pace, deg = 90){
   const jogN = () => { const m = createMover({yaw: 0}); for (let i = 0; i < 120; i++) moverStep(m, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H); return m; };
   const a = jogN(), x0 = a.x, z0 = a.z, v0 = a.speed;
   moverStep(a, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, (mm, dx, dz) => ({dx: Math.hypot(dx, dz), dz: 0}));
-  check(Math.abs(a.z - z0) < 1e-12 && Math.abs(a.x - x0 - v0*H) < 1e-9 && a.vx > 0 && Math.abs(a.vz) < 1e-9 && a.speed <= v0 + 1e-9,
-    "an equal-length slide from collide moves the body along the wall, and its run follows", {dx: r3(a.x - x0), dz: r3(a.z - z0), vx: r3(a.vx), vz: r3(a.vz)});
+  check(Math.abs(a.z - z0) < 1e-12 && Math.abs(a.x - x0 - v0*H) < 1e-9 && a.speed <= v0 + 1e-9,
+    "an equal-length deflection from collide is where the body goes, and the run is never faster for it", {dx: r3(a.x - x0), dz: r3(a.z - z0), v: r3(a.speed)});
   const b = jogN(), z1 = b.z;
   moverStep(b, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, () => ({dx: 0, dz: 0.2}));
   check(Math.abs(b.z - z1 - 0.2) < 1e-12 && b.speed < 1e-9 && b.vx === 0 && Math.abs(b.vz) < 1e-12,
     "a push-out longer than the move puts the body where collide says, with no speed back the way it came", {dz: r3(b.z - z1), v: r3(b.speed)});
-  const c = jogN(), z2 = c.z, x2 = c.x;
+  const c = jogN(), z2 = c.z, x2 = c.x, vc = c.speed, hc = c.heading;
   moverStep(c, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, (mm, dx, dz) => ({dx: 0.3, dz}));
-  check(Math.abs(c.x - x2 - 0.3) < 1e-12 && Math.abs(c.z - z2 + c.speed*H) < 0.05 && c.speed <= prm.jog + 1e-9,
-    "a sideways shove is applied in full, and the speed never exceeds what the body was running at", {dx: r3(c.x - x2), v: r3(c.speed)});
+  check(Math.abs(c.x - x2 - 0.3) < 1e-12 && Math.abs(c.z - z2 + vc*H) < 1e-12 && Math.abs(c.speed - vc) < 1e-12 && c.heading === hc,
+    "a sideways shove is applied in full and leaves the run as it was (it took nothing from it)", {dx: r3(c.x - x2), v: r3(c.speed)});
   const d = jogN(), z3 = d.z;
   moverStep(d, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, () => null);
   check(d.z < z3 && Math.abs(d.speed - prm.jog) < 1e-6, "collide answering null lets the move through", r3(d.z - z3));
@@ -254,6 +296,63 @@ function cut(pace, deg = 90){
   // boundsCollide reuses one result object; prm.bounds is clamped inline with no closure
   const bc = boundsCollide(5, 5), m = createMover({x: 4.9});
   check(bc(m, 1, 0) === bc(m, 0, 1) && bc(m, 1, 0).dx === 5 - 4.9, "boundsCollide answers in one reused object");
+}
+
+// Sliding along a wall (3.1.5 step 7, as body() in core/move.js slides today): pushed into a wall at an angle, the
+// body slides along it at what the push along it is worth (the gait speed times the cosine between the wish and the
+// wall line), the same whether it ran into the wall or started against it; at a walk or a jog, for both profiles
+{
+  const wallAt1 = (mm, dx, dz) => ({dx: Math.min(dx, Math.max(0, 1 - mm.x)), dz});    // a wall at x = 1
+  const rows = [];
+  let ok = true;
+  for (const [profile, gait] of [["life", "walk"], ["football", "walk"], ["football", "jog"], ["life", "run"]]){
+    const prm = moverParams({pace: 50}, profile), vg = gaitSpeed(prm, FRESH, gait);
+    for (const ang of [30, 45, 70, 85]){
+      const a = ang*Math.PI/180, dx = Math.sin(a), dz = -Math.cos(a);    // ang degrees off the wall line, into it
+      const got = [];
+      for (const start of [2, 0]){
+        const m = createMover({x: 1 - start, z: 0, yaw: EAST});
+        let z0 = 0;
+        for (let i = 0; i < 300; i++){ moverStep(m, {dx, dz, gait}, prm, FRESH, H, wallAt1); if (i === 179) z0 = m.z; }
+        got.push({v: m.speed, slid: (z0 - m.z)/2, x: m.x});
+      }
+      const want = vg*Math.cos(a);
+      for (const g of got) if (Math.abs(g.v - want) > 0.02*vg || Math.abs(g.slid - want) > 0.02*vg || g.x > 1 + 1e-12) ok = false;
+      if (Math.abs(got[0].v - got[1].v) > 1e-6) ok = false;
+      rows.push(`${profile} ${gait} ${ang}: ${r3(got[0].v)} / ${r3(got[1].v)} (${r3(want)})`);
+    }
+  }
+  check(ok, "a wall slide goes at the push's worth along the wall, whichever way the body came to it", rows);
+  // and at any frame rate
+  const fr = [];
+  for (const h of [1/30, 1/60, 1/144]){
+    const prm = moverParams({pace: 50}, "life"), a = 60*Math.PI/180, m = createMover({x: -1, yaw: EAST});
+    for (let t = 0; t < 4; t += h) moverStep(m, {dx: Math.sin(a), dz: -Math.cos(a), gait: 'walk'}, prm, FRESH, h, wallAt1);
+    const z0 = m.z; let t1 = 0;
+    for (; t1 < 1 - 1e-9; t1 += h) moverStep(m, {dx: Math.sin(a), dz: -Math.cos(a), gait: 'walk'}, prm, FRESH, h, wallAt1);
+    fr.push((z0 - m.z)/t1);
+  }
+  check(Math.max(...fr) - Math.min(...fr) < 1e-6 && Math.abs(fr[0] - 1.7*0.5) < 1e-6, "the slide is the same at 30, 60 and 144 frames a second", fr.map(r3));
+  // straight into the wall: no slide at all
+  const prm = moverParams({pace: 50}, "life"), m = createMover({x: 0, yaw: EAST});
+  for (let i = 0; i < 300; i++) moverStep(m, {dx: 1, dz: 0, gait: 'run'}, prm, FRESH, H, wallAt1);
+  check(m.x === 1 && m.speed < 1e-9 && Math.abs(m.z) < 1e-12, "straight into a wall: stopped against it, no slide", {x: m.x, v: r3(m.speed)});
+  // coasting into a wall at an angle with no input: the run's own momentum along it carries on and brakes at 7.5
+  const fp = moverParams({pace: 50}, "football"), k = createMover({x: 0.9, yaw: EAST});
+  const a45 = dirOf(EAST + Math.PI/4);
+  for (let i = 0; i < 300; i++){ moverStep(k, {dx: a45.x, dz: a45.z, gait: 'jog'}, fp, FRESH, H); if (k.x > 0.9) k.x = 0.9; }
+  k.x = 0.99;
+  const vj = k.speed;
+  moverStep(k, {dx: 0, dz: 0}, fp, FRESH, H, wallAt1);            // the coast reaches the wall in this step
+  const v1 = k.speed;
+  moverStep(k, {dx: 0, dz: 0}, fp, FRESH, H, wallAt1);
+  check(Math.abs(v1 - (vj - fp.brake*H)*Math.SQRT1_2) < 1e-6 && Math.abs(k.speed - (v1 - fp.brake*H)) < 1e-9 && Math.abs(k.vx) < 1e-12,
+    "coasting into a wall keeps the momentum along it, braking at the 1.5.2 rate", {before: r3(vj), along: r3(v1), next: r3(k.speed)});
+  // the run-off bounds of an open pitch slide the same way: a sprint at 45 degrees into the touchline runs along it
+  const bp = moverParams({pace: 50}, "football"); bp.bounds = {hx: 57.5, hz: 38};
+  const e = createMover({x: 0, z: 36, yaw: EAST}), d45 = dirOf(EAST - Math.PI/4);
+  for (let i = 0; i < 600; i++) moverStep(e, {dx: d45.x, dz: d45.z, gait: 'sprint'}, bp, FRESH, H);
+  check(e.z === 38 && Math.abs(e.speed - bp.sprint*Math.SQRT1_2) < 0.02*bp.sprint, "a run into the pitch bounds at 45 degrees slides along them at the push's worth", {z: e.z, v: r3(e.speed)});
 }
 
 // LIFE profile: Shift runs at 5.2 m/s, sprint builds over 1.1 s of Shift forward once at running pace

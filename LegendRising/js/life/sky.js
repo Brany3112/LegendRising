@@ -101,8 +101,10 @@ export function createSky(renderer){
   sun.castShadow = true;
   sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; sun.shadow.radius = 2.5;   // vogel-disk PCF: soft edge instead of stair-steps
   const hemi = new THREE.HemisphereLight(0xc4dcff, 0x9a9184, 1);
-  // the real lights: eight (five on Low) handed out to the sources that matter most where you are (see lights())
-  const NREAL = typeof GFX !== "undefined" && GFX.low ? 5 : 8;
+  // the real lights: the preset's count for the life zones (DESIGN 1.4.4 nReal.life: four on Medium, eight on High;
+  // Low keeps the five it has had until WP-A's applyPreset), handed out to the sources that matter most where you
+  // are (see lights()). Read once, when the sky is made, as mat() reads the preset when a material is made.
+  const NREAL = typeof GFX === "undefined" ? 8 : GFX.low ? 5 : Math.max(1, Math.min(8, (GFX.P && GFX.P.nReal && GFX.P.nReal.life) || 8));
   const pool = Array.from({length:NREAL}, () => { const l = new THREE.PointLight(0xffe0b0, 0, 12, 1.6); l.userData.src = null; l.userData.cur = 0; return l; });
   const fog = new THREE.Fog(0xc8d8e8, 60, 260);
   const K = {night:0, lamps:0, exposure:1, env:.5, sunUp:1, cover:0};

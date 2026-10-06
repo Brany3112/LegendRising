@@ -138,8 +138,8 @@ function patchKids(a, b){
    subscriber with (P, prevP, reason).
    GFX.low (true on Low) is what the 2D match and some 3D readers still check. Until the world applies whole presets
    (quality.js applyPreset), the 3D readers already honour Medium where it is one line: materials (build.js mat: Lambert
-   for plain, printed and glowing surfaces), the pixel ratio cap (quality.js resize), cloud octaves, reflection bakes
-   and shadow redraws (sky.js). Graphics live in localStorage only, never in a save. */
+   for plain, printed and glowing surfaces), the pixel ratio cap (quality.js resize), cloud octaves, reflection bakes,
+   shadow redraws and the number of real point lights (sky.js). Graphics live in localStorage only, never in a save. */
 const GFX_TIERS = ["low", "medium", "high"];
 const GFX_LABEL = {auto:"Auto", low:"Low", medium:"Medium", high:"High"};
 // Every field, per tier (DESIGN 1.4.4). Distances in metres, rates in Hz, times in seconds.

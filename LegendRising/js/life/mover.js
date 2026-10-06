@@ -24,9 +24,6 @@ const skill = v => clamp(v == null || !Number.isFinite(+v) ? 50 : +v, 1, 99);
 
 // below this speed the velocity has no direction worth keeping: the heading takes the wish direction at once
 const SNAP_V = 0.05;
-// the soft end of braking: deceleration eases off over the last SOFT_V m/s above the target, so a stop settles
-// instead of halting dead (the rate never drops under SOFT_MIN of the full brake)
-const SOFT_V = 1.25, SOFT_MIN = 0.12;
 
 // a body at rest
 export function createMover({x = 0, z = 0, yaw = 0} = {}){
@@ -94,9 +91,9 @@ export function gaitSpeed(prm, fac, gait){
 // gait: 'walk' | 'jog' | 'run' | 'sprint', face: null | {x, z}, strafe: false, speedCap: Infinity}.
 // fac = stamFactors(...) or null for a fresh body. collide(m, dx, dz) -> {dx, dz} applies world collision and has the
 // last word on where the body goes: a shortened move, a slide along a wall or a push out of an obstacle all move the
-// body exactly as it says (the velocity keeps only the part of that which is the body's own running: never faster
-// than before, never back the way it was pushed). With no collide, prm.bounds ({hx, hz}) clamps to an open pitch.
-// Nothing is allocated per step.
+// body exactly as it says (the velocity keeps only what is the body's own running: along a wall, what the wish's push
+// along it is worth; never faster than before, never back the way it was pushed). With no collide, prm.bounds
+// ({hx, hz}) clamps to an open pitch. Nothing is allocated per step.
 export function moverStep(m, intent, prm, fac, h, collide = null){
   if (!(h > 0)) return m;
   fac = fac || FRESH;
@@ -109,9 +106,11 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   const wishYaw = has ? yawOf(dx, dz) : m.heading;
   const held = !!(it.face || it.strafe);          // facing is held (look, jockey, keeper), not following the heading
 
-  // 1. target speed from the gait, the stamina factors, the facing caps and the caller's cap
+  // 1. target speed from the gait, the stamina factors, the facing caps and the caller's cap. The facing caps (the
+  // sprint cone, backpedal and strafe) are measured against a held facing: a body that faces where it runs turns to
+  // its wish at the turn rate, and the angle on the way round is the cut rule's to price (step 2), not twice over
   let gait = has ? (it.gait || (prm.profile === "life" ? 'walk' : 'jog')) : 'stand';
-  const alpha = has ? Math.abs(wrapA(wishYaw - m.yaw)) : 0;          // wish direction against the body facing
+  const alpha = has && held ? Math.abs(wrapA(wishYaw - m.yaw)) : 0;  // wish direction against the held facing
   if (gait === 'sprint' && alpha > prm.sprintCone) gait = 'run';
   if (prm.sprintBuild > 0){
     // life: the sprint builds over sprintBuild seconds of Shift forward at running pace, and fades when let go
@@ -129,10 +128,13 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
     else if (alpha > 60*DEG) vt = Math.min(vt*prm.strafeMul, prm.strafe);
   }
   if (it.speedCap != null && it.speedCap < vt) vt = Math.max(0, it.speedCap);
-  // 6. stagger (the caller sets m.stagger = prm.staggerT after a lost shoulder duel): the speed is capped at 2.0 m/s
-  // while it lasts, and the body brakes towards that at twice the plant rate (a stumble, not a snap)
+  // 6. stagger (the caller sets m.stagger = prm.staggerT after a lost shoulder duel): the speed is capped at
+  // staggerCap (2.0 m/s) for staggerT (0.35 s), from the first step of it. The lost duel is the impact that takes the
+  // speed (D21: the simulation sets the timing); the stumble on the body is the animation's 'stagger' state, which
+  // blends into it, and the heading is kept so the body carries on the way it was going
   let staggered = false;
-  if (m.stagger > 0){ vt = Math.min(vt, prm.staggerCap); staggered = true; m.stagger = Math.max(0, m.stagger - h); }
+  if (m.stagger > 0){ vt = Math.min(vt, prm.staggerCap); staggered = true; m.stagger = m.stagger - h > 1e-9 ? m.stagger - h : 0; }
+  const vFree = vt;                               // the target before the cut rule: what a slide along a wall is worth
 
   // 2. the cut rule: a heading error over 35 degrees above 3 m/s plants and costs speed (target x max(0.3, cos));
   // below that, a wish to go back the way you came first stops you (a pivot), then you go
@@ -149,7 +151,9 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   // the body has now (the sprint after the stamina factors, prm.vmax when fresh). A walk or a jog is reached briskly,
   // where the drive is still strong, and the curve flattens only towards a full sprint. Integrated exactly over the
   // step (s = 1 - v/vmax, s(t)^0.2 = s0^0.2 - 0.2 k t, k = a0*accel/vmax), so the run does not depend on the step
-  // length. Or brake: 7.5 with no input, the plant rate for cuts and reversals, harder in a stagger.
+  // length. Or brake at a constant rate (1.5.2): prm.brake (7.5, life 12) with no input or a slower gait, prm.plant
+  // (9, life 12) for cuts and reversals, so a stop takes v/rate seconds over v^2/(2 rate) metres, which is what the
+  // animation's stop planner (3.5.5) works out from the same numbers. A stagger caps the speed outright.
   let v = v0;
   m.plant = 0;
   if (v < vt){
@@ -157,10 +161,9 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
     const s0 = 1 - v/vmax, sg = Math.max(0, Math.pow(s0, 0.2) - 0.2*k*h);
     v = Math.min(vt, vmax*(1 - Math.pow(sg, 5)));
   } else if (v > vt){
-    const rate = staggered ? 2*prm.plant : planting ? prm.plant : prm.brake;
-    const soft = clamp((v - vt)/SOFT_V, SOFT_MIN, 1);
-    v = Math.max(vt, v - rate*soft*h);
-    m.plant = planting || staggered ? rate : 0;
+    const rate = planting ? prm.plant : prm.brake;
+    v = staggered && v > prm.staggerCap ? prm.staggerCap : Math.max(vt, v - rate*h);
+    if (planting) m.plant = rate;
   }
 
   // 4. lateral: the heading turns towards the wish at w = min(wMax, aLat*turn/max(v, 0.5)) (a lateral acceleration of
@@ -174,7 +177,6 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
       m.heading = wrapA(m.heading + clamp(e, -lim, lim));
     }
   }
-  m.turnRate = wrapA(m.heading - h0)/h;
 
   // 5. body facing: the held facing when given, else the heading while moving; never faster than faceRate
   let faceYaw = null;
@@ -185,9 +187,15 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
     m.yaw = wrapA(m.yaw + clamp(e, -lim, lim));
   }
 
-  // 7. integrate, then the world (or the run-off bounds) has its say. Whatever collide answers is where the body goes.
-  // The velocity after it: along the wish, only what the world let through (nothing when pushed back); across it, the
-  // slide the world gave; never more than the speed the body was running at.
+  // 7. integrate, then the world (or the run-off bounds) has its say: the body never goes anywhere collide did not
+  // answer. When the answer takes away part of the run (a wall, an edge, a push back), the velocity after it follows
+  // the slide, the part of the answer across what was taken away, at what the wish's push along that slide is worth
+  // (the target times the cosine between the wish and the slide, as body() in core/move.js slides today) or, if
+  // faster, what was left of the run's own momentum along it, braking at prm.brake: never faster than before, never
+  // back the way it was pushed, and the same however the body came to the wall. The move along the slide is that
+  // speed's worth (a prefix of the answer's slide), so the body slides as fast as it says it does at any frame rate.
+  // An answer that takes nothing from the run (a shove to the side, a push further along) is applied as it is and
+  // leaves the velocity alone.
   const ux = -Math.sin(m.heading), uz = -Math.cos(m.heading);       // dirOf(m.heading), inline
   const want = v*h;
   let mx = ux*want, mz = uz*want, vx = ux*v, vz = uz*v;
@@ -200,17 +208,29 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
       rx = clamp(m.x + mx, -prm.bounds.hx, prm.bounds.hx) - m.x;
       rz = clamp(m.z + mz, -prm.bounds.hz, prm.bounds.hz) - m.z;
     }
-    if (Math.abs(rx - mx) > 1e-12 || Math.abs(rz - mz) > 1e-12){
-      const along = rx*ux + rz*uz, ax = rx - along*ux, az = rz - along*uz;
-      const keep = clamp(along, 0, want);
-      let wx = (keep*ux + ax)/h, wz = (keep*uz + az)/h;
-      const wl = Math.hypot(wx, wz);
-      if (wl > v){ wx *= v/wl; wz *= v/wl; }
-      mx = rx; mz = rz; vx = wx; vz = wz;
-      v = Math.min(v, wl);
-      if (v > 1e-9) m.heading = yawOf(vx, vz);
+    const qx = mx - rx, qz = mz - rz, ql = Math.hypot(qx, qz);    // what the world took away from the move
+    if (ql > 1e-12 && qx*ux + qz*uz > 1e-9*want){
+      const nx = qx/ql, nz = qz/ql, rn = rx*nx + rz*nz;
+      const tx = rx - rn*nx, tz = rz - rn*nz, tl = Math.hypot(tx, tz);
+      let k = 0;
+      if (tl > 1e-9*want){
+        const sx = tx/tl, sz = tz/tl;
+        const drive = has ? vFree*Math.max(0, dx*sx + dz*sz) : 0;
+        const carry = Math.min(v*Math.max(0, ux*sx + uz*sz), v0 - prm.brake*h);
+        k = Math.min(v, Math.max(drive, carry));
+        vx = sx*k; vz = sz*k;
+        if (k > 1e-9) m.heading = yawOf(sx, sz);
+        // along the slide the body goes as far as it runs this step (k*h), never further than the answer; the part
+        // of the answer across it (the gap closed, a push out) stands in full
+        const go = Math.min(tl, k*h);
+        rx = rn*nx + sx*go; rz = rn*nz + sz*go;
+      }
+      if (!(k > 0)){ k = 0; vx = 0; vz = 0; }
+      v = k;
     }
+    mx = rx; mz = rz;
   }
+  m.turnRate = wrapA(m.heading - h0)/h;
   m.x += mx; m.z += mz;
   m.vx = vx; m.vz = vz;
   m.acc = (v - v0)/h;
@@ -237,15 +257,30 @@ export function timeToPoint(m, prm, fac, tx, tz, react = 0){
     let px = 0, py = 0, hd = 0;
     if (v > prm.cutMin && th > prm.cutAngle){
       // a plant (the cut rule): braking at the plant rate while the heading swings at aLat/v, so the error left at
-      // speed u is th + (aLat/plant)*ln(u/v); the plant ends where u meets the cut target run*max(floor, cos error)
-      const run = gaitSpeed(prm, fac, 'run'), c = aLat/prm.plant;
+      // speed u is th + (aLat/plant)*ln(u/v); the plant ends where u meets the cut target vs*max(floor, cos error)
+      // (a body that faces where it runs keeps its sprint target through the turn: moverStep step 1)
+      const c = aLat/prm.plant;
       const left = u => Math.max(0, th + c*Math.log(u/v));
-      const want = u => { const e = left(u); return e <= prm.cutAngle ? Infinity : run*Math.max(prm.cutFloor, Math.cos(e)); };
+      const want = u => { const e = left(u); return e <= prm.cutAngle ? Infinity : vs*Math.max(prm.cutFloor, Math.cos(e)); };
       let lo = 0, hi = v;
       if (want(v) >= v) lo = v;
       else for (let i = 0; i < 20; i++){ const mid = (lo + hi)/2; if (mid > want(mid)) hi = mid; else lo = mid; }
       const v1 = Math.max(lo, 0.05), tp = (v - v1)/prm.plant, turned = th - left(v1), s = (v + v1)/2*tp;
       t += tp; px = s*Math.cos(turned/2); py = s*Math.sin(turned/2); hd = turned; v = v1;
+      // out of the plant below the cut speed with the point still more than a quarter turn away: moverStep brakes
+      // on at the plant rate (a reversal) while the heading keeps swinging at aLat/u, until the error is back to a
+      // quarter turn at u2 = v*exp((pi/2 - e)/c); if that is all but standing, it stops and sets off afresh
+      const e2 = wrapA(Math.atan2(Ty - py, Tx - px) - hd);
+      if (v <= prm.cutMin && e2 > Math.PI/2){
+        const u2 = v*Math.exp((Math.PI/2 - e2)/c);
+        if (u2 > 0.5){
+          const tp2 = (v - u2)/prm.plant, sw = e2 - Math.PI/2, s2 = (v + u2)/2*tp2;
+          t += tp2; px += s2*Math.cos(hd + sw/2); py += s2*Math.sin(hd + sw/2); hd += sw; v = u2;
+        } else {
+          const s2 = v*v/(2*prm.plant);
+          t += v/prm.plant; px += s2*Math.cos(hd); py += s2*Math.sin(hd); v = 0;
+        }
+      }
     } else if (th > Math.PI/2){
       // a slow reversal: stop, then go (from standing the heading takes the new line at once)
       const s = v*v/(2*prm.plant);
