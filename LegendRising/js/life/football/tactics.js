@@ -34,6 +34,8 @@ const STRIKER = new Set(['ST', 'CF', 'LF', 'RF']);
 // 3.2.2 numbers
 export const TAC = Object.freeze({
   TIGHT_U: 0.40,
+  CROSS_DROP: [38, 14, 15, 25, 11],   // the ball within 38 m of goal and more than 14 m wide: the line no higher than 15 m
+                                      // (11 m with the ball within 25 m)
   LINE_OUT: [0.55, 8, 14, 52], LINE_IN: [0.65, 18, 22, 70],
   LEN_OUT: 30, LEN_IN: 45, WID_OUT: 38, WID_IN: 60, BALL_SHIFT: 0.35,
   TRANSITION: 2.5, BLEND: 1.5, OVERLAP: 8, WING_HOLD: 4, ST_OFF: 0.6, AM_OFF: 4, DM_SCREEN: 6,
@@ -92,6 +94,9 @@ export function teamShape(ms, team){
   // the field length the formula's numbers are for is 105; a smaller pitch scales them
   const sL = L/105, sW = Wd/68;
   tm.line = clamp(k[0]*bu + (k[1] + lineAdj)*sL, k[2]*sL, k[3]*sL);
+  // a cross coming: with the ball wide in his own final third the back line drops to the edge of the box to defend
+  // the space a cross is aimed at (the line formula alone would leave the six-yard box empty)
+  if (!poss && bu < TAC.CROSS_DROP[0]*sL && Math.abs(bw - Wd/2) > TAC.CROSS_DROP[1]*sW) tm.line = Math.min(tm.line, (bu < TAC.CROSS_DROP[3]*sL ? TAC.CROSS_DROP[4] : TAC.CROSS_DROP[2])*sL);
   tm.len = (poss ? TAC.LEN_IN : TAC.LEN_OUT)*sL;
   tm.wid = clamp(((poss ? TAC.WID_IN : TAC.WID_OUT) + (st.widthBias || 0))*sW, 20*sW, Wd - 4);
   // the opponents' last line (their second-last body, keeper counted) and midfield, in this team's frame

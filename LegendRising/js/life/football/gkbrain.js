@@ -32,7 +32,7 @@ export const GK = Object.freeze({
   REACT: [0.12, 0.30, 0.0015, 0.03], UNSET: 0.12, SCREEN: 0.08,
   SPIN: [0.4, 0.004], LAT: [0.2, 0.012, 18, 1.3], REREAD: 0.55, STEER: 0.35,
   CATCH_D: 0.22, CATCH_V: [13, 0.14], CATCH_EXT: 0.92,
-  PARRY_E: 0.35, PARRY_V: [4, 7], PARRY_ERR: 25,
+  PARRY_E: 0.35, PARRY_V: [4, 7], PARRY_ERR: 25, PARRY_POST: [1.0, 0.5],
   TIP_Y: 2.0, TIP_UP: 5, PUNCH_V: [12, 16], PUNCH_N: 3, PUNCH_R: 2.5,
   GROUND: 0.45, GETUP: [0.9, 0.004], SCRAMBLE: 1.2,
   CLAIM_BOX: 2, CLAIM_V: 6, CLAIM_JUMP: 2.8, CLAIM_MARGIN: 0.1,
@@ -282,8 +282,11 @@ export function gkOnHand(ms, a, d){
     ballKick(b, {x: ux*sp, y: 3 + 2*ms.r(), z: uz*sp}, null, {agent: a.id, team: a.team, kind: 'save', t: ms.t});
     clearCtl(ms);
   } else {
-    // parry: restitution 0.35 plus 4 to 7 m/s away from the goal centre, aimed with an error
-    const vx = b.p.x - gx, vz = b.p.z, vl = hypot(vx, vz) || 1;
+    // parry: restitution 0.35 plus 4 to 7 m/s away from the goal centre, aimed with an error; a shot toward a post is
+    // as often pushed round it (toward the goal line outside the post) as back out
+    let vx = b.p.x - gx, vz = b.p.z;
+    if (Math.abs(b.p.z) > GK.PARRY_POST[0] && ms.r() < GK.PARRY_POST[1]){ vx = -dir*0.35*Math.abs(vz); vz = Math.sign(vz)*Math.max(1, Math.abs(vz)); }
+    const vl = hypot(vx, vz) || 1;
     const err = gauss(ms.r)*GK.PARRY_ERR*(1 - A.handling/120)*DEG, c = cos(err), s = sin(err);
     const ux = (vx*c - vz*s)/vl, uz = (vx*s + vz*c)/vl;
     const away = GK.PARRY_V[0] + (GK.PARRY_V[1] - GK.PARRY_V[0])*ms.r();

@@ -41,9 +41,11 @@ export const BRAIN = Object.freeze({
   THROUGH_ARRIVE: 8, THROUGH_ITERS: 5,
   DRIB_DIRS: 7, DRIB_LEN: 6, DRIB_K: 0.85,
   HOLD_K: 0.6, SHIELD_LOSE: 0.45,
+  SAFETY: [16, 0.55, 8, 0.03],   // out of play for safety: within 16 m of his goal line, pressed, 8 m off the middle; a corner costs 0.03
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
-  CROSS_T: 0.03, CROSS_ZONE: [40, 22, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 22 m, |w - mid| from 10 over 14 m
-  CROSS_RUN: 0.7,            // a runner counts for a cross zone he reaches within the flight plus this
+  CROSS_T: 0.12, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
+  CROSS_RUN: 0.5,            // a runner counts for a cross zone he reaches within the flight plus this
+  CROSS_FROM: [30, 20],      // a cross is on within 30 m of the goal line and 20 m of the touchline
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
   CALL_T: 2.5, CALL_COOL: 4, CALL_HALF: 20,
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
@@ -211,7 +213,8 @@ function reachOf(ms, a, reachY, react = a.react){
 function ballPlans(ms){
   const b = ms.ball, ctl = ms.poss.ctl;
   ms.planSeq = ms.predSeq; ms.planStep = ms.step;
-  for (const a of ms.agents){ if (a.plan && (a.plan.kind === 'chase' || a.plan.kind === 'receive' || a.plan.kind === 'intercept')) a.plan = null; }
+  // whoever was already going for it has reacted: his new estimate carries no second reaction time
+  for (const a of ms.agents){ a.wasOn = false; if (a.plan && (a.plan.kind === 'chase' || a.plan.kind === 'receive' || a.plan.kind === 'intercept')){ a.wasOn = true; a.plan = null; } }
   if (ctl >= 0 || b.state !== 'free' || ms.phase !== 'live') return;
   const pass = ms.chain.pass && !ms.chain.pass.res ? ms.chain.pass : null;
   const recv = pass && pass.recv >= 0 ? ms.agents[pass.recv] : null;
@@ -224,7 +227,7 @@ function ballPlans(ms){
     if (a.isMe && !ms.meAI) continue;
     if (a.id === b.last.agent && ms.t - b.last.t < 0.3 && b.last.kind !== 'control') continue;
     const s = a.scale || 1;
-    const fr = reachOf(ms, a, 1.45*s);
+    const fr = reachOf(ms, a, 1.45*s, a.wasOn ? 0 : a.react);
     if (fr && fr.t < bestT[a.team]){ bestT[a.team] = fr.t; best[a.team] = a; bestR[a.team] = fr; }
     if (a === recv) recvR = fr;
     // a header: the ball is up and first reachable with the head
@@ -393,13 +396,13 @@ export function decideCarrier(ms, a){
     }
   }
   // 3. a cross from wide in the final third
-  if (u > L - 32 && Math.abs(m.z) > ms.spec.hz - 18 && dGoal > 9){
+  if (u > L - BRAIN.CROSS_FROM[0] && Math.abs(m.z) > ms.spec.hz - BRAIN.CROSS_FROM[1] && dGoal > 9){
     const side = m.z > 0 ? 1 : -1;
     const zones = [[gx - dir*5.5, side*2.5, 'near'], [gx - dir*11, 0, 'spot'], [gx - dir*6, -side*4, 'far']];
     for (const [zx, zz, nm] of zones){
       // who of ours gets there by the time the cross does (attackers wait onside and attack it as it is struck), and
       // how many of theirs are there first
-      const dd = hypot(zx - m.x, zz - m.z), tf = flightTime('cross', dd, loftSpeedFor(dd)*1.05, ms.ball.rollDecel);
+      const dd = hypot(zx - m.x, zz - m.z), tf = flightTime('cross', dd, loftSpeedFor(dd), ms.ball.rollDecel);
       let ours = 0, theirs = 0;
       for (const o of ms.agents){
         if (!o.onPitch || o.role !== 'player' || o.isGK || o === a) continue;
@@ -412,7 +415,7 @@ export function decideCarrier(ms, a){
       if (!ours) continue;
       const q = 0.55*xgGeo(dir*(gx - zx), dir*zz)*clamp(0.5 + 0.25*ours - 0.12*theirs, 0.1, 1);
       const V = q*clamp(0.55 + 0.45*at.passAcc/100, 0, 1);
-      add({kind: 'cross', V, recv: -1, target: {x: zx, y: 1.6, z: zz}, contact: 1, speed: loftSpeedFor(dd)*1.05, zone: nm});
+      add({kind: 'cross', V, recv: -1, target: {x: zx, y: 1.6, z: zz}, contact: 1, speed: loftSpeedFor(dd), zone: nm});
     }
   }
   // 4. dribble: 7 directions, the best one is the option (the direction is a sub-choice, so seven near-equal lines
@@ -441,6 +444,13 @@ export function decideCarrier(ms, a){
   if (u < 22 && press > 0.45){
     const tx = -dir*(-ms.spec.hx + 50), tz = (m.z >= 0 ? -1 : 1)*(ms.spec.hz - 10);
     add({kind: 'clear', V: here*0.7 + 0.004, target: {x: tx, y: R, z: tz}, contact: 1, speed: 26});
+  }
+  // 5b. safety: pinned in a wide spot near his own goal line with a man on him, he puts it out of play (a corner or a
+  // throw costs less than losing it there)
+  if (u < BRAIN.SAFETY[0] && press > BRAIN.SAFETY[1] && Math.abs(m.z) > BRAIN.SAFETY[2]){
+    const sz = m.z >= 0 ? 1 : -1, byline = u < 9;
+    const tx = byline ? -dir*(ms.spec.hx + 3) : m.x + dir*5, tz = byline ? m.z + sz*3 : sz*(ms.spec.hz + 4);
+    add({kind: 'clear', V: -BRAIN.SAFETY[3]*(byline ? 1 : 0.4), target: {x: tx, y: R, z: tz}, contact: 0, speed: 15});
   }
   // 6. hold or shield when nothing is worth 0.6 of where he is
   let vmax = 0;
@@ -657,7 +667,7 @@ export function decideOffBall(ms, a){
       }
       // the box when a cross is on: the near post, the penalty spot or the far post channel, held onside at the
       // defenders' line until the cross is struck (then the ball plans send the first head to it)
-      if (cu > L - 32 && Math.abs(carrier.m.z) > ms.spec.hz - 18 && (a.arch === 'ST' || a.arch === 'W' && Math.abs(m.z - carrier.m.z) > 15 || a.arch === 'AM' || a.arch === 'CM' && a.slot !== 'CDM' && a.id % 2 === 0)){
+      if (cu > L - BRAIN.CROSS_FROM[0] && Math.abs(carrier.m.z) > ms.spec.hz - BRAIN.CROSS_FROM[1] && (a.arch === 'ST' || a.arch === 'W' && Math.abs(m.z - carrier.m.z) > 15 || a.arch === 'AM' || a.arch === 'CM' && a.slot !== 'CDM' && a.id % 2 === 0)){
         const gx = dir*ms.spec.hx, side = carrier.m.z > 0 ? 1 : -1;
         const slot = (a.id*7 + Math.floor(ms.t/6)) % 3;
         const z = [side*2.5, 0, -side*4][slot];

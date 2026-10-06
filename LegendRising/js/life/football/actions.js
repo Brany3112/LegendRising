@@ -27,6 +27,8 @@ const DEG = Math.PI/180, R = BALL.R, G = 9.81;
 
 // 1.5.3 and 3.1.7 numbers
 export const ACT = Object.freeze({
+  SAFETY: [12, 1.8, 16, 0.4],     // a clearing header for safety: within 12 m of his goal line, an attacker within 1.8 m
+                                  // or the ball faster than 16 m/s, taken 40% of the time
   REACH0: 0.45, REACH1: 0.90, REACH_LAT: 0.5,   // the ball's place for a strike: 0.45 to 0.90 m ahead, within 0.5 m across
   TC_MAX: 0.18, ADJUST: 0.35, SCUFF_D: 1.3,     // contact within 0.18 s; a stride adjust of at most 0.35 s; a scuff up to 1.3 m
   FOLLOW: 0.28,                                 // follow-through after contact
@@ -34,7 +36,8 @@ export const ACT = Object.freeze({
   LOSE_CTL: 2.4,                                // control is lost when the ball is this far from the controller
   HEADER_LOAD: 0.18, HEADER_RECOVER: 0.25,
   THROW_DUR: 1.0, THROW_REL: 0.62, THROW_Y: 2.0,
-  BLOCK_KEEP: [0.25, 0.5]                       // a leg block keeps this share of the ball's speed
+  BLOCK_GLANCE: 0.5, BLOCK_BACK: [0.25, 0.45],     // half the blocks glance on, half come back off the shin at this share
+  BLOCK_KEEP: [0.4, 0.7]                       // a leg block keeps this share of the ball's speed
 });
 
 /* ---------- the shared ball path cache (1.5.6) ---------- */
@@ -266,8 +269,11 @@ export function receive(ms, a, push = null, pushK = 0.5){
 // a leg block of a ball too fast to control: it keeps a quarter to a half of its pace, turned off the leg
 export function block(ms, a){
   const b = ms.ball, r = ms.r;
-  const k = ACT.BLOCK_KEEP[0] + (ACT.BLOCK_KEEP[1] - ACT.BLOCK_KEEP[0])*r();
-  const ang = (r() - 0.5)*2*60*DEG, c = cos(ang), s = sin(ang);
+  // a glancing touch sends it on, turned (often wide of where it was going); a square one sends it back off the shin
+  const glance = r() < ACT.BLOCK_GLANCE;
+  const k = glance ? ACT.BLOCK_KEEP[0] + (ACT.BLOCK_KEEP[1] - ACT.BLOCK_KEEP[0])*r() : -(ACT.BLOCK_BACK[0] + (ACT.BLOCK_BACK[1] - ACT.BLOCK_BACK[0])*r());
+  const spread = glance ? 45 : 70;
+  const ang = (r() - 0.5)*2*spread*DEG, c = cos(ang), s = sin(ang);
   const vx = b.v.x*k, vz = b.v.z*k;
   ballKick(b, {x: vx*c - vz*s, y: Math.max(0, b.v.y*k) + 0.6*r(), z: vx*s + vz*c}, null, {agent: a.id, team: a.team, kind: 'block', t: ms.t});
   const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'block', quality: 0});
@@ -464,6 +470,16 @@ function headerTry(ms, a, act){
     look.pitch = atan2((act.target ? act.target.y : 1.0) - b.p.y, d);
   } else if (act.intent === 'clear'){
     look.yaw = yawOf(dirTeam, (b.p.z >= 0 ? 0.4 : -0.4));
+    // near his own goal with an attacker on him (or a ball whipped across fast), safety first: out toward the corner
+    // flag, behind or into touch, rather than back into the middle
+    const ogx = -dirTeam*ms.spec.hx, near = Math.abs(ogx - b.p.x) < ACT.SAFETY[0];
+    let pressed = false;
+    for (const o of ms.agents){ if (o.team !== a.team && o.team >= 0 && o.onPitch && hypot(o.m.x - a.m.x, o.m.z - a.m.z) < ACT.SAFETY[1]){ pressed = true; break; } }
+    const fast = hypot(b.v.x, b.v.z) > ACT.SAFETY[2];
+    if (near && (pressed || fast) && ms.r() < ACT.SAFETY[3]){
+      const side = b.p.z >= 0 ? 1 : -1;
+      look.yaw = yawOf(ogx - b.p.x, side*ms.spec.hz - b.p.z);
+    }
   }
   const res = headerContact(a, b, h, {kind: act.intent, look: act.intent === 'pass' ? null : look, target: act.target}, {heading: a.at.heading,
     vIn: b.v, running: a.m.speed > 3}, ms.r);
