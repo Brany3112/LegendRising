@@ -8,6 +8,7 @@
 import {THREE, W} from "./build.js";
 import {placed, placePiece, removePiece, footprint, pieceModel, flatOf} from "./furniture.js";
 import * as INV from "./inv.js";
+import {camPush, camPop} from "./core/camera.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 export const BM = {on:false};
@@ -40,6 +41,7 @@ export function buildEnter(){
   cv.addEventListener("mousemove", onMove); cv.addEventListener("mousedown", onDown); cv.addEventListener("wheel", onWheel, {passive:false}); cv.addEventListener("contextmenu", noMenu);
   const first = boxes()[0]; if (first) choose(first[0]);
   render();
+  camPush({id:"build", priority:60, frame:buildStep});     // the camera is build mode's until you leave it
 }
 export function buildExit(){
   if (!BM.on) return;
@@ -51,6 +53,7 @@ export function buildExit(){
   cv.removeEventListener("mousemove", onMove); cv.removeEventListener("mousedown", onDown); cv.removeEventListener("wheel", onWheel); cv.removeEventListener("contextmenu", noMenu);
   document.body.classList.remove("building");
   if (ui) ui.classList.remove("on");
+  camPop("build");
   H.done();
 }
 const noMenu = e => e.preventDefault();

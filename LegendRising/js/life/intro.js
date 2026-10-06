@@ -134,8 +134,7 @@ function startCine(me, meYaw){
 }
 function endCine(){
   uiOn(false); hint(null);
-  const c = H.cam(); if (c){ c.fov = H.B.fov; c.updateProjectionMatrix(); }
-  H.cineEnd(); H.hudReset();
+  H.cineEnd(); H.hudReset();             // (the field of view goes back with the camera's owner, core/camera.js)
 }
 // to your eyes and out of the shot, the HUD back
 async function backToEyes(dur = 1.2){
