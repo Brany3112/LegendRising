@@ -1540,7 +1540,7 @@ const host = {
 function endDrillNow(){ if (DRILL && DRILL.input) DRILL.input("down", "escape"); DRILL = null; P.drillY = 0; P.bobY = 0; ME.act = null; }
 
 /* ---------- loop and entry ---------- */
-let last = 0, frames = 0, saveT = 0, keysT = 0, shadowT = 0;
+let last = 0, frames = 0, presented = 0, saveT = 0, keysT = 0, shadowT = 0;
 /* Adaptive resolution with hysteresis: it steps down only after two slow seconds in a row, steps back up only
    after six good ones, and once a step up has had to be undone it stays down — the picture never pumps between two
    sizes (every change reallocates the canvas, which is itself a hitch). A new size is only ever applied at the top of
@@ -1617,8 +1617,15 @@ function skyStep(real){
 }
 function loop(t){
   if (!LIFE.running) return;
+  const t0 = performance.now(), real = Math.max(0, (t - last)/1000 || 0); last = t;
+  tick(real, t0, true);
+  raf = requestAnimationFrame(loop);
+}
+// one frame of the world. The loop draws it; a test stepping the world by hand (__life.stepN) lives the same frame
+// with nothing drawn, so the resolution governor, which times real frames, is left out too
+function tick(real, t0, draw){
   frames++;
-  const t0 = performance.now(), real = Math.max(0, (t - last)/1000 || 0), dt = Math.min(.1, real); last = t;
+  const dt = Math.min(.1, real);
   if (real > 0 && real < .5) MA.frame += (real*1000 - MA.frame)*.2;
   if (Q.pending) resize();
   step(dt, Math.min(real, .5));
@@ -1632,13 +1639,13 @@ function loop(t){
   compassStep(Math.min(real, .1), P);
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; renderer.shadowMap.needsUpdate = true; }
-  gpuBegin(); renderer.render(scene, cam); gpuEnd();
+  if (draw){ gpuBegin(); renderer.render(scene, cam); gpuEnd(); presented++; }
   // people step out of YOUR way, wherever the camera is: drawing set VIEW to the camera (and the way it looks, fx/fz);
   // in third person that is 2.6 m behind you, so the position goes back to your own head. The camera's own position
   // stays readable as VIEW.cx/cy/cz for anyone who needs what the camera can see rather than where you are
   VIEW.cx = VIEW.x; VIEW.cy = VIEW.y; VIEW.cz = VIEW.z;
   VIEW.x = P.x; VIEW.y = P.eye; VIEW.z = P.z; VIEW.feet = P.feet;
-  if (real > 0 && real < .5) quality(real, performance.now() - t0);
+  if (draw && real > 0 && real < .5) quality(real, performance.now() - t0);
   // a save every 45 s or so, but only at a quiet moment (see persist); after two minutes of never stopping, anyway
   if ((saveT += real) > 45){ saveDue = true; saveT = 0; }
   if (saveDue){
@@ -1648,7 +1655,6 @@ function loop(t){
   }
   keysT += real; if (keysT > 22) document.getElementById("lifeKeys").classList.add("faded");
   if (DAILY.seasonPending && !busy && !modal && !DRILL) seasonOver();
-  raf = requestAnimationFrame(loop);
 }
 // the season ended in the night: the hub comes up with the end-of-season screen
 function seasonOver(){
@@ -1863,7 +1869,9 @@ buildInit({P, cam:() => cam, scene:() => scene, canvas:() => renderer.domElement
     if (window.lifeRelock) setTimeout(() => window.lifeRelock(), 30);
   }});
 window.__life = {P, keys, B, Q, W, HOME, LIFE, GROUND, TOWNZ, compassStep:dt => compassStep(dt, P), bus:to => bus(to), closingTime, get spots(){ return W.spots; }, get solids(){ return W.solids; }, get bounds(){ return W.bounds; },
-  get frames(){ return frames; }, get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
+  get frames(){ return frames; }, get presented(){ return presented; },
+  stepN(n, dt = 1/60){ let k = 0; for (; k < n && LIFE.running; k++) tick(dt, 0, false); return k; },
+  get held(){ return held; }, get grab(){ return grab; }, set grab(v){ grab = v; }, get cam(){ return cam; }, get drill(){ return DRILL; },
   get busy(){ return busy; }, get rawMouse(){ return rawMouse; }, GT, MA, quality, GAIT, E, step:(dt) => step(dt, dt), warm, target, enterZone, place, dragBy, mailOpen, pass, ctx, use, renderer:() => renderer, scene:() => scene, sky:() => SKY,
   drillInput:(type, k) => DRILL && DRILL.input(type, k), stepBusy, ME, CG, camCast, toggleView, meBuild, viewStep,
   INV, clickUse, throwHand, get fly(){ return FLY; }, refreshParcels, MINI, miniInput, miniStep, BM, buildEnter, buildExit, buildKey, lockKey:() => lockKey(P), robbed, homeTick};
