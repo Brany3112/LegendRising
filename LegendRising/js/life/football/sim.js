@@ -19,7 +19,7 @@ import {moverStep} from "../mover.js";
 import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute} from "../stamina.js";
 import {phaseAdvance, gaitModeStep} from "../gaitcore.js";
 import {createAgent, separate, bodyRec} from "./agent.js";
-import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle} from "./tactics.js";
+import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle, situation} from "./tactics.js";
 import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
 import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl} from "./rules.js";
@@ -350,6 +350,11 @@ export function simStep(ms, h = H){
   if (ms.phase === 'live' && !ms.clock.running && !ms.clock.ended) ms.clock.running = true;
   energyStep(ms, h);
   judgeStep(ms);
+  // the scenario line for the player (3.2.9), asked twice a second; situation() keeps it to one per 20 s
+  if (ms.me >= 0 && ms.step % 30 === 17 && ms.phase !== 'halftime' && ms.phase !== 'fulltime'){
+    const me = ms.agents[ms.me], line = me.onPitch ? situation(ms, ms.me) : null;
+    if (line) logEv(ms, 'situation', me.team, me.id, me.m.x, me.m.z, {line});
+  }
   // the no-teleport asserts (2.3 WP-E): every body within its top speed, the ball within its own speed
   if (ms.cutStep !== ms.step){
     for (let i = 0; i < n; i++){

@@ -258,7 +258,8 @@ export function gkOnHand(ms, a, d){
   const plan = g.plan;
   let ext = 0;
   if (plan){ const C = diveRoot(plan, g.diveT, {x: 0, y: 0, z: 0, roll: 0}); ext = hypot(b.p.x - C.x, b.p.y - (plan.C0.y + C.y), b.p.z - C.z)/(GKP.REACH*(a.scale || 1)); }
-  const crowded = countNear(ms, b.p.x, b.p.z, GK.PUNCH_R) >= GK.PUNCH_N;
+  // a crowd at a cross's drop point (3 or more bodies within 2.5 m of it): punched, never caught
+  const crowded = g.claim ? countNear(ms, g.claim.x, g.claim.z, GK.PUNCH_R) >= GK.PUNCH_N : false;
   const cross = g.claim != null;
   let outcome;
   if (cross && crowded) outcome = 'punch';
@@ -351,18 +352,24 @@ export function gkCollect(ms, a){
 /* ---------- crosses (1.5.4) ---------- */
 
 function considerClaim(ms, a){
-  const g = a.gk, P = ms.pred, n = ms.predN, gx = goalX(ms, a), dir = ms.dirs[a.team];
-  // the drop point: the first sample under 2.6 m on the way down
-  let drop = null;
+  const g = a.gk, P = ms.pred, n = ms.predN, dir = ms.dirs[a.team];
+  // where he meets it: the first point of its way down at the height of his hands (up to 2.4 m and a small jump),
+  // inside the goal area + 2 m, that he reaches at 6 m/s before the ball is there
+  const top = 2.4 + GK.CLAIM_JUMP*GK.CLAIM_JUMP/(2*9.81)*0.9;
+  let drop = null, tk = 0;
   for (let k = 2; k < n; k++){
     const y0 = P[4*(k - 1) + 1], y1 = P[4*k + 1];
-    if (y1 < y0 && y1 < 2.6 && y0 >= 2.6){ drop = {x: P[4*k], y: y1, z: P[4*k + 2], t: P[4*k + 3]}; break; }
+    if (!(y1 < y0) || y1 > top || y1 < 1.0) continue;
+    const x = P[4*k], z = P[4*k + 2], t = P[4*k + 3], ex = -dir*x;
+    if (!(ex >= ms.spec.hx - 5.5 - GK.CLAIM_BOX && Math.abs(z) <= 9.16 + GK.CLAIM_BOX)) continue;
+    // his arrival: 6 m/s and a jump, and never sooner than his legs can take him (his hands reach 0.6 m ahead)
+    const dk = hypot(x - a.m.x, z - a.m.z), dr = Math.max(0, dk - 0.6);
+    const tt = Math.max(dk/GK.CLAIM_V + 0.15, dr > 0 ? timeToPoint(a.m, a.prm, a.fac, a.m.x + (x - a.m.x)*dr/dk, a.m.z + (z - a.m.z)*dr/dk, 0.15) : 0.15);
+    if (tt > t + 0.05) continue;
+    drop = {x, y: y1, z, t}; tk = tt;
+    break;
   }
   if (!drop) return;
-  // within the goal area + 2 m
-  const ex = -dir*drop.x;
-  if (!(ex >= ms.spec.hx - 5.5 - GK.CLAIM_BOX && Math.abs(drop.z) <= 9.16 + GK.CLAIM_BOX)) return;
-  const dk = hypot(drop.x - a.m.x, drop.z - a.m.z), tk = dk/GK.CLAIM_V + 0.15;
   // the first attacker's head there
   let ta = Infinity;
   for (const o of ms.agents){
@@ -370,7 +377,7 @@ function considerClaim(ms, a){
     const t = timeToPoint(o.m, o.prm, o.fac, drop.x, drop.z, o.react);
     if (t < ta) ta = t;
   }
-  if (tk + GK.CLAIM_MARGIN < ta && tk < drop.t + 0.2){
+  if (tk + GK.CLAIM_MARGIN < ta){
     g.claim = {x: drop.x, z: drop.z, y: drop.y, t: drop.t, at: ms.t};
     g.state = 'claim'; g.handsOn = true; g.hitDone = false;
     g.plan = null;
@@ -605,5 +612,5 @@ function scramble(ms, a){
 function goalKickStep(ms, a){
   const R0 = ms.restart, g = a.gk;
   g.handsOn = false; g.state = 'ready';
-  if (a.set) steer(a, a.set.x, a.set.z, 'jog', a.set.stop != null ? a.set.stop : 0.3, a.set.face || null, a.set.speedCap != null ? a.set.speedCap : Infinity);
+  if (a.set) steer(a, a.set.x, a.set.z, a.set.gait === 'run' || a.set.gait === 'sprint' ? a.set.gait : 'jog', a.set.stop != null ? a.set.stop : 0.3, a.set.face || null, a.set.speedCap != null ? a.set.speedCap : Infinity);
 }

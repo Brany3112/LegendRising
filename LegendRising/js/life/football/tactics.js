@@ -39,7 +39,8 @@ export const TAC = Object.freeze({
   LINE_OUT: [0.55, 8, 14, 52], LINE_IN: [0.65, 18, 22, 70],
   LEN_OUT: 30, LEN_IN: 45, WID_OUT: 38, WID_IN: 60, BALL_SHIFT: 0.35,
   TRANSITION: 2.5, BLEND: 1.5, OVERLAP: 8, WING_HOLD: 4, ST_OFF: 0.6, AM_OFF: 4, DM_SCREEN: 6,
-  COUNTER_PRESS: 3, PRESS_STOP: 1.6, COVER: 7, MARK_GAP: 1.8
+  COUNTER_PRESS: 3, PRESS_STOP: 1.6, COVER: 7, MARK_GAP: 1.8,
+  SIT_GAP: 20                         // real seconds between two scenario lines
 });
 
 // A club's style from its name (3.2.2): line -6..6 m, press -1..1, width -4..4 m, directness 0.35..0.65. Frozen at
@@ -217,8 +218,15 @@ export function noteTurnover(ms, lostTeam){ ms.tm[lostTeam].counterT = ms.t; }
 /* ---------- the scenario line (3.2.9) ---------- */
 
 // One line describing what is going on around the player, or null. Describes, never creates: each condition is read
-// from the state; the caller shows at most one line per 20 s of real time (ms.sitT keeps the last).
+// from the state. At most one line per 20 s of real time: ms.sitT keeps when the last one was given (the sim asks
+// twice a second for the player and logs the line as a 'situation' event).
 export function situation(ms, me){
+  if (ms.t - (ms.sitT != null ? ms.sitT : -1e9) < TAC.SIT_GAP) return null;
+  const line = situationLine(ms, me);
+  if (line) ms.sitT = ms.t;
+  return line;
+}
+function situationLine(ms, me){
   const a = ms.agents[me];
   if (!a || !a.onPitch) return null;
   const team = a.team, dir = ms.dirs[team], L = ms.spec.L, Wd = ms.spec.Wd, tm = ms.tm[team], opp = ms.tm[1 - team];

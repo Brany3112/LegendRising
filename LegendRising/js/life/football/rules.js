@@ -11,6 +11,7 @@
 
 import {ballHold, ballRelease, ballStep, createBallWorld, rollSpeedFor, BALL} from "./ball.js";
 import {inBox} from "./pitchspec.js";
+import {solveStrike} from "./strike.js";
 import {logEv, chainControl, chainOut, chainGoal, chainOffside, chainDead, minuteOf} from "./events.js";
 import {xT, noteTurnover, SLOT_POS, depthOf} from "./tactics.js";
 import {createAgent} from "./agent.js";
@@ -30,11 +31,14 @@ export const RULES = Object.freeze({
   ADV: {xt: 0.08, signal: 2},
   CARD: {yellow: 0.6, red: 0.92, tactical: 0.15, injury: 0.85, injuryP: 0.08},
   SPARE_NEAR: 6,                             // the game ball is used if it lies this close to the spot
-  CARRY: 3.6, CARRY_FAR: 5,                  // a ball carried in the hands: a jog near the spot, a run further out
-  SERVE: 12,                                 // a ball further than this from the spot is served to the taker
+  CARRY: 3.6, CARRY_FAR: 6,                  // a ball carried in the hands: a jog near the spot, a run further out
+  SERVE: 20,                                 // a ball further than this from the spot is served to the taker
   SERVE_ROLL: 15,                            // served along the grass up to this far, in the air beyond
+  SERVE_MAX: 38,                             // the longest serve (carried closer first)
+  PLACE_MAX: 50,                             // a team-mate carries the ball this far to put it on the spot for a specialist
   WALL_D: 9.15, WALL_GAP: 0.62, WALL_POST: 0.6, WALL_JUMP: 0.6,
   READY_D: 2, CELEBRATE: 3,
+  TAKER_AT: 2.6, SPRINT_D: 20, HURRY: 8,     // HURRY: a ball further than this is sprinted for               // the taker is at the ball within this (his run-up spot is 1.8 m back at most); he sprints to a spot further than this
   SUBS: 5
 });
 
@@ -99,8 +103,10 @@ export function onKick(ms, ev){
 // A touch (3.2.7 involvement and reset, possession). how: 'control' | 'dribble' | 'deflect' | 'block' | 'save' |
 // 'tackle' | 'header' | 'kick'. A player in the snapshot who plays the ball (deflections included), or is within
 // 1.5 m of it while an opponent within 1.5 m plays it, is involved: the flag goes up after its delay. A deliberate
-// opponent touch (not a deflection or a save) resets the snapshot.
+// opponent touch (not a deflection or a save) resets the snapshot. The contract's form onTouch(ms, ev) with a touch
+// event {agent, how} is accepted too.
 export function onTouch(ms, a, how, ev = null){
+  if (a && !a.m && a.agent != null){ ev = a; how = ev.how; a = ms.agents[ev.agent]; if (!a) return; }
   const O = ms.offside;
   if (O.set.size && !O.pending){
     if (a.team === O.team && O.set.has(a.id)){
@@ -231,7 +237,7 @@ export function startRestart(ms, kind, team, spot, opt = {}){
   const R0 = ms.restart = {kind, team, spot: {x: spot.x, z: spot.z}, taker: -1, fetcher: -1, ballFrom: 'game', spare: -1,
     ready: false, t0: ms.t, limit, stage: 'fetch', wall: [], noOff: kind === 'goalkick' || kind === 'throw' || kind === 'corner',
     first: !!opt.first, after: !!opt.after, placed: false, foul: opt.foul || null, offender: opt.offender != null ? opt.offender : -1,
-    taken: false, lowerT: 0, tTake: -1};
+    taken: false, lowerT: 0, tTake: -1, carrier: -1};
   R0.taker = pickTaker(ms, kind, team, spot);
   R0.special = kind === 'free' && hypot(ms.dirs[team]*ms.spec.hx - spot.x, spot.z) < 35;
   chooseSource(ms, R0);
@@ -284,7 +290,7 @@ function pickTaker(ms, kind, team, spot){
   else if (kind === 'free'){
     const dir = ms.dirs[team], d = hypot(dir*ms.spec.hx - spot.x, spot.z);
     t = d < 35 ? best(at => at.curve + at.accuracy, 40) : near(ag.filter(a => !a.isGK));
-    if (d > 70) t = near(ag);
+    if (d > 70) t = near(ag.filter(a => !a.isGK)) || near(ag);       // deep in his own half: the nearest outfield man
   } else t = near(ag.filter(a => !a.isGK)) || near(ag);
   return t ? t.id : -1;
 }
@@ -303,29 +309,39 @@ function chooseSource(ms, R0){
     R0.stage = 'wait'; R0.placed = true; R0.fetcher = R0.taker;
     return;
   }
-  // where the game ball will come to rest (dead balls roll on until the boards or the grass stop them)
+  // where the game ball will come to rest (dead balls roll on until the boards or the grass stop them); a ball that
+  // went over the boards into the stand is nobody's to fetch
   const rest = restOf(ms, b);
-  let best = sourceCost(ms, R0, rest.x, rest.z);
+  let best = reachable(ms, rest.x, rest.z) ? sourceCost(ms, R0, rest.x, rest.z) : {t: Infinity, who: -1};
   R0.src = rest;
-  if (hypot(rest.x - sp.x, rest.z - sp.z) > RULES.SPARE_NEAR){
+  if (hypot(rest.x - sp.x, rest.z - sp.z) > RULES.SPARE_NEAR || best.t === Infinity){
     for (let i = 0; i < ms.spares.length; i++){
       const q = ms.spares[i];
       if (q.state !== 'cone') continue;
       const c = sourceCost(ms, R0, q.ball.p.x, q.ball.p.z);
-      if (c.t + 0.3 < best.t){ best = c; R0.ballFrom = 'spare'; R0.spare = i; R0.src = {x: q.ball.p.x, z: q.ball.p.z}; }
+      if (c.t + 0.3 < best.t || best.t === Infinity && c.t < Infinity){ best = c; R0.ballFrom = 'spare'; R0.spare = i; R0.src = {x: q.ball.p.x, z: q.ball.p.z}; }
     }
   }
   R0.fetcher = best.who >= 0 ? best.who : R0.taker;
 }
+// the time to carry a ball d metres in the hands (a jog near the spot, a run further out)
+const carryT = d => d <= 6 ? d/RULES.CARRY : 6/RULES.CARRY + (d - 6)/RULES.CARRY_FAR;
+// can a player get to a ball there (inside the boards)
+const reachable = (ms, x, z) => Math.abs(x) <= ms.spec.runoff.hx - 0.3 && Math.abs(z) <= ms.spec.runoff.hz - 0.3;
 // a restart whose taker is a specialist (or the keeper, or the centre forward): he goes to the spot and the ball is
 // brought to him; any other restart is taken by whoever gets there with it
 const fixedTaker = R0 => R0.kind === 'corner' || R0.kind === 'penalty' || R0.kind === 'goalkick' || R0.kind === 'kickoff' || R0.special;
-// the time a served ball takes to reach the spot (rolled within 15 m, thrown or kicked up in the air beyond)
-const serveT = d => d <= 3 ? 0 : d <= RULES.SERVE_ROLL ? 0.6 + (Math.sqrt(9 + 2.2*d) - 3)/1.1 + 0.4 : 0.6 + clamp(d/12, 1.8, 3.4) + 0.4;
+// a lofted serve's time in the air over d metres (launched at about 35 degrees with a little extra for the drag)
+const serveFlight = d => 0.41*Math.sqrt(Math.max(4, d));
+// the time a served ball takes to reach the spot (rolled within 15 m, thrown or kicked up in the air beyond; carried
+// to within the longest serve first)
+const serveT = d => d <= 3 ? 0 : d <= RULES.SERVE_ROLL ? 0.6 + (Math.sqrt(9 + 2.2*d) - 3)/1.1 + 0.4
+  : Math.max(0, d - RULES.SERVE_MAX)/RULES.CARRY_FAR + 0.6 + serveFlight(Math.min(d, RULES.SERVE_MAX)) + 0.4;
 // the quickest way a ball at (x, z) gets to the restart spot: {t, who}
 function sourceCost(ms, R0, x, z){
   const sp = R0.spot, tk = ms.agents[R0.taker], far = hypot(x - sp.x, z - sp.z), fixed = fixedTaker(R0);
-  const tkRun = tk ? hypot(tk.m.x - sp.x, tk.m.z - sp.z)/Math.max(3, tk.prm.run) : 0;
+  const tkD = tk ? hypot(tk.m.x - sp.x, tk.m.z - sp.z) : 0;
+  const tkRun = tk ? tkD/Math.max(3, tkD > RULES.SPRINT_D ? 0.9*tk.prm.sprint : tk.prm.run) : 0;
   let who = -1, best = Infinity;
   for (const a of ms.agents){
     if (a.team !== R0.team || !a.onPitch || a.role !== 'player' || a.sentOff || a.leaving) continue;
@@ -335,9 +351,13 @@ function sourceCost(ms, R0, x, z){
     if (a.isGK && !isTk && !(R0.kind === 'kickoff' && hypot(a.m.x - x, a.m.z - z) < 12)) continue;
     const tf = hypot(a.m.x - x, a.m.z - z)/Math.max(3, a.prm.run);
     let t;
-    if (far <= RULES.SERVE && (isTk || !fixed)) t = tf + far/RULES.CARRY;          // he brings it in himself
+    if (far <= RULES.SERVE && (isTk || !fixed)) t = tf + carryT(far);              // he brings it in himself
     else if (isTk && fixed) continue;                                              // a specialist waits at the spot for it
-    else t = Math.max(tf + serveT(far), fixed ? tkRun : 0);                        // served to the taker
+    else {
+      // served to the taker (and caught: 0.8 s more), or for a specialist on his way, put on the spot for him
+      const ball = tf + Math.min(serveT(far) + 0.8, fixed && !a.isGK && far <= RULES.PLACE_MAX ? carryT(far) + 0.6 : Infinity);
+      t = fixed ? Math.max(ball, tkRun) + 0.1*ball : ball;
+    }
     if (isTk) t -= 0.3;
     if (t < best){ best = t; who = a.id; }
   }
@@ -365,13 +385,13 @@ function reconsiderSource(ms, R0){
   const b = ms.ball;
   if (R0.ballFrom === 'game'){ const r = restOf(ms, b); R0.src = r; }
   const cur = R0.ballFrom === 'spare' ? ms.spares[R0.spare].ball.p : R0.src;
-  let best = sourceCost(ms, R0, cur.x, cur.z), from = R0.ballFrom, spare = R0.spare, src = {x: cur.x, z: cur.z};
+  let best = reachable(ms, cur.x, cur.z) ? sourceCost(ms, R0, cur.x, cur.z) : {t: Infinity, who: -1}, from = R0.ballFrom, spare = R0.spare, src = {x: cur.x, z: cur.z};
   const cands = [];
-  if (R0.ballFrom !== 'game'){ const r = restOf(ms, b); if (hypot(r.x - R0.spot.x, r.z - R0.spot.z) < 40) cands.push({x: r.x, z: r.z, i: -1}); }
+  if (R0.ballFrom !== 'game'){ const r = restOf(ms, b); if (hypot(r.x - R0.spot.x, r.z - R0.spot.z) < 40 && reachable(ms, r.x, r.z)) cands.push({x: r.x, z: r.z, i: -1}); }
   for (let i = 0; i < ms.spares.length; i++){ const q = ms.spares[i]; if (q.state === 'cone' && i !== R0.spare) cands.push({x: q.ball.p.x, z: q.ball.p.z, i}); }
   for (const c of cands){
     const e = sourceCost(ms, R0, c.x, c.z);
-    if (e.t + 1 < best.t){ best = e; from = c.i >= 0 ? 'spare' : 'game'; spare = c.i; src = {x: c.x, z: c.z}; }
+    if (e.t + 1 < best.t || best.t === Infinity && e.t < Infinity){ best = e; from = c.i >= 0 ? 'spare' : 'game'; spare = c.i; src = {x: c.x, z: c.z}; }
   }
   R0.ballFrom = from; R0.spare = spare; R0.src = src;
   if (best.who >= 0) R0.fetcher = best.who;
@@ -430,25 +450,28 @@ export function restartStep(ms, h){
   if (!tk || !tk.onPitch || tk.leaving){ R0.taker = pickTaker(ms, R0.kind, R0.team, R0.spot); return; }
   const el = ms.t - R0.t0;
   const sp = R0.spot;
-  // while somebody else gets the ball, the taker makes his way to the spot
-  if ((R0.stage === 'fetch' || R0.stage === 'serve') && R0.fetcher !== R0.taker && !(tk.isMe && !ms.meAI)){
+  // while somebody else gets the ball (or places it for him), the taker makes his way to the spot
+  const away = (R0.stage === 'fetch' || R0.stage === 'serve') && R0.fetcher !== R0.taker || R0.carrier >= 0 && R0.carrier !== R0.taker;
+  if (away && !(tk.isMe && !ms.meAI)){
     const dt = hypot(tk.m.x - sp.x, tk.m.z - sp.z);
-    tk.set = {x: sp.x, z: sp.z, gait: dt > 8 ? 'run' : 'jog', stop: 0.6, role: 'toSpot'};
+    tk.set = {x: sp.x, z: sp.z, gait: dt > RULES.SPRINT_D ? 'sprint' : dt > 8 ? 'run' : 'jog', stop: 0.6, role: 'toSpot'};
   }
   switch (R0.stage){
     case 'fetch': {
       // the ball's rest point moves while it rolls: the ball and who fetches it are worked out again every half second
       // (a change only for a clear gain)
-      if (ms.step % 30 === 0 && el < 6) reconsiderSource(ms, R0);
+      if (ms.step % 30 === 0 && (el < 6 || R0.ballFrom === 'game' && !reachable(ms, b.p.x, b.p.z))) reconsiderSource(ms, R0);
       const f = ms.agents[R0.fetcher] || tk;
       const src = R0.ballFrom === 'spare' ? ms.spares[R0.spare].ball : b;
       const sv = hypot(src.v.x, src.v.z), lead = Math.min(1, sv/4);
-      f.set = {x: src.p.x + src.v.x*lead*0.5, z: src.p.z + src.v.z*lead*0.5, gait: 'run', stop: 0.3, role: 'fetch'};
       const d = hypot(f.m.x - src.p.x, f.m.z - src.p.z);
+      // he hurries for it: a quick restart is his side's to take
+      f.set = {x: src.p.x + src.v.x*lead*0.5, z: src.p.z + src.v.z*lead*0.5, gait: d > RULES.HURRY ? 'sprint' : 'run', stop: 0.3, role: 'fetch'};
       if (d < 0.65 && sv < 3.5 && src.p.y < 1.4){
         if (R0.ballFrom === 'spare') takeSpare(ms, R0.spare);
         holdAt(ms, f, false, h);
         const far = hypot(f.m.x - sp.x, f.m.z - sp.z);
+        R0.carrier = -1;
         if (!fixedTaker(R0) && f !== tk){
           // whoever has it takes it when he is near the spot; otherwise he serves it to the taker
           if (far <= RULES.SERVE && !(tk.isMe && !ms.meAI)) R0.taker = f.id;
@@ -456,8 +479,13 @@ export function restartStep(ms, h){
           // the taker himself went a long way for it: the nearest man to the spot takes it, served to him
           const t2 = spotTaker(ms, R0, f.id);
           if (t2){ R0.taker = t2.id; R0.fetcher = f.id; }
+        } else if (fixedTaker(R0) && f !== tk && !f.isGK && !(tk.isMe && !ms.meAI)){
+          // the specialist is on his way: the team-mate with the ball puts it on the spot for him when that is no
+          // slower than serving it to him (he would arrive before it anyway)
+          const cT = carryT(far) + 0.6, tkT = hypot(tk.m.x - sp.x, tk.m.z - sp.z)/Math.max(3, 0.9*tk.prm.sprint);
+          if (far <= RULES.SERVE || far <= RULES.PLACE_MAX && tkT >= cT - 1.0) R0.carrier = f.id;
         }
-        R0.stage = R0.taker === f.id ? 'carry' : 'serve';
+        R0.stage = R0.taker === f.id || R0.carrier >= 0 ? 'carry' : 'serve';
         R0.serveT = ms.t;
       }
       break;
@@ -467,11 +495,41 @@ export function restartStep(ms, h){
       const f = ms.agents[R0.fetcher];
       if (!f){ R0.stage = 'fetch'; break; }
       holdAt(ms, f, false, h);
-      // to the taker: at the spot when he is nearly there, else where he will be by the time it arrives
-      const td = hypot(tk.m.x - sp.x, tk.m.z - sp.z);
-      let ax = sp.x, az = sp.z;
-      if (td > 3){ const k = Math.min(1, 1.5*Math.max(3, tk.prm.run)/td); ax = tk.m.x + (sp.x - tk.m.x)*k; az = tk.m.z + (sp.z - tk.m.z)*k; }
-      const tx = ax - f.m.x, tz = az - f.m.z, d = hypot(tx, tz) || 1;
+      const hx = ms.spec.hx;
+      // a ball fetched out of the net is carried out of the goal before it is sent anywhere
+      if (Math.abs(f.m.x) > hx - 0.3 && Math.abs(f.m.z) < 3.66 + 0.4){
+        const gx = Math.sign(f.m.x)*(hx - 2.5);
+        f.set = {x: gx, z: clamp(f.m.z, -2.5, 2.5), gait: 'run', stop: 0.3, role: 'serve', speedCap: RULES.CARRY_FAR};
+        R0.serveT = ms.t;
+        break;
+      }
+      // to the taker: where he will be on his way to the spot when it gets there (the spot if he is there by then)
+      const td = hypot(tk.m.x - sp.x, tk.m.z - sp.z), vRun = 0.7*Math.max(3, tk.prm.run);
+      let ax = sp.x, az = sp.z, d = hypot(ax - f.m.x, az - f.m.z);
+      for (let it = 0; it < 2 && td > 0.5; it++){
+        const left = Math.max(0, 0.6 - (ms.t - (R0.serveT || 0)));
+        const tArr = left + (d <= RULES.SERVE_ROLL ? serveT(d) - 1.0 : serveFlight(Math.min(d, RULES.SERVE_MAX)));
+        const k = Math.min(1, vRun*Math.max(0, tArr - 0.4)/td);
+        ax = tk.m.x + (sp.x - tk.m.x)*k; az = tk.m.z + (sp.z - tk.m.z)*k;
+        d = hypot(ax - f.m.x, az - f.m.z);
+      }
+      const tx = ax - f.m.x, tz = az - f.m.z;
+      d = d || 1;
+      // from behind the goal line, a serve that would go through the goal frame goes round it: a step to the side first
+      if (Math.abs(f.m.x) > hx && Math.abs(ax) < hx){
+        const k = (Math.sign(f.m.x)*hx - f.m.x)/(ax - f.m.x || 1e-9), zc = f.m.z + (az - f.m.z)*k;
+        if (Math.abs(zc) < 3.66 + 0.8){
+          f.set = {x: f.m.x, z: (f.m.z >= 0 ? 1 : -1)*Math.max(5.5, Math.abs(f.m.z) + 1), gait: 'run', stop: 0.3, role: 'serve', speedCap: RULES.CARRY_FAR};
+          R0.serveT = ms.t;
+          break;
+        }
+      }
+      // too far to serve: he runs it closer first
+      if (d > RULES.SERVE_MAX){
+        f.set = {x: ax, z: az, gait: 'run', stop: 0.3, role: 'serve', speedCap: RULES.CARRY_FAR, face: {x: tx/d, z: tz/d}};
+        R0.serveT = ms.t;
+        break;
+      }
       f.set = {x: f.m.x, z: f.m.z, face: {x: tx/d, z: tz/d}, gait: 'walk', stop: 5, role: 'serve'};
       if (ms.t - (R0.serveT || 0) > 0.6){
         if (d <= RULES.SERVE_ROLL){
@@ -479,9 +537,11 @@ export function restartStep(ms, h){
           const sp0 = Math.min(24, rollSpeedFor(Math.max(1, d - 1), 3.0, b.rollDecel));
           ballRelease(b, null, {x: tx/d*sp0, y: -2.0, z: tz/d*sp0}, null);
         } else {
-          // a long way: dropped and kicked high up the pitch to him, slow enough to catch when it comes down
-          const T = clamp(d/12, 1.8, 3.4), vh = d/T*1.05;
-          ballRelease(b, null, {x: tx/d*vh, y: 9.81*T/2, z: tz/d*vh}, null);
+          // a long way: thrown or kicked up to him, to come down into his arms at chest height
+          const sp0 = Math.min(26, Math.sqrt(9.81*Math.max(4, d)/0.9397)*1.08);
+          const L = solveStrike({from: {x: b.p.x, y: b.p.y, z: b.p.z}, target: {x: ax, y: 1.1, z: az}, speed: sp0, contact: 1, curl: 0, foot: 'R',
+            kind: 'throw', rollDecel: b.rollDecel});
+          ballRelease(b, null, L.v, {x: 0, y: 0, z: 0});
         }
         b.state = 'dead'; b.last.agent = f.id; b.last.team = f.team;
         R0.stage = 'collect';
@@ -501,20 +561,22 @@ export function restartStep(ms, h){
         const ux = b.v.x/v, uz = b.v.z/v, along = Math.max(0.5, (tk.m.x - b.p.x)*ux + (tk.m.z - b.p.z)*uz);
         tx = b.p.x + ux*along; tz = b.p.z + uz*along;
       } else { tx = b.p.x; tz = b.p.z; }
-      tk.set = {x: tx, z: tz, gait: 'run', stop: 0.3, role: 'collect', face: {x: b.p.x - tk.m.x, z: b.p.z - tk.m.z}};
       const dd = hypot(tk.m.x - b.p.x, tk.m.z - b.p.z);
-      const catchable = b.p.y > 0.3 ? b.p.y < 2.2 && v < 16 : v < 8;
+      tk.set = {x: tx, z: tz, gait: hypot(tx - tk.m.x, tz - tk.m.z) > RULES.HURRY ? 'sprint' : 'run', stop: 0.3, role: 'collect', face: {x: b.p.x - tk.m.x, z: b.p.z - tk.m.z}};
+      const catchable = b.p.y > 0.3 ? b.p.y < 2.2 && v < 20 : v < 8;
       if (dd < 0.9 && catchable){ holdAt(ms, tk, false, h); R0.stage = 'carry'; }
       break;
     }
     case 'carry': {
-      holdAt(ms, tk, R0.kind === 'throw', h);
+      // the taker, or the team-mate placing it for him
+      const cr = R0.carrier >= 0 && ms.agents[R0.carrier] ? ms.agents[R0.carrier] : tk;
+      holdAt(ms, cr, R0.kind === 'throw', h);
       // walk the ball to the spot: stand just short of it, so the hands are over it
-      const ux = sp.x - tk.m.x, uz = sp.z - tk.m.z, ul = hypot(ux, uz);
+      const ux = sp.x - cr.m.x, uz = sp.z - cr.m.z, ul = hypot(ux, uz);
       if (ul > 0.6 || !R0.standAt){ const k = ul > 1e-6 ? 0.28/ul : 0; R0.standAt = {x: sp.x - ux*k, z: sp.z - uz*k}; }
-      tk.set = {x: R0.standAt.x, z: R0.standAt.z, gait: 'run', stop: 0.1, role: 'carry', speedCap: ul > 6 ? RULES.CARRY_FAR : RULES.CARRY, face: ul > 0.05 ? {x: ux/ul, z: uz/ul} : null};
+      cr.set = {x: R0.standAt.x, z: R0.standAt.z, gait: 'run', stop: 0.1, role: 'carry', speedCap: ul > 6 ? RULES.CARRY_FAR : RULES.CARRY, face: ul > 0.05 ? {x: ux/ul, z: uz/ul} : null};
       const d = hypot(b.p.x - sp.x, b.p.z - sp.z);
-      if (d < 0.55 && tk.m.speed < 1.5){
+      if (d < 0.55 && cr.m.speed < 1.5){
         if (R0.kind === 'throw'){ R0.stage = 'wait'; R0.placed = true; }
         else R0.stage = 'place';
       }
@@ -522,7 +584,8 @@ export function restartStep(ms, h){
     }
     case 'place': {
       // lower the ball onto the spot (at most 1.5 m/s across and 2.4 m/s down), then let go: it rests there, dead, until kicked
-      tk.set = {x: tk.m.x, z: tk.m.z, gait: 'walk', stop: 9, role: 'place'};
+      const cr = R0.carrier >= 0 && ms.agents[R0.carrier] ? ms.agents[R0.carrier] : tk;
+      cr.set = {x: cr.m.x, z: cr.m.z, gait: 'walk', stop: 9, role: 'place'};
       let dx = sp.x - b.p.x, dz = sp.z - b.p.z, dy = R - b.p.y;
       const dh = hypot(dx, dz), lh = 1.5*h, lv = 2.4*h;
       if (dh > lh){ dx *= lh/dh; dz *= lh/dh; }
@@ -532,13 +595,15 @@ export function restartStep(ms, h){
         b.state = 'dead'; b.last.agent = -1;
         R0.spot.x = b.p.x; R0.spot.z = b.p.z;
         R0.stage = 'wait'; R0.placed = true;
-      } else ballHold(b, {id: tk.id, team: tk.team, x: b.p.x, y: b.p.y, z: b.p.z, vx: dx/h, vy: dy/h, vz: dz/h, t: ms.t});
+        if (R0.carrier >= 0){ const c = ms.agents[R0.carrier]; if (c) c.set = null; R0.carrier = -1; }
+      } else ballHold(b, {id: cr.id, team: cr.team, x: b.p.x, y: b.p.y, z: b.p.z, vx: dx/h, vy: dy/h, vz: dz/h, t: ms.t});
       break;
     }
     case 'wait': {
       if (R0.kind === 'throw') holdAt(ms, tk, true, h);
-      // everyone at his spot, or the clock says go
+      // everyone at his spot, or the clock says go; never before the taker is at the ball
       let ready = el >= 0.8;
+      if (R0.kind !== 'throw' && hypot(tk.m.x - b.p.x, tk.m.z - b.p.z) > RULES.TAKER_AT) ready = false;
       if (ready) for (const a of ms.agents){
         if (!a.onPitch || a.role !== 'player' || a === tk || a.leaving || a.isGK || a.isMe && !ms.meAI) continue;
         if (a.set && hypot(a.m.x - a.set.x, a.m.z - a.set.z) > RULES.READY_D){ ready = false; break; }
@@ -549,7 +614,8 @@ export function restartStep(ms, h){
         R0.ready = true;
         break;
       }
-      if (ready || el >= R0.limit){ R0.ready = true; R0.stage = 'go'; }
+      const tkAt = R0.kind === 'throw' || hypot(tk.m.x - b.p.x, tk.m.z - b.p.z) <= RULES.TAKER_AT;
+      if (ready || el >= R0.limit && tkAt){ R0.ready = true; R0.stage = 'go'; }
       break;
     }
     case 'go':
@@ -729,7 +795,9 @@ function subStep(ms){
   for (const p of ms.subs.plan){
     const a = ms.agents[p.out];
     if (!a){ p.stage = 'done'; continue; }
-    if (p.stage === 'wait' && (dead || a.injured && !a.onPitch)){
+    // the man taking the restart, or bringing the ball for it, finishes that first
+    const R0 = ms.restart, busy = !!R0 && !R0.taken && (a.id === R0.taker || a.id === R0.fetcher || a.id === R0.carrier) && !a.injured;
+    if (p.stage === 'wait' && (dead && !busy || a.injured && !a.onPitch)){
       p.stage = 'off';
       walkOff(ms, a);
     }

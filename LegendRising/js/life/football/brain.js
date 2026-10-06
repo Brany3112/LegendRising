@@ -205,7 +205,14 @@ function prefCapUpdate(ms){
 const FR = {m: null, prm: null, fac: null, react: 0, reachY: 0.6, reach: 0.6};
 function reachOf(ms, a, reachY, react = a.react){
   FR.m = a.m; FR.prm = a.prm; FR.fac = a.fac; FR.react = react; FR.reachY = reachY; FR.reach = a.isGK ? 1.2 : 0.6;
-  return firstReach(ms.pred, ms.predN, FR);
+  const fr = firstReach(ms.pred, ms.predN, FR);
+  if (fr || ms.predN <= 0) return fr;
+  // beyond the path's 3 s horizon: the ball rests (or still rolls) at its last sample, and he gets there when he can
+  const n = ms.predN, o = 4*(n - 1), P = ms.pred;
+  if (!(P[o + 1] <= reachY)) return null;
+  const x = P[o], z = P[o + 2], d = hypot(x - a.m.x, z - a.m.z), r = FR.reach;
+  const t = d <= r ? react : timeToPoint(a.m, a.prm, a.fac, a.m.x + (x - a.m.x)*(1 - r/d), a.m.z + (z - a.m.z)*(1 - r/d), react);
+  return {t: Math.max(P[o + 3], t), x, y: P[o + 1], z};
 }
 
 // Assign the ball plans: the intended receiver goes to meet his pass; whoever on either side gets to a loose ball first
@@ -807,6 +814,8 @@ export function restartShape(ms){
   for (const a of ms.agents){
     if (!a.onPitch || a.role !== 'player' || a.leaving) continue;
     if (a === tk && R0.stage !== 'wait' && R0.stage !== 'go') continue;
+    // the man fetching the ball, serving it or putting it on the spot is busy with it
+    if (a.id === R0.fetcher && (R0.stage === 'fetch' || R0.stage === 'serve') || a.id === R0.carrier) continue;
     const team = a.team, dir = ms.dirs[team];
     const anc = teamToPitch(ms, team, a.anchor.u, a.anchor.w, {x: 0, z: 0});
     if (a.isGK && !(R0.kind === 'goalkick' && a === tk)){ a.set = null; continue; }
@@ -1173,7 +1182,7 @@ function setPieceStep(ms, h){
     const s = a.set;
     if (!s){ standStill(a); continue; }
     const d = hypot(s.x - a.m.x, s.z - a.m.z);
-    const gait = s.gait === 'run' || d > 6 ? 'run' : s.gait === 'walk' ? 'walk' : 'jog';
+    const gait = s.gait === 'sprint' || d > RULES.SPRINT_D && s.role === 'taker' ? 'sprint' : s.gait === 'run' || d > 6 ? 'run' : s.gait === 'walk' ? 'walk' : 'jog';
     const face = s.face || (d < 1.5 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, {x: 0, z: 0}) : null);
     steer(a, s.x, s.z, gait, s.stop != null ? s.stop : 0.3, face, s.speedCap != null ? s.speedCap : Infinity);
   }
