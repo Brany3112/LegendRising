@@ -3,7 +3,7 @@
    vending machine, trees, cars and street lamps. Everything is a few rounded or tapered shapes, so
    it reads as a made object rather than a grey cube, and almost all of it is poured into the shared
    batches so a whole training ground stays a handful of draw calls. */
-import {THREE, W, addGeo, roundedBoxGeo, solid, textTex, label, mat, lightSrc, pool, halo, netTex, part, lmat} from "./build.js";
+import {THREE, W, addGeo, roundedBoxGeo, solid, textTex, label, mat, lightSrc, pool, halo, netTex, part, lmat, lowSeg} from "./build.js";
 
 export const PC = {white:0xf2f1ec, offwhite:0xe6e2d8, dark:0x2b2f34, steel:0x8f979e, darkSteel:0x4b5258, wood:0x9a6b42, woodDark:0x6b4a2c,
   orange:0xf07a22, yellow:0xf2c230, lime:0xc8f060, blue:0x2c66b8, red:0xc8463a, green:0x3f8a48, teal:0x2f8f86, black:0x1d1f22};
@@ -25,12 +25,12 @@ export function rb(f, lx, ly, lz, w, h, d, r, color, o = {}){
 }
 // cylinder (or cone), bottom at ly unless turned on its side, then ly is the axis
 export function cy(f, lx, ly, lz, rt, rb_, h, color, o = {}){
-  const g = new THREE.CylinderGeometry(rt, rb_, h, o.seg || 12, 1, !!o.open);
+  const g = new THREE.CylinderGeometry(rt, rb_, h, lowSeg(o.seg || 12), 1, !!o.open);
   if (!o.rx && !o.rz) g.translate(0, h/2, 0);
   put(f, g, lx, ly, lz, color, o);
 }
 export function sph(f, lx, ly, lz, r, color, o = {}){
-  const g = o.detail != null ? new THREE.IcosahedronGeometry(r, o.detail) : new THREE.SphereGeometry(r, o.ws || 12, o.hs || 8);
+  const g = o.detail != null ? new THREE.IcosahedronGeometry(r, o.detail) : new THREE.SphereGeometry(r, lowSeg(o.ws || 12), lowSeg(o.hs || 8, 4));
   if (o.sx || o.sy || o.sz) g.scale(o.sx || 1, o.sy || 1, o.sz || 1);
   put(f, g, lx, ly, lz, color, o);
 }
@@ -267,12 +267,20 @@ export function tacticsBoard(x, z, ry, title = "SATURDAY"){
   const [wx, wz] = worldPt(f, 0, .03); label(t, wx, f.y + 1.33, wz, 1.76, .99, f.ry, {rough:.35});
   fsolid(f, 0, 0, 1.8, .5, 0, 1.9);
 }
+// the training centre's board: the session's hours and a league match day's times come from daily.js (SESSION,
+// sessionHours, KICKOFF), so the board always says what the game does
+function boardNotes(){
+  const hours = typeof sessionHours === "function" ? sessionHours() : fmtRange(SESSION.start, SESSION.end);
+  const kick = KICKOFF.L[1];
+  return [["TRAINING", hours, "Monday to Friday,", "not on match days"], ["MATCH DAY", `Report by ${fmtTime(kick - 60)}`, `Kick-off ${fmtTime(kick)}`],
+    ["PHYSIO", "Ice baths in the", "dressing room"], ["LOST", "Black shin pads", "ask Gigi"]];
+}
 export function noticeBoard(x, y, z, ry, lines){
   const t = textTex(512, 320, g => {
     g.fillStyle = "#b98a55"; g.fillRect(0, 0, 512, 320);
     for (let i = 0; i < 2600; i++){ g.fillStyle = `rgba(${Math.random() < .5 ? "90,60,30" : "220,180,120"},.25)`; g.fillRect(Math.random()*512, Math.random()*320, 2, 2); }
     g.strokeStyle = "#5b3d22"; g.lineWidth = 14; g.strokeRect(0, 0, 512, 320);
-    const notes = lines || [["TRAINING", "10:00 – 17:00", "Mon to Fri, every day", "Be changed by 10:00!"], ["MATCH DAY", "Report by 18:00", "Kick-off 19:00"], ["PHYSIO", "Ice baths in the", "dressing room"], ["LOST", "Black shin pads", "ask Gigi"]];
+    const notes = lines || boardNotes();
     const pos = [[24, 22, 200, 150, "#fffdf3"], [244, 30, 236, 120, "#fff4b8"], [40, 190, 190, 110, "#dff3ff"], [262, 168, 210, 124, "#ffe2e2"]];
     notes.forEach((n, i) => { const [x, y, w, h, c] = pos[i % pos.length];
       g.save(); g.translate(x + w/2, y + h/2); g.rotate((i % 2 ? 1 : -1)*.03); g.fillStyle = c; g.fillRect(-w/2, -h/2, w, h);

@@ -14,19 +14,20 @@
      window.__perf.setView(n)  you placed at that view (the zone entered first if needed)
    Probe page (3.9.8): index.html?perf=probe&zone=<zone>&view=<view>&gfx=<tier>&t=12:00 starts a test career at that
    time in that zone, at that view, warms up for 30 frames and 60 more, records 300 frames (each one world frame
-   stepped by hand, drawn and waited for) and leaves the result in window.__perfResult. */
+   stepped by hand, drawn and waited for) and leaves the result in window.__perfResult (&warm= and &frames= change the
+   counts: SwiftShader draws High slowly). */
 import {RT, FADE} from "./core/state.js";
 import {SCHED} from "./core/sched.js";
 import {SG, SGSTAT} from "./core/collide.js";
 import {Q, RQ} from "./core/quality.js";
-import {CH, MG} from "./chunks.js";
+import {CH, MG, OC} from "./chunks.js";
 
 const qs = new URLSearchParams(location.search);
 const MODE = qs.get("perf") || "1", PROBE = MODE === "probe";
 const REC = {on:false, frames:[], left:0, done:null, frozen:false};
-const F = {t0:0, render:0, sched:0, sky:0, rays0:0, tests0:0, shadow0:0, calls:0, tris:0, shadowFrame:false};
+const F = {t0:0, render:0, sched:0, sky:0, rays0:0, tests0:0, shadow0:0, calls:0, tris:0, shadowFrame:false, occMs:0, occCulled:0, occTris:0};
 const now = () => performance.now();
-SCHED.timing = true;
+SCHED.timing = !PROBE;                  // (the probe page times whole frames only: a clock read per task would weigh on them)
 
 // the views of DESIGN 3.9.8 that exist in the life zones (the stadium's are added by its zone: __perf.views[name] = ...)
 export const VIEWS = {
@@ -53,6 +54,7 @@ function wrapRenderer(){
     if (PROBE) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
     F.render += now() - t;
     F.calls = r.info.render.calls; F.tris = r.info.render.triangles;
+    if (OC.cam === cam){ F.occMs = OC.ms; F.occCulled = OC.culled; F.occTris = OC.culledTris; }
     if (RT.SKY && RT.SKY.shadow && RT.SKY.shadow.count !== sh) F.shadowFrame = true;
   };
 }
@@ -78,7 +80,8 @@ function begin(){
 function end(){
   if (!REC.on) return;
   const frame = now() - F.t0, rays = SGSTAT.rays - F.rays0, tests = SGSTAT.tests - F.tests0;
-  REC.frames.push({frame, render:F.render, sched:F.sched, sky:F.sky, step:frame - F.render, calls:F.calls, tris:F.tris, shadow:F.shadowFrame, rays, tests, tiers:SCHED.stats().tiers});
+  REC.frames.push({frame, render:F.render, sched:F.sched, sky:F.sky, step:frame - F.render, calls:F.calls, tris:F.tris, shadow:F.shadowFrame, rays, tests, tiers:SCHED.stats().tiers,
+    occMs:F.occMs, occCulled:F.occCulled, occTris:F.occTris});
   if (--REC.left <= 0){ REC.on = false; const d = REC.done; REC.done = null; if (d) d(summary(REC.frames)); }
 }
 // one frame of the world by hand (probe mode and tests): the same bookkeeping as a real frame
@@ -101,6 +104,7 @@ function summary(fr){
     pointLights, shadowMap:!!(r && r.shadowMap.enabled), antialias:!!(r && r.getContextAttributes().antialias), canvas:r ? [r.domElement.width, r.domElement.height] : null,
     pixelRatio:r ? +r.getPixelRatio().toFixed(3) : 0, Q:{scale:Q.scale, crowd:Q.crowd, lod:Q.lod}, preset:P ? P.tier : null, swaps:RQ.swaps,
     chunks:{meshes:CH.meshes.length, instances:CH.instances, verts:CH.verts, bytes:CH.bytes, multiDraw:CH.multiDraw}, merged:{items:MG.items.size, pages:MG.pages.size, evicted:MG.evicted},
+    occlusion:{faces:OC.n, ms:stat(fr.map(f => f.occMs)), instances:q(fr.map(f => f.occCulled), .5), tris:q(fr.map(f => f.occTris), .5)},
     solids:{moved:SG.audit().length}};
 }
 // record the next n frames of the page's own loop (or, frozen, frames stepped by hand)
@@ -122,7 +126,7 @@ window.__perf = {snapshot, views:VIEWS, setView, handFrame:() => handFrame(windo
 
 /* ---------- the probe page ---------- */
 async function probe(){
-  const zone = qs.get("zone") || "home", view = qs.get("view") || "bedroom", gfx = qs.get("gfx"), t = qs.get("t") || "12:00", frames = +(qs.get("frames") || 300);
+  const zone = qs.get("zone") || "home", view = qs.get("view") || "bedroom", gfx = qs.get("gfx"), t = qs.get("t") || "12:00", frames = +(qs.get("frames") || 300), warm = +(qs.get("warm") || 90);
   const [hh, mm] = t.split(":").map(Number), min = (hh || 0)*60 + (mm || 0);
   const wait = c => new Promise(r => { const k = () => c() ? r() : setTimeout(k, 50); k(); });
   await wait(() => typeof window.startLife === "function" && typeof newCareer === "function" && window.__life);
@@ -143,7 +147,7 @@ async function probe(){
   FADE.boot = false; FADE.v = 0;
   const fe = document.getElementById("lifeFade"); if (fe){ fe.style.transition = "none"; fe.style.opacity = "0"; }
   setView(view);
-  for (let i = 0; i < 90; i++) handFrame(L);
+  for (let i = 0; i < warm; i++) handFrame(L);
   const res = await snapshot(frames, {hand:true});
   res.view = view; res.zone = L.LIFE.zone; res.minute = S.life.min;
   window.__perfResult = res;

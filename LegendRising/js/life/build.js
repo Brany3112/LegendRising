@@ -422,9 +422,10 @@ export function netTex(cell = 16, line = 2, col = "#f4f4f0"){
 const batches = new Map();
 function batch(key){
   let b = batches.get(key);
-  if (!b){ b = {key, pos:[], nor:[], col:[], uv:[], idx:[], pieces:[], tex:key.startsWith("t:")}; batches.set(key, b); }
+  if (!b){ b = {key, pos:[], nor:[], col:[], uv:[], idx:[], pieces:[], occ:[], tex:key.startsWith("t:")}; batches.set(key, b); }
   return b;
 }
+const keyOf = o => (o.key || (o.tex ? "t:" + o.tex : "plain")) + (o.far ? "|far" : "");
 const _c = new THREE.Color();
 // identical vertices of an unindexed piece, found through a small open-addressed table (exact float equality)
 const DD = {tab:new Int32Array(1024), f:new Float32Array(1), u:null};
@@ -457,7 +458,7 @@ export function addGeo(geo, color, o = {}){
   if (o.flat && geo.index) g = geo.toNonIndexed();
   if (o.matrix) g.applyMatrix4(o.matrix);
   if (o.flat) g.computeVertexNormals();            // non-indexed: every face its own normal, the faceted low-poly look
-  const key = (o.key || (o.tex ? "t:" + o.tex : "plain")) + (o.far ? "|far" : "");
+  const key = keyOf(o);
   const b = batch(key);
   const p = g.attributes.position.array, n = g.attributes.normal.array, gi = g.index ? g.index.array : null, cnt = g.attributes.position.count;
   _c.set(color);
@@ -544,7 +545,7 @@ export function box(x0, y0, z0, x1, y1, z1, color, o = {}){
   return {x0, x1, y0, y1, z0, z1};
 }
 export function cyl(x, y, z, r, h, color, o = {}){
-  const g = new THREE.CylinderGeometry(o.rt == null ? r : o.rt, r, h, o.seg || 10, 1, !!o.open);
+  const g = new THREE.CylinderGeometry(o.rt == null ? r : o.rt, r, h, lowSeg(o.seg || 10), 1, !!o.open);
   if (o.rx) g.rotateX(o.rx); if (o.rz) g.rotateZ(o.rz); if (o.ry) g.rotateY(o.ry);
   g.translate(x, y + (o.rx || o.rz ? 0 : h/2), z);
   addGeo(g, color, Object.assign({ao:false}, o));
@@ -555,10 +556,15 @@ export function blob(x, y, z, r, color, o = {}){        // a low-poly ball: tree
   g.translate(x, y, z); addGeo(g, color, Object.assign({ao:false}, o));
 }
 const roundMin = () => { const P = gfxP(); return P && P.tier === "low" ? .05 : .016; };
+/* round things on Low (made when a place is built, like the rounding above): two thirds of the segments round a
+   cylinder or a sphere, at least min (never more than it had: a square post stays square), and one row of segments
+   round a rounded box's edges */
+export const lowSeg = (n, min = 6) => { const P = gfxP(); return P && P.tier === "low" ? Math.min(n, Math.max(min, Math.round(n*2/3))) : n; };
 /* a box with its edges and corners rounded off. Built from a segmented cube whose outer rows are pushed
    out onto quarter circles, so it costs a few dozen triangles and reads as a soft, made object. */
 export function roundedBoxGeo(w, h, d, r, seg = 1){
   r = Math.max(0, Math.min(r, w/2 - 1e-3, h/2 - 1e-3, d/2 - 1e-3));
+  if (seg > 1 && lowSeg(seg, 1) < seg) seg = 1;
   // a rounding under a couple of centimetres is invisible past arm's length: a plain box is 12 triangles, not 108.
   // Low draws any rounding under 5 cm square (made when a place is built: a change of preset shows from the next place)
   if (r < roundMin()) return new THREE.BoxGeometry(w, h, d);
@@ -828,6 +834,25 @@ export function wall(axis, fixed, a, b, y0, y1, t, color, holes = [], o = {}){
   });
   // a glazed hole (a fifth entry "glass": a shop window, the glass laid in it by whoever cut it) is open to the eye
   // but not to your body: it blocks like the wall round it
+  /* for the occlusion test (chunks.js): the wall's solid parts again as rows running across its columns. The columns
+     meet edge to edge, and a screen cell on a seam is covered by neither of them alone; a row across the seam covers it
+     the way the wall does. Not drawn, only tested against. Both faces of the wall are there (unless o.back dropped one) */
+  if (holes.length && !o.back){
+    const ys = [...new Set([y0, y1, ...holes.flatMap(h => [h[2], h[3]])].map(y => Math.max(y0, Math.min(y1, y))))].sort((p, q) => p - q);
+    const occ = batch(keyOf(o)).occ;
+    const emit = (s0, s1, r0, r1) => { const P = (u, v) => axis === "x" ? [u, v, fixed] : [fixed, v, u]; occ.push([...P(s0, r0), ...P(s1, r0), ...P(s1, r1), ...P(s0, r1)]); };
+    for (let r = 0; r + 1 < ys.length; r++){
+      const r0 = ys[r], r1 = ys[r + 1], m = (r0 + r1)/2; if (r1 - r0 < .005) continue;
+      let run = null;
+      for (const c of cols){
+        const full = c.run.some(([h0, h1]) => h0 <= m && h1 >= m);
+        if (full && run && Math.abs(c.s0 - run.s1) < 1e-6){ run.s1 = c.s1; run.n++; continue; }
+        if (run && run.n > 1) emit(run.s0, run.s1, r0, r1);
+        run = full ? {s0:c.s0, s1:c.s1, n:1} : null;
+      }
+      if (run && run.n > 1) emit(run.s0, run.s1, r0, r1);
+    }
+  }
   if (o.solid !== false) for (const h of holes) if (h[4] === "glass"){
     const s0 = Math.max(a, h[0]), s1 = Math.min(b, h[1]), q0 = Math.max(y0, h[2]), q1 = Math.min(y1, h[3]);
     if (s1 > s0 && q1 > q0) axis === "x" ? solid(s0, s1, fixed - t/2, fixed + t/2, q0, q1) : solid(fixed - t/2, fixed + t/2, s0, s1, q0, q1);

@@ -154,8 +154,9 @@ export function quality(real, cpu){
   const P = preset(), qMin = P ? P.qMin : .6;
   const fps = Q.n/Q.acc, cpuMs = Q.cpu/Q.n, work = GT.n ? Math.max(cpuMs, GT.sum/GT.n) : -1;
   Q.work = work; Q.fps = fps; Q.acc = Q.n = Q.cpu = GT.sum = GT.n = 0;
-  // a browser holding the page to 30 fps with the work well within a frame: not slow, nothing to fix
-  Q.capped = !GT.ext && fps >= 28 && fps <= 31 && cpuMs < 10;
+  // a browser holding the page to 30 fps with the work well within a frame: not slow, nothing to fix (with the GPU's
+  // own clock read this second, the work itself says so)
+  Q.capped = work < 0 && fps >= 28 && fps <= 31 && cpuMs < 10;
   const slow = fps < 45 && (work < 0 || work > 13) && !Q.capped;
   Q.slow = slow ? Q.slow + 1 : 0;
   Q.good = fps > 57 || (work >= 0 && work < 8) || Q.capped ? Q.good + 1 : 0;

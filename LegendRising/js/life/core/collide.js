@@ -6,8 +6,8 @@
    SG is the one way into the boxes: a hash of 2 m cells over the place's ground plan. A box that never moves is filed
    in every cell its footprint covers when the place is built (SG.build, from camGridBuild); a box that moves (a door's
    leaf guard, a person, a car, the bus: made with solid(..., {dyn: true})) is kept on a short list that every query
-   looks through, and so is any box bigger than 16 m (a hall's floor slab), which would otherwise sit in hundreds of
-   cells. A query only meets the boxes in the cells it touches (2 to 8 instead of the 450 a whole street has).
+   looks through, and so is any box that would cover more than 64 cells (a hall's floor slab: more than 16 m across
+   both ways); a long thin one (a street's wall) is filed in the cells along it. A query only meets the boxes in the cells it touches (2 to 8 instead of the 450 a whole street has).
    What a query finds is exactly what the old scan of every box found, in the same order: the candidates are handed
    over in the order the boxes were made (W.solids order), and a ray that meets two boxes at the same distance reports
    the one made first. So nothing that collides behaves any differently, only faster.
@@ -20,7 +20,7 @@ import {P, RT, FLAGS} from "./state.js";
 export const R = .26;           // your radius
 
 /* ---------- the boxes ---------- */
-const CELL = 2, BIG = 16, MARGIN = 8;
+const CELL = 2, BIG_CELLS = 64, MARGIN = 8;
 let SEQ = 0;
 // a box: its corners can be read and written like plain numbers; a write that moves a box filed in the cells moves it
 // to the list of moving boxes (see above)
@@ -51,7 +51,7 @@ let depth = 0;
 export const SGSTAT = {rays:0, tests:0, queries:0};
 
 export const SG = {
-  rev:-1, dyn:[], big:[], moved:[], cells:null, nx:0, nz:0, x0:0, z0:0, mark:0, buildMs:0,
+  rev:-1, dyn:[], big:[], moved:[], cells:null, nx:0, nz:0, x0:0, z0:0, mark:0, buildMs:0, trace:false,
   // a new place is being built (build.js begin): nothing is filed until it is finished
   reset(){ SG.cells = null; SG.dyn = []; SG.big = []; SG.moved = []; SG.rev = -1; },
   // file the boxes of a freshly built place: every still box in the cells its footprint covers, the moving and the
@@ -84,7 +84,7 @@ export const SG = {
         const L = SG.cells[iz*NX + ix]; if (!L) continue;
         for (let k = 0; k < L.length; k++){ const s = L[k]; if (s._m === m || !s._h) continue; s._m = m; if (box2(s, x0, z0, x1, z1)) c.push(s); }
       }
-      for (const L of [SG.big, SG.dyn]) for (let k = 0; k < L.length; k++){ const s = L[k]; if (s._m === m) continue; s._m = m; if (box2(s, x0, z0, x1, z1)) c.push(s); }
+      for (let pass = 0; pass < 2; pass++){ const L = pass ? SG.dyn : SG.big; for (let k = 0; k < L.length; k++){ const s = L[k]; if (s._m === m) continue; s._m = m; if (box2(s, x0, z0, x1, z1)) c.push(s); } }
       if (c.length > 1) c.sort(bySeq);
     }
     depth++;
@@ -104,7 +104,7 @@ export const SG = {
     if (!SG.cells){ for (const s of W.solids) slab(s); }
     else {
       const m = ++SG.mark; RAY.m = m;
-      for (const L of [SG.big, SG.dyn]) for (let k = 0; k < L.length; k++){ const s = L[k]; s._m = m; slab(s); }
+      for (let pass = 0; pass < 2; pass++){ const L = pass ? SG.dyn : SG.big; for (let k = 0; k < L.length; k++){ const s = L[k]; s._m = m; slab(s); } }
       const NX = SG.nx, NZ = SG.nz;
       let ix = Math.floor((ox - SG.x0)/CELL), iz = Math.floor((oz - SG.z0)/CELL);
       const sx = dx > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
@@ -151,8 +151,8 @@ const cz = z => Math.max(0, Math.min(SG.nz - 1, Math.floor((z - SG.z0)/CELL)));
 function file(s){
   if (!SG.cells) return;
   if (s.dyn){ s._h = 0; SG.dyn.push(s); return; }
-  if (Math.max(s._x1 - s._x0, s._z1 - s._z0) > BIG){ s._h = 0; SG.big.push(s); return; }
   const NX = SG.nx, ix1 = cx(s._x1), iz1 = cz(s._z1);
+  if ((ix1 - cx(s._x0) + 1)*(iz1 - cz(s._z0) + 1) > BIG_CELLS){ s._h = 0; SG.big.push(s); return; }
   for (let iz = cz(s._z0); iz <= iz1; iz++) for (let ix = cx(s._x0); ix <= ix1; ix++){
     const i = iz*NX + ix; (SG.cells[i] || (SG.cells[i] = [])).push(s);
   }
@@ -175,6 +175,8 @@ function slab(s){
 // a box you cannot walk through. dyn: it moves (a door's leaf guard, a person, a car); build.js re-exports this
 export function solid(x0, x1, z0, z1, y0 = 0, y1 = 3, {dyn = false} = {}){
   const s = new Box(Math.min(x0, x1), Math.max(x0, x1), Math.min(z0, z1), Math.max(z0, z1), y0, y1, dyn);
+  // (SG.trace, for the audit: where each box was made, so a moving one can be given {dyn: true} where it is made)
+  if (SG.trace) s.at = String(new Error().stack || "").split("\n").slice(2, 4).map(l => l.trim().replace(/^at /, "").replace(/\?v=[^:]*/, "")).join(" < ");
   W.solids.push(s);
   file(s);
   return s;
