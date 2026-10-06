@@ -167,8 +167,7 @@ function involvementOf(ms, a, C){
     switch (ev.kind){
       case 'touch':
         if (lastSpell !== a.id) times.push(ev.t);
-        if (ev.intercept != null){ groups.defend++; }
-        if (ev.how === 'block') groups.defend++;
+        if (ev.intercept != null || ev.how === 'block' && (ev.blockOf === 'shot' || ev.blockOf === 'cross')) groups.defend++;
         lastSpell = a.id;
         break;
       case 'kick':

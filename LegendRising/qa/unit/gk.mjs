@@ -52,7 +52,8 @@ function range(seed = 2, keepers = 1){
 // a fresh start: live play, the ball at the player's feet, the keeper on his line and settled for settle seconds
 function reset(rg, x, z, settle = 1.2){
   const {ms, me, gk} = rg;
-  ms.phase = 'live'; ms.restart = null; ms.clock.running = true; ms.advantage = null; ms.pendingBook.length = 0;
+  // the clock held in the first half: the range never reaches half time and its change of ends
+  ms.phase = 'live'; ms.restart = null; ms.clock.running = true; ms.clock.sec = 60; ms.advantage = null; ms.pendingBook.length = 0;
   ms.offside.set.clear(); ms.offside.pending = null; ms.chain = createChain(); ms.kick = null;
   const yaw = Math.atan2(-(ms.spec.hx - x), -(0 - z));          // yaw 0 faces -Z: facing the goal centre
   put(me, x + 0.65*Math.sin(yaw), z + 0.65*Math.cos(yaw), yaw);
@@ -257,7 +258,8 @@ const gxOf = ms => ms.spec.hx;
   for (const a of ms.agents) if (a.role === 'player' && a !== gk && a.team === 1) { a.onPitch = false; put(a, 0, 80); }
   let goals = 0, saved = 0, missed = 0, n = 0;
   for (let i = 0; i < 300; i++){
-    ms.phase = 'live'; ms.restart = null; ms.chain = createChain(); ms.kick = null; ms.offside.set.clear(); ms.offside.pending = null;
+    // the clock held in the first half (300 penalties would run past half time, and the ends change there)
+    ms.phase = 'live'; ms.restart = null; ms.chain = createChain(); ms.kick = null; ms.offside.set.clear(); ms.offside.pending = null; ms.clock.sec = 60;
     const b = ms.ball; b.p.x = spot.x; b.p.y = R; b.p.z = spot.z; b.v.x = b.v.y = b.v.z = 0; b.state = 'dead';
     put(gk, ms.spec.hx - 0.3, 0, Math.PI/2); gk.gk = null; gk.act = null; gk.y = 0; gk.roll = 0;
     // team 0 lines up outside the box behind the ball; the taker comes from 3 m

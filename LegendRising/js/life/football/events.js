@@ -12,6 +12,10 @@ import {hypot} from "./detmath.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const PASS_KINDS = new Set(['pass', 'through', 'cross', 'lob', 'throw', 'goalkick', 'punt', 'roll', 'header']);
+// a pass meant for a team-mate (what an interception cuts out): a clearance, a punt, a headed clearance or a goal kick
+// hit long is nobody's pass, and the side that picks it up has recovered the ball, not intercepted it
+const aimed = p => p.intent === 'pass' || p.intent === 'through' || p.intent === 'cross' || p.intent === 'lob' || p.intent === 'roll' ||
+  p.intent === 'throw' || (p.intent === 'header' || p.intent === 'goalkick') && p.recv >= 0;
 export const isPassIntent = k => PASS_KINDS.has(k);
 
 /* ---------- the log ---------- */
@@ -111,7 +115,7 @@ export function chainControl(ms, a, how, ev){
       // cut out on its way (within its travel time and a little): an interception; picked up after it ran dead or
       // astray: a misplaced pass, the ball recovered
       const travel = (p.dist || 20)/Math.max(4, 0.7*(p.speed || 15)) + 0.4;
-      if (ms.t - p.t <= travel){ resolvePass(ms, p, 'int', a.id); if (ev) ev.intercept = p.id; }
+      if (ms.t - p.t <= travel && aimed(p)){ resolvePass(ms, p, 'int', a.id); if (ev) ev.intercept = p.id; }
       else resolvePass(ms, p, 'lost', a.id);
     }
   }
@@ -150,8 +154,14 @@ export function chainTouch(ms, a, how, ev){
   const ch = ms.chain;
   if (how === 'block' || how === 'deflect'){
     const p = ch.pass;
-    if (p && !p.res && p.team !== a.team && how === 'block'){ resolvePass(ms, p, 'int', a.id); if (ev) ev.intercept = p.id; }
-    if (ch.shot && !ch.shot.res && ch.shot.team !== a.team && !a.isGK){ ch.shot.blockedBy = a.id; }
+    // what was blocked: a shot, a cross, a pass (cut out: an interception), anything else (a clearance charged down)
+    const shot = ch.shot && !ch.shot.res && ch.shot.team !== a.team ? ch.shot : null;
+    if (how === 'block' && ev) ev.blockOf = shot ? 'shot' : p && !p.res && p.team !== a.team ? (p.intent === 'cross' ? 'cross' : aimed(p) ? 'pass' : 'clear') : 'ball';
+    if (p && !p.res && p.team !== a.team && how === 'block'){
+      if (aimed(p) && p.intent !== 'cross'){ resolvePass(ms, p, 'int', a.id); if (ev) ev.intercept = p.id; }
+      else resolvePass(ms, p, 'lost', a.id);
+    }
+    if (shot && !a.isGK){ shot.blockedBy = a.id; }
   }
   spellTouch(ms, a.id);
 }
@@ -264,7 +274,7 @@ export function countersAll(ms){
       case 'tackle': if (c){ c.tklAtt++; if (ev.won) { c.tkl++; c.defActs++; } } break;
       case 'touch':
         if (c && ev.intercept != null){ c.int++; c.defActs++; }
-        if (c && ev.how === 'block'){ c.blocks++; c.defActs++; }
+        else if (c && ev.how === 'block' && (ev.blockOf === 'shot' || ev.blockOf === 'cross')){ c.blocks++; c.defActs++; }
         break;
       case 'aerial': { const w = get(ev.winner), l = get(ev.loser); if (w){ w.aw++; w.defActs += ev.def === w ? 1 : 0; } if (l) l.al++; break; }
       case 'foul': if (c) c.fouls++; { const v = get(ev.on); if (v) v.fouled++; } break;
@@ -398,7 +408,7 @@ export function deriveMy(ms, agentId, C = null){
     offsides: c.offs, interceptions: c.int, kp: c.kp, aerialsWon: c.aw, aerialsLost: c.al, touches: c.touches,
     distance: c.distance, sprints: c.sprints, xg: Math.round(c.xg*100)/100, errors: c.err,
     posDisc: Math.round(c.posDisc*100)/100, mins: c.mins, red: c.red, saves: c.saves, crosses: c.crosses, blocks: c.blocks,
-    clearances: c.clear, defActs: c.defActs + c.blocks};
+    clearances: c.clear, defActs: c.defActs};
 }
 
 // the full-time numbers per team (index 0 home, 1 away)

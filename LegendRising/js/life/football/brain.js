@@ -611,39 +611,39 @@ function carrierAct(ms, a, o){
 
 // A kick the AI has chosen: struck now when the ball is in the strike window (or dead, for a set piece: the run-up
 // is the approach), else the carrier first works the ball into the window (up to 0.7 s), then strikes
-function kickWhenReady(ms, a, A){
+function kickWhenReady(ms, a, rq){
   const b = ms.ball;
-  if (b.state !== 'free' || canStrike(a, b).ok) return realStart(ms, a, A);
-  a.pendKick = {A, until: ms.t + 1.0};
+  if (b.state !== 'free' || canStrike(a, b).ok) return realStart(ms, a, rq);
+  a.pendKick = {rq, until: ms.t + 1.0};
   a.drib = null;
   return null;
 }
-const realStart = (ms, a, A) => { a.pendKick = null; return startKick(ms, a, A); };
+const realStart = (ms, a, rq) => { a.pendKick = null; return startKick(ms, a, rq); };
 const PMC = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
 // the pending kick: into the window, then the strike; out of time, the decision is made again
 function pendingKick(ms, a){
   const P = a.pendKick, b = ms.ball;
   if (canStrike(a, b).ok){
     // the picture has moved while he set it up: a pass whose lane has closed is thought again (once)
-    const A = P.A, recv = A.recv != null && A.recv >= 0 ? ms.agents[A.recv] : null;
-    if (recv && A.pOK != null && !P.checked && (A.kind === 'pass' || A.kind === 'through' || A.kind === 'lob')){
+    const rq = P.rq, recv = rq.recv != null && rq.recv >= 0 ? ms.agents[rq.recv] : null;
+    if (recv && rq.pOK != null && !P.checked && (rq.kind === 'pass' || rq.kind === 'through' || rq.kind === 'lob')){
       P.checked = true;
-      const kind = A.kind === 'lob' ? 'lob' : A.kind;
-      const v0 = A.speed != null ? A.speed : passSpeedFor(hypot(A.target.x - b.p.x, A.target.z - b.p.z), kind === 'through' ? BRAIN.THROUGH_ARRIVE : 9, b.rollDecel);
-      const pm = passModel(ms, a.m, A.target, kind, v0, recv, PMC);
-      if (pm.pOK < Math.max(0.3, A.pOK - 0.2)){ a.pendKick = null; a.brain.next = ms.t; a.brain.pending = true; return; }
+      const kind = rq.kind === 'lob' ? 'lob' : rq.kind;
+      const v0 = rq.speed != null ? rq.speed : passSpeedFor(hypot(rq.target.x - b.p.x, rq.target.z - b.p.z), kind === 'through' ? BRAIN.THROUGH_ARRIVE : 9, b.rollDecel);
+      const pm = passModel(ms, a.m, rq.target, kind, v0, recv, PMC);
+      if (pm.pOK < Math.max(0.3, rq.pOK - 0.2)){ a.pendKick = null; a.brain.next = ms.t; a.brain.pending = true; return; }
     }
-    realStart(ms, a, A); return;
+    realStart(ms, a, rq); return;
   }
   if (ms.t > P.until){
     a.pendKick = null;
     // a shot in the box is struck anyway (a stride adjust, a scuff at worst); anything else is thought again
     const dir = ms.dirs[a.team], dGoal = hypot(dir*ms.spec.hx - a.m.x, a.m.z);
-    if (P.A.kind === 'shot' && dGoal < 18) startKick(ms, a, P.A);
+    if (P.rq.kind === 'shot' && dGoal < 18) startKick(ms, a, P.rq);
     else { a.brain.next = ms.t; a.brain.pending = true; }
     return;
   }
-  const tg = P.A.target || {x: b.p.x + ms.dirs[a.team], z: b.p.z};
+  const tg = P.rq.target || {x: b.p.x + ms.dirs[a.team], z: b.p.z};
   const kx = tg.x - b.p.x, kz = tg.z - b.p.z, kl = hypot(kx, kz) || 1;
   const sd = (a.foot === 'L') ? 1 : -1, rx = -kz/kl, rz = kx/kl;
   steer(a, b.p.x - kx/kl*0.62 + rx*sd*0.12, b.p.z - kz/kl*0.62 + rz*sd*0.12, 'run', 0.04, {x: kx/kl, z: kz/kl}, Math.max(2.5, hypot(b.v.x, b.v.z) + 2));
@@ -1116,7 +1116,7 @@ function decideRestart(ms, a){
       return;
     }
     case 'penalty': {
-      const side = r() < 0.5 ? -1 : 1, tz = side*(3.66 - 0.45 - 0.5*r()), ty = r() < 0.65 ? 0.35 + r()*0.5 : 1.4 + r()*0.7;
+      const side = r() < 0.5 ? -1 : 1, tz = side*(3.66 - 0.32 - 0.55*r()), ty = r() < 0.65 ? 0.35 + r()*0.5 : 1.4 + r()*0.7;
       if (r() < 0.12){ startKick(ms, a, {kind: 'shot', target: {x: gx, y: 1.0, z: 0}, power: 0.8, contact: 0, pen: true}); return; }
       startKick(ms, a, {kind: 'shot', target: {x: gx, y: ty, z: tz}, power: 0.88, contact: 0, pen: true});
       a.penSide = side;

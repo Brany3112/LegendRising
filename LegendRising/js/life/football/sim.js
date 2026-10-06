@@ -79,7 +79,7 @@ export function createMatch(cfg){
     checkpointDue: false,
     // additions
     tm: null, chain: createChain(), spares: [], kick: null, call: null, meAI: !!cfg.meAI, restartLog: [],
-    roleDone: {on: false, off: false}, asserts: {teleport: 0, ballJump: 0, maxAgent: 0, maxBall: 0, restartLate: 0},
+    roleDone: {on: false, off: false}, asserts: {teleport: 0, ballJump: 0, maxAgent: 0, maxBall: 0, restartLate: 0}, vOutMax: 0,
     judgeQ: [], judgeLast: -999, cutStep: -1, ballSwap: -1, physQ: [], heavyUsed: 0, halfEnd: null, sitT: -99
   };
   ms.gkCollect = gkCollect;
@@ -249,6 +249,8 @@ function onBall(ms, type, d){
       break;
     case 'body': {
       const a = ms.agents[d.id];
+      // what the contact sent it on at (a keeper's hands replace it: gkOnHand puts the ball on its new path)
+      if (d.vOut && !(a && a.isGK && d.part === 'hand')) ms.vOutMax = Math.max(ms.vOutMax || 0, hypot(d.vOut.x, d.vOut.y, d.vOut.z));
       if (a && ms.phase === 'live' && ms.ball.state === 'free'){
         if (a.isGK && d.part === 'hand') gkOnHand(ms, a, d);
         else if (a.isGK && gkOnBody(ms, a, d)) {}
@@ -350,6 +352,7 @@ export function simStep(ms, h = H){
   ms.bw.t = ms.t;
   // the ball's speed as it starts its integration (a kick in this step has set it)
   const bvPre = hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z);
+  ms.vOutMax = 0;
   ballStep(ms.ball, ms.bw, h);
   // the path cache while the ball flies with spin (10 Hz)
   const b = ms.ball;
@@ -377,7 +380,8 @@ export function simStep(ms, h = H){
     if (ms.ball === ball0 && ms.ballSwap !== ms.step){
       const d = hypot(ms.ball.p.x - bx0, ms.ball.p.y - by0, ms.ball.p.z - bz0);
       // the speed changes inside the step (a kick before the integration, drag and gravity within it): 4% and 2 mm
-      const lim = Math.max(bv0, bvPre, hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z))*h*1.04 + 2e-3;
+      // (and the speed it left a contact at inside the step: a body moving into it can send it on faster than it ends)
+      const lim = Math.max(bv0, bvPre, ms.vOutMax || 0, hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z))*h*1.04 + 2e-3;
       if (d - lim > ms.asserts.maxBall) ms.asserts.maxBall = d - lim;
       if (d > lim){ ms.asserts.ballJump++; if (ms.onJump) ms.onJump(d, lim, by0); }
     }

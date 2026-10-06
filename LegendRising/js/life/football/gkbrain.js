@@ -39,7 +39,8 @@ export const GK = Object.freeze({
   ONE: [0.45, 2, 9], SPREAD: 2.5,
   PEN_COMMIT: 0.05, PEN_W: [0.4, 0.4, 0.2], PEN_FACE: 0.15,
   HOLD: [2, 5], THROW: [0.8, 30], ROLL: 0.85, PUNT: [45, 55],
-  DIVE_T: 0.42           // a dive's own time from the power step to the hands at the ball; a longer flight is crossed on foot first
+  DIVE_T: 0.42,          // a dive's own time from the power step to the hands at the ball; a longer flight is crossed on foot first
+  HAND_V: 12             // the fastest a hand moves relative to the body (m/s): a late plan cannot snap the hands to the ball
 });
 
 const COS_SET = cos(GK.SET_CONE);
@@ -64,10 +65,10 @@ export function gkHands(ms, a, out){
 /* ---------- positioning ---------- */
 
 function positionTarget(ms, a, out){
-  const g = a.gk, A = at(a), dir = ms.dirs[a.team], gx = goalX(ms, a), b = ms.ball.p;
+  const g = a.gk, KA = at(a), dir = ms.dirs[a.team], gx = goalX(ms, a), b = ms.ball.p;
   const dBall = hypot(b.x - gx, b.z);
   // the positioning error, resampled every 2 s
-  if (ms.t - g.errT >= GK.POS_ERR_T){ g.errT = ms.t; g.errZ = truncNormal(ms.r, GK.POS_ERR*(1 - A.posit/100), 2.5); }
+  if (ms.t - g.errT >= GK.POS_ERR_T){ g.errT = ms.t; g.errZ = truncNormal(ms.r, GK.POS_ERR*(1 - KA.posit/100), 2.5); }
   // on the line from the ball to the goal centre, off the line by 0.8 + 0.06 (d - 6), 0.6 to 4.5
   const off = clamp(GK.OFF[0] + GK.OFF[1]*(dBall - GK.OFF[2]), GK.OFF[3], GK.OFF[4]);
   const vx = b.x - gx, vz = b.z, vl = hypot(vx, vz) || 1;
@@ -116,7 +117,7 @@ function noticeKick(ms, a){
   g.kickSeq = K.seq; g.shift = null;
   if (K.team === a.team){ g.noHands = K.ev && K.ev.intent !== 'throw' && K.ev.intent !== 'header' && !K.ev.whiff; return; }
   g.noHands = false;
-  const A = at(a), gx = goalX(ms, a), P = ms.pred, n = ms.predN;
+  const KA = at(a), gx = goalX(ms, a), P = ms.pred, n = ms.predN;
   // where the predicted path crosses the goal plane
   let cross = null;
   for (let k = 1; k < n; k++){
@@ -137,7 +138,7 @@ function noticeKick(ms, a){
       const vx = a.m.x - b.x, vz = a.m.z - b.z, L2 = vx*vx + vz*vz || 1, t = ((o.m.x - b.x)*vx + (o.m.z - b.z)*vz)/L2;
       if (t > 0.1 && t < 0.9 && hypot(o.m.x - b.x - vx*t, o.m.z - b.z - vz*t) < 0.6){ screened = true; break; }
     }
-    let react = Math.max(GK.REACT[0], GK.REACT[1] - GK.REACT[2]*A.reflex + GK.REACT[3]*gauss(ms.r));
+    let react = Math.max(GK.REACT[0], GK.REACT[1] - GK.REACT[2]*KA.reflex + GK.REACT[3]*gauss(ms.r));
     if (!g.set) react += GK.UNSET;
     if (screened) react += GK.SCREEN;
     g.read = {at: ms.t + react, kick: K.seq, tCross: cross.t, t0: ms.t, z: cross.z, y: cross.y, ev};
@@ -150,11 +151,11 @@ function noticeKick(ms, a){
 
 // the read, after the reaction: predict with the misread spin and a lateral error, plan the dive at his dive plane
 function readShot(ms, a){
-  const g = a.gk, A = at(a), b = ms.ball;
+  const g = a.gk, KA = at(a), b = ms.ball;
   g.read = null;
   if (b.state !== 'free') return;
   const v = hypot(b.v.x, b.v.y, b.v.z);
-  const latErr = gauss(ms.r)*(GK.LAT[0] + GK.LAT[1]*Math.max(0, v - GK.LAT[2]))*(GK.LAT[3] - A.reflex/100);
+  const latErr = gauss(ms.r)*(GK.LAT[0] + GK.LAT[1]*Math.max(0, v - GK.LAT[2]))*(GK.LAT[3] - KA.reflex/100);
   const hit = shotHit(ms, a, latErr);
   if (!hit) return;
   // a ball going wide by more than his reach: let it go
@@ -170,8 +171,8 @@ function readShot(ms, a){
 // where his hands can meet the predicted path (with the spin misread and the lateral error): where it crosses his own
 // dive plane (x = his x), else the goal line. {x, y, z, t} or null.
 function shotHit(ms, a, latErr){
-  const A = at(a), b = ms.ball;
-  const spinMul = GK.SPIN[0] + GK.SPIN[1]*A.reflex;
+  const KA = at(a), b = ms.ball;
+  const spinMul = GK.SPIN[0] + GK.SPIN[1]*KA.reflex;
   const n = ballPredict(b, ms.bw, PR, 60, 30, spinMul);
   const px = a.m.x, gx = goalX(ms, a);
   let hit = null;
@@ -198,29 +199,42 @@ function shotHit(ms, a, latErr){
   if (hit) hit.z += latErr;
   return hit;
 }
+// the hands put where they start a dive (or in front of the chest), moving with the body: hands switched on must never
+// carry the velocity of a jump from where they were last placed (the ball would take it in a contact)
+function seedHands(a, plan){
+  const g = a.gk, hs = plan ? handsAt(plan, 0, null, null) : null;
+  const f = dirOf(a.m.yaw), rx = -f.z, rz = f.x;
+  for (let i = 0; i < 2; i++){
+    const H = g.hands[i], sd = i ? 1 : -1;
+    if (hs){ H.x = hs[i].x; H.y = hs[i].y; H.z = hs[i].z; }
+    else { H.x = a.m.x + f.x*0.35 + sd*0.045*rx; H.y = 1.2 + (a.y || 0); H.z = a.m.z + f.z*0.35 + sd*0.045*rz; }
+    H.vx = a.m.vx || 0; H.vy = 0; H.vz = a.m.vz || 0;
+  }
+}
 // the dive (or the standing save) for a hit point
 function planFrom(ms, a, hit, latErr){
-  const g = a.gk, A = at(a);
-  const plan = planDive({x: a.m.x, z: a.m.z, y: a.y || 0, yaw: a.m.yaw, scale: a.scale || 1, at: A}, hit);
+  const g = a.gk, KA = at(a);
+  const plan = planDive({x: a.m.x, z: a.m.z, y: a.y || 0, yaw: a.m.yaw, scale: a.scale || 1, at: KA}, hit);
   g.plan = plan; g.diveT = 0; g.state = plan.kind === 'stand' ? 'catch' : 'dive'; g.handsOn = true;
   g.steer.x = 0; g.steer.y = 0; g.steer.z = 0; g.reread = false; g.flight = hit.t; g.latErr = latErr; g.hitDone = false;
+  seedHands(a, plan);
   a.act = {kind: 'dive', t: 0, tc: plan.tc, plan, dur: plan.land + GK.GROUND, done: false};
   a.state = 'gk';
 }
 // moving across before the dive: side-on toward where the ball will cross his line; the dive when its own time is left
 function shiftStep(ms, a){
-  const g = a.gk, S = g.shift, b = ms.ball, left = S.t1 - ms.t;
+  const g = a.gk, SH = g.shift, b = ms.ball, left = SH.t1 - ms.t;
   if (b.state !== 'free' || left < -0.1){ g.shift = null; return false; }
   if (left <= GK.DIVE_T){
     g.shift = null;
-    const hit = shotHit(ms, a, S.latErr);
-    if (!hit || Math.abs(hit.z - S.latErr) > 3.66 + 0.9){ g.state = 'ready'; return false; }
-    planFrom(ms, a, hit, S.latErr);
+    const hit = shotHit(ms, a, SH.latErr);
+    if (!hit || Math.abs(hit.z - SH.latErr) > 3.66 + 0.9){ g.state = 'ready'; return false; }
+    planFrom(ms, a, hit, SH.latErr);
     diveStep(ms, a, 1/60);
     return true;
   }
   const face = faceTo(a, b.p.x, b.p.z, {x: 0, z: 0});
-  steer(a, a.m.x, clamp(S.z, -3.9, 3.9), 'run', 0.05, face, GK.REPOS_V, true);
+  steer(a, a.m.x, clamp(SH.z, -3.9, 3.9), 'run', 0.05, face, GK.REPOS_V, true);
   g.handsOn = false;
   return true;
 }
@@ -246,10 +260,17 @@ function reread(ms, a){
 
 /* ---------- contact: what the hands do (1.5.4) ---------- */
 
+// where the ball is at the end of the step when it left the contact point d (ball.js event: x, y, z, t) at its new
+// velocity: the outcome replaces the bounce, its path from the contact on included
+function fromContact(ms, b, d){
+  if (!d || !(d.t >= 0) || d.x == null) return;
+  const rem = Math.min(Math.max(0, ms.bw.t - d.t), 1/30);
+  b.p.x = d.x + b.v.x*rem; b.p.y = Math.max(BALL.R, d.y + b.v.y*rem); b.p.z = d.z + b.v.z*rem;
+}
 // The ball met a hand (ball.js 'body' event, part 'hand', id the keeper): catch, parry, tip or punch by the outcome
 // table. The ball has already bounced off the hand; the outcome replaces that.
 export function gkOnHand(ms, a, d){
-  const g = gkRec(a), A = at(a), b = ms.ball;
+  const g = gkRec(a), KA = at(a), b = ms.ball;
   if (b.state !== 'free') return;
   const shot = ms.chain.shot && !ms.chain.shot.res && ms.chain.shot.team !== a.team ? ms.chain.shot : null;
   const vIn = d.vIn || b.v, rel = hypot(vIn.x - (a.m.vx || 0), vIn.y, vIn.z - (a.m.vz || 0));
@@ -263,11 +284,12 @@ export function gkOnHand(ms, a, d){
   const cross = g.claim != null;
   let outcome;
   if (cross && crowded) outcome = 'punch';
-  else if (both && rel < GK.CATCH_V[0] + GK.CATCH_V[1]*A.handling && ext < GK.CATCH_EXT) outcome = cross ? 'claim' : 'catch';
+  else if (both && rel < GK.CATCH_V[0] + GK.CATCH_V[1]*KA.handling && ext < GK.CATCH_EXT) outcome = cross ? 'claim' : 'catch';
   else if (b.p.y > GK.TIP_Y && b.p.y < 2.44 + 0.5) outcome = 'tip';
   else outcome = cross ? 'punch' : 'parry';
   const gx = goalX(ms, a), dir = ms.dirs[a.team];
   if (outcome === 'catch' || outcome === 'claim'){
+    if (d && d.x != null){ b.p.x = d.x; b.p.y = Math.max(BALL.R, d.y); b.p.z = d.z; }
     holdAt(ms, a, false, 1/60);
     g.state = plan && plan.kind !== 'stand' ? 'ground' : 'hold'; g.t = 0; g.holdT = GK.HOLD[0] + (GK.HOLD[1] - GK.HOLD[0])*ms.r();
     setCtl(ms, a);
@@ -275,12 +297,14 @@ export function gkOnHand(ms, a, d){
     // over the bar: what is left of the pace, and up
     const sp = hypot(vIn.x, vIn.z)*0.5;
     ballKick(b, {x: -dir*sp*0.4 + vIn.x*0.3, y: Math.abs(vIn.y)*0.3 + GK.TIP_UP, z: vIn.z*0.3}, null, {agent: a.id, team: a.team, kind: 'save', t: ms.t});
+    fromContact(ms, b, d);
     clearCtl(ms);
   } else if (outcome === 'punch'){
     const sp = GK.PUNCH_V[0] + (GK.PUNCH_V[1] - GK.PUNCH_V[0])*ms.r();
     const ang = (ms.r() - 0.5)*70*DEG, base = dir > 0 ? 0 : Math.PI;
     const ux = cos(base + ang), uz = sin(base + ang);
     ballKick(b, {x: ux*sp, y: 3 + 2*ms.r(), z: uz*sp}, null, {agent: a.id, team: a.team, kind: 'save', t: ms.t});
+    fromContact(ms, b, d);
     clearCtl(ms);
   } else {
     // parry: restitution 0.35 plus 4 to 7 m/s away from the goal centre, aimed with an error; a shot toward a post is
@@ -288,11 +312,12 @@ export function gkOnHand(ms, a, d){
     let vx = b.p.x - gx, vz = b.p.z;
     if (Math.abs(b.p.z) > GK.PARRY_POST[0] && ms.r() < GK.PARRY_POST[1]){ vx = -dir*0.35*Math.abs(vz); vz = Math.sign(vz)*Math.max(1, Math.abs(vz)); }
     const vl = hypot(vx, vz) || 1;
-    const err = gauss(ms.r)*GK.PARRY_ERR*(1 - A.handling/120)*DEG, c = cos(err), s = sin(err);
+    const err = gauss(ms.r)*GK.PARRY_ERR*(1 - KA.handling/120)*DEG, c = cos(err), s = sin(err);
     const ux = (vx*c - vz*s)/vl, uz = (vx*s + vz*c)/vl;
     const away = GK.PARRY_V[0] + (GK.PARRY_V[1] - GK.PARRY_V[0])*ms.r();
     const sp = hypot(vIn.x, vIn.y, vIn.z)*GK.PARRY_E;
     ballKick(b, {x: ux*(away + sp*0.5), y: 1 + ms.r()*2, z: uz*(away + sp*0.5)}, null, {agent: a.id, team: a.team, kind: 'save', t: ms.t});
+    fromContact(ms, b, d);
     clearCtl(ms);
   }
   g.handsOn = outcome === 'catch' || outcome === 'claim';
@@ -327,9 +352,9 @@ function countNear(ms, x, z, r){
 // a loose ball reaching the keeper in his box (actions.touchCheck): he gathers it in his hands when it is slow enough,
 // smothers it on the ground, or parries what is too hot
 export function gkCollect(ms, a){
-  const g = gkRec(a), b = ms.ball, A = at(a);
+  const g = gkRec(a), b = ms.ball, KA = at(a);
   const sp = hypot(b.v.x, b.v.y, b.v.z);
-  if (sp > GK.CATCH_V[0] + GK.CATCH_V[1]*A.handling) return false;
+  if (sp > GK.CATCH_V[0] + GK.CATCH_V[1]*KA.handling) return false;
   const shot = ms.chain.shot && !ms.chain.shot.res && ms.chain.shot.team !== a.team ? ms.chain.shot : null;
   holdAt(ms, a, false, 1/60);
   setCtl(ms, a);
@@ -381,13 +406,14 @@ function considerClaim(ms, a){
     g.claim = {x: drop.x, z: drop.z, y: drop.y, t: drop.t, at: ms.t};
     g.state = 'claim'; g.handsOn = true; g.hitDone = false;
     g.plan = null;
+    seedHands(a, null);
   }
 }
 
 /* ---------- distribution (1.5.4) ---------- */
 
 function distribute(ms, a){
-  const g = a.gk, b = ms.ball, dir = ms.dirs[a.team], A = at(a);
+  const g = a.gk, b = ms.ball, dir = ms.dirs[a.team], KA = at(a);
   // throw to a full-back over 0.8 within 30 m; roll to a centre-back over 0.85; else a punt of 45 to 55 m
   let best = null, bv = 0, kind = 'punt';
   for (const o of ms.agents){
@@ -457,7 +483,7 @@ function penaltyStep(ms, a){
   const g = a.gk, R0 = ms.restart, gx = goalX(ms, a), dir = ms.dirs[a.team];
   steer(a, gx + dir*0.3, 0, 'walk', 0.1, {x: dir, z: 0});
   const tk = ms.agents[R0.taker];
-  if (!tk || !tk.act || tk.act.kind !== 'kick' || g.pen) return;
+  if (!tk || !tk.act || tk.act.kind !== 'kick' || g.pen != null) return;
   if (tk.act.t < tk.act.tc - GK.PEN_COMMIT) return;
   // the side: 40/40/20, plus 15% per 10 degrees of the shooter's body facing toward a side
   const f = dirOf(tk.m.yaw), facing = atan2(f.z, f.x*(-dir));
@@ -466,11 +492,13 @@ function penaltyStep(ms, a){
   wl = Math.max(0.05, wl); wr = Math.max(0.05, wr);
   const r = ms.r()*(wl + wr + GK.PEN_W[2]);
   const side = r < wl ? -1 : r < wl + wr ? 1 : 0;
-  // his left and right as he faces out: right = (-fz, fx) of his facing (dir, 0) = (0, dir)
-  const z = side*dir*2.6, y = ms.r() < 0.6 ? 0.5 : 1.3;
+  // his left and right as he faces out: right = (-fz, fx) of his facing (dir, 0) = (0, dir); how far across he goes
+  // (1.8 to 3 m) and how high (low or mid) are guesses too
+  const z = side*dir*(1.8 + 1.2*ms.r()), y = ms.r() < 0.6 ? 0.5 : 1.3;
   g.pen = side;
   const plan = planDive({x: a.m.x, z: a.m.z, y: 0, yaw: a.m.yaw, scale: a.scale || 1, at: at(a)}, {x: gx + dir*0.4, y, z, t: 0.47});
   g.plan = plan; g.diveT = 0; g.state = side === 0 ? 'catch' : 'dive'; g.handsOn = true; g.reread = true; g.hitDone = false;
+  seedHands(a, plan);
   a.act = {kind: 'dive', t: 0, tc: plan.tc, plan, dur: plan.land + GK.GROUND, done: false};
 }
 
@@ -481,7 +509,7 @@ function penaltyStep(ms, a){
 const PT = {x: 0, z: 0};
 export function gkStep(ms, a, h){
   if (!a || !a.onPitch) return;
-  const g = gkRec(a), A = at(a), b = ms.ball, dir = ms.dirs[a.team], gx = goalX(ms, a);
+  const g = gkRec(a), KA = at(a), b = ms.ball, dir = ms.dirs[a.team], gx = goalX(ms, a);
   g.t += h;
   if (ms.phase === 'restart' || ms.phase === 'kickoff' || ms.phase === 'goal'){
     const R0 = ms.restart;
@@ -562,7 +590,7 @@ export function gkStep(ms, a, h){
 // re-read), the ground, the get-up, the scramble
 const DR = {x: 0, y: 0, z: 0, roll: 0};
 function diveStep(ms, a, h){
-  const g = a.gk, plan = g.plan, A = at(a);
+  const g = a.gk, plan = g.plan, KA = at(a);
   if (!plan){ g.state = 'ready'; a.act = null; return; }
   g.diveT += h;
   if (a.act && a.act.kind === 'dive') a.act.t = g.diveT;
@@ -579,7 +607,12 @@ function diveStep(ms, a, h){
   const hs = handsAt(plan, g.diveT, null, g.steer);
   for (let i = 0; i < 2; i++){
     const H = g.hands[i], ox = H.x, oy = H.y, oz = H.z;
-    H.x = hs[i].x; H.y = hs[i].y; H.z = hs[i].z;
+    // toward the plan's hand point, carried by the body and at most HAND_V faster than it
+    const bx = ox + a.m.vx*h, bz = oz + a.m.vz*h;
+    let dx = hs[i].x - bx, dy = hs[i].y - oy, dz = hs[i].z - bz;
+    const dl = hypot(dx, dy, dz), lim = GK.HAND_V*h;
+    if (dl > lim){ const k = lim/dl; dx *= k; dy *= k; dz *= k; }
+    H.x = bx + dx; H.y = oy + dy; H.z = bz + dz;
     H.vx = (H.x - ox)/h; H.vy = (H.y - oy)/h; H.vz = (H.z - oz)/h;
   }
   g.handsOn = !g.hitDone && g.state !== 'ground' && g.state !== 'getUp' && g.diveT < plan.tc + 0.35;
@@ -592,7 +625,7 @@ function diveStep(ms, a, h){
     scramble(ms, a);
   } else if (g.state === 'getUp'){
     scramble(ms, a);
-    if (g.t >= GK.GETUP[0] - GK.GETUP[1]*A.dive){
+    if (g.t >= GK.GETUP[0] - GK.GETUP[1]*KA.dive){
       a.y = 0; a.roll = 0; a.act = null; g.plan = null; g.handsOn = false;
       g.state = ms.ball.state === 'held' && ms.ball.holder === a.id ? 'hold' : 'ready';
       if (g.state === 'hold'){ g.t = 0; }

@@ -136,23 +136,23 @@ export function loftSpeedFor(d){ return clamp(Math.sqrt(12.5*Math.max(4, d))*(1 
 const BS = {x: 0, y: 0, z: 0};
 // the contact itself: plan the launch with the ball as it is now (touch the one ball through ballKick), log the kick
 function strikeContact(ms, a, act, scuff){
-  const b = ms.ball, A = act.action, at = a.at, fac = a.fac || {};
+  const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
   const r = relBall(a, b, {ahead: 0, lat: 0, dist: 0});
   if (r.dist > ACT.SCUFF_D || b.p.y - (a.y || 0) > 1.0 || b.state === 'held' && b.holder !== a.id){
     // the ball is gone: an air kick, still a kick in the log (never a silent cancel)
-    const ev = logEv(ms, 'kick', a.team, a.id, a.m.x, a.m.z, {intent: A.kind, recv: A.recv != null ? A.recv : -1, whiff: true, speed: 0});
+    const ev = logEv(ms, 'kick', a.team, a.id, a.m.x, a.m.z, {intent: rq.kind, recv: rq.recv != null ? rq.recv : -1, whiff: true, speed: 0});
     act.done = true; act.ev = ev;
     return ev;
   }
   const foot = footFor(a, r.lat), weak = a.foot === 'B' ? 'both' : foot !== (a.foot || 'R');
-  const tgt = A.target || {x: a.m.x + dirOf(a.m.yaw).x*20, y: R, z: a.m.z + dirOf(a.m.yaw).z*20};
+  const tgt = rq.target || {x: a.m.x + dirOf(a.m.yaw).x*20, y: R, z: a.m.z + dirOf(a.m.yaw).z*20};
   let tx = tgt.x, ty = tgt.y != null ? tgt.y : R, tz = tgt.z;
-  const kind = A.kind;
+  const kind = rq.kind;
   const isShot = kind === 'shot';
   // the scuff (1.5.3): aim lerped 25% toward the goal centre or the receiver's feet
   if (scuff){
     if (isShot){ const gx = ms.dirs[a.team]*ms.spec.hx; tx += (gx - tx)*0.25; tz += (0 - tz)*0.25; ty += (1.0 - ty)*0.25; }
-    else if (A.recv >= 0 && ms.agents[A.recv]){ const q = ms.agents[A.recv].m; tx += (q.x - tx)*0.25; tz += (q.z - tz)*0.25; }
+    else if (rq.recv >= 0 && ms.agents[rq.recv]){ const q = ms.agents[rq.recv].m; tx += (q.x - tx)*0.25; tz += (q.z - tz)*0.25; }
   }
   const dist = hypot(tx - b.p.x, tz - b.p.z);
   const kdir = yawOf(tx - b.p.x, tz - b.p.z);
@@ -161,30 +161,30 @@ function strikeContact(ms, a, act, scuff){
   const sp = hypot(b.v.x, b.v.y, b.v.z);
   const air = b.p.y > R + 0.05;
   const ballState = !air ? (sp < 0.4 ? 'still' : 'rolling') : (b.v.y < 0 && b.p.y > 0.35 ? 'volley' : 'bouncing');
-  const first = !(ms.poss.ctl === a.id) || !!A.firstTime;
+  const first = !(ms.poss.ctl === a.id) || !!rq.firstTime;
   const pr = pressureOn(ms, a);
-  const contact = A.contact != null ? A.contact : 0;
+  const contact = rq.contact != null ? rq.contact : 0;
   let speed, ctxKind, acc;
   if (isShot){
-    const p = clamp(A.power != null ? A.power : 0.85, 0.05, 1);
-    speed = shotSpeed(at.power, p, !!at.strikeBoots, fac.power != null ? fac.power : 1)*(A.finesse ? 0.92 : 1);
-    if (A.finesse) speed = Math.min(speed, shotSpeed(at.power, 0.85, !!at.strikeBoots, fac.power != null ? fac.power : 1));
-    ctxKind = contact > 0 && A.chip ? 'chip' : 'shot'; acc = at.accuracy;
+    const p = clamp(rq.power != null ? rq.power : 0.85, 0.05, 1);
+    speed = shotSpeed(at.power, p, !!at.strikeBoots, fac.power != null ? fac.power : 1)*(rq.finesse ? 0.92 : 1);
+    if (rq.finesse) speed = Math.min(speed, shotSpeed(at.power, 0.85, !!at.strikeBoots, fac.power != null ? fac.power : 1));
+    ctxKind = contact > 0 && rq.chip ? 'chip' : 'shot'; acc = at.accuracy;
   } else {
-    speed = A.speed != null ? A.speed : kind === 'pass' || kind === 'through' || kind === 'roll' ? passSpeedFor(dist, 9, b.rollDecel) : loftSpeedFor(dist);
+    speed = rq.speed != null ? rq.speed : kind === 'pass' || kind === 'through' || kind === 'roll' ? passSpeedFor(dist, 9, b.rollDecel) : loftSpeedFor(dist);
     speed *= fac.power != null ? 0.95 + 0.05*fac.power : 1;
     ctxKind = kind === 'clear' || kind === 'goalkick' || kind === 'punt' ? 'clear' : kind; acc = at.passAcc;
   }
   if (scuff) speed *= 0.55;
-  const req = {from: {x: b.p.x, y: b.p.y, z: b.p.z}, target: {x: tx, y: ty, z: tz}, speed, contact, curl: A.finesse ? (A.curl != null ? A.curl : 1) : (A.curl || 0),
+  const req = {from: {x: b.p.x, y: b.p.y, z: b.p.z}, target: {x: tx, y: ty, z: tz}, speed, contact, curl: rq.finesse ? (rq.curl != null ? rq.curl : 1) : (rq.curl || 0),
     foot, kind: ctxKind === 'chip' ? 'chip' : ctxKind, rollDecel: b.rollDecel, curve: at.curve, aero: at.aero};
-  const ctx = {kind: ctxKind, dist, power01: isShot ? clamp(A.power != null ? A.power : 0.85, 0, 1) : 0.6, acc, contact, weakFoot: weak,
+  const ctx = {kind: ctxKind, dist, power01: isShot ? clamp(rq.power != null ? rq.power : 0.85, 0, 1) : 0.6, acc, contact, weakFoot: weak,
     bodyAngleDeg, plantErr, ballState, pressure01: pr, composure: at.composure, bF: fac.bF != null ? fac.bF : 1, eF: fac.eF != null ? fac.eF : 1,
-    finesse: !!A.finesse, firstTime: first && sp > 1, vIn: first ? sp : 0, power: at.power, scuff: !!scuff,
-    weightSigma: isShot ? undefined : A.charged ? (A.sweet ? 0.02 : 0.0) : (1 - at.passing/120)*0.12};
+    finesse: !!rq.finesse, firstTime: first && sp > 1, vIn: first ? sp : 0, power: at.power, scuff: !!scuff,
+    weightSigma: isShot ? undefined : rq.charged ? (rq.sweet ? 0.02 : 0.0) : (1 - at.passing/120)*0.12};
   // the player's decision, recorded with his options as they were at the strike (judged later: 3.2.11)
-  if (a.isMe && !A.noRecord && (isShot || kind === 'pass' || kind === 'through' || kind === 'cross' || kind === 'lob')){
-    const rec = decisionRecord(ms, a, {choice: isShot ? 'shoot' : kind === 'cross' ? 'cross' : 'pass', recv: A.recv != null ? A.recv : -1,
+  if (a.isMe && !rq.noRecord && (isShot || kind === 'pass' || kind === 'through' || kind === 'cross' || kind === 'lob')){
+    const rec = decisionRecord(ms, a, {choice: isShot ? 'shoot' : kind === 'cross' ? 'cross' : 'pass', recv: rq.recv != null ? rq.recv : -1,
       setPiece: ms.restart && ms.restart.taker === a.id ? (ms.restart.kind === 'penalty' ? 'penalty' : ms.restart.kind === 'free' ? 'freekick' : null) : null});
     logEv(ms, 'decision', a.team, a.id, b.p.x, b.p.z, {rec});
   }
@@ -195,18 +195,18 @@ function strikeContact(ms, a, act, scuff){
   if (ms.poss.ctl === a.id) clearCtl(ms);
   a.drib = null;
   refreshPred(ms);
-  const extra = {intent: kind === 'roll' ? 'roll' : kind, recv: A.recv != null ? A.recv : -1, speed: Math.round(hypot(L.v.x, L.v.y, L.v.z)*100)/100,
-    contact, finesse: !!A.finesse, firstTime: ctx.firstTime, dist: Math.round(dist*10)/10, scuff: !!scuff, curl: req.curl,
+  const extra = {intent: kind === 'roll' ? 'roll' : kind, recv: rq.recv != null ? rq.recv : -1, speed: Math.round(hypot(L.v.x, L.v.y, L.v.z)*100)/100,
+    contact, finesse: !!rq.finesse, firstTime: ctx.firstTime, dist: Math.round(dist*10)/10, scuff: !!scuff, curl: req.curl,
     tx: Math.round(tx*100)/100, ty: Math.round(ty*100)/100, tz: Math.round(tz*100)/100};
-  if (isShot || A.atGoal){
+  if (isShot || rq.atGoal){
     extra.xg = Math.round(xgAt(ms, a.team, b.p.x, b.p.z)*1000)/1000;
     extra.onTarget = predOnTarget(ms, a.team);
     extra.sigma = Math.round(plan.sigma*1e4)/1e4;
     if (isShot) ms.stats.shots[a.team]++;
   } else if (kind !== 'clear') ms.stats.passes[a.team]++;
-  if (A.pOK != null) extra.pOK = Math.round(A.pOK*100)/100;
-  if (A.fk) extra.fk = true;
-  if (A.pen) extra.pen = true;
+  if (rq.pOK != null) extra.pOK = Math.round(rq.pOK*100)/100;
+  if (rq.fk) extra.fk = true;
+  if (rq.pen) extra.pen = true;
   // the target in the team frame, and how far forward the kick sends it
   const dirT = ms.dirs[a.team];
   extra.tu = Math.round((dirT*tx + ms.spec.hx)*100)/100; extra.tw = Math.round((dirT*tz + ms.spec.hz)*100)/100;
@@ -629,16 +629,16 @@ export function actionStep(ms, a, h){
 }
 
 // start an Action record (1.4.14) for an agent: the player's controls and the AI land here
-export function startAction(ms, a, A){
-  switch (A.kind){
+export function startAction(ms, a, rq){
+  switch (rq.kind){
     case 'shot': case 'pass': case 'through': case 'cross': case 'lob': case 'clear': case 'goalkick': case 'punt': case 'roll':
-      return startKick(ms, a, A);
-    case 'tackle': { const c = ms.agents[ms.poss.ctl]; if (c && c.team !== a.team) return startTackle(ms, a, A.sub || 'stand', c, 0); return null; }
+      return startKick(ms, a, rq);
+    case 'tackle': { const c = ms.agents[ms.poss.ctl]; if (c && c.team !== a.team) return startTackle(ms, a, rq.sub || 'stand', c, 0); return null; }
     case 'slide': { const c = ms.agents[ms.poss.ctl] || null; if (c && c.team !== a.team) return startTackle(ms, a, 'slide', c, 0); return null; }
-    case 'header': return startHeader(ms, a, A.tc != null ? A.tc : 0.3, A.intent || 'clear', A.target, A.power != null ? A.power : 1);
-    case 'throw': return startThrow(ms, a, A.target, A.recv != null ? A.recv : -1);
+    case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1);
+    case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':
-      logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how: A.how || 'here', px: A.target ? A.target.x : null, pz: A.target ? A.target.z : null});
+      logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how: rq.how || 'here', px: rq.target ? rq.target.x : null, pz: rq.target ? rq.target.z : null});
       a.lastCall = ms.t; a.calls++;
       return null;
     default: return null;

@@ -307,6 +307,27 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   }
   check(allOk, `every restart is taken within its limit + 5 s (worst ${r2(worst)} s over the limit)`, out);
   check(ballJumps === 0 && teleports === 0, "no agent or ball displacement assert fired around the restarts", {ballJumps, teleports});
+  // and as they come in two whole matches: every restart, from the dead ball to the kick
+  const kindsSeen = {};
+  let late = 0, lateAssert = 0, worstN = -1e9;
+  for (const seed of [31, 32]){
+    const ms = createMatch(configFor(seed));
+    let cur = null, n = 0;
+    while (ms.phase !== 'over' && n++ < 200000){
+      simStep(ms);
+      if (ms.restart && ms.restart !== cur && !ms.restart.taken) cur = ms.restart;
+      if (cur && (cur.taken || ms.restart !== cur)){
+        const took = ms.t - cur.t0;
+        kindsSeen[cur.kind] = (kindsSeen[cur.kind] || 0) + 1;
+        worstN = Math.max(worstN, took - cur.limit);
+        if (took > cur.limit + 5) late++;
+        cur = null;
+      }
+    }
+    lateAssert += ms.asserts.restartLate;
+  }
+  check(late === 0 && lateAssert === 0 && ['throw', 'goalkick', 'corner', 'free', 'kickoff'].every(k => kindsSeen[k] > 0),
+    `two whole matches: every restart taken within its limit + 5 s (worst ${r2(worstN)} s over the limit)`, {late, lateAssert, kinds: kindsSeen});
 }
 
 /* ---------- the scenario line (3.2.9) ---------- */
