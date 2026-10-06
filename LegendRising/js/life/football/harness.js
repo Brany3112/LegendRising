@@ -103,13 +103,16 @@ export function measure(ms){
   out.saves = saves; out.faced = faced;
   // crosses, headers on target, final-third free kicks, penalties, counters
   let crosses = 0, hot = 0, through = 0, throughOff = 0;
+  const kinds = {};
   for (const ev of ms.events){
     if (ev.kind !== 'kick' || ev.whiff || ev.void) continue;
+    kinds[ev.intent] = (kinds[ev.intent] || 0) + 1;
     if (ev.intent === 'cross') crosses++;
     if (ev.intent === 'header' && ev.atGoal && (ev.res === 'saved' || ev.res === 'goal')) hot++;
     if (ev.intent === 'through' && !ev.rk){ through++; if (ev.offSnap && ev.offSnap.includes(ev.recv) && ev.recvOff) throughOff++; }
   }
-  out.crosses = crosses; out.headersOnTarget = hot; out.through = through; out.throughOff = throughOff;
+  out.crosses = crosses; out.headersOnTarget = hot; out.through = through; out.throughOff = throughOff; out.kinds = kinds;
+  out.ctlSec = st.possSec[0] + st.possSec[1];
   out.fkFinal = ms.restartLog.filter(r => r.kind === 'free' && r.final).length;
   out.pens = ms.restartLog.filter(r => r.kind === 'penalty').length;
   out.counters = countCounters(ms);
@@ -211,7 +214,10 @@ function sidesOf(ms, team){
 export function aggregate(list){
   const R = {n: list.length};
   for (const k of ['goals', 'shots', 'onTarget', 'corners', 'offsides', 'fouls', 'yellows', 'reds', 'passes', 'passesOk', 'crosses',
-    'headersOnTarget', 'fkFinal', 'pens', 'counters', 'seqs5', 'restarts']) R[k] = mean(list.map(m => m[k] || 0));
+    'headersOnTarget', 'fkFinal', 'pens', 'counters', 'seqs5', 'restarts', 'ctlSec']) R[k] = mean(list.map(m => m[k] || 0));
+  R.kinds = {};
+  for (const m of list) for (const [k, v] of Object.entries(m.kinds || {})) R.kinds[k] = (R.kinds[k] || 0) + v/list.length;
+  for (const k of Object.keys(R.kinds)) R.kinds[k] = Math.round(R.kinds[k]*10)/10;
   const saves = list.reduce((a, m) => a + m.saves, 0), faced = list.reduce((a, m) => a + m.faced, 0);
   R.saveRate = faced ? saves/faced : 0;
   // the side with the higher mean overall, 7 to 13 points higher: its share of the points (draws half)

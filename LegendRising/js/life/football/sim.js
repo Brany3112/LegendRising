@@ -94,6 +94,7 @@ export function createMatch(cfg){
         scale: p.scale || 1, at: p.at, energy: p.energy != null ? p.energy : 100, fatigue: p.fatigue || 0, name: p.name, number: p.number,
         items: p.items, prefFoot: p.prefFoot, x: 0, z: 0});
       a.slotLine = (SLOT_POS[p.slot] || SLOT_POS.CM).line;
+      a.baseX = p.baseX != null ? p.baseX : null;
       a.eF = effF(a.energy);
       a.on.push([0, null]);
       ms.agents.push(a);
@@ -101,6 +102,7 @@ export function createMatch(cfg){
       if (a.isMe) ms.me = a.id;
     }
     for (const p of ((T[t] && T[t].bench) || [])) ms.bench[t].push(Object.assign({used: false}, p));
+    spreadSlots(ms.agents.filter(a => a.team === t));
   }
   // the officials
   for (const [id, role, z] of [[REF, 'referee', 0], [AR1, 'ar', -spec.hz - 1.2], [AR2, 'ar', spec.hz + 1.2]]){
@@ -252,6 +254,19 @@ function onBall(ms, type, d){
       break;
   }
   if (ms.subsFn[type]) ms.physQ.push(type, d);
+}
+
+// A shape names a slot once per player, left to right within a line (positions.js FORMATIONS): two centre backs,
+// two or three central midfielders, two strikers share one slot's place. Each gets his own lane across the pitch
+// (baseX, 0 at the left touchline to 100 at the right, as SLOT_POS.x), spread evenly about the slot's own x.
+const SPREAD = {DF: 24, CM: 24, CAM: 22, FWD: 22};
+export function spreadSlots(list){
+  const by = new Map();
+  for (const a of list){ if (a.isGK || a.baseX != null) continue; const k = a.slot; if (!by.has(k)) by.set(k, []); by.get(k).push(a); }
+  for (const [slot, group] of by){
+    const p = SLOT_POS[slot] || SLOT_POS.CM, n = group.length, gap = SPREAD[p.line] || 22;
+    group.forEach((a, i) => { a.baseX = clamp(p.x + (i - (n - 1)/2)*gap, 8, 92); });
+  }
 }
 
 /* ---------- the step (3.2.1) ---------- */

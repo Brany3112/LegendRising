@@ -667,7 +667,7 @@ function sendOff(ms, a){
   if (a.slotLine !== 'FWD' && !a.isGK){
     let fwd = null;
     for (const o of ms.agents) if (o.team === a.team && o.onPitch && !o.leaving && o.slotLine === 'FWD' && (!fwd || depthOf(o.slot) > depthOf(fwd.slot))) fwd = o;
-    if (fwd){ fwd.slot = a.slot; fwd.slotLine = a.slotLine; }
+    if (fwd){ fwd.slot = a.slot; fwd.slotLine = a.slotLine; fwd.baseX = a.baseX; }
   }
   if (a.isGK){
     // somebody has to go in goal: the nearest defender
@@ -778,6 +778,7 @@ function enterSub(ms, team, p, out){
     scale: p.scale || 1, at: p.at, energy: p.energy != null ? p.energy : 100, x: (team === 0 ? -1 : 1)*2.5, z: side*(ms.spec.hz + 0.9),
     yaw: side > 0 ? 0 : Math.PI, name: p.name, number: p.number, items: p.items, prefFoot: p.prefFoot});
   a.slotLine = out.slotLine || (SLOT_POS[out.slot] || {}).line;
+  a.baseX = out.baseX != null ? out.baseX : null;
   a.on.push([ms.t, null]);
   a.anchor.u = out.anchor.u; a.anchor.w = out.anchor.w; a.anchor.set = true;
   ms.agents.push(a);

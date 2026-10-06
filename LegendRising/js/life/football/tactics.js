@@ -33,6 +33,7 @@ const STRIKER = new Set(['ST', 'CF', 'LF', 'RF']);
 
 // 3.2.2 numbers
 export const TAC = Object.freeze({
+  TIGHT_U: 0.40,
   LINE_OUT: [0.55, 8, 14, 52], LINE_IN: [0.65, 18, 22, 70],
   LEN_OUT: 30, LEN_IN: 45, WID_OUT: 38, WID_IN: 60, BALL_SHIFT: 0.35,
   TRANSITION: 2.5, BLEND: 1.5, OVERLAP: 8, WING_HOLD: 4, ST_OFF: 0.6, AM_OFF: 4, DM_SCREEN: 6,
@@ -108,7 +109,7 @@ export function teamShape(ms, team){
   for (const a of ms.agents){
     if (a.team !== team || !a.onPitch || a.role !== 'player' || a.isGK) continue;
     const slot = a.slot, p = SLOT_POS[slot] || SLOT_POS.CM;
-    const w0 = p.x/100*Wd, d = depthOf(slot);
+    const w0 = (a.baseX != null ? a.baseX : p.x)/100*Wd, d = depthOf(slot);
     let u = tm.line + d*tm.len;
     let w = Wd/2 + (w0 - Wd/2)*tm.wid/Wd + (bw - Wd/2)*TAC.BALL_SHIFT;
     if (poss){
@@ -151,7 +152,7 @@ export function teamToPitch(ms, team, u, w, out = {x: 0, z: 0}){
 // turnover press for 3 s when the club presses.
 export function assignDefence(ms, team){
   const tm = ms.tm[team], L = ms.spec.L, Wd = ms.spec.Wd, dir = ms.dirs[team];
-  for (const a of ms.agents) if (a.team === team && a.role === 'player'){ a.task.press = 0; a.task.mark = -1; }
+  for (const a of ms.agents) if (a.team === team && a.role === 'player'){ a.task.press = 0; a.task.mark = -1; a.task.markTight = false; }
   tm.marks.clear();
   if (ms.poss.team === team && ms.poss.ctl >= 0) return;
   if (ms.phase !== 'live') return;
@@ -200,6 +201,8 @@ export function assignDefence(ms, team){
     if (done.has(p.d.id) || taken.has(p.o.id) || p.q > 14) continue;
     done.add(p.d.id); taken.add(p.o.id);
     p.d.task.mark = p.o.id; tm.marks.set(p.d.id, p.o.id);
+    // tight within 42 m of his own goal (or on the man about to receive), a zone with a pull toward the man further out
+    p.d.task.markTight = dir*p.o.m.x + L/2 < L*TAC.TIGHT_U;
   }
 }
 

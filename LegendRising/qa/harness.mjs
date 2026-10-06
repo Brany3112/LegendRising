@@ -166,6 +166,7 @@ fs.writeFileSync(path.join(ROOT, "qa", "out", "harness.json"), JSON.stringify(ou
 const fmt = v => v == null ? "-" : typeof v === 'number' ? (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(3)) : String(v);
 for (const c of checks) console.log(`${c.pass ? "ok  " : "FAIL"} ${c.name}: ${fmt(c.value)}  [${fmt(c.lo)} .. ${fmt(c.hi)}]`);
 console.log(`me by archetype: ${JSON.stringify(Object.fromEntries(Object.entries(R.me).map(([k, m]) => [k, {n: m.n, touches: +m.touches.toFixed(1), shots: +m.shots.toFixed(2), def: +m.defActs.toFixed(1), gap: Math.round(m.gapP95), trust: +m.trust.toFixed(2)}])))}`);
+console.log(`kicks: ${JSON.stringify(R.kinds)} controlled ${fmt(R.ctlSec)} s`);
 console.log(`other: passes ${fmt(R.passes)} ok ${fmt(R.passesOk)} reds ${fmt(R.reds)} pens ${fmt(R.pens)} restarts ${fmt(R.restarts)} through ${R.through} sides on ${R.sidesOn} off ${R.sidesOff} prefCaps ${R.prefCaps} restartWorst ${fmt(R.restartWorst)}`);
 const failed = checks.filter(c => !c.pass).length;
 console.log(`harness: ${checks.length - failed} of ${checks.length} checks pass, ${Math.round((Date.now() - t0)/1000)} s`);
