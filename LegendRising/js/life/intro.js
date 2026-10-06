@@ -12,7 +12,7 @@
    Leave in the middle of any of it and the part you were in starts again the next time; nothing is lost and nothing is
    shown twice. Every cinematic ends with the camera, the keys, the mouse and the HUD handed back (world.js cineEnd). */
 import {bedTierNow} from "./furniture.js";
-import {THREE, W, LH} from "./build.js";
+import {THREE, W, LH, mat} from "./build.js";
 import {HOME, APT} from "./home.js";
 import {human, animateHuman, lookFor} from "./human.js";
 
@@ -192,12 +192,12 @@ function smash(){
   if (P) P.set("broken");
   H.shake(.05, .3);
   // the glass: bits flying in and out of the frame, falling
-  const w = myWindow(), sc = H.scene(), mat = new THREE.MeshStandardMaterial({color:0xc9dbe6, transparent:true, opacity:.7, roughness:.05, side:THREE.DoubleSide, depthWrite:false});
+  const w = myWindow(), sc = H.scene(), shard = mat({color:0xc9dbe6, transparent:true, opacity:.7, roughness:.05, side:THREE.DoubleSide, depthWrite:false});
   const bits = [];
   for (let i = 0; i < 22; i++){
     const g = new THREE.BufferGeometry(), s = .03 + Math.random()*.07;
     g.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, s, Math.random()*s, 0, Math.random()*s*.6, s, 0], 3));
-    const m = new THREE.Mesh(g, mat); m.position.set(w.x - .25 + Math.random()*.4, w.y - .3 + Math.random()*.6, w.z - w.out*.11);
+    const m = new THREE.Mesh(g, shard); m.position.set(w.x - .25 + Math.random()*.4, w.y - .3 + Math.random()*.6, w.z - w.out*.11);
     const v = V((Math.random() - .5)*2.2, Math.random()*1.6, (Math.random() < .35 ? 1 : -1)*w.out*(.6 + Math.random()*1.6));
     sc.add(m); bits.push({m, v, r:V(Math.random()*9, Math.random()*9, Math.random()*9), t:0});
   }
@@ -212,7 +212,7 @@ function footballMesh(){
   const c = cv.getContext("2d"); c.fillStyle = "#f4f4f0"; c.fillRect(0, 0, 128, 64); c.fillStyle = "#22262c";
   for (const [x, y] of [[16, 14], [52, 30], [90, 12], [112, 44], [30, 50], [70, 54]]){ c.beginPath(); for (let k = 0; k < 5; k++){ const a = k/5*Math.PI*2; c.lineTo(x + Math.cos(a)*9, y + Math.sin(a)*9); } c.fill(); }
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.Mesh(new THREE.SphereGeometry(.11, 16, 12), new THREE.MeshStandardMaterial({map:t, roughness:.5}));
+  return new THREE.Mesh(new THREE.SphereGeometry(.11, 16, 12), mat({map:t, roughness:.5}));
 }
 // the ball: from a kid's boot in the street, a long arc into the pane, and in onto the floor of your flat
 function kick(){

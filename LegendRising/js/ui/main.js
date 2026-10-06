@@ -1,6 +1,8 @@
 "use strict";
 /* ============ SCREENS ============ */
 let LAST_SCREEN = null;
+// settles once the 3D world module has loaded (js/life/world.js resolves it), so a new career can wait for it
+window.lifeReady = new Promise(r => { window.lifeReadyResolve = r; });
 function render(html, key){
   document.body.classList.remove("in-match");
   const app = $("#app"), same = !!key && key === LAST_SCREEN;
@@ -603,7 +605,6 @@ function openSheet(kind){
     body = adminHTML();
   } else if (kind === "settings0"){
     body = `<h2>Settings</h2><div class="stack"><div><label>Graphics</label>${gfxSeg("A.gfx0")}</div>
-      <p class="muted small">Auto drops to Low on slower machines, and switches by itself if a match runs below about 25 fps.</p>
       <button class="btn ghost" onclick="A.fullscreen()">⛶ Toggle full screen</button>
       <div class="transfer">
         <label>Import a save from another device</label>
@@ -623,7 +624,7 @@ function openSheet(kind){
 
       <div class="transfer">
         <label>Move this career to another device</label>
-        <button class="btn" id="saveCodeBtn" onclick="A.saveGame()">💾 Save game — copy code</button>
+        <button class="btn" id="saveCodeBtn" onclick="A.saveGame()">💾 ${SAVE_CODE_LABEL}</button>
         <textarea id="saveCode" class="codebox" readonly placeholder="Your save code will appear here" onclick="this.select()"></textarea>
         <p class="muted small">Copy the code, then paste it into <b>Import save</b> on the other device.</p>
       </div>
@@ -1063,7 +1064,7 @@ const A = {
       const ok = await copyText(code);
       toast(ok ? `Save code copied — ${Math.round(code.length/1024)} KB. Paste it on the other device.` : "Code ready below — select it all and copy.", ok ? "good" : "");
     }catch(e){ toast("Couldn't build the code."); }
-    if (btn){ btn.disabled = false; btn.textContent = "💾 Save game — copy code"; }
+    if (btn){ btn.disabled = false; btn.textContent = `💾 ${SAVE_CODE_LABEL}`; }
   },
   async importSave(slot){
     const box = $("#impCode2") || $("#impCode0"), txt = box ? box.value : "";

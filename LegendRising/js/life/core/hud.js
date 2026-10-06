@@ -9,13 +9,9 @@ import {G, LIFE, FLAGS, FADE} from "./state.js";
 /* ---------- words for numbers and times ---------- */
 export const clockText = (m = LIFE.min) => fmtTime(m);
 // "+1.2", a real minus sign for "−3", "0" (util.js fmtSigned)
-export const signed = (x, dp = 0) => {
-  if (typeof fmtSigned === "function") return fmtSigned(x, dp);
-  const v = +(+x).toFixed(dp);
-  return v > 0 ? "+" + v.toFixed(dp) : v < 0 ? "−" + Math.abs(v).toFixed(dp) : "0";
-};
+export const signed = (x, dp = 0) => fmtSigned(x, dp);
 // "10:00 AM to 4:00 PM" (util.js fmtRange)
-export const range = (a, b) => typeof fmtRange === "function" ? fmtRange(a, b) : `${clockText(a)} to ${clockText(b)}`;
+export const range = (a, b) => fmtRange(a, b);
 
 /* ---------- notes and fades ---------- */
 export function note(t){

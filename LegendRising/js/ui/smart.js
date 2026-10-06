@@ -167,7 +167,7 @@ APPVIEWS.settings = () => ({title:"Settings", html:`<div class="stack">
   <div><label>Graphics</label>${gfxSeg("A.gfx")}</div>
   <div><label>Match speed</label><div class="seg">${[1,2,4].map(s => `<button aria-pressed="${S.speed === s}" onclick="S.speed=${s};save();smRefresh()">${s}×</button>`).join("")}</div></div>
   <label>Move this career to another device</label>
-  <button class="btn sm" id="phSaveBtn" onclick="phoneSaveCode()">💾 Save game — copy code</button>
+  <button class="btn sm" id="phSaveBtn" onclick="phoneSaveCode()">💾 ${SAVE_CODE_LABEL}</button>
   <textarea id="phCode" rows="3" readonly placeholder="Your save code will appear here" onclick="this.select()"></textarea>
   <label>Import save</label><textarea id="impCode" rows="3" placeholder="Paste a save code"></textarea>
   <div class="row gap6 wrap"><button class="btn sm ghost" onclick="importCode()">Import into slot ${SLOT}</button><button class="btn sm ghost" onclick="saveNow();toast('Saved','good')">Save now</button><button class="btn sm danger" onclick="phoneDeleteCareer()">Delete career</button></div>
@@ -181,7 +181,7 @@ async function phoneSaveCode(){
     const ok = await copyText(code);
     toast(ok ? `Save code copied — ${Math.round(code.length/1024)} KB.` : "Code ready — select it all and copy.", ok ? "good" : "");
   }catch(e){ toast("Couldn't build the code."); }
-  if (btn){ btn.disabled = false; btn.textContent = "💾 Save game — copy code"; }
+  if (btn){ btn.disabled = false; btn.textContent = `💾 ${SAVE_CODE_LABEL}`; }
 }
 async function importCode(){
   const el = $("#impCode"), txt = el ? el.value : "";

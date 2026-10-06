@@ -4,7 +4,12 @@
    a laptop's built-in graphics hold 60 fps. Things that move — doors, the curtain, the food in the
    fridge — are ordinary meshes of their own. */
 import * as THREE from "../../vendor/three.module.js";
-export { THREE };
+// the walls' boxes are registered by core/collide.js (solid, with {dyn: true} for a box that moves, so the index
+// keeps it apart), and a new place empties the scheduler's tasks (core/sched.js). Both import W from here: neither
+// reads it while the modules load, so the cycle is safe
+import {solid} from "./core/collide.js";
+import {SCHED} from "./core/sched.js";
+export { THREE, solid };
 
 export const LH = 3.2;            // one storey, floor to floor
 export const W = {
@@ -574,10 +579,6 @@ export function halo(x, y, z, size = 1.4, color = 0xffd9a0){
   W.scene.add(s); return s;
 }
 export const haloMat = () => HALO_MAT;
-export function solid(x0, x1, z0, z1, y0 = 0, y1 = 3){
-  const s = {x0:Math.min(x0, x1), x1:Math.max(x0, x1), z0:Math.min(z0, z1), z1:Math.max(z0, z1), y0, y1, off:false};
-  W.solids.push(s); return s;
-}
 export function floor(x0, x1, z0, z1, h){ W.floors.push({x0:Math.min(x0, x1), x1:Math.max(x0, x1), z0:Math.min(z0, z1), z1:Math.max(z0, z1), h}); }
 /* a flight of stairs you walk up as a smooth slope; the steps you see are drawn separately */
 export function ramp(x0, x1, z0, z1, axis, a0, a1, h0, h1){ W.ramps.push({x0:Math.min(x0, x1), x1:Math.max(x0, x1), z0:Math.min(z0, z1), z1:Math.max(z0, z1), axis, a0, a1, h0, h1}); }
@@ -726,6 +727,8 @@ export function begin(scene){
   W.solids.length = 0; W.floors.length = 0; W.ramps.length = 0; W.spots.length = 0; W.anims.length = 0;
   W.lights.length = 0; W.pools.length = 0; W.mats = {}; W.lit = null; W.ticks = []; W.bikes = []; W.fridges = []; W.store = null; W.stations = {}; W.places = [];
   batches.clear();
+  // the last place's scheduled work goes with it; tasks of kind 'keep' (the 'anims' task that runs W.anims) stay
+  SCHED.clear();
 }
 const FLOORS = new Set(["t:grass", "t:pitch", "t:asphalt", "t:slabs", "t:planks", "t:tiles", "t:terrazzo", "t:concrete", "t:path", "t:rubberFloor", "t:turf", "t:carpet", "t:shopfloor", "t:rubber"]);
 export function finishBatches(){

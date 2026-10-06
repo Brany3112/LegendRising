@@ -93,7 +93,7 @@ function enterZone(zone, at, opts = null){
   closingReset();
   HOLD.sp = null; heldMeshDrop(); flyEnd(); resetParcels();
   LIFE.zone = zone; W.zone = zone;
-  meDispose(); clearScene(); begin(RT.scene); SCHED.clear();
+  meDispose(); clearScene(); begin(RT.scene);
   spawns = (zoneSpec(zone) || zoneSpec("home")).build(ctx, opts) || {};
   compassReset();
   camGridBuild();

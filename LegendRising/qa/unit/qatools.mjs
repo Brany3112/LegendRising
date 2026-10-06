@@ -95,7 +95,9 @@ for (const a of b) { q(); }`);
     check(`rule ${r.id} catches its sample`, hit.length >= bad.split("\n").length, `${hit.length} findings: ${JSON.stringify(hit.map(h => h.match))}`);
     check(`rule ${r.id} lets the good sample through`, miss.length === 0, JSON.stringify(miss.map(h => h.text)));
   }
-  eq("rules active now", cfg.rules.filter(r => r.active).map(r => r.id), ["no-legacy-match"]);
+  // active exactly when the package that activates it has been merged (the integrator keeps cfg.merged)
+  check("lint-rules.json lists the merged packages", Array.isArray(cfg.merged) && cfg.merged.length > 0, "add \"merged\": [package ids]");
+  eq("rules active now", cfg.rules.filter(r => r.active).map(r => r.id), cfg.rules.filter(r => (cfg.merged || []).includes(r.activatedBy)).map(r => r.id));
 }
 
 const failed = results.filter(r => !r.ok);

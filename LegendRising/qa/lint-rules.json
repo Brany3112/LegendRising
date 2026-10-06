@@ -4,8 +4,10 @@
     "A rule runs in `node qa/lint.mjs` only while `active` is true. Each starts inactive until the merge of the package named in `activatedBy`, the one whose work makes it pass; the integrator flips it on at that merge. `node qa/lint.mjs --all` reports every rule, active or not.",
     "files and except are globs from the game root (* within a folder, ** across folders). A file that does not exist yet is simply not checked, so a rule over modules still to be written covers each one from the day it lands.",
     "scope: code (comments, string text and regex bodies blanked: only code can match), nocomment (comments blanked, strings kept), raw (the whole file).",
-    "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed."
+    "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed.",
+    "merged: the packages the integrator has merged so far. A rule is active exactly when the package in its activatedBy is in this list (qa/unit/qatools.mjs checks it), so at each stage merge the integrator adds the packages and flips their rules on together."
   ],
+  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A"],
   "pure": [
     "js/life/mover.js", "js/life/stamina.js", "js/life/gaitcore.js",
     "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/ball.js", "js/life/football/strike.js",
@@ -17,7 +19,7 @@
   "rules": [
     {
       "id": "pure-no-random",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-0D",
       "ref": "DESIGN 1.2 (modules marked P), D6",
       "what": "No Math.random in a pure module: every random draw comes from the seeded RNG passed in (rng.js), so a seed reproduces a match.",
@@ -27,7 +29,7 @@
     },
     {
       "id": "pure-no-globals",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-0D",
       "ref": "DESIGN 1.2 (P), D5",
       "what": "No S., MT, A., window. or document. (or globalThis.) in a pure module: everything comes in through arguments, and only bridge.js touches the classic globals.",
@@ -37,7 +39,7 @@
     },
     {
       "id": "pure-no-three",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-0D",
       "ref": "DESIGN header (\"Pure means a module with no THREE, no DOM and no classic global access\"), 1.2",
       "what": "No THREE in a pure module, and no import of three.js: pure modules run under plain node for the unit tests and the harness.",
@@ -68,7 +70,7 @@
     },
     {
       "id": "standard-material-routing",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-0C",
       "ref": "DESIGN 2.2 WP-0C, 3.9.1",
       "what": "No new MeshStandardMaterial outside build.js, human.js, sky.js and crowd.js: materials come from mat() and carry userData.spec, so a preset change can rematerialise them.",
