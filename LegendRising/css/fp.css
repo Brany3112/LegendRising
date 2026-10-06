@@ -1,0 +1,24 @@
+/* css/fp.css: the first-person match HUD (#fpHud), every class prefixed fp-.
+   Owner: WP-0B creates it with the shared tokens (DESIGN 1.2, 2.2 WP-0B); WP-F builds the HUD on them in fphud.js
+   (DESIGN 1.5.10, 2.4 WP-F). Linked once, after style.css. Until then it holds tokens only and draws nothing. */
+:root{
+  --fp-ink:#fff;                          /* text over the pitch */
+  --fp-muted:#b9c8d8;                     /* secondary text: the clock's added time, hint verbs */
+  --fp-panel:rgba(9,15,24,.66);           /* scorebug, hints and the Tab overview */
+  --fp-line:rgba(255,255,255,.12);        /* panel borders, the stamina arc track */
+  --fp-radius:10px;
+  --fp-blur:8px;                          /* backdrop blur of the panels; none on Low (1.5.10) */
+  --fp-pad:clamp(10px,1.4vw,18px);        /* distance from the screen edges */
+  --fp-font:var(--display);               /* scorebug, clock and notices */
+  --fp-text:var(--body);                  /* hints and the scenario line */
+  --fp-good:#5fd47a;                      /* onside pip, the pass sweet zone */
+  --fp-warn:#ffb648;                      /* amber: within 0.5 m of the line, stamina under 25 */
+  --fp-bad:#ff5a5f;                       /* offside pip, a booking */
+  --fp-charge:var(--lime);                /* the charge ring's fill */
+  --fp-cross:4px;                         /* the crosshair dot */
+  --fp-ring:24px;                         /* the charge ring */
+  --fp-arc:64px;                          /* the stamina arc's width */
+  --fp-arc-fade:.25s;                     /* the stamina arc fading in */
+  --fp-call:1.5s;                         /* a teammate's call stays this long */
+}
+body.gfx-low{--fp-blur:0px}
