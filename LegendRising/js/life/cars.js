@@ -8,7 +8,7 @@
    · car(kind, color) → THREE.Group — a car that can come and go (one parked across your front door, the squad's cars
      leaving the training ground): one mesh per material, the wheels separate so they can turn, its own lamps that
      can be switched on (.userData.lamps(on)). .userData.size = [length, height, width]. */
-import {THREE, roundedBoxGeo, mergeGeos, lmat, addGeo, textTex} from "./build.js";
+import {THREE, roundedBoxGeo, mergeGeos, mat, lmat, addGeo, textTex} from "./build.js";
 
 const KINDS = {
   // side profiles: [x, y] round the body from the front bumper, length along x (front +x), height y; then glass
@@ -92,8 +92,8 @@ export function bakeCar(kind, color, x, z, ry, o = {}){
 /* a car that can come and go: one mesh per material, a group per wheel (spin it: .userData.wheels), lamps of its own */
 export function car(kind = "hatch", color = 0x2c66b8, o = {}){
   const {P, K} = pieces(kind, color, o), g = new THREE.Group(), by = new Map();
-  const head = new THREE.MeshStandardMaterial({color:0xfff6dc, emissive:0xfff0c8, emissiveIntensity:.08, roughness:.2});
-  const tail = new THREE.MeshStandardMaterial({color:0xc8261f, emissive:0xff2a1a, emissiveIntensity:.12, roughness:.3});
+  const head = mat({color:0xfff6dc, emissive:0xfff0c8, emissiveIntensity:.08, roughness:.2});
+  const tail = mat({color:0xc8261f, emissive:0xff2a1a, emissiveIntensity:.12, roughness:.3});
   const ind = lmat(0xf2a43a, {roughness:.3});
   const matOf = (look, c) => look === "head" ? head : look === "tail" ? tail : look === "ind" ? ind : lookMat(look, c);
   const add = (geo, m) => { if (!by.has(m)) by.set(m, []); by.get(m).push(geo); };
@@ -138,10 +138,10 @@ export function bus(){
   for (const [m, list] of by){ const mesh = new THREE.Mesh(mergeGeos(list), m); mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh); }
   // the destination board over the windscreen
   if (!BUS_SIGN){ BUS_SIGN = textTex(512, 96, c => { c.fillStyle = "#0b0d10"; c.fillRect(0, 0, 512, 96); c.fillStyle = "#ffb43a"; c.font = "800 62px 'Barlow Condensed', sans-serif"; c.textBaseline = "middle"; c.fillText("14", 22, 52); c.font = "700 40px 'Barlow Condensed', sans-serif"; c.fillText(`${PLACES.city.toUpperCase()} · ${PLACES.town.toUpperCase()}`, 108, 52); }); BUS_SIGN.userData.keep = true; }
-  const sm = new THREE.MeshStandardMaterial({map:BUS_SIGN, emissive:0xffffff, emissiveMap:BUS_SIGN, emissiveIntensity:.9, roughness:.4});
+  const sm = mat({map:BUS_SIGN, emissive:0xffffff, emissiveMap:BUS_SIGN, emissiveIntensity:.9, roughness:.4});
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(Wd - .5, .34), sm); sign.position.set(L/2 + .035, 2.83, 0); sign.rotation.y = Math.PI/2; g.add(sign);
-  const head = new THREE.MeshStandardMaterial({color:0xfff6dc, emissive:0xfff0c8, emissiveIntensity:.1, roughness:.2});
-  const tail = new THREE.MeshStandardMaterial({color:0xc8261f, emissive:0xff2a1a, emissiveIntensity:.15, roughness:.3});
+  const head = mat({color:0xfff6dc, emissive:0xfff0c8, emissiveIntensity:.1, roughness:.2});
+  const tail = mat({color:0xc8261f, emissive:0xff2a1a, emissiveIntensity:.15, roughness:.3});
   for (const s of [1, -1]){
     const hl = new THREE.Mesh(roundedBoxGeo(.06, .18, .34, .04, 1), head); hl.position.set(L/2 + .03, .82, s*(Wd/2 - .32)); g.add(hl);
     const tl = new THREE.Mesh(roundedBoxGeo(.06, .3, .2, .04, 1), tail); tl.position.set(-L/2 - .03, .95, s*(Wd/2 - .2)); g.add(tl);

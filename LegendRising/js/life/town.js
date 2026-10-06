@@ -3,7 +3,7 @@
    better jobs — the Sports Centre, the Youth Academy, the Photo Studio and Cut & Grade — round a little square where
    the bus stops, and Casa Nova, the big furniture showroom (tiers 3 to 6). South of the road is Arini: small detached
    houses with yards and fences and driveways, a quiet street running down between them. */
-import {THREE, W, LH, box, rbox, cyl, solid, floor, spot, label, textTex, lightSrc, pool, reseed, rnd, pick, finishBatches, extrude} from "./build.js";
+import {THREE, W, LH, box, rbox, cyl, solid, floor, spot, label, textTex, lightSrc, pool, reseed, rnd, pick, finishBatches, extrude, mat} from "./build.js";
 import {frame, rb, cy, fsolid, worldPt, streetLamp, bin, bench as propBench, tree as propTree, bush, hedge, planter, PC} from "./props.js";
 import {busStop, fence, tree, block} from "./home.js";
 import {jobUnit, TX, HOOD, TOWN} from "./units.js";
@@ -45,10 +45,10 @@ function house(T, w, i){
     const pts = [[-sp/2 - .35, 0], [0, 1.9], [sp/2 + .35, 0], [sp/2 + .35, -.12], [0, 1.78], [-sp/2 - .35, -.12]];
     const g = new THREE.Shape(); g.moveTo(pts[0][0], pts[0][1]); for (const q of pts.slice(1)) g.lineTo(q[0], q[1]); g.closePath();
     const geo = new THREE.ExtrudeGeometry(g, {depth:d1 - d0 + .7, bevelEnabled:false}); geo.translate(0, 0, -(d1 - d0 + .7)/2);
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:roof, roughness:.85, side:THREE.DoubleSide}));
+    const m = new THREE.Mesh(geo, mat({color:roof, roughness:.85, side:THREE.DoubleSide}));
     const [cx, cz] = T.p(rid, (d0 + d1)/2); m.position.set(cx, h, cz); m.rotation.y = T.th; m.castShadow = true; m.receiveShadow = true; W.scene.add(m);
     const tri = new THREE.Shape(); tri.moveTo(-sp/2, 0); tri.lineTo(0, 1.8); tri.lineTo(sp/2, 0); tri.closePath();
-    for (const zz of [d0, d1]){ const tg = new THREE.Mesh(new THREE.ShapeGeometry(tri), new THREE.MeshStandardMaterial({color:col, roughness:.9, side:THREE.DoubleSide}));
+    for (const zz of [d0, d1]){ const tg = new THREE.Mesh(new THREE.ShapeGeometry(tri), mat({color:col, roughness:.9, side:THREE.DoubleSide}));
       const [tx, tz] = T.p(rid, zz); tg.position.set(tx, h, tz); tg.rotation.y = T.th; W.scene.add(tg); }
     T.box(hx1 - 1.4, h + .6, d0 + 2.2, hx1 - .9, h + 2.3, d0 + 2.8, 0x8a5a45, {tex:"brick", ao:false});
   }

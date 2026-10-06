@@ -5,7 +5,7 @@
    at the bottom, polish at the top.
    Every piece says where you stand to use it (W.stations, by kind) so a set (drills.js) can be done on any rack in any
    gym: the club's own (ground.js, at your club's tier) and the IronWorks gym up Strada Morii (members only). */
-import {THREE, W, box, rbox, cyl, solid, floor, spot, wall, label, textTex, lightSrc, pool, reseed, rnd} from "./build.js";
+import {THREE, W, box, rbox, cyl, solid, floor, spot, wall, label, textTex, lightSrc, pool, reseed, rnd, mat} from "./build.js";
 import {frame, rb, cy, fsolid, worldPt, plyoBox, bike, cone, bench as propBench, waterCooler, PC} from "./props.js";
 import {staffer} from "./npc.js";
 import {facer, decoWin, pilasters, roofTop, downpipe} from "./home.js";
@@ -59,10 +59,10 @@ export function rack(x, z, t){
 }
 // a barbell: the bar along x, a plate at each end
 export function barbell(t = 3){
-  const g = new THREE.Group(), lk = L(t), steel = new THREE.MeshStandardMaterial({color:t <= 1 ? 0x8a7a6a : 0xc9cdd0, metalness:t <= 1 ? .4 : .8, roughness:t <= 1 ? .7 : .3});
+  const g = new THREE.Group(), lk = L(t), steel = mat({color:t <= 1 ? 0x8a7a6a : 0xc9cdd0, metalness:t <= 1 ? .4 : .8, roughness:t <= 1 ? .7 : .3});
   const bar = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, 2.0, 10), steel); bar.rotation.z = Math.PI/2; g.add(bar);
   for (const s of [-1, 1]){
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(.23, .23, .06, 20), new THREE.MeshStandardMaterial({color:s < 0 ? lk.accent : 0x2b2c2e, roughness:.6}));
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(.23, .23, .06, 20), mat({color:s < 0 ? lk.accent : 0x2b2c2e, roughness:.6}));
     p.rotation.z = Math.PI/2; p.position.x = s*.78; g.add(p);
     const c = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, .05, 10), steel); c.rotation.z = Math.PI/2; c.position.x = s*.84; g.add(c);
   }
@@ -70,7 +70,7 @@ export function barbell(t = 3){
   return g;
 }
 export function dumbbell(color = 0x2b2c2e){
-  const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({color:0x9aa0a4, metalness:.8, roughness:.35}), m = new THREE.MeshStandardMaterial({color, roughness:.55});
+  const g = new THREE.Group(), steel = mat({color:0x9aa0a4, metalness:.8, roughness:.35}), m = mat({color, roughness:.55});
   const h = new THREE.Mesh(new THREE.CylinderGeometry(.017, .017, .2, 8), steel); h.rotation.z = Math.PI/2; g.add(h);
   for (const s of [-1, 1]){ const b = new THREE.Mesh(new THREE.BoxGeometry(.06, .12, .12), m); b.position.x = s*.1; g.add(b); }
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });

@@ -9,7 +9,7 @@
 
    The world (world.js) draws what is in your hand and throws things; this module is the state, the items' looks and
    the bar along the bottom of the screen. */
-import {THREE, part, roundedBoxGeo, mergeGeos, lmat} from "./build.js";
+import {THREE, part, roundedBoxGeo, mergeGeos, mat, lmat} from "./build.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
@@ -32,12 +32,12 @@ export function itemName(it){ if (!it) return ""; const d = ITEMS[it.id]; return
 function plateMesh(text){
   const t = canvasTex(128, 64, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, "#d9b46a"); gr.addColorStop(1, "#a8823e"); g.fillStyle = gr; g.fillRect(0, 0, w, h);
     g.strokeStyle = "#6b4f1e"; g.lineWidth = 5; g.strokeRect(3, 3, w - 6, h - 6); g.fillStyle = "#2a1d0a"; g.font = "bold 40px Georgia, serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, w/2, h/2 + 2); });
-  const m = new THREE.Mesh(new THREE.BoxGeometry(.16, .08, .008), [lmat(0xa8823e), lmat(0xa8823e), lmat(0xa8823e), lmat(0xa8823e), new THREE.MeshStandardMaterial({map:t, roughness:.35, metalness:.4}), lmat(0x8a6a30)]);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(.16, .08, .008), [lmat(0xa8823e), lmat(0xa8823e), lmat(0xa8823e), lmat(0xa8823e), mat({map:t, roughness:.35, metalness:.4}), lmat(0x8a6a30)]);
   return m;
 }
 function bulbMesh(){
   const g = new THREE.Group();
-  const glass = new THREE.Mesh(new THREE.SphereGeometry(.03, 14, 10), new THREE.MeshStandardMaterial({color:0xfff8e8, roughness:.1, transparent:true, opacity:.75, emissive:0x332a10}));
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(.03, 14, 10), mat({color:0xfff8e8, roughness:.1, transparent:true, opacity:.75, emissive:0x332a10}));
   glass.scale.set(1, 1.15, 1); glass.position.y = .038; g.add(glass);
   g.add(part(new THREE.CylinderGeometry(.013, .017, .02, 12).translate(0, .006, 0), 0xb9bec2, {mat:{metalness:.8, roughness:.3}}));
   for (let i = 0; i < 3; i++) g.add(part(new THREE.TorusGeometry(.0135, .0018, 4, 12).rotateX(Math.PI/2).translate(0, -.002 + i*.006, 0), 0x9aa0a4, {mat:{metalness:.8}}));
@@ -53,7 +53,7 @@ function lockMesh(){
 function rollMesh(col){
   const g = new THREE.Group();
   const t = canvasTex(64, 64, (c, w, h) => { c.fillStyle = "#" + col.toString(16).padStart(6, "0"); c.fillRect(0, 0, w, h); c.fillStyle = "rgba(0,0,0,.12)"; for (let x = 0; x < w; x += 12) c.fillRect(x, 0, 5, h); });
-  g.add(new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .5, 16), new THREE.MeshStandardMaterial({map:t, roughness:.8})));
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .5, 16), mat({map:t, roughness:.8})));
   g.add(part(new THREE.CylinderGeometry(.014, .014, .502, 8), 0xc8b08a));
   return g;
 }
@@ -61,7 +61,7 @@ function bagMesh(){
   const g = new THREE.Group();
   const t = canvasTex(128, 128, (c, w, h) => { c.fillStyle = "#c79a5a"; c.fillRect(0, 0, w, h); c.fillStyle = "#e8452f"; c.beginPath(); c.arc(w/2, h*.52, 30, 0, 7); c.fill();
     c.fillStyle = "#fff"; c.font = "bold 22px sans-serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("Foodies", w/2, h*.53); });
-  const mt = new THREE.MeshStandardMaterial({map:t, roughness:.9}), side = lmat(0xb88a4c);
+  const mt = mat({map:t, roughness:.9}), side = lmat(0xb88a4c);
   g.add(new THREE.Mesh(new THREE.BoxGeometry(.24, .28, .14).translate(0, .14, 0), [side, side, side, side, mt, mt]));
   const hm = lmat(0x8a6a3c);
   for (const z of [-.04, .04]) g.add(new THREE.Mesh(new THREE.TorusGeometry(.05, .006, 5, 12, Math.PI).translate(0, .28, z), hm));
@@ -73,7 +73,7 @@ function boxMesh(d, labelText){
     c.strokeStyle = "rgba(60,40,20,.5)"; c.lineWidth = 3; c.strokeRect(10, 10, W2 - 20, H2 - 20);
     c.fillStyle = "#3b2a18"; c.font = "bold 26px sans-serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(labelText.slice(0, 16).toUpperCase(), W2/2, H2*.3);
     c.font = "bold 18px sans-serif"; c.fillText("THIS WAY UP ↑", W2/2, H2*.75); });
-  const face = new THREE.MeshStandardMaterial({map:t, roughness:.95}), card = lmat(0xb98d55), tape = lmat(0xd8c49a);
+  const face = mat({map:t, roughness:.95}), card = lmat(0xb98d55), tape = lmat(0xd8c49a);
   const g = new THREE.Group();
   g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, l).translate(0, h/2, 0), [card, card, card, card, face, face]));
   g.add(new THREE.Mesh(new THREE.BoxGeometry(.06, .004, l + .004).translate(0, h + .002, 0), tape));

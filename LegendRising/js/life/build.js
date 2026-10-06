@@ -21,14 +21,111 @@ export const W = {
   pools: [],                      // soft pools of light on the ground under street lamps, faded in at night
   zone: ""
 };
-// High graphics light everything physically; Low keeps the cheaper Lambert look
+/* ---------- materials (WP-0C, DESIGN 2.2 and 3.9.1) ----------
+   Every lit material in the world is made by mat(), so a change of graphics preset can make it again:
+     mat("glass")                        the look a batch key stands for (MAT_KEYS, or "t:<texture>"), as finishBatches uses
+     mat("glass", {vertexColors:true})   that look with these options over it
+     mat({color, roughness, ...})        exactly these options. o.kind says what the material is where the options alone
+                                         do not (a screen is {kind:"screen", map, emissiveMap, ...})
+   High graphics light everything physically; Low keeps the cheaper Lambert look.
+   Each material carries userData.spec = {kind, key, o, tint}, plain data (it survives Material.clone()):
+     kind  what a preset picks the class by: "plain", "tex" (printed), "glow" (lamps, lit windows, signs, LEDs), "gloss",
+           "metal", "paint", "glass" or "screen". Low makes every kind Lambert and High every kind Standard; Medium keeps
+           Standard for the kinds in GFX.P.standardKinds
+     key   the batch key it was made from, or null
+     o     the options it was asked for, roughness and metalness included (Lambert has neither, so a material made on Low
+           comes back as it should on High), with colours as numbers and without textures, which stay on the material
+     tint  screens and neon: the emissive light is tinted by the vertex colour
+   remat(m) makes a material again from its spec for the preset in force (quality.js rematerialize). */
 const lowGfx = () => typeof GFX !== "undefined" && GFX.low;
-export function mat(o = {}){
-  if (lowGfx()){
-    const m = Object.assign({}, o); delete m.roughness; delete m.metalness; delete m.envMapIntensity;
-    return new THREE.MeshLambertMaterial(m);
+export const MAT_KINDS = ["plain", "tex", "glow", "gloss", "metal", "paint", "glass", "screen"];
+// one material per kind of surface: matte for most things, glossy for glass, paint and metal, glowing for lamps
+const MAT_KEYS = {
+  plain:{kind:"plain", o:{}},
+  glass:{kind:"glass", o:{transparent:true, opacity:.3, depthWrite:false, roughness:.06, metalness:.1, envMapIntensity:1.6}},
+  lit:{kind:"glow", o:{emissive:0xffcf8a, emissiveIntensity:0, roughness:.2}},
+  lamp:{kind:"glow", o:{emissive:0xfff2d0, emissiveIntensity:1.1, roughness:.4}},
+  lampB:{kind:"glow", o:{emissive:0xfff2d0, emissiveIntensity:1.1, roughness:.4}},        // your own block's, which go out in a power cut
+  street:{kind:"glow", o:{emissive:0xffe2a8, emissiveIntensity:.2, roughness:.4}},
+  neon:{kind:"glow", tint:true, o:{emissive:0xffffff, emissiveIntensity:.5, roughness:.3}},
+  screen:{kind:"screen", tint:true, o:{emissive:0xffffff, emissiveIntensity:.85, roughness:.25}},
+  metal:{kind:"metal", o:{roughness:.34, metalness:.75}},
+  paint:{kind:"paint", o:{roughness:.3, metalness:.25, envMapIntensity:1.3}},
+  gloss:{kind:"gloss", o:{roughness:.42}}
+};
+const keyLook = key => key.startsWith("t:") ? {kind:"tex", o:{map:tex(key.slice(2)), roughness:key === "t:shopfloor" ? .5 : .92}} : MAT_KEYS[key] || MAT_KEYS.plain;
+// screens, signs and neon glow in their own colour: the emissive light is tinted by the vertex colour
+const TINT = sh => { sh.fragmentShader = sh.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor.rgb;"); };
+const _kc = new THREE.Color();
+const hexOf = v => _kc.set(v).getHex();
+// what the options say a material is, when the caller does not
+function kindOf(o){
+  if (o.transparent && o.opacity != null && o.opacity < 1 && !o.map) return "glass";
+  if (o.emissiveMap || (o.emissive != null && hexOf(o.emissive) !== 0)) return "glow";
+  if ((o.metalness || 0) >= .35) return "metal";
+  if (o.map) return "tex";
+  if (o.roughness != null && o.roughness < .5) return (o.metalness || 0) > .05 ? "paint" : "gloss";
+  return "plain";
+}
+// the options as plain data: colours as numbers; textures, defaults (null) and anything else that is not data left out
+function specOpts(o){
+  const r = {};
+  for (const k in o){
+    const v = o[k];
+    if (v == null || typeof v === "function" || v.isTexture) continue;
+    if (v.isColor) r[k] = v.getHex();
+    else if (typeof v !== "object") r[k] = v;
   }
-  return new THREE.MeshStandardMaterial(Object.assign({roughness:.86, metalness:0}, o));
+  return r;
+}
+const MAT_STD = ["roughness", "metalness", "envMapIntensity"];      // what only the Standard class is made with
+function makeMat(spec, o){
+  let m;
+  if (lowGfx()){
+    const q = Object.assign({}, o); for (const k of MAT_STD) delete q[k];
+    m = new THREE.MeshLambertMaterial(q);
+  } else m = new THREE.MeshStandardMaterial(Object.assign({roughness:.86, metalness:0}, o));
+  if (spec.tint) m.onBeforeCompile = TINT;
+  m.userData.spec = spec;
+  return m;
+}
+export function mat(a = {}, b = null){
+  let key = null, kind, tint = false, o;
+  if (typeof a === "string"){
+    const L = keyLook(a);
+    key = a; kind = (b && b.kind) || L.kind; tint = !!L.tint; o = Object.assign({}, L.o, b);
+  } else { o = Object.assign({}, a); kind = o.kind || kindOf(o); }
+  delete o.kind;
+  return makeMat({kind, key, o:specOpts(o), tint}, o);
+}
+// what code may change on a material while it is in use, carried over when it is made again
+const MAT_LIVE = ["transparent", "opacity", "alphaTest", "alphaHash", "side", "depthWrite", "depthTest", "colorWrite", "visible", "toneMapped", "fog",
+  "vertexColors", "flatShading", "wireframe", "blending", "polygonOffset", "polygonOffsetFactor", "polygonOffsetUnits", "emissiveIntensity", "name",
+  "map", "emissiveMap", "alphaMap", "lightMap", "aoMap", "bumpMap", "normalMap", "displacementMap", "envMap"];
+const MATC_KEY = new WeakMap();      // an lmat material to its cache key, so remat can put the new one in its place
+/* m made again from its spec, of the class the preset in force picks (DESIGN 3.9.1: quality.js rematerialize calls it
+   once per distinct material, so what was shared stays shared, then disposes the old ones). What changed since m was
+   made comes with it: the options it was made with are read back from m where its class has them (a Lambert material
+   has no roughness: that comes from the spec), its colours, textures and MAT_LIVE are copied, and so are its own
+   onBeforeCompile and userData. The new material takes m's place in W.mats, W.lit and lmat's cache. A material
+   without a spec is returned as it is. */
+export function remat(m){
+  const sp = m && m.userData && m.userData.spec;
+  if (!sp) return m;
+  const o = {}, lam = !m.isMeshStandardMaterial;
+  for (const k in sp.o) o[k] = k in m && !(lam && MAT_STD.includes(k)) && !(m[k] && m[k].isColor) ? m[k] : sp.o[k];
+  const n = makeMat(sp, o);
+  for (const k of MAT_LIVE) if (k in m && k in n) n[k] = m[k];
+  for (const k of ["color", "emissive"]) if (m[k] && m[k].isColor && n[k]) n[k].copy(m[k]);
+  if (!sp.tint && Object.prototype.hasOwnProperty.call(m, "onBeforeCompile")) n.onBeforeCompile = m.onBeforeCompile;
+  if (Object.prototype.hasOwnProperty.call(m, "customProgramCacheKey")) n.customProgramCacheKey = m.customProgramCacheKey;
+  n.userData = Object.assign({}, m.userData, {spec:sp});
+  if ("low" in m.userData) n.userData.low = lowGfx();
+  if (sp.key && W.mats[sp.key] === m) W.mats[sp.key] = n;
+  if (W.lit === m) W.lit = n;
+  const ck = MATC_KEY.get(m);
+  if (ck != null && MATC.get(ck) === m){ MATC.set(ck, n); MATC_KEY.set(n, ck); }
+  return n;
 }
 
 /* ---------- a tiny seeded random, so the same career always gets the same street ---------- */
@@ -596,7 +693,7 @@ export function labels(texture, q, o = {}){
 const MATC = new Map();
 export function lmat(color, o = {}){
   const k = color + JSON.stringify(o);
-  if (!MATC.has(k) || MATC.get(k).userData.low !== lowGfx()){ const m = mat(Object.assign({color}, o)); m.userData.low = lowGfx(); m.userData.keep = true; MATC.set(k, m); }
+  if (!MATC.has(k) || MATC.get(k).userData.low !== lowGfx()){ const m = mat(Object.assign({color}, o)); m.userData.low = lowGfx(); m.userData.keep = true; MATC.set(k, m); MATC_KEY.set(m, k); }
   return MATC.get(k);
 }
 export function part(geo, color, o = {}){
@@ -640,21 +737,9 @@ export function finishBatches(){
     g.setAttribute("color", new THREE.Float32BufferAttribute(b.col, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(b.uv, 2));
     g.computeBoundingSphere();
-    let m;
-    // one material per kind of surface: matte for most things, glossy for glass, paint and metal, glowing for lamps
-    if (key === "glass") m = mat({vertexColors:true, transparent:true, opacity:.3, depthWrite:false, roughness:.06, metalness:.1, envMapIntensity:1.6});
-    else if (key === "lit"){ m = mat({vertexColors:true, emissive:0xffcf8a, emissiveIntensity:0, roughness:.2}); W.lit = m; }
-    else if (key === "lamp" || key === "lampB") m = mat({vertexColors:true, emissive:0xfff2d0, emissiveIntensity:1.1, roughness:.4});      // lampB: your own block's, which go out in a power cut
-    else if (key === "street") m = mat({vertexColors:true, emissive:0xffe2a8, emissiveIntensity:.2, roughness:.4});
-    else if (key === "neon") m = mat({vertexColors:true, emissive:0xffffff, emissiveIntensity:.5, roughness:.3});
-    else if (key === "screen") m = mat({vertexColors:true, emissive:0xffffff, emissiveIntensity:.85, roughness:.25});
-    else if (key === "metal") m = mat({vertexColors:true, roughness:.34, metalness:.75});
-    else if (key === "paint") m = mat({vertexColors:true, roughness:.3, metalness:.25, envMapIntensity:1.3});
-    else if (key === "gloss") m = mat({vertexColors:true, roughness:.42});
-    else if (key.startsWith("t:")) m = mat({vertexColors:true, map:tex(key.slice(2)), roughness:key === "t:shopfloor" ? .5 : .92});
-    else m = mat({vertexColors:true});
-    // screens, signs and neon glow in their own colour: the emissive light is tinted by the vertex colour
-    if (key === "screen" || key === "neon") m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor.rgb;"); };
+    // one material per batch key (MAT_KEYS), the colour on each vertex
+    const m = mat(key, {vertexColors:true});
+    if (key === "lit") W.lit = m;
     W.mats[key] = m;
     const mesh = new THREE.Mesh(g, m);
     // floors and ground never throw a shadow onto anything, so they are left out of the shadow pass
