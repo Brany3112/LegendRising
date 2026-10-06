@@ -1,77 +1,183 @@
 /* ============ LIFE core: collision and rays ============
-   Owner: WP-0A moves it here, WP-A implements the spatial hash. Contract: DESIGN 1.4.5, 3.9.5, 2.2 WP-0A.
+   Owner: WP-0A moves it here, WP-A implements the spatial hash. Contract: DESIGN 1.4.5, 3.9.5, 2.2 WP-0A, 2.3 WP-A.
    Walls are boxes (W.solids). You are a circle of radius R between your knees and the top of your head. The camera's
    rays meet the boxes and the drawn geometry of the place (a triangle grid built once per zone).
-   SG is the one way into the boxes. In Stage 0 it is a linear scan behind the final API (WP-A swaps in a hash of 2 m
-   cells without any caller changing): every query visits the boxes in W.solids order, so what it finds first is what
-   the old loops found first. */
+
+   SG is the one way into the boxes: a hash of 2 m cells over the place's ground plan. A box that never moves is filed
+   in every cell its footprint covers when the place is built (SG.build, from camGridBuild); a box that moves (a door's
+   leaf guard, a person, a car, the bus: made with solid(..., {dyn: true})) is kept on a short list that every query
+   looks through, and so is any box bigger than 16 m (a hall's floor slab), which would otherwise sit in hundreds of
+   cells. A query only meets the boxes in the cells it touches (2 to 8 instead of the 450 a whole street has).
+   What a query finds is exactly what the old scan of every box found, in the same order: the candidates are handed
+   over in the order the boxes were made (W.solids order), and a ray that meets two boxes at the same distance reports
+   the one made first. So nothing that collides behaves any differently, only faster.
+   A box filed as still that is moved after all (one made without {dyn: true}) is not lost: its corners are properties
+   that notice the move, take the box out of the cells and put it on the moving list for good, and SG.audit() names it
+   (?perf=1), so the code that made it can say {dyn: true}. */
 import {THREE, W} from "../build.js";
 import {P, RT, FLAGS} from "./state.js";
 
 export const R = .26;           // your radius
 
 /* ---------- the boxes ---------- */
-const box2 = (s, x0, z0, x1, z1) => !(s.x1 < x0 || s.x0 > x1 || s.z1 < z0 || s.z0 > z1);
+const CELL = 2, BIG = 16, MARGIN = 8;
+let SEQ = 0;
+// a box: its corners can be read and written like plain numbers; a write that moves a box filed in the cells moves it
+// to the list of moving boxes (see above)
+class Box {
+  constructor(x0, x1, z0, z1, y0, y1, dyn){
+    this._x0 = x0; this._x1 = x1; this._z0 = z0; this._z1 = z1; this._y0 = y0; this._y1 = y1;
+    this.off = false; this.dyn = !!dyn; this.seq = ++SEQ; this._m = 0; this._h = 0;
+  }
+  get x0(){ return this._x0; } set x0(v){ if (v !== this._x0){ this._x0 = v; if (this._h) moved(this); } }
+  get x1(){ return this._x1; } set x1(v){ if (v !== this._x1){ this._x1 = v; if (this._h) moved(this); } }
+  get z0(){ return this._z0; } set z0(v){ if (v !== this._z0){ this._z0 = v; if (this._h) moved(this); } }
+  get z1(){ return this._z1; } set z1(v){ if (v !== this._z1){ this._z1 = v; if (this._h) moved(this); } }
+  get y0(){ return this._y0; } set y0(v){ this._y0 = v; }
+  get y1(){ return this._y1; } set y1(v){ this._y1 = v; }
+  toJSON(){ return {x0:this._x0, x1:this._x1, z0:this._z0, z1:this._z1, y0:this._y0, y1:this._y1, off:this.off, dyn:this.dyn}; }
+}
+// a filed box has moved: out of the cells (it is skipped there from now on) and onto the moving list
+function moved(s){
+  s._h = 0; s.dyn = true; SG.dyn.push(s);
+  if (SG.moved.length < 200) SG.moved.push(s);
+}
+const box2 = (s, x0, z0, x1, z1) => !(s._x1 < x0 || s._x0 > x1 || s._z1 < z0 || s._z0 > z1);
+const bySeq = (a, b) => a.seq - b.seq;
+// candidate lists, one per level of nesting (a query's callback may itself query)
+const CAND = [[], [], [], []];
+let depth = 0;
+// what the probes count (perf.js): rays cast, boxes tested by them, queries made
+export const SGSTAT = {rays:0, tests:0, queries:0};
+
 export const SG = {
-  rev:-1, dyn:[], snap:null,
-  // index the boxes of a freshly built zone (the linear scan keeps no index: it notes the revision, and the static
-  // boxes' corners for audit())
-  build(solids = W.solids){
+  rev:-1, dyn:[], big:[], moved:[], cells:null, nx:0, nz:0, x0:0, z0:0, mark:0, buildMs:0,
+  // a new place is being built (build.js begin): nothing is filed until it is finished
+  reset(){ SG.cells = null; SG.dyn = []; SG.big = []; SG.moved = []; SG.rev = -1; },
+  // file the boxes of a freshly built place: every still box in the cells its footprint covers, the moving and the
+  // very big ones on their lists
+  build(solids = W.solids, bounds = W.bounds){
+    const t0 = performance.now();
+    for (const s of SG.dyn) s._h = 0;
     SG.rev = W.solidsRev || 0;
-    SG.dyn = solids.filter(s => s.dyn);
-    SG.snap = new Map(solids.filter(s => !s.dyn).map(s => [s, [s.x0, s.x1, s.z0, s.z1, s.y0, s.y1]]));
+    const b = bounds || {x0:-40, x1:40, z0:-40, z1:40};
+    SG.x0 = b.x0 - MARGIN; SG.z0 = b.z0 - MARGIN;
+    SG.nx = Math.max(1, Math.ceil((b.x1 - b.x0 + 2*MARGIN)/CELL)); SG.nz = Math.max(1, Math.ceil((b.z1 - b.z0 + 2*MARGIN)/CELL));
+    SG.cells = new Array(SG.nx*SG.nz).fill(null);
+    SG.dyn = []; SG.big = []; SG.moved = [];
+    for (const s of solids) file(s);
+    SG.buildMs = performance.now() - t0;
   },
-  // after furniture is moved or build mode changed the room (solidsChanged): the static part again
-  sync(){ if (SG.rev !== (W.solidsRev || 0)) SG.build(W.solids); },
-  // every box whose footprint meets [x0, x1] x [z0, z1], once each, in order; fn(s) returning true stops
+  // after furniture is moved or build mode changed the room (solidsChanged): filed again
+  sync(){ if (SG.cells && SG.rev !== (W.solidsRev || 0)) SG.build(W.solids, W.bounds); },
+  // every box whose footprint meets [x0, x1] x [z0, z1], once each, in the order they were made; fn(s) returning true
+  // stops
   each(x0, z0, x1, z1, fn){
-    for (const s of W.solids){ if (box2(s, x0, z0, x1, z1) && fn(s)) return; }
+    if (SG.rev !== (W.solidsRev || 0)) SG.sync();
+    SGSTAT.queries++;
+    const c = CAND[depth] || (CAND[depth] = []); c.length = 0;
+    if (!SG.cells){ for (const s of W.solids) if (box2(s, x0, z0, x1, z1)) c.push(s); }
+    else {
+      const m = ++SG.mark, NX = SG.nx;
+      const ix0 = cx(x0), ix1 = cx(x1), iz0 = cz(z0), iz1 = cz(z1);
+      for (let iz = iz0; iz <= iz1; iz++) for (let ix = ix0; ix <= ix1; ix++){
+        const L = SG.cells[iz*NX + ix]; if (!L) continue;
+        for (let k = 0; k < L.length; k++){ const s = L[k]; if (s._m === m || !s._h) continue; s._m = m; if (box2(s, x0, z0, x1, z1)) c.push(s); }
+      }
+      for (const L of [SG.big, SG.dyn]) for (let k = 0; k < L.length; k++){ const s = L[k]; if (s._m === m) continue; s._m = m; if (box2(s, x0, z0, x1, z1)) c.push(s); }
+      if (c.length > 1) c.sort(bySeq);
+    }
+    depth++;
+    try { for (let k = 0; k < c.length; k++) if (fn(c[k])) return; }
+    finally { depth--; c.length = 0; }
   },
   /* the distance along a ray (unit direction) to the first box it meets, up to len. skip: a box [min, max] whose
      overlapping boxes are not tested (the furniture a spot is part of); a box the ray starts inside is not tested
-     either. out (Float32Array(3), optional): the unit normal of the face hit, facing against the ray */
+     either. out (Float32Array(3), optional): the unit normal of the face hit, facing against the ray.
+     The ray walks the 2 m cells it crosses on the ground plan (Amanatides and Woo) and stops at the first cell that
+     starts beyond the nearest hit so far */
   ray(ox, oy, oz, dx, dy, dz, len, skip = null, out = null){
-    let best = len, hit = null;
-    const ix = 1/(dx || 1e-12), iy = 1/(dy || 1e-12), iz = 1/(dz || 1e-12);
-    for (const s of W.solids){
-      if (s.off) continue;
-      if (skip && s.x0 < skip[1][0] && s.x1 > skip[0][0] && s.y0 < skip[1][1] && s.y1 > skip[0][1] && s.z0 < skip[1][2] && s.z1 > skip[0][2]) continue;
-      if (ox > s.x0 && ox < s.x1 && oy > s.y0 && oy < s.y1 && oz > s.z0 && oz < s.z1) continue;
-      let a = (s.x0 - ox)*ix, b = (s.x1 - ox)*ix, t0 = Math.min(a, b), t1 = Math.max(a, b);
-      a = (s.y0 - oy)*iy; b = (s.y1 - oy)*iy; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
-      a = (s.z0 - oz)*iz; b = (s.z1 - oz)*iz; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
-      if (t0 <= t1 && t1 > 0 && t0 >= 0 && t0 < best){ best = t0; hit = s; }
+    if (SG.rev !== (W.solidsRev || 0)) SG.sync();
+    SGSTAT.rays++;
+    RAY.best = len; RAY.hit = null;
+    RAY.ox = ox; RAY.oy = oy; RAY.oz = oz; RAY.ix = 1/(dx || 1e-12); RAY.iy = 1/(dy || 1e-12); RAY.iz = 1/(dz || 1e-12); RAY.skip = skip;
+    if (!SG.cells){ for (const s of W.solids) slab(s); }
+    else {
+      const m = ++SG.mark; RAY.m = m;
+      for (const L of [SG.big, SG.dyn]) for (let k = 0; k < L.length; k++){ const s = L[k]; s._m = m; slab(s); }
+      const NX = SG.nx, NZ = SG.nz;
+      let ix = Math.floor((ox - SG.x0)/CELL), iz = Math.floor((oz - SG.z0)/CELL);
+      const sx = dx > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
+      const tdx = Math.abs(CELL/(dx || 1e-12)), tdz = Math.abs(CELL/(dz || 1e-12));
+      let tx = Math.abs(dx) < 1e-12 ? Infinity : (SG.x0 + (ix + (dx > 0 ? 1 : 0))*CELL - ox)/dx;
+      let tz = Math.abs(dz) < 1e-12 ? Infinity : (SG.z0 + (iz + (dz > 0 ? 1 : 0))*CELL - oz)/dz;
+      let t = 0;
+      // (a ray from outside the grid is walked from where it is: cells off the grid are empty)
+      for (let guard = 0; guard < 4096 && t <= RAY.best; guard++){
+        if (ix >= 0 && ix < NX && iz >= 0 && iz < NZ){
+          const L = SG.cells[iz*NX + ix];
+          if (L) for (let k = 0; k < L.length; k++){ const s = L[k]; if (s._m === m || !s._h) continue; s._m = m; slab(s); }
+        } else if ((ix < 0 && dx <= 0) || (ix >= NX && dx >= 0) || (iz < 0 && dz <= 0) || (iz >= NZ && dz >= 0)) break;
+        if (tx <= tz){ t = tx; tx += tdx; ix += sx; } else { t = tz; tz += tdz; iz += sz; }
+      }
     }
+    const hit = RAY.hit;
     if (out && hit){
       // the face: the slab the ray entered last
-      const tx = Math.min((hit.x0 - ox)*ix, (hit.x1 - ox)*ix), ty = Math.min((hit.y0 - oy)*iy, (hit.y1 - oy)*iy), tz = Math.min((hit.z0 - oz)*iz, (hit.z1 - oz)*iz);
+      const ix = RAY.ix, iy = RAY.iy, iz = RAY.iz;
+      const tx = Math.min((hit._x0 - ox)*ix, (hit._x1 - ox)*ix), ty = Math.min((hit._y0 - oy)*iy, (hit._y1 - oy)*iy), tz = Math.min((hit._z0 - oz)*iz, (hit._z1 - oz)*iz);
       out[0] = out[1] = out[2] = 0;
       if (tx >= ty && tx >= tz) out[0] = dx > 0 ? -1 : 1; else if (ty >= tz) out[1] = dy > 0 ? -1 : 1; else out[2] = dz > 0 ? -1 : 1;
     }
-    return best;
+    return RAY.best;
   },
   // is any box within r of the point?
   anyWithin(x, y, z, r){
+    let found = false;
     const r2 = r*r;
-    for (const s of W.solids){
-      if (s.off) continue;
-      const ex = Math.max(s.x0 - x, 0, x - s.x1), ey = Math.max(s.y0 - y, 0, y - s.y1), ez = Math.max(s.z0 - z, 0, z - s.z1);
-      if (ex*ex + ey*ey + ez*ez <= r2) return true;
-    }
-    return false;
+    SG.each(x - r, z - r, x + r, z + r, s => {
+      if (s.off) return false;
+      const ex = Math.max(s._x0 - x, 0, x - s._x1), ey = Math.max(s._y0 - y, 0, y - s._y1), ez = Math.max(s._z0 - z, 0, z - s._z1);
+      return (found = ex*ex + ey*ey + ez*ez <= r2);
+    });
+    return found;
   },
-  // ?perf=1 only: the static boxes that have moved since the zone was indexed (they should have been made {dyn: true})
-  audit(){
-    const moved = [];
-    if (SG.snap) for (const [s, c] of SG.snap) if (s.x0 !== c[0] || s.x1 !== c[1] || s.z0 !== c[2] || s.z1 !== c[3] || s.y0 !== c[4] || s.y1 !== c[5]) moved.push(s);
-    return moved;
-  }
+  // the boxes filed as still that have moved since the place was built (they should have been made {dyn: true})
+  audit(){ return SG.moved.slice(); }
 };
+const cx = x => Math.max(0, Math.min(SG.nx - 1, Math.floor((x - SG.x0)/CELL)));
+const cz = z => Math.max(0, Math.min(SG.nz - 1, Math.floor((z - SG.z0)/CELL)));
+// file one box: in the cells of its footprint, or on the moving or the big list
+function file(s){
+  if (!SG.cells) return;
+  if (s.dyn){ s._h = 0; SG.dyn.push(s); return; }
+  if (Math.max(s._x1 - s._x0, s._z1 - s._z0) > BIG){ s._h = 0; SG.big.push(s); return; }
+  const NX = SG.nx, ix1 = cx(s._x1), iz1 = cz(s._z1);
+  for (let iz = cz(s._z0); iz <= iz1; iz++) for (let ix = cx(s._x0); ix <= ix1; ix++){
+    const i = iz*NX + ix; (SG.cells[i] || (SG.cells[i] = [])).push(s);
+  }
+  s._h = 1;
+}
+// the ray in flight, and the slab test of one box against it
+const RAY = {best:0, hit:null, ox:0, oy:0, oz:0, ix:0, iy:0, iz:0, skip:null, m:0};
+function slab(s){
+  if (s.off) return;
+  SGSTAT.tests++;
+  const ox = RAY.ox, oy = RAY.oy, oz = RAY.oz, skip = RAY.skip;
+  if (skip && s._x0 < skip[1][0] && s._x1 > skip[0][0] && s._y0 < skip[1][1] && s._y1 > skip[0][1] && s._z0 < skip[1][2] && s._z1 > skip[0][2]) return;
+  if (ox > s._x0 && ox < s._x1 && oy > s._y0 && oy < s._y1 && oz > s._z0 && oz < s._z1) return;
+  const ix = RAY.ix, iy = RAY.iy, iz = RAY.iz;
+  let a = (s._x0 - ox)*ix, b = (s._x1 - ox)*ix, t0 = Math.min(a, b), t1 = Math.max(a, b);
+  a = (s._y0 - oy)*iy; b = (s._y1 - oy)*iy; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
+  a = (s._z0 - oz)*iz; b = (s._z1 - oz)*iz; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
+  if (t0 <= t1 && t1 > 0 && t0 >= 0 && (t0 < RAY.best || (t0 === RAY.best && RAY.hit && s.seq < RAY.hit.seq))){ RAY.best = t0; RAY.hit = s; }
+}
 // a box you cannot walk through. dyn: it moves (a door's leaf guard, a person, a car); build.js re-exports this
 export function solid(x0, x1, z0, z1, y0 = 0, y1 = 3, {dyn = false} = {}){
-  const s = {x0:Math.min(x0, x1), x1:Math.max(x0, x1), z0:Math.min(z0, z1), z1:Math.max(z0, z1), y0, y1, off:false};
-  if (dyn){ s.dyn = true; SG.dyn.push(s); }
-  W.solids.push(s); return s;
+  const s = new Box(Math.min(x0, x1), Math.max(x0, x1), Math.min(z0, z1), Math.max(z0, z1), y0, y1, dyn);
+  W.solids.push(s);
+  file(s);
+  return s;
 }
 // the room's boxes changed for good (furniture taken away, build mode): the index is brought up to date
 export function solidsChanged(){ W.solidsRev = (W.solidsRev || 0) + 1; SG.sync(); }
@@ -85,8 +191,8 @@ export function solidsChanged(){ W.solidsRev = (W.solidsRev || 0) + 1; SG.sync()
 export const inside = [], insideD = [];
 const Q = {x:0, z:0, lo:0, hi:0, hit:null};
 const hitTest = s => {
-  if (s.off || s.y1 <= Q.lo || s.y0 >= Q.hi) return false;
-  if (Q.x + R > s.x0 && Q.x - R < s.x1 && Q.z + R > s.z0 && Q.z - R < s.z1 && !inside.includes(s)){ Q.hit = s; return true; }
+  if (s.off || s._y1 <= Q.lo || s._y0 >= Q.hi) return false;
+  if (Q.x + R > s._x0 && Q.x - R < s._x1 && Q.z + R > s._z0 && Q.z - R < s._z1 && !inside.includes(s)){ Q.hit = s; return true; }
   return false;
 };
 export function hits(x, z){
@@ -96,8 +202,8 @@ export function hits(x, z){
 }
 const depthIn = (s, x, z) => Math.min(x + R - s.x0, s.x1 - x + R, z + R - s.z0, s.z1 - z + R);
 const inTest = s => {
-  if (s.off || s.y1 <= Q.lo || s.y0 >= Q.hi) return false;
-  if (Q.x + R > s.x0 && Q.x - R < s.x1 && Q.z + R > s.z0 && Q.z - R < s.z1){ inside.push(s); insideD.push(depthIn(s, Q.x, Q.z)); }
+  if (s.off || s._y1 <= Q.lo || s._y0 >= Q.hi) return false;
+  if (Q.x + R > s._x0 && Q.x - R < s._x1 && Q.z + R > s._z0 && Q.z - R < s._z1){ inside.push(s); insideD.push(depthIn(s, Q.x, Q.z)); }
   return false;
 };
 // the boxes you are in right now, and how deep
@@ -149,9 +255,9 @@ export function touching(sx, sz){
 }
 
 /* ---------- the camera's rays ----------
-   Every triangle of the place's fixed geometry (the big batched meshes), sorted once into 1 m cells when the place is
-   built, and a ray walks the cells it passes through (Amanatides and Woo). Doors and other things that move are not
-   in it: their collision boxes are tested instead. */
+   Every triangle of the place's fixed geometry (the static batches, read from the CPU copy chunks.js keeps, and the
+   other fixed meshes), sorted once into 1 m cells when the place is built, and a ray walks the cells it passes through
+   (Amanatides and Woo). Doors and other things that move are not in it: their collision boxes are tested instead. */
 export const CG = {tri:null, n:0, x0:0, y0:0, z0:0, nx:0, ny:0, nz:0, start:null, items:null, stamp:null, mark:0};
 const CS = 1;
 const _I4 = new THREE.Matrix4();
@@ -163,9 +269,12 @@ export function camGridBuild(){
     const list = [];
     let n = 0;
     for (const o of scene.children){
-      if (!o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || (o.userData && o.userData.keep) || !o.geometry || !o.geometry.attributes.position) continue;
+      if (!o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || (o.userData && o.userData.keep)) continue;
       const m = o.material;
-      if (!m || Array.isArray(m) || m.isMeshBasicMaterial || m.isShaderMaterial || m.blending === THREE.AdditiveBlending) continue;
+      if (!m || Array.isArray(m) || m.isShaderMaterial || m.blending === THREE.AdditiveBlending) continue;
+      // a static batch (chunks.js): its triangles from the CPU copy it keeps, already in world space
+      if (o.isBatchedMesh){ const T = o.userData.tris; if (T && !o.userData.noRays){ n += T.index.length/3 | 0; list.push(o); } continue; }
+      if (m.isMeshBasicMaterial || !o.geometry || !o.geometry.attributes.position) continue;
       const g = o.geometry; n += (g.index ? g.index.count : g.attributes.position.count)/3 | 0; list.push(o);
     }
     const b = W.bounds;
@@ -174,6 +283,11 @@ export function camGridBuild(){
     const T = new Float32Array(n*9), v = new THREE.Vector3();
     let k = 0;
     for (const o of list){
+      if (o.isBatchedMesh){
+        const {pos, index} = o.userData.tris;
+        for (let i = 0; i < index.length; i++){ const j = index[i]*3; T[k++] = pos[j]; T[k++] = pos[j + 1]; T[k++] = pos[j + 2]; }
+        continue;
+      }
       const g = o.geometry, pos = g.attributes.position, idx = g.index, cnt = idx ? idx.count : pos.count, M = o.matrixWorld, id = M.equals(_I4);
       for (let i = 0; i < cnt; i++){
         v.fromBufferAttribute(pos, idx ? idx.getX(i) : i); if (!id) v.applyMatrix4(M);
@@ -197,8 +311,22 @@ export function camGridBuild(){
     for (let i = 0; i < n; i++) span(i, c => { items[fill[c]++] = i; });
     CG.start = cnt; CG.items = items; CG.stamp = new Uint32Array(n); CG.mark = 0;
   } catch(e){ console.error(e); CG.tri = null; CG.n = 0; }
-  SG.build(W.solids);
+  SG.build(W.solids, W.bounds);
 }
+// is any drawn triangle filed within r of the point? (the cells the sphere's box covers; true errs on the side of
+// "maybe", which only means the camera's push rays are cast as they always were)
+export function CGnear(x, y, z, r){
+  if (!CG.tri) return false;
+  const NX = CG.nx, NY = CG.ny, NZ = CG.nz, st = CG.start;
+  const x0 = Math.max(0, Math.floor((x - r - CG.x0)/CS)), x1 = Math.min(NX - 1, Math.floor((x + r - CG.x0)/CS));
+  const y0 = Math.max(0, Math.floor((y - r - CG.y0)/CS)), y1 = Math.min(NY - 1, Math.floor((y + r - CG.y0)/CS));
+  const z0 = Math.max(0, Math.floor((z - r - CG.z0)/CS)), z1 = Math.min(NZ - 1, Math.floor((z + r - CG.z0)/CS));
+  for (let k = z0; k <= z1; k++) for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++){ const c = (k*NY + j)*NX + i; if (st[c + 1] > st[c]) return true; }
+  return false;
+}
+/* is the camera at (x, y, z) clear of everything by r? Nothing to push it away from: no box and no filed triangle
+   within r (DESIGN 3.9.5, the camera push early out: on an open pitch all of its rays are skipped) */
+export function camClear(x, y, z, r){ return !SG.anyWithin(x, y, z, r) && !CGnear(x, y, z, r); }
 /* the distance along a ray (unit direction) to the first thing it meets, up to len: a box (SG.ray, with skip) or a
    triangle of the drawn geometry. out (Float32Array(3), optional) receives the unit normal of what it hit, facing
    against the ray; it is left alone when nothing is hit */

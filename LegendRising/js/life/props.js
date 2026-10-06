@@ -358,7 +358,7 @@ export function plyoBox(x, z, ry, h = .6, color = 0x2b2f34){
 /* a spin bike. The rider sits at the back (local +x) facing the bars (−x); the flywheel is at the front under the bars,
    and the cranks turn on a bottom bracket below and just ahead of the saddle. The cranks and the pedals are moving
    parts of their own (W.bikes), turned by whoever rides it: the feet go forward over the top, as on a real bike.
-   o.tier (1–6): how worn it is — chipped paint and a rusty frame at the bottom, polished at the top */
+   o.tier (1–6): how worn it is: chipped paint and a rusty frame at the bottom, polished at the top */
 export function bike(x, z, ry, o = {}){
   const f = frame(x, z, ry), t = o.tier || 3, old = t <= 2;
   const fr = old ? 0x5a5650 : t >= 5 ? 0x24272b : 0x3a3c3e, acc = old ? 0x6d7f7a : t >= 5 ? 0xc8f060 : PC.teal;
