@@ -11,9 +11,10 @@
 //   const prm = moverParams({pace: 62, dribbling: 55}, "football", {grip: true});
 //   moverStep(m, {dx, dz, gait: "jog"}, prm, stamFactors(st, eF), 1/60);
 //
-// Directions use the yaw convention of DESIGN 1.1 (yaw 0 faces -Z): dirOf, yawOf and wrapA from pitchspec.js.
+// Directions use the yaw convention of DESIGN 1.1 (yaw 0 faces -Z): yawOf and wrapA from pitchspec.js (and dirOf's
+// formula, written out where a step would otherwise allocate).
 
-import {dirOf, yawOf, wrapA} from "./football/pitchspec.js";
+import {yawOf, wrapA} from "./football/pitchspec.js";
 import {FRESH} from "./stamina.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -66,9 +67,11 @@ export function moverParams(skills = {}, profile = "football", items = {}){
 }
 
 // a collide function for an open pitch: the run-off bounds |x| <= hx, |z| <= hz (pitch-local metres). Pass the
-// spec's runoff ({hx: L/2 + 5, hz: Wd/2 + 4}); a move that would leave them stops at the edge.
+// spec's runoff ({hx: L/2 + 5, hz: Wd/2 + 4}); a move that would leave them stops at the edge. It answers in one
+// object it keeps reusing, so read the result before the next call. (moverStep clamps prm.bounds itself, without it.)
 export function boundsCollide(hx, hz){
-  return (m, dx, dz) => ({dx: clamp(m.x + dx, -hx, hx) - m.x, dz: clamp(m.z + dz, -hz, hz) - m.z});
+  const r = {dx: 0, dz: 0};
+  return (m, dx, dz) => { r.dx = clamp(m.x + dx, -hx, hx) - m.x; r.dz = clamp(m.z + dz, -hz, hz) - m.z; return r; };
 }
 
 // Speeds after tiredness (fac from stamFactors): the sprint keeps (0.45 + 0.55 bF) of its margin over the jog, times
@@ -89,8 +92,11 @@ export function gaitSpeed(prm, fac, gait){
 
 // One step of h seconds (3.1.5). intent = {dx, dz (world wish direction, |d| <= 1, its length is the throttle),
 // gait: 'walk' | 'jog' | 'run' | 'sprint', face: null | {x, z}, strafe: false, speedCap: Infinity}.
-// fac = stamFactors(...) or null for a fresh body. collide(m, dx, dz) -> {dx, dz} applies world collision; with none,
-// prm.bounds ({hx, hz}) clamps to an open pitch when set.
+// fac = stamFactors(...) or null for a fresh body. collide(m, dx, dz) -> {dx, dz} applies world collision and has the
+// last word on where the body goes: a shortened move, a slide along a wall or a push out of an obstacle all move the
+// body exactly as it says (the velocity keeps only the part of that which is the body's own running: never faster
+// than before, never back the way it was pushed). With no collide, prm.bounds ({hx, hz}) clamps to an open pitch.
+// Nothing is allocated per step.
 export function moverStep(m, intent, prm, fac, h, collide = null){
   if (!(h > 0)) return m;
   fac = fac || FRESH;
@@ -139,14 +145,17 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
     vt = 0; planting = true;
   }
 
-  // 3. longitudinal: accelerate with a0*(1 - v/vt)^0.8 (integrated exactly over the step, so the result does not
-  // depend on the step length), or brake: 7.5 with no input, the plant rate for cuts and reversals, harder in a stagger
+  // 3. longitudinal: accelerate with a0*(1 - v/vmax)^0.8*accel up to the target (1.5.2), vmax being the top speed
+  // the body has now (the sprint after the stamina factors, prm.vmax when fresh). A walk or a jog is reached briskly,
+  // where the drive is still strong, and the curve flattens only towards a full sprint. Integrated exactly over the
+  // step (s = 1 - v/vmax, s(t)^0.2 = s0^0.2 - 0.2 k t, k = a0*accel/vmax), so the run does not depend on the step
+  // length. Or brake: 7.5 with no input, the plant rate for cuts and reversals, harder in a stagger.
   let v = v0;
   m.plant = 0;
   if (v < vt){
-    const k = prm.a0*fac.accel/vt;                 // a0/vmax in the closed form s(t) = (s0^0.2 - 0.2 k t)^5, s = 1 - v/vt
-    const s0 = 1 - v/vt, sg = Math.max(0, Math.pow(s0, 0.2) - 0.2*k*h);
-    v = vt*(1 - Math.pow(sg, 5));
+    const vmax = Math.max(vt, sprintSpeed(prm, fac)), k = prm.a0*fac.accel/vmax;
+    const s0 = 1 - v/vmax, sg = Math.max(0, Math.pow(s0, 0.2) - 0.2*k*h);
+    v = Math.min(vt, vmax*(1 - Math.pow(sg, 5)));
   } else if (v > vt){
     const rate = staggered ? 2*prm.plant : planting ? prm.plant : prm.brake;
     const soft = clamp((v - vt)/SOFT_V, SOFT_MIN, 1);
@@ -176,24 +185,34 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
     m.yaw = wrapA(m.yaw + clamp(e, -lim, lim));
   }
 
-  // 7. integrate, then the world (or the run-off bounds) has its say; a blocked move loses the blocked velocity
-  const d = dirOf(m.heading);
-  let mx = d.x*v*h, mz = d.z*v*h;
-  const col = collide || (prm.bounds ? boundsCollide(prm.bounds.hx, prm.bounds.hz) : null);
-  let blocked = false;
-  if (col && (mx || mz)){
-    const r = col(m, mx, mz) || {dx: mx, dz: mz};
-    const want = Math.hypot(mx, mz), got = Math.hypot(r.dx, r.dz);
-    if (got < want - 1e-9){
-      blocked = true;
-      mx = r.dx; mz = r.dz;
-      v = Math.min(v, got/h);
-      if (got > 1e-9) m.heading = yawOf(mx, mz);
+  // 7. integrate, then the world (or the run-off bounds) has its say. Whatever collide answers is where the body goes.
+  // The velocity after it: along the wish, only what the world let through (nothing when pushed back); across it, the
+  // slide the world gave; never more than the speed the body was running at.
+  const ux = -Math.sin(m.heading), uz = -Math.cos(m.heading);       // dirOf(m.heading), inline
+  const want = v*h;
+  let mx = ux*want, mz = uz*want, vx = ux*v, vz = uz*v;
+  if (want > 0){
+    let rx = mx, rz = mz;
+    if (collide){
+      const r = collide(m, mx, mz);
+      if (r){ rx = +r.dx; rz = +r.dz; if (!Number.isFinite(rx) || !Number.isFinite(rz)){ rx = mx; rz = mz; } }
+    } else if (prm.bounds){
+      rx = clamp(m.x + mx, -prm.bounds.hx, prm.bounds.hx) - m.x;
+      rz = clamp(m.z + mz, -prm.bounds.hz, prm.bounds.hz) - m.z;
+    }
+    if (Math.abs(rx - mx) > 1e-12 || Math.abs(rz - mz) > 1e-12){
+      const along = rx*ux + rz*uz, ax = rx - along*ux, az = rz - along*uz;
+      const keep = clamp(along, 0, want);
+      let wx = (keep*ux + ax)/h, wz = (keep*uz + az)/h;
+      const wl = Math.hypot(wx, wz);
+      if (wl > v){ wx *= v/wl; wz *= v/wl; }
+      mx = rx; mz = rz; vx = wx; vz = wz;
+      v = Math.min(v, wl);
+      if (v > 1e-9) m.heading = yawOf(vx, vz);
     }
   }
   m.x += mx; m.z += mz;
-  if (blocked){ m.vx = mx/h; m.vz = mz/h; }
-  else { m.vx = d.x*v; m.vz = d.z*v; }
+  m.vx = vx; m.vz = vz;
   m.acc = (v - v0)/h;
   m.speed = v;
   m.target = vt;
@@ -256,4 +275,8 @@ export function timeToPoint(m, prm, fac, tx, tz, react = 0){
 
 // What the animation and the camera need from the last step: speed, how fast the heading turned (rad/s, + is to
 // the left in yaw terms) and the longitudinal acceleration (m/s squared)
-export function gaitHint(m){ return {v: m.speed, turnRate: m.turnRate || 0, accel: m.acc || 0}; }
+// (out: an object to fill instead of a new one, for per-frame callers)
+export function gaitHint(m, out = {}){
+  out.v = m.speed; out.turnRate = m.turnRate || 0; out.accel = m.acc || 0;
+  return out;
+}

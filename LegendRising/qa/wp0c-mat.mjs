@@ -9,6 +9,7 @@
 //            so do the pieces built on demand (cars, the bus, gym bars and bells, the things you carry, furniture
 //            models). Each spec is plain data and makes the material again: remat() on High gives the same material,
 //            and High to Low to High gives back what High built (roughness and metalness come back from the spec);
+//            on Medium it is Standard exactly for the kinds in GFX_PRESETS.medium.standardKinds and Lambert otherwise;
 //            a whole scene rematerialised to Low and back draws the same picture
 //   views    the fixed High views below, each drawn from the canvas alone (no HUD), against the same views drawn by
 //            the tree before the change: at most 0.5% of pixels may differ by more than 8/255 in any channel
@@ -145,7 +146,8 @@ async function specCheck(withBuilt){
   const KINDS = B.MAT_KINDS || [];
   const lit = m => !!(m && (m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshPhysicalMaterial));
   const humanBody = o => { for (let p = o; p; p = p.parent) if (p.userData && p.userData.human) return true; return false; };
-  const res = {mats: 0, meshes: 0, missing: [], bad: [], kinds: {}, built: 0, remat: {same: 0, diff: []}, cycle: {same: 0, diff: []}};
+  const res = {mats: 0, meshes: 0, missing: [], bad: [], kinds: {}, built: 0, remat: {same: 0, diff: []}, cycle: {same: 0, diff: []},
+    medium: {lambert: 0, standard: 0, diff: []}};
   const where = o => { const n = []; for (let p = o; p && p !== sc; p = p.parent) n.push(p.name || p.type); return n.slice(0, 3).join("<") + ` @${o.getWorldPosition(new B.THREE.Vector3()).toArray().map(v => v.toFixed(1)).join(",")}`; };
   const seen = new Map();
   const visit = (o, tag) => {
@@ -186,9 +188,14 @@ async function specCheck(withBuilt){
     GFX.low = true; const lo = B.remat(m); GFX.low = lowWas;
     const hi = B.remat(lo), d2 = lo.isMeshLambertMaterial ? diff(m, hi) : ["Low made " + lo.type];
     if (d2.length) res.cycle.diff.push(`${tag}: ${d2.join("; ")}`); else res.cycle.same++;
-    for (const x of [r, lo, hi]) x.dispose();
+    // Medium (1.4.4 material "mixed"): Standard for the kinds in its standardKinds, Lambert for the rest
+    const Pwas = GFX.P, MED = GFX_PRESETS.medium; GFX.P = MED; const md = B.remat(m); GFX.P = Pwas;
+    const wantStd = MED.standardKinds.includes(m.userData.spec.kind);
+    if (!!md.isMeshStandardMaterial !== wantStd) res.medium.diff.push(`${tag}: ${m.userData.spec.kind} made ${md.type}`);
+    else res.medium[wantStd ? "standard" : "lambert"]++;
+    for (const x of [r, lo, hi, md]) x.dispose();
   }
-  res.remat.diff = res.remat.diff.slice(0, 12); res.cycle.diff = res.cycle.diff.slice(0, 12);
+  res.remat.diff = res.remat.diff.slice(0, 12); res.cycle.diff = res.cycle.diff.slice(0, 12); res.medium.diff = res.medium.diff.slice(0, 12);
   return res;
 }
 // every distinct material in the scene swapped for its remat() on Low and then again on High (shared ones staying
@@ -310,11 +317,12 @@ if (want("spec") || want("views")){
   if (want("spec")){
     res.spec = r.spec;
     for (const [zone, s] of Object.entries(r.spec)){
-      const ok = !s.missing.length && !s.bad.length && !s.remat.diff.length && !s.cycle.diff.length;
+      const ok = !s.missing.length && !s.bad.length && !s.remat.diff.length && !s.cycle.diff.length && !s.medium.diff.length;
       console.log(`spec ${zone}: ${s.mats} lit materials on ${s.meshes} meshes${s.built ? ` (with ${s.built} pieces built on demand)` : ""}, kinds ${JSON.stringify(s.kinds)}; ` +
-        `remat same ${s.remat.same}, High to Low to High same ${s.cycle.same}` +
+        `remat same ${s.remat.same}, High to Low to High same ${s.cycle.same}, Medium ${s.medium.lambert} Lambert and ${s.medium.standard} Standard` +
         (s.missing.length ? `\n  no spec (${s.missing.length}): ${s.missing.slice(0, 12).join("\n    ")}` : "") + (s.bad.length ? `\n  bad spec: ${s.bad.slice(0, 8).join("\n    ")}` : "") +
-        (s.remat.diff.length ? `\n  remat differs: ${s.remat.diff.join("\n    ")}` : "") + (s.cycle.diff.length ? `\n  High to Low to High differs: ${s.cycle.diff.join("\n    ")}` : ""));
+        (s.remat.diff.length ? `\n  remat differs: ${s.remat.diff.join("\n    ")}` : "") + (s.cycle.diff.length ? `\n  High to Low to High differs: ${s.cycle.diff.join("\n    ")}` : "") +
+        (s.medium.diff.length ? `\n  Medium class wrong: ${s.medium.diff.join("\n    ")}` : ""));
       if (!ok) fails.push("spec " + zone);
     }
     const rs = r.rematScene;

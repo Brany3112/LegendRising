@@ -58,6 +58,9 @@ for (const [stamina, lo, hi] of [[24, 9.3, 10.3], [50, 10.5, 11.7], [99, 14.0, 1
   }
   check(floors && smooth, "factors are smooth in breath and keep their floors");
   check(FRESH.speed === 1 && FRESH.accel === 1 && FRESH.turn === 1 && FRESH.aim === 1 && FRESH.power === 1 && FRESH.touch === 0, "a fresh body loses nothing");
+  // a per-agent object filled in place gives the same numbers as a new one
+  const keep = {}, a = stamFactors({B: 12}, 0.7, keep), b = stamFactors({B: 12}, 0.7);
+  check(a === keep && Object.keys(b).every(k => a[k] === b[k]), "stamFactors fills an object it is given, with the same numbers");
 }
 
 // 3 s sprints with 4 s walks never drop below 70 over 5 minutes: with the mover (a sprint from a walk, so the run-up

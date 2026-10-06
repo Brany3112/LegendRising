@@ -132,11 +132,14 @@ function patchKids(a, b){
 /* ============ GRAPHICS QUALITY ============
    One setting with four choices: Auto, Low, Medium or High (DESIGN 1.4.4). The tier picks one preset from GFX_PRESETS,
    the table every 3D module reads at use time (GFX.P) or hears about through gfxOn. Auto picks the tier for this computer
-   from the name of its graphics chip, its CPU cores and its memory (gfxDetect, worked out once and remembered), and steps
-   down when the game keeps running slowly. gfxApply() resolves the tier, sets GFX.P, GFX.low and the body classes, then
-   calls every subscriber with (P, prevP, reason).
-   GFX.low (true on Low) is what the 3D world and the 2D match still read today: Low draws their light path, Medium and
-   High their full one, until the world applies the presets itself. Graphics live in localStorage only, never in a save. */
+   from the name of its graphics chip, its CPU cores and its memory (gfxDetect, worked out once and remembered);
+   gfxStepDown is there for the 3D world's step down (WP-A) to take it one tier lower for the session when the game
+   keeps running slowly, and a slow 2D match asks for Low (GFX.autoLow). gfxApply() resolves the tier, sets GFX.P, GFX.low and the body classes, then calls every
+   subscriber with (P, prevP, reason).
+   GFX.low (true on Low) is what the 2D match and some 3D readers still check. Until the world applies whole presets
+   (quality.js applyPreset), the 3D readers already honour Medium where it is one line: materials (build.js mat: Lambert
+   for plain, printed and glowing surfaces), the pixel ratio cap (quality.js resize), cloud octaves, reflection bakes
+   and shadow redraws (sky.js). Graphics live in localStorage only, never in a save. */
 const GFX_TIERS = ["low", "medium", "high"];
 const GFX_LABEL = {auto:"Auto", low:"Low", medium:"Medium", high:"High"};
 // Every field, per tier (DESIGN 1.4.4). Distances in metres, rates in Hz, times in seconds.
@@ -310,13 +313,17 @@ function gfxDetect(opts = {}){
   try{ localStorage.setItem(GFX_AUTO_KEY, JSON.stringify(d)); }catch(e){}
   return d;
 }
+// What the Settings line under Auto promises, and it must stay true. Today the only automatic step down is the match
+// dropping to Low when it runs slowly (GFX.autoLow). When the 3D world's own step down calls gfxStepDown (DESIGN 1.4.4,
+// WP-A), this becomes "Auto picks a level for this computer, and steps down by itself if the game keeps running slowly."
+const GFX_AUTO_NOTE = "Auto picks a level for this computer, and drops to Low by itself if a match runs slowly.";
 // the Graphics control for a settings screen; fnName is the handler each button calls with its mode
 function gfxSeg(fnName){
   const btns = ["auto", ...GFX_TIERS].map(k => `<button aria-pressed="${GFX.mode === k}" onclick="${fnName}('${k}')">${GFX_LABEL[k]}</button>`).join("");
   if (GFX.mode !== "auto") return `<div class="seg">${btns}</div>`;
   const gpu = gfxGpuName(GFX.detected && GFX.detected.gpu);
   return `<div class="seg">${btns}</div><div class="muted small">Currently: ${GFX_LABEL[GFX.tier]}${gpu ? ` (${esc(gpu)})` : ""}</div>
-    <div class="muted small">Auto picks a level for this computer, and steps down by itself if the game keeps running slowly.</div>`;
+    <div class="muted small">${GFX_AUTO_NOTE}</div>`;
 }
 
 /* ============ WORDS AND NUMBERS IN COPY ============

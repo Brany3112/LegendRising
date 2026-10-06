@@ -32,7 +32,8 @@ export const W = {
      mat("glass", {vertexColors:true})   that look with these options over it
      mat({color, roughness, ...})        exactly these options. o.kind says what the material is where the options alone
                                          do not (a screen is {kind:"screen", map, emissiveMap, ...})
-   High graphics light everything physically; Low keeps the cheaper Lambert look.
+   High graphics light everything physically; Low keeps the cheaper Lambert look; Medium lights glossy, metal, painted,
+   glass and screen surfaces physically and the rest Lambert (lambertFor).
    Each material carries userData.spec = {kind, key, o, tint}, plain data (it survives Material.clone()):
      kind  what a preset picks the class by: "plain", "tex" (printed), "glow" (lamps, lit windows, signs, LEDs), "gloss",
            "metal", "paint", "glass" or "screen". Low makes every kind Lambert and High every kind Standard; Medium keeps
@@ -42,7 +43,15 @@ export const W = {
            comes back as it should on High), with colours as numbers and without textures, which stay on the material
      tint  screens and neon: the emissive light is tinted by the vertex colour
    remat(m) makes a material again from its spec for the preset in force (quality.js rematerialize). */
-const lowGfx = () => typeof GFX !== "undefined" && GFX.low;
+// the class the preset in force picks for a kind of surface (DESIGN 1.4.4 `material`): true for Lambert. GFX.low
+// (Low, or anything that sets it) for every kind; otherwise "lambert" for every kind, "standard" (High) for none and
+// "mixed" (Medium) for the kinds not in P.standardKinds
+export function lambertFor(kind){
+  if (typeof GFX === "undefined" || !GFX) return false;
+  if (GFX.low) return true;
+  const P = GFX.P;
+  return !!P && (P.material === "lambert" || (P.material === "mixed" && !(P.standardKinds || []).includes(kind)));
+}
 export const MAT_KINDS = ["plain", "tex", "glow", "gloss", "metal", "paint", "glass", "screen"];
 // one material per kind of surface: matte for most things, glossy for glass, paint and metal, glowing for lamps
 const MAT_KEYS = {
@@ -86,7 +95,7 @@ function specOpts(o){
 const MAT_STD = ["roughness", "metalness", "envMapIntensity"];      // what only the Standard class is made with
 function makeMat(spec, o){
   let m;
-  if (lowGfx()){
+  if (lambertFor(spec.kind)){
     const q = Object.assign({}, o); for (const k of MAT_STD) delete q[k];
     m = new THREE.MeshLambertMaterial(q);
   } else m = new THREE.MeshStandardMaterial(Object.assign({roughness:.86, metalness:0}, o));
@@ -125,7 +134,7 @@ export function remat(m){
   if (!sp.tint && Object.prototype.hasOwnProperty.call(m, "onBeforeCompile")) n.onBeforeCompile = m.onBeforeCompile;
   if (Object.prototype.hasOwnProperty.call(m, "customProgramCacheKey")) n.customProgramCacheKey = m.customProgramCacheKey;
   n.userData = Object.assign({}, m.userData, {spec:sp});
-  if ("low" in m.userData) n.userData.low = lowGfx();
+  if ("low" in m.userData) n.userData.low = !n.isMeshStandardMaterial;
   if (sp.key && W.mats[sp.key] === m) W.mats[sp.key] = n;
   if (W.lit === m) W.lit = n;
   const ck = MATC_KEY.get(m);
@@ -694,7 +703,8 @@ export function labels(texture, q, o = {}){
 const MATC = new Map();
 export function lmat(color, o = {}){
   const k = color + JSON.stringify(o);
-  if (!MATC.has(k) || MATC.get(k).userData.low !== lowGfx()){ const m = mat(Object.assign({color}, o)); m.userData.low = lowGfx(); m.userData.keep = true; MATC.set(k, m); MATC_KEY.set(m, k); }
+  const c = MATC.get(k);
+  if (!c || c.userData.low !== lambertFor(c.userData.spec.kind)){ const m = mat(Object.assign({color}, o)); m.userData.low = !m.isMeshStandardMaterial; m.userData.keep = true; MATC.set(k, m); MATC_KEY.set(m, k); }
   return MATC.get(k);
 }
 export function part(geo, color, o = {}){

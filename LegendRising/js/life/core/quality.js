@@ -64,9 +64,13 @@ export function quality(real, cpu){
     Q.scale = Math.min(1, +(Q.scale + .1).toFixed(2)); Q.good = 0; Q.upAt = Q.t; Q.pending = true;
   }
 }
+// the pixel ratio: at most 1.5 (Low then takes 0.85 of it); Medium is capped at its preset's maxRatio until
+// applyPreset brings the whole pixel budget of DESIGN 1.4.4
 export function resize(){
   Q.pending = false;
   const w = innerWidth, h = innerHeight, renderer = RT.renderer, cam = RT.cam;
-  renderer.setPixelRatio(Math.min(1.5, devicePixelRatio || 1)*Q.scale*(typeof GFX !== "undefined" && GFX.low ? .85 : 1));
+  const G = typeof GFX !== "undefined" && GFX ? GFX : null, low = !!(G && G.low);
+  const cap = low || !G || !G.P ? 1.5 : Math.min(1.5, G.P.maxRatio || 1.5);
+  renderer.setPixelRatio(Math.min(cap, devicePixelRatio || 1)*Q.scale*(low ? .85 : 1));
   renderer.setSize(w, h, false); cam.aspect = w/h; cam.updateProjectionMatrix();
 }

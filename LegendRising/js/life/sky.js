@@ -156,7 +156,7 @@ export function createSky(renderer){
       const up = dir.y;
       uni.uSunUp.value = Math.max(0, Math.min(1, up*6 + .4));
       uni.uStars.value = k.stars;
-      uni.uOct.value = typeof GFX !== "undefined" && GFX.low ? 3 : 5;
+      uni.uOct.value = typeof GFX !== "undefined" && GFX.low ? 3 : Math.min(5, (GFX.P && GFX.P.skyOct) || 5);   // Medium 3
       // one shadow-casting light: the sun by day, the moon by night, faded through zero as they swap
       // (where it shines from is set in refresh(), in step with its shadow map)
       const useSun = up > -.02, L = useSun ? dir : moonDir;
@@ -199,8 +199,9 @@ export function createSky(renderer){
         shadeForce = true;
       }
       if (force) shadeForce = true;
-      // reflections follow the sky every nine minutes of game time
-      if (!(typeof GFX !== "undefined" && GFX.low) && (force || Math.abs(h - envAt) > .15)){
+      // reflections follow the sky every nine minutes of game time (every game hour on Medium: the preset's env.everyH)
+      const envP = typeof GFX !== "undefined" && GFX.P && GFX.P.env, envEvery = envP && envP.everyH > 0 ? envP.everyH : .15;
+      if (!(typeof GFX !== "undefined" && GFX.low) && (force || Math.abs(h - envAt) > envEvery)){
         envAt = h;
         cubeCam.update(renderer, envScene);
         envRT = pmrem.fromCubemap(cubeRT.texture, envRT);
@@ -214,14 +215,16 @@ export function createSky(renderer){
        tip moves by about height·dθ/sin²(elevation), so at noon a third of a degree moves a façade's shadow a few
        centimetres, while at sunset the same step would throw it a metre or two. The step is set to keep the tip of
        a ten-metre wall's shadow within ~20 cm (a third of a degree at most), and the redraws come at most five
-       times a second (twice on Low) — at sunset, a cheap depth pass of the zone every few frames; at midday, one
-       every few seconds. */
+       times a second (twice on Low and Medium): at sunset, a cheap depth pass of the zone every few frames; at midday,
+       one every few seconds. */
     shade(renderer, real){
       shadeT -= real || 0;
       const low = typeof GFX !== "undefined" && GFX.low, e = Math.max(.05, shadowDir.y);
       const step = Math.max(low ? .0015 : .0004, Math.min(.006, .02*e*e));
       if (!shadeForce && (shadeT > 0 || shadowAt.d.angleTo(shadowDir) <= step)) return false;
-      shadeForce = false; shadeT = low ? .5 : .2;
+      // at most twice a second on Low and Medium, five times on High (the preset's shadow.life.hz)
+      const shHz = low ? 2 : (typeof GFX !== "undefined" && GFX.P && GFX.P.shadow && GFX.P.shadow.life && GFX.P.shadow.life.hz) || 5;
+      shadeForce = false; shadeT = 1/shHz;
       shadowAt.d.copy(shadowDir);
       // the centre, snapped to whole texels across the light's view, so a redraw never shifts an edge by part of one
       const texel = 2*mid.half/(shadowSize || 2048);

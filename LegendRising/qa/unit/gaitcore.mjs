@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {WALK, RUN, WALK_REACH, createGait, gaitMode, gaitModeStep, stepLen, cadence, dutyOf, strideTime, swingTime, gaitShape,
-  phaseAdvance, swingProgress} from "../../js/life/gaitcore.js";
+  phaseAdvance, swingProgress, MAX_STRIDES} from "../../js/life/gaitcore.js";
 import {mulberry32} from "../../js/life/football/rng.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -60,6 +60,14 @@ for (const [v, mode, scale] of [[1.4, 'W', 1], [5.5, 'R', 1], [7.6, 'R', 1.08], 
   const w = createGait({phi: 0.2});
   for (let i = 0; i < 100; i++) phaseAdvance(w, 0, 6, 'R');
   check(w.phi === 0.2 && w.n === 0, "phase is driven by distance, not by speed alone");
+  // a jump is not a walk: non-finite input and moves over MAX_STRIDES strides change nothing and report nothing
+  const j = createGait({phi: 0.2}), J = [];
+  for (const [d, v, sc] of [[Infinity, 3, 1], [-Infinity, 3, 1], [NaN, 3, 1], [1e5, 3, 1], [-1e5, 3, 1], [1, NaN, 1], [1, 3, 0], [1, 3, NaN]]){
+    const ev = phaseAdvance(j, d, v, 'R', sc); J.push(ev.length);
+  }
+  check(J.every(n => n === 0) && j.phi === 0.2 && j.n === 0, "Infinity, NaN, a 100 km jump or a zero scale: no footfalls, phase kept", J);
+  const big = createGait(), bs = stepLen(9, 'R'), evb = phaseAdvance(big, 2*bs*MAX_STRIDES, 9, 'R');
+  check(evb.length === 2*MAX_STRIDES && near(big.phi, 0), "a move of exactly MAX_STRIDES strides still walks: every footfall reported", evb.length);
 }
 
 // walk to run only after 0.15 s above 2.30 m/s; back to walk only below 2.00

@@ -102,15 +102,23 @@ export function gaitShape(v, mode, scale = 1, R = mode === 'R' ? 1 : 0){
 }
 
 const NONE = Object.freeze([]);
+// The most strides one call may cover. A step of a 60 Hz loop moves a body a fraction of a stride, and even a long
+// hitch (half a second at a full sprint) stays under one; four strides in one call is not walking but a jump (a
+// teleport or a zone change fed in as a distance, or a bad input), so the phase is left as it was and no footfall is
+// reported. That also bounds the work and the events of any call to at most eight.
+export const MAX_STRIDES = 4;
 // Advance the phase by a signed distance (metres along the direction of travel) at speed v. Returns the touchdowns
 // crossed, in order: [{side: 'L' | 'R', at}] where at is the fraction of dist at which that foot landed (0 < at <= 1).
 // Forwards a touchdown at a boundary b fires when phi passes from below b to b or beyond; backwards when phi falls
 // from above b to b or below, so standing exactly on a boundary never fires it twice in a row in one direction.
-// When no foot lands the same frozen empty array is returned every time (no allocation on most steps).
+// When no foot lands the same frozen empty array is returned every time (no allocation on most steps). A distance,
+// speed or scale that is not a finite number, or a move over MAX_STRIDES strides, changes nothing and returns that.
 export function phaseAdvance(g, dist, v, mode, scale = 1){
-  if (!dist) return NONE;
+  if (!dist || !Number.isFinite(dist) || !Number.isFinite(v)) return NONE;
   const step = stepLen(Math.abs(v), mode, scale);
-  const dphi = dist/(2*step), p0 = g.phi, p1 = p0 + dphi;
+  const dphi = dist/(2*step), p0 = g.phi;
+  if (!(Math.abs(dphi) <= MAX_STRIDES) || !Number.isFinite(p0)) return NONE;
+  const p1 = p0 + dphi;
   let out = NONE;
   if (dphi > 0){
     // boundaries k/2 with p0 < k/2 <= p1

@@ -87,6 +87,37 @@ function cut(pace, deg = 90){
   check(small.loss < 0.08, "a 25 degree change of line at sprint costs little speed (no plant)", r3(small.loss));
 }
 
+// 1.5.2 and 3.1.5 step 3: every gait accelerates with a0*(1 - v/vmax)^0.8, vmax the top speed, up to its own target.
+// Walk, jog and run are reached where the drive is still strong; only the sprint flattens out towards its end. From
+// rest the closed form gives t(v) = (1 - (1 - v/vmax)^0.2)/(0.2 a0/vmax): the stepped mover matches it within a step.
+{
+  const rows = [], want = [];
+  let ok = true;
+  for (const [profile, gait] of [["football", "walk"], ["football", "jog"], ["football", "run"], ["football", "sprint"], ["life", "walk"], ["life", "run"]]){
+    const prm = moverParams({pace: 50, dribbling: 50}, profile), m = createMover({yaw: EAST});
+    const vt = gaitSpeed(prm, FRESH, gait), vmax = prm.vmax, k = prm.a0/vmax;
+    const tForm = (1 - Math.pow(1 - 0.95*vt/vmax, 0.2))/(0.2*k);
+    let t = 0;
+    while (m.speed < 0.95*vt - 1e-12 && t < 10){ moverStep(m, {dx: 1, dz: 0, gait}, prm, FRESH, H); t += H; }
+    // the stepped time is the first whole step at or past the formula's time
+    if (!(t >= tForm - 1e-9 && t <= tForm + H + 1e-9)) ok = false;
+    rows.push(`${profile} ${gait} ${r3(t)}`); want.push(r3(tForm));
+    // and it gets all the way to the target in finite time (s^0.2 reaches 0 at 5/k seconds from rest, 5.5 s for a
+    // pace-50 sprint; a walk, jog or run gets there well before)
+    for (let i = 0; i < 400; i++) moverStep(m, {dx: 1, dz: 0, gait}, prm, FRESH, H);
+    if (Math.abs(m.speed - vt) > 1e-9) ok = false;
+  }
+  check(ok, "every gait accelerates by a0*(1 - v/vmax)^0.8 up to its target (time to 95%, stepped vs formula)", {stepped: rows, formula: want});
+  // pace 50: a jog from standing is at 3.8 m/s in about 0.6 s, a walk in about 0.2 s
+  const prm = moverParams({pace: 50}, "football"), m = createMover({yaw: EAST});
+  let t = 0; while (m.speed < 0.95*prm.jog && t < 5){ moverStep(m, {dx: 1, dz: 0, gait: 'jog'}, prm, FRESH, H); t += H; }
+  check(t > 0.5 && t < 0.75, "pace 50: 95% of the jog in 0.5 to 0.75 s", r3(t));
+  // tired: the factor slows the drive and the top speed it aims at; a walk is still reached
+  const tired = stamFactors({B: 0}, 0.6), m2 = createMover({yaw: EAST});
+  let t2 = 0; while (m2.speed < 0.95*prm.jog && t2 < 5){ moverStep(m2, {dx: 1, dz: 0, gait: 'jog'}, prm, tired, H); t2 += H; }
+  check(t2 > t && t2 < 2*t, "a tired body reaches the jog more slowly, but reaches it", r3(t2));
+}
+
 // 4.1: sprint to stop with no input (8 m/s) in 3.9 to 4.8 m, no instant stop
 {
   const prm = moverParams({pace: 50}, "football"), m = createMover({yaw: EAST});
@@ -157,7 +188,8 @@ function cut(pace, deg = 90){
     const prm = moverParams({pace: 1 + r()*98, dribbling: 1 + r()*98}, profile, {grip: r() < 0.3});
     if (r() < 0.3) prm.bounds = {hx: 57.5, hz: 38};
     const m = createMover({x: (r() - 0.5)*100, z: (r() - 0.5)*60, yaw: (r() - 0.5)*6});
-    const wall = r() < 0.3 ? (mm, dx, dz) => ({dx: mm.x + dx > 3 ? Math.min(dx, 3 - mm.x) : dx, dz: dz*0.5}) : null;
+    // a wall at x = 3 for bodies coming from its west side, and a floor that halves the z part of every move
+    const wall = r() < 0.3 ? (mm, dx, dz) => ({dx: mm.x <= 3 && mm.x + dx > 3 ? 3 - mm.x : dx, dz: dz*0.5}) : null;
     const st = {B: r()*100};
     let intent = {dx: 0, dz: 0, gait: 'jog'};
     for (let i = 0; i < 600; i++){
@@ -193,6 +225,35 @@ function cut(pace, deg = 90){
   const p2 = moverParams({pace: 50}, "football"), m2 = createMover({x: 0, yaw: EAST}), wall = boundsCollide(2, 50);
   for (let i = 0; i < 120; i++) moverStep(m2, {dx: 1, dz: 0, gait: 'jog'}, p2, FRESH, H, wall);
   check(m2.x === 2 && m2.speed < 0.2, "a collide function stops a body at a wall", {x: m2.x, v: r3(m2.speed)});
+}
+
+// the world has the last word (3.1.5 step 7): whatever collide answers is where the body goes. A slide of the same
+// length along a wall redirects the run, a push-out moves the body out and leaves it no speed back the way it came,
+// and nothing the world does makes the body faster than it was running.
+{
+  const prm = moverParams({pace: 50}, "football");
+  const jogN = () => { const m = createMover({yaw: 0}); for (let i = 0; i < 120; i++) moverStep(m, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H); return m; };
+  const a = jogN(), x0 = a.x, z0 = a.z, v0 = a.speed;
+  moverStep(a, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, (mm, dx, dz) => ({dx: Math.hypot(dx, dz), dz: 0}));
+  check(Math.abs(a.z - z0) < 1e-12 && Math.abs(a.x - x0 - v0*H) < 1e-9 && a.vx > 0 && Math.abs(a.vz) < 1e-9 && a.speed <= v0 + 1e-9,
+    "an equal-length slide from collide moves the body along the wall, and its run follows", {dx: r3(a.x - x0), dz: r3(a.z - z0), vx: r3(a.vx), vz: r3(a.vz)});
+  const b = jogN(), z1 = b.z;
+  moverStep(b, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, () => ({dx: 0, dz: 0.2}));
+  check(Math.abs(b.z - z1 - 0.2) < 1e-12 && b.speed < 1e-9 && b.vx === 0 && Math.abs(b.vz) < 1e-12,
+    "a push-out longer than the move puts the body where collide says, with no speed back the way it came", {dz: r3(b.z - z1), v: r3(b.speed)});
+  const c = jogN(), z2 = c.z, x2 = c.x;
+  moverStep(c, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, (mm, dx, dz) => ({dx: 0.3, dz}));
+  check(Math.abs(c.x - x2 - 0.3) < 1e-12 && Math.abs(c.z - z2 + c.speed*H) < 0.05 && c.speed <= prm.jog + 1e-9,
+    "a sideways shove is applied in full, and the speed never exceeds what the body was running at", {dx: r3(c.x - x2), v: r3(c.speed)});
+  const d = jogN(), z3 = d.z;
+  moverStep(d, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, () => null);
+  check(d.z < z3 && Math.abs(d.speed - prm.jog) < 1e-6, "collide answering null lets the move through", r3(d.z - z3));
+  const e = jogN(), z4 = e.z;
+  moverStep(e, {dx: 0, dz: -1, gait: 'jog'}, prm, FRESH, H, () => ({dx: NaN, dz: Infinity}));
+  check(e.z < z4 && [e.x, e.z, e.vx, e.vz, e.speed].every(Number.isFinite), "a non-finite answer from collide is ignored, not applied");
+  // boundsCollide reuses one result object; prm.bounds is clamped inline with no closure
+  const bc = boundsCollide(5, 5), m = createMover({x: 4.9});
+  check(bc(m, 1, 0) === bc(m, 0, 1) && bc(m, 1, 0).dx === 5 - 4.9, "boundsCollide answers in one reused object");
 }
 
 // LIFE profile: Shift runs at 5.2 m/s, sprint builds over 1.1 s of Shift forward once at running pace
@@ -267,6 +328,8 @@ function cut(pace, deg = 90){
   moverStep(m, {dx: 1, dz: 0, gait: 'jog'}, prm, FRESH, H);
   const g = gaitHint(m);
   check(g.v === m.speed && g.accel > 0 && g.turnRate === 0 && m.gait === 'jog', "gaitHint reports speed, turn rate and acceleration", g);
+  const out = {};
+  check(gaitHint(m, out) === out && out.v === m.speed, "gaitHint fills an object it is given");
   check(gaitSpeed(prm, FRESH, 'stand') === 0 && sprintSpeed(prm, FRESH) === prm.sprint, "gait speeds");
 }
 

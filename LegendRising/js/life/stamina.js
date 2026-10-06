@@ -110,19 +110,19 @@ export function stamAction(st, kind){
 //   power   (0.9 + 0.1 bF)(0.9 + 0.1 eF) on strike speed
 //   touch   +0.08(1 - bF) added to the first-touch absorb
 //   lean    1 - 0.15(1 - bF) on body lean and arm swing (the animation)
-export function stamFactors(st, eF = 1){
+// out: an object to fill instead of a new one, so a body stepped 60 times a second can keep one (each agent its own)
+export function stamFactors(st, eF = 1, out = {}){
   const bF = sstep(0, STAM.BF_FULL, st ? st.B : 100), e = clamp(eF == null ? 1 : eF, 0, 1);
-  return {
-    bF, eF: e,
-    speed: 0.45 + 0.55*bF,
-    eSpeed: 0.92 + 0.08*e,
-    accel: 0.75 + 0.25*bF,
-    turn: 0.88 + 0.12*bF,
-    aim: 1 + 0.25*(1 - bF) + 0.35*(1 - e),
-    power: (0.9 + 0.1*bF)*(0.9 + 0.1*e),
-    touch: 0.08*(1 - bF),
-    lean: 1 - 0.15*(1 - bF)
-  };
+  out.bF = bF; out.eF = e;
+  out.speed = 0.45 + 0.55*bF;
+  out.eSpeed = 0.92 + 0.08*e;
+  out.accel = 0.75 + 0.25*bF;
+  out.turn = 0.88 + 0.12*bF;
+  out.aim = 1 + 0.25*(1 - bF) + 0.35*(1 - e);
+  out.power = (0.9 + 0.1*bF)*(0.9 + 0.1*e);
+  out.touch = 0.08*(1 - bF);
+  out.lean = 1 - 0.15*(1 - bF);
+  return out;
 }
 // the factors of a fresh, rested body (life NPCs, tests)
 export const FRESH = Object.freeze(stamFactors({B: 100}, 1));
