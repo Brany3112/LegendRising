@@ -1037,6 +1037,12 @@ body:not(.life) .lp-notch, body:not(.life) .lp-away{display:none}
 .lp-label{font-weight:800;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lp-hint{font-size:.76rem;color:#b9c8d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lf-prompt.drag .lp-hint::after{content:" · or drag with the mouse";color:#7f93a8}
+/* the prompt's extra lines (a spot's `lines`: a bed's plan, a fridge item's numbers): one per child element, or one per
+   line break in plain text; nothing shows while it is empty. .up and .down colour a modifier, .total the sum */
+.lp-lines{display:grid;gap:1px;margin-top:3px;font-size:.72rem;line-height:1.3;color:#b9c8d8;white-space:pre-line;font-variant-numeric:tabular-nums}
+.lp-lines:empty{display:none}
+.lp-lines>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lp-lines .up{color:#a8e88a} .lp-lines .down{color:#ffadb0} .lp-lines .total{color:#fff;font-weight:700}
 /* bottom left: progress cards and small career chips */
 .lf-feed{position:absolute;left:calc(var(--hud-pad) + env(safe-area-inset-left,0px));bottom:calc(var(--hud-pad) + env(safe-area-inset-bottom,0px));width:clamp(210px,22vw,280px);
   display:flex;flex-direction:column;gap:7px;pointer-events:none;z-index:3}

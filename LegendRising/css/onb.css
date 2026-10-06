@@ -1,0 +1,20 @@
+/* css/onb.css: the first day's teaching (firstday.js): objective line, step cards and the HUD spotlight, every class
+   prefixed onb-.
+   Owner: WP-0B creates it with the shared tokens (DESIGN 1.2, 2.2 WP-0B); WP-H and WP-H2 build the first day on them
+   (DESIGN 3.7, 2.3 WP-H, 2.4 WP-H2). Linked once, after style.css. Until then it holds tokens only and draws nothing. */
+:root{
+  --onb-ink:#fff;                         /* the objective and step text */
+  --onb-muted:#b9c8d8;                    /* the line under it: how, where, how far */
+  --onb-panel:rgba(9,15,24,.74);          /* step cards and the objective line */
+  --onb-line:rgba(255,255,255,.1);
+  --onb-radius:12px;
+  --onb-blur:8px;                         /* backdrop blur of the cards; none on Low */
+  --onb-font:var(--body);
+  --onb-title:var(--display);             /* a step's title */
+  --onb-accent:var(--lime);               /* the key to press, the done tick */
+  --onb-focus:var(--lime);                /* .onb-focus: the pulse ring on an inventory cell or the compass */
+  --onb-focus-width:2px;
+  --onb-focus-pulse:1.6s;                 /* one pulse of the ring */
+  --onb-in:.3s;                           /* a card or the objective line arriving */
+}
+body.gfx-low{--onb-blur:0px}
