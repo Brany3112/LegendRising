@@ -1,7 +1,7 @@
 /* ============ LIFE: the neighbourhood ============
    A few streets of brick blocks. Only one door in the whole street is yours: the block on the near
    side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
-import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo, tex} from "./build.js";
+import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, mat, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo, tex} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
 import {onYou} from "./inv.js";
 import {frame, rb, cy, worldPt, tree as propTree, streetLamp, bin, bollard, planter, bench as propBench, ball as propBall, PC} from "./props.js";
@@ -627,7 +627,7 @@ export function hingedDoor(o){
   g.add(leaf, part(mergeGeos(brass), C.metal, {mat:{metalness:.7, roughness:.35}}));
   if (o.glass){ const pane = boxPart(W_ - .26, H_*.55 + .02, .012, 0x9fb7c6, W_/2, (H_*.33 + H_*.88)/2, 0, {mat:{transparent:true, opacity:.32, roughness:.08, metalness:.1, depthWrite:false}}); pane.renderOrder = 2; g.add(pane); }
   if (o.plate){
-    const pm = new THREE.Mesh(new THREE.PlaneGeometry(.16, .08), new THREE.MeshLambertMaterial({map:plateTex(o.plate)}));
+    const pm = new THREE.Mesh(new THREE.PlaneGeometry(.16, .08), mat({map:plateTex(o.plate), roughness:1}));
     // on the face of the raised panel (which stands 8 mm proud of the leaf), on the outside of the door
     pm.position.set(W_/2, 1.62, -o.into*dir*(T/2 + .013)); pm.rotation.y = o.into*dir > 0 ? Math.PI : 0;
     g.add(pm); var plateMesh = pm;
@@ -668,7 +668,7 @@ export function hingedDoor(o){
 /* ================= the first morning's damage =================
    The left pane of your flat's first window is a mesh of its own, in one of three states (S.home.win): whole, smashed
    by a football (jagged teeth of glass left in the frame), and a day later taped over with plastic sheeting. */
-const PANE_MAT = () => new THREE.MeshStandardMaterial({color:0x9fb7c6, transparent:true, opacity:.34, roughness:.06, metalness:.1, depthWrite:false, side:THREE.DoubleSide});
+const PANE_MAT = () => mat({color:0x9fb7c6, transparent:true, opacity:.34, roughness:.06, metalness:.1, depthWrite:false, side:THREE.DoubleSide});
 function paneOf(x0, x1, y0, y1, z0, z1, s){
   const g = new THREE.Group(), zc = (z0 + z1)/2, P = {x0, x1, y0, y1, z:zc, s, g, state:""};
   W.scene.add(g);
@@ -705,7 +705,7 @@ function paneOf(x0, x1, y0, y1, z0, z1, s){
       const geo = new THREE.PlaneGeometry(w, h, 6, 8), pos = geo.attributes.position;
       for (let i = 0; i < pos.count; i++){ const px = pos.getX(i)/w + .5, py = pos.getY(i)/h + .5, edge = Math.min(px, 1 - px, py, 1 - py); pos.setZ(i, -s*Math.min(.035, edge*.12)*(1 + .4*Math.sin(px*9 + py*7))); }
       geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({map:tex, transparent:true, roughness:.35, metalness:0, side:THREE.DoubleSide, depthWrite:false}));
+      const m = new THREE.Mesh(geo, mat({map:tex, transparent:true, roughness:.35, metalness:0, side:THREE.DoubleSide, depthWrite:false}));
       m.position.set((x0 + x1)/2, (y0 + y1)/2, zc); if (s < 0) m.rotation.y = Math.PI; m.renderOrder = 2; g.add(m);
     }
   };
@@ -799,7 +799,7 @@ function doorLock(D, A, base, s){
   const fx = G().home.fx, W_ = .94, T = .05, out = -s;              // the corridor face of the leaf is on the -s side
   const g = new THREE.Group(); D.g.add(g);
   const brass = lmat(0xb38c3e, {metalness:.7, roughness:.35}), old = lmat(0x6e5a3a, {metalness:.4, roughness:.7}), chrome = lmat(0xd5d9dc, {metalness:.85, roughness:.22}), dark = lmat(0x1d1f22);
-  const ledM = new THREE.MeshStandardMaterial({color:0x2a2d30, emissive:0x55ff6a, emissiveIntensity:0});
+  const ledM = mat({color:0x2a2d30, emissive:0x55ff6a, emissiveIntensity:0, roughness:1});
   const parts = {old:new THREE.Group(), neu:new THREE.Group()};
   for (const side of [1, -1]){
     const z = side*(T/2 + .006);
@@ -941,7 +941,7 @@ function myFlat(F, D){
   cyl(X(bu), top - .5, Z(bv), .006, .5, 0x1c1c1c, {seg:4});
   cyl(X(bu), top - .04, Z(bv), .06, .04, 0xe8e4da, {seg:10});
   cyl(X(bu), top - .565, Z(bv), .021, .07, 0x1d1b19, {seg:10});
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.055, 10, 8), new THREE.MeshStandardMaterial({color:0xfff6e0, emissive:0xffd590, emissiveIntensity:0}));
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.055, 10, 8), mat({color:0xfff6e0, emissive:0xffd590, emissiveIntensity:0, roughness:1}));
   bulb.scale.set(1, 1.15, 1); bulb.position.set(X(bu), top - .62, Z(bv)); W.scene.add(bulb);
   const lit = () => { const h = G() && G().home; return !!(h && h.light && h.fx && h.fx.bulb && powerOn()); };
   const lamp = lightSrc({x:X(bu), y:top - .7, z:Z(bv), color:0xffd8a0, intensity:7, distance:11, decay:1.4, indoor:true, on:lit});
@@ -1051,7 +1051,7 @@ function curtain(x, base, ext, s, i){
   const p = g.attributes.position;
   for (let k = 0; k < p.count; k++){ const x = p.getX(k); p.setZ(k, Math.sin(x*19)*.024 + Math.sin(x*7.3 + 1)*.012); }
   g.computeVertexNormals();
-  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:C.fabric, side:THREE.DoubleSide}));
+  const m = new THREE.Mesh(g, mat({color:C.fabric, side:THREE.DoubleSide, roughness:1}));
   m.position.set(x, base + 2.55 - .89, zIn); W.scene.add(m);
   const left = s;      // looking out of the window, your left is +x at the front and −x at the back
   const st = G().home.curtains;

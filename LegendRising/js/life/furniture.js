@@ -4,7 +4,7 @@
    corner (its west wall, its corridor wall), ry its turn in quarter turns' worth of radians. A piece with no place yet
    gets its usual one when the flat is built. furnish() puts the lot in the room; every piece is an object of its own
    (never poured into the static batches), so build mode can take one out and put it somewhere else. */
-import {THREE, W, part, roundedBoxGeo, mergeGeos, lmat, solid, spot, textTex, label, lightSrc} from "./build.js";
+import {THREE, W, part, roundedBoxGeo, mergeGeos, mat, lmat, solid, spot, textTex, label, lightSrc} from "./build.js";
 import {fillFridge} from "./fridge.js";
 import {leafGuard} from "./home.js";
 
@@ -31,7 +31,7 @@ function kit(){
   };
 }
 // a sticker / label on a canvas, as a thin plane facing +z
-function decal(tex, w, h, x, y, z){ const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({map:tex, transparent:true, roughness:.8})); m.position.set(x, y, z); return m; }
+function decal(tex, w, h, x, y, z){ const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat({map:tex, transparent:true, roughness:.8})); m.position.set(x, y, z); return m; }
 
 /* ================= the beds =================
    Built round their middle, standing on y = 0, the head at local +z. w: width, len: length. */
@@ -172,7 +172,7 @@ function laptopModel(){
   const g = K.build();
   const scr = textTex(256, 160, gg => { const gr = gg.createLinearGradient(0, 0, 0, 160); gr.addColorStop(0, "#14243a"); gr.addColorStop(1, "#0a1220"); gg.fillStyle = gr; gg.fillRect(0, 0, 256, 160);
     gg.fillStyle = "#c8f060"; gg.font = "bold 20px sans-serif"; gg.fillText("CLUB PORTAL", 16, 32); gg.fillStyle = "rgba(255,255,255,.75)"; for (let i = 0; i < 4; i++) gg.fillRect(16, 52 + i*24, 90 + (i*37) % 110, 8); });
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(.32, .2), new THREE.MeshStandardMaterial({map:scr, emissive:0xffffff, emissiveMap:scr, emissiveIntensity:.9, roughness:.2}));
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(.32, .2), mat({kind:"screen", map:scr, emissive:0xffffff, emissiveMap:scr, emissiveIntensity:.9, roughness:.2}));
   m.position.set(0, .125, -.105); m.rotation.x = -.28; g.add(m);
   return {g, w:.36, len:.3, h:.26, small:true};
 }
@@ -223,7 +223,7 @@ function tvModel(){
   const g = K.build();
   const t = textTex(256, 144, gg => { const gr = gg.createLinearGradient(0, 0, 256, 144); gr.addColorStop(0, "#1f6f43"); gr.addColorStop(1, "#0d2a1a"); gg.fillStyle = gr; gg.fillRect(0, 0, 256, 144);
     gg.strokeStyle = "rgba(255,255,255,.7)"; gg.lineWidth = 3; gg.strokeRect(30, 20, 196, 104); gg.beginPath(); gg.moveTo(128, 20); gg.lineTo(128, 124); gg.stroke(); gg.beginPath(); gg.arc(128, 72, 20, 0, 7); gg.stroke(); });
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w - .1, .52), new THREE.MeshStandardMaterial({map:t, emissive:0xffffff, emissiveMap:t, emissiveIntensity:.8, roughness:.2}));
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w - .1, .52), mat({kind:"screen", map:t, emissive:0xffffff, emissiveMap:t, emissiveIntensity:.8, roughness:.2}));
   m.position.set(0, .89, -.022); g.add(m);
   return {g, w, len:.4, h:1.2};
 }

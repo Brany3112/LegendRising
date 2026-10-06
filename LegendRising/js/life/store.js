@@ -5,7 +5,7 @@
    small things — bulbs, locks, wallpaper — are on the rack by the till: take them off it (left click), put them on the
    belt (left click), the cashier scans them through, you pay at the card reader, and they wait for you at the end of
    the counter. Walk out with anything you have not paid for and the alarm goes off. */
-import {THREE, W, LH, box, rbox, wall, solid, floor, spot, label, textTex, lightSrc, pool, reseed, rnd} from "./build.js";
+import {THREE, W, LH, box, rbox, wall, solid, floor, spot, label, textTex, lightSrc, pool, reseed, rnd, mat} from "./build.js";
 import {frame, rb, cy, fsolid, worldPt, PC} from "./props.js";
 import {staffer, VIEW} from "./npc.js";
 import {facer, decoWin, pilasters, roofTop, downpipe} from "./home.js";
@@ -185,7 +185,7 @@ export function furnitureStore(c){
   const gates = [];
   for (const x of [dx0 + .12, dx1 - .12]){
     rbox(x, 0, b.z1 - .62, .08, 1.45, .32, .03, 0xd5d9dc, {key:"metal"});
-    const gm = new THREE.Mesh(new THREE.BoxGeometry(.03, 1.3, .26), new THREE.MeshStandardMaterial({color:0x6a7178, emissive:0xff2a2a, emissiveIntensity:0, transparent:true, opacity:.8}));
+    const gm = new THREE.Mesh(new THREE.BoxGeometry(.03, 1.3, .26), mat({kind:"glow", color:0x6a7178, emissive:0xff2a2a, emissiveIntensity:0, transparent:true, opacity:.8, roughness:1}));
     gm.position.set(x + (x < (dx0 + dx1)/2 ? .045 : -.045), .72, b.z1 - .62); W.scene.add(gm); gates.push(gm);
     solid(x - .05, x + .05, b.z1 - .78, b.z1 - .46, 0, 1.45);
   }
