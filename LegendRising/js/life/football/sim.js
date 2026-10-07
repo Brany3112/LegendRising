@@ -35,7 +35,7 @@ const H = 1/60, R = BALL.R;
 
 // The tempo table (3.2.10), keyed by S.speed: frozen at kick-off, the harness's only runtime knobs (no director).
 export const TEMPO = Object.freeze({
-  2: Object.freeze({directness: 1.25, shotBias: 1.6, pressMul: 1.15}),
+  2: Object.freeze({directness: 1.25, shotBias: 2.2, pressMul: 1.15}),
   1: Object.freeze({directness: 1.15, shotBias: 1.2, pressMul: 1.08}),
   4: Object.freeze({directness: 1.4, shotBias: 1.55, pressMul: 1.25})
 });
