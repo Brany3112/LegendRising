@@ -1,13 +1,17 @@
 /* ============ LIFE: the end of the day at the training centre ============
    At four o'clock (daily.js SESSION.end) the session ends and the squad goes home, the way people do: off the pitch
-   along the touchline, up the walk between the gym and the clubhouse, and then either round to their cars — reverse
-   parked in the bays, nose to the gate — which pull out through the vehicle gate onto the road and away, or out of
+   along the touchline, up the walk between the gym and the clubhouse, and then either round to their cars (reverse
+   parked in the bays, nose to the gate), which pull out through the vehicle gate onto the road and away, or out of
    the front gate to the stop on the road, where the Line 14 bus pulls in for them and goes. The cars of anyone
    already gone are gone when you arrive; a car whose driver you never saw walk over leaves on time all the same.
    At five the centre closes (world.js sends you home); on a match day the squad's cars stay.
-   departures(o) is set up by ground.js; o.session is the squad (npc.js teamSession), which hands its people over. */
+   departures(o) is set up by ground.js; o.session is the squad (npc.js teamSession), which hands its people over.
+   WP-B (Stage 1, DESIGN 3.5.1, 3.5.3): the people walking off are scheduler actors like everyone else (npc.js actor()),
+   their legs measuring how far they really go, and they keep to the same guard round you as the squad on the pitch
+   (npc.js into(), follow(): never a step into you, a body you bump into that never closes round you). */
 import {THREE, W, solid} from "./build.js";
-import {animateHuman, VIEW} from "./human.js";
+import {VIEW} from "./human.js";
+import {actor, into, follow, youTracker} from "./npc.js";
 import {car, bus, carPaint, CAR_KINDS} from "./cars.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -46,24 +50,28 @@ function driveOf(g, pts, o = {}){
     if (st.s >= len) st.done = true;
   }};
 }
-/* somebody walking a few straight legs (corners eased by turning as they go), at a walk; they stop for you */
+/* somebody walking a few straight legs (corners eased by turning as they go), at a walk; they stop for you and never
+   step into you. me: where you are this step (npc.js youTracker()). The body is drawn by the scheduler from h.ast */
 function walkerOf(h, pts, o = {}){
   const st = {i:0, v:0, done:false, wait:0};
-  const g = h.g, sol = o.sol;
-  return {st, h, step(dt){
-    if (st.done) return;
+  const g = h.g, sol = o.sol, walk = {mode:"move", speed:0}, stand = {mode:"idle"};
+  h.ast = stand;
+  return {st, h, step(dt, me){
+    if (st.done){ h.ast = stand; return; }
     const [tx, tz] = pts[st.i], dx = tx - g.position.x, dz = tz - g.position.z, d = Math.hypot(dx, dz);
-    if (d < .25){ if (++st.i >= pts.length){ st.done = true; animateHuman(h, dt, "idle"); return; } }
-    const ahead = Math.hypot(VIEW.x - (g.position.x + Math.sin(g.rotation.y)*.7), VIEW.z - (g.position.z + Math.cos(g.rotation.y)*.7)) < .75;
+    if (d < .25){ if (++st.i >= pts.length){ st.done = true; h.ast = stand; return; } }
+    const ahead = me.here && Math.hypot(me.x - (g.position.x + Math.sin(g.rotation.y)*.7), me.z - (g.position.z + Math.cos(g.rotation.y)*.7)) < .75;
     const want = ahead ? 0 : (o.speed || 1.35);
     st.v += (want - st.v)*(1 - Math.exp(-4*dt));
     if (d > 1e-3){
       const yaw = Math.atan2(dx, dz); g.rotation.y += wrapA(yaw - g.rotation.y)*(1 - Math.exp(-7*dt));
       const k = Math.min(d, st.v*dt), f = Math.max(0, Math.cos(wrapA(yaw - g.rotation.y)));
-      g.position.x += dx/d*k*f; g.position.z += dz/d*k*f;
+      const nx = g.position.x + dx/d*k*f, nz = g.position.z + dz/d*k*f;
+      // (a step that would take them nearer you is not taken: they stand until you move)
+      if (!into(me, nx, nz, g.position.x, g.position.z)){ g.position.x = nx; g.position.z = nz; } else st.v = 0;
     }
-    animateHuman(h, dt, {mode:"move", speed:st.v});
-    if (sol){ const x = g.position.x, z = g.position.z; Object.assign(sol, {x0:x - .25, x1:x + .25, z0:z - .25, z1:z + .25}); sol.off = Math.hypot(VIEW.x - x, VIEW.z - z) < .55; }
+    walk.speed = st.v; h.ast = walk;
+    if (sol) follow(sol, me, g.position.x, g.position.z, 0, true, 1.8);
   }};
 }
 // is the straight leg from a to b clear of everything solid standing on the ground (people's own bodies aside)?
@@ -121,20 +129,20 @@ export function departures(o){
       const p = {h, w:walkerOf(h, routeFrom(x, z, to, skip), {sol, speed:1.25 + (k % 3)*.12}), car:c, bus:!c, start:minute() + k*1.1, sol, gone:false};
       if (c) c.driver = p;
       people.push(p);
-      animateHuman(h, 0, "idle");
+      actor(h, "leaving", () => !p.gone);
     });
   };
+  const track = youTracker();
   W.anims.push(dt => {
     if (!(dt > 0)) return;
-    const m = minute();
-    // the people walking off
+    const m = minute(), me = track(dt);
+    // the people walking off (standing where they were until their turn to go)
     for (const p of people){
-      if (p.gone || m < p.start) { if (!p.gone) animateHuman(p.h, dt, "idle"); continue; }
-      p.w.step(dt);
+      if (p.gone || m < p.start) continue;
+      p.w.step(dt, me);
       if (!p.w.st.done) continue;
       if (p.car){ p.gone = true; p.h.g.visible = false; p.sol.off = true; p.car.state = "starting"; p.car.t = 0; }
       else if (!p.queued){ p.queued = true; B.queue.push(p); }
-      else animateHuman(p.h, dt, "idle");
     }
     // the cars: a driver gets in, the lights come on, and it pulls out of its bay, through the gate and away
     for (const c of cars){

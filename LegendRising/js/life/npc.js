@@ -9,17 +9,30 @@
      pedestrians({routes, count})  people walking the pavements on looping routes, by the time of day
      castLook(role, seed)          a look nobody else in this place already has
    Everyone who moves is drawn without a sun shadow (the shadow map is not redrawn every frame): the blob under
-   them grounds them. People who come and go with the time of day only do it where you can't see them. */
+   them grounds them. People who come and go with the time of day only do it where you can't see them.
+   WP-B (Stage 1, DESIGN 3.5.1, 3.5.3, 3.5.9, 3.9.6): what people do (where they go, what they are at) is worked out
+   in the world's sub-steps (at most 1/20 s each) as before; their bodies are scheduler actors (SCHED.actor, 1.4.3)
+   drawn once a frame at the tier they get (animTier), from the state the logic left them in (h.ast). Nobody's legs
+   are told a smoothed speed any more: the animation measures how far the body really went (gait.js). */
 import {THREE, W, solid} from "./build.js";
-import {human, animateHuman, lookFor, playerRig, hashStr, rng, CONTACT, BONE, VIEW, onFirstView, you} from "./human.js";
+import {human, animateHuman, animTier, lookFor, playerRig, hashStr, rng, CONTACT, BONE, VIEW, onFirstView, you} from "./human.js";
+import {SCHED} from "./core/sched.js";
 export {human, animateHuman, lookFor, playerRig, CONTACT, BONE, VIEW};
+
+/* a person the scheduler draws: the logic sets h.ast (an animateHuman state) as it goes, and the pose is made once a
+   frame at the body's tier. live(): whether it is out at all (else not posed, its gait state kept) */
+export function actor(h, id, live = null){
+  h.ast = h.ast || {mode:"idle"};
+  return SCHED.actor({id, kind:"npc", pos:() => h.g.position,
+    anim:(dt, tier) => { if (!live || live()) animateHuman(h, dt, h.ast, {tier:animTier(h, tier)}); }});
+}
 
 const col = c => c == null ? null : typeof c === "number" ? c : new THREE.Color().setStyle(String(c)).getHex();
 
 /* where you are this step, as best known: the latest fix (you() in human.js) carried on at the pace you were going
-   when it was taken — a long frame is lived in slices, and you go on moving through them. One per user, called once a
+   when it was taken: a long frame is lived in slices, and you go on moving through them. One per user, called once a
    step: → {x, z, vx, vz, here} */
-function youTracker(){
+export function youTracker(){
   const t = {x:0, z:0, vx:0, vz:0, here:false, n:-1, fx:0, fz:0, gap:0, u:0};
   return dt => {
     const f = you();
@@ -43,8 +56,8 @@ function youTracker(){
 }
 // the same, read once (outside a step: a place being built, its first frame)
 const fixNow = () => { const f = you(); return {x:f.x, z:f.z, fx:f.x, fz:f.z, vx:0, vz:0, u:.14, here:f.here}; };
-/* never into you: a body within arm's length of you moves only if that takes it no nearer — its centre no nearer than
-   .72 m, and its box (25 cm each way) clear of yours (27) by a few cm — so it never closes round you, and you are
+/* never into you: a body within arm's length of you moves only if that takes it no nearer (its centre no nearer than
+   .72 m, and its box (25 cm each way) clear of yours (27) by a few cm), so it never closes round you, and you are
    stopped by it at ~.5 m, not let in. m: a youTracker() reading */
 const GUARD_E = .72, GUARD_C = .25 + .27 + .04;
 /* (measured from where you were last seen, the margins grown by as far as you could have gone since at the pace you
@@ -54,10 +67,10 @@ function nearer(px, pz, u, x, z, ox, oz){
   return (c < GUARD_C + u && c < Math.max(Math.abs(px - ox), Math.abs(pz - oz)) - 1e-4) || (e < GUARD_E + u && e < Math.hypot(px - ox, pz - oz) - 1e-4);
 }
 // (and no nearer where you most likely are by now, carried on from that fix)
-const into = (m, x, z, ox, oz) => m.here && (nearer(m.fx, m.fz, m.u, x, z, ox, oz) || nearer(m.x, m.z, .02, x, z, ox, oz));
+export const into = (m, x, z, ox, oz) => m.here && (nearer(m.fx, m.fz, m.u, x, z, ox, oz) || nearer(m.x, m.z, .02, x, z, ox, oz));
 // a moving body's solid (25 cm each way, head high) follows it; never switched on while it overlaps you (it would close
 // round you and trap you), and off while the body isn't out
-function follow(q, m, x, z, y, on, top = 1.8){
+export function follow(q, m, x, z, y, on, top = 1.8){
   q.x0 = x - .25; q.x1 = x + .25; q.z0 = z - .25; q.z1 = z + .25; q.y0 = y; q.y1 = y + top;
   // (one already on when you are put down on top of it is left on: you can only step out of it, see world.js)
   q.off = !on || (q.off && m.here && Math.max(Math.abs(m.fx - x), Math.abs(m.fz - z)) < GUARD_C + m.u);
@@ -76,7 +89,7 @@ export function person(o = {}){
   h.legs = [h.bones[BONE.thL], h.bones[BONE.thR]]; h.arms = [h.bones[BONE.uaL], h.bones[BONE.uaR]]; h.body = h.bones[BONE.spine]; h.hips = h.bones[BONE.hips];
   return h;
 }
-// the old call: "run" (speed is a multiple of a 3.4 m/s jog), "kick" (p.kick 0..1), "stretch", "idle" — or any animateHuman mode
+// the old call: "run" (speed is a multiple of a 3.4 m/s jog), "kick" (p.kick 0..1), "stretch", "idle", or any animateHuman mode
 export function animate(p, dt, mode, speed = 1){
   if (mode === "run") return animateHuman(p, dt, {mode:"move", speed:3.4*speed});
   if (mode === "kick") return animateHuman(p, dt, {mode:"kick", t:Math.min(1, p.kick || 0)});
@@ -85,12 +98,12 @@ export function animate(p, dt, mode, speed = 1){
 
 /* ---------- the training session on the pitch ----------
    Two pairs passing (one pair in bibs): pass, the ball rolls across, a first touch to stop it, a touch to set
-   it, and back — the ball leaves the boot at the moment of contact. Three team-mates running laps together
+   it, and back; the ball leaves the boot at the moment of contact. Three team-mates running laps together
    (striding out down the far side), the keeper stretching by the touchline, and the coach with his clipboard.
    Everyone is laid out clear of the drill stations: lanes and the lap are tested against the ground's solids
    and against o.avoid, the things lying flat on the pitch that aren't solid (cones, loose balls, drill marks).
    The lap stays on the grass (at most OUT outside the line asked for), goes round the coach on the pitch side,
-   and the runners swing out round you — or ease up — if you stand in their way. */
+   and the runners swing out round you (or ease up) if you stand in their way. */
 // the training ground's loose kit (ground.js drillStations: the cone gates, the odd cone and ball, the spots you
 // stand on for a drill); ground.js may pass its own list as o.avoid instead
 const PITCH_LITTER = [[-1.5, -6.15, .3], [-1.5, -5.05, .3], [-1.5, -8.15, .3], [-1.5, -7.05, .3], [-1.5, -10.15, .3], [-1.5, -9.05, .3],
@@ -99,7 +112,7 @@ const PITCH_LITTER = [[-1.5, -6.15, .3], [-1.5, -5.05, .3], [-1.5, -8.15, .3], [
 /* the drills' own lanes, which nobody should stand in or pass a ball across (ground.js DRILLS and RINGS): the passing
    drill's line from its spot to each ring, the shots from the shooting spot at the goal mouth, the heading machine's
    lob and the header back at the goal, the interception machine's passes. ground.js may pass its own as o.lanes
-   ({a:[x, z], b:[x, z], r}: keep r + the lane's need off the line) and o.rings ([x, z] — the painted rings, 1.3 m) */
+   ({a:[x, z], b:[x, z], r}: keep r + the lane's need off the line) and o.rings ([x, z]: the painted rings, 1.3 m) */
 const RINGS_AT = [[-9, -8.5], [9.5, -21.5], [-11, -22], [10, -9.2], [-3.5, -23.5], [4, -6.8]];
 const DRILL_LANES = [...RINGS_AT.map(([x, z]) => ({a:[0, -15], b:[x, z], r:.7})), ...[-18.5, -15, -11.5].map(gz => ({a:[-9.5, -15], b:[-21.5, gz], r:.7})),
   {a:[19.1, -23.8], b:[15, -13.5], r:.7}, {a:[15, -13.5], b:[21.5, -15], r:.7}, {a:[12.5, -7.6], b:[-2, -7.6], r:.7}];
@@ -303,6 +316,14 @@ export function teamSession(o){
   const coach = human(lookFor("coach", base + 3, {kit:[a, b]}), {cast:false});
   coach.g.position.set(o.coach.x, 0, o.coach.z); coach.g.rotation.y = o.coach.ry || 0;
   root.add(coach.g);
+  // everyone in the session is drawn by the scheduler while the session is on and still theirs (leave.js takes over)
+  let on = null;
+  const live = () => on === true && !self.left;
+  for (const ac of actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) actor(h, "team", live);
+  for (const ac of actors) if (ac.kind === "stretch") ac.P.ast = {mode:"stretch"};
+  coach.ast = {mode:"clipboard"}; actor(coach, "team-coach", live);
+  // (a clip state each, changed in place as the drill goes on)
+  const say = (h, mode, t, amp) => { const q = h.ast; q.mode = mode; q.t = t; q.amp = amp; q.speed = undefined; };
   // everyone standing on the pitch is solid while the session is on (you walk round them, not through them); made
   // after the lanes and the lap were laid out, which already keep clear of them
   const solids = [solid(o.coach.x - .35, o.coach.x + .35, o.coach.z - .35, o.coach.z + .35, 0, 1.9)];
@@ -344,13 +365,12 @@ export function teamSession(o){
   };
   const PASS = .75, TRAP = .7, SET = .6, SPEED = 7.5;
   const pa = new THREE.Vector3(), pb = new THREE.Vector3();
-  let on = null;
   W.anims.push(dt => {
     const now = !!o.when();
     if (now !== on){
       const was = on; on = now;
       // the session ending while you are here: if somebody (leave.js) is taking them home, its people are handed over
-      // where they stand — they don't vanish — and the balls are gathered up
+      // where they stand (they don't vanish), and the balls are gathered up
       if (!now && was === true && self.leave){
         for (const ac of actors) if (ac.ball) ac.ball.visible = false;
         for (const q of solids) q.off = true; for (const q of bodies) q.off = true;
@@ -409,7 +429,7 @@ export function teamSession(o){
     group.d += group.v*dt;
     /* where each runner goes this step: towards his place in the group (catching up on it at a little over its pace).
        None of them ever steps into you (into()): if that step would take him nearer, he takes the same length of step
-       turned off round you — the least turn that works, away from your side first — and failing every one, he stands
+       turned off round you (the least turn that works, away from your side first), and failing every one, he stands
        a moment until you move (and the rest wait for him) */
     loop.at(group.d, lc); const w2 = lc.w;
     for (const ac of runners){
@@ -444,7 +464,7 @@ export function teamSession(o){
         const old = pa.copy(ac.ball.position);
         if (ac.st === "pass"){
           const t = ac.t/PASS;
-          animateHuman(A, dt, {mode:"pass", t:Math.min(1, t)});
+          say(A, "pass", Math.min(1, t));
           if (t < CONTACT.pass) footSpot(A, .34, ac.ball.position);
           else {
             if (!ac.at){ ac.at = footSpot(A, .34, new THREE.Vector3()); ac.to = footSpot(Bp, .3, new THREE.Vector3()); ac.fly = ac.at.distanceTo(ac.to)/SPEED; ac.ft = 0; }
@@ -454,16 +474,16 @@ export function teamSession(o){
             const left = ac.fly - ac.ft;
             if (left < TRAP*CONTACT.trap){ ac.st = "trap"; ac.t = TRAP*CONTACT.trap - left; }
           }
-          if (ac.st === "pass") animateHuman(Bp, dt, "idle");
+          if (ac.st === "pass") say(Bp, "idle");
         } else if (ac.st === "trap"){
           const t = ac.t/TRAP;
-          animateHuman(Bp, dt, {mode:"trap", t:Math.min(1, t)}); animateHuman(A, dt, "idle");
+          say(Bp, "trap", Math.min(1, t)); say(A, "idle");
           if (t < CONTACT.trap){ ac.ft += dt; ac.ball.position.lerpVectors(ac.at, ac.to, Math.min(1, ac.ft/ac.fly)); }
           else ac.ball.position.lerp(footSpot(Bp, .3, pb), 1 - Math.exp(-12*dt));
           if (t >= 1){ ac.st = "set"; ac.t = 0; ac.at = null; }
         } else if (ac.st === "set"){
           const t = ac.t/SET;
-          animateHuman(Bp, dt, {mode:"pass", t:Math.min(1, t), amp:.45}); animateHuman(A, dt, "idle");
+          say(Bp, "pass", Math.min(1, t), .45); say(A, "idle");
           // a short touch out of the feet, ready to play it back
           if (t > CONTACT.pass) ac.ball.position.lerp(footSpot(Bp, .34, pb), 1 - Math.exp(-6*dt));
           if (t >= 1.25){ ac.st = "pass"; ac.t = 0; ac.who = 1 - ac.who; }
@@ -473,25 +493,22 @@ export function teamSession(o){
         // his place in the group, swung out round you if you're in the way (worked out above)
         const x = ac.c.X, z = ac.c.Z;
         /* he faces the way he really goes, frame to frame (round a bend, swinging out round you, closing up into
-           single file), turning no faster than a runner can; the legs are driven by how fast he goes that way
-           (quicker on the outside of a bend) — so the planted foot stays planted */
+           single file), turning no faster than a runner can; his legs measure how far he really went (gait.js),
+           quicker on the outside of a bend, so the planted foot stays planted. What he is told is the group's pace */
         if (ac.yaw == null) ac.yaw = Math.atan2(ac.c.ux, ac.c.uz);
-        let fwd = ac.v;
         if (ac.px != null && dt > 0){
           const vx = (x - ac.px)/dt, vz = (z - ac.pz)/dt, sp = Math.hypot(vx, vz);
           if (sp > .4){
             let dy = Math.atan2(vx, vz) - ac.yaw; while (dy > Math.PI) dy -= Math.PI*2; while (dy < -Math.PI) dy += Math.PI*2;
             ac.yaw += Math.max(-4*dt, Math.min(4*dt, dy*(1 - Math.exp(-25*dt))));
           }
-          fwd = Math.max(0, vx*Math.sin(ac.yaw) + vz*Math.cos(ac.yaw));
         }
-        ac.v += (fwd - ac.v)*(1 - Math.exp(-14*dt));
+        ac.v = group.v;
         ac.px = x; ac.pz = z; ac.P.g.position.set(x, 0, z); ac.P.g.rotation.y = ac.yaw;
         follow(ac.sol, me, x, z, 0, true, 1.85);
-        animateHuman(ac.P, dt, {mode:"move", speed:ac.v});
-      } else animateHuman(ac.P, dt, "stretch");
+        const q = ac.P.ast; q.mode = "move"; q.speed = group.v;
+      }
     }
-    animateHuman(coach, dt, "clipboard");
   });
   Object.assign(self, {root, coach, actors, group, solids:[...solids, ...bodies], loop:{x0, x1, z0, z1, path:loop, obst}});
   return self;
@@ -597,13 +614,11 @@ export function staffer(x, z, ry, o = {}){
   const sol = o.noSolid ? null : solid(x - .3, x + .3, z - .3, z + .3, o.y || 0, (o.y || 0) + 1.9);
   let on = true;
   if (o.when){ on = !!o.when(dayMin(o)); h.g.visible = on; if (sol) sol.off = !on; }
-  W.anims.push(dt => {
-    if (o.when){
-      const want = !!o.when(dayMin(o));
-      if (want !== on && !inSight(x, z)){ on = want; h.g.visible = on; if (sol) sol.off = !on; W.shadowDirty = true; }
-    }
-    if (on) animateHuman(h, dt, st);
+  if (o.when) W.anims.push(() => {
+    const want = !!o.when(dayMin(o));
+    if (want !== on && !inSight(x, z)){ on = want; h.g.visible = on; if (sol) sol.off = !on; W.shadowDirty = true; }
   });
+  h.ast = st; actor(h, "staff-" + role, () => on);
   h.role = role; h.st = st;
   return h;
 }
@@ -628,6 +643,8 @@ export function regulars(list, o = {}){
     animateHuman(h, 0, st); h.bw = 1;
     for (let k = 0; k < 4; k++) animateHuman(h, .1, st);
     if (e.when){ P.on = !!e.when(dayMin(o)); h.g.visible = P.on; if (sol) sol.off = !P.on; }
+    h.ast = st; actor(h, "regular", () => P.on);
+    P.look = {mode:"idle", look:0}; P.walk = {mode:"move", speed:0};
     out.push(P);
   });
   const track = youTracker();
@@ -637,12 +654,12 @@ export function regulars(list, o = {}){
       const {h, e} = P;
       if (e.when){ const want = !!e.when(m); if (want !== P.on && !inSight(h.g.position.x, h.g.position.z)){ P.on = want; h.g.visible = want; if (P.sol) P.sol.off = !want; } }
       if (!P.on) continue;
-      if (!e.browse){ animateHuman(h, dt, P.st); continue; }
+      if (!e.browse){ h.ast = P.st; continue; }
       // browsing an aisle: stand and look at the shelf a while, then a few steps along it, out of your way
       const B = e.browse, L = Math.hypot(B.b[0] - B.a[0], B.b[1] - B.a[1]) || 1;
       if (P.go == null){
         P.t -= dt;
-        animateHuman(h, dt, {mode:"idle", look:.35*Math.sin(h.t*.4)});
+        P.look.look = .35*Math.sin(h.t*.4); h.ast = P.look;
         turn(P, B.face, dt);
         if (P.t <= 0){ P.go = Math.max(0, Math.min(1, P.at + (Math.random() < .5 ? -1 : 1)*(.25 + Math.random()*.35))); if (Math.abs(P.go - P.at)*L < .3) P.go = P.at < .5 ? P.at + .4 : P.at - .4; }
       } else {
@@ -658,7 +675,7 @@ export function regulars(list, o = {}){
         h.g.position.set(B.a[0] + (B.b[0] - B.a[0])*P.at, e.y || 0, B.a[1] + (B.b[1] - B.a[1])*P.at);
         if (P.sol){ const w = (P.sol.x1 - P.sol.x0)/2, d = (P.sol.z1 - P.sol.z0)/2; Object.assign(P.sol, {x0:h.g.position.x - w, x1:h.g.position.x + w, z0:h.g.position.z - d, z1:h.g.position.z + d}); }
         turn(P, Math.atan2(ux, uz), dt);
-        animateHuman(h, dt, {mode:"move", speed:P.v});
+        P.walk.speed = P.v; h.ast = P.walk;
         if ((P.go - P.at)*dir <= 1e-3 || (blocked && (P.wait = (P.wait || 0) + dt) > 2.5)){ P.go = null; P.wait = 0; P.t = 3 + Math.random()*5; }
       }
     }
@@ -675,8 +692,8 @@ function turn(P, yaw, dt, k = 6){
    pause in seconds (at a kerb, looking both ways before crossing) and the way round the loop it applies to
    ([x, z, secs, +1 | −1 | 0 for both]). o.count(minute) → how many are
    out at that time of day (none in the small hours); o.max (6) of them at most. Walkers glide along the line (read
-   between its 20 cm samples), keep to the right of it, swing round you and round anyone coming the other way — or
-   stand aside, or wait, and turn back if it stays blocked — and never step into a solid or onto a raised floor:
+   between its 20 cm samples), keep to the right of it, swing round you and round anyone coming the other way (or
+   stand aside, or wait, and turn back if it stays blocked), and never step into a solid or onto a raised floor:
    every point of a route knows how far to each side it is clear. One mesh each, no sun shadow. */
 const ROAD_R = .3, KEEP = .3, NEED = .62, YOU_NEED = .9;
 // the ground under (x, z) (the road's surface, a pavement, a kerb) and whether a body of radius r fits there: against
@@ -778,13 +795,17 @@ export function pedestrians(o){
     const look = castLook("pedestrian", (o.seed || 500) + i*131);
     const h = human(look, {cast:false});
     W.scene.add(h.g);
-    const w = {h, R, dir, s:R.len*((i*.37 + .11) % 1), v:0, base:1.2 + ((i*.29) % 1)*.35, lat:-KEEP*dir, yaw:null, on:false, pause:0, cool:0, wait:0, px:null, pz:null, vis:0, y:0, b:{}, sol:null};
+    const w = {h, R, dir, s:R.len*((i*.37 + .11) % 1), v:0, base:1.2 + ((i*.29) % 1)*.35, lat:-KEEP*dir, yaw:null, on:false, pause:0, cool:0, wait:0, px:null, pz:null, y:0, b:{}, sol:null};
     put(w);
     h.g.rotation.y = Math.atan2(w.b.ux*dir, w.b.uz*dir);
     // the ones out at this hour are already out when you arrive (nothing has been drawn yet, so nobody sees them
     // appear); after that they come and go only where you can't see
     w.on = i < first; h.g.visible = w.on;
     if (w.on) animateHuman(h, 0, {mode:"move", speed:w.base});
+    // drawn by the scheduler while out: walking (told its pace; its legs measure the way it really goes), or stood at
+    // a kerb looking both ways
+    w.go = {mode:"move", speed:w.base}; w.kerb = {mode:"idle", look:0}; h.ast = w.go;
+    actor(h, "walker", () => w.on);
     walkers.push(w);
     // a body you bump into, not walk through (see body() below)
     w.sol = solid(0, 0, 0, 0, 0, 1.8); w.sol.off = true; body(w);
@@ -819,8 +840,8 @@ export function pedestrians(o){
       const R = w.R, a = R.at(w.s, w.b), fx = a.ux*w.dir, fz = a.uz*w.dir;
       // a pause at a kerb: stand, look one way and the other, then go
       if (w.pause > 0){
-        w.pause -= dt; w.v = 0; w.vis = 0;
-        animateHuman(h, dt, {mode:"idle", look:Math.sin((1.6 - w.pause)*2.4)*.7});
+        w.pause -= dt; w.v = 0;
+        w.kerb.look = Math.sin((1.6 - w.pause)*2.4)*.7; h.ast = w.kerb;
         body(w);
         return;
       }
@@ -852,7 +873,7 @@ export function pedestrians(o){
         if (okL && (!okR || Math.abs(left - w.lat) < Math.abs(right - w.lat))) latT = left;
         else if (okR) latT = right;
         else {
-          // no way past along the next few metres: stop a good pace short — and if there's room to one side right
+          // no way past along the next few metres: stop a good pace short, and if there's room to one side right
           // here, stand aside there and let them by
           slow = 1 - Math.max(0, Math.min(1, (ahead - 1.1)/1.4));
           const l2 = pl + need <= a.l, r2 = pl - need >= -a.r;
@@ -864,7 +885,7 @@ export function pedestrians(o){
       if (here){ const p = h.g.position, dx = me.x - p.x, dz = me.z - p.z, d = Math.hypot(dx, dz), ah = dx*fx + dz*fz;
         if (ah > 0 && d < 1.3 && Math.abs(-dx*fz + dz*fx) < .8) slow = Math.max(slow, 1 - Math.max(0, Math.min(1, (d - .7)/.6))); }
       /* you, beside them or coming up behind (they only look ahead above): close by and closing on them, or right at
-         their shoulder, they step across to give you room — to the far side of the line from you, if there's room here */
+         their shoulder, they step across to give you room: to the far side of the line from you, if there's room here */
       if (here){
         const p = h.g.position, dx = me.x - p.x, dz = me.z - p.z, d = Math.hypot(dx, dz), ahead = dx*fx + dz*fz;
         const closing = d > 1e-3 ? (w.v*ahead - me.vx*dx - me.vz*dz)/d : 0;          // how fast the gap shrinks
@@ -883,9 +904,9 @@ export function pedestrians(o){
       // still wider than the way ahead allows (just turned round, say): ease up until it has stepped in
       { const out = Math.max(lo - w.lat, w.lat - hi, 0); if (out > .02 && !aside) slow = Math.max(slow, Math.min(1, out/.35)); }
       // the one in front, going the same way: don't walk up their heels
-      // (it stops a pace behind them — when they stop at a kerb, it waits there too)
+      // (it stops a pace behind them: when they stop at a kerb, it waits there too)
       for (const q of walkers){ if (q === w || !q.on || q.R !== R || q.dir !== w.dir) continue; let gap = (q.s - w.s)*w.dir; gap = ((gap % R.len) + R.len) % R.len; if (gap < 1.8) slow = Math.max(slow, Math.min(1, (1.8 - gap)/.8)); }
-      // held up too long: turn back (not all at once — two who meet where neither can pass don't both give up)
+      // held up too long: turn back (not all at once: two who meet where neither can pass don't both give up)
       if ((slow > .95 && !aside) || w.held){ if ((w.wait += dt) > 2.5 + (i % 3)*1.6){ w.dir = -w.dir; w.wait = 0; } } else w.wait = 0;
       const vt = w.base*(1 - slow);
       w.v += (vt - w.v)*(1 - Math.exp(-(vt < w.v ? 7 : 4)*dt));
@@ -905,7 +926,7 @@ export function pedestrians(o){
       { const c = Math.max(-b.r, Math.min(b.l, w.lat)); w.lat += Math.max(-1.5*dt, Math.min(1.5*dt, c - w.lat)); }   // never into a post, a bin or a wall
       let x = b.x - b.uz*w.lat, z = b.z + b.ux*w.lat;
       /* never a step into you (see into()): if the step would take it nearer, the side-step alone, or the step on along
-         the line alone; failing both, it stands where it is — and its legs stop with it */
+         the line alone; failing both, it stands where it is, and its legs stop with it */
       w.held = false;
       if (here && w.px != null && into(me, x, z, w.px, w.pz)){
         const s1n = w.s, lat1 = w.lat;
@@ -921,15 +942,13 @@ export function pedestrians(o){
       const moved = w.px == null ? 1 : Math.hypot(x - w.px, z - w.pz), gy = R.ground(x, z);
       w.y += (gy - w.y)*(1 - Math.exp(-(moved/(gy > w.y ? .03 : .035) + dt*2)));
       h.g.position.set(x, w.y, z);
-      // legs driven by how fast the body really goes; facing eases round to the way it goes
-      if (w.px != null){ const sp = moved/dt; w.vis += (Math.min(sp, 2.2) - w.vis)*(1 - Math.exp(-8*dt)); }
+      // facing eases round to the way it goes (its legs measure how far it really went: gait.js)
       w.px = x; w.pz = z;
       const yaw = Math.atan2(b.ux*w.dir, b.uz*w.dir);
       if (w.yaw == null) w.yaw = yaw;
       let d = yaw - w.yaw; while (d > Math.PI) d -= Math.PI*2; while (d < -Math.PI) d += Math.PI*2;
       w.yaw += d*(1 - Math.exp(-5*dt)); h.g.rotation.y = w.yaw;
-      // (every frame, near or far: legs worked out every other frame slide on the frames between, with the body going on)
-      animateHuman(h, dt, {mode:"move", speed:w.vis});
+      w.go.speed = w.v; h.ast = w.go;
       body(w);
     });
   });
