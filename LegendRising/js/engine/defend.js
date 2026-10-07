@@ -214,7 +214,7 @@ function foulGiven(){
   skillXP("tackling", 4);
   const last = M.defend === "last";
   const inBox = M.att.y < 16.5 && Math.abs(M.att.x - 34) < 20;
-  const card = bookMe(last ? "red" : inBox ? "yellow" : (Math.random() < .3 ? "yellow" : ""));
+  const card = bookPlayer(last ? "red" : inBox ? "yellow" : (Math.random() < .3 ? "yellow" : ""));
   M.defOut = last ? "red" : inBox ? "pen" : card ? "yellow" : "fk";
   if (last) return endMoment("foul", "You brought him down as the last man. That is a red card.");
   if (inBox) return endMoment("foul", "You caught him inside the box. Penalty.");
@@ -312,26 +312,4 @@ function headContact(j){
 }
 function headMissed(txt){
   return endMoment("beaten", txt || "You mistimed the jump and it went over your head.");
-}
-
-/* ---------- cards and suspensions ---------- */
-// a booking, and what it costs you
-function bookMe(kind){
-  if (!kind) return false;
-  S.cards = S.cards || {y:0, r:0, run:0};
-  if (kind === "red"){
-    S.cards.r++; S.cards.run = 0;
-    S.ban = (S.ban || 0) + 2;
-    S.trust = Math.max(-30, S.trust - 10);
-    MT.sentOff = true;
-    addNews("you", `${S.player.name} sent off`, `A red card${myClub() ? ` for ${myClub().nm}` : ""}. Two matches out.`, "me");
-    return true;
-  }
-  S.cards.y++; S.cards.run++;
-  MT.my.cards = (MT.my.cards || 0) + 1;
-  if (S.cards.run >= 5){                           // five bookings and you sit one out
-    S.cards.run = 0; S.ban = (S.ban || 0) + 1;
-    addNews("you", `${S.player.name} suspended`, "A fifth booking of the season. One match out.", "me");
-  }
-  return true;
 }
