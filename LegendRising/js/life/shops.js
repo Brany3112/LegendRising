@@ -1,12 +1,18 @@
 /* ============ LIFE: the corner store ============
    The Mini Market on the corner of your street sells what you eat and drink, open all hours, warm light spilling
-   out at night. (The places people work — the café next door among them — are life/units.js.) */
+   out at night. (The places people work, the café next door among them, are life/units.js.)
+   Owner: WP-G (Stage 1). Contract: DESIGN 3.8.6: on the day of the notice-board event "shop" (stocktaking) the
+   Mini Market sells nothing and its customers stay away; the furniture store is never part of it. */
 import {box, rbox, wall, solid, floor, ramp, spot, label, textTex, lightSrc, pool, reseed, rnd, pick, doorway, extrude, reveal} from "./build.js";
 import {frame, rb, cy, sph, fsolid, shelfUnit, cabinet} from "./props.js";
 import {staffer, regulars} from "./npc.js";
 import {facer, pilasters, roofTop} from "./home.js";
 
 let ctx = null;
+// shut for stocktaking today (events.js "shop"): nothing for sale, and the way it is said
+const shut = () => typeof lifeEventOn === "function" && lifeEventOn("shop");
+const CLOSED = "Closed for stocktaking. Back tomorrow.";
+const shop = () => shut() ? ctx.note(CLOSED) : ctx.shop();
 
 // shelves of colourful packets, so a shop reads as a shop from the door
 function goods(f, lx, lz, w, levels, seed){
@@ -95,7 +101,7 @@ export function miniMarket(c){
   fsolid(fc, 0, 0, 2.3, .85, 0, 1.05);
   staffer(18.25, 1.1, Math.PI/2, {role:"shopkeeper", shirt:0x2f7d4a, seed:11, minute:ctx.minute});        // .22 behind the counter (x 18.475)
   // customers: one paying at the till (they come and go through the day), one browsing the middle aisle
-  const open = m => m >= 6*60 + 30 && m < 23*60 + 30;
+  const open = m => m >= 6*60 + 30 && m < 23*60 + 30 && !shut();
   regulars([
     {role:"customer", seed:31, x:19.68, z:1.75, ry:-Math.PI/2, state:{mode:"counter", counter:1.05, reach:.5}, when:m => open(m) && m % 41 < 27, solid:[.44, .44]},
     {role:"customer", seed:57, x:23.95, z:-1.5, ry:-Math.PI/2, browse:{a:[23.95, -3.0], b:[23.95, -.1], face:-Math.PI/2}, when:m => open(m) && (m < 22*60 || m % 53 < 20), solid:[.5, .5]}
@@ -133,8 +139,8 @@ export function miniMarket(c){
   pool(25.8, 4.5, 3.4, .125); pool(20.7, 4.3, 2.2, .125);            // its light spilling out over the pavement at night
   for (const x of [20, 23.5, 27]) for (const z of [-3, 0]) box(x - .6, H - .06, z - .15, x + .6, H - .02, z + .15, 0xfff6e0, {key:"lamp", ao:false});
   // buying: at the counter, or anywhere you look at the shelves and fridges
-  spot({x:19.6, y:1.1, z:1.1, r:1.8, aim:[[18.4, 0, -.1], [19.6, 1.6, 2.3]], label:"Mini Market", hint:"Buy food, drinks and recovery", hold:.2, run:() => ctx.shop()});
-  for (const [x, z] of [[23.2, -1.6], [26.4, -1.6]]) spot({aim:[[x - .5, 0, -3.5], [x + .5, 1.7, .3]], label:"Shelves", hint:"Pay at the till · or press E to shop", hold:.2, run:() => ctx.shop()});
-  spot({aim:[[20.2, 0, -5.3], [28.8, 2.2, -4.5]], label:"Drinks fridges", hint:"Pay at the till · or press E to shop", hold:.2, run:() => ctx.shop()});
+  spot({x:19.6, y:1.1, z:1.1, r:1.8, aim:[[18.4, 0, -.1], [19.6, 1.6, 2.3]], label:"Mini Market", get hint(){ return shut() ? CLOSED : "Buy food, drinks and recovery"; }, run:shop});
+  for (const [x, z] of [[23.2, -1.6], [26.4, -1.6]]) spot({aim:[[x - .5, 0, -3.5], [x + .5, 1.7, .3]], label:"Shelves", get hint(){ return shut() ? CLOSED : "Pay at the till · or press E to shop"; }, run:shop});
+  spot({aim:[[20.2, 0, -5.3], [28.8, 2.2, -4.5]], label:"Drinks fridges", get hint(){ return shut() ? CLOSED : "Pay at the till · or press E to shop"; }, run:shop});
   floor(b.x0 + .25, b.x1 - .25, b.z0 + .25, b.z1 - .25, .02);
 }

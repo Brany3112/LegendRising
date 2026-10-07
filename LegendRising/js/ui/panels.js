@@ -2,7 +2,10 @@
 /* ============ PANELS IN THE WORLD ============
    The things you open by walking up to them: the club computer (and the laptop at home), the Mini
    Market till and the vending machine, a bench to wait on, the clock-in terminal at work, and the
-   card before you sleep. They all share one frame, one look, and Esc to close. */
+   card before you sleep. They all share one frame, one look, and Esc to close.
+   Owner: WP-G (Stage 1). Contracts: DESIGN 3.8.3 (the sleep button says what sleepPlan says), 3.8.9 (bus minutes from
+   busMins, hours from the helpers), 3.7.3 (the look editor in the world offers only what you own), 3.7.4 (lifeOnb
+   "openBus"). */
 const LP = {open:false, kind:"", tab:"today", onClose:null, busy:false};
 const pctOf = (v, max) => clamp(100*num(v, 0)/(max || 1), 0, 100);
 const pbar = (pct, cls) => `<div class="pb ${cls || ""}"><i style="width:${clamp(num(pct, 0), 0, 100).toFixed(1)}%"></i></div>`;
@@ -55,20 +58,20 @@ function pcToday(){
   let sched = "";
   if (f){
     sched = `<div class="pc-card hl"><div class="pc-h">${f.done ? "Today's match" : "Match today"}</div>${matchCard(f, true)}
-      ${!f.done ? `<p class="pc-note">${meP().inj > 0 ? "You're injured — you'll watch this one." : (S.ban || 0) > 0 ? `Suspended — ${S.ban} game${S.ban === 1 ? "" : "s"} to sit out.` : "Walk out of the tunnel at the training ground before kick-off."}</p>` : ""}</div>`;
+      ${!f.done ? `<p class="pc-note">${meP().inj > 0 ? "You're injured, so you'll watch this one." : (S.ban || 0) > 0 ? `Suspended: ${S.ban} game${S.ban === 1 ? "" : "s"} to sit out.` : "Walk out of the tunnel at the training ground before kick-off."}</p>` : ""}</div>`;
   } else {
     const st = !td ? "" : a.status === "ontime" ? `<span class="tag good">On time</span>` : a.status === "late" ? `<span class="tag bad">Late</span>` : S.life.min >= SESSION.end ? `<span class="tag bad">Missed</span>` : `<span class="tag">Not checked in</span>`;
     sched = `<div class="pc-card"><div class="pc-h">Today</div>
-      <div class="pc-sched"><div><span>Training</span><b>${td ? `${fmtTime(SESSION.start)} – ${fmtTime(SESSION.end)}` : "No session"}</b>${st}</div><div><span>Match</span><b>No match</b></div></div>
+      <div class="pc-sched"><div><span>Training</span><b>${td ? sessionHours() : "No session"}</b>${st}</div><div><span>Match</span><b>No match</b></div></div>
       ${nf ? `<div class="pc-next"><span>Next match · ${dayName(fixtureSlot(nf).wd)} ${fmtTime(fixtureSlot(nf).min)}</span><b>vs ${esc(oppName(nf))}</b></div>` : `<div class="pc-next"><span>No more matches this week</span></div>`}</div>`;
   }
   const eff = Math.round(trainEff()*100);
   const tips = [];
-  if (f && !f.done && S.fatigue > 55) tips.push("Tired legs cost you on the pitch. Rest before kick-off — sit, nap, or an ice bath.");
+  if (f && !f.done && S.fatigue > 55) tips.push("Tired legs cost you on the pitch. Rest before kick-off: sit, nap, or an ice bath.");
   if (f && !f.done && S.energy < 50) tips.push("Eat a proper meal before the match.");
   if (!f && S.energy < 35) tips.push("You're running low. Eat something before you train.");
   if (!f && S.fatigue > 70) tips.push("Training now is worth less and tires you out more. Rest first.");
-  if (!tips.length) tips.push(td && S.life.min < SESSION.start ? `Be at the training ground by ${fmtTime(SESSION.start)}. The bus takes 40 minutes.` : "Food keeps your energy up. Sleep is what clears fatigue.");
+  if (!tips.length) tips.push(td && S.life.min < SESSION.start ? `Be at the training ground by ${fmtTime(SESSION.start)}. The bus takes ${busMins(lifeZone() === "ground" ? "home" : lifeZone(), "ground")} minutes.` : "Food keeps your energy up. Sleep is what clears fatigue.");
   const ord = S.orders.slice().sort((x, y) => x.eta - y.eta);
   return `<div class="pc-hero"><div><span class="pc-dow">${todayName()}</span><b class="pc-tm">${fmtTime(S.life.min)}</b></div>
       <div class="pc-meta">Week ${S.week + 1} of ${CAL.W} · ${monthName(S.week)} ${calYear(S.week)}<br>Season ${W.season}</div></div>
@@ -81,7 +84,7 @@ function pcToday(){
       <div class="pc-card"><div class="pc-h">At the club</div>
         ${meterRow("Team Chemistry", S.chem, 100, "chem", `${Math.round(S.chem)}`)}<div class="pc-lab">${chemLabel()}</div>
         ${meterRow("Manager trust", S.trust + 30, 110, "trust", `${Math.round(S.trust)}`)}<div class="pc-lab">${roleOutlook()}</div>
-        <div class="pc-eff">Wage <b>${S.contract ? eur(S.contract.wage) + "/wk" : "—"}</b> · Money <b>${eurFull(S.money)}</b></div></div>
+        <div class="pc-eff">Wage <b>${S.contract ? eur(S.contract.wage) + "/wk" : EMPTY_CELL}</b> · Money <b>${eurFull(S.money)}</b></div></div>
     </div>
     <div class="pc-card"><div class="pc-h">Advice</div>${tips.map(t => `<p class="pc-tip">${esc(t)}</p>`).join("")}</div>
     ${ord.length ? `<div class="pc-card"><div class="pc-h">Foodies orders</div>${ord.map(o => `<div class="pc-row"><span>${Object.entries(o.items).map(([k, q]) => `${q}× ${FOOD[k] ? FOOD[k].name : k}`).join(", ")}</span><b>${fmtTime(o.eta % 1440)}</b></div>`).join("")}</div>` : ""}`;
@@ -99,7 +102,7 @@ function pcCareer(){
   const k = S.contract, js = jobState(), {job, rank} = myJob(), top = jobIsTop(), me = meP(), sm = S.seasonMy, cm = S.careerMy;
   return `<div class="pc-grid2">
     <div class="pc-card"><div class="pc-h">Contract</div>
-      ${k ? `<div class="pc-row"><span>Club</span><b>${esc(myClub() ? myClub().nm : "—")}${k.loan ? " (loan)" : ""}</b></div><div class="pc-row"><span>Wage</span><b>${eur(k.wage)}/week</b></div>
+      ${k ? `<div class="pc-row"><span>Club</span><b>${esc(myClub() ? myClub().nm : EMPTY_CELL)}${k.loan ? " (loan)" : ""}</b></div><div class="pc-row"><span>Wage</span><b>${eur(k.wage)}/week</b></div>
       <div class="pc-row"><span>Years left</span><b>${k.years}</b></div><div class="pc-row"><span>Role promised</span><b>${ROLE[k.role]}</b></div>` : `<p class="pc-tip">No contract.</p>`}
       <div class="pc-row"><span>Money</span><b class="gold">${eurFull(S.money)}</b></div><div class="pc-row"><span>Market value</span><b>${eur(marketValue(me))}</b></div></div>
     <div class="pc-card"><div class="pc-h">Day job</div>
@@ -125,12 +128,12 @@ function pcYou(){
       <p class="pc-tip">${esc(buildN)} build · ${Math.round(180*num(L.height, 1))} cm · ${esc(hairN.toLowerCase())} hair</p></div>
       <button class="btn sm" onclick="openLookEditor('pc')">Change your look</button></div>
   <div class="pc-card"><div class="pc-h">Personality</div>
-    <p class="pc-tip">Built slowly from what you do on the pitch — who you pass to, when you shoot, how you handle the big moments.</p>
+    <p class="pc-tip">Built slowly from what you do on the pitch: who you pass to, when you shoot, how you handle the big moments.</p>
     ${TRAIT_KEYS.map(k => `<div class="tr"><div class="tr-top"><span>${TRAIT_NAME[k]}</span><b>${traitLabel(k)}</b></div>${pbar(S.traits[k], "trait")}
       <div class="tr-ends"><span>${{team:"Selfish", conf:"Hesitant", dec:"Rash", risk:"Responsible"}[k]}</span><span>${{team:"Team-first", conf:"Confident", dec:"Reads the game", risk:"Risk-taker"}[k]}</span></div></div>`).join("")}</div>
   <div class="pc-card"><div class="pc-h">In the dressing room</div>${meterRow("Team Chemistry", S.chem, 100, "chem", `${Math.round(S.chem)}`)}
     <p class="pc-tip">${esc(say)} ${esc(say2)}</p>
-    <p class="pc-tip muted">Chemistry grows by being at training with the squad and by playing for the team. The higher it is, the more the ball tends to find you — but nobody gets it every minute.</p></div>`;
+    <p class="pc-tip muted">Chemistry grows by being at training with the squad and by playing for the team. The higher it is, the more the ball tends to find you, but nobody gets it every minute.</p></div>`;
 }
 function pcWeek(){
   const fx = weekFixtures();
@@ -143,7 +146,7 @@ function pcWeek(){
       <b>${f ? (dn ? `${dn.hg}–${dn.ag}` : fmtTime(fixtureSlot(f).min)) : train ? "Training" : "Rest"}</b>
       <span class="wd-sub">${f ? `vs ${esc(oppName(f))}` : train ? `${fmtTime(SESSION.start)}–${fmtTime(SESSION.end)}` : "Day off"}</span></div>`; }).join("")}</div>
     <div class="pc-card"><div class="pc-h">How the week works</div>
-      <p class="pc-tip">Team training runs ${fmtTime(SESSION.start)} to ${fmtTime(SESSION.end)} on weekdays without a match. Turn up on time and stay for the session — the manager notices, and so do your team-mates.</p>
+      <p class="pc-tip">Team training runs ${fmtTime(SESSION.start)} to ${fmtTime(SESSION.end)} on weekdays without a match. Turn up on time and stay for the session. The manager notices, and so do your team-mates.</p>
       <p class="pc-tip">Sleeping takes you to the next morning. The week turns over in the night from Sunday to Monday, and that is when your wage is paid.</p></div>`;
 }
 
@@ -163,7 +166,7 @@ function renderShop(){
       <div class="si-buy"><b class="si-price">${eurFull(price(it))}</b>
         <button class="btn sm" ${S.money >= price(it) ? "" : "disabled"} onclick="shopBuy('${k}',false)">${vend ? "Buy" : "Buy"}</button>
         <button class="btn sm ghost" ${S.money >= price(it) ? "" : "disabled"} onclick="shopBuy('${k}',true)">${it.kind === "food" ? "Eat now" : it.name === "Muscle rub" ? "Use now" : "Drink now"}</button></div></div>`).join("")}</div>
-    <p class="lpn-foot">${vend ? "A little dearer than the shop. " : ""}What you buy goes in your fridge — the one at home and the one in the gym hold the same food. Energy drinks give a quick lift, then wear off. Proper food lasts.</p>`,
+    <p class="lpn-foot">${vend ? "A little dearer than the shop. " : ""}What you buy goes in your fridge. The one at home and the one in the gym hold the same food. Energy drinks give a quick lift, then wear off. Proper food lasts.</p>`,
     {onClose:() => { if (window.lifePass) window.lifePass(vend ? 2 : 6, "shop"); }});
 }
 function shopBuy(k, now){
@@ -183,14 +186,16 @@ function shopBuy(k, now){
 /* =============================== a bench: let time pass =============================== */
 function openWait(where){
   const m = S.life.min, opts = [[30, "30 minutes"], [60, "1 hour"], [120, "2 hours"]];
-  const td = trainingDay(), f = todaysFixture();
-  if (td && m < SESSION.start) opts.unshift([SESSION.start - m, `Until training · ${fmtTime(SESSION.start)}`]);
+  const td = trainingDay(), f = todaysFixture(), zone = lifeZone();
+  // at the training centre: until it starts. Anywhere else: until the bus that gets you there for the start
+  if (td && zone === "ground" && m < SESSION.start) opts.unshift([SESSION.start - m, `Until training · ${fmtTime(SESSION.start)}`]);
+  else if (td && zone !== "ground"){ const go = SESSION.start - busMins(zone, "ground"); if (m < go) opts.unshift([go - m, `Until the bus to training · ${fmtTime(go)}`]); }
   const o = nextOrder(); if (o && o.eta > absNow()) opts.unshift([o.eta - absNow(), `Until your Foodies order · ${fmtTime(o.eta % 1440)}`]);
   if (f){ const open = fixtureSlot(f).min - TUNNEL_OPEN; if (m < open) opts.unshift([open - m, `Until the tunnel opens · ${fmtTime(open)}`]); }
   lpShow("wait", `${lpHead("Take a seat", ({gym:"Gym · bench", park:"Park bench · Bulevardul Gării", square:`Bench · Piața ${PLACES.hood}`})[where] || "Training ground · bench")}
     <p class="lpn-p">Sitting down eases fatigue a little and lets the clock run. It's ${fmtTime(m)}.</p>
     <div class="wait-list">${opts.slice(0, 5).map(([mins, l]) => `<button class="wait-opt" onclick="waitGo(${Math.round(mins)})"><b>${esc(l)}</b><span>${Math.round(mins) >= 60 ? `${Math.floor(mins/60)}h ${Math.round(mins) % 60 ? Math.round(mins) % 60 + "m" : ""}` : Math.round(mins) + " min"}</span></button>`).join("")}</div>
-    <p class="lpn-foot">Fatigue ${Math.round(S.fatigue)} · Energy ${Math.round(S.energy)} — you'll get a little hungrier while you wait.</p>`);
+    <p class="lpn-foot">Fatigue ${Math.round(S.fatigue)} · Energy ${Math.round(S.energy)}. You'll get a little hungrier while you wait.</p>`);
 }
 function waitGo(mins){
   lpClose(true);
@@ -208,11 +213,13 @@ function openBus(from){
   const js = jobState(), jw = JOB_WHERE[js.id];
   const why = k => k === "ground" ? (f ? "Match day" : td && m < SESSION.end ? `Training ${fmtTime(SESSION.start)}` : "") : jw && jw.zone === k && k !== "home" ? "Your job" : "";
   const order = ["ground", "town", "home"].filter(k => k !== from && R[k]);
+  const works = typeof lifeEventOn === "function" && lifeEventOn("roadworks");
   lpShow("bus", `${lpHead("Line 14", `Bus stop · ${BUS_STOPS[from] ? BUS_STOPS[from].name : ""}`)}
-    <p class="lpn-p">Where to? It's ${fmtTime(m)} — the clock runs on while you ride.</p>
-    <div class="wait-list bus-list">${order.map(k => { const shut = k === "ground" && !centreOpen(m + R[k]);
-      return `<button class="wait-opt bus-opt" ${shut ? "disabled" : ""} onclick="busGo('${k}')"><i>${BUS_STOPS[k].icon}</i><b>${esc(BUS_STOPS[k].name)}<em>${esc(shut ? `Closed by then · open ${fmtTime(CENTRE.open)} – ${fmtTime(CENTRE.close)}` : [BUS_STOPS[k].sub, why(k)].filter(Boolean).join(" · "))}</em></b><span>${busDur(R[k])}<em>arrive ${fmtTime(m + R[k])}</em></span></button>`; }).join("")}</div>
-    <p class="lpn-foot">Hungry or tired? Sort it before you go — there's nothing to eat on the bus.</p>`);
+    <p class="lpn-p">Where to? It's ${fmtTime(m)}. The clock runs on while you ride.</p>
+    <div class="wait-list bus-list">${order.map(k => { const mins = busMins(from, k), shut = k === "ground" && !centreOpen(m + mins), slow = works && (from === "home" || k === "home");
+      return `<button class="wait-opt bus-opt" ${shut ? "disabled" : ""} onclick="busGo('${k}')"><i>${BUS_STOPS[k].icon}</i><b>${esc(BUS_STOPS[k].name)}<em>${esc(shut ? `Closed by then · open ${centreHours()}` : [BUS_STOPS[k].sub, why(k), slow ? `Road works: ${ROADWORKS_DELAY} minutes longer` : ""].filter(Boolean).join(" · "))}</em></b><span>${busDur(mins)}<em>arrive ${fmtTime(m + mins)}</em></span></button>`; }).join("")}</div>
+    <p class="lpn-foot">Hungry or tired? Sort it before you go. There's nothing to eat on the bus.</p>`);
+  if (typeof window.lifeOnb === "function") window.lifeOnb("openBus", {from});
 }
 function busGo(to){
   lpClose(true);
@@ -226,13 +233,13 @@ function openShift(){
   const tired = S.energy < 12;
   lpShow("shift", `${lpHead(job.name, "Clock in")}
     <div class="shift-top"><span class="ji">${job.icon}</span><div><b>${esc(rank.name)}</b><span>${esc(rank.blurb || "")}</span></div></div>
-    ${top ? `<p class="lpn-p">You're at the top of the ladder — shifts are just pay now.</p>` : `${pbar(pctOf(js.xp, jobNeed()), "job")}<div class="pc-row"><span>Experience</span><b>${js.xp} / ${jobNeed()} XP</b></div>`}
+    ${top ? `<p class="lpn-p">You're at the top of the ladder, so shifts are just pay now.</p>` : `${pbar(pctOf(js.xp, jobNeed()), "job")}<div class="pc-row"><span>Experience</span><b>${js.xp} / ${jobNeed()} XP</b></div>`}
     <div class="shift-opts">
       <button class="shift-opt" ${late || tired ? "disabled" : ""} onclick="shiftGo(2)"><b>2-hour shift</b><span>${eurFull(Math.round(p2.pay*.7))}–${eurFull(Math.round(p2.pay*1.25))} · up to +${Math.round(p2.xp*1.4*1.2)} XP</span><em>until about ${fmtTime(m + 120)}</em></button>
       <button class="shift-opt" ${late4 || tired ? "disabled" : ""} onclick="shiftGo(4)"><b>4-hour shift</b><span>${eurFull(Math.round(p4.pay*.7))}–${eurFull(Math.round(p4.pay*1.25))} · up to +${Math.round(p4.xp*1.4*1.2)} XP</span><em>until about ${fmtTime(m + 240)}</em></button>
     </div>
     <p class="lpn-p shift-how">You do the work: how well you do it sets the pay and the XP, and quick work gets you out early. Esc clocks you out, paid for what you've done.</p>
-    <p class="lpn-foot">${tired ? "You're too hungry to work. Eat something first." : late ? "We close at 11:00 PM — come back tomorrow from 7:00 AM." : `Work burns energy and adds fatigue. ${trainEff() < .75 ? "You're tired, so you'll learn less on this shift." : ""}`}</p>`);
+    <p class="lpn-foot">${tired ? "You're too hungry to work. Eat something first." : late ? `We close at ${fmtTime(SHIFT.close)}. Come back tomorrow from ${fmtTime(SHIFT.open)}.` : `Work burns energy and adds fatigue. ${trainEff() < .75 ? "You're tired, so you'll learn less on this shift." : ""}`}</p>`);
 }
 function shiftGo(hours){
   const plan = shiftPlan(hours);
@@ -241,17 +248,20 @@ function shiftGo(hours){
 }
 
 /* =============================== before bed =============================== */
-function openDaySummary(onSleep){
+/* the card before you sleep the day away: what today was. label: what the button does (acts.js builds it from the
+   same sleepPlan the sleep applies); without one, a night's sleep in your own bed */
+function openDaySummary(onSleep, label){
+  label = label || `Sleep until ${fmtTime(WAKE)}`;
   const d = daySummary(), sk = d.best ? skillName(d.best.k) : "";
   const row = (l, v, cls) => `<div class="ds-row"><span>${esc(l)}</span><b class="${cls || ""}">${v}</b></div>`;
   const sign = n => n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "±0";
   lpShow("day", `<div class="ds">
     <div class="ds-eyebrow">${todayName()} · ${fmtTime(S.life.min)}</div><h2>Day complete</h2>
     <div class="ds-rows">
-      ${row("Training XP", d.xp ? `+${d.xp}${sk ? ` <small>mostly ${esc(sk)}</small>` : ""}` : "—")}
-      ${row("Job XP", d.jobXp ? `+${d.jobXp}` : "—")}
-      ${row("Money earned", d.earned ? `+${eurFull(d.earned)}` : "—", d.earned ? "good" : "")}
-      ${row("Money spent", d.spent ? `−${eurFull(d.spent)}` : "—")}
+      ${row("Training XP", d.xp ? `+${d.xp}${sk ? ` <small>mostly ${esc(sk)}</small>` : ""}` : EMPTY_CELL)}
+      ${row("Job XP", d.jobXp ? `+${d.jobXp}` : EMPTY_CELL)}
+      ${row("Money earned", d.earned ? `+${eurFull(d.earned)}` : EMPTY_CELL, d.earned ? "good" : "")}
+      ${row("Money spent", d.spent ? `−${eurFull(d.spent)}` : EMPTY_CELL)}
       ${row("Food & drink", d.eaten ? `${d.eaten} item${d.eaten === 1 ? "" : "s"} · +${d.food} energy` : "Nothing", d.eaten ? "" : "bad")}
       ${row("Energy", `${d.energy} <small>${energyLabel(d.energy)}</small>`)}
       ${row("Fatigue", `${d.fatigue} <small>${fatigueLabel(d.fatigue)}</small>`)}
@@ -259,18 +269,18 @@ function openDaySummary(onSleep){
       ${row("Manager trust", sign(d.trust), d.trust > 0 ? "good" : d.trust < 0 ? "bad" : "")}
     </div>
     <p class="ds-next">${tomorrowLine()}</p>
-    <div class="ds-btns"><button class="btn ghost" onclick="lpClose()">Not yet</button><button class="btn" onclick="daySleep()">Sleep until 7:00 AM</button></div></div>`,
+    <div class="ds-btns"><button class="btn ghost" onclick="lpClose()">Not yet</button><button class="btn" onclick="daySleep()">${esc(label)}</button></div></div>`,
     {onClose:null});
   LP.sleepFn = onSleep;
 }
 function daySleep(){ const f = LP.sleepFn; LP.sleepFn = null; lpClose(true); if (f) f(); }
 function tomorrowLine(){
   const wd = (S.life.min < 5*60 ? S.life.wd : (S.life.wd + 1) % 7);
-  if (wd === 0 && S.life.min >= 5*60) return `Tomorrow is Monday — a new week, and your wage goes in.`;
+  if (wd === 0 && S.life.min >= 5*60) return `Tomorrow is Monday: a new week, and your wage goes in.`;
   const f = weekFixtures().find(x => !x.done && fixtureSlot(x).wd === wd);
   if (f) return `Tomorrow: match day · ${fmtTime(fixtureSlot(f).min)} vs ${oppName(f)}. Rest up and eat well.`;
-  if (trainingDay(wd)) return `Tomorrow: training at ${fmtTime(SESSION.start)}. The bus takes 40 minutes.`;
-  return `Tomorrow is ${dayName(wd)} — no team training.`;
+  if (trainingDay(wd)) return `Tomorrow: training at ${fmtTime(SESSION.start)}. The bus takes ${busMins("home", "ground")} minutes.`;
+  return `Tomorrow is ${dayName(wd)}. No team training.`;
 }
 
 /* =============================== your look =============================== */
@@ -310,9 +320,26 @@ function lookFormHTML(L, only){
     <section class="lk-sec"><h4>Face</h4>${part.face()}</section>
     <section class="lk-sec"><h4>Off the pitch</h4>${part.clothes()}</section>`;
 }
-// one control changed: the draft, the pressed state in its group, the preview
+/* the editor in the world (the mirror, the wardrobe, the computer; DESIGN 3.7.3): your cuts, colours and beards, the
+   ones you own and nothing else, and your clothes. Who you are (skin, face, height, build) was settled when you were
+   made; new cuts are bought at the barber's */
+const LK_WORLD = ["hair", "hairColor", "beard", "top", "topCol", "legs", "legCol", "shoeCol"];
+function lookWorldHTML(L){
+  const O = LOOK_OPT, B = LOOK_BARBER;
+  const hair = O.hair.concat(B.hair).filter(([v]) => ownsStyle("hair", v));
+  const cols = O.hairColor.concat(B.hairColor.map(c => c[0])).filter(c => ownsStyle("hairColor", c));
+  const beard = O.beard.concat(B.beard).filter(([v]) => ownsStyle("beard", v));
+  return `<section class="lk-sec"><h4>Hair</h4>${lkRow("Style", lkChips("hair", hair, L.hair, "Hairstyle"))}${lkRow("Colour", lkSw("hairColor", cols, L.hairColor, "Hair colour"))}${lkRow("Facial hair", lkChips("beard", beard, L.beard, "Facial hair"))}</section>
+    <section class="lk-sec"><h4>Off the pitch</h4>${lookFormHTML(L, "clothes").replace(/^<section class="lk-sec">|<\/section>$/g, "")}</section>`;
+}
+// one control changed: the draft, the pressed state in its group, the preview. In the world a cut, a colour or a
+// beard you do not own is refused (the barber sells them)
 function lkSet(key, v, el){
   if (!LK.draft) return;
+  if (LK.where !== "create" && STYLE_PARTS.includes(key) && !ownsStyle(key, v)){
+    if (typeof FEED === "object" && FEED.chip) FEED.chip("You don't own that one. Fade & Co. across the road sells it.", "bad");
+    return;
+  }
   LK.draft[key] = v;
   if (el && el.parentNode) for (const b of el.parentNode.children) b.setAttribute("aria-pressed", String(b === el));
   // clothes are only seen in your own clothes
@@ -347,10 +374,10 @@ function lookCreateMount(){ if (LK.where === "create") lkPreview(); }
 function openLookEditor(where){
   if (!S || !S.player) return;
   LK.where = where || "mirror"; LK.saved = false; LK.view = "front"; LK.kind = "casual"; LK.o = null; LK.only = null;
-  LK.draft = JSON.parse(JSON.stringify(lookSane(S.player.look, lookSeedOf(S))));
+  LK.draft = JSON.parse(JSON.stringify(lookSane(S.player.look, lookSeedOf(S), styleOwned())));
   lpShow("look", `<div class="lk">${lpHead("Your look", where === "pc" ? "Appearance" : "Bathroom mirror")}
-    <div class="lk-main">${lkStageHTML()}<div class="lk-ctl" id="lkCtl">${lookFormHTML(LK.draft)}</div></div>
-    <div class="lk-foot"><button class="btn sm ghost" onclick="lkRandom()">🎲 Randomise</button><span class="grow"></span>
+    <div class="lk-main">${lkStageHTML()}<div class="lk-ctl" id="lkCtl">${lookWorldHTML(LK.draft)}</div></div>
+    <div class="lk-foot"><span class="muted">More cuts at Fade & Co., across the road.</span><span class="grow"></span>
       <button class="btn sm ghost" onclick="lpClose(true)">Cancel</button><button class="btn sm" onclick="lkSave()">Save look</button></div></div>`,
     {onClose:() => {
       if (window.LookPreview) window.LookPreview.unmount();
@@ -361,7 +388,10 @@ function openLookEditor(where){
 }
 function lkSave(){
   if (!LK.draft || !S) return;
-  S.player.look = lookSane(LK.draft, lookSeedOf(S)); LK.saved = true;
+  // only what the world lets you change, and only what you own
+  const next = Object.assign({}, S.player.look);
+  for (const k of LK_WORLD) if (LK.draft[k] != null) next[k] = LK.draft[k];
+  S.player.look = lookSane(next, lookSeedOf(S), styleOwned()); LK.saved = true;
   if (window.lifeLookChanged) window.lifeLookChanged();
   if (typeof FEED === "object" && FEED.chip) FEED.chip("New look saved", "good");
   lpClose();

@@ -1,10 +1,19 @@
 /* ============ LIFE: what is in the fridge ============
    Your food lives in one place as far as you are concerned: the fridge at home and the fridge in the
    gym hold the same stock, so a meal you bought on the way home can be eaten after training. Every
-   kind of food you own sits on a shelf as something you can look at and pick up. */
+   kind of food you own sits on a shelf as something you can look at and pick up.
+
+   Owner: WP-G (Stage 1). Contract: DESIGN 3.8.2. Nothing in a fridge can be aimed at through a closed door: each
+   slot carries the doors in front of it (a bit mask), and it opens only while one of them is past FRIDGE_OPEN. The
+   tooltip under each thing is daily.js foodLines(), built from foodEffect(), the same function eating uses, so the
+   numbers on it are the numbers you get.
+   F (from furniture.js or ground.js): {group, shelves:[{y, kind, slots:[[x, z, mask?]]}], open(), openAt?(mask),
+   src?() -> {keep, powerCut} | mult?() -> keep, ctx, emptyAim, across, ry} */
 import {THREE, W, part, roundedBoxGeo} from "./build.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
+// a fridge door is open (for what is behind it, and for the hint) once it has swung this far (radians)
+export const FRIDGE_OPEN = .9;
 // a little model of each thing, standing on y = 0
 function itemMesh(id){
   const g = new THREE.Group();
@@ -29,15 +38,11 @@ function itemMesh(id){
   }
   return g;
 }
-// what it will do for you, out of this fridge (mult: how much of its goodness the fridge has kept)
-const hintFor = (it, mult = 1) => {
-  const bits = [], e = Math.round(it.energy*mult), f = it.fatigue < 0 ? Math.round(it.fatigue*mult*10)/10 : it.fatigue;
-  if (it.energy) bits.push(`+${e} energy`);
-  if (it.fatigue) bits.push(`${f < 0 ? "−" : "+"}${Math.abs(f)} fatigue`);
-  if (mult < .999) bits.push(`this fridge keeps ${Math.round(mult*100)}%`);
-  return `${it.kind === "food" ? "Eat it" : it.kind === "recovery" ? (it.name === "Muscle rub" ? "Use it" : "Drink it") : "Drink it"} · ${bits.join(" · ")}`;
-};
-/* F: {group, shelves:[{y, kind, slots:[[x,z]]}], open:() => bool, ctx, emptyAim:[[...],[...]]} */
+// where this fridge's food comes from, for foodEffect: {keep, powerCut} (or the keep alone, from an older builder)
+const srcOf = F => F.src ? F.src() : F.mult ? F.mult() : 1;
+const verb = it => it.kind === "food" ? "Eat it" : it.name === "Muscle rub" ? "Use it" : "Drink it";
+// is the thing in this slot reachable: one of the doors in front of it open (or, without masks, the fridge open)
+const openFor = (F, mask) => mask != null && F.openAt ? F.openAt(mask) : F.open();
 export function fillFridge(F){
   const s = G(); if (!s || !F) return;
   F.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
@@ -55,7 +60,7 @@ export function fillFridge(F){
   };
   for (const id of owned){
     const p = place(id); if (!p) continue;
-    const it = FOOD[id], n = s.inv[id];
+    const it = FOOD[id], n = s.inv[id], mask = p.at[2];
     const box = new THREE.Box3();
     for (let c = 0; c < Math.min(n, 3); c++){
       const m = itemMesh(id);
@@ -64,11 +69,12 @@ export function fillFridge(F){
       F.group.add(m); m.updateMatrixWorld(true); box.expandByObject(m);
     }
     box.expandByScalar(.03);
-    W.spots.push({fridge:F, label:`${it.name}${n > 1 ? ` ×${n}` : ""}`, get hint(){ return hintFor(it, F.mult ? F.mult() : 1); }, hold:.3, when:F.open,
-      aim:[box.min.toArray(), box.max.toArray()], run:() => F.ctx.eat(id, F.mult ? F.mult() : 1)});
+    W.spots.push({fridge:F, item:id, mask, label:`${it.name}${n > 1 ? ` ×${n}` : ""}`, hint:verb(it),
+      get lines(){ return foodLines(id, s.inv[id] || 0, srcOf(F)).slice(1); }, when:() => openFor(F, mask),
+      aim:[box.min.toArray(), box.max.toArray()], run:() => F.ctx.eat(id, srcOf(F))});
   }
   if (!owned.length && F.emptyAim){
-    W.spots.push({fridge:F, label:"Empty fridge", hint:"Buy food at the Mini Market, or order on Foodies", hold:.2, when:F.open, aim:F.emptyAim,
-      run:() => F.ctx.note("Nothing in here. The Mini Market on your street sells food — or order on Foodies and carry the bag up to a fridge.")});
+    W.spots.push({fridge:F, label:"Empty fridge", hint:"Buy food at the Mini Market, or order on Foodies", when:F.open, aim:F.emptyAim,
+      run:() => F.ctx.note("Nothing in here. The Mini Market on your street sells food, or order on Foodies and carry the bag to a fridge.")});
   }
 }

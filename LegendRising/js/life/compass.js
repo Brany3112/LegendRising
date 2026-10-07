@@ -1,16 +1,20 @@
 /* ============ LIFE: the compass ============
    A strip across the top of the screen: the eight points going by as you turn, and markers for the places that
-   matter — HOME, JOB, the BUS STATION, the SHOP, the FURNITURE STORE, the GYM, the BARBER, the TRAINING CENTER — at
+   matter (HOME, JOB, the BUS STATION, the SHOP, the FURNITURE STORE, the GYM, the BARBER, the TRAINING CENTER) at
    the bearing they lie at, with how far. Only places in the area you are in (W.places, which every zone fills as it
    is built); a marker fades in as it comes round into view and out as it leaves, fades back when you are right at
    it, and is gone while you are inside the place. Your job is JOB wherever it is: in another area, the bus station
-   carries it. North is −z. */
+   carries it. North is -z.
+   Owner: WP-G (Stage 1). Contract: DESIGN 3.8.7: DELIVERIES (a place of kind "deliv") shows only while a bag waits
+   there, FRIDGE (every fridge in W.fridges) only while you carry a Foodies bag, and any place whose when() is false
+   is left out. */
 import {W} from "./build.js";
+import {bagsOnYou} from "./inv.js";
 
 const SPAN = 150;                                  // degrees across the strip, edge to edge
 const POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 const LABEL = {home:"HOME", job:"JOB", bus:"BUS STATION", shop:"SHOP", furniture:"FURNITURE STORE", gym:"GYM", barber:"BARBER",
-  train:"TRAINING CENTER", club:"CLUBHOUSE", goal:"OBJECTIVE"};
+  train:"TRAINING CENTER", club:"CLUBHOUSE", deliv:"DELIVERIES", fridge:"FRIDGE", goal:"OBJECTIVE"};
 const SVG = p => `<svg viewBox="0 0 16 16" aria-hidden="true">${p}</svg>`;
 const ICON = {
   home:SVG('<path d="M8 1.6 1.4 7.4h2v6.8h3.8V10h1.6v4.2h3.8V7.4h2z"/>'),
@@ -22,6 +26,8 @@ const ICON = {
   barber:SVG('<path d="M4.2 1.6a2.6 2.6 0 1 1-1.2 4.9l1.8 1.5-1.8 1.5a2.6 2.6 0 1 1 1.4 1.3L6 9.3l7.6 5.3 1-1L8 8l6.6-5.6-1-1L6 6.7 4.4 5.4A2.6 2.6 0 0 1 4.2 1.6zm0 1.4a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4zm0 7.6a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4z"/>'),
   train:SVG('<path d="M8 1.2a6.8 6.8 0 1 1 0 13.6A6.8 6.8 0 0 1 8 1.2zm0 3.1-2.2 1.6.8 2.6h2.8l.8-2.6zM3.4 6.6l-.9 2.6 1.6 2.2 1.4-.5-.1-2.6zm9.2 0L10.4 8.3l-.1 2.6 1.4.5 1.6-2.2z"/>'),
   club:SVG('<path d="M2 14V6.4L8 2l6 4.4V14h-4.4V9.6H6.4V14z"/>'),
+  deliv:SVG('<path d="M4.4 5.2V4a3.6 3.6 0 0 1 7.2 0v1.2h2.2l.8 9.6H1.4l.8-9.6zm1.6 0h4V4a2 2 0 0 0-4 0z"/>'),
+  fridge:SVG('<path d="M4 1h8a1.2 1.2 0 0 1 1.2 1.2v11.6A1.2 1.2 0 0 1 12 15H4a1.2 1.2 0 0 1-1.2-1.2V2.2A1.2 1.2 0 0 1 4 1zm.4 1.6v3.6h7.2V2.6zm0 5v5.8h7.2V7.6zM5.4 3.4h1v2h-1zm0 5h1v2.4h-1z"/>'),
   goal:SVG('<path d="M8 1 13.6 8 8 15 2.4 8z"/>')
 };
 let root = null, strip = null, layer = null, H = null, W0 = 0, pxDeg = 3.4, list = [], listT = 0, sizeT = 0;
@@ -55,12 +61,16 @@ export function compassReset(){
 // what to show, here and now: looked at again twice a second (your job can change; so can the objective)
 function wanted(){
   const zone = H.zone(), job = typeof jobState === "function" ? jobState().id : null, jw = job && typeof JOB_WHERE === "object" ? JOB_WHERE[job] : null;
-  const away = jw && jw.zone !== zone, out = [];
+  const away = jw && jw.zone !== zone, out = [], keys = new Set();
+  const add = q => { if (keys.has(q.key)) return; keys.add(q.key); out.push(q); };
   for (const p of W.places){
-    if (p.kind === "job"){ if (p.job === job) out.push({key:"job", kind:"job", x:p.x, z:p.z, b:p.b, sub:p.name}); continue; }
-    if (!LABEL[p.kind]) continue;
-    out.push({key:p.kind + ":" + p.name, kind:p.kind, x:p.x, z:p.z, b:p.b, sub:p.kind === "bus" && away ? `JOB · ${jw.zone === "town" ? PLACES.town : PLACES.city}` : p.name});
+    if (typeof p.when === "function" && !p.when()) continue;
+    if (p.kind === "job"){ if (p.job === job) add({key:"job", kind:"job", x:p.x, z:p.z, b:p.b, sub:p.name}); continue; }
+    if (!LABEL[p.kind] || p.kind === "fridge") continue;
+    add({key:p.kind === "deliv" ? "deliv" : p.kind + ":" + p.name, kind:p.kind, x:p.x, z:p.z, b:p.b, sub:p.kind === "bus" && away ? `JOB · ${jw.zone === "town" ? PLACES.town : PLACES.city}` : p.name});
   }
+  // a Foodies bag on you: where the fridges are (the one at home and the one in the gym hold the same food)
+  if (bagsOnYou().length) (W.fridges || []).forEach((f, i) => add({key:"fridge:" + i, kind:"fridge", x:f.x, z:f.z, sub:f.name || "Fridge"}));
   const g = typeof window.lifeGoal === "function" ? window.lifeGoal() : null;
   if (g && (g.zone || "home") === zone) out.push({key:"goal", kind:"goal", x:g.x, z:g.z, sub:""});
   return out;
