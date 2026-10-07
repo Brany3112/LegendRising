@@ -54,18 +54,22 @@ export const BRAIN = Object.freeze({
   HOLD_K: 0.6, SHIELD_LOSE: 0.45,
   SAFETY: [16, 0.55, 8, 0.03],   // out of play for safety: within 16 m of his goal line, pressed, 8 m off the middle; a corner costs 0.03
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
-  CROSS_T: 0.2, CROSS_V: 0.75, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
+  CROSS_T: 0.1, CROSS_V: 0.65, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
   CROSS_RUN: 0.5,            // a runner counts for a cross zone he reaches within the flight plus this
-  CROSS_FROM: [30, 20],      // a cross is on within 30 m of the goal line and 20 m of the touchline
-  CROSS_DEEP: 0.35,          // a cross from 30 m off the goal line is worth this share of one from 10 m or nearer
+  CROSS_FROM: [24, 20],      // a cross is on within 24 m of the goal line and 20 m of the touchline
+  CROSS_DEEP: 0.2,           // a cross from 24 m off the goal line is worth this share of one from 10 m or nearer
   LONG: [0.5, 0.4, 30, 55],  // a long ball: from his own half, pressed beyond this, to the most advanced man 30 to 55 m away
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
   CALL_T: 2.5, CALL_COOL: 4, CALL_HALF: 20,
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
-  TACKLE_RATE: [5, 0.8, 0.12],    // per second: a ball out of his feet, a shielded one, and the factor from behind
+  TACKLE_RATE: [2.5, 0.5, 0.12],  // per second: a ball out of his feet, a shielded one, and the factor from behind
   SLIDE_RATE: 0.55,              // per second, chasing a ball out in front of the carrier
   COVER: 7, MARK: 1.8, MARK_LOOSE: 3.5, ZONE_PULL: 0.55,
-  RUN_HOLD: 0.3, RUN_DEPTH: [7, 16]
+  RUN_HOLD: 0.3, RUN_DEPTH: [7, 16],
+  ENGAGED: 3.0,              // an opponent this close to where a pass leaves is already on the ball: no reaction time
+  SUPPORT: [2, 32, [9, 14], 16, 7, 0.12, 0.1]   // showing for the ball: the 2 central midfielders nearest the carrier,
+                             // within 32 m of him, at 9 or 14 m from him, within 16 m of the anchor; team-mates within
+                             // 7 m crowd a spot; per metre to run, per metre forward
 });
 
 /* ---------- small helpers ---------- */
@@ -130,25 +134,33 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
     // his reach: the foot's envelope (touch.js), a keeper's dive; a ball passing inside it is his with no reaction at
     // all (actions.touchCheck takes it the step it gets there)
     const reach = o.isGK ? 1.6 : TOUCH.FOOT + TOUCH.FOOT_K*(o.at.dribbling || 50);
-    for (let k = ground ? -2 : 0; k <= N; k++){
-      // three samples close to the passer (a man pressing him gets a foot to anything played through him), then 8;
-      // a lofted ball: where it comes down through head height (3 m short, 0.25 s early), then where it lands
-      const s = !ground ? (k === 0 ? d - 3 : d) : k <= 0 ? 0.5*(k + 3) : d*k/N;
+    // a man already on the passer (within ENGAGED m of where the ball leaves) is moving to it: no reaction time for
+    // the first metres of its way
+    const engaged = hypot(om.x - from.x, om.z - from.z) < BRAIN.ENGAGED;
+    for (let k = -3; k <= N; k++){
+      // three samples close to the passer (a man pressing him gets a foot to anything played through him: a lofted ball
+      // rises through his legs and body there too), then 8 along a ground pass; a lofted ball, then, where it comes down
+      // through head height (3 m short, 0.25 s early) and where it lands
+      const near = k < 0;
+      const s = near ? (ground ? 0.5 : 0.6)*(k + 4) : !ground ? (k === 0 ? d - 3 : d) : k === 0 ? -1 : d*k/N;
+      if (!near && !ground && k > 1) break;
       if (ground && k > 0 && k < N && s < 2) continue;
       if (s > d || s < 0.5) continue;
-      const tb = ground ? rollTime(v0, s, roll) + tw : k === 0 ? Math.max(0.1 + tw, out.tArrive - 0.25) : out.tArrive;
+      const tb = near && !ground ? s/Math.max(1, 0.87*v0) + tw : ground ? rollTime(v0, s, roll) + tw : k === 0 ? Math.max(0.1 + tw, out.tArrive - 0.25) : out.tArrive;
       if (!Number.isFinite(tb)) break;
       if (s > sMeet + 1e-6) break;
       const x = from.x + ux*s, z = from.z + uz*s;
-      if (tMeet >= 0 && s >= sMeet - 1e-6 && (ground || k === 1) && hypot(x - om.x, z - om.z) > hypot(x - recv.m.x, z - recv.m.z) + 0.3) continue;
+      const atMeet = tMeet >= 0 && s >= sMeet - 1e-6 && (ground || k === 1);
+      if (atMeet && hypot(x - om.x, z - om.z) > hypot(x - recv.m.x, z - recv.m.z) + 0.3) continue;
       const dd = Math.max(0, hypot(x - om.x, z - om.z) - reach);
+      const rk = near && engaged ? 0 : react;
       // a lower bound first (top speed from his present speed), the full estimate only when it could matter
-      const lb = react + dd/vTop, tRef = tMeet >= 0 && s >= sMeet - 1e-6 && (ground || k === 1) ? Math.min(tb, tMeet) : tb;
+      const lb = rk + dd/vTop, tRef = atMeet ? Math.min(tb, tMeet) : tb;
       if (lb - tRef > margin || lb - tRef > 0.7) continue;
-      const tt = dd <= 0 ? 0 : timeToPoint(om, o.prm, o.fac, om.x + (x - om.x)*(dd/(dd + reach)), om.z + (z - om.z)*(dd/(dd + reach)), react);
+      const tt = dd <= 0 ? 0 : timeToPoint(om, o.prm, o.fac, om.x + (x - om.x)*(dd/(dd + reach)), om.z + (z - om.z)*(dd/(dd + reach)), rk);
       // a lofted ball over him: he cannot play it until it drops (the landing zone only); where the receiver meets
       // it, he has to get there before the receiver
-      const mg = tMeet >= 0 && s >= sMeet - 1e-6 && (ground || k === 1) ? tt - tMeet : tt - tb;
+      const mg = atMeet ? tt - tMeet : tt - tb;
       if (mg < margin){ margin = mg; who = o.id; mx = x; mz = z; }
     }
   }
@@ -396,6 +408,8 @@ function* carrierOptions(ms, a){
   const u = uOf(ms, team, m.x), w = wOf(ms, team, m.z);
   const here = poss(u, w, L, Wd);
   const press = pressureOn(ms, a);
+  // the lanes start where the ball is (at his feet, a stride ahead of his body), not at his body
+  const bp = ms.ball.p, org = ms.ball.state === 'free' && hypot(bp.x - m.x, bp.z - m.z) < 1.5 ? bp : m;
   const opts = [];
   const add = (o) => { if (Number.isFinite(o.V)) opts.push(o); };
   // 1. a shot
@@ -425,11 +439,11 @@ function* carrierOptions(ms, a){
     const d = hypot(tx - m.x, tz - m.z);
     if (d >= BRAIN.PASS_MIN && d <= BRAIN.PASS_MAX){
       const v0 = passSpeedFor(d, 9, ms.ball.rollDecel);
-      let pm = passModel(ms, m, {x: tx, z: tz}, 'pass', v0, o);
+      let pm = passModel(ms, org, {x: tx, z: tz}, 'pass', v0, o);
       let kind = 'pass', pOK = pm.pOK, spd = v0;
       let V0 = passValue(ms, team, pm, tx, tz);
       if (pm.pOK < 0.6 && d > BRAIN.LOB_MIN){
-        const vL = loftSpeedFor(d), pl = passModel(ms, m, {x: tx, z: tz}, 'lob', vL, o, {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0});
+        const vL = loftSpeedFor(d), pl = passModel(ms, org, {x: tx, z: tz}, 'lob', vL, o, {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0});
         const VL = passValue(ms, team, pl, tx, tz);
         if (VL > V0){ kind = 'lob'; pOK = pl.pOK; spd = vL; V0 = VL; }
       }
@@ -456,7 +470,7 @@ function* carrierOptions(ms, a){
       const dd = hypot(px - m.x, pz - m.z);
       if (Number.isFinite(t) && dd > 8 && dd < 45){
         const v0 = passSpeedFor(dd, BRAIN.THROUGH_ARRIVE, ms.ball.rollDecel);
-        const pm = passModel(ms, m, {x: px, z: pz}, 'through', v0, o);
+        const pm = passModel(ms, org, {x: px, z: pz}, 'through', v0, o);
         const ua = uOf(ms, team, px);
         let V = passValue(ms, team, pm, px, pz);
         if (ua - u > 15) V *= directMul;
@@ -473,7 +487,7 @@ function* carrierOptions(ms, a){
       const P = ms.call.point, dd = hypot(P.x - m.x, P.z - m.z);
       if (dd > 6 && dd < 45){
         const v0 = passSpeedFor(dd, BRAIN.THROUGH_ARRIVE, ms.ball.rollDecel);
-        const pm = passModel(ms, m, P, 'through', v0, me);
+        const pm = passModel(ms, org, P, 'through', v0, me);
         const V = passValue(ms, team, pm, P.x, P.z);
         add({kind: 'through', V, recv: me.id, target: {x: P.x, y: R, z: P.z}, pOK: pm.pOK, isMe: true});
       }
@@ -548,7 +562,7 @@ function* carrierOptions(ms, a){
       const tx = clamp(o.m.x + dir*2, -ms.spec.hx + 3, ms.spec.hx - 3), tz = clamp(o.m.z, -ms.spec.hz + 2, ms.spec.hz - 2);
       const dd = hypot(tx - m.x, tz - m.z);
       if (dd > BRAIN.LOB_MIN){
-        const vL = loftSpeedFor(dd), pm = passModel(ms, m, {x: tx, z: tz}, 'lob', vL, o, LBM);
+        const vL = loftSpeedFor(dd), pm = passModel(ms, org, {x: tx, z: tz}, 'lob', vL, o, LBM);
         const ua = uOf(ms, team, tx), wa = wOf(ms, team, tz);
         const V = pm.pOK*poss(ua, wa, L, Wd) - (1 - pm.pOK)*lose(L - ua, Wd - wa, L, Wd, 0.5);
         add({kind: 'lob', V, recv: o.id, target: {x: tx, y: R, z: tz}, speed: vL, contact: 1, pOK: pm.pOK, isMe: o.isMe, long: true});
@@ -672,7 +686,7 @@ function pendingKick(ms, a){
       P.checked = true;
       const kind = rq.kind === 'lob' ? 'lob' : rq.kind;
       const v0 = rq.speed != null ? rq.speed : passSpeedFor(hypot(rq.target.x - b.p.x, rq.target.z - b.p.z), kind === 'through' ? BRAIN.THROUGH_ARRIVE : 9, b.rollDecel);
-      const pm = passModel(ms, a.m, rq.target, kind, v0, recv, PMC);
+      const pm = passModel(ms, b.p, rq.target, kind, v0, recv, PMC);
       if (pm.pOK < Math.max(0.45, rq.pOK - 0.12)){ a.pendKick = null; a.brain.next = ms.t; a.brain.pending = true; return; }
     }
     realStart(ms, a, rq); return;
@@ -795,6 +809,11 @@ export function decideOffBall(ms, a){
         out.x = p.x; out.z = p.z; out.gait = 'run'; out.stop = 0.6;
         return out;
       }
+      // showing for the ball (3.2.5 support, the triangle with the carrier): the central midfielders nearest the carrier
+      // offer themselves in a pocket at an angle from him, in space and with a clear lane, within reach of their place
+      // in the shape (a holding midfielder drops off to take it from his defenders)
+      if (carrier !== a && (a.slotLine === 'CM' || a.slotLine === 'CAM') && supportRank(ms, a, carrier) < BRAIN.SUPPORT[0]
+        && supportSpot(ms, a, carrier, anc, out)) return out;
       // support: within 25 m of the carrier, open a lane if it is blocked
       const dc = hypot(carrier.m.x - m.x, carrier.m.z - m.z);
       if (dc < 25 && carrier !== a){
@@ -849,6 +868,62 @@ export function decideOffBall(ms, a){
   return out;
 }
 const dirOf2 = yaw => ({x: -sin(yaw), z: -cos(yaw)});
+// how many central midfielders of his side are nearer the carrier than he is (ties by id)
+function supportRank(ms, a, c){
+  const d0 = hypot(c.m.x - a.m.x, c.m.z - a.m.z);
+  let n = 0;
+  for (const o of ms.agents){
+    if (o === a || o === c || o.team !== a.team || !o.onPitch || o.leaving || (o.slotLine !== 'CM' && o.slotLine !== 'CAM')) continue;
+    if (o.task.run && ms.t < o.task.run.until) continue;
+    const d = hypot(c.m.x - o.m.x, c.m.z - o.m.z);
+    if (d < d0 || d === d0 && o.id < a.id) n++;
+  }
+  return n;
+}
+// The pocket a supporting midfielder shows in: around the carrier at SUPPORT[2] metres, every 35 degrees from straight
+// ahead to behind square, within SUPPORT[3] m of his anchor, onside; scored by the space around it (the nearest
+// opponent), the lane to it from the carrier, how far he has to go, how far forward it is, and team-mates already there.
+// Writes out (x, z, gait, stop, face) and returns true, or false when he is too far from the carrier.
+const SUP_ANG = [0, 35, -35, 70, -70, 105, -105].map(d => d*DEG);
+function supportSpot(ms, a, c, anc, out){
+  const team = a.team, dir = ms.dirs[team], tm = ms.tm[team], hx = ms.spec.hx, hz = ms.spec.hz, S0 = BRAIN.SUPPORT;
+  const cm = c.m;
+  if (hypot(cm.x - a.m.x, cm.z - a.m.z) > S0[1]) return false;
+  const cu = uOf(ms, team, cm.x);
+  let best = -Infinity, bx = 0, bz = 0;
+  for (const dist of S0[2]){
+    for (const ang of SUP_ANG){
+      const x = cm.x + dir*cos(ang)*dist, z = cm.z + dir*sin(ang)*dist;
+      if (Math.abs(x) > hx - 2 || Math.abs(z) > hz - 2) continue;
+      if (hypot(x - anc.x, z - anc.z) > S0[3]) continue;
+      const u = uOf(ms, team, x);
+      if (u > tm.lineOpp - 0.5) continue;
+      let space = 9, lane = 4;
+      const vx = x - cm.x, vz = z - cm.z, l2 = vx*vx + vz*vz || 1;
+      for (const o of ms.agents){
+        if (o.team === team || o.team < 0 || !o.onPitch) continue;
+        const ds = hypot(o.m.x - x, o.m.z - z);
+        if (ds < space) space = ds;
+        const t = clamp(((o.m.x - cm.x)*vx + (o.m.z - cm.z)*vz)/l2, 0.1, 0.9);
+        const dl = hypot(o.m.x - cm.x - vx*t, o.m.z - cm.z - vz*t);
+        if (dl < lane) lane = dl;
+      }
+      let crowd = 0;
+      for (const o of ms.agents){
+        if (o.team !== team || o === a || o === c || !o.onPitch) continue;
+        const p = o.isMe && !ms.meAI || !o.tgtSet ? o.m : o.tgt;
+        if (hypot(p.x - x, p.z - z) < S0[4]) crowd++;
+      }
+      const v = Math.min(space, 8) + 0.8*lane - S0[5]*hypot(x - a.m.x, z - a.m.z) + S0[6]*(u - cu) - 3*crowd;
+      if (v > best){ best = v; bx = x; bz = z; }
+    }
+  }
+  if (best === -Infinity) return false;
+  const d = hypot(bx - a.m.x, bz - a.m.z), fd = hypot(cm.x - bx, cm.z - bz) || 1;
+  out.x = bx; out.z = bz; out.gait = d > 10 ? 'run' : 'jog'; out.stop = 0.8;
+  out.face = {x: (cm.x - bx)/fd, z: (cm.z - bz)/fd};
+  return true;
+}
 // the opponent nearest the lane from (x0, z0) to (x1, z1), within 1.5 m of it
 function laneBlocker(ms, team, x0, z0, x1, z1){
   const vx = x1 - x0, vz = z1 - z0, L2 = vx*vx + vz*vz || 1;

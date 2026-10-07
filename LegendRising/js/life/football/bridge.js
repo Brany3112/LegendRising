@@ -15,6 +15,7 @@ import {attrsForPlayer, attrsForAI} from "./attrs.js";
 import {makePitch} from "./pitchspec.js";
 import {countersAll, ratingsAll, rateAgent, deriveMy, teamStats, goalLists, highlights, minuteOf, minsOn} from "./events.js";
 import {judgeDecision} from "./judge.js";
+import {hashStr} from "./rng.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const has = name => typeof globalThis[name] === "function";
@@ -103,12 +104,10 @@ function sideTeam(f, M, sideId, xi, isUs, kit){
     ovr: xi.reduce((s, p) => s + (+p.ovr || 0), 0)/Math.max(1, xi.length)};
 }
 
-// the seed of a fixture: the same fixture of the same career replays the same match (determinism, D6)
-function seedOf(f){
-  const s = `${(S && S.cid) || ""}:${f.key}:${(W && W.season) || 1}`;
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return h >>> 0;
+// the seed of a fixture (D6): hashStr(f.key + "|" + S.cid + "|" + S.life.day), so the same fixture of the same career on
+// the same day replays the same match
+export function seedOf(f){
+  return hashStr(`${f.key}|${S && S.cid != null ? S.cid : ""}|${S && S.life ? S.life.day : 0}`);
 }
 
 // The simulation's configuration (1.4.16) from a fixture and the MT of match.js matchSetup. opts = {seed, resume
@@ -135,6 +134,8 @@ export function matchConfig(f, M = MT, opts = {}){
     rules: {offside: true, cards: true, subs: 5}, roleTimes, friendly: f.kind === "F", fkey: f.key,
     ovr: [Math.round(teams[0].ovr*10)/10, Math.round(teams[1].ovr*10)/10]};
   if (opts.benchSide != null) cfg.benchSide = opts.benchSide;
+  // the wall clock the headless runs are time-sliced by (sim.runHeadless): the page's, handed in from here
+  if (typeof performance !== "undefined" && performance.now) cfg.now = () => performance.now();
   if (opts.visible) cfg.visible = opts.visible;
   if (opts.resume){
     // crash recovery (3.4.4): the score, the goals and the clock of the checkpoint, the seed moved on by its step

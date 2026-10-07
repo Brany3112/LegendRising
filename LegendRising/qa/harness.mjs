@@ -7,6 +7,7 @@
 //   node qa/harness.mjs --n 1000                the acceptance run (Standard tempo)
 //   node qa/harness.mjs --n 100 --from 1        a calibration run
 //   options: --speed 2|1|4  --workers 4  --prefoff 4 (every 4th match is also played with the preference off)
+//            --arch ST|W|AM|CM|DF (the player in that archetype in every match: calibration)
 //            --timing 3 (matches timed alone; 0 to skip)  --fit-ratings  --fit-tempo  --tempo d,s,p  --quiet
 //   writes qa/out/harness.json; exits 1 when a band fails (not with --fit-*).
 import fs from "node:fs";
@@ -88,7 +89,8 @@ function slim(m){ delete m.ms; for (const x of m.ratings) delete x.c.__; return 
 
 /* ---------- worker ---------- */
 
-if (!isMainThread){
+// (only this script's own workers: another script's worker thread may import configFor too)
+if (!isMainThread && workerData && workerData.harness){
   const {seeds, opt} = workerData;
   for (const s of seeds){
     let res;
@@ -117,6 +119,8 @@ const N = +arg("n", 100), FROM = +arg("from", 1), SPEED = +arg("speed", 2), WORK
 const PREFOFF = +arg("prefoff", 4), TIMING = +arg("timing", 3), QUIET = !!arg("quiet", false);
 const tempoArg = arg("tempo", null);
 const opt = {speed: SPEED, prefoff: PREFOFF};
+// a calibration run with the player in one archetype only (ST, W, AM, CM or DF)
+if (arg("arch", null) && arg("arch", null) !== true) opt.arch = String(arg("arch", null));
 if (tempoArg && tempoArg !== true){ const [d, s, p] = String(tempoArg).split(",").map(Number); opt.tempo = {directness: d, shotBias: s, pressMul: p}; }
 
 async function batch(seeds, o){
@@ -126,7 +130,7 @@ async function batch(seeds, o){
   let done = 0;
   const t0 = Date.now();
   await Promise.all(parts.filter(p => p.length).map(p => new Promise((res, rej) => {
-    const w = new Worker(fileURLToPath(import.meta.url), {workerData: {seeds: p, opt: o}});
+    const w = new Worker(fileURLToPath(import.meta.url), {workerData: {harness: true, seeds: p, opt: o}});
     w.on("message", m => {
       out.push(m); done++;
       if (!QUIET && (done % 10 === 0 || done === seeds.length)) process.stdout.write(`  ${done}/${seeds.length} matches, ${Math.round((Date.now() - t0)/1000)} s\n`);
@@ -166,6 +170,7 @@ fs.writeFileSync(path.join(ROOT, "qa", "out", "harness.json"), JSON.stringify(ou
 const fmt = v => v == null ? "-" : typeof v === 'number' ? (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(3)) : String(v);
 for (const c of checks) console.log(`${c.pass ? "ok  " : "FAIL"} ${c.name}: ${fmt(c.value)}  [${fmt(c.lo)} .. ${fmt(c.hi)}]`);
 console.log(`me by archetype: ${JSON.stringify(Object.fromEntries(Object.entries(R.me).map(([k, m]) => [k, {n: m.n, touches: +m.touches.toFixed(1), shots: +m.shots.toFixed(2), def: +m.defActs.toFixed(1), gap: Math.round(m.gapP95), trust: +m.trust.toFixed(2)}])))}`);
+for (const [k, m] of Object.entries(R.me)) console.log(`  ${k} moments a match: ${JSON.stringify(m.moments)}`);
 console.log(`kicks: ${JSON.stringify(R.kinds)} controlled ${fmt(R.ctlSec)} s`);
 console.log(`other: passes ${fmt(R.passes)} ok ${fmt(R.passesOk)} reds ${fmt(R.reds)} pens ${fmt(R.pens)} restarts ${fmt(R.restarts)} through ${R.through} sides on ${R.sidesOn} off ${R.sidesOff} prefCaps ${R.prefCaps} restartWorst ${fmt(R.restartWorst)}`);
 const failed = checks.filter(c => !c.pass).length;

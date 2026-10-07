@@ -90,7 +90,8 @@ export function jumpHeight(jumping = 50){
 // by momentum (the heavier body moves 30%), and above 3 m/s of closing speed the lighter one staggers (speed capped at
 // 2.0 m/s for 0.35 s, mover.js). A push never moves a body further this step than its top speed allows (the
 // no-teleport rule: an overlap left over is resolved over the next steps). Keepers in a dive and bodies off the pitch
-// are skipped. Returns the number of staggers.
+// are skipped. Returns the number of staggers; out (an array, optional) receives (loser id, other id, closing speed) for
+// each.
 export function separate(agents, h, out = null){
   const R2 = 2*AGENT.SEP_R, n = agents.length;
   let staggers = 0;
@@ -119,7 +120,7 @@ export function separate(agents, h, out = null){
         if (!(loser.m.stagger > 0)){
           loser.m.stagger = loser.prm.staggerT;
           staggers++;
-          if (out) out.push(loser.id, loser === a ? b.id : a.id);
+          if (out) out.push(loser.id, loser === a ? b.id : a.id, close);
         }
       }
     }

@@ -184,8 +184,9 @@ function spellTouch(ms, id){
   const ch = ms.chain;
   if (ch.spell !== id){ ch.spell = id; const a = ms.agents[id]; if (a) a.acc.touches = (a.acc.touches || 0) + 1; }
 }
-// any other touch (a deflection, a block): ends the current spell, and an opponent's block of a pass is an interception
-export function chainTouch(ms, a, how, ev){
+// any other touch (a deflection, a block; body: the ball ran into him, he did not play it): ends the current spell, and an
+// opponent's block of a pass is an interception
+export function chainTouch(ms, a, how, ev, body = false){
   const ch = ms.chain;
   if (how === 'block' || how === 'deflect'){
     const p = ch.pass;
@@ -198,6 +199,9 @@ export function chainTouch(ms, a, how, ev){
     }
     if (shot && !a.isGK){ shot.blockedBy = a.id; }
   }
+  // a ball that hits a man's body without him playing it (a deflection, or a dribble run into a defender's legs) is no
+  // touch of his: it only ends whoever's spell it was
+  if (how === 'deflect' || body){ ch.spell = -1; return; }
   spellTouch(ms, a.id);
 }
 // the ball went out: an open pass failed, an open shot missed
@@ -278,13 +282,15 @@ export function countersAll(ms){
             if (ev.res === 'blocked') c.blocked++;
             if ((ev.xg || 0) >= 0.35) c.bcm++;
           }
-        } else if (PASS_KINDS.has(ev.intent) && ev.intent !== 'goalkick' && ev.intent !== 'punt' && !(ev.intent === 'header' && !ev.recv)){
+        } else if (PASS_KINDS.has(ev.intent) && ev.intent !== 'goalkick' && ev.intent !== 'punt' && !(ev.intent === 'header' && !(ev.recv >= 0))){
           c.passAtt++;
           if (ev.intent === 'cross') c.crosses++;
           if (ev.res === 'ok'){ c.pc++; if (ev.long) c.lpass++; else c.spass++; if (ev.intent === 'cross') c.crossOk++; }
           else if (ev.res) c.pf++;
           if (ev.kp) c.kp++;
-        } else if (ev.intent === 'clear') c.clear++;
+        } else if (ev.intent === 'clear'){ c.clear++; c.defActs++; }
+        // a headed clearance in his own third (headed away to nobody)
+        if (ev.intent === 'header' && !ev.atGoal && !(ev.recv >= 0) && ev.u < ms.spec.L/3){ c.clear++; c.defActs++; }
         if (ev.err) c.err++;
         break;
       }
@@ -306,12 +312,13 @@ export function countersAll(ms){
       }
       case 'lost': if (c){ c.dis++; if (ev.err) c.err++; } break;
       case 'dribble': if (c){ c.drb++; const b = get(ev.beat); if (b) b.beaten++; } break;
-      case 'tackle': if (c){ c.tklAtt++; if (ev.won) { c.tkl++; c.defActs++; } } break;
+      // a tackle won: the ball taken off him or knocked away from him (a poke)
+      case 'tackle': if (c){ c.tklAtt++; if (ev.won || ev.result === 'poke'){ c.tkl++; c.defActs++; } } break;
       case 'touch':
         if (c && ev.intercept != null){ c.int++; c.defActs++; }
-        else if (c && ev.how === 'block' && (ev.blockOf === 'shot' || ev.blockOf === 'cross')){ c.blocks++; c.defActs++; }
+        else if (c && ev.how === 'block' && (ev.blockOf === 'shot' || ev.blockOf === 'cross' || ev.blockOf === 'clear')){ c.blocks++; c.defActs++; }
         break;
-      case 'aerial': { const w = get(ev.winner), l = get(ev.loser); if (w){ w.aw++; w.defActs += ev.def === w ? 1 : 0; } if (l) l.al++; break; }
+      case 'aerial': { const w = get(ev.winner), l = get(ev.loser); if (w) w.aw++; if (l) l.al++; break; }
       case 'foul': if (c) c.fouls++; { const v = get(ev.on); if (v) v.fouled++; } break;
       case 'card': if (c){ if (ev.color === 'red') c.red++; else c.yellows++; } break;
       case 'offside': if (c) c.offs++; break;
@@ -323,7 +330,8 @@ export function countersAll(ms){
         break;
     }
   }
-  // aerials won count as defensive actions for anyone in his own half
+  // defensive actions (defActs): tackles won, interceptions, blocks of shots, crosses and clearances, clearances, and
+  // aerial duels won in his own half (the last added here)
   for (const ev of ms.events) if (ev.kind === 'aerial'){
     const w = get(ev.winner), a = ms.agents[ev.winner];
     if (w && a && ms.dirs[a.team]*ev.x < 0) w.defActs++;

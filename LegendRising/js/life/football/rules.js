@@ -39,7 +39,9 @@ export const RULES = Object.freeze({
   WALL_D: 9.15, WALL_GAP: 0.62, WALL_POST: 0.6, WALL_JUMP: 0.6,
   READY_D: 2, CELEBRATE: 3,
   TAKER_AT: 2.6, SPRINT_D: 20, HURRY: 8,     // HURRY: a ball further than this is sprinted for               // the taker is at the ball within this (his run-up spot is 1.8 m back at most); he sprints to a spot further than this
-  SUBS: 5
+  SUBS: 5,
+  THROW_FB: 6,                               // a full-back takes his side's throw-in when within this much of the winger's distance
+  SERVE_MEET: 1.2                            // seconds a served ball costs beyond its flight: meeting it and carrying it in
 });
 
 /* ---------- possession ---------- */
@@ -289,7 +291,10 @@ function pickTaker(ms, kind, team, spot){
   else if (kind === 'throw'){
     const side = spot.z > 0 ? 1 : -1;
     const wide = ag.filter(a => !a.isGK && /^(LB|RB|LWB|RWB|LM|RM|LW|RW)$/.test(a.slot) && (ms.dirs[team]*side > 0 ? /R/.test(a.slot) : /L/.test(a.slot)));
-    const nw = near(wide), no = near(ag.filter(a => !a.isGK));
+    // the full-back on that side takes it when he is not much further away than the winger (he comes up for it)
+    const fb = near(wide.filter(a => /^(LB|RB|LWB|RWB)$/.test(a.slot))), nw0 = near(wide), no = near(ag.filter(a => !a.isGK));
+    const df = fb ? hypot(fb.m.x - spot.x, fb.m.z - spot.z) : Infinity, dw0 = nw0 ? hypot(nw0.m.x - spot.x, nw0.m.z - spot.z) : Infinity;
+    const nw = fb && df <= dw0 + RULES.THROW_FB ? fb : nw0;
     const dw = nw ? hypot(nw.m.x - spot.x, nw.m.z - spot.z) : Infinity, dn = no ? hypot(no.m.x - spot.x, no.m.z - spot.z) : Infinity;
     t = nw && dw <= dn + 10 ? nw : no;
     if (me && me.team === team && hypot(me.m.x - spot.x, me.m.z - spot.z) < 10 && t !== me){
@@ -377,7 +382,8 @@ function sourceCost(ms, R0, x, z){
     else if (isTk && fixed) continue;                                              // a specialist waits at the spot for it
     else {
       // served to the taker (and caught: 0.8 s more), or for a specialist on his way, put on the spot for him
-      const ball = tf + Math.min(serveT(far) + 0.8, fixed && !a.isGK && far <= RULES.PLACE_MAX ? carryT(far) + 0.6 : Infinity);
+      // (a served ball still has to be met where it comes down and carried in: SERVE_MEET more)
+      const ball = tf + Math.min(serveT(far) + 0.8 + RULES.SERVE_MEET, fixed && !a.isGK && far <= RULES.PLACE_MAX ? carryT(far) + 0.6 : Infinity);
       t = fixed ? Math.max(ball, tkRun) + 0.1*ball : ball;
     }
     if (isTk) t -= 0.3;
@@ -720,7 +726,14 @@ export function restartTaken(ms, ev){
   if (took > RULES.SLOW && R0.kind !== 'kickoff') ms.stoppage[ms.half - 1] += RULES.STOP.slow;
   const fu = ms.dirs[R0.team]*R0.spot.x + ms.spec.hx;
   ms.restartLog.push({kind: R0.kind, took, limit: R0.limit, t: ms.t, final: fu > 2*ms.spec.L/3});
-  logEv(ms, 'restart', R0.team, R0.taker, R0.spot.x, R0.spot.z, {rk: R0.kind, taker: R0.taker, took: Math.round(took*100)/100});
+  // a set piece into the box (a corner, a free kick in the final third): who of the side is in the box attacking it
+  let box = null;
+  if ((R0.kind === 'corner' || R0.kind === 'free' || R0.kind === 'indirect') && fu > 2*ms.spec.L/3){
+    const end = ms.dirs[R0.team];
+    box = [];
+    for (const a of ms.agents) if (a.team === R0.team && a.onPitch && a.role === 'player' && a.id !== R0.taker && !a.isGK && inBox(ms.spec, end, a.m.x, a.m.z)) box.push(a.id);
+  }
+  logEv(ms, 'restart', R0.team, R0.taker, R0.spot.x, R0.spot.z, {rk: R0.kind, taker: R0.taker, took: Math.round(took*100)/100, box});
   if (ev){ ev.rk = R0.kind; if (R0.kind === 'free' || R0.kind === 'indirect') ev.fk = true; if (R0.kind === 'penalty') ev.pen = true; }
   ms.restart = null;
   ms.phase = 'live';

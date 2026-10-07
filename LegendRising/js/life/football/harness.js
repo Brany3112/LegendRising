@@ -32,8 +32,8 @@ export const ORACLE = Object.freeze({
     CM: {tackle: 16, intercept: 13, aerial: 7}, DF: {tackle: 24, intercept: 17, aerial: 16}},
   EXTRA_MIX: {ST: {counter: 7, cross: 2}, W: {counter: 6, cross: 12}, AM: {counter: 5, cross: 4}, CM: {counter: 3, cross: 3}, DF: {counter: 1, cross: 2}}
 });
-// the oracle's moments grouped the way the simulation's involvements are counted: going at goal (runs, wing play,
-// one-on-ones, the edge of the box, counters), making the play (passes, crosses), set pieces, and defending
+// The oracle's moments in four groups, as the simulation's involvements are classified (involvementOf): going at goal
+// (run, wing, one-on-one, the edge of the box, the counter), making the play (a pass, a cross), set pieces, defending
 const GROUPS = {attack: ['run', 'wing', 'oneonone', 'edge', 'counter'], create: ['pass', 'cross'], set: ['freekick', 'penalty', 'corner', 'throwin'],
   defend: ['tackle', 'intercept', 'aerial']};
 export function oracleShares(arch){
@@ -107,7 +107,8 @@ export function measure(ms){
   for (const ev of ms.events){
     if (ev.kind !== 'kick' || ev.whiff || ev.void) continue;
     kinds[ev.intent] = (kinds[ev.intent] || 0) + 1;
-    if (ev.intent === 'cross') crosses++;
+    // crosses from open play (a corner or a free kick swung in is a set piece, counted as such)
+    if (ev.intent === 'cross' && !ev.rk) crosses++;
     if (ev.intent === 'header' && ev.atGoal && (ev.res === 'saved' || ev.res === 'goal')) hot++;
     if (ev.intent === 'through' && !ev.rk){ through++; if (ev.offSnap && ev.offSnap.includes(ev.recv) && ev.recvOff) throughOff++; }
   }
@@ -134,57 +135,127 @@ export function measure(ms){
     const pd = c.posDisc > 0.2 ? Math.min(1.5, 0.5*Math.ceil((c.posDisc - 0.2)/0.15 - 1e-9)) : 0;
     const rating = RT[meId] != null ? RT[meId] : 6.5;
     out.me = {arch: a.arch, slot: a.slot, touches: c.touches, shots: c.shots, defActs: c.defActs, mins: c.mins,
-      gapP95: inv.gapP95, gaps: inv.gaps, groups: inv.groups, sides: sidesOf(ms, a.team), rating, trustD: (rating - 6.5)*8*(ms.cfg.friendly ? 0.5 : 1) + trustJ - pd,
+      gapP95: inv.gapP95, gaps: inv.gaps, groups: inv.groups, moments: inv.kinds, sides: sidesOf(ms, a.team), rating, trustD: (rating - 6.5)*8*(ms.cfg.friendly ? 0.5 : 1) + trustJ - pd,
       pref: out.pref};
   }
   return out;
 }
 
 // counters (4.7): the ball won with 3 or more attackers ahead of it, then in the final third within 10 s
-function countCounters(ms){
-  const L = ms.spec.L;
-  let n = 0;
-  const ev = ms.events;
+function countCounters(ms){ return counterStarts(ms).size; }
+// the possession events that started one: a Set of event ids
+function counterStarts(ms){
+  if (ms.counterIds) return ms.counterIds;
+  const L = ms.spec.L, ev = ms.events, out = new Set();
   for (let i = 0; i < ev.length; i++){
     const e = ev[i];
     if (e.kind !== 'possession' || !(e.ahead >= 3)) continue;
-    const dir = ms.dirs0 ? ms.dirs0[e.team] : 1;
     for (let j = i + 1; j < ev.length; j++){
       const f = ev[j];
       if (f.t - e.t > 10 || f.kind === 'possession' || f.kind === 'out' || f.kind === 'whistle') break;
-      if ((f.kind === 'touch' || f.kind === 'kick') && f.team === e.team && f.u != null && f.u > 2*L/3){ n++; break; }
+      if ((f.kind === 'touch' || f.kind === 'kick') && f.team === e.team && f.u != null && f.u > 2*L/3){ out.add(e.id); break; }
     }
   }
-  return n;
+  if (ms.phase === 'over') ms.counterIds = out;
+  return out;
 }
 
-// the player's involvements: their times (for the gaps) and their kinds (for the oracle comparison)
-function involvementOf(ms, a, C){
-  const times = [], groups = {attack: 0, create: 0, set: 0, defend: 0};
-  let lastSpell = -1;
-  for (const ev of ms.events){
-    if (ev.agent !== a.id) { if (ev.kind === 'touch' || ev.kind === 'kick') lastSpell = ev.agent; continue; }
+// The player's involvements: their times (for the gaps) and their kinds, as the 2D match's moments were (for the oracle
+// comparison). Every spell of his on the ball is one moment, classified by what he made of it, in this order: a set
+// piece (he takes it, or his is the first touch after his side's corner or free kick into the box: "Throw-in",
+// "Corner", "Free kick", "Penalty!"); going at goal (a shot, a take-on, the ball won back in the opponents' half: "On the ball",
+// "Through on goal!"); making the play (a cross, a through ball, a key pass: "Cross it in", "Pick a pass"); the ball in
+// the final third ("Out wide" within 18 m of a touchline, else "Edge of the box"); a counter ("Counter-attack!": his
+// side won it with three or more ahead and was in the final third within 10 s, as countCounters counts them, and he
+// has it in their half in those 10 s); a pass that takes it 5 m or more
+// nearer their goal line ("Pick a pass", building the attack). A spell of recycling it backwards or square is no
+// moment. Being in the box when his side's corner or free kick is struck is a set-piece moment too. Defending ("Get
+// back and stop him", "Read the pass", "It's in the air"): a tackle, an interception or a block in his own half, an
+// aerial duel in his own half; winning the ball in their half is going at goal (above). The times also hold his
+// challenges (within 1.5 m of the man on the ball), the fouls on him, the passes played to him, and his air kicks.
+const SET_OF = {throw: 'throwin', corner: 'corner', free: 'freekick', indirect: 'freekick', penalty: 'penalty'};
+export function involvementOf(ms, a){
+  const L = ms.spec.L, Wd = ms.spec.Wd, E = ms.events, id = a.id, team = a.team;
+  const groups = {attack: 0, create: 0, set: 0, defend: 0}, kinds = {};
+  const add = (g, k) => { groups[g]++; kinds[k] = (kinds[k] || 0) + 1; };
+  const times = [];
+  const counterUntil = [-1, -1], restartAt = [-99, -99], restartKind = ['', ''];
+  const counters = counterStarts(ms);
+  let cur = -1, sp = null;
+  const close = () => {
+    if (!sp) return;
+    if (sp.set) add('set', sp.set);
+    else if (sp.shot) add('attack', 'shot');
+    else if (sp.drb) add('attack', 'takeon');
+    else if (sp.won) add('attack', 'wonHigh');
+    else if (sp.create && sp.create !== 'forward') add('create', sp.create);
+    else if (sp.u0 >= 2*L/3) add('attack', Math.abs(sp.w0 - Wd/2) > Wd/2 - 18 ? 'wing' : 'edge');
+    else if (sp.counter) add('attack', 'counter');
+    else if (sp.create) add('create', 'forward');
+    sp = null;
+  };
+  for (const ev of E){
+    if (ev.kind === 'possession' && counters.has(ev.id)) counterUntil[ev.team] = ev.t + 10;
+    if (ev.kind === 'restart'){
+      // a delivery into the box (a corner, a free kick crossed in or struck at goal): the first touch after it is part
+      // of the set piece; a short one played to a team-mate (or a throw-in) starts open play again
+      const deliv = ev.rk === 'corner' || ev.rk === 'penalty' || (ev.rk === 'free' || ev.rk === 'indirect') && ev.box && ev.box.length;
+      if (deliv){ restartAt[ev.team] = ev.t; restartKind[ev.team] = ev.rk; }
+      if (ev.team === team && ev.box && ev.box.includes(id)){ add('set', 'box'); times.push(ev.t); }
+    }
+    if (ev.kind === 'whistle' || ev.kind === 'out' || ev.kind === 'goal'){ if (cur === id) close(); cur = -1; continue; }
+    const mine = ev.agent === id;
+    if (ev.kind === 'touch' && ev.body){
+      // the ball ran into him: no spell of anybody's; an interception or a block when it was one
+      if (cur === id) close();
+      cur = -1;
+      if (mine){
+        times.push(ev.t);
+        if (ev.intercept != null){ if (ev.u >= L/2) add('attack', 'wonHigh'); else add('defend', 'intercept'); }
+        else if (ev.how === 'block' && ev.blockOf && ev.blockOf !== 'ball' && ev.u < L/2) add('defend', 'block');
+      }
+      continue;
+    }
+    if (ev.kind === 'touch' || ev.kind === 'kick' || ev.kind === 'save'){
+      if (ev.kind === 'kick' && ev.whiff){ if (mine) times.push(ev.t); continue; }
+      if (cur !== ev.agent){
+        if (cur === id) close();
+        cur = ev.agent;
+        if (mine){
+          sp = {u0: ev.u, w0: ms.dirs[team]*ev.z + Wd/2, set: null, shot: false, drb: false, won: false, create: null,
+            counter: ev.t < counterUntil[team] && ev.u > L/2};
+          times.push(ev.t);
+          if (ev.t - restartAt[team] < 4 && !(ev.kind === 'kick' && ev.rk)) sp.set = SET_OF[restartKind[team]];
+        }
+      }
+      if (!mine) continue;
+      if (ev.kind === 'touch' && ev.intercept != null){ if (ev.u >= L/2) sp.won = true; else add('defend', 'intercept'); }
+      else if (ev.kind === 'touch' && ev.how === 'block' && ev.blockOf && ev.blockOf !== 'ball' && ev.u < L/2) add('defend', 'block');
+      if (ev.kind === 'kick'){
+        if (ev.rk && SET_OF[ev.rk]) sp.set = SET_OF[ev.rk];
+        else if (ev.intent === 'shot' || ev.atGoal) sp.shot = true;
+        else if (ev.intent === 'cross') sp.create = 'cross';
+        else if (ev.intent === 'through') sp.create = sp.create && sp.create !== 'forward' ? sp.create : 'through';
+        else if (ev.kp) sp.create = 'keyPass';
+        else if ((ev.intent === 'pass' || ev.intent === 'lob') && ev.gain >= 5) sp.create = sp.create || 'forward';
+      }
+      continue;
+    }
+    if (!mine && !(ev.kind === 'aerial' && (ev.winner === id || ev.loser === id)) && !(ev.kind === 'foul' && ev.on === id)) continue;
     switch (ev.kind){
-      case 'touch':
-        if (lastSpell !== a.id) times.push(ev.t);
-        if (ev.intercept != null || ev.how === 'block' && (ev.blockOf === 'shot' || ev.blockOf === 'cross')) groups.defend++;
-        lastSpell = a.id;
+      case 'dribble': if (sp) sp.drb = true; else add('attack', 'takeon'); break;
+      case 'tackle':
+        times.push(ev.t);
+        if (ev.u >= L/2){ if (ev.won || ev.result === 'poke') add('attack', 'wonHigh'); }
+        else add('defend', 'tackle');
         break;
-      case 'kick':
-        if (lastSpell !== a.id) times.push(ev.t);
-        lastSpell = a.id;
-        if (ev.whiff) break;
-        if (ev.rk && ev.rk !== 'kickoff' && ev.rk !== 'goalkick') groups.set++;
-        else if (ev.intent === 'shot' || ev.atGoal) groups.attack++;
-        else if (ev.intent === 'cross' || ev.intent === 'through' || ev.kp || (ev.intent === 'pass' || ev.intent === 'lob') && ev.gain > 12) groups.create++;
-        break;
-      case 'tackle': times.push(ev.t); if (ev.won) groups.defend++; break;
       case 'challenge': times.push(ev.t); break;
-      case 'dribble': groups.attack++; break;
-      case 'aerial': break;
+      case 'aerial': times.push(ev.t); if (ms.dirs[team]*ev.x < 0) add('defend', 'aerial'); break;
+      case 'foul': if (ev.on === id) times.push(ev.t); break;
     }
   }
-  for (const ev of ms.events) if (ev.kind === 'aerial' && (ev.winner === a.id || ev.loser === a.id)){ times.push(ev.t); if (ev.winner === a.id) groups.defend++; }
+  if (cur === id) close();
+  for (const ev of E) if (ev.kind === 'kick' && ev.recv === id && ev.agent !== id && !ev.whiff) times.push(ev.t);
   times.sort((x, y) => x - y);
   // gaps while he was on the pitch, between his involvements (and from his start and to his end)
   const gaps = [];
@@ -194,7 +265,7 @@ function involvementOf(ms, a, C){
     for (const t of times){ if (t < s || t > e) continue; gaps.push(t - prev); prev = t; }
     gaps.push(e - prev);
   }
-  return {gapP95: pct(gaps, 0.95), gaps: gaps.map(g => Math.round(g*10)/10), groups, times: times.length};
+  return {gapP95: pct(gaps, 0.95), gaps: gaps.map(g => Math.round(g*10)/10), groups, kinds, times: times.length};
 }
 
 // where a team's attacks go: the third (left, centre, right as it attacks) of every pass it completes in the
@@ -236,7 +307,8 @@ export function aggregate(list){
   const by = {};
   for (const m of list){
     if (!m.me) continue;
-    const b = by[m.me.arch] || (by[m.me.arch] = {n: 0, touches: [], shots: [], defActs: [], gap: [], gapsAll: [], groups: {attack: 0, create: 0, set: 0, defend: 0}, trust: [], rating: []});
+    const b = by[m.me.arch] || (by[m.me.arch] = {n: 0, touches: [], shots: [], defActs: [], gap: [], gapsAll: [], groups: {attack: 0, create: 0, set: 0, defend: 0}, moments: {}, trust: [], rating: []});
+    for (const [k, v] of Object.entries(m.me.moments || {})) b.moments[k] = (b.moments[k] || 0) + v;
     b.n++; b.touches.push(m.me.touches); b.shots.push(m.me.shots); b.defActs.push(m.me.defActs); b.gap.push(m.me.gapP95); b.gapsAll.push(m.me.gaps || []);
     for (const g in b.groups) b.groups[g] += m.me.groups[g] || 0;
     b.trust.push(m.me.trustD); b.rating.push(m.me.rating);
@@ -246,7 +318,8 @@ export function aggregate(list){
     const tot = Object.values(b.groups).reduce((a, x) => a + x, 0) || 1;
     const shares = {}; for (const g in b.groups) shares[g] = b.groups[g]/tot;
     R.me[k] = {n: b.n, touches: mean(b.touches), shots: mean(b.shots), defActs: mean(b.defActs), gapP95: pct([].concat(...b.gapsAll), 0.95), gapMedian: median(b.gap),
-      shares, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating)};
+      shares, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating),
+      moments: Object.fromEntries(Object.entries(b.moments).map(([q, v]) => [q, Math.round(v/b.n*100)/100]))};
   }
   const allMe = list.filter(m => m.me);
   // the 95th percentile of every gap between the player's involvements, all matches together

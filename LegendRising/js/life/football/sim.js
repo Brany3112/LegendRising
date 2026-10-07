@@ -23,7 +23,7 @@ import {levelled} from "./attrs.js";
 import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle, situation} from "./tactics.js";
 import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
-import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl} from "./rules.js";
+import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul} from "./rules.js";
 import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, bodyContact, steer, standStill} from "./actions.js";
 import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf, dribbleWatch} from "./events.js";
 import {judgeDecision} from "./judge.js";
@@ -80,7 +80,7 @@ export function createMatch(cfg){
     // additions
     tm: null, chain: createChain(), spares: [], kick: null, call: null, meAI: !!cfg.meAI, restartLog: [],
     roleDone: {on: false, off: false}, asserts: {teleport: 0, ballJump: 0, maxAgent: 0, maxBall: 0, restartLate: 0}, vOutMax: 0,
-    judgeQ: [], judgeLast: -999, cutStep: -1, ballSwap: -1, physQ: [], heavyUsed: 0, halfEnd: null, sitT: -99
+    judgeQ: [], judgeLast: -999, cutStep: -1, ballSwap: -1, physQ: [], heavyUsed: 0, halfEnd: null, sitT: -99, bumps: []
   };
   ms.gkCollect = gkCollect;
   // the AI's lofted-flight tables (strike.js) are built on first use: build them here, never inside a step
@@ -330,8 +330,10 @@ export function simStep(ms, h = H){
       if (evs.length && ms.poss.ctl === a.id && ms.phase === 'live') for (const e of evs) dribbleFoot(ms, a, e.side);
     }
   }
-  // 5. separation
-  separate(agents, h);
+  // 5. separation; a man who runs hard into the back of the one on the ball may be penalised for it (3.2.9)
+  ms.bumps.length = 0;
+  separate(agents, h, ms.bumps);
+  if (ms.phase === 'live' && ms.bumps.length) chargeFouls(ms);
   // 6. the ball: who plays it before it moves, then its step
   if (ms.phase === 'live'){ controlCheck(ms); touchCheck(ms); }
   const bl = ms.bodyList; bl.length = 0;
@@ -534,6 +536,31 @@ function missMargin(ms, k){
   return Math.max(dz, dy) + (k.sigma || 0)*(k.dist || 0);
 }
 
+/* ---------- body contact on the ball (3.2.9) ---------- */
+
+// A hard collision (separate(): closing above the stagger speed) into the man on the ball, by an opponent: a charge.
+// From behind, or harder, it is more likely given against him: pFoul = clamp((closing - 3)/2.5, 0, 1) x (0.35 + 0.65
+// fromBehind). A push or a pull, not a tackle: the severity of 3.2.9 at BODY_SEV of its weight, so it is a yellow only
+// as a tactical foul (stopping an attack worth xT > 0.15).
+export const CHARGE = Object.freeze({V0: 3, DV: 2.5, P0: 0.35, BODY_SEV: 0.72});
+function chargeFouls(ms){
+  const B = ms.bumps;
+  for (let i = 0; i < B.length; i += 3){
+    const v = ms.agents[B[i]], o = ms.agents[B[i + 1]], close = B[i + 2];
+    if (!v || !o || v.team === o.team || v.team < 0 || o.team < 0) continue;
+    const b = ms.ball.p;
+    const onBall = ms.poss.ctl === v.id || ms.ball.state === 'free' && ms.poss.team === v.team && hypot(b.x - v.m.x, b.z - v.m.z) < 1.2;
+    if (!onBall || ms.phase !== 'live') continue;
+    const fx = -sin(v.m.yaw), fz = -cos(v.m.yaw), dx = o.m.x - v.m.x, dz = o.m.z - v.m.z, dl = hypot(dx, dz) || 1;
+    const c = (dx*fx + dz*fz)/dl, fromBehind = c > -0.2 ? 0 : c < -0.7 ? 1 : ((-0.2 - c)/0.5)*((-0.2 - c)/0.5)*(3 - 2*(-0.2 - c)/0.5);
+    const p = clamp((close - CHARGE.V0)/CHARGE.DV, 0, 1)*(CHARGE.P0 + (1 - CHARGE.P0)*fromBehind);
+    if (!(p > 0) || ms.r() >= p) continue;
+    const sev = clamp(0.25 + 0.06*close + 0.3*fromBehind, 0, 1)*CHARGE.BODY_SEV;
+    foul(ms, o, v, sev, v.m.x, v.m.z, {charge: true, down: false});
+    if (ms.phase !== 'live') return;
+  }
+}
+
 /* ---------- running it ---------- */
 
 // match seconds since the start (both halves)
@@ -550,14 +577,18 @@ export function advance(ms, real, scale = 1, maxSteps = 4){
 }
 
 // Run headless (1.4.13): until the match second untilSec (5400 the whole match) or full time, time-sliced to
-// budgetMs of wall time per call (0: no limit). The same simStep as live play.
-const now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+// budgetMs of wall time per call (0: no limit). The same simStep as live play. The wall clock is the one the caller
+// gave the match (cfg.now: bridge.matchConfig hands in the page's); without one a slice is counted in steps, at the
+// reference cost of RUN_STEP_MS a step.
+export const RUN_STEP_MS = 0.25;
 export function runHeadless(ms, untilSec = 1e9, budgetMs = 0){
-  const t0 = budgetMs > 0 ? now() : 0;
+  const now = typeof ms.cfg.now === 'function' ? ms.cfg.now : null;
+  const t0 = budgetMs > 0 && now ? now() : 0, maxSteps = budgetMs > 0 && !now ? Math.max(1, Math.round(budgetMs/RUN_STEP_MS)) : Infinity;
   let steps = 0;
   while (ms.phase !== 'over' && matchSec(ms) < untilSec){
     simStep(ms, H); steps++;
-    if (budgetMs > 0 && (steps & 31) === 0 && now() - t0 >= budgetMs) break;
+    if (steps >= maxSteps) break;
+    if (budgetMs > 0 && now && (steps & 31) === 0 && now() - t0 >= budgetMs) break;
   }
   return {done: ms.phase === 'over' || matchSec(ms) >= untilSec, steps};
 }

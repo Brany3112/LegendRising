@@ -40,7 +40,10 @@ export const TAC = Object.freeze({
   LEN_OUT: 30, LEN_IN: 45, WID_OUT: 38, WID_IN: 60, BALL_SHIFT: 0.35,
   TRANSITION: 2.5, BLEND: 1.5, OVERLAP: 8, WING_HOLD: 4, ST_OFF: 0.6, AM_OFF: 4, DM_SCREEN: 6,
   COUNTER_PRESS: 3, PRESS_STOP: 1.6, COVER: 7, MARK_GAP: 1.8,
-  SIT_GAP: 20                         // real seconds between two scenario lines
+  SIT_GAP: 20,                        // real seconds between two scenario lines
+  BEHIND: 0.8,                        // seconds of handicap for a presser upfield of the ball (chasing it from behind)
+  FWD_ON: 0.5,                        // a forward presses outside the counter-press only a ball this close (seconds)...
+  FWD_PRESS: 0.25                     // ...or in the opponents' half for a side pressing more than this (pressBias)
 });
 
 // A club's style from its name (3.2.2): line -6..6 m, press -1..1, width -4..4 m, directness 0.35..0.65. Frozen at
@@ -169,19 +172,28 @@ export function assignDefence(ms, team){
   const pressing = (st.pressBias || 0) + (tm.latePress || 0);
   // the press zone: everywhere in his own half, up to the opponents' third for a pressing side
   const zone = (0.62 + 0.18*clamp(pressing, -1, 1))*L*clamp(pressMul, 0.8, 1.4);
+  // the counter-press (3.2.2): a side that presses goes straight back at the ball for 3 s after losing it
+  tm.counterOn = ms.t - tm.counterT < TAC.COUNTER_PRESS && pressing > 0;
   // candidates by a quick time to the ball: distance over his top speed, plus a turn
   let best = null, bestT = Infinity, second = null, secondT = Infinity;
   for (const a of ms.agents){
     if (a.team !== team || !a.onPitch || a.role !== 'player' || a.isGK || a.sentOff) continue;
     const m = a.m, d = hypot(b.x - m.x, b.z - m.z);
-    const t = d/(a.prm.sprint*0.9) + 0.15;
+    // a man goal side of the ball engages it face on; one caught upfield of it has to chase it from behind (where fouls
+    // and missed tackles come from), so the man goal side goes unless the other is clearly nearer
+    const upfield = dir*m.x + L/2 - bu;
+    const t = d/(a.prm.sprint*0.9) + 0.15 + (upfield > 1 ? TAC.BEHIND*Math.min(1, upfield/6) : 0);
+    // the forwards and the ten close the ball down on a turnover (the counter-press), and high up the pitch for a side
+    // that presses;
+    // otherwise they hold their places for the counter and leave the ball to the midfield and the defence, unless it
+    // is right on them
+    if ((a.slotLine === 'FWD' || a.slotLine === 'CAM') && !tm.counterOn && t > TAC.FWD_ON && !(bu >= L/2 && pressing > TAC.FWD_PRESS)) continue;
     if (t < bestT){ second = best; secondT = bestT; best = a; bestT = t; }
     else if (t < secondT){ second = a; secondT = t; }
   }
-  if (best && (bu < zone || ms.t - tm.counterT < TAC.COUNTER_PRESS || bestT < 1.2)) best.task.press = 1;
+  if (best && (bu < zone || tm.counterOn || bestT < 1.2)) best.task.press = 1;
   if (second && best && best.task.press === 1) second.task.press = 2;
   tm.press = [best ? best.id : -1, second ? second.id : -1];
-  tm.counterOn = ms.t - tm.counterT < TAC.COUNTER_PRESS && pressing > 0;
   if (tm.counterOn && second) second.task.press = 1;
   // marking: the remaining back line and midfield against threats in their own half (and a striker who drops)
   const defs = [], threats = [];

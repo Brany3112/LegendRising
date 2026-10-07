@@ -28,7 +28,7 @@ export const GK = Object.freeze({
   OFF: [0.8, 0.06, 6, 0.6, 4.5], NEAR: 35, SWEEP: [18, 6, 22], SWEEP_BLEND: 15,
   POS_ERR: 0.5, POS_ERR_T: 2,
   SHUFFLE_V: 2.5, SHUFFLE_D: 1.5, REPOS_V: 5,
-  SET_T: 0.15, SET_D: 25, SET_CONE: 40*DEG,
+  SET_T: 0.15, SET_D: 25, SET_CONE: 40*DEG, SET_AHEAD: 1.2,   // set for a ball played in to a man who meets it within 1.2 s
   REACT: [0.12, 0.30, 0.0015, 0.03], UNSET: 0.12, SCREEN: 0.08,
   SPIN: [0.4, 0.004], LAT: [0.2, 0.012, 18, 1.3], REREAD: 0.55, STEER: 0.35,
   CATCH_D: 0.22, CATCH_V: [13, 0.14], CATCH_EXT: 0.92,
@@ -84,11 +84,24 @@ function positionTarget(ms, a, out){
   return out;
 }
 
-// is an opponent in a shooting stance within 25 m (the ball at his feet, facing the goal within 40 degrees)?
+// is an opponent in a shooting stance within 25 m (the ball at his feet, facing the goal within 40 degrees), or about to
+// meet a ball played in (his run to it, a header or a first-time finish, within 25 m of goal): the keeper reads it and
+// gets set
 function shooterThreat(ms, a){
   const c = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
-  if (!c || c.team === a.team) return false;
-  const gx = goalX(ms, a), m = c.m, d = hypot(gx - m.x, m.z);
+  const gx = goalX(ms, a);
+  if (!c){
+    if (ms.ball.state !== 'free') return false;
+    for (const o of ms.agents){
+      if (o.team === a.team || o.team < 0 || !o.onPitch || !o.plan) continue;
+      const p = o.plan;
+      if (p.kind !== 'receive' && p.kind !== 'chase' && p.kind !== 'header') continue;
+      if (hypot(gx - p.x, p.z) <= GK.SET_D && p.t - (ms.t - p.at) < GK.SET_AHEAD) return true;
+    }
+    return false;
+  }
+  if (c.team === a.team) return false;
+  const m = c.m, d = hypot(gx - m.x, m.z);
   if (d > GK.SET_D) return false;
   const f = dirOf(m.yaw), tx = (gx - m.x)/d, tz = -m.z/d;
   return f.x*tx + f.z*tz > COS_SET;

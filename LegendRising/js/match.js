@@ -552,7 +552,7 @@ function matchRewards(M, rating, out){
   R.xp = xp;
   // a pre-season friendly is a look, not a verdict: the manager notices, but less
   const trustWas = S.trust, dT = (rating - 6.5)*8*(friendly ? .5 : 1);
-  if (typeof trustAdd === "function") trustAdd(dT); else S.trust = clamp(S.trust + dT, -30, 80);
+  trustAdd(dT);
   R.trustD = S.trust - trustWas;
   if (!friendly){
     for (const st of [S.careerMy, S.seasonMy]){
@@ -608,7 +608,7 @@ function bookPlayer(kind){
   if (kind === "red"){
     S.cards.r++; S.cards.run = 0;
     S.ban = (S.ban || 0) + 2;
-    if (typeof trustAdd === "function") trustAdd(-10); else S.trust = Math.max(-30, S.trust - 10);
+    trustAdd(-10);
     if (MT) MT.sentOff = true;
     addNews("you", `${S.player.name} sent off`, `A red card${myClub() ? ` for ${myClub().nm}` : ""}. Two matches out.`, "me");
     return true;

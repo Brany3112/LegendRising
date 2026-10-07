@@ -19,7 +19,7 @@ import {onKick, onTouch, setCtl, clearCtl, foul, restartTaken} from "./rules.js"
 import {xgAt, decisionRecord} from "./judge.js";
 import {jumpHeight} from "./agent.js";
 import {jumpRoot} from "./gkplan.js";
-import {dirOf, yawOf, wrapA} from "./pitchspec.js";
+import {dirOf, yawOf, wrapA, inBox} from "./pitchspec.js";
 import {sin, cos, hypot, atan2} from "./detmath.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -27,8 +27,9 @@ const DEG = Math.PI/180, R = BALL.R, G = 9.81;
 
 // 1.5.3 and 3.1.7 numbers
 export const ACT = Object.freeze({
-  SAFETY: [16, 2.2, 15, 0.6],     // a clearing header for safety: within 16 m of his goal line, an attacker within 2.2 m
-                                  // or the ball faster than 15 m/s, taken 60% of the time
+  SAFETY: [18, 3.5, 15, 0.85, 3, 11, 8],   // a clearing header for safety: within 18 m of his goal line, an attacker within
+                                  // 3.5 m or the ball faster than 15 m/s, taken 85% of the time: aimed 3 m beyond his goal
+                                  // line, 11 to 19 m off the middle on the ball's side
   REACH0: 0.45, REACH1: 0.90, REACH_LAT: 0.5,   // the ball's place for a strike: 0.45 to 0.90 m ahead, within 0.5 m across
   TC_MAX: 0.18, ADJUST: 0.35, SCUFF_D: 1.3,     // contact within 0.18 s; a stride adjust of at most 0.35 s; a scuff up to 1.3 m
   FOLLOW: 0.28,                                 // follow-through after contact
@@ -40,6 +41,8 @@ export const ACT = Object.freeze({
   BLOCK_KEEP: [0.5, 0.85],                     // a leg block keeps this share of the ball's speed
   BLOCK_TURN: [45, 70], BLOCK_LOOP: 4,         // degrees a glance and a square block turn it, at most; a glance loops up to 4 m/s
   SETTLE: [0.12, 0.25, 1.0],                   // the first decision after a reception: pressed, a heavy touch, settled on it
+  AERIAL_FOUL: [1.1, 0.15, 0.25, 0.25]         // an aerial duel with the bodies within 1.1 m: a foul by the loser 15% of the time,
+                                               // severity 0.25 to 0.5
 });
 
 /* ---------- the shared ball path cache (1.5.6) ---------- */
@@ -293,8 +296,8 @@ export function bodyContact(ms, a, part){
   const how = classifyContact(a, ms.ball, a.state === 'jockey' || a.state === 'tackle' || a.state === 'slide' ? {stance: a.state} : null) === 'block' ? 'block' : 'deflect';
   const b = ms.ball;
   b.last.kind = 'deflect';
-  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how, part, quality: 0});
-  chainTouch(ms, a, how, ev);
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how, part, quality: 0, body: true});
+  chainTouch(ms, a, how, ev, true);
   onTouch(ms, a, 'deflect', ev);
   if (ms.poss.ctl >= 0 && ms.poss.ctl !== a.id) clearCtl(ms);
   return ev;
@@ -320,7 +323,7 @@ export function touchCheck(ms){
     if (a.act && (a.act.kind === 'kick' && !a.act.done || a.act.kind === 'header' || a.act.kind === 'tackle' || a.act.kind === 'slide' || a.act.kind === 'throw')) continue;
     if (a.isGK && a.gk && (a.gk.state === 'dive' || a.gk.state === 'hold')) continue;
     if (a.m.stagger > 0.2 || a.state === 'ground' || ms.t < (a.noTouch || 0)) continue;
-    const env = reachEnvelope(a, b);
+    const env = envAhead(a, b);
     if (!env || env.part === 'head') continue;
     const d = env.dist;
     if (d < bd){ bd = d; best = a; }
@@ -356,6 +359,20 @@ export function touchCheck(ms){
   if (cls === 'control'){ receive(ms, a, a.plan && a.plan.push, 0.5); return true; }
   if (wantsIt){ block(ms, a); return true; }
   return false;
+}
+// the reach envelope now, or where the ball will be later in this step: a ball dropping onto a man passes through his
+// chest band between two steps, and it is his to play (not a deflection off his body)
+const BA = {p: {x: 0, y: 0, z: 0}, v: null};
+function envAhead(a, b, h = 1/60){
+  const env = reachEnvelope(a, b);
+  if (env && env.part !== 'head') return env;
+  for (const f of [0.5, 1]){
+    const t = f*h;
+    BA.p.x = b.p.x + b.v.x*t; BA.p.y = b.p.y + b.v.y*t - 0.5*G*t*t; BA.p.z = b.p.z + b.v.z*t; BA.v = b.v;
+    const e2 = reachEnvelope(a, BA);
+    if (e2 && e2.part !== 'head') return e2;
+  }
+  return env;
 }
 function inOwnBox(ms, a){
   const dir = ms.dirs[a.team], ex = -dir*a.m.x;
@@ -475,15 +492,15 @@ function headerTry(ms, a, act){
     look.pitch = atan2((act.target ? act.target.y : 1.0) - b.p.y, d);
   } else if (act.intent === 'clear'){
     look.yaw = yawOf(dirTeam, (b.p.z >= 0 ? 0.4 : -0.4));
-    // near his own goal with an attacker on him (or a ball whipped across fast), safety first: out toward the corner
-    // flag, behind or into touch, rather than back into the middle
+    // near his own goal with an attacker on him (or a ball whipped across fast), safety first: headed behind, over his
+    // own goal line well wide of the post (a corner costs less than a chance), rather than back into the middle
     const ogx = -dirTeam*ms.spec.hx, near = Math.abs(ogx - b.p.x) < ACT.SAFETY[0];
     let pressed = false;
     for (const o of ms.agents){ if (o.team !== a.team && o.team >= 0 && o.onPitch && hypot(o.m.x - a.m.x, o.m.z - a.m.z) < ACT.SAFETY[1]){ pressed = true; break; } }
     const fast = hypot(b.v.x, b.v.z) > ACT.SAFETY[2];
     if (near && (pressed || fast) && ms.r() < ACT.SAFETY[3]){
       const side = b.p.z >= 0 ? 1 : -1;
-      look.yaw = yawOf(ogx - b.p.x, side*ms.spec.hz - b.p.z);
+      look.yaw = yawOf(ogx - dirTeam*ACT.SAFETY[4] - b.p.x, side*(ACT.SAFETY[5] + ACT.SAFETY[6]*ms.r()) - b.p.z);
     }
   }
   const res = headerContact(a, b, h, {kind: act.intent, look: act.intent === 'pass' ? null : look, target: act.target}, {heading: a.at.heading,
@@ -511,9 +528,14 @@ function headerTry(ms, a, act){
   // an aerial duel: anyone else in the air for it lost it
   for (const o of ms.agents){
     if (o === a || !o.onPitch || !o.act || o.act.kind !== 'header' || o.act.done || o.team === a.team) continue;
-    if (hypot(o.m.x - a.m.x, o.m.z - a.m.z) < 2.5){
+    const dd = hypot(o.m.x - a.m.x, o.m.z - a.m.z);
+    if (dd < 2.5){
       o.act.done = true;
       logEv(ms, 'aerial', a.team, a.id, b.p.x, b.p.z, {winner: a.id, loser: o.id});
+      // bodies together in the air: the man who lost it may have gone through the back of the one who won it (in the
+      // winner's attacking box the referee lets that contact go: it takes more than a challenge in the air for a penalty)
+      if (dd < ACT.AERIAL_FOUL[0] && ms.r() < ACT.AERIAL_FOUL[1] && !inBox(ms.spec, ms.dirs[a.team], a.m.x, a.m.z))
+        foul(ms, o, a, ACT.AERIAL_FOUL[2] + ACT.AERIAL_FOUL[3]*ms.r(), a.m.x, a.m.z, {aerial: true, down: false});
     }
   }
   return true;
