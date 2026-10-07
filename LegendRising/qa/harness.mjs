@@ -153,10 +153,13 @@ const R = H.aggregate(ok);
 // simStep cost, timed alone on this thread (2.3 WP-E: in Node on the container)
 if (TIMING > 0){
   const tl = [];
+  // one match first, untimed: this thread's code is compiled (JIT) before the clock runs
+  H.runOne(configFor(FROM + TIMING, opt));
   for (let i = 0; i < TIMING; i++) tl.push(H.runOne(configFor(FROM + i, opt), {now: () => performance.now()}));
   R.stepMean = tl.reduce((a, m) => a + m.stepMean, 0)/tl.length;
   R.stepMax = Math.max(...tl.map(m => m.stepMax));
   R.stepP99 = Math.max(...tl.map(m => m.stepP99));
+  R.stepP999 = Math.max(...tl.map(m => m.stepP999 || 0));
   // determinism: the timed runs give the batch's hashes again
   R.determinism = tl.every((m, i) => ok.find(x => x.seed === FROM + i) ? ok.find(x => x.seed === FROM + i).hash === m.hash : true);
 }
@@ -174,7 +177,7 @@ for (const [k, m] of Object.entries(R.me)) console.log(`  ${k} moments a match: 
 if (R.ratingBy) console.log(`starters' ratings by archetype: ${JSON.stringify(R.ratingBy)}`);
 if (R.assertSeeds && R.assertSeeds.length) console.log(`seeds with a failed assert: ${R.assertSeeds.join(", ")}`);
 console.log(`kicks: ${JSON.stringify(R.kinds)} controlled ${fmt(R.ctlSec)} s`);
-console.log(`other: passes ${fmt(R.passes)} ok ${fmt(R.passesOk)} reds ${fmt(R.reds)} pens ${fmt(R.pens)} restarts ${fmt(R.restarts)} through ${R.through} sides on ${R.sidesOn} off ${R.sidesOff} prefCaps ${R.prefCaps} restartWorst ${fmt(R.restartWorst)}`);
+console.log(`other: passes ${fmt(R.passes)} ok ${fmt(R.passesOk)} reds ${fmt(R.reds)} pens ${fmt(R.pens)} restarts ${fmt(R.restarts)} through ${R.through} sides on ${R.sidesOn} off ${R.sidesOff} prefCaps ${R.prefCaps} restartWorst ${fmt(R.restartWorst)}${R.stepP99 != null ? ` step p99 ${R.stepP99} p99.9 ${R.stepP999} ms` : ""}`);
 const failed = checks.filter(c => !c.pass).length;
 console.log(`harness: ${checks.length - failed} of ${checks.length} checks pass, ${Math.round((Date.now() - t0)/1000)} s`);
 process.exit(failed && !arg("fit-ratings", false) && !arg("fit-tempo", false) ? 1 : 0);

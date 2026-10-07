@@ -42,7 +42,7 @@ export const TEMPO = Object.freeze({
 // The levelling of a match (calibration, 2.3 WP-E: a side 10 overall higher wins 55 to 62%): the AI players of each
 // side play this share of the gap between the two sides' mean overalls nearer the middle. The player himself plays
 // with his own numbers.
-export const LEVEL = 0.69;
+export const LEVEL = 0.74;
 // half length in real seconds by S.speed (1.5.5): Standard 600, Long 900, Short 360; which are calibrated
 export const HALF_REAL = Object.freeze({2: 600, 1: 900, 4: 360});
 export const CALIBRATED = Object.freeze({2: true, 1: false, 4: false});
@@ -249,8 +249,9 @@ function onBall(ms, type, d){
       break;
     case 'body': {
       const a = ms.agents[d.id];
-      // what the contact sent it on at (a keeper's hands replace it: gkOnHand puts the ball on its new path)
-      if (d.vOut && !(a && a.isGK && d.part === 'hand')) ms.vOutMax = Math.max(ms.vOutMax || 0, hypot(d.vOut.x, d.vOut.y, d.vOut.z));
+      // what the contact sent it on at, for the step's displacement assert (a keeper's hands then put the ball on a new
+      // path, gkOnHand, but it travelled at this speed for the rest of the step)
+      if (d.vOut) ms.vOutMax = Math.max(ms.vOutMax || 0, hypot(d.vOut.x, d.vOut.y, d.vOut.z));
       if (a && ms.phase === 'live' && ms.ball.state === 'free'){
         if (a.isGK && d.part === 'hand') gkOnHand(ms, a, d);
         else if (a.isGK && gkOnBody(ms, a, d)) {}

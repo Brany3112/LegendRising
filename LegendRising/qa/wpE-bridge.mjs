@@ -134,6 +134,13 @@ async function flowInPage(){
   skillXP("pace", skillNeed("pace") + 1);
   out.levelled = S.skills.pace === pace0 + 1;
   Sim.runHeadless(ms);
+  // an own goal is credited s = -1 (1.4.16 goalLists); career.js newsFromMatch does not skip it yet (a hook request to
+  // WP-G): the page gets that guard here, so that the rest of the flow is still checked
+  out.ownGoals = ms.events.filter(e => e.kind === "goal" && e.ownGoal && !e.disallowed).length;
+  if (out.ownGoals && typeof newsFromMatch === "function"){
+    const orig = newsFromMatch, mine = l => l.filter(e => W.players[e.s]);
+    window.newsFromMatch = res => orig(Object.assign({}, res, {hG: mine(res.hG), aG: mine(res.aG)}));
+  }
   const fin = B.finish(ms);
   off();
   out.afterFinish = {pace: S.skills.pace, want: pace0 + 1};
@@ -196,6 +203,8 @@ async function hashInPage(cfgJSON){
   check(flow.quick && flow.quick.done && flow.quick.notice === "This match was played out for you. Full matches need the 3D world: open the game from a web address in a browser with WebGL2.",
     "quickMatch plays the fixture out and gives the notice", flow.quick);
   check(flow.errors.length === 0, "no console or page errors", flow.errors);
+  check(!flow.ownGoals, "no own goal at full time, or one guarded here: career.js newsFromMatch must skip s = -1 (hook request to WP-G)",
+    {ownGoals: flow.ownGoals}, !!flow.ownGoals);
   // Node's run of the same configuration
   const {createMatch, simStep} = await import("../js/life/football/sim.js");
   const {logHash} = await import("../js/life/football/events.js");

@@ -42,6 +42,8 @@ export const RULES = Object.freeze({
   SUBS: 5,
   THROW_FB: 10,                              // a full-back takes his side's throw-in when within this much of the winger's distance
   SERVE_MEET: 1.2,                           // seconds a served ball costs beyond its flight: meeting it and carrying it in
+  BOX_EDGE: [18.5, 22],                      // at a set piece into the box, its edge counts: 18.5 m out, 22 m across
+  FLYING: 10,                                // a dead ball in the air faster than this (m/s) is let go when a spare is to hand
   DEAD_ROLL: 4.0                             // a dead ball rolls on against this (m/s2): the ball boys, the boards and the
                                              // players stop it (the grass's own value again once it is back in play)
 });
@@ -335,6 +337,9 @@ function chooseSource(ms, R0){
   const rest = restOf(ms, b);
   let best = reachable(ms, rest.x, rest.z) ? sourceCost(ms, R0, rest.x, rest.z) : {t: Infinity, who: -1};
   R0.src = rest;
+  // a game ball still flying away fast (struck as the whistle went) is nobody's to chase while a spare is to hand: it
+  // only counts again if it comes down near (reconsiderSource)
+  if (flyingAway(b) && hypot(rest.x - sp.x, rest.z - sp.z) > RULES.SPARE_NEAR) best = {t: Infinity, who: best.who};
   if (hypot(rest.x - sp.x, rest.z - sp.z) > RULES.SPARE_NEAR || best.t === Infinity){
     for (let i = 0; i < ms.spares.length; i++){
       const q = ms.spares[i];
@@ -345,6 +350,8 @@ function chooseSource(ms, R0){
   }
   R0.fetcher = best.who >= 0 ? best.who : R0.taker;
 }
+// a dead ball still in the air and fast (struck as the whistle went)
+const flyingAway = b => b.p.y > R + 0.2 && hypot(b.v.x, b.v.z) > RULES.FLYING;
 // the time to carry a ball d metres in the hands (a jog near the spot, a run further out)
 const carryT = d => d <= 6 ? d/RULES.CARRY : 6/RULES.CARRY + (d - 6)/RULES.CARRY_FAR;
 // can a player get to a ball there: inside the boards (a ball resting against them included), not over them
@@ -426,9 +433,12 @@ function reconsiderSource(ms, R0){
   const b = ms.ball;
   if (R0.ballFrom === 'game'){ const r = restOf(ms, b); R0.src = r; }
   const cur = R0.ballFrom === 'spare' ? ms.spares[R0.spare].ball.p : R0.src;
-  let best = reachable(ms, cur.x, cur.z) ? sourceCost(ms, R0, cur.x, cur.z) : {t: Infinity, who: -1}, from = R0.ballFrom, spare = R0.spare, src = {x: cur.x, z: cur.z};
+  // (the game ball flying away fast far from the spot is given up for any spare to hand)
+  const gone = R0.ballFrom === 'game' && flyingAway(b) && hypot(cur.x - R0.spot.x, cur.z - R0.spot.z) > RULES.SPARE_NEAR;
+  let best = reachable(ms, cur.x, cur.z) && !gone ? sourceCost(ms, R0, cur.x, cur.z) : {t: Infinity, who: -1}, from = R0.ballFrom, spare = R0.spare, src = {x: cur.x, z: cur.z};
   const cands = [];
-  if (R0.ballFrom !== 'game'){ const r = restOf(ms, b); if (hypot(r.x - R0.spot.x, r.z - R0.spot.z) < 40 && reachable(ms, r.x, r.z)) cands.push({x: r.x, z: r.z, i: -1}); }
+  // (the game ball while it still flies away fast is no candidate: where it ends up is not known yet)
+  if (R0.ballFrom !== 'game' && !flyingAway(b)){ const r = restOf(ms, b); if (hypot(r.x - R0.spot.x, r.z - R0.spot.z) < 40 && reachable(ms, r.x, r.z)) cands.push({x: r.x, z: r.z, i: -1}); }
   for (let i = 0; i < ms.spares.length; i++){ const q = ms.spares[i]; if (q.state === 'cone' && i !== R0.spare) cands.push({x: q.ball.p.x, z: q.ball.p.z, i}); }
   // a fetcher within 8 m of a ball that is (nearly) still keeps going for it: switching then costs more than it saves;
   // a spare on its cone is only given up for a clear two seconds
@@ -668,7 +678,8 @@ export function restartStep(ms, h){
       // walk the ball to the spot: stand just short of it, so the hands are over it
       const ux = sp.x - cr.m.x, uz = sp.z - cr.m.z, ul = hypot(ux, uz);
       if (ul > 0.6 || !R0.standAt){ const k = ul > 1e-6 ? 0.28/ul : 0; R0.standAt = {x: sp.x - ux*k, z: sp.z - uz*k}; }
-      cr.set = {x: R0.standAt.x, z: R0.standAt.z, gait: ul > 10 ? 'sprint' : 'run', stop: 0.1, role: 'carry', speedCap: ul > 6 ? RULES.CARRY_FAR : RULES.CARRY, face: ul > 0.05 ? {x: ux/ul, z: uz/ul} : null};
+      // (past the restart's limit he runs it in, however near)
+      cr.set = {x: R0.standAt.x, z: R0.standAt.z, gait: ul > 10 ? 'sprint' : 'run', stop: 0.1, role: 'carry', speedCap: ul > 6 || el > R0.limit ? RULES.CARRY_FAR : RULES.CARRY, face: ul > 0.05 ? {x: ux/ul, z: uz/ul} : null};
       const d = hypot(b.p.x - sp.x, b.p.z - sp.z);
       if (d < 0.55 && cr.m.speed < 1.5){
         if (R0.kind === 'throw'){ R0.stage = 'wait'; R0.placed = true; }
@@ -677,11 +688,12 @@ export function restartStep(ms, h){
       break;
     }
     case 'place': {
-      // lower the ball onto the spot (at most 1.5 m/s across and 2.4 m/s down), then let go: it rests there, dead, until kicked
+      // lower the ball onto the spot (at most 1.5 m/s across and 2.4 m/s down, twice that past the restart's limit), then
+      // let go: it rests there, dead, until kicked
       const cr = R0.carrier >= 0 && ms.agents[R0.carrier] ? ms.agents[R0.carrier] : tk;
       cr.set = {x: cr.m.x, z: cr.m.z, gait: 'walk', stop: 9, role: 'place'};
       let dx = sp.x - b.p.x, dz = sp.z - b.p.z, dy = R - b.p.y;
-      const dh = hypot(dx, dz), lh = 1.5*h, lv = 2.4*h;
+      const hurry = el > R0.limit ? 2 : 1, dh = hypot(dx, dz), lh = 1.5*hurry*h, lv = 2.4*hurry*h;
       if (dh > lh){ dx *= lh/dh; dz *= lh/dh; }
       if (dy < -lv) dy = -lv;
       if (dh < 0.02 && b.p.y - R < 0.005){
@@ -732,14 +744,14 @@ export function restartTaken(ms, ev){
   if (took > RULES.SLOW && R0.kind !== 'kickoff') ms.stoppage[ms.half - 1] += RULES.STOP.slow;
   const fu = ms.dirs[R0.team]*R0.spot.x + ms.spec.hx;
   ms.restartLog.push({kind: R0.kind, took, limit: R0.limit, t: ms.t, final: fu > 2*ms.spec.L/3});
-  // a set piece into the box (a corner, a free kick in the final third): who of the side is in the box attacking it,
-  // and who of the other side is in it defending it
+  // a set piece into the box (a corner, a free kick in the final third): who of the side is in the box or on its edge
+  // attacking it (RULES.BOX_EDGE m from the goal line), and who of the other side is there defending it
   let box = null, dbox = null;
   if ((R0.kind === 'corner' || R0.kind === 'free' || R0.kind === 'indirect') && fu > 2*ms.spec.L/3){
-    const end = ms.dirs[R0.team];
+    const end = ms.dirs[R0.team], gx = end*ms.spec.hx;
     box = []; dbox = [];
     for (const a of ms.agents){
-      if (!a.onPitch || a.role !== 'player' || a.id === R0.taker || a.isGK || !inBox(ms.spec, end, a.m.x, a.m.z)) continue;
+      if (!a.onPitch || a.role !== 'player' || a.id === R0.taker || a.isGK || Math.abs(gx - a.m.x) > RULES.BOX_EDGE[0] || Math.abs(a.m.z) > RULES.BOX_EDGE[1]) continue;
       if (a.team === R0.team) box.push(a.id); else if (a.team === 1 - R0.team) dbox.push(a.id);
     }
   }

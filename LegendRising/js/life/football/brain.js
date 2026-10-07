@@ -43,10 +43,10 @@ export const BRAIN = Object.freeze({
   // with his side on the ball in their half (a forward getting into the box), and how much deeper with it in his own
   // half (a ten coming short for it). 1, Infinity or 0: as the AI does.
   ME: {
-    ST: {shoot: 3.2, dribble: 1.8, tackle: 1, seek: 10, up: 6, drop: 0},
+    ST: {shoot: 2.3, dribble: 1.8, tackle: 1, seek: 10, up: 6, drop: 0},
     W: {shoot: 3.2, dribble: 1, tackle: 1, seek: Infinity, up: 8, drop: 0},
-    AM: {shoot: 3.5, dribble: 1.8, tackle: 1, seek: 7, up: 0, drop: 6},
-    CM: {shoot: 1, dribble: 1, tackle: 2.2, seek: 10, up: 0, drop: 0},
+    AM: {shoot: 5, dribble: 1.8, tackle: 1.3, seek: 5, up: 0, drop: 8},
+    CM: {shoot: 1, dribble: 1, tackle: 2.3, seek: 8, up: 0, drop: 0},
     DF: {shoot: 1, dribble: 1, tackle: 1, seek: 12, up: 0, drop: 0}
   },
   ME_RANGE: 36, ME_DRIVE: 0.6,

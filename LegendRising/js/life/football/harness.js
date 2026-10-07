@@ -80,7 +80,7 @@ export function runOne(cfg, opt = {}){
   res.seed = cfg.seed; res.steps = steps;
   if (now){
     res.stepMean = sum/steps; res.stepMax = max;
-    let acc = 0; for (let i = 0; i < 600; i++){ acc += hist[i]; if (acc >= 0.99*steps){ res.stepP99 = (i + 1)/100; break; } }
+    let acc = 0; for (let i = 0; i < 600; i++){ acc += hist[i]; if (res.stepP99 == null && acc >= 0.99*steps) res.stepP99 = (i + 1)/100; if (acc >= 0.999*steps){ res.stepP999 = (i + 1)/100; break; } }
   }
   if (opt.keep) res.ms = ms;
   return res;
@@ -168,7 +168,7 @@ function counterStarts(ms){
 // "Through on goal!"); making the play (a cross, a through ball, a key pass: "Cross it in", "Pick a pass"); a counter
 // ("Counter-attack!": his side won it with three or more ahead and was in the final third within 10 s, as
 // countCounters counts them, and he has it in their half in those 10 s); a pass that takes it 5 m or more nearer their
-// goal line ("Pick a pass", building the attack); the ball in the final third, kept or laid off ("Out wide" within 18 m
+// goal line (a header played on to a team-mate in their half too: "Pick a pass", building the attack); the ball in the final third, kept or laid off ("Out wide" within 18 m
 // of a touchline, else "Edge of the box"). A spell of recycling it backwards or square short of the final third is no
 // moment. Being in the box when his side's corner or free kick is struck is a set-piece moment too (and in his own box
 // defending theirs, an involvement for the gaps). Defending ("Get
@@ -250,7 +250,7 @@ export function involvementOf(ms, a){
         else if (ev.intent === 'cross') sp.create = 'cross';
         else if (ev.intent === 'through') sp.create = sp.create && sp.create !== 'forward' ? sp.create : 'through';
         else if (ev.kp) sp.create = 'keyPass';
-        else if ((ev.intent === 'pass' || ev.intent === 'lob') && ev.gain >= 5) sp.create = sp.create || 'forward';
+        else if ((ev.intent === 'pass' || ev.intent === 'lob' || ev.intent === 'header' && ev.recv >= 0 && ev.u > L/2) && ev.gain >= 5) sp.create = sp.create || 'forward';
       }
       continue;
     }
@@ -354,7 +354,7 @@ export function aggregate(list){
   // the seeds behind any failed assert, to replay them
   R.assertSeeds = list.filter(m => m.asserts.teleport || m.asserts.ballJump || m.asserts.restartLate).map(m => m.seed);
   const tm = list.filter(m => m.stepMean != null);
-  if (tm.length){ R.stepMean = mean(tm.map(m => m.stepMean)); R.stepMax = Math.max(...tm.map(m => m.stepMax)); R.stepP99 = Math.max(...tm.map(m => m.stepP99 || 0)); }
+  if (tm.length){ R.stepMean = mean(tm.map(m => m.stepMean)); R.stepMax = Math.max(...tm.map(m => m.stepMax)); R.stepP99 = Math.max(...tm.map(m => m.stepP99 || 0)); R.stepP999 = Math.max(...tm.map(m => m.stepP999 || 0)); }
   // attacking sides with and without the preference (paired runs carry .off)
   const on = [0, 0, 0], off = [0, 0, 0];
   for (const m of list){ if (m.me && m.me.sides){ for (let i = 0; i < 3; i++) on[i] += m.me.sides[i]; } if (m.off && m.off.me){ for (let i = 0; i < 3; i++) off[i] += m.off.me.sides[i]; } }

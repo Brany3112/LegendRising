@@ -513,6 +513,8 @@ function headerTry(ms, a, act){
   const atGoal = act.intent === 'attack';
   const extra = {intent: 'header', recv: act.recv != null ? act.recv : -1, speed: Math.round(res.speed*100)/100, contact: 0, firstTime: true,
     dist: Math.round(hypot(dirTeam*ms.spec.hx - b.p.x, b.p.z)*10)/10, atGoal, quality: Math.round(res.quality*100)/100};
+  // a header played on to a team-mate: how far forward it sends the ball (as a pass's gain)
+  if (act.target && extra.recv >= 0) extra.gain = Math.round(dirTeam*(act.target.x - b.p.x)*100)/100;
   if (atGoal){
     extra.xg = Math.round(0.6*xgAt(ms, a.team, b.p.x, b.p.z)*1000)/1000;
     extra.onTarget = predOnTarget(ms, a.team);

@@ -45,7 +45,7 @@ export const TAC = Object.freeze({
   FWD_ON: 0.5,                        // a forward in his own half presses (outside the counter-press) only a ball this close (s)
   CAM_PRESS: 0.42,                    // the ten presses a ball this far up the pitch (share of the length from his goal) or more
   FLANK: 12,                          // a wide midfielder in his own half presses a ball this far (m) or more out on his side
-  ME_PRESS: 30                        // the harness's stand-in for the player at centre forward, this long (s) out of the
+  ME_PRESS: 20                        // the harness's stand-in for the player at centre forward, this long (s) out of the
                                       // play: he presses wherever the ball is, as a striker looking for it does
 });
 
