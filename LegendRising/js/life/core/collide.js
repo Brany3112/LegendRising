@@ -338,9 +338,54 @@ export function CGnear(x, y, z, r){
   for (let k = z0; k <= z1; k++) for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++){ const c = (k*NY + j)*NX + i; if (st[c + 1] > st[c]) return true; }
   return false;
 }
-/* is the camera at (x, y, z) clear of everything by r? Nothing to push it away from: no box and no filed triangle
-   within r (DESIGN 3.9.5, the camera push early out: on an open pitch all of its rays are skipped) */
-export function camClear(x, y, z, r){ return !SG.anyWithin(x, y, z, r) && !CGnear(x, y, z, r); }
+/* is any drawn triangle really within r of the point? The triangles filed in the cells the sphere's box covers, each
+   measured: its plane first (most are further than r from it), then the nearest point of the triangle itself (Ericson,
+   Real-Time Collision Detection 5.1.5). A cell is filed with every triangle whose bounding box meets it, so beside a
+   facade, under an awning or near a slanted roof the cells are rarely empty though nothing is within reach */
+export function CGwithin(x, y, z, r){
+  if (!CG.tri) return false;
+  const T = CG.tri, PL = CG.pl, NX = CG.nx, NY = CG.ny, NZ = CG.nz, st = CG.start, it = CG.items, stamp = CG.stamp, r2 = r*r;
+  const x0 = Math.max(0, Math.floor((x - r - CG.x0)/CS)), x1 = Math.min(NX - 1, Math.floor((x + r - CG.x0)/CS));
+  const y0 = Math.max(0, Math.floor((y - r - CG.y0)/CS)), y1 = Math.min(NY - 1, Math.floor((y + r - CG.y0)/CS));
+  const z0 = Math.max(0, Math.floor((z - r - CG.z0)/CS)), z1 = Math.min(NZ - 1, Math.floor((z + r - CG.z0)/CS));
+  if (++CG.mark > 4e9){ stamp.fill(0); CG.mark = 1; }
+  const mark = CG.mark;
+  for (let k = z0; k <= z1; k++) for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++){
+    const c = (k*NY + j)*NX + i;
+    for (let q = st[c], e = st[c + 1]; q < e; q++){
+      const t = it[q]; if (stamp[t] === mark) continue; stamp[t] = mark;
+      const p = t*4, pd = PL[p]*x + PL[p + 1]*y + PL[p + 2]*z - PL[p + 3];
+      if (pd >= r || pd <= -r) continue;
+      if (triDist2(T, t*9, x, y, z) <= r2) return true;
+    }
+  }
+  return false;
+}
+// the squared distance from a point to triangle a (nine numbers at T[a]): the nearest point by its Voronoi regions
+function triDist2(T, a, px, py, pz){
+  const ax = T[a], ay = T[a + 1], az = T[a + 2], bx = T[a + 3], by = T[a + 4], bz = T[a + 5], cx = T[a + 6], cy = T[a + 7], cz = T[a + 8];
+  const abx = bx - ax, aby = by - ay, abz = bz - az, acx = cx - ax, acy = cy - ay, acz = cz - az;
+  const apx = px - ax, apy = py - ay, apz = pz - az;
+  const d1 = abx*apx + aby*apy + abz*apz, d2 = acx*apx + acy*apy + acz*apz;
+  let qx, qy, qz;
+  if (d1 <= 0 && d2 <= 0){ qx = ax; qy = ay; qz = az; }
+  else {
+    const bpx = px - bx, bpy = py - by, bpz = pz - bz, d3 = abx*bpx + aby*bpy + abz*bpz, d4 = acx*bpx + acy*bpy + acz*bpz;
+    const cpx = px - cx, cpy = py - cy, cpz = pz - cz, d5 = abx*cpx + aby*cpy + abz*cpz, d6 = acx*cpx + acy*cpy + acz*cpz;
+    const vc = d1*d4 - d3*d2, vb = d5*d2 - d1*d6, va = d3*d6 - d5*d4;
+    if (d3 >= 0 && d4 <= d3){ qx = bx; qy = by; qz = bz; }
+    else if (vc <= 0 && d1 >= 0 && d3 <= 0){ const v = d1/(d1 - d3); qx = ax + abx*v; qy = ay + aby*v; qz = az + abz*v; }
+    else if (d6 >= 0 && d5 <= d6){ qx = cx; qy = cy; qz = cz; }
+    else if (vb <= 0 && d2 >= 0 && d6 <= 0){ const w = d2/(d2 - d6); qx = ax + acx*w; qy = ay + acy*w; qz = az + acz*w; }
+    else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0){ const w = (d4 - d3)/((d4 - d3) + (d5 - d6)); qx = bx + (cx - bx)*w; qy = by + (cy - by)*w; qz = bz + (cz - bz)*w; }
+    else { const den = 1/(va + vb + vc), v = vb*den, w = vc*den; qx = ax + abx*v + acx*w; qy = ay + aby*v + acy*w; qz = az + abz*v + acz*w; }
+  }
+  const dx = px - qx, dy = py - qy, dz = pz - qz;
+  return dx*dx + dy*dy + dz*dz;
+}
+/* is the camera at (x, y, z) clear of everything by r? Nothing to push it away from: no box and no drawn triangle
+   within r (DESIGN 3.9.5, the camera push early out: in the open all of its rays are skipped) */
+export function camClear(x, y, z, r){ return !SG.anyWithin(x, y, z, r) && !CGwithin(x, y, z, r); }
 /* the distance along a ray (unit direction) to the first thing it meets, up to len: a box (SG.ray, with skip) or a
    triangle of the drawn geometry. out (Float32Array(3), optional) receives the unit normal of what it hit, facing
    against the ray; it is left alone when nothing is hit */

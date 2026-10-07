@@ -10,6 +10,7 @@
 import {THREE, W, part, roundedBoxGeo, mergeGeos, mat, lmat, solid, spot, textTex, label, lightSrc} from "./build.js";
 import {fillFridge, FRIDGE_OPEN} from "./fridge.js";
 import {leafGuard} from "./home.js";
+import {solidsChanged} from "./core/collide.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -311,6 +312,7 @@ export function removePiece(q){
   if (q.remove) q.remove();
   W.scene.remove(q.g); q.g.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   for (const s of q.solids){ s.off = true; const i = W.solids.indexOf(s); if (i >= 0) W.solids.splice(i, 1); }
+  if (q.solids.length) solidsChanged();                // the solids hash files the room again (core/collide.js)
   W.spots = W.spots.filter(sp => !q.spots.includes(sp));
   for (const a of q.anims){ const i = W.anims.indexOf(a); if (i >= 0) W.anims.splice(i, 1); }
   for (const l of q.lights){ l.dead = true; const i = W.lights.indexOf(l); if (i >= 0) W.lights.splice(i, 1); }

@@ -27,6 +27,7 @@
 import {THREE} from "../build.js";
 import {human, lookFor, animateHuman} from "../human.js";
 import {mulberry32, hashStr} from "./rng.js";
+import {qualityScales} from "../core/quality.js";
 
 /* ---------- the atlas ---------- */
 const CW = 128, CH = 256, NV = 8, NP = 3, AW = CW*NV, AH = CH*NP;
@@ -487,15 +488,19 @@ export function buildCrowd(scene, o = {}){
     if (benchMesh) per.push({st:{index:-1, id:"bench"}, bb:benchMesh, strip:null, excite:.1, shade:.85});
   }
   const _l = new THREE.Color();
+  let qCrowd = 1;
   const find = s => s === "all" ? per : per.filter(p => p.st.index === s || p.st.id === s);
   const api = {
     // how worked up a stand is (0 calm to 1 on its feet)
     setExcite(stand, v){ v = Math.max(0, Math.min(1, +v || 0)); for (const p of find(stand)){ p.excite = v; if (p.bb) p.bb.material.uniforms.uExcite.value = v; } },
     // a goal at an end (-1 or +1): that end stands up, and everyone is on their feet a while
     goal(end){ U.uGoalT.value = U.uTime.value; U.uGoalEnd.value = end < 0 ? -1 : 1; },
-    // every frame: the clock, and the light on the stands
+    // every frame: the clock, the light on the stands, and adaptive quality's crowd density (quality.js Q.crowd, the
+    // second step of DESIGN 3.9.1) whenever it has changed
     update(dt, light){
       U.uTime.value += dt || 0;
+      const qc = qualityScales().crowd;
+      if (qc !== qCrowd){ qCrowd = qc; api.density(qc); }
       if (light){ if (Array.isArray(light)) _l.setRGB(light[0], light[1], light[2]); else _l.copy(light); }
       else _l.setRGB(1, 1, 1);
       for (const p of per){

@@ -391,14 +391,15 @@ function newsFromMatch(res){
   const relevant = (f.kind === "L" && f.lg === mineLg) || f.kind === "E" || f.kind === "N";
   if (!relevant) return;
   const hn = sideName(f, "h"), an = sideName(f, "a"), score = `${res.hg}–${res.ag}`;
-  const counts = {}; for (const e of [...res.hG, ...res.aG]) counts[e.s] = (counts[e.s] || 0) + 1;
+  // an own goal credits s = -1 (bridge goal lists, DESIGN 1.4.16): only real players get a headline
+  const counts = {}; for (const e of [...res.hG, ...res.aG]) if (W.players[e.s]) counts[e.s] = (counts[e.s] || 0) + 1;
   for (const [pid, n] of Object.entries(counts)){
     const p = W.players[pid]; if (p.me) continue;
     if (n >= 3) addNews("league", `Hat-trick for ${pname(p)}!`, `${n} goals as ${hn} ${score} ${an}.`, +pid === S.rivalId ? "rival" : "");
     else if (n === 2 && (+pid === S.rivalId || f.kind !== "L")) addNews(+pid === S.rivalId ? "rival" : "league", `${pname(p)} scores twice`, `${hn} ${score} ${an}.`, +pid === S.rivalId ? "rival" : "");
   }
   const m = W.players[res.motm];
-  if (f.kind === "L" && !m.me && Math.random() < .35 && !(f.h === meP().club || f.a === meP().club)) addNews("league", `${hn} ${score} ${an}`, `Man of the match: ${pname(m)} (${res.rt[m.id]}).`, m.id === S.rivalId ? "rival" : "");
+  if (f.kind === "L" && m && !m.me && Math.random() < .35 && !(f.h === meP().club || f.a === meP().club)) addNews("league", `${hn} ${score} ${an}`, `Man of the match: ${pname(m)} (${res.rt[m.id]}).`, m.id === S.rivalId ? "rival" : "");
   if (f.kind === "L" && Math.abs(res.hg - res.ag) >= 4) addNews("league", `Thrashing: ${hn} ${score} ${an}`, "A result nobody saw coming.");
   const rv = W.players[S.rivalId];
   if (rv && (rv.club === f.h || rv.club === f.a) && res.rt[rv.id] != null && !counts[rv.id] && res.rt[rv.id] < 5.8) addNews("rival", `Tough day for ${pname(rv)}`, `Rated ${res.rt[rv.id]} in ${hn} ${score} ${an}.`, "rival");

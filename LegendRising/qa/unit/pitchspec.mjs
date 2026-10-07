@@ -193,8 +193,10 @@ const arcs = tag => P.lines.filter(l => l.type === 'arc' && l.tag === tag);
 // purity (DESIGN 1.2, P)
 {
   const code = fs.readFileSync(path.join(ROOT, "js/life/football/pitchspec.js"), "utf8").replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "");
-  const bad = [/Math\.random/, /\bS\./, /\bMT\b/, /\bA\./, /\bwindow\./, /\bdocument\./, /\bTHREE\b/, /^\s*import\b/m].filter(re => re.test(code)).map(String);
-  check(!bad.length, "pitchspec.js is pure", bad);
+  const bad = [/Math\.random/, /\bS\./, /\bMT\b/, /\bA\./, /\bwindow\./, /\bdocument\./, /\bTHREE\b/, /\bMath\.(?:sin|cos|tan|asin|acos|atan2?|exp|expm1|log(?:1p|2|10)?|pow|hypot|cbrt|sinh|cosh|tanh)\(/].filter(re => re.test(code)).map(String);
+  // the only import allowed is detmath.js, the engine-independent maths every pure module shares (D6)
+  const imports = [...code.matchAll(/^\s*import[^"']*["']([^"']+)["']/gm)].map(x => x[1]);
+  check(!bad.length && imports.every(s => s === "./detmath.js"), "pitchspec.js is pure, imports only detmath.js and calls no engine-approximated Math function", {bad, imports});
 }
 
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});

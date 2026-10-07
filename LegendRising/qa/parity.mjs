@@ -2,7 +2,7 @@
 // Owner: WP-0A (DESIGN 2.2 WP-0A acceptance: "replaying the I0 scripts gives every recorded value within 1e-6").
 //
 // Replays the exact I0 recorder scripts (qa/record-traj.mjs SCRIPTS, run by its own recordFresh in a fresh browser per
-// zone: the same seeds, the same career, the same 1200 steps of input) against the code as it is now, and compares
+// zone: the same seeds, the same career, the same 1500 steps of input) against the code as it is now, and compares
 // every recorded number (you, the camera, both bodies' bones and roots) with qa/golden/traj-<zone>.json.
 //
 //   node qa/parity.mjs                  every zone

@@ -9,7 +9,7 @@ import {animateHuman} from "../human.js";
 import {P, B, ME, RT, FLAGS, keys} from "./state.js";
 import {registerMode, enterMode, exitMode, mode} from "./modes.js";
 import {camPush, camPop} from "./camera.js";
-import {meFade, feetIK, sstep} from "./me.js";
+import {meFade, sstep} from "./me.js";
 import {HOLD} from "./hand.js";
 import {hudReset} from "./hud.js";
 
@@ -49,8 +49,7 @@ export function cineStep(dt){
   if (CINE.me === "tp"){
     const h = ME.tp; ME.yaw = CINE.meYaw;
     h.g.position.set(P.x, P.feet, P.z); h.g.rotation.y = ME.yaw + Math.PI;
-    animateHuman(h, dt, CINE.walk > 0 ? {mode:"move", speed:CINE.walk, look:0} : {mode:"idle", look:0});
-    feetIK(h);
+    animateHuman(h, dt, CINE.walk > 0 ? {mode:"move", speed:CINE.walk, look:0} : {mode:"idle", look:0});   // (its feet find the floor themselves: meBuild gave it groundAt)
     const c = cam.position; meFade(sstep(.3, .56, Math.hypot(c.x - P.x, c.y - P.eye - .05, c.z - P.z)/ME.scale));
   }
 }

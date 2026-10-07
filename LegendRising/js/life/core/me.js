@@ -30,7 +30,7 @@ import {human, animateHuman, BONE, EV, onHumanRemat} from "../human.js";
 import {fkQ, newFK, lerp} from "../rig.js";
 import {bodyLook} from "../look.js";
 import {G, LIFE, P, B, ME, RT, FLAGS, FADE} from "./state.js";
-import {camCast, surfaceUnder, CG} from "./collide.js";
+import {camCast, camClear, surfaceUnder, CG, SG} from "./collide.js";
 import {GR, LOCO} from "./move.js";
 import {modeFlags, tutOn, persist} from "./modes.js";
 import {camPush, camPop, camKick} from "./camera.js";
@@ -71,9 +71,6 @@ export function meFade(op){
 // (looked for from 0.9 m above your feet down to 0.5 m below them: a stair going up a metre ahead is still found,
 // and the flight above your head never is)
 const feetGround = (x, z) => surfaceUnder(x, P.feet + .45, z);
-/* your feet on stairs and kerbs: they find the floor under each footstep themselves (the gait asks h.groundAt at a
-   footfall); this makes sure a body of yours has it (cine.js poses your third-person body through here) */
-export function feetIK(h){ if (h && !h.groundAt) h.groundAt = feetGround; }
 export function meBuild(){
   meDispose();
   const s = G(); if (!s || !s.player || !RT.scene) return;
@@ -205,7 +202,22 @@ function camRadius(){ const cam = RT.cam, t = Math.tan(cam.fov*Math.PI/360), a =
 const PUSH = (() => { const o = [];
   for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++){ const L = Math.hypot(x, y, z); if (L) o.push([x/L, y/L, z/L]); }
   return o; })();
+/* The push is skipped where nothing is within reach of its rays (camClear: no box and no drawn triangle within r plus
+   the room a first pass can move the eye, DESIGN 3.9.5), and repeated from the last answer while the eye stands where
+   it stood then and nothing that moves (a door's leaf, a person, a car) is near it: the same rays would give the same
+   answer. Either way the eye ends where the full 26-ray push would put it. */
+const NPC = {x:NaN, y:NaN, z:NaN, r:NaN, rev:-1, tri:null, ox:0, oy:0, oz:0, moved:0};
+const PUSH_REACH = .35;
+function dynNear(x, y, z, R){
+  for (const s of SG.dyn) if (!s.off && x > s.x0 - R && x < s.x1 + R && z > s.z0 - R && z < s.z1 + R && y > s.y0 - R && y < s.y1 + R) return true;
+  return false;
+}
 function nearPush(v, r){
+  if (camClear(v.x, v.y, v.z, r + PUSH_REACH)) return 0;
+  if (v.x === NPC.x && v.y === NPC.y && v.z === NPC.z && r === NPC.r && NPC.rev === SG.rev && NPC.tri === CG.tri && !dynNear(v.x, v.y, v.z, r + PUSH_REACH)){
+    v.x = NPC.ox; v.y = NPC.oy; v.z = NPC.oz; return NPC.moved;
+  }
+  const x0 = v.x, y0 = v.y, z0 = v.z;
   let moved = 0;
   for (let pass = 0; pass < 2; pass++){
     let px = 0, nx = 0, py = 0, ny = 0, pz = 0, nz = 0;
@@ -222,6 +234,7 @@ function nearPush(v, r){
     v.x += mx*k; v.y += my*k; v.z += mz*k; moved += L*k;
     if (k < 1) break;
   }
+  NPC.x = x0; NPC.y = y0; NPC.z = z0; NPC.r = r; NPC.rev = SG.rev; NPC.tri = CG.tri; NPC.ox = v.x; NPC.oy = v.y; NPC.oz = v.z; NPC.moved = moved;
   return moved;
 }
 // can the camera at (x, y, z) see you (your head and your chest) from (hx, hz), or is a wall, a jamb or a door between?

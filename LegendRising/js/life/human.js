@@ -58,8 +58,8 @@
    registerMode(name, fn(h, Te, st, dt)) a new pose by name (WP-K); EV the event bits of h.ev; footEvents(h) the
        footfalls of the last call; prebuildHumans(looks) builds bodies ahead of need (PREBUILD: its last run's
        slices); clashFree(colour, avoid) a kit colour that stands apart from others (lookFor's keeper and referee take
-       extras.avoid, both teams' shirts); animTier(h, tier) the tier to draw a person at (the scheduler's, never busier
-       than its distance allows; npc.js actor()); ANIM the full poses of this frame and the budget; bodies() every
+       extras.avoid, both teams' shirts); animTier(h, tier) the tier to draw a person at (the scheduler's, or T4 while
+       the body is not shown; npc.js actor()); ANIM the full poses of this frame and the budget; bodies() every
        body made (tests); footstep(h, side, x, z, yaw), touch(h, {ball}), gaitPlace(h) from gait.js.
    playerRig(look, {firstPerson:true}) -> h     your own body for first person: no head, hair or neck (the body
        stops at the shoulders in a low dome of shirt), same art style, same rig and animateHuman(); not tracked
@@ -78,6 +78,7 @@
 */
 import {THREE, W, lambertFor} from "./build.js";
 import {SCHED} from "./core/sched.js";
+import {qualityScales} from "./core/quality.js";
 import {TAU, D2R, clamp, lerp, sstep, wrap, kf, BN, PAR, BONE, B, ARM, LEG, NP, NQ, dims, restPos, restOffsets, R3, frameOf, legIK, armIK, plantHand, leanTo, PALM, UPV as _UPV,
   eulerToQ, qEuler, qMul, qRot, qLog, qExp, qAngle, fkQ, newFK, solveLeg, ground, writeBones, LEGW} from "./rig.js";
 import {EV, gaitInit, gaitStep, gaitPose, gaitLegs, gaitPlace, footstep, touch} from "./gait.js";
@@ -1298,8 +1299,10 @@ function hook(scene){
     let n = 0;
     const bl = blobs();
     // the preset's distances (DESIGN 1.4.4): full detail within lod.near (back to it under lod.back), the far body beyond,
-    // LOD3 beyond lod.lod3 (back under 2 m less); shirt numbers within shirtNumDist
-    const GP = typeof GFX === "object" && GFX && GFX.P, Ld = GP && GP.lod ? GP.lod : LOD_DEF, numD = GP && GP.shirtNumDist || 9.5;
+    // LOD3 beyond lod.lod3 (back under 2 m less); shirt numbers within shirtNumDist. Adaptive quality's last step (3.9.1,
+    // quality.js Q.lod) draws them all a little nearer
+    const GP = typeof GFX === "object" && GFX && GFX.P, L0 = GP && GP.lod ? GP.lod : LOD_DEF, ql = qualityScales().lod;
+    const Ld = ql === 1 ? L0 : (_ld.near = L0.near*ql, _ld.back = L0.back*ql, _ld.lod3 = L0.lod3*ql, _ld), numD = (GP && GP.shirtNumDist || 9.5)*ql;
     for (const h of LIVE){
       // where is it: in this scene, and shown?
       let o = h.g, vis = true;
@@ -1326,6 +1329,7 @@ function hook(scene){
   };
 }
 const _up = new THREE.Vector3(0, 1, 0);
+const _ld = {near:0, back:0, lod3:0};
 
 /* ---------- animation ----------
    animateHuman(h, dt, state, {tier}) runs one pipeline for every body (DESIGN 3.5.6):
@@ -1852,10 +1856,10 @@ export function animateHuman(h, dt, state = "idle", o = null){
     h.ev.mask |= G.ev.mask; if (G.ev.side){ h.ev.side = G.ev.side; h.ev.at = G.ev.at; }
   }
   if (ANIM_LOG.trace) traceLog(h);
-  // what this call does at this tier
-  let kind = FPU;
   if (tier >= 4){ h.hid = true; ANIM.stats.so++; return h.ev; }
   h.sinceF++;
+  // what this call does at this tier
+  let kind = FPU;
   if (tier === 2 || tier === 3){
     // due every div frames (the longest waiting first when the budget is spent: it stays due), else the leg pass
     const P = typeof GFX === "object" && GFX && GFX.P, div = tier === 2 ? (P && P.midDiv) || 2 : (P && P.farDiv) || 3;
@@ -1873,7 +1877,7 @@ export function animateHuman(h, dt, state = "idle", o = null){
     // the leg pass: the hips and the legs onto the footprints over the last full pose's upper body
     if (fam && h.baseOk){
       const Q = h.tq; Q.set(h.pose); Q[80] = h.base[0]; Q[81] = h.base[1]; Q[82] = h.base[2];
-      gaitLegs(h, Q, _FK, h.accL); h.accL = 0;
+      gaitLegs(h, Q, _FK, h.accL, true); h.accL = 0;
       writeBones(h, Q, LEGW);
       for (const b of LEGW) for (let c = 0; c < 4; c++) h.pose[b*4 + c] = Q[b*4 + c];
       h.pose[80] = Q[80]; h.pose[81] = Q[81]; h.pose[82] = Q[82];
@@ -1913,19 +1917,14 @@ export function animateHuman(h, dt, state = "idle", o = null){
 }
 // the footfalls of the last call: [{side: 'L' | 'R', t (seconds into it), x, z}]
 export function footEvents(h){ return h.gait ? h.gait.falls : []; }
-/* animTier(h, tier): the tier to draw a person at, given the one the scheduler handed out: never a busier one than the
-   body's distance from the camera allows on this preset (GFX.P.animNear, animMid: T2 and T3 beyond them, T3 behind
-   the camera), and T4 (state only) while it is not shown at all. The scheduler's own tier wins when it is the cheaper
-   one (DESIGN 3.5.9: SCHED decides; until it thins people by distance itself this keeps the far ones cheap) */
+/* animTier(h, tier): the tier to draw a person at, given the one the scheduler handed out (DESIGN 3.5.9 and the
+   conflict register: SCHED decides the tier once a frame, by distance on this preset, the camera's frustum and what is
+   in the way; this only executes it), and T4 (state only) while the body is not shown at all */
 export function animTier(h, tier = 1){
   if (tier === 0) return 0;
   for (let o = h.g; o; o = o.parent) if (!o.visible) return 4;
   if (!h.g.parent) return 4;
-  const P = typeof GFX === "object" && GFX && GFX.P, near = (P && P.animNear) || 25, mid = (P && P.animMid) || 70;
-  const p = h.g.position, dx = p.x - VIEW.x, dz = p.z - VIEW.z, d = Math.hypot(dx, dz, p.y - VIEW.y);
-  let t = d > mid ? 3 : d > near ? 2 : 1;
-  if (d > 4 && dx*VIEW.fx + dz*VIEW.fz < -.3*d) t = 3;
-  return Math.max(tier, t);
+  return tier;
 }
 function traceLog(h){
   const G = h.gait, L = ANIM_LOG.log;

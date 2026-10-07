@@ -8,10 +8,13 @@
 // the length (goal lines at x = +-L/2), Z across (touchlines at z = +-Wd/2), grass top at y = 0, a resting ball centre
 // at y = 0.11. A pitch's frame is a pure translation: world = local + (cx, cz).
 // Lines lie inside the areas they bound: every boundary is measured to the outer edge of its 0.12 m line.
+// Trigonometry comes from detmath.js, so the frames and the pitch give the same bits in Node and in every browser (D6).
 
-export const dirOf = yaw => ({x: -Math.sin(yaw), z: -Math.cos(yaw)});   // facing vector, as drills.js fwd()
-export const yawOf = (dx, dz) => Math.atan2(-dx, -dz);
-export const wrapA = a => { a = (a + Math.PI) % (2*Math.PI); return a < 0 ? a + Math.PI : a - Math.PI; };
+import {sin, cos, atan2, acos, hypot, PI} from "./detmath.js";
+
+export const dirOf = yaw => ({x: -sin(yaw), z: -cos(yaw)});   // facing vector, as drills.js fwd()
+export const yawOf = (dx, dz) => atan2(-dx, -dz);
+export const wrapA = a => { a = (a + PI) % (2*PI); return a < 0 ? a + PI : a - PI; };
 // facing +X, right is +Z; facing -Z (yaw 0), right is +X
 
 // FIFA dimensions (metres). goalW and goalH are between the inner faces of the posts and under the bar.
@@ -51,7 +54,7 @@ export function anchorOf(pos, L, Wd){ return {u: pos.y/100*L, w: pos.x/100*Wd}; 
 // the ball radius. For a board, n points towards the pitch. bounds is the panel's axis-aligned box
 // {x0, x1, y0, y1, z0, z1}; quad lists its four corners in order (an addition to the 1.4.9 shape, for slanted panels).
 function plane(n, p0, quad, extra){
-  const l = Math.hypot(n[0], n[1], n[2]), u = [n[0]/l, n[1]/l, n[2]/l];
+  const l = hypot(n[0], n[1], n[2]), u = [n[0]/l, n[1]/l, n[2]/l];
   const d = u[0]*p0[0] + u[1]*p0[1] + u[2]*p0[2];
   const xs = quad.map(q => q[0]), ys = quad.map(q => q[1]), zs = quad.map(q => q[2]);
   const bounds = {x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), z0: Math.min(...zs), z1: Math.max(...zs)};
@@ -136,7 +139,7 @@ export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1,
   seg(hx - hl, -(hz - ln), hx - hl, hz - ln, 'goal');
   seg(0, -(hz - ln), 0, hz - ln, 'halfway');
   arc(0, 0, F.circleR - hl, 0, 2*Math.PI, 'circle');
-  const arcHalf = Math.acos(F.boxD - F.spot <= F.arcR ? (F.boxD - F.spot)/F.arcR : 1);   // 53.05 degrees
+  const arcHalf = acos(F.boxD - F.spot <= F.arcR ? (F.boxD - F.spot)/F.arcR : 1);   // 53.05 degrees
   const box = [], six = [], pens = [];
   for (const end of [-1, 1]){
     const gl = end*(hx - ln);                         // inner edge of the goal line
@@ -165,10 +168,14 @@ export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1,
     arc(sxn*hx, szn*hz, F.cornerR - hl, a0, a0 + Math.PI/2, 'corner');
   }
 
-  // spare balls on cones (D14): two behind each goal, one beside each touchline in each half
+  // spare balls on cones (D14, 3.2.8): 2 m outside both touchlines at 2/7, 4/7 and 6/7 of the way from the halfway
+  // line to each goal line (x = +-15, 30, 45 at the stadium), one more at the halfway line on the far side (+z: the
+  // near side has the dugouts and the walk out there), and two behind each goal: 17 cones with a ball on each, so a
+  // taker never fetches a spare from far away
   const spareCones = [];
-  for (const end of [-1, 1]) for (const zs of [-1, 1]) spareCones.push({x: end*(hx + 3), z: zs*Math.min(12, hz - 2)});
-  for (const xs of [-1, 1]) for (const zs of [-1, 1]) spareCones.push({x: xs*hx/2, z: zs*(hz + 2)});
+  for (const zs of [-1, 1]) for (const k of [-3, -2, -1, 1, 2, 3]) spareCones.push({x: k*hx*2/7, z: zs*(hz + 2)});
+  spareCones.push({x: 0, z: hz + 2});
+  for (const end of [-1, 1]) for (const zs of [-1, 1]) spareCones.push({x: end*(hx + 3.5), z: zs*Math.min(10, hz - 2)});
 
   return {
     L, Wd, hx, hz, frame: makeFrame({cx, cz}), roll,

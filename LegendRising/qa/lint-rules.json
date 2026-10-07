@@ -7,10 +7,10 @@
     "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed.",
     "merged: the packages the integrator has merged so far. A rule is active exactly when the package in its activatedBy is in this list (qa/unit/qatools.mjs checks it), so at each stage merge the integrator adds the packages and flips their rules on together."
   ],
-  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A"],
+  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G"],
   "pure": [
     "js/life/mover.js", "js/life/stamina.js", "js/life/gaitcore.js",
-    "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/ball.js", "js/life/football/strike.js",
+    "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/detmath.js", "js/life/football/ball.js", "js/life/football/strike.js",
     "js/life/football/touch.js", "js/life/football/agent.js", "js/life/football/attrs.js", "js/life/football/tactics.js",
     "js/life/football/brain.js", "js/life/football/gkplan.js", "js/life/football/gkbrain.js", "js/life/football/rules.js",
     "js/life/football/actions.js", "js/life/football/events.js", "js/life/football/judge.js", "js/life/football/sim.js",
@@ -48,8 +48,19 @@
       "patterns": ["(?<![\\w$.])THREE\\b", "\\bfrom\\s*[\"'][^\"']*three[^\"']*[\"']", "\\bimport\\s*\\(\\s*[\"'][^\"']*three[^\"']*[\"']"]
     },
     {
+      "id": "pure-det-math",
+      "active": true,
+      "activatedBy": "WP-C",
+      "ref": "DESIGN D6, 2.3 WP-E acceptance (same event-log hash in Node versus Chromium)",
+      "what": "No engine-approximated Math function (sin, cos, tan, their inverses, exp, log, pow, hypot and the like) and no ** in a pure module: ECMAScript leaves their last bits to the engine, so they come from detmath.js, which gives the same bits in Node and in every browser. detmath.js itself is the one exception.",
+      "files": ["@pure"],
+      "except": ["js/life/football/detmath.js"],
+      "scope": "code",
+      "patterns": ["\\bMath\\s*\\.\\s*(?:sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\\b", "\\*\\*"]
+    },
+    {
       "id": "bridge-no-build-W",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-E",
       "ref": "DESIGN D5",
       "what": "bridge.js does not import W from ../build.js, so a bare W in it is the classic world data (js/world.js), never the 3D scene's.",

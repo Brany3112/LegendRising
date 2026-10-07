@@ -616,7 +616,6 @@ function openSheet(kind){
   } else if (kind === "menu"){
     body = `<h2>Menu</h2><div class="stack">
       <button class="btn" onclick="A.fullscreen()">⛶ Toggle full screen</button>
-      <button class="btn ghost" onclick="closeSheet();A.replayDream()">✨ Replay the dream tutorial</button>
       <div><label>Graphics</label>${gfxSeg("A.gfx")}</div>
       <button class="btn ghost" onclick="saveNow();toast('Saved','good')">Save now</button>
       <button class="btn ghost" onclick="A.faultReport()">🩺 Report a problem — copy the details${S && S.faults && S.faults.length ? ` (${S.faults.length})` : ""}</button>
@@ -740,11 +739,6 @@ const A = {
   },
   continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); if (!S.tutDone && S.week === 0 && !window.startLife) return startTutorial(); renderHub(); enterCity();
     },      // nothing announces itself after an update — the flag in the top bar has the notes when you want them
-  replayDream(){
-    if (!S){ const d = load(); if (!d) return; resume(d); }
-    if (S.offerSet) return screenOffers();
-    closePhone(); closeSheet(); S.replay = S.week > 0 ? {energy:S.energy} : null; S.tutDone = false; startTutorial();
-  },
   sign(i){
     const o = S.offerSet.list[i], ctx = S.offerSet.ctx; S.offerSet = null;
     joinClub(o); if (ctx === "start"){ addNews("you", `A career begins at ${W.clubs[o.club].nm}`, "Liga 4. Keypad phone. Big dreams.", "me"); msg("Branyfon", "Welcome! Use ▲▼ to move, the centre key to select, the red key to go back."); }
@@ -774,7 +768,7 @@ const A = {
   playHighlight(i){ const h = MT.highlights[i]; const ov = $("#ov"); if (ov) ov.hidden = true; startReplay(h.rec, {label:`${h.min}' ${h.text}`}, () => MT.ftCard()); },
   passNow(){ if (typeof passNow === "function") passNow(); },
   shootNow(){ shootNow(); },
-  leaveMatch(){ loopOn = false; M = null; REP = null; clearTimeout(MT && MT.timer); MT = null; matchSkillsOff(); save(); flushHeldToasts();
+  leaveMatch(){ loopOn = false; M = null; REP = null; clearTimeout(MT && MT.timer); MT = null; save(); flushHeldToasts();
     // in the city, the final whistle sends you back out into the yard rather than to the hub
     if (document.body.classList.contains("life") && window.LIFE){
       document.body.classList.remove("in-match");

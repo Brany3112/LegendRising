@@ -166,7 +166,7 @@ try {
       // three substitutes left on the home bench
       out.bench = c.setBench("home", 3);
       // the spare balls: one taken off its cone and put back
-      const k = ST.cones[0]; out.cones = ST.cones.length; out.take = k.take(); out.takeAgain = k.take(); out.put = k.put();
+      const k = ST.cones[0]; out.cones = ST.cones.length; out.specCones = ST.spec.spareCones.length; out.take = k.take(); out.takeAgain = k.take(); out.put = k.put();
       // the scoreboard
       const v0 = ST.board.tex.version; ST.score({hs: 2, as: 1, min: 67}); out.board = ST.board.tex.version > v0;
       // fewer billboards (adaptive quality) and back
@@ -178,7 +178,7 @@ try {
     res.checks.api = a;
     if (a.excite !== .9 || a.goalEnd !== 1 || !(a.time > 0)) fail("api", `crowd uniforms ${JSON.stringify(a)}`);
     if (a.bench !== 3) fail("api", `bench ${a.bench}`);
-    if (a.cones !== 8 || !a.take || a.takeAgain || !a.put) fail("api", `cones ${JSON.stringify(a)}`);
+    if (a.cones !== 17 || a.cones !== a.specCones || !a.take || a.takeAgain || !a.put) fail("api", `cones ${JSON.stringify(a)}`);
     if (!a.board) fail("api", "the scoreboard did not redraw");
     if (a.spawns !== "benchAway,benchHome,dressing,exit,fourth,tunnelDoor,tunnelMouth") fail("api", `spawns ${a.spawns}`);
     if (a.bounds !== JSON.stringify({x0: -64, x1: 64, z0: -80, z1: 50})) fail("api", `bounds ${a.bounds}`);

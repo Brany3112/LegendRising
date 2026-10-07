@@ -49,7 +49,7 @@ function predictCross(b0, yPlane, spinMul = 1){
 /* Turn stage 1 (aim angle + power) and stage 2 (contact point on the ball) into a flight.
    u: -1 left .. +1 right of centre (as the shooter sees it). v: -1 top .. +1 bottom. */
 function launchBall(b, ang, power, u, v, moving){
-  const sk = S.skills, ef = energyFactor();
+  const sk = effSkills(), ef = energyFactor();
   const r = Math.hypot(u, v);
   const q = r <= .8 ? 1 : clamp(1 - (r-.8)*2.2, .35, 1);      // clean contact vs catching the edge
   u = clamp(u, -1, 1); v = clamp(v, -1, 1);

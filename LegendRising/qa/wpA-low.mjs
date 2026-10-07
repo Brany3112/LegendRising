@@ -70,7 +70,7 @@ const walkIn = (n) => (async (n) => {
     const w60 = await page.evaluate(walkIn(60), 60);
     out.walk60 = w60;
     check("low: the 60 m walk has no frame over 25 ms (p99)", w60.stepMs.p99 <= 25, w60.stepMs);
-    check("low: at most 12 collision rays a frame in the open", w60.raysPerFrame.median <= 12, w60.raysPerFrame, true);
+    check("low: at most 12 collision rays a frame in the open", w60.raysPerFrame.median <= 12, w60.raysPerFrame);
     check("low: at most 30 boxes tested per ray", w60.testsPerRay <= 30, {mean: w60.testsPerRay, worstFrame: w60.maxTestsPerRay});
     // memory over three zone changes
     const cdp = await page.context().newCDPSession(page);

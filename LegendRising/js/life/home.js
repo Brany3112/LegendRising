@@ -15,6 +15,7 @@ import {furnish, pieceOf, bedTierNow, footprint, powerOn} from "./furniture.js";
 import {deliveryPoint} from "./parcels.js";
 import {car as carModel} from "./cars.js";
 import {pedestrians, VIEW} from "./npc.js";
+import {SG} from "./core/collide.js";
 
 const C = {
   brick:[0xb04a3c, 0x9c4e38, 0xc06a44, 0x96463c, 0xd2c09a, 0x8d9aa4],
@@ -1425,7 +1426,7 @@ export function buildHome(c){
   winRefresh();
   // people out on the street: an eastern loop over the zebra and back across the junction, a western one that
   // crosses at the quiet end; a handful at the busy times of day, nobody in the small hours
-  HOME.street = pedestrians({minute:ctx.minute, seed:H.seed + 500, max:6, count:streetCount, routes:[
+  HOME.street = pedestrians({zone:"home", minute:ctx.minute, seed:H.seed + 500, max:6, count:streetCount, routes:[
     [[1.4, 4.75], [30.8, 4.75], [32.75, 4.95], [32.75, 5.5, 1.4, 1], [32.75, 14.5, 1.4, -1], [30.6, 14.85], [6.3, 14.85], [5.75, 14.62], [1.4, 14.62], [1.1, 14.3, 1.3, 1], [1.1, 5.55, 1.3, -1]],
     [[-1.2, 4.45], [-28.0, 4.45], [-28.7, 5.5, 1.4, 1], [-28.7, 14.5, 1.4, -1], [-28.0, 14.85], [-1.2, 14.85], [-.6, 14.35, 1.2, 1], [-.6, 5.55, 1.2, -1]]]});
   return {
@@ -1440,7 +1441,7 @@ function besideBed(){
   if (!q) return {x:cx, z:cz, y:base, yaw:0};
   const ax = Math.cos(q.p.ry), az = -Math.sin(q.p.ry), off = q.model.w/2 + .55;
   const inFlat = (x, z) => x > F.A.x0 + .35 && x < F.A.x1 - .35 && Math.abs(z - F.A.wz) > 2.4 && Math.abs(z - F.A.wz) < F.Dp - .35;
-  const free = (x, z) => !W.solids.some(b => !b.off && b.y1 > base + .4 && b.y0 < base + 1.7 && x + .26 > b.x0 && x - .26 < b.x1 && z + .26 > b.z0 && z - .26 < b.z1);
+  const free = (x, z) => { let hit = false; SG.each(x - .26, z - .26, x + .26, z + .26, b => !b.off && b.y1 > base + .4 && b.y0 < base + 1.7 && x + .26 > b.x0 && x - .26 < b.x1 && z + .26 > b.z0 && z - .26 < b.z1 && (hit = true)); return !hit; };
   for (const k of [-1, 1]){
     const x = q.wx + ax*off*k, z = q.wz + az*off*k;
     if (inFlat(x, z) && free(x, z)) return {x, z, y:base, yaw:Math.atan2(-(cx - x), -(cz - z))};

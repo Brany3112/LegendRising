@@ -179,7 +179,7 @@ function moveKeeper(dt){
 
 /* ---------- phase: dribble ---------- */
 function updateDribble(dt){
-  const p = M.p, b = M.ball, sk = S.skills, ef = energyFactor();
+  const p = M.p, b = M.ball, sk = effSkills(), ef = energyFactor();
   M.t += dt;
   let tx = null, ty = null;
   if (inp.down){ const w_ = screenToWorld(inp.x, inp.y - (inp.touch ? 78*DPR : 0)); if (w_){ tx = w_.x; ty = w_.y; } }
@@ -322,7 +322,7 @@ function beginAim(moving, limit){
   updateMatchHUD();
 }
 function aimSwayAmp(){
-  const sk = S.skills, ef = energyFactor();
+  const sk = effSkills(), ef = energyFactor();
   const acc = passMode() ? (sk.passacc || sk.passing) : sk.accuracy;
   // confidence steadies the aim a touch; a shaky one wobbles it
   const conf = S.traits ? 1.08 - S.traits.conf/100*.16 : 1;
@@ -367,7 +367,7 @@ function contactGeom(){
   return {x, y, R:R*Math.max(.15, k), k:e, rot: M.moving ? t*6 : .35};
 }
 function strikeAt(px, py){
-  const g = contactGeom(), sk = S.skills, ef = energyFactor();
+  const g = contactGeom(), sk = effSkills(), ef = energyFactor();
   let u = (px-g.x)/g.R, v = (py-g.y)/g.R;
   let whiff = Math.hypot(u,v) > 1.08;
   if (whiff){ u = clamp(u,-1.2,1.2); v = clamp(v,-1.2,1.2); flash("Mis-kick!"); }

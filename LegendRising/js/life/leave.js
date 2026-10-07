@@ -11,6 +11,7 @@
    (npc.js into(), follow(): never a step into you, a body you bump into that never closes round you). */
 import {THREE, W, solid} from "./build.js";
 import {VIEW} from "./human.js";
+import {SG} from "./core/collide.js";
 import {actor, into, follow, youTracker} from "./npc.js";
 import {car, bus, carPaint, CAR_KINDS} from "./cars.js";
 
@@ -79,7 +80,9 @@ function legClear(a, b, skip){
   const n = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])/.3));
   for (let i = 0; i <= n; i++){
     const x = a[0] + (b[0] - a[0])*i/n, z = a[1] + (b[1] - a[1])*i/n;
-    for (const q of W.solids){ if (q.off || skip.has(q) || q.y0 > 1.5 || q.y1 < .15) continue; if (x + .3 > q.x0 && x - .3 < q.x1 && z + .3 > q.z0 && z - .3 < q.z1) return false; }
+    let hit = false;                                                     // (only the boxes near: the solids hash, DESIGN 3.9.5)
+    SG.each(x - .3, z - .3, x + .3, z + .3, q => !(q.off || skip.has(q) || q.y0 > 1.5 || q.y1 < .15) && x + .3 > q.x0 && x - .3 < q.x1 && z + .3 > q.z0 && z - .3 < q.z1 && (hit = true));
+    if (hit) return false;
   }
   return true;
 }

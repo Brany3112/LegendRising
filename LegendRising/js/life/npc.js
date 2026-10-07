@@ -17,6 +17,7 @@
 import {THREE, W, solid} from "./build.js";
 import {human, animateHuman, animTier, lookFor, playerRig, hashStr, rng, CONTACT, BONE, VIEW, onFirstView, you} from "./human.js";
 import {SCHED} from "./core/sched.js";
+import {SG} from "./core/collide.js";
 export {human, animateHuman, lookFor, playerRig, CONTACT, BONE, VIEW};
 
 /* a person the scheduler draws: the logic sets h.ast (an animateHuman state) as it goes, and the pose is made once a
@@ -341,7 +342,9 @@ export function teamSession(o){
      dugout, the fence, a team-mate in a drill: every solid, the big ones too) or too near the things lying on the
      grass and the people standing on it (obst) */
   const stuck = (x, z) => {
-    for (const q of W.solids){ if (q.off || q.y0 > 1.6 || q.y1 < .1 || bodies.includes(q)) continue; if (x > q.x0 - .32 && x < q.x1 + .32 && z > q.z0 - .32 && z < q.z1 + .32) return true; }
+    let hit = false;                                                     // (only the boxes near: the solids hash, DESIGN 3.9.5)
+    SG.each(x - .32, z - .32, x + .32, z + .32, q => !(q.off || q.y0 > 1.6 || q.y1 < .1 || bodies.includes(q)) && x > q.x0 - .32 && x < q.x1 + .32 && z > q.z0 - .32 && z < q.z1 + .32 && (hit = true));
+    if (hit) return true;
     for (const [ox, oz, r] of obst) if (Math.hypot(x - ox, z - oz) < r + .2) return true;
     return false;
   };
@@ -562,8 +565,9 @@ export function jobRole(id){ return JOB_ROLE[id] || "shopkeeper"; }
 function counterAhead(x, z, ry, y0){
   const dx = Math.sin(ry), dz = Math.cos(ry);
   let best = null;
-  for (const q of W.solids){
-    if (q.off || q.y1 - y0 < .6 || q.y1 - y0 > 1.3 || q.y0 - y0 > .5) continue;
+  // (only the boxes within the metre ahead: the solids hash, DESIGN 3.9.5)
+  SG.each(Math.min(x, x + dx) - .01, Math.min(z, z + dz) - .01, Math.max(x, x + dx) + .01, Math.max(z, z + dz) + .01, q => {
+    if (q.off || q.y1 - y0 < .6 || q.y1 - y0 > 1.3 || q.y0 - y0 > .5) return;
     // a ray against the box's footprint (slabs)
     let t0 = 0, t1 = 1.0, ok = true;
     for (const [p, d, lo, hi] of [[x, dx, q.x0, q.x1], [z, dz, q.z0, q.z1]]){
@@ -572,7 +576,7 @@ function counterAhead(x, z, ry, y0){
       t0 = Math.max(t0, a); t1 = Math.min(t1, b);
     }
     if (ok && t0 <= t1 && t0 > .1 && (!best || t0 < best.d)) best = {top:q.y1 - y0, d:t0, q};
-  }
+  });
   return best;
 }
 /* o: {role, look, pose (an animateHuman state), seed, shirt (the uniform's colour), hair, y, kit, noSolid,
@@ -590,7 +594,7 @@ export function staffer(x, z, ry, o = {}){
     if (c){
       let go = Math.max(0, c.d - .24);
       // (not into anything else standing there: a bin, a stool, a wall end)
-      const free = (px, pz) => !W.solids.some(q => !q.off && q !== c.q && q.y1 - (o.y || 0) > .15 && q.y0 - (o.y || 0) < 1.7 && px + .28 > q.x0 && px - .28 < q.x1 && pz + .28 > q.z0 && pz - .28 < q.z1);
+      const free = (px, pz) => { let hit = false; SG.each(px - .28, pz - .28, px + .28, pz + .28, q => !q.off && q !== c.q && q.y1 - (o.y || 0) > .15 && q.y0 - (o.y || 0) < 1.7 && px + .28 > q.x0 && px - .28 < q.x1 && pz + .28 > q.z0 && pz - .28 < q.z1 && (hit = true)); return !hit; };
       while (go > 0 && !free(x + Math.sin(ry)*go, z + Math.cos(ry)*go)) go = Math.max(0, go - .05);
       x += Math.sin(ry)*go; z += Math.cos(ry)*go;
       st = Object.assign({}, st, {counter:c.top, reach:c.d - go + (st.onto ?? .15)});
@@ -637,7 +641,7 @@ export function regulars(list, o = {}){
     W.scene.add(h.g);
     const st = e.state || {mode:"idle"};
     const fp = e.solid === false ? null : e.solid || [.5, .5];
-    const sol = fp ? solid(e.x - fp[0]/2, e.x + fp[0]/2, e.z - fp[1]/2, e.z + fp[1]/2, e.y || 0, (e.y || 0) + 1.8) : null;
+    const sol = fp ? solid(e.x - fp[0]/2, e.x + fp[0]/2, e.z - fp[1]/2, e.z + fp[1]/2, e.y || 0, (e.y || 0) + 1.8, {dyn: !!e.browse}) : null;   // a browser's box walks with them
     const P = {h, e, on:true, sol, st, t:2 + i*1.7, at:0, go:null, yaw:e.ry || 0, v:0};
     if (e.browse){ P.at = .3 + .4*((i*.618) % 1); const a = e.browse.a, b = e.browse.b; h.g.position.set(a[0] + (b[0] - a[0])*P.at, e.y || 0, a[1] + (b[1] - a[1])*P.at); P.yaw = e.browse.face; h.g.rotation.y = P.yaw; }
     animateHuman(h, 0, st); h.bw = 1;
@@ -780,7 +784,10 @@ function routeOf(pts){
 export function pedestrians(o){
   const routes = o.routes.map(routeOf), walkers = [];
   const bad = routes.reduce((n, R) => n + R.S.filter(a => !a.ok).length, 0);                 // route points not clear (a test reads it)
-  const N = o.max ?? 6, wantNow = () => Math.min(N, Math.max(0, Math.round(o.count(dayMin(o)))));
+  // how many walk at once: the route's own count by the time of day, at most the preset's people for the place (DESIGN
+  // 1.4.4 GFX.P.peds, read at use time so a preset change applies at once; o.zone "home" or "town")
+  const pedCap = () => { const P = typeof GFX === "object" && GFX && GFX.P, c = P && P.peds ? P.peds[o.zone || "home"] : null; return c == null ? Infinity : c; };
+  const N = o.max ?? 6, wantNow = () => Math.min(N, pedCap(), Math.max(0, Math.round(o.count(dayMin(o)))));
   const first = wantNow();
   // a walker put at w.s on its route (on the ground there, w.lat to the side of the line)
   const put = w => { const R = w.R, a = R.at(w.s = ((w.s % R.len) + R.len) % R.len, w.b), x = a.x - a.uz*w.lat, z = a.z + a.ux*w.lat; w.y = R.ground(x, z); w.h.g.position.set(x, w.y, z); };

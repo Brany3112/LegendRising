@@ -86,8 +86,10 @@ check(truncNormal(mulberry32(1), 0) === 0, "truncNormal with sigma 0 is 0");
 // purity (DESIGN 1.2, P): no Math.random, no globals of the classic game, no DOM
 {
   const code = fs.readFileSync(path.join(ROOT, "js/life/football/rng.js"), "utf8").replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "");
-  const bad = [/Math\.random/, /\bS\./, /\bMT\b/, /\bA\./, /\bwindow\./, /\bdocument\./, /\bTHREE\b/, /^\s*import\b/m].filter(re => re.test(code)).map(String);
-  check(!bad.length, "rng.js is pure", bad);
+  const bad = [/Math\.random/, /\bS\./, /\bMT\b/, /\bA\./, /\bwindow\./, /\bdocument\./, /\bTHREE\b/, /\bMath\.(?:sin|cos|tan|asin|acos|atan2?|exp|expm1|log(?:1p|2|10)?|pow|hypot|cbrt|sinh|cosh|tanh)\(/].filter(re => re.test(code)).map(String);
+  // the only import allowed is detmath.js, the engine-independent maths every pure module shares (D6)
+  const imports = [...code.matchAll(/^\s*import[^"']*["']([^"']+)["']/gm)].map(x => x[1]);
+  check(!bad.length && imports.every(s => s === "./detmath.js"), "rng.js is pure, imports only detmath.js and calls no engine-approximated Math function", {bad, imports});
 }
 
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});

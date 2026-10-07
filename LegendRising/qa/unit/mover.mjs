@@ -435,9 +435,9 @@ function cut(pace, deg = 90){
 // purity (DESIGN 1.2, P): only relative imports of other pure modules
 {
   const code = fs.readFileSync(path.join(ROOT, "js/life/mover.js"), "utf8").replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "");
-  const bad = [/Math\.random/, /\bS\./, /\bMT\b/, /\bA\./, /\bwindow\./, /\bdocument\./, /\bTHREE\b/].filter(re => re.test(code)).map(String);
+  const bad = [/Math\.random/, /\bS\./, /\bMT\b/, /\bA\./, /\bwindow\./, /\bdocument\./, /\bTHREE\b/, /\bMath\.(?:sin|cos|tan|asin|acos|atan2?|exp|expm1|log(?:1p|2|10)?|pow|hypot|cbrt|sinh|cosh|tanh)\(/].filter(re => re.test(code)).map(String);
   const imports = [...code.matchAll(/^\s*import[^"']*["']([^"']+)["']/gm)].map(x => x[1]);
-  const okImports = imports.every(s => s === "./football/pitchspec.js" || s === "./stamina.js");
+  const okImports = imports.every(s => s === "./football/pitchspec.js" || s === "./football/detmath.js" || s === "./stamina.js");
   check(!bad.length && okImports, "mover.js is pure and imports only pure modules", {bad, imports});
 }
 

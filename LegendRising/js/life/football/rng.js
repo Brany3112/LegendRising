@@ -10,7 +10,10 @@
 //   truncNormal(r, s)      normal with standard deviation s before truncation, never beyond 2.5 s
 //
 // mulberry32 and hashStr are the same algorithms as human.js rng() and hashStr (human.js:81-87); qa/unit/rng.mjs
-// checks the first 1000 values of each against the originals.
+// checks the first 1000 values of each against the originals. log, sin, cos and exp come from detmath.js, so a seed
+// gives the same bits in Node and in every browser (D6).
+
+import {sin, cos, exp, log, PI} from "./detmath.js";
 
 // mulberry32: identical to human.js rng(seed), including the zero seed being replaced by the golden ratio constant
 export function mulberry32(seed){
@@ -38,9 +41,9 @@ export function gauss(r){
   if (s !== undefined){ SPARE.delete(r); return s; }
   let u = r();
   while (u <= 1e-300) u = r();                 // log(0) guard: r() can return exactly 0
-  const v = r(), m = Math.sqrt(-2*Math.log(u)), a = 2*Math.PI*v;
-  SPARE.set(r, m*Math.sin(a));
-  return m*Math.cos(a);
+  const v = r(), m = Math.sqrt(-2*log(u)), a = 2*PI*v;
+  SPARE.set(r, m*sin(a));
+  return m*cos(a);
 }
 
 // a normal draw with standard deviation sigma, resampled until it lies within cap*sigma of zero. A shot or pass
@@ -56,7 +59,7 @@ export function truncNormal(r, sigma, cap = 2.5){
 // the standard deviation of a unit normal truncated at +-cap, from theory: sqrt(1 - 2 c phi(c)/(2 Phi(c) - 1)).
 // Used by the unit test and by anyone who wants a truncated sigma to mean a given spread.
 export function truncSd(cap = 2.5){
-  const phi = Math.exp(-cap*cap/2)/Math.sqrt(2*Math.PI);
+  const phi = exp(-cap*cap/2)/Math.sqrt(2*PI);
   return Math.sqrt(1 - 2*cap*phi/erf(cap/Math.SQRT2));
 }
 
@@ -67,10 +70,10 @@ function erf(x){
     // Maclaurin series converges fast for small x
     let term = x, sum = x;
     for (let n = 1; n < 60; n++){ term *= -x*x/n; const add = term/(2*n + 1); sum += add; if (Math.abs(add) < 1e-17) break; }
-    return s*2/Math.sqrt(Math.PI)*sum;
+    return s*2/Math.sqrt(PI)*sum;
   }
   // continued fraction for erfc at larger x
   let f = 0;
   for (let n = 60; n >= 1; n--) f = n/2/(x + f);
-  return s*(1 - Math.exp(-x*x)/Math.sqrt(Math.PI)/(x + f));
+  return s*(1 - exp(-x*x)/Math.sqrt(PI)/(x + f));
 }

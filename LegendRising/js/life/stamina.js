@@ -8,6 +8,10 @@
 //   const st = createStam({stamina: 60, energy: 80, fatigue: 20});
 //   each 60 Hz step: stamStep(st, h, effortOf(mover.gait, mover.speed, prm.run), {stamina: 60, eF: effF(80)});
 //   const fac = stamFactors(st, effF(80));      // feeds moverStep, the strike deviation, first touch and the body
+//
+// exp comes from detmath.js, so the pool gives the same bits in Node and in every browser (D6).
+
+import {exp} from "./football/detmath.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
@@ -81,7 +85,7 @@ export function stamStep(st, h, effort, ctx = {}){
   if (st.B > st.cap) st.B = st.cap;
   const sprinting = effort === 'sprint';
   st.sprintT = sprinting ? st.sprintT + h : 0;
-  st.sprintFrac += ((sprinting ? 1 : 0) - st.sprintFrac)*(1 - Math.exp(-h/STAM.SPRINT_TAU));
+  st.sprintFrac += ((sprinting ? 1 : 0) - st.sprintFrac)*(1 - exp(-h/STAM.SPRINT_TAU));
   if (st.acc){ st.acc.t += h; if (sprinting) st.acc.sprint += h; }
   return st;
 }

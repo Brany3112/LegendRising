@@ -2,7 +2,9 @@
 // Owner: I0 (DESIGN 2.1). WP-0A's qa/parity.mjs replays these exact scripts through recordFresh() and compares with
 // compare(); the integrator re-records after WP-B (movement changes on purpose) and after WP-I (new ground layout).
 //
-// Each zone gets a 20 s scripted input sequence (1200 steps of 1/60 s) with Math.random seeded and the RAF loop frozen:
+// Each zone gets a 25 s scripted input sequence (1500 steps of 1/60 s) with Math.random seeded and the RAF loop frozen
+// (20 s at I0; since WP-B's life body walks at the LIFE profile's 1.7 m/s, DESIGN 1.5.2, the scripts take longer and
+// the goldens re-recorded at the P1a integration give every segment its 25 s):
 //   home   walk from the bed to the flat door, open it with E, run and sprint down the corridor, walk down two flights
 //          of stairs, run back along the floor below, a step to each side, a few steps backwards
 //   ground a lap of the training pitch at a run building into a sprint, then the shooting drill and one shot
@@ -23,7 +25,7 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {launch, career, freeze, ROOT} from "./lib.mjs";
 
-export const STEPS = 1200, EVERY = 10, DT = 1/60, TOL = 1e-6;
+export const STEPS = 1500, EVERY = 10, DT = 1/60, TOL = 1e-6;
 export const GOLDEN = zone => path.join(ROOT, "qa", "golden", `traj-${zone}.json`);
 
 // seed: the page's Math.random from launch (it decides the career: the club, the flat); rseed: Math.random again,

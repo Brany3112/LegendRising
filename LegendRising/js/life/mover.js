@@ -12,9 +12,11 @@
 //   moverStep(m, {dx, dz, gait: "jog"}, prm, stamFactors(st, eF), 1/60);
 //
 // Directions use the yaw convention of DESIGN 1.1 (yaw 0 faces -Z): yawOf and wrapA from pitchspec.js (and dirOf's
-// formula, written out where a step would otherwise allocate).
+// formula, written out where a step would otherwise allocate). Trigonometry, powers and lengths come from detmath.js, so
+// a step gives the same bits in Node and in every browser (D6).
 
 import {yawOf, wrapA} from "./football/pitchspec.js";
+import {sin, cos, atan2, pow, hypot, exp, log} from "./football/detmath.js";
 import {FRESH} from "./stamina.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -99,7 +101,7 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   fac = fac || FRESH;
   const it = intent || {};
   let dx = +it.dx || 0, dz = +it.dz || 0;
-  const dl = Math.hypot(dx, dz), has = dl > 1e-3;
+  const dl = hypot(dx, dz), has = dl > 1e-3;
   if (has){ dx /= dl; dz /= dl; }
   const thr = has ? Math.min(1, dl) : 0;
   const v0 = m.speed;
@@ -142,7 +144,7 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   let planting = false;
   m.cut = 0;
   if (has && v0 > prm.cutMin && theta > prm.cutAngle){
-    vt *= Math.max(prm.cutFloor, Math.cos(theta)); planting = true; m.cut = theta;
+    vt *= Math.max(prm.cutFloor, cos(theta)); planting = true; m.cut = theta;
   } else if (has && theta > Math.PI/2){
     vt = 0; planting = true;
   }
@@ -158,8 +160,8 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   m.plant = 0;
   if (v < vt){
     const vmax = Math.max(vt, sprintSpeed(prm, fac)), k = prm.a0*fac.accel/vmax;
-    const s0 = 1 - v/vmax, sg = Math.max(0, Math.pow(s0, 0.2) - 0.2*k*h);
-    v = Math.min(vt, vmax*(1 - Math.pow(sg, 5)));
+    const s0 = 1 - v/vmax, sg = Math.max(0, pow(s0, 0.2) - 0.2*k*h);
+    v = Math.min(vt, vmax*(1 - pow(sg, 5)));
   } else if (v > vt){
     const rate = planting ? prm.plant : prm.brake;
     v = staggered && v > prm.staggerCap ? prm.staggerCap : Math.max(vt, v - rate*h);
@@ -196,7 +198,7 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   // speed's worth (a prefix of the answer's slide), so the body slides as fast as it says it does at any frame rate.
   // An answer that takes nothing from the run (a shove to the side, a push further along) is applied as it is and
   // leaves the velocity alone.
-  const ux = -Math.sin(m.heading), uz = -Math.cos(m.heading);       // dirOf(m.heading), inline
+  const ux = -sin(m.heading), uz = -cos(m.heading);       // dirOf(m.heading), inline
   const want = v*h;
   let mx = ux*want, mz = uz*want, vx = ux*v, vz = uz*v;
   if (want > 0){
@@ -208,10 +210,10 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
       rx = clamp(m.x + mx, -prm.bounds.hx, prm.bounds.hx) - m.x;
       rz = clamp(m.z + mz, -prm.bounds.hz, prm.bounds.hz) - m.z;
     }
-    const qx = mx - rx, qz = mz - rz, ql = Math.hypot(qx, qz);    // what the world took away from the move
+    const qx = mx - rx, qz = mz - rz, ql = hypot(qx, qz);    // what the world took away from the move
     if (ql > 1e-12 && qx*ux + qz*uz > 1e-9*want){
       const nx = qx/ql, nz = qz/ql, rn = rx*nx + rz*nz;
-      const tx = rx - rn*nx, tz = rz - rn*nz, tl = Math.hypot(tx, tz);
+      const tx = rx - rn*nx, tz = rz - rn*nz, tl = hypot(tx, tz);
       let k = 0;
       if (tl > 1e-9*want){
         const sx = tx/tl, sz = tz/tl;
@@ -246,39 +248,39 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
 // mover): within 1% of moverStep on straight runs, and close on turning ones (qa/unit/mover.mjs).
 export function timeToPoint(m, prm, fac, tx, tz, react = 0){
   fac = fac || FRESH;
-  const ddx = tx - m.x, ddz = tz - m.z, D0 = Math.hypot(ddx, ddz);
+  const ddx = tx - m.x, ddz = tz - m.z, D0 = hypot(ddx, ddz);
   if (D0 < 1e-6) return react;
   const vs = sprintSpeed(prm, fac), k = prm.a0*fac.accel/vs, aLat = prm.aLat*fac.turn;
   let v = Math.min(m.speed, vs), t = react, D = D0;
   const th = v > SNAP_V ? Math.abs(wrapA(yawOf(ddx, ddz) - m.heading)) : 0;
   if (th > 1e-6){
     // a local frame: the heading along +x, the point at angle th to the left (the right is the mirror image)
-    const Tx = D0*Math.cos(th), Ty = D0*Math.sin(th);
+    const Tx = D0*cos(th), Ty = D0*sin(th);
     let px = 0, py = 0, hd = 0;
     if (v > prm.cutMin && th > prm.cutAngle){
       // a plant (the cut rule): braking at the plant rate while the heading swings at aLat/v, so the error left at
       // speed u is th + (aLat/plant)*ln(u/v); the plant ends where u meets the cut target vs*max(floor, cos error)
       // (a body that faces where it runs keeps its sprint target through the turn: moverStep step 1)
       const c = aLat/prm.plant;
-      const left = u => Math.max(0, th + c*Math.log(u/v));
-      const want = u => { const e = left(u); return e <= prm.cutAngle ? Infinity : vs*Math.max(prm.cutFloor, Math.cos(e)); };
+      const left = u => Math.max(0, th + c*log(u/v));
+      const want = u => { const e = left(u); return e <= prm.cutAngle ? Infinity : vs*Math.max(prm.cutFloor, cos(e)); };
       let lo = 0, hi = v;
       if (want(v) >= v) lo = v;
       else for (let i = 0; i < 20; i++){ const mid = (lo + hi)/2; if (mid > want(mid)) hi = mid; else lo = mid; }
       const v1 = Math.max(lo, 0.05), tp = (v - v1)/prm.plant, turned = th - left(v1), s = (v + v1)/2*tp;
-      t += tp; px = s*Math.cos(turned/2); py = s*Math.sin(turned/2); hd = turned; v = v1;
+      t += tp; px = s*cos(turned/2); py = s*sin(turned/2); hd = turned; v = v1;
       // out of the plant below the cut speed with the point still more than a quarter turn away: moverStep brakes
       // on at the plant rate (a reversal) while the heading keeps swinging at aLat/u, until the error is back to a
       // quarter turn at u2 = v*exp((pi/2 - e)/c); if that is all but standing, it stops and sets off afresh
-      const e2 = wrapA(Math.atan2(Ty - py, Tx - px) - hd);
+      const e2 = wrapA(atan2(Ty - py, Tx - px) - hd);
       if (v <= prm.cutMin && e2 > Math.PI/2){
-        const u2 = v*Math.exp((Math.PI/2 - e2)/c);
+        const u2 = v*exp((Math.PI/2 - e2)/c);
         if (u2 > 0.5){
           const tp2 = (v - u2)/prm.plant, sw = e2 - Math.PI/2, s2 = (v + u2)/2*tp2;
-          t += tp2; px += s2*Math.cos(hd + sw/2); py += s2*Math.sin(hd + sw/2); hd += sw; v = u2;
+          t += tp2; px += s2*cos(hd + sw/2); py += s2*sin(hd + sw/2); hd += sw; v = u2;
         } else {
           const s2 = v*v/(2*prm.plant);
-          t += v/prm.plant; px += s2*Math.cos(hd); py += s2*Math.sin(hd); v = 0;
+          t += v/prm.plant; px += s2*cos(hd); py += s2*sin(hd); v = 0;
         }
       }
     } else if (th > Math.PI/2){
@@ -288,18 +290,18 @@ export function timeToPoint(m, prm, fac, tx, tz, react = 0){
     }
     if (v > SNAP_V){
       // a curve for what is left of the error: an arc of radius v/w at w = min(wMax, aLat/v)
-      const e = Math.max(0, wrapA(Math.atan2(Ty - py, Tx - px) - hd));
+      const e = Math.max(0, wrapA(atan2(Ty - py, Tx - px) - hd));
       const w = Math.min(prm.wMax, aLat/Math.max(v, 0.5)), r = v/w;
       t += e/w;
-      px += r*(Math.sin(hd + e) - Math.sin(hd)); py += r*(Math.cos(hd) - Math.cos(hd + e));
+      px += r*(sin(hd + e) - sin(hd)); py += r*(cos(hd) - cos(hd + e));
     }
-    D = Math.hypot(Tx - px, Ty - py);
+    D = hypot(Tx - px, Ty - py);
   }
   if (D <= 0) return t;
   v = clamp(v, 0, vs);
   // closed form from speed v towards vs: s = 1 - v/vs, sigma = s^0.2, x(t) = vs*(t - (sigma^6 - (sigma - 0.2kt)^6)/(1.2k))
-  const sig = Math.pow(1 - v/vs, 0.2), Tr = sig/(0.2*k);
-  const xAt = tt => vs*(tt - (Math.pow(sig, 6) - Math.pow(Math.max(0, sig - 0.2*k*tt), 6))/(1.2*k));
+  const sig = pow(1 - v/vs, 0.2), Tr = sig/(0.2*k);
+  const xAt = tt => vs*(tt - (pow(sig, 6) - pow(Math.max(0, sig - 0.2*k*tt), 6))/(1.2*k));
   const xr = xAt(Tr);
   if (D >= xr) return t + Tr + (D - xr)/vs;
   // bisection on the monotonic run-up (24 halvings: far below a frame)

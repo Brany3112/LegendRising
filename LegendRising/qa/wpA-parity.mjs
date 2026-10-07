@@ -15,6 +15,9 @@
 // So the trajectories, the camera and both bodies match the goldens exactly; only the ids three.js takes differ.
 //
 //   QA_PORT=8772 node qa/wpA-parity.mjs [--zones ground] [--base <git ref>]      writes qa/out/wpA-parity.json
+//
+// Since the P1a integration this check belongs to WP-A's own branch: WP-B changed movement on purpose and the goldens
+// were re-recorded on the merged tree (DESIGN 2.6), so qa/parity.mjs against the new goldens is the gate from there on.
 import fs from "node:fs";
 import path from "node:path";
 import {execFileSync} from "node:child_process";

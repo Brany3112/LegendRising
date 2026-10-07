@@ -167,22 +167,22 @@ try {
       L.modes.setClockScale(() => .2);
       t0 = S.life.day*1440 + S.life.min; L.stepN(600); out.slow = S.life.day*1440 + S.life.min - t0;
       L.modes.setClockScale(null);
-      // a sprint across the pitch, with no rate for running in the day yet, then with one
+      // a sprint across the pitch: the day has a rate for running (daily.js ACT.run, WP-G), and the clock charges it;
+      // standing still afterwards goes back to the walking rate
+      out.hasRun = typeof ACT === "object" && !!ACT.run;
       for (const k in acts) delete acts[k];
-      L.keys.w = L.keys.shift = true; L.stepN(150); L.keys.w = L.keys.shift = false; L.stepN(60);
-      out.noRun = Object.assign({}, acts); out.mode1 = L.P.moveMode;
-      L.place({x:0, z:-10, y:0, yaw:Math.PI/2});
-      ACT.run = Object.assign({}, ACT.walk);
-      for (const k in acts) delete acts[k];
-      L.keys.w = L.keys.shift = true; L.stepN(150); L.keys.w = L.keys.shift = false; L.stepN(30);
+      L.keys.w = L.keys.shift = true; L.stepN(150); L.keys.w = L.keys.shift = false;
       out.withRun = Object.assign({}, acts);
-      delete ACT.run;
+      L.stepN(150);                                // come to a stop
+      for (const k in acts) delete acts[k];
+      L.stepN(60);
+      out.after = Object.assign({}, acts);
     } finally { window.lifeMode = realMode; window.dailyPass = dp0; L.keys.w = L.keys.shift = false; }
     return out;
   });
   check("setClockScale(0.2) slows the passive clock to a fifth", ck.normal > 4 && Math.abs(ck.slow/ck.normal - .2) < .02, {normal: ck.normal, slow: ck.slow});
-  check("running: walking pace while the day has no run rate", !ck.noRun.run && ck.noRun.walk > 0, ck.noRun);
-  check("running: the clock charges ACT.run once the day has it", ck.withRun.run > 0, ck.withRun);
+  check("running: the day has a run rate (daily.js ACT.run)", ck.hasRun, ck.hasRun);
+  check("running: the clock charges ACT.run while you run, and the resting rate once you stop", ck.withRun.run > 0 && !ck.after.run && (ck.after.walk > 0 || ck.after.idle > 0), {run: ck.withRun, after: ck.after});
 
   // the first day's listener: 'zone' and 'aim'
   const ev = await page.evaluate(() => {
@@ -229,7 +229,7 @@ try {
     } finally { FEED.chip = c0; }
     return chips;
   });
-  check("trust chips print the real delta", JSON.stringify(tx) === JSON.stringify(["Late for training · Manager trust −3", "Full session · Manager trust +1.2", "Left training early · Manager trust −1", "Missed training · Manager trust −8"]), tx);
+  check("trust chips print the real delta", JSON.stringify(tx) === JSON.stringify(["Late for training · Manager trust −3", "Full session · Manager trust +1.2", "Left training early · Manager trust −1", "Missed training · Manager trust −8 · that's three times this week"]), tx);
 
   // the boot cover, in real frames
   await unfreeze(page);

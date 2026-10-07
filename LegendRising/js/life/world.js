@@ -27,14 +27,14 @@ import {registerMode, enterMode, exitMode, mode, modeFlags, modeStep, modeSlice,
   framePresented, persist, persistNow, saveNowIf, SAVE} from "./core/modes.js";
 import {camPush, camPop, camTop, camOwners, camKick, camApply, KICK} from "./core/camera.js";
 import {SCHED} from "./core/sched.js";
-import {Q, GT, createRenderer, gpuBegin, gpuEnd, quality, resize} from "./core/quality.js";
+import {Q, GT, createRenderer, gpuBegin, gpuEnd, quality, resize, warmNow} from "./core/quality.js";
 import {SG, CG, camGridBuild, camCast, hits, findInside, inside} from "./core/collide.js";
 import {GAIT, body, fovStep, moveInput} from "./core/move.js";
 import {meBuild, meDispose, viewStep, toggleView, meCamInit, sstep, meFade} from "./core/me.js";
 import {target, use, clickUse, throwHand, holdStep, heldMeshDrop, flyEnd, flying, dropSpot, spawnDrops, HOLD, HOLD_GRACE, HOLD_TAP} from "./core/hand.js";
 import {hud, hudReset, HUD, note, fade, noteWhenClear, clockText} from "./core/hud.js";
 import {actsInit, pass, sleep, sleepDay, eat, bus, water, work, bath, shower, iceBath, drill, reps, session, mail, robbed, timeLapse, stepBusy,
-  closingTime, closingReset, mailNews, lifeRefresh, BUS_MIN} from "./core/acts.js";
+  closingTime, closingReset, mailNews, lifeRefresh} from "./core/acts.js";
 import {CINE, cineBegin, cineEnd, shake} from "./core/cine.js";
 import {TUN, tunnelInit, tunnel, toMatch} from "./core/tunnel.js";
 
@@ -115,28 +115,14 @@ function enterZone(zone, at, opts = null){
    frame is drawn here too, behind the fade, with everything showing, from the camera that will be shown first (pose:
    {pos, look}, or your eyes). Exposed to the zones as ctx.warm() for anything they add later. */
 function warm(pose){
-  const scene = RT.scene, cam = RT.cam, renderer = RT.renderer, hid = [];
+  const scene = RT.scene;
   // a drill's rings, lamp and ball are only built when it starts: draw a set of them now, so none compiles mid-play
   const props = LIFE.zone === "ground" ? drillWarmup() : null;
   if (props){ props.visible = false; scene.add(props); }
-  try {
-    scene.traverse(o => {
-      if (!o.visible){ hid.push(o); o.visible = true; }
-      if (o.isSkinnedMesh && o.skeleton && !o.skeleton.boneTexture) o.skeleton.computeBoneTexture();
-    });
-    renderer.compile(scene, cam);
-    const seen = new Set(), init = t => { if (t && t.isTexture && !seen.has(t)){ seen.add(t); renderer.initTexture(t); } };
-    scene.traverse(o => {
-      if (o.isSkinnedMesh && o.skeleton) init(o.skeleton.boneTexture);
-      if (o.material) for (const m of [].concat(o.material)) for (const k of ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "bumpMap", "emissiveMap", "alphaMap"]) init(m[k]);
-    });
-    if (pose && pose.pos && pose.look){ cam.position.set(pose.pos[0], pose.pos[1], pose.pos[2]); cam.lookAt(pose.look[0], pose.look[1], pose.look[2]); }
-    else { cam.position.set(P.x, P.eye, P.z); cam.rotation.set(P.pitch, P.yaw, 0, "YXZ"); }
-    renderer.shadowMap.needsUpdate = true; renderer.render(scene, cam);
-  } catch(e){}
-  for (const o of hid) o.visible = false;
+  // the one warm-up path (quality.js warmNow, DESIGN 3.9.6): from the pose asked for, or from your eyes
+  const c = Math.cos(P.pitch);
+  warmNow(pose && pose.pos && pose.look ? pose : {pos:[P.x, P.eye, P.z], look:[P.x - Math.sin(P.yaw)*c, P.eye + Math.sin(P.pitch), P.z - Math.cos(P.yaw)*c]});
   if (props){ scene.remove(props); props.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
-  renderer.shadowMap.needsUpdate = true;                 // and the real shadows, without what is hidden, next frame
 }
 // you, put somewhere: standing still, the view level, the springs at rest
 function place(p){
@@ -306,7 +292,7 @@ export function startLife(opts = {}){
   if (onboardStart()) return;                      // a new career: the first-day introduction takes it from here
   if (opts.later){ noteWhenClear(opts.later); mailNews(); return; }
   TUN.quiet = false;
-  const ride = (BUS_ROUTES[LIFE.zone] || {}).ground || BUS_MIN;
+  const ride = busMins(LIFE.zone, "ground") || busMins("home", "ground");   // daily.js: road works on your street included
   note(opts.msg || (first ? `This is your flat, ${h.apt}. Your uncle paid the first three months. Check your mailbox in the lobby.`
     : f ? `${todayName()}, ${clockText()}. It's match day, and kick-off is at ${clockText(fixtureSlot(f).min)}.` : `${todayName()}, ${clockText()}. ${trainingDay() ? `Training is at ${clockText(SESSION.start)}, and the bus takes ${ride} minutes.` : todayLine() + "."}`));
   mailNews();

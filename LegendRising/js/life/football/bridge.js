@@ -35,8 +35,10 @@ const SLOT_OF_POS = {GK: "GK", DF: "CB", CM: "CM", CAM: "CAM", LW: "LW", RW: "RW
 
 // The player's effective skills (1.4.16): S.skills less the crowd's nerves and tired legs (at most 45%), composure
 // exempt. S.skills itself is never touched, so a level-up during the match is kept (the old matchSkillsOn/Off pair
-// restored a copy taken at kick-off over it).
+// restored a copy taken at kick-off over it). The rule is career.js effSkills (1.4.19, one implementation); the copy
+// below only serves a page or a test that loads the bridge without career.js.
 export function effSkills(){
+  if (has("effSkills")) return globalThis.effSkills();
   const out = {};
   const sk = (typeof S !== "undefined" && S && S.skills) || {};
   const m = typeof MT !== "undefined" && MT ? MT : {};

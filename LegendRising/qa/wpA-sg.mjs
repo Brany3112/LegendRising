@@ -19,9 +19,7 @@ const out = {zones: {}, checks: [], ok: true};
 const check = (name, ok, detail, soft = false) => { out.checks.push({name, ok: !!ok, soft, detail}); if (!ok && !soft) out.ok = false; console.log(`${ok ? "ok  " : soft ? "note" : "FAIL"} ${name}${detail !== undefined ? ": " + JSON.stringify(detail) : ""}`); };
 const soft = process.argv.includes("--audit-soft");
 // moving boxes made in files WP-A does not own, with the hook request filed for each (made with {dyn: true} there)
-const PENDING = [
-  {at: /\bregulars \([^)]*\/npc\.js:/, hook: "npc.js regulars(): a browsing customer's box moves with them: solid(..., {dyn: !!e.browse})"}
-];
+const PENDING = [];     // (the P1 hook for npc.js regulars() landed at the P1a integration: a browser's box is made {dyn: true})
 
 const {page, close, errors} = await launch({gfx: "low", seed: 5});
 try {

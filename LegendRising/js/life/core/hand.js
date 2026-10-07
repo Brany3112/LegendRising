@@ -177,7 +177,9 @@ export function throwHand(){
 }
 const _fd = new THREE.Vector3();
 function flyStep(dt){
-  for (const f of FLY.slice()){
+  // (backwards, so one landing, which takes it off the list, never skips the next; no copy of the list every frame)
+  for (let i = FLY.length - 1; i >= 0; i--){
+    const f = FLY[i];
     f.t += dt;
     const v = f.v; v.y -= 9.8*dt;
     const sp = v.length();

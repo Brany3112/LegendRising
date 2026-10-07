@@ -154,7 +154,7 @@ export function buildTown(c){
   finishBatches();
   // people out and about: along Strada Mare and down into Arini
   // (the south side keeps to the kerb half of the pavement, in front of the bus shelter)
-  TOWNZ.street = pedestrians({minute:ctx.minute, seed:777, max:5, count:m => { const h = m/60; return h < 6 ? 0 : h < 8 ? 2 : h < 20 ? 4 : h < 22 ? 2 : 0; }, routes:[
+  TOWNZ.street = pedestrians({zone:"town", minute:ctx.minute, seed:777, max:5, count:m => { const h = m/60; return h < 6 ? 0 : h < 8 ? 2 : h < 20 ? 4 : h < 22 ? 2 : 0; }, routes:[
     [[-60, -1.4], [60, -1.4], [60, 8.7], [-60, 8.7]],
     [[-5.6, 12], [-5.6, 56], [5.6, 56], [5.6, 12]]]});
   // the places the compass knows here (the jobs and Casa Nova put themselves on it)

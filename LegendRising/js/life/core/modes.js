@@ -70,7 +70,9 @@ export function routeInput(ev, life){
 
 /* ---------- is your control taken away? ----------
    (a panel, the phone or the hub, the old tutorial card, a mode that locks movement, a hands-on minigame) */
-export const tutOn = () => { const t = document.getElementById("tutRoot"); return !!(t && t.classList.contains("on")); };
+// (the tutorial layer's element is looked up once and kept while it is in the page, not found again every frame)
+let TUT_EL = null;
+export const tutOn = () => { const t = TUT_EL && TUT_EL.isConnected ? TUT_EL : (TUT_EL = document.getElementById("tutRoot")); return !!(t && t.classList.contains("on")); };
 export const locked = () => !!(window.lifeMoveLocked && window.lifeMoveLocked()) || FLAGS.modal || tutOn() || modeFlags().movement === "locked" || !!MINI.on;
 
 /* ---------- the passive clock's rate ---------- */

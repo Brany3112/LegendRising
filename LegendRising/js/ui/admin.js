@@ -174,7 +174,6 @@ function adSecUnlocks(){
       <button class="btn sm ghost" onclick="adminSet('allItems', 1)">Give all gear &amp; staff</button>
       <button class="btn sm ghost" onclick="adminSet('allClothes', 1)">Unlock every clothing item</button>
       <button class="btn sm ghost" onclick="adminSet('clearClothes', 1)">Empty the wardrobe</button>
-      <button class="btn sm ghost" onclick="adminSet('tutorial', 1)">Replay the dream tutorial</button>
     </div>
     <p class="muted small">Clothes give +0.25% / +0.5% / +1% each to reputation and followers — unlocking them all is +70%.</p>`;
 }
@@ -313,7 +312,6 @@ function adminSet(field, value){
     case "allItems": for (const it of SHOP) if (!it.stack && it.id !== "smartphone") S.items[it.id] = true; for (const st of STAFF) S.staff[st.id] = true; break;
     case "allClothes": S.wardrobe = SHOPS.flatMap(sh => sh.items.map(i => i.id)); break;
     case "clearClothes": S.wardrobe = []; break;
-    case "tutorial": closeSheet(); A.replayDream(); return;
   }
   save(); refreshSheet(); renderHub();
 }

@@ -14,7 +14,7 @@
    The world (core/hand.js) draws what is in your hand and throws things; this module is the state, the items' looks
    and the bar along the bottom of the screen. */
 import {THREE, part, roundedBoxGeo, mergeGeos, mat, lmat} from "./build.js";
-import {ballMesh} from "./ground.js";
+import {ballMesh} from "./football/pitchmesh.js";      // the one ball look (DESIGN 3.3.3)
 
 const G = () => (typeof S !== "undefined" ? S : null);
 const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
@@ -33,7 +33,7 @@ export const ITEMS = {
   bag:{name:"Foodies bag", icon:"🛍", pocket:false, hold:{pos:[.2, -.3, -.5], rot:[0, -.2, 0]}, mesh:() => bagMesh()},
   box:{name:"Furniture box", icon:"📦", big:true, pocket:false, hold:{pos:[0, -.42, -.62], rot:[0, 0, 0]}, mesh:it => boxMesh(it.dims || [.7, .45, .5], it.label || "")},
   tool:{name:"Screwdriver", icon:"🪛", hold:{pos:[.2, -.18, -.42], rot:[.3, 0, .8]}, mesh:() => toolMesh()},
-  ball:{name:"Football", icon:"⚽", pocket:false, twoHands:true, physics:true, r:.11, hold:{pos:[0, -.36, -.5], rot:[0, 0, 0]}, mesh:() => ballMesh()}
+  ball:{name:"Football", icon:"⚽", pocket:false, twoHands:true, physics:true, r:.11, hold:{pos:[0, -.36, -.5], rot:[0, 0, 0]}, mesh:() => ballMesh().mesh}
 };
 export function itemName(it){ if (!it) return ""; const d = ITEMS[it.id]; return it.name || (d ? d.name : it.id); }
 // will it go in a pocket? (bags, boxes and the ball travel in your hands)

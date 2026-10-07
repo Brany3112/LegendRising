@@ -11,7 +11,8 @@
 // 3. quickMatch (the hub without the 3D world): the fixture is played out and the notice is given.
 // 4. Determinism: the same configuration gives the same event-log hash in Node and in Chromium. While a module the
 //    simulation runs through (mover.js, stamina.js, gaitcore.js, rng.js, pitchspec.js) still calls an engine-defined
-//    Math function, a difference is reported as waiting for those hook requests (as qa/wpC-det.mjs does).
+//    Math function, a difference is reported as waiting for those hook requests (as qa/wpC-det.mjs does; since the P1a
+//    integration none does, so the check is strict).
 //
 //   QA_PORT=8770 node qa/wpE-bridge.mjs [--parity N]     exits 1 on any failed check; writes qa/out/wpE-bridge.json
 import fs from "node:fs";
@@ -134,14 +135,13 @@ async function flowInPage(){
   skillXP("pace", skillNeed("pace") + 1);
   out.levelled = S.skills.pace === pace0 + 1;
   Sim.runHeadless(ms);
-  // an own goal is credited s = -1 (1.4.16 goalLists); career.js newsFromMatch does not skip it yet (a hook request to
-  // WP-G): the page gets that guard here, so that the rest of the flow is still checked
+  // an own goal is credited s = -1 (1.4.16 goalLists): career.js newsFromMatch skips it (the P1a hook), so full time
+  // goes through whatever the score
   out.ownGoals = ms.events.filter(e => e.kind === "goal" && e.ownGoal && !e.disallowed).length;
-  if (out.ownGoals && typeof newsFromMatch === "function"){
-    const orig = newsFromMatch, mine = l => l.filter(e => W.players[e.s]);
-    window.newsFromMatch = res => orig(Object.assign({}, res, {hG: mine(res.hG), aG: mine(res.aG)}));
-  }
   const fin = B.finish(ms);
+  // and the news of a fixture that matters, with nothing but an own goal in it, says nothing about anyone
+  try { const n0 = (S.news || []).length; newsFromMatch({f: Object.assign({}, f, {kind: "E"}), hg: 1, ag: 0, hG: [{s: -1, a: -1}], aG: [], rt: {}, motm: -1}); out.ogNews = {ok: true, added: (S.news || []).length - n0}; }
+  catch(e){ out.ogNews = {ok: false, err: String(e)}; }
   off();
   out.afterFinish = {pace: S.skills.pace, want: pace0 + 1};
   out.done = !!W.done[f.key];
@@ -203,8 +203,7 @@ async function hashInPage(cfgJSON){
   check(flow.quick && flow.quick.done && flow.quick.notice === "This match was played out for you. Full matches need the 3D world: open the game from a web address in a browser with WebGL2.",
     "quickMatch plays the fixture out and gives the notice", flow.quick);
   check(flow.errors.length === 0, "no console or page errors", flow.errors);
-  check(!flow.ownGoals, "no own goal at full time, or one guarded here: career.js newsFromMatch must skip s = -1 (hook request to WP-G)",
-    {ownGoals: flow.ownGoals}, !!flow.ownGoals);
+  check(flow.ogNews && flow.ogNews.ok && flow.ogNews.added === 0, "an own goal (s = -1) passes through the news without a headline or an error (career.js newsFromMatch)", {ogNews: flow.ogNews, ownGoalsInThisMatch: flow.ownGoals});
   // Node's run of the same configuration
   const {createMatch, simStep} = await import("../js/life/football/sim.js");
   const {logHash} = await import("../js/life/football/events.js");

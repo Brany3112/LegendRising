@@ -51,8 +51,10 @@ try {
   /* ---------- before a gesture ---------- */
   // (the page says on its console when it is done: the test must not call into it before then, or that call would be
   // the gesture)
+  // (imported once the document is parsed, so through the page's import map as the game imports it: imported before
+  // the map is read, the page would warn that the map's entry for audio.js conflicts with a module already resolved)
   await context.addInitScript(() => {
-    import("/js/life/football/audio.js").then(m => {
+    const go = () => import("/js/life/football/audio.js").then(m => {
       const A = m.AUD, act = navigator.userActivation ? navigator.userActivation.hasBeenActive : null;
       const r = A.init(), s = A.state();
       // nothing plays, nothing throws
@@ -61,6 +63,7 @@ try {
       window.__AUD = A; window.__pre = {activated: act, init: r, state: s, cue, call, bed};
       console.log("wpd-audio-ready");
     });
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go, {once: true}); else go();
   });
   const ready = page.waitForEvent("console", {predicate: m => m.text() === "wpd-audio-ready", timeout: 60000});
   await page.goto(BASE + "index.html", {waitUntil: "commit"});

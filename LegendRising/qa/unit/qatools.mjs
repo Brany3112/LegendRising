@@ -75,6 +75,7 @@ for (const a of b) { q(); }`);
     "pure-no-random": ["js/life/mover.js", "const r = Math.random();", "// Math.random() is not allowed\nconst s = 'Math.random';"],
     "pure-no-globals": ["js/life/football/sim.js", "const me = S.player;\nMT.score = 1;\nA.sign(0);\nwindow.x = 1;\ndocument.body;", "const S2 = this.S.x, MTX = 1, a = obj.A.b; // S.player"],
     "pure-no-three": ["js/life/gaitcore.js", "import * as THREE from \"../../vendor/three.module.js\";", "// no THREE here\nconst three = 3;"],
+    "pure-det-math": ["js/life/mover.js", "const a = Math.sin(t);\nconst d = Math.hypot(x, z);\nconst p = x ** 0.2;", "import {sin} from \"./football/detmath.js\";\nconst a = sin(t), r = Math.sqrt(x); // Math.sin is not allowed"],
     "bridge-no-build-W": ["js/life/football/bridge.js", "import {scene, W} from \"../build.js?v=1\";", "import {scene} from \"../build.js\";\nconst w = W.clubs;"],
     "football-no-modifier-keys": ["js/life/football/control.js", "if (ev.ctrlKey) shoot();", "if (ev.ctrlKey || ev.altKey || ev.metaKey) return false;"],
     "standard-material-routing": ["js/life/home.js", "const m = new THREE.MeshStandardMaterial({color: 1});", "const m = mat({color: 1}); // new THREE.MeshStandardMaterial"],
