@@ -1,6 +1,7 @@
 /* ============ LIFE core: what you aim at, and what you carry ============
    Owner: WP-0A moves it here; WP-G owns it in Stage 1, WP-H2 in Stage 2. Contract: DESIGN 1.2 (hand.js), 1.4.1 (the
-   targeting flag, the held item, throwing), 2.2 WP-0A (HOLD, HOLD_GRACE).
+   targeting flag, the held item, throwing), 2.2 WP-0A (HOLD, HOLD_GRACE), 3.8.5 (hands-only things are carried in
+   both arms), 3.7.4 (lifeOnb "throw").
    What you carry (inv.js): your hand and two pockets. A left click on something you can pick up (a spot of kind "pick":
    its pick() hands over the item) puts it in your hand, if your hand is free. With something in your hand, a left click
    on where it goes (a spot of kind "place" that takes it) puts it there. 1 / 2 pocket it, G throws it. What is in your
@@ -8,14 +9,13 @@
    third person. */
 import {THREE, W} from "../build.js";
 import * as INV from "../inv.js";
-import {parcelStep, parcelText} from "../parcels.js";
-import {refreshFridge} from "../home.js";
-import {refreshGymFridge} from "../ground.js";
+import {parcelStep} from "../parcels.js";
 import {LIFE, P, B, ME, RT, FLAGS, keys} from "./state.js";
 import {camCast, surfaceUnder} from "./collide.js";
-import {locked, persist, mode} from "./modes.js";
+import {locked, mode} from "./modes.js";
 import {camTop} from "./camera.js";
 import {note} from "./hud.js";
+import {parcelPut} from "./acts.js";
 
 const REACH = 2.5;
 const _o = new THREE.Vector3(), _d = new THREE.Vector3();
@@ -108,14 +108,8 @@ export function holdStep(dt){
   if (!HOLD.sp && p && p.classList.contains("holding")) p.classList.remove("holding");
   handStep(dt);
   flyStep(dt);
-  // a delivery bag in your hand, brought up to a fridge: the food goes in
-  if (!locked()) parcelStep(P, (it, f) => {
-    refreshFridge(); refreshGymFridge();
-    const keep = f.mult ? f.mult() : 1;
-    FEED.chip(`Put away · ${parcelText(it.items)}`, "good");
-    note(`You put the food away in ${f.name}.${keep < .999 ? ` (This fridge keeps ${Math.round(keep*100)}% of what food is worth.)` : ""}`);
-    persist();
-  });
+  // a delivery bag on you, brought up to a fridge: the food goes in
+  if (!locked()) parcelStep(P, parcelPut);
 }
 
 /* ---------- the thing in your hand ---------- */
@@ -133,7 +127,7 @@ function handStep(){
   if (ME.tpShown && ME.tp && ME.tp.g.visible){
     // third person: in the right hand, or held out in front for a box
     const h = ME.tp;
-    if (d.big){ _ch.set(0, 1.0, .42).applyMatrix4(h.g.matrixWorld); m.position.copy(_ch); m.rotation.set(0, h.g.rotation.y, 0); }
+    if (d.big || d.twoHands){ _ch.set(0, d.big ? 1.0 : 1.05, d.big ? .42 : .34).applyMatrix4(h.g.matrixWorld); m.position.copy(_ch); m.rotation.set(0, h.g.rotation.y, 0); }
     else { h.bones[11].getWorldPosition(_ch); m.position.copy(_ch); m.position.y -= .04; m.rotation.set(0, h.g.rotation.y, 0); }
     return;
   }
@@ -146,7 +140,7 @@ function handStep(){
 export function clickUse(){
   const it = INV.hand(), held = FLAGS.held;
   if (held && held.kind === "pick"){
-    if (it){ note(`Your hands are full. Press 1 or 2 to pocket the ${INV.itemName(it).toLowerCase()}, or G to drop it.`); return true; }
+    if (it){ note(INV.pocketable(it) ? `Your hands are full. Press 1 or 2 to pocket the ${INV.itemName(it).toLowerCase()}, or G to put it down.` : `Your hands are full. Press G to put the ${INV.itemName(it).toLowerCase()} down first.`); return true; }
     const got = held.pick(); if (got){ INV.take(got); if (got.hint) note(got.hint); }
     return true;
   }
@@ -177,8 +171,9 @@ export function throwHand(){
   m.position.copy(from);
   const sp = d.big ? 1.6 : 3.4, h = Math.hypot(_d.x, _d.z) || 1;
   const v = new THREE.Vector3(_d.x/h*sp*Math.max(.35, h) + P.vx*.5, (d.big ? 1.2 : 2.0) + _d.y*2, _d.z/h*sp*Math.max(.35, h) + P.vz*.5);
-  FLY.push({it, m, v, spin:new THREE.Vector3((Math.random() - .5)*8, (Math.random() - .5)*6, (Math.random() - .5)*8), r:d.big ? .3 : .06, zone:LIFE.zone, t:0, still:0});
-  note(`${INV.itemName(it)} dropped. Left click it to pick it back up.`);
+  FLY.push({it, m, v, spin:new THREE.Vector3((Math.random() - .5)*8, (Math.random() - .5)*6, (Math.random() - .5)*8), r:d.r || (d.big ? .3 : .06), zone:LIFE.zone, t:0, still:0});
+  note(`${INV.itemName(it)} put down. Left click it to pick it back up.`);
+  if (typeof window.lifeOnb === "function") window.lifeOnb("throw", {id:it.id, item:it});
 }
 const _fd = new THREE.Vector3();
 function flyStep(dt){
@@ -201,7 +196,8 @@ function flyStep(dt){
     const g = surfaceUnder(f.m.position.x, f.m.position.y + .02, f.m.position.z);
     const floorY = g != null ? g : 0;
     if (f.m.position.y - f.r*.5 <= floorY && v.y <= 0){
-      f.m.position.y = floorY + (INV.ITEMS[f.it.id] && INV.ITEMS[f.it.id].big ? 0 : f.r*.5);
+      const fd = INV.ITEMS[f.it.id] || {};
+      f.m.position.y = floorY + (fd.big ? 0 : fd.r ? fd.r : f.r*.5);          // (a ball rests on its own radius)
       if (Math.abs(v.y) > 1){ v.y = -v.y*.3; v.x *= .6; v.z *= .6; }
       else { v.y = 0; v.x *= Math.exp(-6*dt); v.z *= Math.exp(-6*dt); }
       f.spin.multiplyScalar(Math.exp(-5*dt));

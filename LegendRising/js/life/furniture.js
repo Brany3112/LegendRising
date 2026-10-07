@@ -1,11 +1,14 @@
 /* ============ LIFE: what is in your flat ============
    Every piece of furniture in your flat is one of these: a bed, a fridge, a table, a chair... each of a tier (game.js
-   FURN), standing where it was put. S.home.fx.furn is the list: {id, x, z, ry} — x and z in metres from the flat's
+   FURN), standing where it was put. S.home.fx.furn is the list: {id, x, z, ry}: x and z in metres from the flat's
    corner (its west wall, its corridor wall), ry its turn in quarter turns' worth of radians. A piece with no place yet
    gets its usual one when the flat is built. furnish() puts the lot in the room; every piece is an object of its own
-   (never poured into the static batches), so build mode can take one out and put it somewhere else. */
+   (never poured into the static batches), so build mode can take one out and put it somewhere else.
+   Owner: WP-G (Stage 1). Contracts: DESIGN 3.8.2 (each fridge door gates its own shelves past FRIDGE_OPEN; the door
+   says the fridge's quality and the power cut; opening it sends lifeOnb "fridge"), 3.8.3 (the bed says what
+   daily.js sleepPlan says, the plan the sleep applies). */
 import {THREE, W, part, roundedBoxGeo, mergeGeos, mat, lmat, solid, spot, textTex, label, lightSrc} from "./build.js";
-import {fillFridge} from "./fridge.js";
+import {fillFridge, FRIDGE_OPEN} from "./fridge.js";
 import {leafGuard} from "./home.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -315,25 +318,59 @@ export function removePiece(q){
 }
 const addSpot = (q, o) => { const sp = spot(o); q.spots.push(sp); return sp; };
 
+/* ---------- what the bed says (DESIGN 3.8.3) ----------
+   Every number is the plan the sleep applies (daily.js sleepPlan): a tap by night sleeps until WAKE, a tap by day is
+   a nap, holding E for BED_HOLD seconds (after core/hand.js HOLD_GRACE) sleeps exactly twenty-four hours */
+export const BED_HOLD = 2;
+let BT = {key:"", v:null};
+export function bedText(t, m){
+  m = ((Math.floor(m) % 1440) + 1440) % 1440;
+  const key = `${t}|${m}|${Math.round(S.fatigue*10)}|${Math.round(S.energy*10)}|${S.life.day}`;
+  if (BT.key === key) return BT.v;
+  const night = isNight(m), tap = sleepPlan(night ? "night" : "nap", t, m), day = sleepPlan("day", t, m);
+  const fe = p => `Fatigue ${fmtSigned(Math.round(p.fatigue))} · Energy ${fmtSigned(Math.round(p.energy))}`;
+  const pct = f => fmtSigned(Math.round((f - 1)*100)) + "%";
+  const hint = night ? `Tap E: sleep until ${fmtTime(tap.wake)} (${Math.round(tap.hours)} h)` : `Tap E: a ${Math.round(tap.hours)} hour nap, to ${fmtTime(tap.wake)} · ${fe(tap)}`;
+  const lines = [];
+  if (night) lines.push(fe(tap));
+  const mods = tap.mods.concat(day.mods.filter(d => !tap.mods.some(x => x.k === d.k)));
+  for (const md of mods) lines.push(`${md.label} ${pct(md.f)}`);
+  if (night && tap.crossesMidnight) lines.push("The day changes at midnight. Your day summary comes first.");
+  lines.push(`Hold E: sleep 24 hours, to ${fmtTime(day.wake)} tomorrow · ${fe(day)}`);
+  const miss = sleepMisses(m);
+  if (miss.training) lines.push(`You will miss training (Manager trust ${fmtSigned(ATTEND.absent)})`);
+  if (miss.match) lines.push(`You will miss the match (Manager trust ${fmtSigned(MISS_MATCH)})`);
+  BT = {key, v:{hint, lines, hold:"sleep 24 hours", tap, day}};
+  return BT.v;
+}
+
 /* ---------- what each kind of piece does ---------- */
 const KIND = {
   bed(q, b){
     const t = q.f.tier, base = FL.base;
+    // everything it says comes from daily.js sleepPlan, the plan the sleep itself applies (DESIGN 3.8.3)
     addSpot(q, {x:q.wx, y:base + .5, z:q.wz, aim:[[b.x0, base, b.z0], [b.x1, base + (t === 1 ? .45 : .9), b.z1]],
-      label:t === 1 ? "Mattress" : "Bed", get hint(){ const m = CTX.minute() % 1440; return m >= 19*60 || m < 5*60 ? "Sleep · wake tomorrow at 7:00 AM" : "Have a nap · 2 hours"; }, hold:1.2,
-      run:() => CTX.sleep(), long:{time:2, label:"sleep through the entire day", run:() => CTX.sleepDay()}});
+      label:t === 1 ? "Mattress" : "Bed", get hint(){ return bedText(t, CTX.minute()).hint; }, get lines(){ return bedText(t, CTX.minute()).lines; },
+      run:() => CTX.sleep(), long:{time:BED_HOLD, get label(){ return bedText(t, CTX.minute()).hold; }, run:() => CTX.sleepDay()}});
   },
   fridge(q){
     const t = q.f.tier, L = FR[t], base = FL.base, g = q.g, ry = g.rotation.y;
     g.updateMatrixWorld(true);
-    const keep = FRIDGE_KEEP[t - 1], keepTxt = `keeps ${Math.round(keep*100)}%`;
+    const keep = FRIDGE_KEEP[t - 1];
+    // what the door says: the fridge's own quality and, on a day without power, the outage (DESIGN 3.8.2)
+    const doorHint = () => {
+      const bits = ["Open it"];
+      if (Math.abs(keep - 1) > 1e-9) bits.push(`Fridge quality ${fmtSigned(Math.round((keep - 1)*100))}%`);
+      if (!powerOn()) bits.push(`Power outage ${fmtSigned(Math.round((POWER_CUT_KEEP - 1)*100))}%`);
+      return bits.join(" · ");
+    };
     const doors = L.doors.map(dd => {
       const {grp, leaf, wv, hh} = fridgeDoor(t, dd);
       const hx = dd.hinge > 0 ? dd.x1 : dd.x0;
       grp.position.set(hx, 0, L.d/2); g.add(grp);
-      const Dd = {grp, leaf, a:0, target:0, dd};
+      const Dd = {grp, leaf, a:0, target:0, dd, open:false};
       g.updateMatrixWorld(true);
-      // the leaf's direction in the world at angle a: closed it runs back across the front (−hinge along x); it opens
+      // the leaf's direction in the world at angle a: closed it runs back across the front (-hinge along x); it opens
       // outwards, away from the fridge
       const hw = new THREE.Vector3(hx, 0, L.d/2).applyMatrix4(g.matrixWorld);
       const dirOf = a => { const lx = -dd.hinge*Math.cos(a), lz = Math.sin(a); return [lx*Math.cos(ry) + lz*Math.sin(ry), -lx*Math.sin(ry) + lz*Math.cos(ry)]; };
@@ -344,29 +381,43 @@ const KIND = {
         if (Math.abs(Dd.target - Dd.a) > 1e-4) turnTo(Dd.a + (Dd.target - Dd.a)*(1 - Math.exp(-7*dt)));
         grp.rotation.y = dd.hinge*Dd.a;
         const [ux, uz] = dirOf(Dd.a); guard.set(ux, uz, Dd.a > .06, dt);
+        // the moment it swings open far enough to see in (the first day's fridge step listens for it)
+        const open = Dd.a > FRIDGE_OPEN;
+        if (open && !Dd.open && typeof window.lifeOnb === "function") window.lifeOnb("fridge", {open:true, tier:t, door:dd.name, zone:"home"});
+        Dd.open = open;
       };
       W.anims.push(an); q.anims.push(an);
       const box3 = new THREE.Box3();
-      addSpot(q, {kind:"drag", label:dd.name, get hint(){ return Dd.a > .5 ? "Close it" : `Open it · ${FURN[q.p.id].name.toLowerCase()} · ${keepTxt}`; }, y:base + dd.y0 + hh/2,
+      addSpot(q, {kind:"drag", label:dd.name, get hint(){ return Dd.a > FRIDGE_OPEN ? "Close it" : doorHint(); }, y:base + dd.y0 + hh/2,
         aim:() => { grp.updateMatrixWorld(); box3.setFromObject(leaf); box3.expandByScalar(.03); return [box3.min.toArray(), box3.max.toArray()]; },
-        spin:dd.hinge, get angle(){ return Dd.a; }, toggle(){ Dd.target = Dd.a > .5 ? 0 : 1.75; },
+        spin:dd.hinge, get angle(){ return Dd.a; }, toggle(){ Dd.target = Dd.a > FRIDGE_OPEN ? 0 : 1.75; },
         drag(da){ turnTo(Math.max(0, Math.min(1.9, Dd.a + da))); Dd.target = Dd.a; },
         hinge(){ return grp.getWorldPosition(new THREE.Vector3()); },
         edge(){ grp.updateMatrixWorld(); return grp.localToWorld(new THREE.Vector3(-dd.hinge*wv*.95, dd.y0 + hh/2, .05)); }});
       return Dd;
     });
-    // the food: on shelves behind the door(s) that open them, seen and taken while one is open
+    // the food: on shelves behind the door(s) that open them, seen and taken while one of those is open. Each slot
+    // carries the doors in front of it as a bit mask (a French door covers its own side; the middle opens with either)
     const items = new THREE.Group(); W.scene.add(items);
     const W4 = (lx, lz) => { const v = new THREE.Vector3(lx, 0, lz).applyMatrix4(g.matrixWorld); return [v.x, v.z]; };
+    const maskAt = (lx, ly) => {
+      let m = 0;
+      L.doors.forEach((dd, i) => { if (ly >= dd.y0 - .05 && ly <= dd.y1 && lx >= dd.x0 - .01 && lx <= dd.x1 + .01) m |= 1 << i; });
+      return m || (1 << L.doors.length) - 1;
+    };
     const shelves = L.shelves.map(sh => {
       const x0 = sh.side ? .05 : -L.w/2 + .12, x1 = L.w/2 - .12, n = sh.side ? 2 : 3;
       const slots = [];
-      for (let row = 0; row < 2; row++) for (let c = 0; c < n; c++) slots.push(W4(x0 + (x1 - x0)*(n === 1 ? .5 : c/(n - 1)), L.d/2 - .16 - row*.2));
+      for (let row = 0; row < 2; row++) for (let c = 0; c < n; c++){
+        const lx = x0 + (x1 - x0)*(n === 1 ? .5 : c/(n - 1));
+        slots.push([...W4(lx, L.d/2 - .16 - row*.2), maskAt(lx, sh.y)]);
+      }
       return {y:base + sh.y, kind:sh.kind, slots};
     });
     const lo = new THREE.Vector3(-L.w/2, .06, -L.d/2).applyMatrix4(g.matrixWorld), hi = new THREE.Vector3(L.w/2, Math.min(1.3, L.h), L.d/2).applyMatrix4(g.matrixWorld);
     const ax = W4(.045, 0), a0 = W4(0, 0);
-    const fill = {group:items, ctx:CTX, open:() => doors.some(D => D.a > 1.0), ry, shelves, across:[ax[0] - a0[0], ax[1] - a0[1]], mult:() => fridgeMult(t),
+    const fill = {group:items, ctx:CTX, open:() => doors.some(D => D.a > FRIDGE_OPEN), openAt:mask => doors.some((D, i) => (mask & (1 << i)) && D.a > FRIDGE_OPEN),
+      src:() => ({keep, powerCut:!powerOn()}), ry, shelves, across:[ax[0] - a0[0], ax[1] - a0[1]], mult:() => fridgeMult(t),
       emptyAim:[[Math.min(lo.x, hi.x), base + .06, Math.min(lo.z, hi.z)], [Math.max(lo.x, hi.x), base + 1.3, Math.max(lo.z, hi.z)]], label:FURN[q.p.id].name};
     q.fridge = {doors, items, fill, tier:t};
     // where you stand to put food away: in front of it
@@ -377,21 +428,21 @@ const KIND = {
   },
   laptop(q){
     const base = FL.base + (q.y || 0);
-    addSpot(q, {aim:[[q.wx - .25, base - .05, q.wz - .25], [q.wx + .25, base + .3, q.wz + .25]], label:"Laptop", hint:"Check your stats, your week and your career", hold:.2, run:() => CTX.computer("home")});
+    addSpot(q, {aim:[[q.wx - .25, base - .05, q.wz - .25], [q.wx + .25, base + .3, q.wz + .25]], label:"Laptop", hint:"Check your stats, your week and your career", run:() => CTX.computer("home")});
   },
-  chair(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + .9, b.z1]], label:"Chair", hint:"Sit down and let time pass", hold:.2, run:() => CTX.wait("home")}); },
-  sofa(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + .9, b.z1]], label:"Sofa", hint:"Put your feet up and let time pass", hold:.2, run:() => CTX.wait("home")}); },
-  tv(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + 1.2, b.z1]], label:"TV", hint:"Watch the highlights and let time pass", hold:.2, run:() => CTX.wait("home")}); },
-  wardrobe(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + 2, b.z1]], label:"Wardrobe", hint:"Change what you're wearing", hold:.2, run:() => { if (CTX.look) CTX.look(); }}); },
+  chair(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + .9, b.z1]], label:"Chair", hint:"Sit down and let time pass", run:() => CTX.wait("home")}); },
+  sofa(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + .9, b.z1]], label:"Sofa", hint:"Put your feet up and let time pass", run:() => CTX.wait("home")}); },
+  tv(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + 1.2, b.z1]], label:"TV", hint:"Watch the highlights and let time pass", run:() => CTX.wait("home")}); },
+  wardrobe(q, b){ addSpot(q, {aim:[[b.x0, FL.base, b.z0], [b.x1, FL.base + 2, b.z1]], label:"Wardrobe", hint:"Change what you're wearing", run:() => { if (CTX.look) CTX.look(); }}); },
   lamp(q){
     const base = FL.base, l = lightSrc({x:q.wx, y:base + 1.45, z:q.wz, color:0xffd7a0, intensity:4, distance:6, decay:1.6, indoor:true, on:() => !!(G().home.fx.lampOn && powerOn())});
     q.lights.push(l);
-    addSpot(q, {aim:[[q.wx - .25, base, q.wz - .25], [q.wx + .25, base + 1.75, q.wz + .25]], label:"Floor lamp", get hint(){ return G().home.fx.lampOn ? "Switch it off" : "Switch it on"; }, hold:.1,
+    addSpot(q, {aim:[[q.wx - .25, base, q.wz - .25], [q.wx + .25, base + 1.75, q.wz + .25]], label:"Floor lamp", get hint(){ return G().home.fx.lampOn ? "Switch it off" : "Switch it on"; },
       run:() => { const fx = G().home.fx; if (!powerOn()) return CTX.note("Nothing. The power's off in the whole block today."); fx.lampOn = !fx.lampOn; }});
   }
 };
 // how much of its food's goodness the fridge keeps right now (the power off: less again)
-export function fridgeMult(t){ return FRIDGE_KEEP[clamp(t, 1, 6) - 1]*(powerOn() ? 1 : .7); }
+export function fridgeMult(t){ return FRIDGE_KEEP[clamp(t, 1, 6) - 1]*(powerOn() ? 1 : POWER_CUT_KEEP); }
 // is there electricity in your block today? (events.js turns it off for a day now and then)
 export function powerOn(){ return !(typeof lifeEventOn === "function" && lifeEventOn("power")); }
 

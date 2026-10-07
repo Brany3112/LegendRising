@@ -1,6 +1,8 @@
 /* ============ LIFE core: what you do with your day ============
    Owner: WP-0A moves it here; WP-G owns it in Stage 1, WP-I in Stage 2. Contract: DESIGN 1.2 (acts.js), 1.4.1 (the
-   mode drill, the clock), 2.2 WP-0A.
+   mode drill, the clock), 2.2 WP-0A, 3.8 (life fixes: sleep by sleepPlan, eat by foodEffect, busMins, the notice-board
+   events where they bite, attendance chips with the real numbers, the once-a-day session), 3.7.4 (lifeOnb events:
+   eat, nap, parcelPut).
    The clock runs while you live in the world: slowly when you stand still, a little faster when you move, and in big
    steps when you sleep, work, train or wait. Everything about the day itself (the meters, the schedule, the dressing
    room) lives in daily.js; here is what you can do in it: sleep, eat, take the bus, wash, work, train, read your mail. */
@@ -19,20 +21,23 @@ import {DRILL_VIEW} from "./me.js";
 import {note, fade, clockText, signed, range, HUD} from "./hud.js";
 import {TUN} from "./tunnel.js";
 
-export const BUS_MIN = 40;
+// the ride from home to the training centre, for anything that has no stop to ask about (daily.js busMins has the rest)
+export const BUS_MIN = BUS_ROUTES.home.ground;
 let H = null;            // world.js: {enterZone(zone, at), host (what a drill drives the world through)}
 export function actsInit(host){ H = host; }
 // a change in a meter or in trust as it is said: "+1.2", "−3"
 const delta = x => signed(x, Number.isInteger(+(+x).toFixed(1)) ? 0 : 1);
 const fadeEl = () => document.getElementById("lifeFade");
 const letGo = () => { for (const k in keys) keys[k] = false; };
+// the first day's steps hear about what you did (firstday.js; DESIGN 3.7.4)
+const onb = (ev, data) => { if (typeof window.lifeOnb === "function") window.lifeOnb(ev, data); };
 
-/* ---------- the clock ---------- */
+/* ---------- the clock ----------
+   (the electricity is metered inside the day's own clock, daily.js utilTick, wherever you are) */
 export function pass(mins, act = "idle"){
   const s = G(); if (!s || !(mins > 0)) return;
   const day0 = s.life.day;
   dailyPass(mins, act);
-  if (s.home && s.home.light && LIFE.zone === "home") s.home.lightMin = (s.home.lightMin || 0) + mins;
   sync();
   if (s.life.day !== day0) FLAGS.forceSky = true;
   if (mins >= 5) HUD.ctxT = 0;                       // a jump in time: refresh the line under the clock straight away
@@ -48,17 +53,28 @@ function onDaily(type, d){
     if (LIFE.zone === d.where) refreshParcels();
     FEED.center("Foodies delivered", `${parcelText(d.items) || "Your order"} · waiting on ${pointName(d.where)} · carry it to a fridge`, {kind:"food", icon:"🍔"});
   } else if (type === "late") FEED.chip(`Late for training · Manager trust ${delta(d.d)}`, "bad");
-  else if (type === "settled"){
-    if (d.k.startsWith("absent")) FEED.chip(`Missed training · Manager trust ${delta(d.d)}`, "bad");
-    else if (d.k === "good") FEED.chip(`Full session · Manager trust ${delta(d.d)}`, "good");
-    else if (d.k === "early") FEED.chip(`Left training early · Manager trust ${delta(d.d)}`, "bad");
-  } else if (type === "missed" && !d.excused) FEED.center("Match missed", `The team played without you · Manager trust ${delta(-10)}`, {kind:"bad", icon:"!"});
+  else if (type === "settled") settledChip(d);
+  else if (type === "missed" && !d.excused) FEED.center("Match missed", `The team played without you · Manager trust ${delta(MISS_MATCH)}`, {kind:"bad", icon:"!"});
   else if (type === "newweek"){ if (d && d.income) FEED.center(`Week ${G().week + 1}`, `Your wage is in · ${eurFull(d.income)}${d.cost ? ` · staff −${eurFull(d.cost)}` : ""}`, {kind:"money", icon:"€"}); }
   else if (type === "crash") FEED.chip("The energy drink wears off", "bad");
   else if (type === "event"){
     const k = typeof LIFE_EVENTS === "object" ? LIFE_EVENTS[d.id] : null;
-    if (k) setTimeout(() => FEED.center(k.feed, "A new notice is up on the board in your lobby", {kind:"bad", icon:"!", ms:4200}), 1400);
+    if (k) setTimeout(() => FEED.center(k.feed, `${eventFx(d)} The notice is on the board in your lobby.`, {kind:"bad", icon:"!", ms:5200}), 1400);
     if (LIFE.zone === "home") drawNotices();
+  }
+}
+/* the day at the training centre, settled at four (daily.js settleAttendance): a chip with the trust it really moved,
+   for every way a day can go */
+function settledChip(d){
+  const k = d.k || "", habit = k.endsWith("+habit"), base = k.replace("+habit", ""), tail = habit ? " · that's three times this week" : "";
+  const say = {absent:["Missed training", "bad"], good:["Full session", "good"], goodEarly:["Early and stayed all session", "good"], early:["Left training early", "bad"],
+    lateStayed:["Late, but you stayed", ""], late:["Late for training", "bad"]}[base];
+  if (!say) return;                                       // (excused: the first day, nothing moved)
+  if (base === "late" && !d.d) return;                    // (the −3 was said when you walked in)
+  FEED.chip(`${say[0]} · Manager trust ${delta(d.d)}${tail}`, habit ? "bad" : say[1]);
+  if (base === "goodEarly"){
+    const line = d.streak >= 3 ? "Early again. The manager has noticed you're reliable." : d.streak === 1 ? "The manager likes players who turn up early." : "";
+    if (line) setTimeout(() => note(line), 900);
   }
 }
 if (typeof dailyOn === "function") dailyOn(onDaily);
@@ -80,13 +96,29 @@ export function placeName(){
 }
 window.lifePlace = placeName;
 
-/* ---------- sleep ---------- */
+/* ---------- sleep (DESIGN 3.8.3) ----------
+   Every number said about a sleep comes from daily.js sleepPlan, the plan the sleep itself applies. Tap E on the bed:
+   by night, sleep until WAKE (the day summary first); by day, a two-hour nap. Hold E: exactly twenty-four hours. */
+const HUNGRY = 40;
+// lights out: the light in your flat goes off when you go to bed (it is metered while it is on)
+function lightsOut(){
+  const h = G().home;
+  if (LIFE.zone !== "home" || !h || !h.light) return "";
+  h.light = false;
+  return "You switch the light off and get into bed. ";
+}
 export function sleep(){
   const s = G(); if (!s || FLAGS.busy) return;
-  if (isNight()){ openDaySummary(doSleep); return; }
-  fade(() => { const r = nap(bedTier()); sync(); FLAGS.forceSky = true; note(`A two-hour nap · fatigue ${delta(r.fatigue)} · it's ${clockText()}`); persist(true); }, 1600);
+  if (isNight()){ const plan = sleepPlan("night", bedTier()); openDaySummary(doSleep, `Sleep until ${clockText(plan.wake)} · Fatigue ${delta(Math.round(plan.fatigue))}`); return; }
+  fade(() => {
+    const r = nap(bedTier()); sync(); FLAGS.forceSky = true;
+    note(`A two-hour nap · Fatigue ${delta(r.fatigue)} · it's ${clockText()}`);
+    persist(true);
+    onb("nap", {fatigue:r.fatigue, energy:r.energy});
+  }, 1600);
 }
 function doSleep(){
+  const lo = lightsOut();
   fade(() => {
     const r = sleepNight(bedTier());
     // thieves come in the night: whether they get in depends on your door
@@ -94,26 +126,31 @@ function doSleep(){
     startNewDay(); sync(); FLAGS.forceSky = true;
     persist(true);
     if (rob) robbed(rob.lost);
-    morning(r); mailNews();
+    morning(r, lo); mailNews();
   }, 2000);
 }
-function morning(r){
+function morning(r, lo = ""){
   const f = todaysFixture();
   FEED.center(todayName(), f ? `Match day · ${oppName(f)} · ${clockText(fixtureSlot(f).min)}` : todayLine(), {kind:"day", icon:"☀", ms:3200});
-  note(`${r.hours >= 7 ? "A full night's sleep" : `${Math.round(r.hours)} hours' sleep`} · fatigue ${delta(r.fatigue)} · ${S.energy < 40 ? "you wake up hungry, so have some breakfast." : "breakfast is in the fridge."}`);
+  note(`${lo}${r.hours >= 7 ? "A full night's sleep" : `${Math.round(r.hours)} hours' sleep`} · Fatigue ${delta(r.fatigue)} · Energy ${delta(r.energy)}.${S.energy < HUNGRY ? " You wake up hungry. Eat breakfast." : ""}`);
 }
-/* a whole day asleep: hold E on the bed. Exactly 24 hours of the clock pass: not to the next morning, not a nap */
+/* a whole day asleep: hold E on the bed. Exactly 24 hours of the clock pass: not to the next morning, not a nap. The
+   day changes on the way, so its summary comes first */
 export function sleepDay(){
   const s = G(); if (!s || FLAGS.busy) return;
-  fade(() => {
-    const r = typeof sleepFullDay === "function" ? sleepFullDay(bedTier()) : null;
-    const rob = LIFE.zone === "home" && typeof lifeTheft === "function" ? lifeTheft("night") : null;
-    startNewDay(); sync(); FLAGS.forceSky = true; persist(true);
-    if (rob) robbed(rob.lost);
-    FEED.center(todayName(), `You slept the whole day · ${clockText()}`, {kind:"day", icon:"☾", ms:3200});
-    if (r) note(`Twenty-four hours later. Fatigue ${delta(r.fatigue)} · you wake up starving.`);
-    mailNews();
-  }, 2200);
+  const plan = sleepPlan("day", bedTier());
+  openDaySummary(() => {
+    const lo = lightsOut();
+    fade(() => {
+      const r = sleepFullDay(bedTier());
+      const rob = LIFE.zone === "home" && typeof lifeTheft === "function" ? lifeTheft("night") : null;
+      startNewDay(); sync(); FLAGS.forceSky = true; persist(true);
+      if (rob) robbed(rob.lost);
+      FEED.center(todayName(), `You slept the whole day · ${clockText()}`, {kind:"day", icon:"☾", ms:3200});
+      note(`${lo}Twenty-four hours later. Fatigue ${delta(r.fatigue)} · Energy ${delta(r.energy)}.${S.energy < HUNGRY ? " You're hungry. Eat something." : ""}`);
+      mailNews();
+    }, 2200);
+  }, `Sleep 24 hours, to ${clockText(plan.wake)} tomorrow · Fatigue ${delta(Math.round(plan.fatigue))}`);
 }
 // thieves have been: the money's gone, and you are told so plainly
 export function robbed(lost){
@@ -128,17 +165,44 @@ export function mailNews(){
   return n;
 }
 
-/* ---------- food and water ---------- */
-// mult: how much of its goodness the fridge it came out of has kept (furniture.js, ground.js)
-export function eat(id, mult = 1){
-  const r = consume(id, mult); sync();
+/* ---------- food and water ----------
+   src: where it came from (furniture.js, ground.js): {keep, powerCut} for a fridge, a bare number for older callers.
+   The chip prints what consume() did, which is what foodEffect() said it would (the tooltip) */
+export function eatChip(r){
+  const fx = r.fx, bits = [];
+  if (fx.base.energy) bits.push(`Energy ${delta(r.gain)}`);
+  if (fx.base.hyd) bits.push(`Hydration ${delta(r.hyd)}`);
+  if (fx.base.fatigue) bits.push(`Fatigue ${delta(r.fat)}`);
+  return `${r.item.name} · ${bits.join(" · ")}`;
+}
+export function eat(id, src){
+  const r = consume(id, src); sync();
+  onb("eat", {id, ok:!!r.ok, full:!!r.full, why:r.why || ""});
   if (!r.ok) return note(r.why);
   refreshFridge(); refreshGymFridge();
-  FEED.chip(`${r.item.name} · ${r.gain ? `+${r.gain} energy` : ""}${r.fat ? ` ${r.fat < 0 ? "−" : "+"}${Math.abs(r.fat)} fatigue` : ""}${mult < .999 ? ` · fridge keeps ${Math.round(mult*100)}%` : ""}`.trim(), mult < .75 ? "" : "good");
+  FEED.chip(eatChip(r), r.fx.keep < .75 ? "" : "good");
   persist();
 }
 window.lifeFridgeChanged = () => { refreshFridge(); refreshGymFridge(); };
-export function water(){ S.fatigue = clamp(S.fatigue - 2, 0, 100); S.energy = clamp(S.energy + 1, 0, 100); S.hyd = clamp(num(S.hyd, 82) + 14, 0, 100); pass(2); FEED.chip("Cup of water · +14 hydration · −2 fatigue", "good"); }
+// a Foodies bag carried up to a fridge (parcels.js parcelStep): the food is in the one stock both fridges share
+export function parcelPut(it, f){
+  refreshFridge(); refreshGymFridge();
+  FEED.chip(`Put away · ${parcelText(it.items)}`, "good");
+  note("Food put away. Both fridges share it. How much good it does you depends on the fridge you eat it from.");
+  onb("parcelPut", {zone:LIFE.zone, items:it.items || {}, fridge:f ? f.name : ""});
+  persist();
+}
+// the taps in your block are off while the water is (a notice-board event): not a drop at home
+function noWater(){
+  if (LIFE.zone !== "home" || typeof lifeEventOn !== "function" || !lifeEventOn("water")) return false;
+  note(`No water until ${clockText(LIFE_EVENTS.water.to)}. The showers at the training centre still work.`);
+  return true;
+}
+export function water(){
+  if (noWater()) return;
+  S.fatigue = clamp(S.fatigue - 2, 0, 100); S.energy = clamp(S.energy + 1, 0, 100); S.hyd = clamp(num(S.hyd, 82) + 14, 0, 100); pass(2);
+  FEED.chip(`Cup of water · Hydration ${delta(14)} · Fatigue ${delta(-2)}`, "good");
+}
 
 /* ---------- the bus, Line 14 ----------
    You choose where to (panels.js openBus), the screen goes dark and the ride plays out on a card (the clock running
@@ -146,7 +210,10 @@ export function water(){ S.fatigue = clamp(S.fatigue - 2, 0, 100); S.energy = cl
 const STOP_NAME = {home:"Strada Teiului", ground:"Training Centre", town:PLACES.town};
 export function bus(to){
   if (FLAGS.busy || !STOP_NAME[to] || to === LIFE.zone) return;
-  const from = LIFE.zone, mins = (BUS_ROUTES[from] || {})[to] || BUS_MIN;
+  const from = LIFE.zone, mins = busMins(from, to);
+  // leaving the training centre: you are not there for what the clock counts any more (before a quarter past the
+  // start, it is as if you never came)
+  if (from === "ground") attendLeave();
   const o = fadeEl();
   FLAGS.modal = true; letGo();
   FADE.boot = false;
@@ -168,6 +235,8 @@ function arrive(leaving, to){
     const a = S.life.att, td = trainingDay(), f = todaysFixture();
     if (f) note(`${clockText()}. It's match day: kick-off is at ${clockText(fixtureSlot(f).min)}, and the tunnel opens at ${clockText(fixtureSlot(f).min - TUNNEL_OPEN)}.`);
     else if (!td) note(`${clockText()}. No team training today, so the gym and the drills are all yours.`);
+    else if (LIFE.min < SESSION.start && !a.excused && SESSION.start - LIFE.min >= EARLY.by && SESSION.start - LIFE.min <= 2*EARLY.by)
+      note(`You're here at ${clockText()}. Training starts at ${clockText(SESSION.start)}. Stay around until then and the manager will notice.`);
     else if (LIFE.min < SESSION.start) note(`You're here at ${clockText()}. Training starts at ${clockText(SESSION.start)}. The gym is open, or you can sit on the bench and wait.`);
     else if (LIFE.min < SESSION.end) note(a.status === "late" ? `${clockText()}. Training started at ${clockText(SESSION.start)}. The manager saw you come in late.` : `${clockText()}. Training's on and the squad is out on the pitch.`);
     else note(`${clockText()}. The session finished at ${clockText(SESSION.end)}. The gym's open till ${clockText(CENTRE.close)}.`);
@@ -227,14 +296,16 @@ export function stepBusy(real){
 }
 window.lifeWaitFor = mins => timeLapse(mins, "rest", "Taking a breather", () => { note(`It's ${clockText()}. Fatigue ${Math.round(S.fatigue)} · Energy ${Math.round(S.energy)}.`); persist(); }, {icon:"☕"});
 export function bath(){
-  timeLapse(30, "rest", "Hot bath", () => { wash("bath"); FEED.chip("Hot bath · clean · −10 fatigue", "good"); persist(); }, {icon:"🛁", dur:2});
+  if (noWater()) return;
+  timeLapse(30, "rest", "Hot bath", () => { wash("bath"); FEED.chip(`Hot bath · clean · Fatigue ${delta(-10)}`, "good"); persist(); }, {icon:"🛁", dur:2});
 }
 // a quick shower: clean in ten minutes, at home or in the dressing room
 export function shower(){
+  if (noWater()) return;
   timeLapse(10, "rest", "Shower", () => { wash("shower"); FEED.chip("Showered · fresh", "good"); persist(); }, {icon:"🚿", dur:1.4});
 }
 export function iceBath(){
-  timeLapse(20, "rest", "Ice bath", () => { S.fatigue = clamp(S.fatigue - 14, 0, 100); FEED.chip("Ice bath · −14 fatigue", "good"); persist(); }, {icon:"🧊", dur:2});
+  timeLapse(20, "rest", "Ice bath", () => { S.fatigue = clamp(S.fatigue - 14, 0, 100); FEED.chip(`Ice bath · Fatigue ${delta(-14)}`, "good"); persist(); }, {icon:"🧊", dur:2});
 }
 
 /* ---------- work ----------
@@ -255,7 +326,7 @@ window.lifeShift = plan => runShift(plan, {pass:m => pass(m, "work"), minute:() 
 // jobs where you deal with customers will not have you on the floor smelling like a changing room
 const FACE_JOBS = ["cafe", "store", "gym", "academy", "photo"];
 export function work(){
-  if (!shiftOpen()) return note("Closed. Shifts run from 7:00 AM to 11:00 PM.");
+  if (!shiftOpen()) return note(`Closed. Shifts run from ${range(SHIFT.open, SHIFT.close)}.`);
   if (num(S.odor, 0) >= ODOR_SMELLY && FACE_JOBS.includes(jobState().id)) return note(`The manager takes one sniff and steps back. "Not in front of the customers like that. Go home and have a shower."`);
   openShift();
 }
@@ -263,18 +334,44 @@ export function work(){
 /* ---------- training on your own, and the team session ---------- */
 export function trainCheck(){
   if (S.energy < 8){ note("You're running on empty. Eat something before you train."); return false; }
-  if (!centreOpen()){ note(`The training centre is closed. It's open from ${range(CENTRE.open, CENTRE.close)}.`); return false; }
+  if (!centreOpen()){ note(`The training centre is closed. It is open from ${centreHours()}.`); return false; }
   if (S.fatigue > 80) FEED.chip("You're exhausted. This will count for little", "bad");
   return true;
 }
 const begin = D => { if (D) enterMode("drill", D); };
 export function drill(kind){ if (!trainCheck() || mode() === "drill") return; begin(startDrill(kind, H.host)); }
 export function reps(kind){ if (!trainCheck() || mode() === "drill") return; begin(startReps(kind, H.host)); }
+/* the team session, once a day (DESIGN 3.8.8, 3.6.2: S.life.att.sess = {blocks, mins, done, score}). It is run in
+   blocks of a quarter of an hour (drills.js startSession); Esc keeps the blocks you finished and joining again carries on
+   from the next one; a late start only runs the blocks that fit before SESSION.end, and with less than SESSION_LAST
+   minutes left they are packing up. Its rewards come once, with the last block. */
+const SESSION_PLAN_MINS = 90, SESSION_LAST = 20, TICK = 1.1;
 export function session(){
+  const a = S.life.att, ss = a && a.sess;
+  if (ss && ss.done) return note("You've done today's session. The coach wants you fresh tomorrow.");
   if (!sessionOn()) return note("The session has finished for today.");
+  const left = SESSION.end - LIFE.min;
+  if (left < SESSION_LAST) return note(`The session's nearly over. Join them tomorrow at ${clockText(SESSION.start)}.`);
   if (S.energy < 10) return note("You're too hungry to keep up. Eat something first. There's food in the gym fridge.");
   if (mode() === "drill") return;
-  begin(startSession(H.host));
+  const D = startSession(H.host); if (!D) return;
+  if (!ss) return begin(D);
+  const N = D.reps || 6, block = SESSION_PLAN_MINS/N;
+  const todo = Math.max(1, Math.min(N - ss.blocks, Math.floor(left/block)));
+  // the blocks already done (or that there is no time left for) count as behind you: the session starts at the next
+  D.ticks = D.rep = N - todo; D.t = D.ticks*TICK;
+  let seen = D.ticks;
+  const keep = () => {
+    if (D.ticks > seen){ const n = D.ticks - seen; ss.blocks = Math.min(N, ss.blocks + n); ss.mins += n*block; seen = D.ticks; }
+    if (D.phase === "done" && D.ticks >= N && !ss.done){
+      ss.done = true;
+      ss.score = D.scores && D.scores.length ? D.scores.reduce((x, y) => x + y, 0)/D.scores.length : 0;
+    }
+  };
+  const up = D.update, inp = D.input;
+  D.update = dt => { up(dt); keep(); };
+  D.input = (type, k) => { inp(type, k); keep(); };
+  begin(D);
 }
 /* the mode drill: a drill, a gym set or the team session (drills.js), driven through the host world.js gives it (the
    DRILL host contract) and kept as FLAGS.drill while it runs. Its update runs in every sub-step after your movement;

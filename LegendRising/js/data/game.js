@@ -1,15 +1,17 @@
 "use strict";
-/* ============ GAME CONSTANTS ============ */
+/* ============ GAME CONSTANTS ============
+   Owner of the data and its copy: WP-G (Stage 1; DESIGN 2.3, 3.8.4 ELEC_BASE/ELEC_RATE, 3.8.10 the old "Home"
+   upgrades are hub-only). The patch notes (PATCH) are WP-T2's. Numbers in copy come from the data they describe. */
 const SKILLS = [
   ["power","Shot power","Top speed of the ball off your boot"],
-  ["aero","Clean strike","Less drag — long shots keep their pace"],
-  ["curve","Curve","How hard the ball bends when you hit its side — strike the edge for a big bend"],
+  ["aero","Clean strike","Less drag, so long shots keep their pace"],
+  ["curve","Curve","How hard the ball bends when you hit its side. Strike the edge for a big bend"],
   ["accuracy","Accuracy","Less random error on hard shots"],
   ["passing","Passing","Vision and the weight you put on a pass"],
   ["passacc","Pass accuracy","How precisely a pass lands where you meant it to"],
   ["pace","Pace","Running speed with the ball"],
   ["dribbling","Dribbling","Chance to ride a tackle"],
-  ["stamina","Stamina","How slowly your energy drains in matches — low stamina burns out fast"],
+  ["stamina","Stamina","How slowly your energy drains in matches. Low stamina burns out fast"],
   ["composure","Composure","Keeps your skills from dropping in front of huge crowds"],
   ["tackling","Tackling","How cleanly you take the ball off a man, and how much of him you risk catching"],
   ["interception","Interception","Reading a pass early and getting into its lane"],
@@ -40,7 +42,7 @@ const FOOD = {
 };
 const FOOD_KINDS = [["food","Food"], ["drink","Drinks"], ["energy","Energy"], ["recovery","Recovery"]];
 /* Furniture for your flat, tier 1 (the worst) to 6 (the best). A bed's tier is how well you sleep in it, a fridge's how
-   much of its food's goodness it keeps (the first one keeps half). store: where it is sold — "furn" the tier-2 furniture
+   much of its food's goodness it keeps (the first one keeps half). store: where it is sold: "furn" the tier-2 furniture
    store next to your block, "casa" the big showroom out of town; nothing sells tier 1, you start with it.
    box: the size of the carton it comes in [w, h, d] (metres). The rest are the things you put in a room. */
 const FURN = {
@@ -58,7 +60,7 @@ const FURN = {
   fridge6:{kind:"fridge", tier:6, name:"Glass-front smart fridge", desc:"Keeps food at its best: 110%.", price:3900, store:"casa", box:[1, 1.95, .8]},
   table:  {kind:"table", tier:2, name:"Kitchen table", desc:"Somewhere to eat that isn't the floor.", price:55, store:"furn", box:[.9, .2, .7]},
   chair:  {kind:"chair", tier:2, name:"Wooden chair", desc:"Goes with the table.", price:20, store:"furn", box:[.5, .6, .5]},
-  laptop: {kind:"laptop", tier:2, name:"Laptop", desc:"Your stats, your week, your career — at home. Put it on a table.", price:260, store:"furn", box:[.45, .1, .35], small:true},
+  laptop: {kind:"laptop", tier:2, name:"Laptop", desc:"Your stats, your week and your career, at home. Put it on a table.", price:260, store:"furn", box:[.45, .1, .35], small:true},
   sofa:   {kind:"sofa", tier:2, name:"Two-seat sofa", desc:"Sit down after training: rest eases fatigue.", price:180, store:"furn", box:[1.4, .6, .8]},
   wardrobe:{kind:"wardrobe", tier:2, name:"Wardrobe", desc:"Clothes off the floor.", price:120, store:"furn", box:[1, .5, .6]},
   shelf:  {kind:"shelf", tier:2, name:"Bookshelf", desc:"Trophies, one day.", price:45, store:"furn", box:[.8, .3, .4]},
@@ -70,6 +72,8 @@ const FURN = {
 // what a bed of each tier does for a night (fatigue off, energy back) and how much of its food a fridge keeps
 const BED_REST = [42, 52, 60, 68, 74, 80], BED_FED = [6, 10, 14, 18, 22, 26];
 const FRIDGE_KEEP = [.5, .7, .8, .9, 1, 1.1];
+// your flat's electricity: a monthly standing charge, and so much an hour for the light (DESIGN 3.8.4)
+const ELEC_BASE = 9, ELEC_RATE = .35;
 // the small things the furniture store sells, picked off the shelf and paid for at the till (life/inv.js items)
 const HARDWARE = {
   bulb:{name:"Light bulb", price:3, desc:"For the bare socket in your ceiling."},
@@ -80,24 +84,26 @@ const HARDWARE = {
 };
 /* The world's names, and where each job's workplace is. The café is next door to your block; the store and the
    courier depot are further along the road at the end of your street; the better jobs are out of town, in Arini, the
-   new part of Dumbrava — an hour and twenty minutes up the line by bus (life/units.js builds them, life/town.js the town).
+   new part of Dumbrava, an hour and twenty minutes up the line by bus (life/units.js builds them, life/town.js the town).
    zone: which map it is on; area: where, in a few words; how: the way there. */
 const PLACES = {city:"Valea Albă", town:"Dumbrava", hood:"Arini"};
+// the bus: minutes between any two stops on Line 14
+const BUS_ROUTES = {home:{ground:40, town:80}, ground:{home:40, town:100}, town:{home:80, ground:100}};
+// the ride out to Dumbrava in words, from the timetable ("1 hour 20 minutes")
+const TOWN_RIDE = (m => `${Math.floor(m/60)} hour${m >= 120 ? "s" : ""}${m % 60 ? ` ${m % 60} minutes` : ""}`)(BUS_ROUTES.home.town);
 const JOB_WHERE = {
   cafe:{zone:"home", area:"Strada Teiului", how:"next door to your block", street:"Strada Teiului"},
   store:{zone:"home", area:"Strada Morii", how:"first left at the end of your street, a little way up on the left", street:"Strada Morii"},
   courier:{zone:"home", area:"Bulevardul Gării", how:"right at the end of your street, past the park and the car park", street:"Bulevardul Gării"},
-  gym:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"},
-  academy:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"},
-  photo:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"},
-  edit:{zone:"town", area:"Arini", how:"in Dumbrava — the bus, 1 hour 20 minutes — on Strada Mare", street:"Strada Mare"}
+  gym:{zone:"town", area:"Arini", how:`in Dumbrava, ${TOWN_RIDE} by bus, on Strada Mare`, street:"Strada Mare"},
+  academy:{zone:"town", area:"Arini", how:`in Dumbrava, ${TOWN_RIDE} by bus, on Strada Mare`, street:"Strada Mare"},
+  photo:{zone:"town", area:"Arini", how:`in Dumbrava, ${TOWN_RIDE} by bus, on Strada Mare`, street:"Strada Mare"},
+  edit:{zone:"town", area:"Arini", how:`in Dumbrava, ${TOWN_RIDE} by bus, on Strada Mare`, street:"Strada Mare"}
 };
-// "Your new workplace is in Arini." / "… on Strada Morii."
+// "Your new workplace is in Arini." / "... on Strada Morii."
 function jobWhereLine(id){ const w = JOB_WHERE[id]; if (!w) return ""; return `Your new workplace is ${w.zone === "town" ? "in" : "on"} ${w.area}.`; }
-// the bus: minutes between any two stops on Line 14
-const BUS_ROUTES = {home:{ground:40, town:80}, ground:{home:40, town:100}, town:{home:80, ground:100}};
 const FOODIES_FEE = 2;
-/* Where you play. The order is the pitch, back to front — asking to move up or down walks this list.
+/* Where you play. The order is the pitch, back to front: asking to move up or down walks this list.
    blurb is what the position asks of you; chances is roughly how much of a game you spend in front of goal. */
 const POS = {
   DF: {name:"Defender",       line:0, bonus:{tackling:9, composure:5, passing:3, interception:7, heading:6, jumping:4}, blurb:"You defend first. Fewer chances, but a clean sheet is your goal."},
@@ -129,7 +135,7 @@ const COMP_REP = {
   WC: {base:2.6, world:.90, bad:2, nm:"World Championship"}
 };
 /* Day jobs: five ladders, three positions each. You start washing plates and finish cutting highlight reels.
-   Every position pays more than the one before it — including across a jump to the next job. */
+   Every position pays more than the one before it, including across a jump to the next job. */
 const JOBS = [
   {id:"cafe", name:"Corner Café", icon:"☕", ranks:[
     {name:"Dishwasher", pay:[14, 20], need:12, blurb:"Plates, sinks, closing time."},
@@ -140,7 +146,7 @@ const JOBS = [
     {name:"Cashier", pay:[58, 72], need:20, blurb:"Till, queue, small talk."},
     {name:"Floor Supervisor", pay:[76, 96], need:24, blurb:"Rotas, stock counts, the safe."}]},
   {id:"courier", name:"City Courier", icon:"🛵", ranks:[
-    {name:"Bike Courier", pay:[100, 125], need:20, blurb:"Legs already fit — might as well get paid."},
+    {name:"Bike Courier", pay:[100, 125], need:20, blurb:"Legs already fit, so you might as well get paid."},
     {name:"Scooter Rider", pay:[130, 165], need:24, blurb:"Longer runs, bigger tips."},
     {name:"Dispatch Lead", pay:[175, 220], need:28, blurb:"You route the whole evening shift."}]},
   {id:"gym", name:"Sports Centre", icon:"🏋", ranks:[
@@ -170,16 +176,16 @@ function jobAt(j, r){ const job = JOBS[clamp(j|0, 0, JOBS.length - 1)]; return {
 // mall: things you buy once (except drinks)
 const SHOP = [
   {id:"smartphone", cat:"Phone", name:"Branyfon S1 smartphone", desc:"Touchscreen, app store, Showoff, Visage, full negotiations. Replaces your keypad phone.", price:450},
-  {id:"drink", cat:"Energy", name:"Energy-UP", desc:"+30 energy at half-time (more with a better home).", price:3, stack:true},
-  {id:"max", cat:"Energy", name:"Energy-UP MAX", desc:"+60 energy at half-time (more with a better home).", price:7, stack:true},
-  {id:"sandwich", cat:"Food", name:"Sandwich", desc:"Goes in your fridge. Eat it at home or at the gym: +14 energy.", price:3, stack:true},
-  {id:"meal", cat:"Food", name:"Ready meal", desc:"Goes in your fridge. A proper dinner: +26 energy.", price:5, stack:true},
+  {id:"drink", cat:"Energy", name:"Energy-UP", desc:`Goes in your fridge. +${FOOD.drink.energy} energy now, a crash a few hours later, and each one in a day does less.`, price:3, stack:true},
+  {id:"max", cat:"Energy", name:"Energy-UP MAX", desc:`Goes in your fridge. +${FOOD.max.energy} energy now, a crash a few hours later, and each one in a day does less.`, price:7, stack:true},
+  {id:"sandwich", cat:"Food", name:"Sandwich", desc:`Goes in your fridge. Eat it at home or at the gym: +${FOOD.sandwich.energy} energy.`, price:3, stack:true},
+  {id:"meal", cat:"Food", name:"Ready meal", desc:`Goes in your fridge. A proper dinner: +${FOOD.meal.energy} energy.`, price:5, stack:true},
   {id:"mattress", cat:"Bed", name:"Better mattress", desc:"A night in your own bed gives +60 energy instead of +45.", price:120, life:false},
   {id:"bed2", cat:"Bed", name:"New double bed", desc:"Proper sleep: +75 energy every night.", price:420, life:false},
-  {id:"flat", cat:"Home", tier:1, name:"Rented flat", desc:"Your own bed. Drinks and rest give 15% more energy, +5 recovery every week.", price:1500},
-  {id:"house", cat:"Home", tier:2, name:"House", desc:"Proper sleep. Drinks and rest give 30% more energy, +10 weekly recovery.", price:60000},
-  {id:"villa", cat:"Home", tier:3, name:"Villa with a recovery pool", desc:"Drinks and rest give 50% more energy, +15 weekly recovery.", price:900000},
-  {id:"car", cat:"Car", tier:1, name:"Used Dacia Logan", desc:"No more buses to training: +1 action every week.", price:3000},
+  {id:"flat", cat:"Home", tier:1, name:"Rented flat", desc:"Your own bed. Drinks and rest give 15% more energy, +5 recovery every week.", price:1500, life:false},
+  {id:"house", cat:"Home", tier:2, name:"House", desc:"Proper sleep. Drinks and rest give 30% more energy, +10 weekly recovery.", price:60000, life:false},
+  {id:"villa", cat:"Home", tier:3, name:"Villa with a recovery pool", desc:"Drinks and rest give 50% more energy, +15 weekly recovery.", price:900000, life:false},
+  {id:"car", cat:"Car", tier:1, name:"Used Dacia Logan", desc:"A car of your own: +1 action every week.", price:3000},
   {id:"suv", cat:"Car", tier:2, name:"SUV", desc:"+1 action a week, and training costs 3 less energy.", price:45000},
   {id:"sports", cat:"Car", tier:3, name:"Sports car", desc:"+1 action a week, training costs 3 less energy, and the fans love it (+ followers).", price:220000},
   {id:"strike", cat:"Gear", name:"Strike boots", desc:"+4% shot speed, permanently.", price:250},
@@ -213,7 +219,7 @@ const APPS = {
   scout:{name:"Scout Pro", desc:"Contact clubs and negotiate your own contracts.", size:"22 MB"},
   news:{name:"Rising News", desc:"Football news from every league.", size:"18 MB"},
   league:{name:"Tables", desc:"Tables, fixtures and European cups.", size:"12 MB"},
-  foodies:{name:"Foodies", desc:"Order food and drinks — delivered to your flat or the training ground.", size:"14 MB"},
+  foodies:{name:"Foodies", desc:"Order food and drinks, delivered to your flat or the training ground.", size:"14 MB"},
   bank:{name:"Bank", desc:"Money, wages, bonuses and your contract.", size:"9 MB"}
 };
 
@@ -225,25 +231,25 @@ const CHANTS = {
     "{l} is magic, he wears a magic hat!", "There's only one {f} {l}!", "{f} {l}, he's one of our own!",
     "Sign him up! Sign him up!", "{l} for the win!", "Give it to {l}!", "{l} on fire!"],
   ROU: ["Hai {c}!", "{l}, our boy from the fourth tier!", "{f} {l}, pride of the town!",
-    "Come on you reds and whites — {l}!", "{l}, {l}, he came from nothing!"],
+    "Come on you reds and whites, {l}!", "{l}, {l}, he came from nothing!"],
   ENG: ["{f} {l}, he's one of our own!", "Que sera sera, we're going up with {l}!",
     "Oh {f} {l}, you are the love of my life!", "{l}'s gonna get ya!", "Stand up for {f} {l}!",
-    "He shoots, he scores — it's {l}!"],
+    "He shoots, he scores, it's {l}!"],
   ESP: ["{n}, {n}, the whole ground is singing!", "{l}, our number nine!", "Olé, olé, {l}!",
-    "{f} {l}, the crowd is on its feet!", "To the last drop of blood — {l}!"],
+    "{f} {l}, the crowd is on its feet!", "To the last drop of blood, {l}!"],
   GER: ["{l}, {l}, the terrace is bouncing!", "Stand and sing for {f} {l}!",
-    "{n}, our man in the stand's heart!", "All together now — {l}!", "The yellow wall sings for {l}!"],
+    "{n}, our man in the stand's heart!", "All together now, {l}!", "The yellow wall sings for {l}!"],
   ITA: ["{n}, the curva is singing!", "{l}, our captain's heart!", "Forza {c}, forza {l}!",
     "{f} {l}, we live for you!", "The whole curva wants {l}!"],
   FRA: ["Allez {l}!", "{f} {l}, the tribune is standing!", "{n}, the pride of the city!",
     "Come on {c}, come on {l}!", "Sing it loud for {f} {l}!"],
-  goal:  ["{l}!!! {l}!!!", "Oh {f} {l}, what a goal!", "{n} — take a bow!", "He's done it again, {l}!"],
+  goal:  ["{l}!!! {l}!!!", "Oh {f} {l}, what a goal!", "{n}, take a bow!", "He's done it again, {l}!"],
   miss:  ["Unlucky {l}!", "Next one, {f}!", "Keep going {l}!", "Head up, {l}!"],
-  losing:["Come on {c}!", "We still believe — {l}!", "Get it forward, {l}!"],
+  losing:["Come on {c}!", "We still believe, {l}!", "Get it forward, {l}!"],
   big:   ["{n}, on the big stage!", "This is your night, {f}!", "{l}, show them who you are!"]
 };
 
-/* Patch notes — newest first. The flag button in the top bar opens these; nothing pops up on its own. */
+/* Patch notes, newest first. The flag button in the top bar opens these; nothing pops up on its own. */
 const PATCH = [
   {v:"2026.10.05d", date:"5 October", title:"A city to live in", items:[
     "Every job has a place of its own: the Corner Café next door, the Neighbourhood Store up Strada Morii, City Courier down Bulevardul Gării past the park, and the better jobs out in Arini, a new part of Dumbrava — an hour and twenty minutes on the Line 14 bus. A new job tells you where it is.",

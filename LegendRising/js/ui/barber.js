@@ -2,8 +2,11 @@
 /* ============ THE BARBER ============
    Fade & Co., across the road from your block (js/life/barber.js builds it). Sit in a chair and the barber's book
    opens: hairstyles, beards and colours, each with its price. The cuts the creation screen has are a walk-in job;
-   the rest of the menu (barber-only cuts, a proper beard, dye) is kept for people the town has heard of — they show
-   as LOCKED with the reputation they need. Pick, watch your head change in the mirror, pay, and it is yours. */
+   the rest of the menu (barber-only cuts, a proper beard, dye) is kept for people the town has heard of: they show
+   as LOCKED with the reputation they need. Pick, watch your head change in the mirror, pay, and it is yours.
+   Owner: WP-G (Stage 1). Contract: DESIGN 3.7.3: every card says WEARING, PURCHASED (yours, free to switch),
+   AVAILABLE (its price) or LOCKED (the reputation it needs), from daily.js styleState; you pay only for what you do
+   not own, and what you pay for is granted (S.player.owned). */
 const BARBER = {
   name:"Fade & Co.", open:9*60, close:20*60,
   // walk-in cuts: the creation screen's styles
@@ -27,30 +30,37 @@ function barberMenu(part){
     .concat(LOOK_BARBER.hairColor.map(([c, n], i) => ({v:c, n, price:BARBER.dye[i][0], rep:BARBER.dye[i][1], x:true})));
 }
 const BR_KEY = {hair:"hair", beard:"beard", color:"hairColor"};
-// what you would pay for the draft against the look you walked in with
+/* what you would pay for the draft against the look you walked in with: only for what you do not own. A cut, a beard
+   or a colour you have paid for before is yours to switch back to, for nothing */
 function barberBill(){
   if (!LK.draft || !BRB.base) return {items:[], total:0};
   const items = [];
   for (const part of ["hair", "beard", "color"]){
     const k = BR_KEY[part]; if (LK.draft[k] === BRB.base[k]) continue;
-    const it = barberMenu(part).find(o => o.v === LK.draft[k]); if (it) items.push({part, n:it.n, price:it.price});
+    const it = barberMenu(part).find(o => o.v === LK.draft[k]); if (!it) continue;
+    const own = ownsStyle(k, it.v);
+    items.push({part, k, v:it.v, n:it.n, price:own ? 0 : it.price, own});
   }
   return {items, total:items.reduce((t, i) => t + i.price, 0)};
 }
+// a card in the book: Wearing, Purchased (yours, free to switch), Available (its price) or Locked (the reputation it needs)
+function barberCard(part, o, rep, cur){
+  const k = BR_KEY[part], st = styleState(k, o.v), locked = st === "locked";
+  const tag = {wearing:"Wearing", purchased:"Purchased", available:eurFull(o.price), locked:"🔒 Locked"}[st];
+  const sub = st === "purchased" ? `<em>Yours, free to switch</em>` : locked ? `<em>Needs ${o.rep} reputation, you have ${rep}</em>` : st === "available" && o.x ? `<em class="br-x">Barber's own</em>` : "";
+  return `<button class="br-opt br-${st}${locked ? " locked" : ""}" data-state="${st}" aria-pressed="${o.v === cur}" ${locked ? `aria-disabled="true"` : ""} onclick="brPick('${part}','${o.v}')">
+      ${part === "color" ? `<i class="br-sw" style="--c:${lkHex(o.v)}"></i>` : ""}<b>${esc(o.n)}</b><span>${tag}</span>${sub}</button>`;
+}
 function barberOptsHTML(){
   const part = BRB.tab, k = BR_KEY[part], rep = barberRep(), cur = LK.draft ? LK.draft[k] : null;
-  return `<div class="br-grid${part === "color" ? " br-cols" : ""}" role="group" aria-label="${part}">${barberMenu(part).map(o => {
-    const locked = o.rep > rep, mine = BRB.base && o.v === BRB.base[k];
-    return `<button class="br-opt${locked ? " locked" : ""}" aria-pressed="${o.v === cur}" ${locked ? `aria-disabled="true"` : ""} onclick="brPick('${part}','${o.v}')">
-      ${part === "color" ? `<i class="br-sw" style="--c:${lkHex(o.v)}"></i>` : ""}<b>${esc(o.n)}</b>
-      <span>${mine ? "Yours now" : locked ? `🔒 Locked` : eurFull(o.price)}</span>
-      ${locked ? `<em>Needs ${o.rep} reputation · you have ${rep}</em>` : o.x ? `<em class="br-x">Barber's own</em>` : ""}</button>`; }).join("")}</div>`;
+  return `<div class="br-grid${part === "color" ? " br-cols" : ""}" role="group" aria-label="${part}">${barberMenu(part).map(o => barberCard(part, o, rep, cur)).join("")}</div>`;
 }
 function barberFootHTML(){
   const b = barberBill(), broke = b.total > num(S.money, 0);
-  return `<div class="br-bill">${b.items.length ? b.items.map(i => `<span>${esc(i.n)} <b>${eurFull(i.price)}</b></span>`).join("") : `<span class="muted">Pick a cut, a beard or a colour — the mirror shows it before you pay.</span>`}</div>
+  const what = i => `<span>${esc(i.n)} <b>${i.own ? "yours" : eurFull(i.price)}</b></span>`;
+  return `<div class="br-bill">${b.items.length ? b.items.map(what).join("") : `<span class="muted">Pick a cut, a beard or a colour. The mirror shows it before you pay.</span>`}</div>
     <span class="grow"></span><button class="btn sm ghost" onclick="brReset()" ${b.items.length ? "" : "disabled"}>Undo</button>
-    <button class="btn sm" onclick="brPay()" ${!b.items.length || broke ? "disabled" : ""}>${broke ? `Need ${eurFull(b.total)}` : b.items.length ? `Pay ${eurFull(b.total)}` : "Pay"}</button>`;
+    <button class="btn sm" onclick="brPay()" ${!b.items.length || broke ? "disabled" : ""}>${broke ? `Need ${eurFull(b.total)}` : !b.items.length ? "Pay" : b.total ? `Pay ${eurFull(b.total)}` : "Switch, no charge"}</button>`;
 }
 function barberRender(){
   const c = $("#brOpts"); if (c) c.innerHTML = barberOptsHTML();
@@ -60,17 +70,17 @@ function barberRender(){
 function openBarber(){
   if (!S || !S.player) return;
   const now = window.LIFE ? window.LIFE.min : S.life.min;
-  if (!barberOpen(now)) return window.lifeNote ? window.lifeNote(`Closed. ${BARBER.name} is open ${fmtTime(BARBER.open)} – ${fmtTime(BARBER.close)}.`) : null;
+  if (!barberOpen(now)) return window.lifeNote ? window.lifeNote(`Closed. ${BARBER.name} is open ${fmtRange(BARBER.open, BARBER.close)}.`) : null;
   // nobody cuts the hair of someone who smells like the bottom of a kit bag
   if (num(S.odor, 0) >= ODOR_SMELLY - 5) return window.lifeNote ? window.lifeNote(`The barber holds up a hand before you reach the chair. "Shower first, friend. Then come back."`) : null;
   LK.where = "barber"; LK.saved = false; LK.view = "face"; LK.kind = "casual"; LK.o = null; LK.only = null;
-  LK.draft = JSON.parse(JSON.stringify(lookSane(S.player.look, lookSeedOf(S))));
+  LK.draft = JSON.parse(JSON.stringify(lookSane(S.player.look, lookSeedOf(S), styleOwned())));
   BRB.base = Object.assign({}, LK.draft); BRB.tab = "hair";
   lpShow("barber", `<div class="lk br">${lpHead(BARBER.name, "Barber · sit back", `<span class="pill">€${Math.round(num(S.money, 0))}</span>`)}
     <div class="lk-main">${lkStageHTML()}<div class="lk-ctl br-ctl">
       <div class="seg br-tabs" role="group" aria-label="What to change">${[["hair", "Hairstyle"], ["beard", "Beard"], ["color", "Colour"]].map(([v, n]) => `<button data-v="${v}" aria-pressed="${BRB.tab === v}" onclick="brTab('${v}')">${n}</button>`).join("")}</div>
       <div id="brOpts">${barberOptsHTML()}</div>
-      <p class="lk-note">Your reputation: <b>${barberRep()}</b>. The barber's own cuts and the dyes open up as the town gets to know your name.</p></div></div>
+      <p class="lk-note">Your reputation: <b>${barberRep()}</b>. What you have paid for is yours to switch back to for free. The barber's own cuts and the dyes open up as the town gets to know your name.</p></div></div>
     <div class="lk-foot" id="brFoot">${barberFootHTML()}</div></div>`,
     {onClose:() => { if (window.LookPreview) window.LookPreview.unmount(); LK.draft = null; LK.where = ""; BRB.base = null; }});
   lkPreview();
@@ -79,7 +89,8 @@ function brTab(t){ BRB.tab = t; barberRender(); if (window.LookPreview) lkView(t
 function brPick(part, raw){
   if (!LK.draft) return;
   const it = barberMenu(part).find(o => String(o.v) === String(raw)); if (!it) return;
-  if (it.rep > barberRep()){
+  // a locked style cannot even be tried on
+  if (styleState(BR_KEY[part], it.v) === "locked"){
     if (typeof FEED === "object" && FEED.chip) FEED.chip(`${it.n}: needs ${it.rep} reputation`, "bad");
     const b = document.querySelector(`.br-opt[onclick*="'${raw}'"]`); if (b){ b.classList.remove("nope"); void b.offsetWidth; b.classList.add("nope"); }
     return;
@@ -87,12 +98,16 @@ function brPick(part, raw){
   LK.draft[BR_KEY[part]] = it.v; lkUpdate(); barberRender();
 }
 function brReset(){ if (!LK.draft || !BRB.base) return; for (const k of ["hair", "beard", "hairColor"]) LK.draft[k] = BRB.base[k]; lkUpdate(); barberRender(); }
+// pay for what is new to you, and it is yours from now on; a switch to something you own costs nothing
 function brPay(){
   const b = barberBill(); if (!b.items.length) return;
-  if (!spend(b.total)){ if (typeof FEED === "object" && FEED.chip) FEED.chip("Not enough money", "bad"); return; }
-  S.player.look = lookSane(LK.draft, lookSeedOf(S)); LK.saved = true;
+  if (b.total && !spend(b.total)){ if (typeof FEED === "object" && FEED.chip) FEED.chip("Not enough money", "bad"); return; }
+  for (const i of b.items) grantStyle(i.k, i.v);
+  const next = Object.assign({}, S.player.look);
+  for (const i of b.items) next[i.k] = i.v;
+  S.player.look = lookSane(next, lookSeedOf(S), styleOwned()); LK.saved = true;
   if (window.lifeLookChanged) window.lifeLookChanged();
-  if (typeof FEED === "object" && FEED.chip) FEED.chip(`Fresh cut · −${eurFull(b.total)}`, "good");
+  if (typeof FEED === "object" && FEED.chip) FEED.chip(b.total ? `Fresh cut · ${eurFull(-b.total)}` : "Back to one of yours", "good");
   lpClose();
-  if (window.lifeNote) window.lifeNote("Looking sharp. The barber spins the chair round to the mirror one last time.");
+  if (window.lifeNote) window.lifeNote(b.total ? "Looking sharp. The barber spins the chair round to the mirror one last time." : "A quick tidy-up and you're back to a look you already paid for. No charge.");
 }
