@@ -172,11 +172,14 @@ function slab(s){
   a = (s._z0 - oz)*iz; b = (s._z1 - oz)*iz; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
   if (t0 <= t1 && t1 > 0 && t0 >= 0 && (t0 < RAY.best || (t0 === RAY.best && RAY.hit && s.seq < RAY.hit.seq))){ RAY.best = t0; RAY.hit = s; }
 }
-// a box you cannot walk through. dyn: it moves (a door's leaf guard, a person, a car); build.js re-exports this
+/* a box you cannot walk through. dyn: it moves (a door's leaf guard, a person, a car); build.js re-exports this.
+   A box made with no footprint at all (solid(0, 0, 0, 0, ...): a body's box laid down later wherever the body is, a
+   leaf's pieces before it first swings) blocks nothing where it is made and only means anything once it is moved, so
+   it is a moving one from the start */
 export function solid(x0, x1, z0, z1, y0 = 0, y1 = 3, {dyn = false} = {}){
-  const s = new Box(Math.min(x0, x1), Math.max(x0, x1), Math.min(z0, z1), Math.max(z0, z1), y0, y1, dyn);
+  const s = new Box(Math.min(x0, x1), Math.max(x0, x1), Math.min(z0, z1), Math.max(z0, z1), y0, y1, dyn || (x0 === x1 && z0 === z1));
   // (SG.trace, for the audit: where each box was made, so a moving one can be given {dyn: true} where it is made)
-  if (SG.trace) s.at = String(new Error().stack || "").split("\n").slice(2, 4).map(l => l.trim().replace(/^at /, "").replace(/\?v=[^:]*/, "")).join(" < ");
+  if (SG.trace) s.at = String(new Error().stack || "").split("\n").slice(2, 5).map(l => l.trim().replace(/^at /, "").replace(/\?v=[^:]*/, "")).join(" < ");
   W.solids.push(s);
   file(s);
   return s;
