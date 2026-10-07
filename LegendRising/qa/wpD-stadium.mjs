@@ -14,6 +14,9 @@
 //   nets     the nets' material: transparent false, alphaTest > 0, depthWrite true (and double sided)
 //   mats     every lit mesh material in the stadium carries userData.spec (made by mat(), so a preset change can make
 //            it again); the crowd's shaders are the allowed exception
+//   api      what the match drives the place through works: the crowd's excitement, a goal and its clock, the bench's
+//            substitutes, a spare ball taken off its cone and put back, the scoreboard, the crowd's density, the spawns
+//            and the bounds of DESIGN 3.3.1
 //   crowd    on Low the crowd of every tier (0 to 4) is at most 8 draws; seats and fans in the expected ranges
 //   load     the dummy load (judge graft): tier 2 on Low, 25 human() bodies jogging laps with animateHuman, the ball and
 //            the crowd, seen from the centre spot facing a goal: at most 70 draw calls and 150k triangles, no point
@@ -76,7 +79,9 @@ try {
         out["end" + e] = {innerWidth: +(2*inner).toFixed(4), barUnderside: +under.toFixed(4), postCentreX: +cx.toFixed(4)};
       }
       // the markings: rays straight down onto the line mesh, swept across where each edge should be
+      // (every layer: a still mesh may be drawn from a merged page, its own copy kept on a hidden layer)
       const rc = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0), o = new THREE.Vector3();
+      rc.layers.enableAll();
       const lines = P.lines; lines.updateMatrixWorld(true);
       const hitAt = (x, z) => { o.set(x, 1, z); rc.set(o, down); return rc.intersectObject(lines, false).length > 0; };
       // the covered stretch [a, b] along a sweep (x varies when axis "x"), stepping 2 mm
@@ -146,6 +151,39 @@ try {
     res.checks.mats = m;
     if (m.missing.length) fail("mats", `materials with no spec: ${JSON.stringify(m.missing)}`); else pass("mats");
     console.log(`mats: ${m.materials} lit materials, ${m.missing.length} without a spec`);
+  }
+
+  /* ---------- what the match drives the place through ---------- */
+  if (want("api")){
+    const a = await page.evaluate(() => {
+      const {S} = window.__WPD, ST = S.STADIUM, c = ST.crowd, L = window.__life, out = {};
+      // the crowd worked up, a goal at the east end, the clock and the light
+      ST.excite(.9); c.goal(1); L.stepN(30);
+      const m = c.meshes.filter(x => x.material.uniforms && x.material.uniforms.uExcite);
+      out.excite = m.length ? m[0].material.uniforms.uExcite.value : null;
+      out.goalEnd = m.length ? m[0].material.uniforms.uGoalEnd.value : null;
+      out.time = m.length ? +m[0].material.uniforms.uTime.value.toFixed(3) : null;
+      // three substitutes left on the home bench
+      out.bench = c.setBench("home", 3);
+      // the spare balls: one taken off its cone and put back
+      const k = ST.cones[0]; out.cones = ST.cones.length; out.take = k.take(); out.takeAgain = k.take(); out.put = k.put();
+      // the scoreboard
+      const v0 = ST.board.tex.version; ST.score({hs: 2, as: 1, min: 67}); out.board = ST.board.tex.version > v0;
+      // fewer billboards (adaptive quality) and back
+      c.density(.5); c.density(1);
+      out.spawns = Object.keys(ST.spawns).sort().join(",");
+      out.bounds = JSON.stringify(L.bounds);
+      return out;
+    });
+    res.checks.api = a;
+    if (a.excite !== .9 || a.goalEnd !== 1 || !(a.time > 0)) fail("api", `crowd uniforms ${JSON.stringify(a)}`);
+    if (a.bench !== 3) fail("api", `bench ${a.bench}`);
+    if (a.cones !== 8 || !a.take || a.takeAgain || !a.put) fail("api", `cones ${JSON.stringify(a)}`);
+    if (!a.board) fail("api", "the scoreboard did not redraw");
+    if (a.spawns !== "benchAway,benchHome,dressing,exit,fourth,tunnelDoor,tunnelMouth") fail("api", `spawns ${a.spawns}`);
+    if (a.bounds !== JSON.stringify({x0: -64, x1: 64, z0: -80, z1: 50})) fail("api", `bounds ${a.bounds}`);
+    if (!res.checks.api.why) pass("api");
+    console.log(`api: ${JSON.stringify(a)}`);
   }
 
   /* ---------- the crowd on every tier ---------- */

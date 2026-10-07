@@ -47,6 +47,8 @@ const ROW = {d:.8, h:.4, y0:1.0};
 const Z0 = BOARDS.hz + 2, X0 = BOARDS.hx + 2;          // the front edge of the first row: 2 m behind the boards
 const MOUTH = {x:3.0, rows:5};                        // the tunnel's cut through the main stand's first rows
 const COR = {x:2.5, z0:-66, z1:-44, h:2.9};           // the corridor under the main stand
+// the batch keys of the rooms under the main stand, lit by their own ceiling panels (see W.glows in buildStadium)
+const INNER = ["t:tiles", "t:rubberFloor", "t:paint"];
 
 export const STADIUM = {tier:-1, spec:null, pitch:null, crowd:null, stands:[], bench:[], cones:[], att:0, level:0, excitement:.15,
   board:null, spawns:SPAWNS,
@@ -598,6 +600,7 @@ function scoreboard(tier, opts, at){
   if (at.legs){ for (const s of [-1, 1]) cy(f, s*W_*.35, 0, -.25, .14, .16, y - H_/2, C.steel, {seg:8, key:"metal"}); fsolid(f, 0, -.25, W_*.8, .5, 0, 1.4); }
   const [wx, wz] = worldPt(f, 0, .02);
   const m = label(t, wx, y, wz, W_, H_, ry, {glow:.95, rough:.3});
+  m.userData.noMerge = true;                     // its picture changes with the score: it stays a mesh of its own
   return {mesh:m, draw, tex:t};
 }
 
@@ -897,6 +900,17 @@ export function buildStadium(ctx, o = {}){
   const SKY = RT.SKY;
   if (SKY && SKY.setContext) SKY.setContext("stadium");
   if (SKY && SKY.setNightKey) SKY.setNightKey(true, {dir:[.18, 1, -.32], intensity:[1.3, 1.5, 1.7, 1.85, 2.0][tier], color:0xf2f5ff});
+  /* the key light comes from one side; real floodlights from all four corners. Under them, at night, the white of the
+     goals (frames and nets, kept as meshes of their own for it) is lifted a little on every face. And the rooms under
+     the main stand (the tiles, the painted walls and ceilings, the corridor's floor) are lit by their ceiling panels
+     day and night, with no real light in the stadium on Low and Medium: their surfaces carry that light themselves.
+     Both through the sky's per-frame glow hook (W.glows, emptied again when the place is left) */
+  for (const m of [pitch.frames, pitch.netMesh]) m.userData.noMerge = true;
+  W.glows = [k => {
+    const v = .2*k.lamps, e = .04 + .11*k.lamps;
+    for (const m of [pitch.frames, pitch.netMesh]){ const mt = m.material; if (mt && mt.emissive) mt.emissive.setRGB(v, v, v*1.03); }
+    for (const key of INNER){ const mt = W.mats[key]; if (mt && mt.emissive) mt.emissive.setRGB(e, e*.98, e*.94); }
+  }];
   // the sound of it
   AUD.init();
   Object.assign(STADIUM, {tier, spec, pitch, crowd, stands, bench, cones:pitch.cones, att, level:Math.min(1, crowdN/20000 + att*.35), board, seats, kits, clubs, cap, fans:crowdN});
@@ -925,6 +939,7 @@ registerZone("stadium", {
   leave(){
     for (const f of LEAVE) try { f(); } catch(e){ console.error(e); }
     LEAVE = [];
+    W.glows = null;
     const SKY = RT.SKY;
     if (SKY && SKY.setNightKey) SKY.setNightKey(false);
     if (SKY && SKY.setContext) SKY.setContext("life");

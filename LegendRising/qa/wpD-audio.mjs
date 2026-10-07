@@ -49,20 +49,22 @@ page.on("console", m => { if (m.type() === "warning" || m.type() === "error") wa
 page.on("request", r => { const u = r.url(); if (r.resourceType() === "media" || /\.(mp3|ogg|wav|m4a|aac|flac|opus)(\?|$)/i.test(u)) requests.push(u); });
 try {
   /* ---------- before a gesture ---------- */
+  // (the page says on its console when it is done: the test must not call into it before then, or that call would be
+  // the gesture)
   await context.addInitScript(() => {
-    addEventListener("DOMContentLoaded", () => {
-      import("/js/life/football/audio.js").then(m => {
-        const A = m.AUD, act = navigator.userActivation ? navigator.userActivation.hasBeenActive : null;
-        const r = A.init(), s = A.state();
-        // nothing plays, nothing throws
-        const cue = A.cue("kick", null, 1), call = A.call("Popescu", {x: 0, y: 1.7, z: 3}, 3), bed = A.crowd(.6, .2);
-        A.listener({x: 0, y: 1.7, z: 0}, 0);
-        window.__AUD = A; window.__pre = {activated: act, init: r, state: s, cue, call, bed};
-      });
+    import("/js/life/football/audio.js").then(m => {
+      const A = m.AUD, act = navigator.userActivation ? navigator.userActivation.hasBeenActive : null;
+      const r = A.init(), s = A.state();
+      // nothing plays, nothing throws
+      const cue = A.cue("kick", null, 1), call = A.call("Popescu", {x: 0, y: 1.7, z: 3}, 3), bed = A.crowd(.6, .2);
+      A.listener({x: 0, y: 1.7, z: 0}, 0);
+      window.__AUD = A; window.__pre = {activated: act, init: r, state: s, cue, call, bed};
+      console.log("wpd-audio-ready");
     });
   });
-  await page.goto(BASE + "index.html");
-  await page.waitForFunction(() => !!window.__pre, null, {timeout: 60000});
+  const ready = page.waitForEvent("console", {predicate: m => m.text() === "wpd-audio-ready", timeout: 60000});
+  await page.goto(BASE + "index.html", {waitUntil: "commit"});
+  await ready;
   const before = await page.evaluate(() => window.__pre);
   await page.waitForTimeout(300);
   res.checks.defer = {before, warningsBefore: warnings.slice()};
