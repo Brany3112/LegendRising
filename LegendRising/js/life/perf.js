@@ -131,12 +131,19 @@ async function probe(){
   const wait = c => new Promise(r => { const k = () => c() ? r() : setTimeout(k, 50); k(); });
   await wait(() => typeof window.startLife === "function" && typeof newCareer === "function" && window.__life);
   if (gfx && typeof setGfx === "function" && GFX.mode !== gfx) setGfx(gfx);
-  // a test career standing in the world (the same steps as qa/lib.mjs career())
-  CR = {name:"Probe Player", number:9, pos:"ST", pref:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
-  newCareer(CR);
-  for (const k in S.flags) S.flags[k] = true; S.tutDone = true; S.onb = {stage:"done"};
-  document.body.classList.add("life");
-  A.sign(0);
+  /* a test career standing in the world (the same steps as qa/lib.mjs career()), made at the same fixed moment
+     (qa/lib.mjs CAREER_AT): the career's id is the time it was made, and the id seeds the street (where the cars stand,
+     what is on the shelves), so every probe of a view measures the same place */
+  const realNow = Date.now; Date.now = () => Date.UTC(2026, 9, 5, 8, 0, 0);
+  try {
+    CR = {name:"Test Player", number:9, pos:"ST", pref:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
+    newCareer(CR);
+    for (const k in S.flags) S.flags[k] = true; S.tutDone = true; S.onb = {stage:"done"};
+    document.body.classList.add("life");
+    A.sign(0);
+  } finally { Date.now = realNow; }
+  // (the play-time clock took its first reading at that moment: started afresh)
+  if (typeof startPlayClock === "function"){ clearInterval(PLAY_T); PLAY_T = null; startPlayClock(); }
   S.life.min = min;
   const v = VIEWS[view] || {zone, at:"bus", pitch:0};
   window.startLife({zone:v.zone || zone});

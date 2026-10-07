@@ -2,7 +2,8 @@
 // Owner: WP-A (DESIGN 1.2 qa/perf.mjs, 2.3 WP-A acceptance, 3.9.8, 4.10).
 //
 // For each view and tier, in a fresh browser at 1280 x 720: index.html?perf=probe&zone=..&view=..&gfx=..&t=12:00
-// (js/life/perf.js): a test career at noon, you at the view, warm-up frames, then measured frames, each one world
+// (js/life/perf.js): a test career at noon (made at qa/lib.mjs CAREER_AT, so the street is the same in every run), you
+// at the view, warm-up frames, then measured frames, each one world
 // frame stepped by hand, drawn and waited for (a one-pixel readPixels: Chromium's gl.finish() does not wait).
 // Checked against qa/perf-baseline.json (I0, the tree before the rework) as ratios, never as absolute milliseconds:
 //   Low     draw calls and triangles within the 1.5.11 budget of the view (+5%), no shadow pass, 2 real point lights;
@@ -83,7 +84,7 @@ for (const tier of TIERS){
       const b = BUDGET[view];
       if (b){
         check(`low ${view}: draw calls within ${b.calls} (+5%)`, r.calls <= b.calls*1.05, r.calls);
-        check(`low ${view}: triangles within ${b.tris/1000}k (+5%)`, r.tris <= b.tris*1.05, r.tris, true);
+        check(`low ${view}: triangles within ${b.tris/1000}k (+5%)`, r.tris <= b.tris*1.05, r.tris);
       }
       check(`low ${view}: no shadow pass, shadow map off`, r.shadowCalls === 0 && !r.shadowMap, {shadowCalls: r.shadowCalls, shadowMap: r.shadowMap});
       check(`low ${view}: 2 real point lights`, r.pointLights === 2, r.pointLights);

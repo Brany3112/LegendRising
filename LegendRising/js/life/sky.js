@@ -65,11 +65,12 @@ float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ if (float(
 void main(){
   vec3 d = normalize(vDir);
   float h = d.y;
-  vec3 col = mix(uHor, uTop, pow(clamp(h, 0., 1.), .5));
+  vec3 col = mix(uHor, uTop, sqrt(clamp(h, 0., 1.)));
   col = mix(col, uGround, smoothstep(.0, -.22, h));
-  // the sun: a hard disc, a soft halo and a wide warm glow that is strongest low in the sky
-  float sd = max(dot(d, uSun), 0.);
-  col += uSunCol*(smoothstep(.9993, .9997, sd)*6.*uSunUp + pow(sd, 32.)*.55 + pow(sd, 5.)*.18*(1. - .5*uSunUp));
+  // the sun: a hard disc, a soft halo and a wide warm glow that is strongest low in the sky (the powers by squaring:
+  // a pow() is an exp and a log on every pixel of the sky)
+  float sd = max(dot(d, uSun), 0.), s2 = sd*sd, s4 = s2*s2, s8 = s4*s4, s32 = s8*s8*s8*s8;
+  col += uSunCol*(smoothstep(.9993, .9997, sd)*6.*uSunUp + s32*.55 + s4*sd*.18*(1. - .5*uSunUp));
   // stars, only above the horizon and only once the light has gone
   if (uStars > .01 && h > 0.){
     vec3 sp = floor(d*420.);
@@ -77,15 +78,17 @@ void main(){
     float tw = .6 + .4*sin(uTime*3. + hash(sp)*40.);
     col += vec3(.85, .9, 1.)*s*tw*uStars*smoothstep(0., .25, h);
   }
-  // the moon
-  float md = dot(d, uMoon);
-  col += vec3(.92, .95, 1.)*smoothstep(.99935, .9996, md)*uStars*1.4 + vec3(.25, .3, .42)*pow(max(md, 0.), 80.)*.5*uStars;
+  // the moon, once the light has gone
+  if (uStars > .001){
+    float md = dot(d, uMoon);
+    col += vec3(.92, .95, 1.)*smoothstep(.99935, .9996, md)*uStars*1.4 + vec3(.25, .3, .42)*pow(max(md, 0.), 80.)*.5*uStars;
+  }
   // clouds on a plane above you, lit from the sun's side
   if (h > 0.){
     vec2 uv = d.xz/(h + .16)*1.3 + vec2(uTime*.006, uTime*.0025);
     float c = uOct < .5 ? vnoise(uv*.9)*.62 + .14 : fbm(uv*1.4);
     c = smoothstep(.62 - uCover*.28, .95, c)*smoothstep(0., .28, h);
-    vec3 cc = mix(uCloud*.82, uCloud*1.12 + uSunCol*.18, pow(sd, 3.));
+    vec3 cc = mix(uCloud*.82, uCloud*1.12 + uSunCol*.18, s2*sd);
     col = mix(col, cc, c*.78);
   }
   gl_FragColor = vec4(col, 1.);

@@ -545,7 +545,7 @@ export function box(x0, y0, z0, x1, y1, z1, color, o = {}){
   return {x0, x1, y0, y1, z0, z1};
 }
 export function cyl(x, y, z, r, h, color, o = {}){
-  const g = new THREE.CylinderGeometry(o.rt == null ? r : o.rt, r, h, o.seg || 10, 1, !!o.open);
+  const g = new THREE.CylinderGeometry(o.rt == null ? r : o.rt, r, h, roundSeg(o.seg || 10, Math.max(r, o.rt || 0)), 1, !!o.open);
   if (o.rx) g.rotateX(o.rx); if (o.rz) g.rotateZ(o.rz); if (o.ry) g.rotateY(o.ry);
   g.translate(x, y + (o.rx || o.rz ? 0 : h/2), z);
   addGeo(g, color, Object.assign({ao:false}, o));
@@ -555,7 +555,17 @@ export function blob(x, y, z, r, color, o = {}){        // a low-poly ball: tree
   if (o.sy) g.scale(1, o.sy, 1);
   g.translate(x, y, z); addGeo(g, color, Object.assign({ao:false}, o));
 }
-const roundMin = () => { const P = gfxP(); return P && P.tier === "low" ? .05 : .016; };
+/* Low builds round and bevelled pieces plainer: a rounding under 5 cm is a plain box, round things get fewer sides
+   (roundSeg), bevels one step. All of it is made when a place is built: a change of preset shows from the next place */
+export const lowPoly = () => { const P = gfxP(); return !!P && P.tier === "low"; };
+const roundMin = () => lowPoly() ? .05 : .016;
+/* how many sides a round piece of radius r is cut into: as many as asked, except on Low, where small ones get fewer (a
+   bottle 3 cm across is a few pixels wide from anywhere but up close, and six sides read as round there; a bin, a
+   post or a wheel keeps eight to twelve) */
+export function roundSeg(n, r){
+  if (!lowPoly()) return n;
+  return Math.max(3, Math.min(n, r < .05 ? 6 : r < .15 ? 8 : r < .4 ? 12 : 16));
+}
 /* a box with its edges and corners rounded off. Built from a segmented cube whose outer rows are pushed
    out onto quarter circles, so it costs a few dozen triangles and reads as a soft, made object. */
 export function roundedBoxGeo(w, h, d, r, seg = 1){

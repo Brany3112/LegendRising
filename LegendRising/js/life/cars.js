@@ -12,7 +12,7 @@
      colour of each lamp; each wheel is one mesh so it can turn. About nine draw calls instead of twenty, and the same
      look as the parked ones. .userData.lamps(on) switches the lamps, .userData.size = [length, height, width]. A car
      standing still for a while is merged with the other fixed parts of the place (chunks.js) until it moves. */
-import {THREE, roundedBoxGeo, mat, lmat, addGeo, textTex} from "./build.js";
+import {THREE, roundedBoxGeo, roundSeg, lowPoly, mat, lmat, addGeo, textTex} from "./build.js";
 
 const KINDS = {
   // side profiles: [x, y] round the body from the front bumper, length along x (front +x), height y; then glass
@@ -25,7 +25,7 @@ const KINDS = {
 };
 function profileGeo(pts, width, bevel){
   const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) sh.lineTo(p[0], p[1]); sh.closePath();
-  const g = new THREE.ExtrudeGeometry(sh, {depth:width - bevel*2, bevelEnabled:true, bevelThickness:bevel, bevelSize:bevel*.8, bevelSegments:2, curveSegments:1});
+  const g = new THREE.ExtrudeGeometry(sh, {depth:width - bevel*2, bevelEnabled:true, bevelThickness:bevel, bevelSize:bevel*.8, bevelSegments:lowPoly() ? 1 : 2, curveSegments:1});
   g.translate(0, 0, -(width - bevel*2)/2);
   return g;
 }
@@ -68,14 +68,15 @@ function pieces(kind, color, o){
   if (K.spoiler){ put(roundedBoxGeo(.24, .04, W - .1, .015, 1), "paint", -L2 + .1, 1.02, 0); for (const s of [1, -1]) put(new THREE.BoxGeometry(.05, .16, .04), "dark", -L2 + .14, .92, s*(W/2 - .3)); }
   if (K.blower){ put(roundedBoxGeo(.42, .2, .5, .05, 1), "chrome", 1.0, .88, 0); put(roundedBoxGeo(.3, .12, .42, .04, 1), "dark", 1.0, 1.02, 0); }
   if (K.stripes && o.stripe !== false) for (const z of [-.18, .18]) put(new THREE.BoxGeometry(K.L - .5, .012, .16), "stripe", -.02, .885, z, o.stripe || 0xd8261f);
-  // the wheels, in arches cut dark into the body: a tyre, a rim, five spokes each side
-  const rim = o.rim || 0xb9bec2, r = K.wheel, wd = .22;
+  // the wheels, in arches cut dark into the body: a tyre, a rim, five spokes each side (on Low fewer sides, and the
+  // spokes only on the outer face: the inner one is hidden under the body)
+  const rim = o.rim || 0xb9bec2, r = K.wheel, wd = .22, outerOnly = lowPoly();
   for (const x of K.wx) for (const s of [1, -1]){
-    put(new THREE.CylinderGeometry(r + .07, r + .07, .02, 16, 1, false, 0, Math.PI).rotateX(Math.PI/2).rotateZ(Math.PI/2), "dark", x, r + .02, s*(W/2 + .003));
+    put(new THREE.CylinderGeometry(r + .07, r + .07, .02, roundSeg(16, r + .07), 1, false, 0, Math.PI).rotateX(Math.PI/2).rotateZ(Math.PI/2), "dark", x, r + .02, s*(W/2 + .003));
     const wz = s*(W/2 - .1), wheel = [];
-    wheel.push({geo:new THREE.CylinderGeometry(r, r, wd, 18).rotateX(Math.PI/2), look:"tyre"});
-    wheel.push({geo:new THREE.CylinderGeometry(r*.62, r*.62, wd + .02, 12).rotateX(Math.PI/2), look:"rim", color:rim});
-    for (let i = 0; i < 5; i++) for (const f of [1, -1]) wheel.push({geo:new THREE.BoxGeometry(r*.12, r*1.1, .02).rotateZ(i/5*Math.PI*2).translate(0, 0, f*(wd/2 + .012)), look:"dark"});
+    wheel.push({geo:new THREE.CylinderGeometry(r, r, wd, roundSeg(18, r)).rotateX(Math.PI/2), look:"tyre"});
+    wheel.push({geo:new THREE.CylinderGeometry(r*.62, r*.62, wd + .02, roundSeg(12, r*.62)).rotateX(Math.PI/2), look:"rim", color:rim});
+    for (let i = 0; i < 5; i++) for (const f of outerOnly ? [s] : [1, -1]) wheel.push({geo:new THREE.BoxGeometry(r*.12, r*1.1, .02).rotateZ(i/5*Math.PI*2).translate(0, 0, f*(wd/2 + .012)), look:"dark"});
     P.push({wheel, at:[x, r, wz]});
   }
   return {P, K};

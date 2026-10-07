@@ -3,7 +3,7 @@
    vending machine, trees, cars and street lamps. Everything is a few rounded or tapered shapes, so
    it reads as a made object rather than a grey cube, and almost all of it is poured into the shared
    batches so a whole training ground stays a handful of draw calls. */
-import {THREE, W, addGeo, roundedBoxGeo, solid, textTex, label, mat, lightSrc, pool, halo, netTex, part, lmat} from "./build.js";
+import {THREE, W, addGeo, roundedBoxGeo, roundSeg, solid, textTex, label, mat, lightSrc, pool, halo, netTex, part, lmat} from "./build.js";
 
 export const PC = {white:0xf2f1ec, offwhite:0xe6e2d8, dark:0x2b2f34, steel:0x8f979e, darkSteel:0x4b5258, wood:0x9a6b42, woodDark:0x6b4a2c,
   orange:0xf07a22, yellow:0xf2c230, lime:0xc8f060, blue:0x2c66b8, red:0xc8463a, green:0x3f8a48, teal:0x2f8f86, black:0x1d1f22};
@@ -23,14 +23,15 @@ export function rb(f, lx, ly, lz, w, h, d, r, color, o = {}){
   const g = roundedBoxGeo(w, h, d, r, o.seg || 1);
   put(f, g, lx, o.center ? ly : ly + h/2, lz, color, o);
 }
-// cylinder (or cone), bottom at ly unless turned on its side, then ly is the axis
+// cylinder (or cone), bottom at ly unless turned on its side, then ly is the axis (fewer sides on Low: build.js roundSeg)
 export function cy(f, lx, ly, lz, rt, rb_, h, color, o = {}){
-  const g = new THREE.CylinderGeometry(rt, rb_, h, o.seg || 12, 1, !!o.open);
+  const g = new THREE.CylinderGeometry(rt, rb_, h, roundSeg(o.seg || 12, Math.max(rt, rb_)), 1, !!o.open);
   if (!o.rx && !o.rz) g.translate(0, h/2, 0);
   put(f, g, lx, ly, lz, color, o);
 }
 export function sph(f, lx, ly, lz, r, color, o = {}){
-  const g = o.detail != null ? new THREE.IcosahedronGeometry(r, o.detail) : new THREE.SphereGeometry(r, o.ws || 12, o.hs || 8);
+  const ws = roundSeg(o.ws || 12, r), hs = Math.max(3, Math.min(o.hs || 8, Math.ceil(ws*2/3)));
+  const g = o.detail != null ? new THREE.IcosahedronGeometry(r, o.detail) : new THREE.SphereGeometry(r, ws, hs);
   if (o.sx || o.sy || o.sz) g.scale(o.sx || 1, o.sy || 1, o.sz || 1);
   put(f, g, lx, ly, lz, color, o);
 }
