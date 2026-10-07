@@ -52,8 +52,43 @@ export function createChain(){
     turnover: [null, null],      // each team's last loss of the ball: {agent, t, x, z} (errors)
     spell: -1,                   // the agent of the current spell of touches (touch counting)
     passRun: [0, 0], seqs: [0, 0],   // passes in the current possession, sequences of 5 or more
-    possT: [0, 0], lastPossT: 0
+    possT: [0, 0], lastPossT: 0,
+    drib: {agent: -1, cand: []}  // take-ons being watched: defenders met in front of the carrier ({id, past})
   };
+}
+
+// Dribbles (1.4.15 counters, 3.3): the carrier passed a defender who was within 2 m in front of him (toward the goal he
+// attacks) and still has the ball 1.5 s after getting past him. Called a few times a second while the ball is live;
+// logs 'dribble' {beat} once per defender per spell on the ball, and 'challenge' {on} for a defender within 1.5 m of
+// the man on the ball (an involvement in the sense of 3.2.7).
+export function dribbleWatch(ms){
+  const W = ms.chain.drib, id = ms.poss.ctl;
+  const c = id >= 0 ? ms.agents[id] : null;
+  // a ball knocked on ahead of him (nobody in control for a moment) is still his take-on: the watch waits for whoever
+  // controls it next, and starts again only if that is somebody else
+  if (!c) return;
+  if (c.isGK){ W.agent = -1; W.cand.length = 0; return; }
+  if (W.agent !== c.id){ W.agent = c.id; W.cand.length = 0; }
+  const dir = ms.dirs[c.team];
+  for (const o of ms.agents){
+    if (o.team === c.team || o.team < 0 || !o.onPitch || o.role !== 'player' || o.isGK) continue;
+    const du = dir*(o.m.x - c.m.x), d = hypot(o.m.x - c.m.x, o.m.z - c.m.z);
+    // a challenge for the ball (3.2.7's involvement: within 1.5 m of the man on it), logged once per 3 s per defender
+    if (d <= 1.5 && ms.t - o.chalT >= 3){ o.chalT = ms.t; logEv(ms, 'challenge', o.team, o.id, o.m.x, o.m.z, {on: c.id}); }
+    let q = null;
+    for (const k of W.cand) if (k.id === o.id){ q = k; break; }
+    if (!q){
+      if (d <= 2 && du > 0.3) W.cand.push({id: o.id, past: -1, done: false});
+      continue;
+    }
+    if (q.done) continue;
+    // past him: the carrier is beyond him toward the goal he attacks
+    if (q.past < 0 && du < -0.2) q.past = ms.t;
+    if (q.past >= 0 && ms.t - q.past >= 1.5){
+      q.done = true;
+      logEv(ms, 'dribble', c.team, c.id, c.m.x, c.m.z, {beat: o.id});
+    }
+  }
 }
 
 // a kick (pass, shot, cross, clear, throw, keeper's distribution, header) by agent a: resolves an open pass of his

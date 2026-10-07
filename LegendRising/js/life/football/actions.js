@@ -37,8 +37,8 @@ export const ACT = Object.freeze({
   HEADER_LOAD: 0.18, HEADER_RECOVER: 0.25,
   THROW_DUR: 1.0, THROW_REL: 0.62, THROW_Y: 2.0,
   BLOCK_GLANCE: 0.7, BLOCK_BACK: [0.25, 0.45],     // most blocks glance on (turned), the rest come back off the shin at this share
-  BLOCK_KEEP: [0.4, 0.7],                      // a leg block keeps this share of the ball's speed
-  BLOCK_TURN: [70, 70], BLOCK_LOOP: 4,         // degrees a glance and a square block turn it, at most; a glance loops up to 4 m/s
+  BLOCK_KEEP: [0.5, 0.85],                     // a leg block keeps this share of the ball's speed
+  BLOCK_TURN: [45, 70], BLOCK_LOOP: 4,         // degrees a glance and a square block turn it, at most; a glance loops up to 4 m/s
   SETTLE: [0.12, 0.25, 1.0],                   // the first decision after a reception: pressed, a heavy touch, settled on it
 });
 
@@ -573,7 +573,11 @@ export function actionStep(ms, a, h){
             const kx = tg.x - b.p.x, kz = tg.z - b.p.z, kl = hypot(kx, kz) || 1;
             // the plant: behind the ball on the line of the kick, a little to the support foot's side
             const sd = act.foot === 'L' ? 1 : -1, rx = -kz/kl, rz = kx/kl;
-            steer(a, b.p.x - kx/kl*0.62 + rx*sd*0.12, b.p.z - kz/kl*0.62 + rz*sd*0.12, act.adjustMax > 1 ? 'jog' : 'run', 0.04, {x: kx/kl, z: kz/kl});
+            const px = b.p.x - kx/kl*0.62 + rx*sd*0.12, pz = b.p.z - kz/kl*0.62 + rz*sd*0.12;
+            // at a dead ball, slowing as he comes onto the spot (1.5 m/s a metre away), so he settles on it rather than
+            // circling it; a moving ball is chased at full stride
+            const cap = act.adjustMax > 1 ? Math.max(0.6, 1.5*hypot(px - a.m.x, pz - a.m.z) + 0.3) : Infinity;
+            steer(a, px, pz, act.adjustMax > 1 ? 'jog' : 'run', 0.04, {x: kx/kl, z: kz/kl}, cap);
           }
         }
         if (!act.adjust && !act.done){

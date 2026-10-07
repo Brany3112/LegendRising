@@ -179,6 +179,7 @@ function involvementOf(ms, a, C){
         else if (ev.intent === 'cross' || ev.intent === 'through' || ev.kp || (ev.intent === 'pass' || ev.intent === 'lob') && ev.gain > 12) groups.create++;
         break;
       case 'tackle': times.push(ev.t); if (ev.won) groups.defend++; break;
+      case 'challenge': times.push(ev.t); break;
       case 'dribble': groups.attack++; break;
       case 'aerial': break;
     }

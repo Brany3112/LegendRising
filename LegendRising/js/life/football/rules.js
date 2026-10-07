@@ -337,8 +337,8 @@ function chooseSource(ms, R0){
 }
 // the time to carry a ball d metres in the hands (a jog near the spot, a run further out)
 const carryT = d => d <= 6 ? d/RULES.CARRY : 6/RULES.CARRY + (d - 6)/RULES.CARRY_FAR;
-// can a player get to a ball there (inside the boards)
-const reachable = (ms, x, z) => Math.abs(x) <= ms.spec.runoff.hx - 0.3 && Math.abs(z) <= ms.spec.runoff.hz - 0.3;
+// can a player get to a ball there: inside the boards (a ball resting against them included), not over them
+const reachable = (ms, x, z) => Math.abs(x) <= ms.spec.runoff.hx + 0.05 && Math.abs(z) <= ms.spec.runoff.hz + 0.05;
 // a restart whose taker is a specialist (or the keeper, or the centre forward): he goes to the spot and the ball is
 // brought to him; any other restart is taken by whoever gets there with it
 const fixedTaker = R0 => R0.kind === 'corner' || R0.kind === 'penalty' || R0.kind === 'goalkick' || R0.kind === 'kickoff' || R0.special;
@@ -390,7 +390,9 @@ function sourceCost(ms, R0, x, z){
 function restOf(ms, b){
   const sp = hypot(b.v.x, b.v.z);
   if (sp < 0.5) return {x: b.p.x, z: b.p.z};
-  const ro = ms.spec.runoff, inB = q => { q.x = clamp(q.x, -ro.hx + 0.3, ro.hx - 0.3); q.z = clamp(q.z, -ro.hz + 0.3, ro.hz - 0.3); return q; };
+  // (a ball already over the boards is not stopped by them: it stays out of reach)
+  const ro = ms.spec.runoff, over = Math.abs(b.p.x) > ro.hx + R || Math.abs(b.p.z) > ro.hz + R;
+  const inB = q => { if (!over){ q.x = clamp(q.x, -ro.hx + R, ro.hx - R); q.z = clamp(q.z, -ro.hz + R, ro.hz - R); } return q; };
   if (b.p.y < R + 0.05 && Math.abs(b.v.y) < 0.5){
     const s = rollDistance(sp, 0, b.rollDecel || 1.1, b.dragMul || 1);
     return inB({x: b.p.x + b.v.x/sp*s, z: b.p.z + b.v.z/sp*s});

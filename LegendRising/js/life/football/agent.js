@@ -60,7 +60,7 @@ export function createAgent(o){
     x0: o.x || 0, z0: o.z || 0,
     acc: {dist: 0, sprints: 0, sprintOn: false, oop: 0, oopFar: 0, drain: 0, mins: 0},
     touchFoot: 0, strides: 0, footN: 0, drib: null, ctl: false, plan: null, set: null, wall: false,
-    perceived: 0, callT: -99, calls: 0, lastCall: -99, gk: null, react: 0.2, cool: {tackle: 0, call: 0, header: 0}
+    perceived: 0, callT: -99, calls: 0, lastCall: -99, chalT: -99, gk: null, react: 0.2, cool: {tackle: 0, call: 0, header: 0}
   };
   a.react = 0.25 - 0.0015*clamp(at.interception != null ? at.interception : 50, 0, 99);
   return a;

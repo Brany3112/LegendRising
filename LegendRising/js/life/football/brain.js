@@ -36,7 +36,10 @@ export const BRAIN = Object.freeze({
                                      // of his goal line with the man within 2 m, out toward the corner flag
   CARE: [0.4, 0.5, 0.35],    // tackle rate on a yellow card, as the last man, and for a forward (he harries, he rarely dives in)
   SLIDE_CLOSE: 5.5,          // a slide only below this closing speed (m/s)
-  ME_SHOOT: 1.3,
+  ME_SHOOT: 1.8,             // the stand-in for the player shoots more readily than the AI does (a player chasing chances)
+  ME_DRIBBLE: 1.8,           // the stand-in for the player takes his man on more often than the AI does (as a player does)
+  TAKE_ON: 3.0,              // a dribble at a man within this distance in front is a take-on: a burst past him
+  TAKE_ON_T: 1.2,            // seconds he commits to it
   GK_SPACE: 6,               // metres the other side keeps from a keeper with the ball in his hands
   EVAL_SLICE: 3,             // slices of a carrier's evaluation (a team-mate's passes, the crosses) a step
   OFFBALL_EVERY: 15,         // off-ball targets: agent i when step % 15 == i % 15 (4 Hz)
@@ -47,17 +50,19 @@ export const BRAIN = Object.freeze({
   RECV_CTRL: [0.55, 0.45, 0.25, 0.2, 1], LOFT_CTRL: 0.72, LOB_MIN: 24,
   PASS_MIN: 4, PASS_MAX: 52,
   THROUGH_ARRIVE: 8, THROUGH_ITERS: 5,
-  DRIB_DIRS: 7, DRIB_LEN: 6, DRIB_K: 0.85,
+  DRIB_DIRS: 7, DRIB_LEN: 6, DRIB_K: 0.9,
   HOLD_K: 0.6, SHIELD_LOSE: 0.45,
   SAFETY: [16, 0.55, 8, 0.03],   // out of play for safety: within 16 m of his goal line, pressed, 8 m off the middle; a corner costs 0.03
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
-  CROSS_T: 0.12, CROSS_V: 0.75, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
+  CROSS_T: 0.2, CROSS_V: 0.75, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
   CROSS_RUN: 0.5,            // a runner counts for a cross zone he reaches within the flight plus this
   CROSS_FROM: [30, 20],      // a cross is on within 30 m of the goal line and 20 m of the touchline
+  CROSS_DEEP: 0.35,          // a cross from 30 m off the goal line is worth this share of one from 10 m or nearer
+  LONG: [0.5, 0.4, 30, 55],  // a long ball: from his own half, pressed beyond this, to the most advanced man 30 to 55 m away
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
   CALL_T: 2.5, CALL_COOL: 4, CALL_HALF: 20,
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
-  TACKLE_RATE: [4, 0.6, 0.12],    // per second: a ball out of his feet, a shielded one, and the factor from behind
+  TACKLE_RATE: [5, 0.8, 0.12],    // per second: a ball out of his feet, a shielded one, and the factor from behind
   SLIDE_RATE: 0.55,              // per second, chasing a ball out in front of the carrier
   COVER: 7, MARK: 1.8, MARK_LOOSE: 3.5, ZONE_PULL: 0.55,
   RUN_HOLD: 0.3, RUN_DEPTH: [7, 16]
@@ -84,7 +89,12 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   const ground = kind === 'pass' || kind === 'through' || kind === 'roll';
   const roll = ms.ball.rollDecel;
   const passer = ms.agents[ms.poss.ctl] || null, team = passer ? passer.team : (recv ? recv.team : 0);
-  const tArrive = ground ? rollTime(v0, d, roll) : flightTime(kind === 'cross' ? 'cross' : 'lob', d, v0, roll);
+  // the time until the strike: the swing with the ball in the window, a stride adjust first when it is not. Everyone
+  // keeps moving meanwhile (a man pressing him closes in), so every arrival is raced against the ball's time plus it.
+  let tw = 0;
+  if (passer && ms.ball.state === 'free'){ const cs = canStrike(passer, ms.ball); tw = cs.ok ? cs.tc : 0.35; }
+  const tArrive0 = ground ? rollTime(v0, d, roll) : flightTime(kind === 'cross' ? 'cross' : 'lob', d, v0, roll);
+  const tArrive = tArrive0 + tw;
   out.tArrive = Number.isFinite(tArrive) ? tArrive : 99;
   let margin = 9, who = -1, mx = to.x, mz = to.z;
   const N = ground ? BRAIN.LANE_N : 1;
@@ -95,7 +105,7 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   if (recv && ground){
     const rr = recv.react + 0.05;
     for (let k = N; k >= 1; k--){
-      const s = d*k/N, tb = rollTime(v0, s, roll);
+      const s = d*k/N, tb = rollTime(v0, s, roll) + tw;
       // his time there from how he is moving now (the mover's estimate, with his reaction), to within 0.6 m of it
       const px = from.x + ux*s, pz = from.z + uz*s, dr = hypot(px - recv.m.x, pz - recv.m.z);
       const tr = dr <= 0.6 ? rr : timeToPoint(recv.m, recv.prm, recv.fac, recv.m.x + (px - recv.m.x)*(1 - 0.6/dr), recv.m.z + (pz - recv.m.z)*(1 - 0.6/dr), rr);
@@ -126,7 +136,7 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
       const s = !ground ? (k === 0 ? d - 3 : d) : k <= 0 ? 0.5*(k + 3) : d*k/N;
       if (ground && k > 0 && k < N && s < 2) continue;
       if (s > d || s < 0.5) continue;
-      const tb = ground ? rollTime(v0, s, roll) : k === 0 ? Math.max(0.1, out.tArrive - 0.25) : out.tArrive;
+      const tb = ground ? rollTime(v0, s, roll) + tw : k === 0 ? Math.max(0.1 + tw, out.tArrive - 0.25) : out.tArrive;
       if (!Number.isFinite(tb)) break;
       if (s > sMeet + 1e-6) break;
       const x = from.x + ux*s, z = from.z + uz*s;
@@ -149,7 +159,7 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
     const C = BRAIN.RECV_CTRL;
     rc = clamp(C[0] + C[1]*recv.at.ctrl/100 - C[2]*pr, C[3], C[4]);
     // a ball too fast to control on arrival, or one that dies before it gets there
-    const vEnd = ground ? Math.max(0, v0 - 1.1*out.tArrive) : v0*0.7;
+    const vEnd = ground ? Math.max(0, v0 - 1.1*tArrive0) : v0*0.7;
     if (vEnd > 18 + 0.12*recv.at.ctrl) rc *= 0.6;
     // a dropping ball is harder to bring down than one along the grass, and one he cannot get under bounces on
     if (!ground){ rc *= BRAIN.LOFT_CTRL; if (tMeet > tArrive + 0.4) rc *= 0.75; }
@@ -488,7 +498,10 @@ function* carrierOptions(ms, a){
       }
       if (!ours) continue;
       const q = BRAIN.CROSS_V*xgGeo(dir*(gx - zx), dir*zz)*clamp(0.5 + 0.25*ours - 0.12*theirs, 0.1, 1);
-      const V = q*clamp(0.55 + 0.45*at.passAcc/100, 0, 1);
+      // a cross from near the byline (pulled back across the face of goal) is worth more than one from deep, where
+      // the keeper and the defenders see it coming: a winger with room goes on toward the line first
+      const depth = BRAIN.CROSS_DEEP + (1 - BRAIN.CROSS_DEEP)*clamp((u - (L - BRAIN.CROSS_FROM[0]))/(BRAIN.CROSS_FROM[0] - 10), 0, 1);
+      const V = q*depth*clamp(0.55 + 0.45*at.passAcc/100, 0, 1);
       add({kind: 'cross', V, recv: -1, target: {x: zx, y: 1.6, z: zz}, contact: 1, speed: loftSpeedFor(dd), zone: nm});
     }
     yield;
@@ -511,10 +524,37 @@ function* carrierOptions(ms, a){
       if (d < space){ space = d; tk = o.at.tackling; }
     }
     const pBeat = sigmoid((drib - tk)/12 + (space - 2)/1.5);
-    const V = BRAIN.DRIB_K*(pBeat*poss(uOf(ms, team, px), wOf(ms, team, pz), L, Wd) - (1 - pBeat)*loseHere);
+    let V = BRAIN.DRIB_K*(pBeat*poss(uOf(ms, team, px), wOf(ms, team, pz), L, Wd) - (1 - pBeat)*loseHere);
+    if (a.isMe && ms.meAI && V > 0) V *= BRAIN.ME_DRIBBLE;
     if (!bestDrib || V > bestDrib.V) bestDrib = {kind: 'dribble', V, dir: {x: ddx, z: ddz}, space, pBeat};
   }
+  // a take-on: a forward line (within 60 degrees of straight at goal) past a man close in front of him (within 50
+  // degrees of it): he bursts by him rather than carrying it into him
+  if (bestDrib && bestDrib.dir.x*dir >= 0.5){
+    for (const o of ms.agents){
+      if (o.team === team || o.team < 0 || !o.onPitch || o.isGK) continue;
+      const ox = o.m.x - m.x, oz = o.m.z - m.z, od = hypot(ox, oz);
+      if (od > BRAIN.TAKE_ON || ox*dir < 0.3) continue;
+      const along = (ox*bestDrib.dir.x + oz*bestDrib.dir.z)/(od || 1);
+      if (along > 0.64){ bestDrib.takeOn = true; break; }
+    }
+  }
   if (bestDrib) add(bestDrib);
+  // 4b. a long ball: pressed in his own half, he can always hit it long to his most advanced man (contested where it
+  // comes down, so a lost one is only half a turnover, and far from his own goal)
+  if (u < L*BRAIN.LONG[0] && press > BRAIN.LONG[1]){
+    const fwd = forwardTarget(ms, a, BRAIN.LONG[2], BRAIN.LONG[3]), o = fwd.id >= 0 ? ms.agents[fwd.id] : null;
+    if (o){
+      const tx = clamp(o.m.x + dir*2, -ms.spec.hx + 3, ms.spec.hx - 3), tz = clamp(o.m.z, -ms.spec.hz + 2, ms.spec.hz - 2);
+      const dd = hypot(tx - m.x, tz - m.z);
+      if (dd > BRAIN.LOB_MIN){
+        const vL = loftSpeedFor(dd), pm = passModel(ms, m, {x: tx, z: tz}, 'lob', vL, o, LBM);
+        const ua = uOf(ms, team, tx), wa = wOf(ms, team, tz);
+        const V = pm.pOK*poss(ua, wa, L, Wd) - (1 - pm.pOK)*lose(L - ua, Wd - wa, L, Wd, 0.5);
+        add({kind: 'lob', V, recv: o.id, target: {x: tx, y: R, z: tz}, speed: vL, contact: 1, pOK: pm.pOK, isMe: o.isMe, long: true});
+      }
+    }
+  }
   // 5. a clearance from his own box under pressure
   if (u < 22 && press > 0.45){
     const tx = -dir*(-ms.spec.hx + 50), tz = (m.z >= 0 ? -1 : 1)*(ms.spec.hz - 10);
@@ -600,8 +640,9 @@ function carrierAct(ms, a, o){
       return;
     case 'dribble': {
       const space = o.space || 10;
-      const gait = space > 6 ? 'run' : space > 3 ? 'jog' : 'jog';
-      a.drib = {dx: o.dir.x, dz: o.dir.z, gait, speed: 0, t: ms.t};
+      const gait = o.takeOn && o.pBeat > 0.45 ? 'sprint' : space > 6 ? 'run' : 'jog';
+      // a take-on is a knock past him and a burst: the touches are played for a sprint from the first one
+      a.drib = {dx: o.dir.x, dz: o.dir.z, gait, speed: gait === 'sprint' ? 0.6*a.prm.sprint : 0, t: ms.t, commit: gait === 'sprint' ? ms.t + BRAIN.TAKE_ON_T : 0};
       return;
     }
     default:
@@ -620,6 +661,7 @@ function kickWhenReady(ms, a, rq){
 }
 const realStart = (ms, a, rq) => { a.pendKick = null; return startKick(ms, a, rq); };
 const PMC = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
+const LBM = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
 // the pending kick: into the window, then the strike; out of time, the decision is made again
 function pendingKick(ms, a){
   const P = a.pendKick, b = ms.ball;
@@ -631,7 +673,7 @@ function pendingKick(ms, a){
       const kind = rq.kind === 'lob' ? 'lob' : rq.kind;
       const v0 = rq.speed != null ? rq.speed : passSpeedFor(hypot(rq.target.x - b.p.x, rq.target.z - b.p.z), kind === 'through' ? BRAIN.THROUGH_ARRIVE : 9, b.rollDecel);
       const pm = passModel(ms, a.m, rq.target, kind, v0, recv, PMC);
-      if (pm.pOK < Math.max(0.3, rq.pOK - 0.2)){ a.pendKick = null; a.brain.next = ms.t; a.brain.pending = true; return; }
+      if (pm.pOK < Math.max(0.45, rq.pOK - 0.12)){ a.pendKick = null; a.brain.next = ms.t; a.brain.pending = true; return; }
     }
     realStart(ms, a, rq); return;
   }
@@ -1205,7 +1247,8 @@ export function brainStep(ms, h){
   let E = ms.carrierEval;
   if (E && (!c || E.agent !== c.id || c.act || c.pendKick || ms.ball.state !== 'free')) E = ms.carrierEval = null;
   if (c && isAI(ms, c) && !c.isGK){
-    const due = (ms.t >= c.brain.next || c.brain.pending) && !c.pendKick;
+    // (a take-on under way is seen through: he does not stop to think again until he is past his man or has lost it)
+    const due = (ms.t >= c.brain.next || c.brain.pending) && !c.pendKick && !(c.drib && c.drib.commit > ms.t);
     if (!E && due && !c.act && heavy > 0 && ms.ball.state === 'free'){
       c.brain.pending = false;
       const press = pressureOn(ms, c);

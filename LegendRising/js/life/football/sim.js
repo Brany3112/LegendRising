@@ -25,7 +25,7 @@ import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
 import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl} from "./rules.js";
 import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, bodyContact, steer, standStill} from "./actions.js";
-import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf} from "./events.js";
+import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf, dribbleWatch} from "./events.js";
 import {judgeDecision} from "./judge.js";
 import {hypot, sin, cos} from "./detmath.js";
 import {flightTime} from "./strike.js";
@@ -363,6 +363,8 @@ export function simStep(ms, h = H){
   if (ms.phase === 'live' && !ms.clock.running && !ms.clock.ended) ms.clock.running = true;
   energyStep(ms, h);
   judgeStep(ms);
+  // take-ons (the dribbles counter), watched ten times a second while the ball is in play
+  if (ms.phase === 'live' && ms.step % 6 === 2) dribbleWatch(ms);
   // the scenario line for the player (3.2.9), asked twice a second; situation() keeps it to one per 20 s
   if (ms.me >= 0 && ms.step % 30 === 17 && ms.phase !== 'halftime' && ms.phase !== 'fulltime'){
     const me = ms.agents[ms.me], line = me.onPitch ? situation(ms, ms.me) : null;
