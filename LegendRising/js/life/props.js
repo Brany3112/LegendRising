@@ -3,7 +3,7 @@
    vending machine, trees, cars and street lamps. Everything is a few rounded or tapered shapes, so
    it reads as a made object rather than a grey cube, and almost all of it is poured into the shared
    batches so a whole training ground stays a handful of draw calls. */
-import {THREE, W, addGeo, roundedBoxGeo, solid, textTex, label, mat, lightSrc, pool, halo, netTex, part, lmat} from "./build.js";
+import {THREE, W, addGeo, roundedBoxGeo, roundSeg, solid, textTex, label, mat, lightSrc, pool, halo, netTex, part, lmat} from "./build.js";
 
 export const PC = {white:0xf2f1ec, offwhite:0xe6e2d8, dark:0x2b2f34, steel:0x8f979e, darkSteel:0x4b5258, wood:0x9a6b42, woodDark:0x6b4a2c,
   orange:0xf07a22, yellow:0xf2c230, lime:0xc8f060, blue:0x2c66b8, red:0xc8463a, green:0x3f8a48, teal:0x2f8f86, black:0x1d1f22};
@@ -23,14 +23,16 @@ export function rb(f, lx, ly, lz, w, h, d, r, color, o = {}){
   const g = roundedBoxGeo(w, h, d, r, o.seg || 1);
   put(f, g, lx, o.center ? ly : ly + h/2, lz, color, o);
 }
-// cylinder (or cone), bottom at ly unless turned on its side, then ly is the axis
+/* cylinder (or cone), bottom at ly unless turned on its side, then ly is the axis. Fewer sides on Low (build.js
+   roundSeg), except for o.fine: something you see from up close every time (the disc of a drill spot under your feet) */
 export function cy(f, lx, ly, lz, rt, rb_, h, color, o = {}){
-  const g = new THREE.CylinderGeometry(rt, rb_, h, o.seg || 12, 1, !!o.open);
+  const g = new THREE.CylinderGeometry(rt, rb_, h, o.fine ? o.seg || 12 : roundSeg(o.seg || 12, Math.max(rt, rb_)), 1, !!o.open);
   if (!o.rx && !o.rz) g.translate(0, h/2, 0);
   put(f, g, lx, ly, lz, color, o);
 }
 export function sph(f, lx, ly, lz, r, color, o = {}){
-  const g = o.detail != null ? new THREE.IcosahedronGeometry(r, o.detail) : new THREE.SphereGeometry(r, o.ws || 12, o.hs || 8);
+  const ws = roundSeg(o.ws || 12, r), hs = Math.max(3, Math.min(o.hs || 8, Math.ceil(ws*2/3)));
+  const g = o.detail != null ? new THREE.IcosahedronGeometry(r, o.detail) : new THREE.SphereGeometry(r, ws, hs);
   if (o.sx || o.sy || o.sz) g.scale(o.sx || 1, o.sy || 1, o.sz || 1);
   put(f, g, lx, ly, lz, color, o);
 }
@@ -63,7 +65,7 @@ export function cone(x, z, color = PC.orange, s = 1){
   cy(f, 0, .025, 0, .025*s, .12*s, .28*s, color, {seg:12});
   cy(f, 0, .12*s, 0, .085*s, .1*s, .05*s, PC.white, {seg:12});
 }
-export function marker(x, z, color = PC.yellow){ const f = frame(x, z); cy(f, 0, 0, 0, .1, .14, .05, color, {seg:12}); }
+export function marker(x, z, color = PC.yellow){ const f = frame(x, z); cy(f, 0, 0, 0, .1, .14, .05, color, {seg:12, fine:true}); }
 // a match ball: white, with the dark panels that make it read as a ball from across the pitch
 export function ball(x, y, z, r = .11){
   const f = frame(x, z, 0, y);
@@ -267,12 +269,20 @@ export function tacticsBoard(x, z, ry, title = "SATURDAY"){
   const [wx, wz] = worldPt(f, 0, .03); label(t, wx, f.y + 1.33, wz, 1.76, .99, f.ry, {rough:.35});
   fsolid(f, 0, 0, 1.8, .5, 0, 1.9);
 }
+// the training centre's board: the session's hours and a league match day's times come from daily.js (SESSION,
+// sessionHours, KICKOFF), so the board always says what the game does
+function boardNotes(){
+  const hours = typeof sessionHours === "function" ? sessionHours() : fmtRange(SESSION.start, SESSION.end);
+  const kick = KICKOFF.L[1];
+  return [["TRAINING", hours, "Monday to Friday,", "not on match days"], ["MATCH DAY", `Report by ${fmtTime(kick - 60)}`, `Kick-off ${fmtTime(kick)}`],
+    ["PHYSIO", "Ice baths in the", "dressing room"], ["LOST", "Black shin pads", "ask Gigi"]];
+}
 export function noticeBoard(x, y, z, ry, lines){
   const t = textTex(512, 320, g => {
     g.fillStyle = "#b98a55"; g.fillRect(0, 0, 512, 320);
     for (let i = 0; i < 2600; i++){ g.fillStyle = `rgba(${Math.random() < .5 ? "90,60,30" : "220,180,120"},.25)`; g.fillRect(Math.random()*512, Math.random()*320, 2, 2); }
     g.strokeStyle = "#5b3d22"; g.lineWidth = 14; g.strokeRect(0, 0, 512, 320);
-    const notes = lines || [["TRAINING", "10:00 – 17:00", "Mon to Fri, every day", "Be changed by 10:00!"], ["MATCH DAY", "Report by 18:00", "Kick-off 19:00"], ["PHYSIO", "Ice baths in the", "dressing room"], ["LOST", "Black shin pads", "ask Gigi"]];
+    const notes = lines || boardNotes();
     const pos = [[24, 22, 200, 150, "#fffdf3"], [244, 30, 236, 120, "#fff4b8"], [40, 190, 190, 110, "#dff3ff"], [262, 168, 210, 124, "#ffe2e2"]];
     notes.forEach((n, i) => { const [x, y, w, h, c] = pos[i % pos.length];
       g.save(); g.translate(x + w/2, y + h/2); g.rotate((i % 2 ? 1 : -1)*.03); g.fillStyle = c; g.fillRect(-w/2, -h/2, w, h);
@@ -358,7 +368,7 @@ export function plyoBox(x, z, ry, h = .6, color = 0x2b2f34){
 /* a spin bike. The rider sits at the back (local +x) facing the bars (−x); the flywheel is at the front under the bars,
    and the cranks turn on a bottom bracket below and just ahead of the saddle. The cranks and the pedals are moving
    parts of their own (W.bikes), turned by whoever rides it: the feet go forward over the top, as on a real bike.
-   o.tier (1–6): how worn it is — chipped paint and a rusty frame at the bottom, polished at the top */
+   o.tier (1–6): how worn it is: chipped paint and a rusty frame at the bottom, polished at the top */
 export function bike(x, z, ry, o = {}){
   const f = frame(x, z, ry), t = o.tier || 3, old = t <= 2;
   const fr = old ? 0x5a5650 : t >= 5 ? 0x24272b : 0x3a3c3e, acc = old ? 0x6d7f7a : t >= 5 ? 0xc8f060 : PC.teal;

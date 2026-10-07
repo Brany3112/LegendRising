@@ -1,21 +1,32 @@
 /* ============ LIFE: the sky, the sun and the lights ============
+   Owner: WP-A from Stage 1 (DESIGN 1.4.4, 3.3.4, 3.9.1, 3.9.3, 2.3 WP-A).
    One procedural sky dome drawn every frame from a handful of colours that move with the clock:
    night, first light, sunrise, morning, midday, afternoon, golden hour, sunset, dusk, evening. Nothing
-   ever switches — every colour, the sun's height and warmth, the clouds, the stars and the street
+   ever switches: every colour, the sun's height and warmth, the clouds, the stars and the street
    lamps are blended between those keyframes, so a sunset is a sunset and morning creeps up.
+   The dome is drawn last of everything solid, at the far plane: wherever a wall or the ground is in front of it the
+   depth test throws its pixels away before they are shaded, so indoors it costs next to nothing.
 
-   The same sky is what the shiny things reflect: an environment map is baked from it every few
-   in-game minutes. Real point lights are expensive, so there are only a few (eight), and they follow you
-   between the lamps, bulbs and shop lights you are actually near, fading in and out so none of them pops.
-
-   Frame pacing: nothing here may cost a frame. The sun's shadow map covers the whole zone from a fixed
-   centre, so walking never forces it to be redrawn — only the sun moving does (see shade()), and the sun's light
-   direction moves in the same steps as its shadows, so a shadow never creeps away from what casts it. Things that
-   move and throw a shadow can ask for a redraw with W.shadowDirty = true (the world does it at most 5× a second). The
-   reflection map is a tiny cube of the sky dome filtered into one render target that is reused for good,
-   so the materials that read it never see a new texture (which would send every one of them back through
-   the shader cache). */
-import {THREE, W, poolMat, haloMat} from "./build.js";
+   The graphics preset (GFX.P) decides the rest, and applyPreset() puts a new one into effect (quality.js calls it
+   behind a fade, since most of it recompiles shaders):
+     real lights   a pool of P.nReal point lights (2 on Low, 4 on Medium, 8 on High in the life zones; 0, 0 and 2 in a
+                   stadium), handed to the sources that matter most where you are and faded in and out so none pops.
+                   Which sources may have one: by day out of doors only rooms' lights within 10 m; at night the street's
+                   within 14 m (Low), 24 m (Medium) or any (High), and indoors on Low only the room's own
+     shadows       one light casts them (the sun by day, the moon at night, or a stadium's flood key light): a box of
+                   P.shadow.life.half metres round you, moved on a grid of P.shadow.life.grid metres; none on Low (people
+                   have blob shadows instead). Every redraw goes through SHADOW, the one shadow scheduler: at most one a
+                   frame, at most P.shadow.life.hz a second (half a second apart at night), none while the screen is
+                   covered and none within 0.1 s of a place being warmed up. The light turns only when its shadows are
+                   redrawn, so a shadow never creeps away from what casts it
+     reflections   an environment map baked from the sky (P.env: PMREM of 32 or 64, every everyH game hours), none on
+                   Low
+     the sky       P.dome segments, P.skyOct cloud octaves (0: one cheap band of cloud), fog per P.fog, the camera's far
+                   plane at the fog's end plus a margin
+   Lamp pools on the ground and the halos round lamp heads are one instanced mesh each per place, hidden by day and
+   faded in at dusk; halos fade out beyond P.haloMax. */
+import {THREE, W, poolMat, haloMat, glowMeshes} from "./build.js";
+import {RT, FADE} from "./core/state.js";
 
 // [hour, sky top, horizon, hemisphere sky, hemisphere ground, sun colour, sun strength, hemi strength,
 //  cloud colour, stars, lamps, exposure, env strength]
@@ -42,6 +53,7 @@ function lerpHex(out, h1, h2, t){ _a.setHex(h1); _b.setHex(h2); return out.copy(
 const VERT = `varying vec3 vDir;
 void main(){ vec4 wp = modelMatrix*vec4(position, 1.); vDir = wp.xyz - cameraPosition;
   gl_Position = projectionMatrix*viewMatrix*wp; gl_Position.z = gl_Position.w; }`;
+// uOct: cloud octaves; 0 is the cheap sky of Low, one octave of noise for a single band of cloud
 const FRAG = `uniform vec3 uTop, uHor, uGround, uSun, uSunCol, uMoon, uCloud;
 uniform float uStars, uTime, uCover, uSunUp, uOct;
 varying vec3 vDir;
@@ -53,11 +65,12 @@ float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ if (float(
 void main(){
   vec3 d = normalize(vDir);
   float h = d.y;
-  vec3 col = mix(uHor, uTop, pow(clamp(h, 0., 1.), .5));
+  vec3 col = mix(uHor, uTop, sqrt(clamp(h, 0., 1.)));
   col = mix(col, uGround, smoothstep(.0, -.22, h));
-  // the sun: a hard disc, a soft halo and a wide warm glow that is strongest low in the sky
-  float sd = max(dot(d, uSun), 0.);
-  col += uSunCol*(smoothstep(.9993, .9997, sd)*6.*uSunUp + pow(sd, 32.)*.55 + pow(sd, 5.)*.18*(1. - .5*uSunUp));
+  // the sun: a hard disc, a soft halo and a wide warm glow that is strongest low in the sky (the powers by squaring:
+  // a pow() is an exp and a log on every pixel of the sky)
+  float sd = max(dot(d, uSun), 0.), s2 = sd*sd, s4 = s2*s2, s8 = s4*s4, s32 = s8*s8*s8*s8;
+  col += uSunCol*(smoothstep(.9993, .9997, sd)*6.*uSunUp + s32*.55 + s4*sd*.18*(1. - .5*uSunUp));
   // stars, only above the horizon and only once the light has gone
   if (uStars > .01 && h > 0.){
     vec3 sp = floor(d*420.);
@@ -65,15 +78,17 @@ void main(){
     float tw = .6 + .4*sin(uTime*3. + hash(sp)*40.);
     col += vec3(.85, .9, 1.)*s*tw*uStars*smoothstep(0., .25, h);
   }
-  // the moon
-  float md = dot(d, uMoon);
-  col += vec3(.92, .95, 1.)*smoothstep(.99935, .9996, md)*uStars*1.4 + vec3(.25, .3, .42)*pow(max(md, 0.), 80.)*.5*uStars;
+  // the moon, once the light has gone
+  if (uStars > .001){
+    float md = dot(d, uMoon);
+    col += vec3(.92, .95, 1.)*smoothstep(.99935, .9996, md)*uStars*1.4 + vec3(.25, .3, .42)*pow(max(md, 0.), 80.)*.5*uStars;
+  }
   // clouds on a plane above you, lit from the sun's side
   if (h > 0.){
     vec2 uv = d.xz/(h + .16)*1.3 + vec2(uTime*.006, uTime*.0025);
-    float c = fbm(uv*1.4);
+    float c = uOct < .5 ? vnoise(uv*.9)*.62 + .14 : fbm(uv*1.4);
     c = smoothstep(.62 - uCover*.28, .95, c)*smoothstep(0., .28, h);
-    vec3 cc = mix(uCloud*.82, uCloud*1.12 + uSunCol*.18, pow(sd, 3.));
+    vec3 cc = mix(uCloud*.82, uCloud*1.12 + uSunCol*.18, s2*sd);
     col = mix(col, cc, c*.78);
   }
   gl_FragColor = vec4(col, 1.);
@@ -81,38 +96,79 @@ void main(){
   #include <colorspace_fragment>
 }`;
 
+const gp = () => (typeof GFX === "object" && GFX && GFX.P) || null;
+const tierOf = P => (P && P.tier) || "high";
+
 export function createSky(renderer){
+  let P0 = gp();
   const uni = {uTop:{value:new THREE.Color()}, uHor:{value:new THREE.Color()}, uGround:{value:new THREE.Color(0x101418)},
     uSun:{value:new THREE.Vector3(0, 1, 0)}, uSunCol:{value:new THREE.Color()}, uMoon:{value:new THREE.Vector3(0, -1, 0)},
     uCloud:{value:new THREE.Color()}, uStars:{value:0}, uTime:{value:0}, uCover:{value:.45}, uSunUp:{value:1}, uOct:{value:5}};
   const skyMat = new THREE.ShaderMaterial({uniforms:uni, vertexShader:VERT, fragmentShader:FRAG, side:THREE.BackSide, depthWrite:false, fog:false});
   skyMat.userData.keep = true;
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(360, 32, 18), skyMat);
-  dome.frustumCulled = false; dome.renderOrder = -10; dome.userData.keep = true;
+  const domeSeg = P => (P && P.dome) || [32, 18];
+  let segs = domeSeg(P0);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(360, segs[0], segs[1]), skyMat);
+  // last of everything opaque: it sits on the far plane, so anything in front of it rejects its pixels unshaded
+  dome.frustumCulled = false; dome.renderOrder = 1e6; dome.userData.keep = true;
   // a second copy of the sky lives in its own little scene, for baking reflections
   const envScene = new THREE.Scene(), envDome = new THREE.Mesh(new THREE.SphereGeometry(50, 24, 12), skyMat);
   envScene.add(envDome);
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const cubeRT = new THREE.WebGLCubeRenderTarget(64, {type:THREE.HalfFloatType, generateMipmaps:false});
-  const cubeCam = new THREE.CubeCamera(.1, 100, cubeRT);
+  let pmrem = new THREE.PMREMGenerator(renderer), envSize = (P0 && P0.env && P0.env.size) || 64;
+  let cubeRT = new THREE.WebGLCubeRenderTarget(envSize, {type:THREE.HalfFloatType, generateMipmaps:false});
+  let cubeCam = new THREE.CubeCamera(.1, 100, cubeRT);
   let envRT = null, envAt = -999;
 
   const sun = new THREE.DirectionalLight(0xffffff, 2);
-  sun.castShadow = true;
   sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; sun.shadow.radius = 2.5;   // vogel-disk PCF: soft edge instead of stair-steps
   const hemi = new THREE.HemisphereLight(0xc4dcff, 0x9a9184, 1);
-  // the real lights: the preset's count for the life zones (DESIGN 1.4.4 nReal.life: four on Medium, eight on High;
-  // Low keeps the five it has had until WP-A's applyPreset), handed out to the sources that matter most where you
-  // are (see lights()). Read once, when the sky is made, as mat() reads the preset when a material is made.
-  const NREAL = typeof GFX === "undefined" ? 8 : GFX.low ? 5 : Math.max(1, Math.min(8, (GFX.P && GFX.P.nReal && GFX.P.nReal.life) || 8));
-  const pool = Array.from({length:NREAL}, () => { const l = new THREE.PointLight(0xffe0b0, 0, 12, 1.6); l.userData.src = null; l.userData.cur = 0; return l; });
+  // where the sky is: 'life' (home, the ground, town) or 'stadium' (its own light and shadow rules)
+  let where = "life", scene0 = null;
+  const nRealOf = P => { const n = P && P.nReal; return Math.max(0, Math.min(8, n ? (where === "stadium" ? n.stadium : n.life) : 8)); };
+  const mkLight = () => { const l = new THREE.PointLight(0xffe0b0, 0, 12, 1.6); l.userData.src = null; l.userData.cur = 0; return l; };
+  let pool = Array.from({length:nRealOf(P0)}, mkLight);
   const fog = new THREE.Fog(0xc8d8e8, 60, 260);
-  const K = {night:0, lamps:0, exposure:1, env:.5, sunUp:1, cover:0};
+  const K = {night:0, lamps:0, exposure:1, env:.5, sunUp:1, cover:0, fogFar:260};
   const dir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmp = new THREE.Color();
-  const shadowAt = {key:"", d:new THREE.Vector3(0, -2, 0)}, shadowDir = new THREE.Vector3(0, 1, 0), mid = {x:0, z:0, half:46};
-  let assignT = 0, shadowSize = 0, shadeT = 0, shadeForce = true, cut = Infinity, band = 8;
-  const SHADOW_HALF = 30, _eye = new THREE.Vector3(), _zero = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _look = new THREE.Matrix4();
+  const shadowAt = {key:"", d:new THREE.Vector3(0, -2, 0)}, shadowDir = new THREE.Vector3(0, 1, 0), mid = {x:0, z:0, half:30};
+  let assignT = 0, shadowSize = 0, cut = Infinity, band = 8, shadeForce = true;
+  const _eye = new THREE.Vector3(), _zero = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _look = new THREE.Matrix4();
   const _rt = new THREE.Vector3(), _upv = new THREE.Vector3(), _c0 = new THREE.Vector3();
+  // the flood key light of a pitch at night (setNightKey): it takes the sun's place and lifts the hemisphere
+  const KEY = {on:false, dir:new THREE.Vector3(.25, 1, .35).normalize(), intensity:1.6, color:0xf4f6ff, hemi:.35};
+
+  /* ---------- the shadow scheduler ----------
+     request(why): someone wants the shadows redrawn ('direct': a door, the world; 'sun': the light moved; 'warm';
+     'half': a stadium's statics at kick-off and half time);
+     granted(): the renderer's needsUpdate, true for the one frame a redraw is allowed; done(): three.js finished one */
+  const SH = {on:false, half:30, grid:4, hz:5, size:2048, follow:true, statics:false};
+  const SHADOW = {pending:false, grant:false, last:-1e9, t:0, frame:0, grantFrame:-1, fresh:true, warmAt:-1e9, count:0, why:"",
+    on(){ return SH.on && !!(RT.renderer && RT.renderer.shadowMap.enabled); },
+    rate(){ return K.night > .5 && where === "life" ? .5 : SH.hz; },
+    // may a redraw happen this frame?
+    may(){
+      if (SHADOW.grant || SHADOW.grantFrame === SHADOW.frame) return false;
+      if (FADE.v >= .98) return false;
+      if (SHADOW.t - SHADOW.warmAt < .1) return false;
+      return SHADOW.t - SHADOW.last >= 1/Math.max(.01, SHADOW.rate()) - 1e-6;
+    },
+    request(why = "direct"){
+      if (!SHADOW.on()) return;
+      // the first redraw of a new place is its warm-up frame, and a stadium's statics are drawn once per half
+      // ('half'): at once, covered or not
+      if ((SHADOW.fresh && why !== "sun") || why === "half"){ SHADOW.grant = true; SHADOW.grantFrame = SHADOW.frame; SHADOW.why = "warm"; return; }
+      SHADOW.pending = true; SHADOW.why = why;
+      if (why !== "sun" && SHADOW.may()) SHADOW.give();
+    },
+    give(){ SHADOW.grant = true; SHADOW.pending = false; SHADOW.grantFrame = SHADOW.frame; },
+    granted(){ return SHADOW.grant; },
+    done(){ if (!SHADOW.grant) return; SHADOW.grant = false; SHADOW.last = SHADOW.t; SHADOW.count++; if (SHADOW.fresh || SHADOW.why === "warm"){ SHADOW.fresh = false; SHADOW.warmAt = SHADOW.t; } },
+    // a frame drawn out of sight to compile and upload everything (quality.js warmAsync): its shadow pass too
+    force(){ if (SHADOW.on()){ SHADOW.grant = true; SHADOW.why = "warm"; } },
+    // a new place: its first redraw is the warm-up
+    zone(){ SHADOW.fresh = true; SHADOW.pending = false; SHADOW.grant = false; shadowAt.key = ""; },
+    tick(dt){ SHADOW.t += dt; SHADOW.frame++; if (SHADOW.pending && SHADOW.why !== "sun" && SHADOW.may()) SHADOW.give(); }
+  };
 
   const SAMPLE = {sunI:0, hemiI:0, stars:0, lamps:0, exposure:1, env:.5};
   function sample(h){
@@ -135,9 +191,47 @@ export function createSky(renderer){
     const t = (((h - 19.3) % 24) + 24) % 24/11.4, a = Math.PI*t;
     return out.set(Math.cos(a)*.9, Math.sin(a)*.7, -.35).normalize();
   }
+  // the shadow settings of the preset for where the sky is
+  function shadowFrom(P){
+    const s = P ? (where === "stadium" ? P.shadow && P.shadow.stadium : P.shadow && P.shadow.life) : {size:2048, half:30, grid:4, hz:5};
+    SH.on = !!s;
+    if (!s){ sun.castShadow = false; return; }
+    SH.size = s.size || 2048;
+    if (where === "stadium" && s.mode === "statics"){ SH.follow = false; SH.statics = true; SH.half = 80; SH.grid = 1e9; SH.hz = .02; }
+    else { SH.follow = true; SH.statics = false; SH.half = s.half || (s.box ? s.box/2 : 30); SH.grid = s.grid || 4; SH.hz = s.hz || 5; }
+    sun.castShadow = true;
+    shadowAt.key = "";
+  }
+  shadowFrom(P0);
+  // the pool of real lights made again at another size (under the fade: the lit shaders recompile)
+  function setRealLights(n){
+    n = Math.max(0, Math.min(8, n | 0));
+    if (n === pool.length) return;
+    const parent = pool.length ? pool[0].parent : scene0;
+    for (const l of pool){ if (l.parent) l.parent.remove(l); l.dispose(); }
+    pool = Array.from({length:n}, mkLight);
+    if (parent) for (const l of pool) parent.add(l);
+    assignT = 0;
+  }
+  function setEnv(P, renderer){
+    const e = P && P.env;
+    if (!e){ envRT = envRT || null; envAt = -999; return; }
+    if (e.size !== envSize){
+      envSize = e.size; cubeRT.dispose();
+      cubeRT = new THREE.WebGLCubeRenderTarget(envSize, {type:THREE.HalfFloatType, generateMipmaps:false});
+      cubeCam = new THREE.CubeCamera(.1, 100, cubeRT);
+      envAt = -999;
+    }
+  }
+  function setDome(P){
+    const s = domeSeg(P);
+    if (s[0] === segs[0] && s[1] === segs[1]) return;
+    segs = s; const old = dome.geometry; dome.geometry = new THREE.SphereGeometry(360, s[0], s[1]); old.dispose();
+  }
 
-  return {
+  const api = {
     attach(scene){
+      scene0 = scene;
       scene.add(dome, sun, sun.target, hemi, ...pool);
       scene.fog = fog; scene.background = null;
       shadowAt.key = ""; envAt = -999;
@@ -145,7 +239,7 @@ export function createSky(renderer){
     // h: hour of the day (fractional). real: seconds since the last frame, for the clouds and stars. cover: how much
     // of the sky over you is roofed over (0 out in the open, 1 indoors)
     update(h, focus, real, cover = 0){
-      const k = sample(h);
+      const P = gp(), k = sample(h);
       /* Indoors the light from below is not the warm ground of the street but daylight bounced off pale floors and
          walls: a ceiling lit by the street's brown would come out muddy taupe, far darker than the walls under it. So
          under a roof, by day, the hemisphere's ground colour goes over to a neutral bright bounce (none of it at
@@ -158,75 +252,96 @@ export function createSky(renderer){
       const up = dir.y;
       uni.uSunUp.value = Math.max(0, Math.min(1, up*6 + .4));
       uni.uStars.value = k.stars;
-      uni.uOct.value = typeof GFX !== "undefined" && GFX.low ? 3 : Math.min(5, (GFX.P && GFX.P.skyOct) || 5);   // Medium 3
-      // one shadow-casting light: the sun by day, the moon by night, faded through zero as they swap
-      // (where it shines from is set in refresh(), in step with its shadow map)
+      uni.uOct.value = P ? Math.max(0, Math.min(5, P.skyOct)) : 5;
+      // one shadow-casting light: the sun by day, the moon by night, faded through zero as they swap (or a pitch's
+      // flood key light at night); where it shines from is set in shade(), in step with its shadow map
       const useSun = up > -.02, L = useSun ? dir : moonDir;
       const swap = Math.max(0, Math.min(1, (useSun ? up : moonDir.y)*7));
-      shadowDir.copy(L);
-      sun.intensity = k.sunI*swap;
-      sun.color.copy(uni.uSunCol.value);
-      hemi.intensity = k.hemiI;
+      const key = KEY.on ? Math.max(0, Math.min(1, (k.lamps - .3)/.4)) : 0;
+      if (key > .5) shadowDir.copy(KEY.dir); else shadowDir.copy(L);
+      sun.intensity = key > .5 ? KEY.intensity*key : k.sunI*swap*(1 - key);
+      if (key > .5) sun.color.setHex(KEY.color); else sun.color.copy(uni.uSunCol.value);
+      sun.shadow.intensity = key > .5 ? 1 : swap;
+      hemi.intensity = k.hemiI + KEY.hemi*key;
       fog.color.copy(uni.uHor.value).multiplyScalar(.92);
-      fog.near = 50 + k.env*50; fog.far = 180 + k.env*130;
-      K.night = k.stars; K.lamps = k.lamps; K.exposure = k.exposure; K.env = k.env; K.sunUp = uni.uSunUp.value; K.cover = cover;
+      const f = P && P.fog ? (where === "stadium" ? P.fog.stadium : P.fog.life) : null;
+      if (f){ fog.near = f.near + (f.envNear || 0)*k.env; fog.far = f.far + (f.envFar || 0)*k.env; }
+      else { fog.near = 50 + k.env*50; fog.far = 180 + k.env*130; }
+      K.night = k.stars; K.lamps = k.lamps; K.exposure = k.exposure; K.env = k.env; K.sunUp = uni.uSunUp.value; K.cover = cover; K.fogFar = fog.far;
+      // the camera sees as far as the fog lets anything show, and a little more
+      const cam = RT.cam;
+      if (cam && P){
+        const far = P.camFar || fog.far + (P.camFarPad || 0);
+        if (Math.abs(cam.far - far) > .5){ cam.far = far; cam.updateProjectionMatrix(); }
+      }
       // the things that glow: every lamp in the zone glows and throws its pool of light on the ground, however far away
-      // it is, so a street at night reads as lit end to end; the real lights (lights()) only add the light close to you
+      // it is, so a street at night reads as lit end to end; the real lights (lights()) only add the light close to you.
+      // By day the pools and halos are not drawn at all
       if (W.lit) W.lit.emissiveIntensity = k.lamps*1.25;
       if (W.mats.street) W.mats.street.emissiveIntensity = .15 + k.lamps*2.6;
       if (W.mats.neon) W.mats.neon.emissiveIntensity = .55 + k.lamps*1.6;
-      const pm = poolMat(); if (pm) pm.opacity = k.lamps*.72;
-      const hm = haloMat(); if (hm) hm.opacity = k.lamps*.9;
+      const lit = k.lamps > .02, gm = glowMeshes();
+      const pm = poolMat(); if (pm) pm.opacity = k.lamps*.72*(P && P.tier === "low" ? 1.15 : 1);
+      const hm = haloMat(); if (hm){ hm.uniforms.opacity.value = k.lamps*.9; hm.uniforms.uMax.value = P && isFinite(P.haloMax) ? P.haloMax : 1e6; }
+      if (gm.pools) gm.pools.visible = lit;
+      if (gm.halos) gm.halos.visible = lit;
       for (const f of (W.glows || [])) f(k);
       return k;
     },
-    // called a few times a second at most: shadows, reflections and which lamps are real
+    // called a few times a second at most: the shadow box, reflections
     refresh(renderer, scene, h, focus, force){
-      const size = typeof GFX !== "undefined" && GFX.low ? 1024 : 2048;
-      if (size !== shadowSize){
-        shadowSize = size; sun.shadow.mapSize.set(size, size);
-        if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
-        force = true;
+      const P = gp();
+      if (SH.on){
+        if (SH.size !== shadowSize){
+          shadowSize = SH.size; sun.shadow.mapSize.set(shadowSize, shadowSize);
+          if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
+          force = true;
+        }
+        /* the shadow area follows you (SH.half each way, on a grid of SH.grid metres, so it is redrawn only when you
+           have walked a fair way, and shade() snaps its centre to whole texels so the edges stay put between redraws);
+           in a stadium on Medium it covers the whole bowl, drawn once. Casters further off still throw their shadows
+           in: the light's depth range reaches 240 m back towards the sun */
+        const fx = focus && SH.follow ? focus.x : 0, fz = focus && SH.follow ? focus.z : 0, g = SH.grid, gx = SH.follow ? Math.round(fx/g)*g : 0, gz = SH.follow ? Math.round(fz/g)*g : 0;
+        const key = `${gx},${gz},${SH.half}`;
+        if (key !== shadowAt.key){
+          shadowAt.key = key; mid.x = gx; mid.z = gz; mid.half = SH.half;
+          const c = sun.shadow.camera; c.left = -mid.half; c.right = mid.half; c.top = mid.half; c.bottom = -mid.half; c.near = 1; c.far = 240; c.updateProjectionMatrix();
+          shadeForce = true;
+        }
+        if (force) shadeForce = true;
       }
-      /* the shadow area follows you: 60 m across, so a shadow-map texel is under 3 cm (a whole-zone frustum made it
-         5–7 cm, and every edge — a step, a kerb, a canopy — came out as a crawling staircase). It moves on a 4 m grid,
-         so it is redrawn only when you have walked a fair way, and shade() snaps its centre to whole texels so the
-         edges stay put between redraws. Casters further off still throw their shadows in: the light's depth range
-         reaches 240 m back towards the sun. */
-      const fx = focus ? focus.x : 0, fz = focus ? focus.z : 0, gx = Math.round(fx/4)*4, gz = Math.round(fz/4)*4;
-      const key = `${gx},${gz}`;
-      if (key !== shadowAt.key){
-        shadowAt.key = key; mid.x = gx; mid.z = gz; mid.half = SHADOW_HALF;
-        const c = sun.shadow.camera; c.left = -mid.half; c.right = mid.half; c.top = mid.half; c.bottom = -mid.half; c.near = 1; c.far = 240; c.updateProjectionMatrix();
-        shadeForce = true;
-      }
-      if (force) shadeForce = true;
-      // reflections follow the sky every nine minutes of game time (every game hour on Medium: the preset's env.everyH)
-      const envP = typeof GFX !== "undefined" && GFX.P && GFX.P.env, envEvery = envP && envP.everyH > 0 ? envP.everyH : .15;
-      if (!(typeof GFX !== "undefined" && GFX.low) && (force || Math.abs(h - envAt) > envEvery)){
-        envAt = h;
-        cubeCam.update(renderer, envScene);
-        envRT = pmrem.fromCubemap(cubeRT.texture, envRT);
-        scene.environment = envRT.texture;
-      } else if (typeof GFX !== "undefined" && GFX.low) scene.environment = null;
+      // reflections follow the sky every P.env.everyH game hours; none on Low
+      const e = P ? P.env : {size:64, everyH:.15};
+      if (e && (force || !(FADE.v >= .98 && envRT))){
+        if (force || !envRT || Math.abs(h - envAt) > e.everyH){
+          envAt = h;
+          cubeCam.update(renderer, envScene);
+          envRT = pmrem.fromCubemap(cubeRT.texture, envRT);
+        }
+        scene.environment = envRT ? envRT.texture : null;
+      } else if (!e) scene.environment = null;
       scene.environmentIntensity = K.env;
       renderer.toneMappingExposure = K.exposure;
     },
-    /* every frame: redraw the sun's (or the moon's) shadows once it has moved far enough for them to step visibly,
-       and turn the light with them, never ahead of them. How far that is depends on how high it is: a shadow's
-       tip moves by about height·dθ/sin²(elevation), so at noon a third of a degree moves a façade's shadow a few
-       centimetres, while at sunset the same step would throw it a metre or two. The step is set to keep the tip of
-       a ten-metre wall's shadow within ~20 cm (a third of a degree at most), and the redraws come at most five
-       times a second (twice on Low and Medium): at sunset, a cheap depth pass of the zone every few frames; at midday,
-       one every few seconds. */
+    /* every frame: the shadow scheduler's clock, and a redraw of the sun's (or the moon's) shadows once it has moved
+       far enough for them to step visibly; the light turns with them, never ahead of them. How far that is depends on
+       how high it is: a shadow's tip moves by about height·dθ/sin²(elevation), so at noon a third of a degree moves a
+       façade's shadow a few centimetres, while at sunset the same step would throw it a metre or two. The step keeps
+       the tip of a ten-metre wall's shadow within ~20 cm (a third of a degree at most); the scheduler keeps the rate */
     shade(renderer, real){
-      shadeT -= real || 0;
-      const low = typeof GFX !== "undefined" && GFX.low, e = Math.max(.05, shadowDir.y);
+      SHADOW.tick(real || 0);
+      // no shadows (Low): the light simply follows the sun, the moon or the key light, with nothing to keep in step
+      if (!SHADOW.on()){
+        sun.target.position.set(mid.x, 0, mid.z);
+        sun.position.set(mid.x + shadowDir.x*100, shadowDir.y*100, mid.z + shadowDir.z*100);
+        return false;
+      }
+      const e = Math.max(.05, shadowDir.y), low = tierOf(gp()) === "low";
       const step = Math.max(low ? .0015 : .0004, Math.min(.006, .02*e*e));
-      if (!shadeForce && (shadeT > 0 || shadowAt.d.angleTo(shadowDir) <= step)) return false;
-      // at most twice a second on Low and Medium, five times on High (the preset's shadow.life.hz)
-      const shHz = low ? 2 : (typeof GFX !== "undefined" && GFX.P && GFX.P.shadow && GFX.P.shadow.life && GFX.P.shadow.life.hz) || 5;
-      shadeForce = false; shadeT = 1/shHz;
+      if (!shadeForce && shadowAt.d.angleTo(shadowDir) <= step) return false;
+      // a redraw the scheduler allows this frame (the first of a new place at once), else try again next frame
+      if (!(SHADOW.fresh || SHADOW.may())){ return false; }
+      shadeForce = false;
       shadowAt.d.copy(shadowDir);
       // the centre, snapped to whole texels across the light's view, so a redraw never shifts an edge by part of one
       const texel = 2*mid.half/(shadowSize || 2048);
@@ -237,22 +352,33 @@ export function createSky(renderer){
       _c0.addScaledVector(_rt, Math.round(du/texel)*texel - du).addScaledVector(_upv, Math.round(dv/texel)*texel - dv);
       sun.target.position.copy(_c0);
       sun.position.set(_c0.x + shadowDir.x*100, _c0.y + shadowDir.y*100, _c0.z + shadowDir.z*100);
-      renderer.shadowMap.needsUpdate = true;
+      if (SHADOW.fresh){ SHADOW.grant = true; SHADOW.grantFrame = SHADOW.frame; SHADOW.why = "warm"; } else SHADOW.give();
       return true;
     },
     /* Hand the real lights to the sources that matter most where you are, and fade them so none of them ever pops.
-       Every source is ranked by its distance from you (a room's own lights count for more while you are indoors, the
-       street's while you are out); the first N get a real light. Each one's brightness falls off smoothly towards the
-       distance of the first source that did NOT get one (cut), and is nothing at it — so when two sources swap places
-       across that line, the one handing its light over is already dark and the one taking it starts dark: lamps come
-       up and go down gradually as you walk, never one by one. */
+       Which sources may have one depends on the preset and the hour (see the top of the file); those are ranked by
+       their distance from you (a room's own lights count for more while you are indoors, the street's while you are
+       out); the first N get a real light. Each one's brightness falls off smoothly towards the distance of the first
+       source that did NOT get one (cut), and is nothing at it: so when two sources swap places across that line, the
+       one handing its light over is already dark and the one taking it starts dark. Lamps come up and go down
+       gradually as you walk, never one by one */
     lights(dt, focus){
       assignT -= dt;
       const fx = focus ? focus.x : 0, fy = focus ? focus.y : 1.6, fz = focus ? focus.z : 0;
       const dist = l => Math.hypot(l.x - fx, (l.y - fy)*.5, l.z - fz) + (l.indoor ? (K.cover > .5 ? -3 : 5) : (K.cover > .5 ? 5 : 0));
-      if (assignT <= 0){
+      if (assignT <= 0 && pool.length){
         assignT = .2;
-        const live = W.lights.filter(l => (l.on ? l.on() : true) && (l.indoor || K.lamps > .02) && !l.dead);
+        const tier = tierOf(gp()), night = K.lamps > .02, inside = K.cover > .5;
+        const streetR = tier === "low" ? 14 : tier === "medium" ? 24 : Infinity;
+        const allowed = l => {
+          if (!(l.on ? l.on() : true) || l.dead) return false;
+          const d = Math.hypot(l.x - fx, l.z - fz);
+          if (l.indoor) return night || inside || d < 10;
+          if (!night) return false;
+          if (inside && tier === "low") return false;
+          return d < streetR;
+        };
+        const live = W.lights.filter(allowed);
         live.forEach(l => { l._d = dist(l); });
         live.sort((a, b) => a._d - b._d);
         cut = live.length > pool.length ? live[pool.length]._d : Infinity;
@@ -281,6 +407,38 @@ export function createSky(renderer){
         p.intensity = p.userData.cur;
       }
     },
-    get K(){ return K; }, sun, hemi
+    // what of a preset is free to change: the dome's segments (the cloud octaves, fog and far plane are read each frame)
+    inFrame(P){ setDome(P); },
+    // a preset put into effect behind the fade (quality.js): real lights, shadows, reflections and the dome
+    applyPreset(P, renderer, scene){
+      setRealLights(nRealOf(P));
+      shadowFrom(P);
+      setEnv(P, renderer);
+      setDome(P);
+      if (!(P && P.env) && scene) scene.environment = null;
+      envAt = -999;
+    },
+    // a stadium has its own lights and shadows (DESIGN 1.4.4, 3.3.4): its zone calls this as it is built, behind the fade
+    setContext(w){ where = w === "stadium" ? "stadium" : "life"; const P = gp(); setRealLights(nRealOf(P)); shadowFrom(P); },
+    // a pitch's floodlights at night: one directional key light from dir (towards the light), in the sun's place
+    setNightKey(on, o = {}){
+      KEY.on = !!on;
+      if (o.dir) KEY.dir.set(o.dir[0], o.dir[1], o.dir[2]).normalize();
+      if (o.intensity != null) KEY.intensity = o.intensity;
+      if (o.color != null) KEY.color = o.color;
+      shadeForce = true;
+    },
+    // the renderer was made again (quality.js recreateRenderer): the reflection bake starts afresh with it
+    rebind(renderer){
+      try { pmrem.dispose(); } catch(e){}
+      pmrem = new THREE.PMREMGenerator(renderer);
+      cubeRT.dispose(); cubeRT = new THREE.WebGLCubeRenderTarget(envSize, {type:THREE.HalfFloatType, generateMipmaps:false});
+      cubeCam = new THREE.CubeCamera(.1, 100, cubeRT);
+      if (envRT){ envRT.dispose(); envRT = null; }
+      envAt = -999; shadowSize = 0; shadowAt.key = "";
+      if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
+    },
+    get K(){ return K; }, get pool(){ return pool; }, get where(){ return where; }, sun, hemi, dome, shadow:SHADOW
   };
+  return api;
 }
