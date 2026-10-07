@@ -23,9 +23,10 @@ export function rb(f, lx, ly, lz, w, h, d, r, color, o = {}){
   const g = roundedBoxGeo(w, h, d, r, o.seg || 1);
   put(f, g, lx, o.center ? ly : ly + h/2, lz, color, o);
 }
-// cylinder (or cone), bottom at ly unless turned on its side, then ly is the axis (fewer sides on Low: build.js roundSeg)
+/* cylinder (or cone), bottom at ly unless turned on its side, then ly is the axis. Fewer sides on Low (build.js
+   roundSeg), except for o.fine: something you see from up close every time (the disc of a drill spot under your feet) */
 export function cy(f, lx, ly, lz, rt, rb_, h, color, o = {}){
-  const g = new THREE.CylinderGeometry(rt, rb_, h, roundSeg(o.seg || 12, Math.max(rt, rb_)), 1, !!o.open);
+  const g = new THREE.CylinderGeometry(rt, rb_, h, o.fine ? o.seg || 12 : roundSeg(o.seg || 12, Math.max(rt, rb_)), 1, !!o.open);
   if (!o.rx && !o.rz) g.translate(0, h/2, 0);
   put(f, g, lx, ly, lz, color, o);
 }
@@ -64,7 +65,7 @@ export function cone(x, z, color = PC.orange, s = 1){
   cy(f, 0, .025, 0, .025*s, .12*s, .28*s, color, {seg:12});
   cy(f, 0, .12*s, 0, .085*s, .1*s, .05*s, PC.white, {seg:12});
 }
-export function marker(x, z, color = PC.yellow){ const f = frame(x, z); cy(f, 0, 0, 0, .1, .14, .05, color, {seg:12}); }
+export function marker(x, z, color = PC.yellow){ const f = frame(x, z); cy(f, 0, 0, 0, .1, .14, .05, color, {seg:12, fine:true}); }
 // a match ball: white, with the dark panels that make it read as a ball from across the pitch
 export function ball(x, y, z, r = .11){
   const f = frame(x, z, 0, y);

@@ -10,14 +10,18 @@
 //           render ms at most 50% of the Low baseline and at most 35% of the High baseline of the same view;
 //           1000 collision rays (camCast, a fan from the eye) reported against the baseline's time
 //   High    the lobby within 90 draw calls and 120k triangles
-// SwiftShader's times swing with the machine's load (other jobs on the same CPUs): every ratio is printed, and
-// --report records them without failing on the time ratios (calls, triangles, lights and shadows always count).
-// qa/wpA-ab.mjs measures the same time ratios side by side with the base tree in one browser, where load weighs on
-// both alike, and gates the camera rays on the 60 m walk.
+// SwiftShader's raster time swings with the machine's load: SwiftShader draws on every core, so another job on the
+// same CPUs can double a view's render ms (measured here: one view 0.25 of its baseline on a quiet machine and 0.52
+// with three busy workers alongside). So the render ratios against the recorded baseline are printed as notes, and
+// the render acceptance is gated by qa/wpA-ab.mjs, which draws this tree and the I0 tree side by side in one browser,
+// every view, where the load weighs on both alike. --gate-render gates them here too (a quiet machine). Calls,
+// triangles, lights, shadows and the CPU per frame (the 3.9.8 gate: at most 10% over the baseline) always count;
+// --report records the CPU ratio without failing on it.
 //
 //   QA_PORT=8772 node qa/perf.mjs                        every life view on Low, the lobby on High
 //   node qa/perf.mjs --views bedroom,street --tiers low --frames 40 --warm 20
-//   node qa/perf.mjs --report                            the time ratios reported, not gated
+//   node qa/perf.mjs --gate-render                       the render ratios gated as well
+//   node qa/perf.mjs --report                            no time ratio gated
 //
 // Writes qa/out/perf.json.
 import fs from "node:fs";
@@ -28,7 +32,7 @@ const a = process.argv.slice(2), opt = (k, d) => { const i = a.indexOf(k); retur
 const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "perf-baseline.json"), "utf8"));
 const VIEWS = opt("--views", "bedroom,lobby,street,park,yard,pitch,town-road").split(",");
 const TIERS = opt("--tiers", "low,high").split(",");
-const GATE_TIME = !a.includes("--report");
+const GATE_TIME = !a.includes("--report"), GATE_RENDER = GATE_TIME && a.includes("--gate-render");
 // 1.5.11, Low at 1280 x 720 (the life views; the stadium's are WP-D's)
 const BUDGET = {
   bedroom: {calls: 60, tris: 60e3}, lobby: {calls: 60, tris: 60e3},
@@ -37,7 +41,7 @@ const BUDGET = {
   "town-road": {calls: 75, tris: 110e3}
 };
 const ZONE = {bedroom: "home", lobby: "home", street: "home", park: "home", yard: "ground", pitch: "ground", "town-road": "town"};
-const out = {gateTime: GATE_TIME, results: {}, checks: [], ok: true};
+const out = {gateTime: GATE_TIME, gateRender: GATE_RENDER, results: {}, checks: [], ok: true};
 const check = (name, ok, detail, soft = false) => {
   out.checks.push({name, ok: !!ok, soft, detail});
   if (!ok && !soft) out.ok = false;
@@ -90,8 +94,8 @@ for (const tier of TIERS){
       check(`low ${view}: 2 real point lights`, r.pointLights === 2, r.pointLights);
       if (bl && bh){
         const rl = +(r.ms.render.median/bl.renderMs.median).toFixed(3), rh = +(r.ms.render.median/bh.renderMs.median).toFixed(3);
-        check(`low ${view}: render at most 50% of the Low baseline`, rl <= .5, {ratio: rl, ms: r.ms.render.median, baseline: bl.renderMs.median}, !GATE_TIME);
-        check(`low ${view}: render at most 35% of the High baseline`, rh <= .35, {ratio: rh, baseline: bh.renderMs.median}, !GATE_TIME);
+        check(`low ${view}: render at most 50% of the Low baseline`, rl <= .5, {ratio: rl, ms: r.ms.render.median, baseline: bl.renderMs.median}, !GATE_RENDER);
+        check(`low ${view}: render at most 35% of the High baseline`, rh <= .35, {ratio: rh, baseline: bh.renderMs.median}, !GATE_RENDER);
         const rc = +(r.castUs/bl.castUs).toFixed(3);
         // (the gate for the camera rays is the 60 m walk, side by side with the base tree: qa/wpA-ab.mjs)
         check(`low ${view}: 1000 collision rays from the view's eye against the baseline`, true, {ratio: rc, us: r.castUs, baseline: bl.castUs}, true);

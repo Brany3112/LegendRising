@@ -14,7 +14,7 @@
 //   step     a world step with nothing drawn (stepN(1): movement, people, clock, sky) costs no more than 10% over the
 //            base tree's
 //
-//   node qa/wpA-ab.mjs                                   the home views (bedroom, lobby, street, park)
+//   node qa/wpA-ab.mjs                                   every life view (bedroom, lobby, street, park, yard, pitch, town-road)
 //   node qa/wpA-ab.mjs --views bedroom,yard --rounds 4 --base <git ref>
 // Writes qa/out/wpA-ab.json.
 import fs from "node:fs";
@@ -25,7 +25,7 @@ import {expect, report, ROOT, OUT, PORT} from "./lib.mjs";
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= "/opt/pw-browsers";
 const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || "/opt/node22/lib/node_modules/playwright/index.mjs");
 const a = process.argv.slice(2), opt = (k, d) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : d; };
-const REF = opt("--base", "c7d4760"), VIEWS = opt("--views", "bedroom,lobby,street,park").split(","), ROUNDS = +opt("--rounds", 6);
+const REF = opt("--base", "c7d4760"), VIEWS = opt("--views", "bedroom,lobby,street,park,yard,pitch,town-road").split(","), ROUNDS = +opt("--rounds", 6);
 const out = {base: REF, checks: [], ok: true, views: {}};
 const check = (name, ok, detail, soft = false) => { out.checks.push({name, ok: !!ok, soft, detail}); if (!ok && !soft) out.ok = false; console.log(`${ok ? "ok  " : soft ? "note" : "FAIL"} ${name}${detail !== undefined ? ": " + JSON.stringify(detail) : ""}`); };
 

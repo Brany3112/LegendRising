@@ -86,6 +86,9 @@ function end(){
 }
 // one frame of the world by hand (probe mode and tests): the same bookkeeping as a real frame
 function handFrame(L){ begin(); L.stepN(1); if (RT.renderer) RT.renderer.render(RT.scene, RT.cam); end(); }
+// between frames stepped by hand the page gets its turn (a test polling it, its timers): SwiftShader takes seconds over
+// one frame on High, and a probe that never yielded would hold the page for minutes
+const yieldPage = () => new Promise(r => setTimeout(r, 0));
 
 /* ---------- the numbers ---------- */
 const q = (a, p) => { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor(p*s.length))].toFixed(3); };
@@ -111,7 +114,7 @@ function summary(fr){
 function snapshot(frames = 300, {hand = false} = {}){
   return new Promise(res => {
     REC.frames = []; REC.left = frames; REC.on = true; REC.done = res;
-    if (hand){ const L = window.__life; for (let i = 0; i < frames && REC.on; i++) handFrame(L); }
+    if (hand) (async () => { const L = window.__life; for (let i = 0; i < frames && REC.on; i++){ handFrame(L); await yieldPage(); } })();
   });
 }
 function setView(name){
@@ -154,7 +157,7 @@ async function probe(){
   FADE.boot = false; FADE.v = 0;
   const fe = document.getElementById("lifeFade"); if (fe){ fe.style.transition = "none"; fe.style.opacity = "0"; }
   setView(view);
-  for (let i = 0; i < warm; i++) handFrame(L);
+  for (let i = 0; i < warm; i++){ handFrame(L); await yieldPage(); }
   const res = await snapshot(frames, {hand:true});
   res.view = view; res.zone = L.LIFE.zone; res.minute = S.life.min;
   window.__perfResult = res;
