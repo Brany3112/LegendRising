@@ -9,7 +9,7 @@
 // passed in (opt.now).
 
 import {createMatch, simStep, matchSec} from "./sim.js";
-import {countersAll, ratingsAll, logHash, RATE, rateAgent, minuteOf} from "./events.js";
+import {countersAll, ratingsAll, logHash, RATE, rateTerms, minuteOf, SPELL_REGAIN} from "./events.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const mean = l => l.length ? l.reduce((a, b) => a + b, 0)/l.length : 0;
@@ -136,7 +136,7 @@ export function measure(ms){
     const rating = RT[meId] != null ? RT[meId] : 6.5;
     out.me = {arch: a.arch, slot: a.slot, touches: c.touches, shots: c.shots, defActs: c.defActs, mins: c.mins,
       gapP95: inv.gapP95, gaps: inv.gaps, groups: inv.groups, moments: inv.kinds, sides: sidesOf(ms, a.team), rating, trustD: (rating - 6.5)*8*(ms.cfg.friendly ? 0.5 : 1) + trustJ - pd,
-      pref: out.pref};
+      pref: out.pref, trustJ, posDisc: Math.round(c.posDisc*100)/100, pd};
   }
   return out;
 }
@@ -163,25 +163,32 @@ function counterStarts(ms){
 // The player's involvements: their times (for the gaps) and their kinds, as the 2D match's moments were (for the oracle
 // comparison). Every spell of his on the ball is one moment, classified by what he made of it, in this order: a set
 // piece (he takes it, or his is the first touch after his side's corner or free kick into the box: "Throw-in",
-// "Corner", "Free kick", "Penalty!"); going at goal (a shot, a take-on, the ball won back in the opponents' half: "On the ball",
-// "Through on goal!"); making the play (a cross, a through ball, a key pass: "Cross it in", "Pick a pass"); the ball in
-// the final third ("Out wide" within 18 m of a touchline, else "Edge of the box"); a counter ("Counter-attack!": his
-// side won it with three or more ahead and was in the final third within 10 s, as countCounters counts them, and he
-// has it in their half in those 10 s); a pass that takes it 5 m or more
-// nearer their goal line ("Pick a pass", building the attack). A spell of recycling it backwards or square is no
-// moment. Being in the box when his side's corner or free kick is struck is a set-piece moment too. Defending ("Get
-// back and stop him", "Read the pass", "It's in the air"): a tackle, an interception or a block in his own half, an
-// aerial duel in his own half; winning the ball in their half is going at goal (above). The times also hold his
-// challenges (within 1.5 m of the man on the ball), the fouls on him, the passes played to him, and his air kicks.
+// "Corner", "Free kick", "Penalty!"); going at goal (a shot, a take-on, the ball won back high up, INV_HIGH of the
+// length from his goal or further: "On the ball",
+// "Through on goal!"); making the play (a cross, a through ball, a key pass: "Cross it in", "Pick a pass"); a counter
+// ("Counter-attack!": his side won it with three or more ahead and was in the final third within 10 s, as
+// countCounters counts them, and he has it in their half in those 10 s); a pass that takes it 5 m or more nearer their
+// goal line ("Pick a pass", building the attack); the ball in the final third, kept or laid off ("Out wide" within 18 m
+// of a touchline, else "Edge of the box"). A spell of recycling it backwards or square short of the final third is no
+// moment. Being in the box when his side's corner or free kick is struck is a set-piece moment too (and in his own box
+// defending theirs, an involvement for the gaps). Defending ("Get
+// back and stop him", "Read the pass", "It's in the air"): a tackle, an interception or a block short of INV_HIGH, an
+// aerial duel in his own half for a ball the opponents played (one his own side played up to him is no defending);
+// winning the ball beyond INV_HIGH is going at goal (above). The times also hold his
+// challenges (pressing the man on the ball, events.CHALLENGE_D), the fouls on him, the passes played to him, and his
+// air kicks.
 const SET_OF = {throw: 'throwin', corner: 'corner', free: 'freekick', indirect: 'freekick', penalty: 'penalty'};
+// the ball won back from here on (a share of the length from his own goal: their half) is going at goal
+const INV_HIGH = 0.5;
 export function involvementOf(ms, a){
-  const L = ms.spec.L, Wd = ms.spec.Wd, E = ms.events, id = a.id, team = a.team;
+  const L = ms.spec.L, Wd = ms.spec.Wd, E = ms.events, id = a.id, team = a.team, HIGH = INV_HIGH*L;
   const groups = {attack: 0, create: 0, set: 0, defend: 0}, kinds = {};
   const add = (g, k) => { groups[g]++; kinds[k] = (kinds[k] || 0) + 1; };
   const times = [];
   const counterUntil = [-1, -1], restartAt = [-99, -99], restartKind = ['', ''];
   const counters = counterStarts(ms);
-  let cur = -1, sp = null;
+  let cur = -1, sp = null, gapT = -99;           // his spell held open by a ball off somebody's body (events.SPELL_REGAIN)
+  let kTeam = -1, kTeamPrev = -1;                 // the sides of the last two kicks (who played the ball in)
   const close = () => {
     if (!sp) return;
     if (sp.set) add('set', sp.set);
@@ -189,39 +196,45 @@ export function involvementOf(ms, a){
     else if (sp.drb) add('attack', 'takeon');
     else if (sp.won) add('attack', 'wonHigh');
     else if (sp.create && sp.create !== 'forward') add('create', sp.create);
-    else if (sp.u0 >= 2*L/3) add('attack', Math.abs(sp.w0 - Wd/2) > Wd/2 - 18 ? 'wing' : 'edge');
     else if (sp.counter) add('attack', 'counter');
     else if (sp.create) add('create', 'forward');
+    else if (sp.u0 >= 2*L/3) add('attack', Math.abs(sp.w0 - Wd/2) > Wd/2 - 18 ? 'wing' : 'edge');
     sp = null;
   };
   for (const ev of E){
     if (ev.kind === 'possession' && counters.has(ev.id)) counterUntil[ev.team] = ev.t + 10;
+    if (ev.kind === 'kick' && !ev.whiff){ kTeamPrev = kTeam; kTeam = ev.team; }
     if (ev.kind === 'restart'){
       // a delivery into the box (a corner, a free kick crossed in or struck at goal): the first touch after it is part
       // of the set piece; a short one played to a team-mate (or a throw-in) starts open play again
       const deliv = ev.rk === 'corner' || ev.rk === 'penalty' || (ev.rk === 'free' || ev.rk === 'indirect') && ev.box && ev.box.length;
       if (deliv){ restartAt[ev.team] = ev.t; restartKind[ev.team] = ev.rk; }
       if (ev.team === team && ev.box && ev.box.includes(id)){ add('set', 'box'); times.push(ev.t); }
+      // in his own box defending the other side's corner or free kick: in the play (no moment of his own)
+      if (ev.team !== team && ev.dbox && ev.dbox.includes(id)) times.push(ev.t);
     }
-    if (ev.kind === 'whistle' || ev.kind === 'out' || ev.kind === 'goal'){ if (cur === id) close(); cur = -1; continue; }
+    if (ev.kind === 'whistle' || ev.kind === 'out' || ev.kind === 'goal'){ if (sp) close(); cur = -1; continue; }
     const mine = ev.agent === id;
     if (ev.kind === 'touch' && ev.body){
-      // the ball ran into him: no spell of anybody's; an interception or a block when it was one
-      if (cur === id) close();
+      // the ball ran into somebody: no spell of anybody's (his own is held open when it came off another man: he may
+      // have it again at once; off himself it simply goes on); an interception or a block when it was one
+      if (cur === id && mine) continue;
+      if (cur === id) gapT = ev.t;
       cur = -1;
       if (mine){
         times.push(ev.t);
-        if (ev.intercept != null){ if (ev.u >= L/2) add('attack', 'wonHigh'); else add('defend', 'intercept'); }
-        else if (ev.how === 'block' && ev.blockOf && ev.blockOf !== 'ball' && ev.u < L/2) add('defend', 'block');
+        if (ev.intercept != null){ if (ev.u >= HIGH) add('attack', 'wonHigh'); else add('defend', 'intercept'); }
+        else if (ev.how === 'block' && ev.blockOf && ev.blockOf !== 'ball' && ev.u < HIGH) add('defend', 'block');
       }
       continue;
     }
     if (ev.kind === 'touch' || ev.kind === 'kick' || ev.kind === 'save'){
       if (ev.kind === 'kick' && ev.whiff){ if (mine) times.push(ev.t); continue; }
       if (cur !== ev.agent){
-        if (cur === id) close();
+        const regain = mine && sp && ev.t - gapT < SPELL_REGAIN;
+        if (sp && !regain) close();
         cur = ev.agent;
-        if (mine){
+        if (mine && !regain){
           sp = {u0: ev.u, w0: ms.dirs[team]*ev.z + Wd/2, set: null, shot: false, drb: false, won: false, create: null,
             counter: ev.t < counterUntil[team] && ev.u > L/2};
           times.push(ev.t);
@@ -229,8 +242,8 @@ export function involvementOf(ms, a){
         }
       }
       if (!mine) continue;
-      if (ev.kind === 'touch' && ev.intercept != null){ if (ev.u >= L/2) sp.won = true; else add('defend', 'intercept'); }
-      else if (ev.kind === 'touch' && ev.how === 'block' && ev.blockOf && ev.blockOf !== 'ball' && ev.u < L/2) add('defend', 'block');
+      if (ev.kind === 'touch' && ev.intercept != null){ if (ev.u >= HIGH) sp.won = true; else add('defend', 'intercept'); }
+      else if (ev.kind === 'touch' && ev.how === 'block' && ev.blockOf && ev.blockOf !== 'ball' && ev.u < HIGH) add('defend', 'block');
       if (ev.kind === 'kick'){
         if (ev.rk && SET_OF[ev.rk]) sp.set = SET_OF[ev.rk];
         else if (ev.intent === 'shot' || ev.atGoal) sp.shot = true;
@@ -246,15 +259,16 @@ export function involvementOf(ms, a){
       case 'dribble': if (sp) sp.drb = true; else add('attack', 'takeon'); break;
       case 'tackle':
         times.push(ev.t);
-        if (ev.u >= L/2){ if (ev.won || ev.result === 'poke') add('attack', 'wonHigh'); }
+        if (ev.u >= HIGH){ if (ev.won || ev.result === 'poke') add('attack', 'wonHigh'); }
         else add('defend', 'tackle');
         break;
       case 'challenge': times.push(ev.t); break;
-      case 'aerial': times.push(ev.t); if (ms.dirs[team]*ev.x < 0) add('defend', 'aerial'); break;
+      // (the header the duel's winner made was the last kick: the ball came in from the one before it)
+      case 'aerial': times.push(ev.t); if (ms.dirs[team]*ev.x < 0 && kTeamPrev !== team) add('defend', 'aerial'); break;
       case 'foul': if (ev.on === id) times.push(ev.t); break;
     }
   }
-  if (cur === id) close();
+  if (sp) close();
   for (const ev of E) if (ev.kind === 'kick' && ev.recv === id && ev.agent !== id && !ev.whiff) times.push(ev.t);
   times.sort((x, y) => x - y);
   // gaps while he was on the pitch, between his involvements (and from his start and to his end)
@@ -303,6 +317,9 @@ export function aggregate(list){
   // ratings of starters
   const st = []; for (const m of list) for (const x of m.ratings) if (x.starter && x.arch !== 'GK') st.push(x.r);
   R.ratingMean = mean(st); R.ratingSd = sd(st);
+  // and by archetype (keepers too)
+  const ra = {}; for (const m of list) for (const x of m.ratings) if (x.starter) (ra[x.arch] || (ra[x.arch] = [])).push(x.r);
+  R.ratingBy = Object.fromEntries(Object.entries(ra).map(([k, v]) => [k, {mean: Math.round(mean(v)*100)/100, sd: Math.round(sd(v)*100)/100, n: v.length}]));
   // the player by archetype
   const by = {};
   for (const m of list){
@@ -311,14 +328,14 @@ export function aggregate(list){
     for (const [k, v] of Object.entries(m.me.moments || {})) b.moments[k] = (b.moments[k] || 0) + v;
     b.n++; b.touches.push(m.me.touches); b.shots.push(m.me.shots); b.defActs.push(m.me.defActs); b.gap.push(m.me.gapP95); b.gapsAll.push(m.me.gaps || []);
     for (const g in b.groups) b.groups[g] += m.me.groups[g] || 0;
-    b.trust.push(m.me.trustD); b.rating.push(m.me.rating);
+    b.trust.push(m.me.trustD); b.rating.push(m.me.rating); (b.pd || (b.pd = [])).push(m.me.pd || 0); (b.tj || (b.tj = [])).push(m.me.trustJ || 0);
   }
   R.me = {};
   for (const [k, b] of Object.entries(by)){
     const tot = Object.values(b.groups).reduce((a, x) => a + x, 0) || 1;
     const shares = {}; for (const g in b.groups) shares[g] = b.groups[g]/tot;
     R.me[k] = {n: b.n, touches: mean(b.touches), shots: mean(b.shots), defActs: mean(b.defActs), gapP95: pct([].concat(...b.gapsAll), 0.95), gapMedian: median(b.gap),
-      shares, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating),
+      shares, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating), pd: mean(b.pd || []), trustJ: mean(b.tj || []),
       moments: Object.fromEntries(Object.entries(b.moments).map(([q, v]) => [q, Math.round(v/b.n*100)/100]))};
   }
   const allMe = list.filter(m => m.me);
@@ -334,6 +351,8 @@ export function aggregate(list){
   R.ballJumps = list.reduce((a, m) => a + m.asserts.ballJump, 0);
   R.restartLate = list.reduce((a, m) => a + m.asserts.restartLate, 0);
   R.restartWorst = Math.max(...list.map(m => m.restartMax));
+  // the seeds behind any failed assert, to replay them
+  R.assertSeeds = list.filter(m => m.asserts.teleport || m.asserts.ballJump || m.asserts.restartLate).map(m => m.seed);
   const tm = list.filter(m => m.stepMean != null);
   if (tm.length){ R.stepMean = mean(tm.map(m => m.stepMean)); R.stepMax = Math.max(...tm.map(m => m.stepMax)); R.stepP99 = Math.max(...tm.map(m => m.stepP99 || 0)); }
   // attacking sides with and without the preference (paired runs carry .off)
@@ -385,7 +404,9 @@ export function checkReport(R){
 
 /* ---------- refitting the rating table (--fit-ratings, 1.5.8) ---------- */
 
-// E per archetype: medians per 90 of the starters who played at least 80 minutes; R0 so that starters average 6.5
+// E per archetype: medians per 90 of the starters who played at least 80 minutes; the spread K so that the outfield
+// starters' ratings spread RATE.SPREAD about their archetype's mean; R0 per archetype so that its starters average 6.5
+// (the keepers' too)
 export function fitRatings(list){
   const per = {};
   const keys = Object.keys(RATE.E).filter(k => k !== 'saves' && k !== 'bcm' && k !== 'err');
@@ -396,17 +417,25 @@ export function fitRatings(list){
   }
   const E = {};
   for (const k of keys){ E[k] = {}; for (const arch of ['ST', 'W', 'AM', 'CM', 'DF']) E[k][arch] = per[arch] && per[arch][k] ? Math.round(median(per[arch][k])*100)/100 : RATE.E[k][arch]; }
-  // R0: the shift that brings the starters' mean to 6.5 under the new E
-  const save = {E: RATE.E, R0: RATE.R0};
-  const E2 = Object.assign({}, RATE.E, E);
-  RATE.E = E2;
-  const rs = [];
+  // the terms of every starter's rating under the new E
+  const save = {E: RATE.E};
+  RATE.E = Object.assign({}, RATE.E, E);
+  const rs = {};
   for (const m of list) for (const x of m.ratings){
-    if (!x.starter || x.arch === 'GK') continue;
+    if (!x.starter) continue;
     const my = x.team === 0 ? m.score[0] : m.score[1], th = x.team === 0 ? m.score[1] : m.score[0];
-    rs.push(rateAgent(x.c, x.arch, {mins: x.mins, res: my > th ? 'W' : my < th ? 'L' : 'D', conceded: x.c.conceded}));
+    (rs[x.arch] || (rs[x.arch] = [])).push(rateTerms(x.c, x.arch, {mins: x.mins, res: my > th ? 'W' : my < th ? 'L' : 'D', conceded: x.c.conceded}));
   }
-  const R0 = Math.round((save.R0 + 6.5 - mean(rs))*100)/100;
   RATE.E = save.E;
-  return {E, R0, n: rs.length};
+  // K: the outfield starters' terms about their archetype's mean, scaled to the target spread
+  const dev = [];
+  for (const [arch, v] of Object.entries(rs)) if (arch !== 'GK'){ const mv = mean(v); for (const q of v) dev.push(q - mv); }
+  const K = dev.length ? Math.round(RATE.SPREAD/Math.max(1e-6, Math.sqrt(mean(dev.map(q => q*q))))*1000)/1000 : RATE.K;
+  // R0: per archetype, so that its starters average 6.5
+  const R0 = {};
+  for (const arch of ['ST', 'W', 'AM', 'CM', 'DF', 'GK']){
+    const old = typeof RATE.R0 === 'number' ? RATE.R0 : RATE.R0[arch];
+    R0[arch] = rs[arch] && rs[arch].length ? Math.round((6.5 - K*mean(rs[arch]))*100)/100 : old;
+  }
+  return {E, R0, K, n: Object.values(rs).reduce((a, v) => a + v.length, 0)};
 }

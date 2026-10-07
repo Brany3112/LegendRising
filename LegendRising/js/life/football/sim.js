@@ -13,7 +13,7 @@
 //   live: const alpha = advance(ms, dtReal); headless: runHeadless(ms, 5400, 12);
 
 import {createBall, createBallWorld, ballStep, BALL} from "./ball.js";
-import {makePitch} from "./pitchspec.js";
+import {makePitch, inBox} from "./pitchspec.js";
 import {mulberry32, hashStr} from "./rng.js";
 import {moverStep} from "../mover.js";
 import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute} from "../stamina.js";
@@ -23,7 +23,7 @@ import {levelled} from "./attrs.js";
 import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle, situation} from "./tactics.js";
 import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
-import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul} from "./rules.js";
+import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul, liveRoll} from "./rules.js";
 import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, bodyContact, steer, standStill} from "./actions.js";
 import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf, dribbleWatch} from "./events.js";
 import {judgeDecision} from "./judge.js";
@@ -35,14 +35,14 @@ const H = 1/60, R = BALL.R;
 
 // The tempo table (3.2.10), keyed by S.speed: frozen at kick-off, the harness's only runtime knobs (no director).
 export const TEMPO = Object.freeze({
-  2: Object.freeze({directness: 1.25, shotBias: 2.2, pressMul: 1.15}),
+  2: Object.freeze({directness: 1.25, shotBias: 1.9, pressMul: 1.15}),
   1: Object.freeze({directness: 1.15, shotBias: 1.2, pressMul: 1.08}),
   4: Object.freeze({directness: 1.4, shotBias: 1.55, pressMul: 1.25})
 });
 // The levelling of a match (calibration, 2.3 WP-E: a side 10 overall higher wins 55 to 62%): the AI players of each
 // side play this share of the gap between the two sides' mean overalls nearer the middle. The player himself plays
 // with his own numbers.
-export const LEVEL = 0.5;
+export const LEVEL = 0.69;
 // half length in real seconds by S.speed (1.5.5): Standard 600, Long 900, Short 360; which are calibrated
 export const HALF_REAL = Object.freeze({2: 600, 1: 900, 4: 360});
 export const CALIBRATED = Object.freeze({2: true, 1: false, 4: false});
@@ -286,7 +286,10 @@ const EFF = {stamina: 50, eF: 1};
 export function simStep(ms, h = H){
   if (ms.phase === 'over') return;
   const agents = ms.agents, n = agents.length;
+  // the ball in play rolls on the grass again (a dead one is stopped sooner: rules.RULES.DEAD_ROLL)
+  if (ms.phase === 'live') liveRoll(ms.ball);
   const bx0 = ms.ball.p.x, by0 = ms.ball.p.y, bz0 = ms.ball.p.z, ball0 = ms.ball, bv0 = hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z);
+  const netQ0 = ms.ball.netQ || 0;
   for (let i = 0; i < n; i++){
     const a = agents[i];
     a.x0 = a.m.x; a.z0 = a.m.z;
@@ -385,7 +388,9 @@ export function simStep(ms, h = H){
       const d = hypot(ms.ball.p.x - bx0, ms.ball.p.y - by0, ms.ball.p.z - bz0);
       // the speed changes inside the step (a kick before the integration, drag and gravity within it): 4% and 2 mm
       // (and the speed it left a contact at inside the step: a body moving into it can send it on faster than it ends)
-      const lim = Math.max(bv0, bvPre, ms.vOutMax || 0, hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z))*h*1.04 + 2e-3;
+      // (and a ball pressed into a net is sent back by its spring: up to NET_K x the stretch more speed within the step)
+      const netQ = Math.max(netQ0, ms.ball.netQ || 0);
+      const lim = (Math.max(bv0, bvPre, ms.vOutMax || 0, hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z)) + (netQ > 0 ? BALL.NET_K*netQ*h : 0))*h*1.04 + 2e-3;
       if (d - lim > ms.asserts.maxBall) ms.asserts.maxBall = d - lim;
       if (d > lim){ ms.asserts.ballJump++; if (ms.onJump) ms.onJump(d, lim, by0); }
     }
@@ -541,8 +546,9 @@ function missMargin(ms, k){
 // A hard collision (separate(): closing above the stagger speed) into the man on the ball, by an opponent: a charge.
 // From behind, or harder, it is more likely given against him: pFoul = clamp((closing - 3)/2.5, 0, 1) x (0.35 + 0.65
 // fromBehind). A push or a pull, not a tackle: the severity of 3.2.9 at BODY_SEV of its weight, so it is a yellow only
-// as a tactical foul (stopping an attack worth xT > 0.15).
-export const CHARGE = Object.freeze({V0: 3, DV: 2.5, P0: 0.35, BODY_SEV: 0.72});
+// as a tactical foul (stopping an attack worth xT > 0.15). In the box he attacks, BOX of that chance (a penalty takes
+// more than a bump).
+export const CHARGE = Object.freeze({V0: 3, DV: 2.5, P0: 0.35, BODY_SEV: 0.72, BOX: 0.35});
 function chargeFouls(ms){
   const B = ms.bumps;
   for (let i = 0; i < B.length; i += 3){
@@ -553,7 +559,8 @@ function chargeFouls(ms){
     if (!onBall || ms.phase !== 'live') continue;
     const fx = -sin(v.m.yaw), fz = -cos(v.m.yaw), dx = o.m.x - v.m.x, dz = o.m.z - v.m.z, dl = hypot(dx, dz) || 1;
     const c = (dx*fx + dz*fz)/dl, fromBehind = c > -0.2 ? 0 : c < -0.7 ? 1 : ((-0.2 - c)/0.5)*((-0.2 - c)/0.5)*(3 - 2*(-0.2 - c)/0.5);
-    const p = clamp((close - CHARGE.V0)/CHARGE.DV, 0, 1)*(CHARGE.P0 + (1 - CHARGE.P0)*fromBehind);
+    // (in the box he was attacking it takes more than that for a penalty: CHARGE.BOX)
+    const p = clamp((close - CHARGE.V0)/CHARGE.DV, 0, 1)*(CHARGE.P0 + (1 - CHARGE.P0)*fromBehind)*(inBox(ms.spec, ms.dirs[v.team], v.m.x, v.m.z) ? CHARGE.BOX : 1);
     if (!(p > 0) || ms.r() >= p) continue;
     const sev = clamp(0.25 + 0.06*close + 0.3*fromBehind, 0, 1)*CHARGE.BODY_SEV;
     foul(ms, o, v, sev, v.m.x, v.m.z, {charge: true, down: false});

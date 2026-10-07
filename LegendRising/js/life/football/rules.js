@@ -40,9 +40,15 @@ export const RULES = Object.freeze({
   READY_D: 2, CELEBRATE: 3,
   TAKER_AT: 2.6, SPRINT_D: 20, HURRY: 8,     // HURRY: a ball further than this is sprinted for               // the taker is at the ball within this (his run-up spot is 1.8 m back at most); he sprints to a spot further than this
   SUBS: 5,
-  THROW_FB: 6,                               // a full-back takes his side's throw-in when within this much of the winger's distance
-  SERVE_MEET: 1.2                            // seconds a served ball costs beyond its flight: meeting it and carrying it in
+  THROW_FB: 10,                              // a full-back takes his side's throw-in when within this much of the winger's distance
+  SERVE_MEET: 1.2,                           // seconds a served ball costs beyond its flight: meeting it and carrying it in
+  DEAD_ROLL: 4.0                             // a dead ball rolls on against this (m/s2): the ball boys, the boards and the
+                                             // players stop it (the grass's own value again once it is back in play)
 });
+
+// a dead ball rolls against RULES.DEAD_ROLL (its own grass value kept in deadRoll0 until it is back in play)
+function deadRoll(b){ if (b.deadRoll0 == null){ b.deadRoll0 = b.rollDecel; b.rollDecel = Math.max(b.rollDecel, RULES.DEAD_ROLL); } }
+export function liveRoll(b){ if (b.deadRoll0 != null){ b.rollDecel = b.deadRoll0; b.deadRoll0 = null; } }
 
 /* ---------- possession ---------- */
 
@@ -239,6 +245,7 @@ export function startRestart(ms, kind, team, spot, opt = {}){
   if (ms.advantage){ const AV = ms.advantage; ms.advantage = null; if (AV.foul && !AV.foul.booked) bookFoul(ms, AV.foul); }
   const b = ms.ball;
   if (b.state === 'free') b.state = 'dead';
+  deadRoll(b);
   // anyone holding the ball (a keeper) lets the hands go of it
   if (b.state === 'held' && kind !== 'goalkick') b.state = 'dead';
   for (const a of ms.agents){ if (a.act && a.act.kind !== 'dive' && a.role === 'player') a.act = null; a.drib = null; a.plan = null; }
@@ -297,10 +304,8 @@ function pickTaker(ms, kind, team, spot){
     const nw = fb && df <= dw0 + RULES.THROW_FB ? fb : nw0;
     const dw = nw ? hypot(nw.m.x - spot.x, nw.m.z - spot.z) : Infinity, dn = no ? hypot(no.m.x - spot.x, no.m.z - spot.z) : Infinity;
     t = nw && dw <= dn + 10 ? nw : no;
-    if (me && me.team === team && hypot(me.m.x - spot.x, me.m.z - spot.z) < 10 && t !== me){
-      const nd = hypot(t.m.x - spot.x, t.m.z - spot.z), md = hypot(me.m.x - spot.x, me.m.z - spot.z);
-      if (md <= nd) t = me;
-    }
+    // the player takes it when he is his side's nearest man to it and within 10 m (3.2.8)
+    if (me && me.team === team && me === no && hypot(me.m.x - spot.x, me.m.z - spot.z) < 10) t = me;
   } else if (kind === 'corner') t = best(at => at.curve + at.accuracy, 40);
   else if (kind === 'penalty') t = best(at => at.accuracy + at.composure, 50);
   else if (kind === 'free'){
@@ -722,18 +727,23 @@ export function restartTaken(ms, ev){
   const R0 = ms.restart;
   if (!R0) return;
   R0.taken = true;
+  liveRoll(ms.ball);
   const took = ms.t - R0.t0;
   if (took > RULES.SLOW && R0.kind !== 'kickoff') ms.stoppage[ms.half - 1] += RULES.STOP.slow;
   const fu = ms.dirs[R0.team]*R0.spot.x + ms.spec.hx;
   ms.restartLog.push({kind: R0.kind, took, limit: R0.limit, t: ms.t, final: fu > 2*ms.spec.L/3});
-  // a set piece into the box (a corner, a free kick in the final third): who of the side is in the box attacking it
-  let box = null;
+  // a set piece into the box (a corner, a free kick in the final third): who of the side is in the box attacking it,
+  // and who of the other side is in it defending it
+  let box = null, dbox = null;
   if ((R0.kind === 'corner' || R0.kind === 'free' || R0.kind === 'indirect') && fu > 2*ms.spec.L/3){
     const end = ms.dirs[R0.team];
-    box = [];
-    for (const a of ms.agents) if (a.team === R0.team && a.onPitch && a.role === 'player' && a.id !== R0.taker && !a.isGK && inBox(ms.spec, end, a.m.x, a.m.z)) box.push(a.id);
+    box = []; dbox = [];
+    for (const a of ms.agents){
+      if (!a.onPitch || a.role !== 'player' || a.id === R0.taker || a.isGK || !inBox(ms.spec, end, a.m.x, a.m.z)) continue;
+      if (a.team === R0.team) box.push(a.id); else if (a.team === 1 - R0.team) dbox.push(a.id);
+    }
   }
-  logEv(ms, 'restart', R0.team, R0.taker, R0.spot.x, R0.spot.z, {rk: R0.kind, taker: R0.taker, took: Math.round(took*100)/100, box});
+  logEv(ms, 'restart', R0.team, R0.taker, R0.spot.x, R0.spot.z, {rk: R0.kind, taker: R0.taker, took: Math.round(took*100)/100, box, dbox});
   if (ev){ ev.rk = R0.kind; if (R0.kind === 'free' || R0.kind === 'indirect') ev.fk = true; if (R0.kind === 'penalty') ev.pen = true; }
   ms.restart = null;
   ms.phase = 'live';

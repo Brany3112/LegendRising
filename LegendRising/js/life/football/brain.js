@@ -34,10 +34,22 @@ export const BRAIN = Object.freeze({
   CLEAR_FIRST: [3.0, 0.6, 32, 24, 12, 2.0],  // a loose ball in his own box with an opponent within 3 m: cleared first
                                      // time 60% of the time, 32 m upfield toward the near touchline at 24 m/s; within 12 m
                                      // of his goal line with the man within 2 m, out toward the corner flag
-  CARE: [0.4, 0.5, 0.35],    // tackle rate on a yellow card, as the last man, and for a forward (he harries, he rarely dives in)
+  CARE: [0.4, 0.5, 0.2],     // tackle rate on a yellow card, as the last man, and for a forward (he harries, he rarely dives in)
   SLIDE_CLOSE: 5.5,          // a slide only below this closing speed (m/s)
-  ME_SHOOT: 1.8,             // the stand-in for the player shoots more readily than the AI does (a player chasing chances)
-  ME_DRIBBLE: 1.8,           // the stand-in for the player takes his man on more often than the AI does (as a player does)
+  // The harness's stand-in for the player (meAI: the player as an AI-driven agent, 2.3 WP-E), by his archetype, as a
+  // player in that position plays: how much more readily than the AI he shoots (a shooter also tries from up to ME_RANGE
+  // m), takes his man on (and drives at goal in their half, ME_DRIVE), goes in for a tackle; how long (s) he goes
+  // without being in the play before he comes to show for it (a winger holds the width); how much higher (m) he plays
+  // with his side on the ball in their half (a forward getting into the box), and how much deeper with it in his own
+  // half (a ten coming short for it). 1, Infinity or 0: as the AI does.
+  ME: {
+    ST: {shoot: 3.2, dribble: 1.8, tackle: 1, seek: 10, up: 6, drop: 0},
+    W: {shoot: 3.2, dribble: 1, tackle: 1, seek: Infinity, up: 8, drop: 0},
+    AM: {shoot: 3.5, dribble: 1.8, tackle: 1, seek: 7, up: 0, drop: 6},
+    CM: {shoot: 1, dribble: 1, tackle: 2.2, seek: 10, up: 0, drop: 0},
+    DF: {shoot: 1, dribble: 1, tackle: 1, seek: 12, up: 0, drop: 0}
+  },
+  ME_RANGE: 36, ME_DRIVE: 0.6,
   TAKE_ON: 3.0,              // a dribble at a man within this distance in front is a take-on: a burst past him
   TAKE_ON_T: 1.2,            // seconds he commits to it
   GK_SPACE: 6,               // metres the other side keeps from a keeper with the ball in his hands
@@ -52,7 +64,8 @@ export const BRAIN = Object.freeze({
   THROUGH_ARRIVE: 8, THROUGH_ITERS: 5,
   DRIB_DIRS: 7, DRIB_LEN: 6, DRIB_K: 0.9,
   HOLD_K: 0.6, SHIELD_LOSE: 0.45,
-  SAFETY: [16, 0.55, 8, 0.03],   // out of play for safety: within 16 m of his goal line, pressed, 8 m off the middle; a corner costs 0.03
+  CLEAR: [26, 0.4, 0.72],     // a clearance: within 26 m of his goal line, pressed above 0.4, worth 0.72 of keeping it there
+  SAFETY: [18, 0.45, 6, 0.02],   // out of play for safety: within 18 m of his goal line, pressed, 6 m off the middle; a corner costs 0.02
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
   CROSS_T: 0.1, CROSS_V: 0.65, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
   CROSS_RUN: 0.5,            // a runner counts for a cross zone he reaches within the flight plus this
@@ -414,10 +427,12 @@ function* carrierOptions(ms, a){
   const add = (o) => { if (Number.isFinite(o.V)) opts.push(o); };
   // 1. a shot
   const gx = dir*ms.spec.hx, dGoal = hypot(gx - m.x, m.z);
-  if (dGoal < 34){
+  // the harness's stand-in for the player (meAI, a forward or a ten) shoots when he can, as a player chasing his own
+  // chances does
+  const meT = a.isMe && ms.meAI ? BRAIN.ME[a.arch] : null, meShot = !!meT && meT.shoot > 1;
+  if (dGoal < (meShot ? BRAIN.ME_RANGE : 34)){
     const xg = xgAt(ms, team, m.x, m.z);
-    // the harness's stand-in for the player (meAI) shoots when he can, as a player chasing his own chances does
-    const bias = (a.arch === 'DF' || a.arch === 'CM' ? 0.85 : 1)*(tempo.shotBias || 1)*(tm.lateShot || 1)*(a.isMe && ms.meAI ? BRAIN.ME_SHOOT : 1);
+    const bias = (a.arch === 'DF' || a.arch === 'CM' ? 0.85 : 1)*(tempo.shotBias || 1)*(tm.lateShot || 1)*(meShot ? meT.shoot : 1);
     const V = xg*(0.6 + 0.6*at.accuracy/100)*bias;
     add({kind: 'shot', V, xg});
   }
@@ -539,7 +554,11 @@ function* carrierOptions(ms, a){
     }
     const pBeat = sigmoid((drib - tk)/12 + (space - 2)/1.5);
     let V = BRAIN.DRIB_K*(pBeat*poss(uOf(ms, team, px), wOf(ms, team, pz), L, Wd) - (1 - pBeat)*loseHere);
-    if (a.isMe && ms.meAI && V > 0) V *= BRAIN.ME_DRIBBLE;
+    if (meT && meT.dribble > 1 && V > 0){
+      V *= meT.dribble;
+      // in their half he drives at goal: the line toward it is the one he likes
+      if (u > L/2){ const gl = hypot(gx - m.x, m.z) || 1, c = (ddx*(gx - m.x) + ddz*(0 - m.z))/gl; if (c > 0) V *= 1 + BRAIN.ME_DRIVE*c; }
+    }
     if (!bestDrib || V > bestDrib.V) bestDrib = {kind: 'dribble', V, dir: {x: ddx, z: ddz}, space, pBeat};
   }
   // a take-on: a forward line (within 60 degrees of straight at goal) past a man close in front of him (within 50
@@ -569,10 +588,10 @@ function* carrierOptions(ms, a){
       }
     }
   }
-  // 5. a clearance from his own box under pressure
-  if (u < 22 && press > 0.45){
-    const tx = -dir*(-ms.spec.hx + 50), tz = (m.z >= 0 ? -1 : 1)*(ms.spec.hz - 10);
-    add({kind: 'clear', V: here*0.7 + 0.004, target: {x: tx, y: R, z: tz}, contact: 1, speed: 26});
+  // 5. a clearance from around his own box under pressure: up the pitch toward the touchline on his side
+  if (u < BRAIN.CLEAR[0] && press > BRAIN.CLEAR[1]){
+    const tx = -dir*(-ms.spec.hx + 50), tz = (m.z >= 0 ? 1 : -1)*(ms.spec.hz - 10);
+    add({kind: 'clear', V: here*BRAIN.CLEAR[2] + 0.004, target: {x: tx, y: R, z: tz}, contact: 1, speed: 26});
   }
   // 5b. safety: pinned in a wide spot near his own goal line with a man on him, he puts it out of play (a corner or a
   // throw costs less than losing it there)
@@ -752,7 +771,17 @@ function carrierMove(ms, a){
 export function decideOffBall(ms, a){
   const team = a.team, dir = ms.dirs[team], L = ms.spec.L, Wd = ms.spec.Wd, m = a.m;
   const tm = ms.tm[team];
-  const anc = teamToPitch(ms, team, a.anchor.u, a.anchor.w, {x: 0, z: 0});
+  // the harness's stand-in for the player (BRAIN.ME): a forward, his side on the ball in their half, plays higher than his
+  // place in the shape, up to the defenders' line (getting forward for his chances); a ten, with it in his own half,
+  // comes short for it (not behind the ball)
+  const meT = a.isMe && ms.meAI ? BRAIN.ME[a.arch] : null;
+  let ancU = a.anchor.u;
+  if (meT && ms.poss.team === team){
+    const bu = uOf(ms, team, ms.ball.p.x);
+    if (meT.up > 0 && bu > L/2) ancU = Math.max(ancU, Math.min(ancU + meT.up, tm.lineOpp - 1));
+    else if (meT.drop > 0 && bu <= L/2) ancU = Math.max(bu + 4, ancU - meT.drop);
+  }
+  const anc = teamToPitch(ms, team, ancU, a.anchor.w, {x: 0, z: 0});
   const out = {x: anc.x, z: anc.z, gait: 'jog', face: null, stop: 0.6};
   const b = ms.ball.p, carrier = ctlAgent(ms);
   const dAnc = hypot(anc.x - m.x, anc.z - m.z);
@@ -814,6 +843,8 @@ export function decideOffBall(ms, a){
       // in the shape (a holding midfielder drops off to take it from his defenders)
       if (carrier !== a && (a.slotLine === 'CM' || a.slotLine === 'CAM') && supportRank(ms, a, carrier) < BRAIN.SUPPORT[0]
         && supportSpot(ms, a, carrier, anc, out)) return out;
+      // the harness's stand-in for the player, a long spell without the ball: he comes to show for it, as a player does
+      if (carrier !== a && meT && ms.t - (a.invT || 0) > meT.seek && supportSpot(ms, a, carrier, anc, out)) return out;
       // support: within 25 m of the carrier, open a lane if it is blocked
       const dc = hypot(carrier.m.x - m.x, carrier.m.z - m.z);
       if (dc < 25 && carrier !== a){
@@ -979,7 +1010,8 @@ function pressMove(ms, a, carrier){
     const behind = (cm.x - m.x)*(-sin(cm.yaw)) + (cm.z - m.z)*(-cos(cm.yaw)) > 0.4;
     // a man on a yellow card goes in less, and so does the last man before the keeper (he jockeys instead)
     const care = (a.booked ? BRAIN.CARE[0] : 1)*(lastMan(ms, a, carrier) ? BRAIN.CARE[1] : 1)*(a.slotLine === 'FWD' ? BRAIN.CARE[2] : 1);
-    const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100)*care;
+    const meT = a.isMe && ms.meAI ? BRAIN.ME[a.arch] : null;
+    const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100)*care*(meT ? meT.tackle : 1);
     if (ms.r() < rate/60){
       const err = 0.12*(1 - a.at.tackling/110)*gauss(ms.r);
       const kind = db > 1.0 && !behind ? 'poke' : 'stand';
@@ -1070,6 +1102,10 @@ export function restartShape(ms){
           const spots = [[5.5, side*2.5, 'near'], [7, -side*3.8, 'far'], [11, 0, 'spot'], [17.5, side*-2, 'edge'], [6, 0, 'six']];
           if (k < spots.length){ const s = spots[k]; shift(a, gxA - dirA*s[0], s[1], s[2]); }
           else { const q = teamToPitch(ms, team, L*0.5, Wd/2 + (k % 2 ? 10 : -10), {x: 0, z: 0}); shift(a, q.x, q.z, 'back'); }
+        } else if (a.id === outletOf(ms, R0, def)){
+          // the defending side's outlet stays up on halfway for the ball out (the counter)
+          const q = teamToPitch(ms, team, L*0.5 - 1, Wd/2 - side*dirA*8, {x: 0, z: 0});
+          shift(a, q.x, q.z, 'outlet');
         } else {
           // defenders: the near post, goal side of attackers in the box, outside 9.15 m of the ball
           const mark = nearestAttacker(ms, a, att);
@@ -1144,6 +1180,20 @@ function fkSlot(ms, a, attacking){
     .sort((p, q) => attacking ? (q.at.heading + q.at.jumping) - (p.at.heading + p.at.jumping) || p.id - q.id
       : (p.slotLine === 'DF' ? 0 : 1) - (q.slotLine === 'DF' ? 0 : 1) || (q.at.heading - p.at.heading) || p.id - q.id);
   return list.indexOf(a);
+}
+// the man a side defending a corner leaves up front: its quickest wide forward, else its quickest forward (once per
+// restart; the centre forward helps in the box)
+function outletOf(ms, R0, team){
+  if (R0.outlet == null){
+    let best = null;
+    const wide = o => /^(LW|RW|LM|RM)$/.test(o.slot) ? 1 : 0;
+    for (const o of ms.agents){
+      if (o.team !== team || !o.onPitch || o.isGK || o.leaving || o.slotLine !== 'FWD') continue;
+      if (!best || wide(o) > wide(best) || wide(o) === wide(best) && (o.at.pace > best.at.pace || o.at.pace === best.at.pace && o.id < best.id)) best = o;
+    }
+    R0.outlet = best ? best.id : -1;
+  }
+  return R0.outlet;
 }
 function cornerSlot(ms, a){
   // the tallest and best in the air go near and far; the rest fill the spot, the edge and back
@@ -1346,6 +1396,7 @@ export function brainStep(ms, h){
   if (c && c.isMe && ms.step % 30 === 3) mateCalls(ms, c);
   // the AI player calling for the ball (harness: the player as an AI agent behaves like one who uses R)
   if (ms.meAI && ms.me >= 0 && ms.step % 20 === 11) aiMeCall(ms);
+  if (ms.meAI && ms.me >= 0) meInvolved(ms);
   // a keeper with the ball in his hands is left alone to release it: nobody of theirs stands within 6 m of him
   const gkHold = c && c.isGK && ms.ball.state === 'held' && ms.ball.holder === c.id ? c : null;
   // everyone else
@@ -1452,6 +1503,16 @@ function mateCalls(ms, me){
     x.o.lastCall = ms.t;
     logEv(ms, 'call', x.o.team, x.o.id, x.o.m.x, x.o.m.z, {how: 'here', to: me.id});
   }
+}
+// the AI-driven player (the harness's stand-in for the player): when he was last in the play (a touch, a kick, a tackle,
+// a challenge, a pass to him), so that he comes looking for the ball after a long spell without it, as a player does
+function meInvolved(ms){
+  const me = ms.agents[ms.me], E = ms.events;
+  for (let i = ms.meInvSeen || 0; i < E.length; i++){
+    const e = E[i];
+    if (e.agent === me.id && (e.kind === 'touch' || e.kind === 'kick' || e.kind === 'tackle' || e.kind === 'challenge') || e.kind === 'kick' && e.recv === me.id) me.invT = e.t;
+  }
+  ms.meInvSeen = E.length;
 }
 // the AI-driven player calls "Here!" when he is open and a good option, with the R tap's cooldown and halving
 function aiMeCall(ms){

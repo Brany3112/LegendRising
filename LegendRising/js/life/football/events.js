@@ -17,6 +17,10 @@ const PASS_KINDS = new Set(['pass', 'through', 'cross', 'lob', 'throw', 'goalkic
 const aimed = p => p.intent === 'pass' || p.intent === 'through' || p.intent === 'cross' || p.intent === 'lob' || p.intent === 'roll' ||
   p.intent === 'throw' || (p.intent === 'header' || p.intent === 'goalkick') && p.recv >= 0;
 export const isPassIntent = k => PASS_KINDS.has(k);
+// a defender this close to the man on the ball is challenging him for it (the 'challenge' event)
+export const CHALLENGE_D = 2.0;
+// a spell on the ball goes on when the ball comes off somebody's body and he has it again within this (s)
+export const SPELL_REGAIN = 1.5;
 
 /* ---------- the log ---------- */
 
@@ -51,6 +55,7 @@ export function createChain(){
     ctl: {agent: -1, team: -1, t: -9, since: -9, x: 0, z: 0},   // the last controlled touch
     turnover: [null, null],      // each team's last loss of the ball: {agent, t, x, z} (errors)
     spell: -1,                   // the agent of the current spell of touches (touch counting)
+    spellGap: null,              // a spell held open by a ball off a body: {id, t}
     passRun: [0, 0], seqs: [0, 0],   // passes in the current possession, sequences of 5 or more
     possT: [0, 0], lastPossT: 0,
     drib: {agent: -1, cand: []}  // take-ons being watched: defenders met in front of the carrier ({id, past})
@@ -59,8 +64,8 @@ export function createChain(){
 
 // Dribbles (1.4.15 counters, 3.3): the carrier passed a defender who was within 2 m in front of him (toward the goal he
 // attacks) and still has the ball 1.5 s after getting past him. Called a few times a second while the ball is live;
-// logs 'dribble' {beat} once per defender per spell on the ball, and 'challenge' {on} for a defender within 1.5 m of
-// the man on the ball (an involvement in the sense of 3.2.7).
+// logs 'dribble' {beat} once per defender per spell on the ball, and 'challenge' {on} for a defender within CHALLENGE_D
+// of the man on the ball (pressing him: an involvement).
 export function dribbleWatch(ms){
   const W = ms.chain.drib, id = ms.poss.ctl;
   const c = id >= 0 ? ms.agents[id] : null;
@@ -73,8 +78,8 @@ export function dribbleWatch(ms){
   for (const o of ms.agents){
     if (o.team === c.team || o.team < 0 || !o.onPitch || o.role !== 'player' || o.isGK) continue;
     const du = dir*(o.m.x - c.m.x), d = hypot(o.m.x - c.m.x, o.m.z - c.m.z);
-    // a challenge for the ball (3.2.7's involvement: within 1.5 m of the man on it), logged once per 3 s per defender
-    if (d <= 1.5 && ms.t - o.chalT >= 3){ o.chalT = ms.t; logEv(ms, 'challenge', o.team, o.id, o.m.x, o.m.z, {on: c.id}); }
+    // a challenge for the ball (pressing the man on it: within 2 m of him), logged once per 3 s per defender
+    if (d <= CHALLENGE_D && ms.t - o.chalT >= 3){ o.chalT = ms.t; logEv(ms, 'challenge', o.team, o.id, o.m.x, o.m.z, {on: c.id}); }
     let q = null;
     for (const k of W.cand) if (k.id === o.id){ q = k; break; }
     if (!q){
@@ -182,7 +187,11 @@ export function chainKeep(ms, a){
 }
 function spellTouch(ms, id){
   const ch = ms.chain;
-  if (ch.spell !== id){ ch.spell = id; const a = ms.agents[id]; if (a) a.acc.touches = (a.acc.touches || 0) + 1; }
+  if (ch.spell === id) return;
+  const g = ch.spellGap;
+  ch.spell = id; ch.spellGap = null;
+  if (g && g.id === id && ms.t - g.t < SPELL_REGAIN) return;
+  const a = ms.agents[id]; if (a) a.acc.touches = (a.acc.touches || 0) + 1;
 }
 // any other touch (a deflection, a block; body: the ball ran into him, he did not play it): ends the current spell, and an
 // opponent's block of a pass is an interception
@@ -200,8 +209,11 @@ export function chainTouch(ms, a, how, ev, body = false){
     if (shot && !a.isGK){ shot.blockedBy = a.id; }
   }
   // a ball that hits a man's body without him playing it (a deflection, or a dribble run into a defender's legs) is no
-  // touch of his: it only ends whoever's spell it was
-  if (how === 'deflect' || body){ ch.spell = -1; return; }
+  // touch of his: it ends whoever else's spell it was (held open: he may have it again at once, SPELL_REGAIN)
+  if (how === 'deflect' || body){
+    if (ch.spell !== a.id){ if (ch.spell >= 0) ch.spellGap = {id: ch.spell, t: ms.t}; ch.spell = -1; }
+    return;
+  }
   spellTouch(ms, a.id);
 }
 // the ball went out: an open pass failed, an open shot missed
@@ -209,7 +221,7 @@ export function chainOut(ms, line, lastTeam){
   const ch = ms.chain;
   if (ch.pass && !ch.pass.res) resolvePass(ms, ch.pass, ch.pass.team === lastTeam || lastTeam < 0 ? 'out' : 'ok', -1);
   if (ch.shot && !ch.shot.res){ shotRes(ms, ch.shot, ch.shot.blockedBy != null ? 'blocked' : ch.shot.wood ? 'wood' : 'wide'); ch.shot = null; }
-  ch.spell = -1;
+  ch.spell = -1; ch.spellGap = null;
   for (const t of [0, 1]) ch.passRun[t] = 0;
 }
 // a goal: the open shot scored; the assist is the scorer's team's last completed pass with no deliberate opponent
@@ -225,7 +237,7 @@ export function chainGoal(ms, team, scorer){
   let assister = -1;
   if (lp && !ch.oppTouch[team] && lp.agent !== scorer && ms.t - lp.t <= 20){ assister = lp.agent; lp.assist = true; }
   for (const t of [0, 1]){ ch.lastPass[t] = null; ch.oppTouch[t] = true; ch.passRun[t] = 0; }
-  ch.spell = -1;
+  ch.spell = -1; ch.spellGap = null;
   return {shot, assister};
 }
 export function chainSave(ms, gk, outcome){
@@ -246,12 +258,14 @@ export function chainWood(ms, part){
 export function chainOffside(ms){
   const ch = ms.chain;
   if (ch.pass && !ch.pass.res) resolvePass(ms, ch.pass, 'off', -1);
-  ch.spell = -1;
+  ch.spell = -1; ch.spellGap = null;
 }
 export function chainDead(ms){
   const ch = ms.chain;
   if (ch.shot && !ch.shot.res){ shotRes(ms, ch.shot, ch.shot.blockedBy != null ? 'blocked' : 'wide'); ch.shot = null; }
   if (ch.pass && !ch.pass.res) resolvePass(ms, ch.pass, 'lost', -1);
+  // the whistle: the restart is a new spell, whoever takes it
+  ch.spell = -1; ch.spellGap = null;
 }
 
 /* ---------- counters (3.2.11) ---------- */
@@ -372,34 +386,40 @@ export function minsOn(ms, a){
 // counter keys of the rating, the archetypes, and the committed tables (the harness refits E and R0: --fit-ratings)
 const ARCHS = ['ST', 'W', 'AM', 'CM', 'DF'];
 export const RATE = {
-  R0: 6.2,
+  // R0 per archetype (keepers too): the harness refits it so that each archetype's starters average 6.5, so the
+  // player's trust from his ratings does not depend on the position he plays
+  R0: {ST: 6.06, W: 6.33, AM: 6.37, CM: 6.29, DF: 6.16, GK: 6.34},
   W: {
     pc: {ST: .015, W: .015, AM: .02, CM: .02, DF: .015}, pf: -.05, kp: .15, sot: .10, soff: -.04, bcm: -.25, drb: .12,
     dis: -.08, tkl: {ST: .22, W: .22, AM: .25, CM: .34, DF: .42}, int: {ST: .10, W: .10, AM: .10, CM: .12, DF: .14},
     aw: {ST: .06, W: .06, AM: .06, CM: .06, DF: .10}, al: {ST: -.04, W: -.04, AM: -.04, CM: -.04, DF: -.08}, fouls: -.08,
     offs: -.05, beaten: {ST: -.12, W: -.12, AM: -.12, CM: -.12, DF: -.18}, err: -.5
   },
-  // E: medians per 90 of the harness's starters (node qa/harness.mjs --n 48 --fit-ratings), committed by WP-E
+  // E: medians per 90 of the harness's starters (node qa/harness.mjs --n 150 --fit-ratings), committed by WP-E
   E: {
-    pc: {ST: 10, W: 15, AM: 12, CM: 12, DF: 14},
-    pf: {ST: 5, W: 7, AM: 4.5, CM: 5.42, DF: 7},
-    kp: {ST: 0, W: 0, AM: 1, CM: 0, DF: 0},
+    pc: {ST: 6, W: 12, AM: 7.89, CM: 10, DF: 14},
+    pf: {ST: 2, W: 4, AM: 1.03, CM: 2, DF: 3},
+    kp: {ST: 0, W: 1, AM: 0, CM: 0, DF: 0},
     sot: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
-    soff: {ST: 1, W: 0, AM: 0, CM: 0, DF: 0},
-    drb: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
-    dis: {ST: 3, W: 3, AM: 2, CM: 3, DF: 3},
-    tkl: {ST: 0, W: 1, AM: 1, CM: 1, DF: 1},
-    int: {ST: 5, W: 6, AM: 4, CM: 5, DF: 4},
-    aw: {ST: 0, W: 0, AM: 0.5, CM: 0, DF: 0},
-    al: {ST: 0, W: 0, AM: 0.5, CM: 0, DF: 0},
+    soff: {ST: 2, W: 0, AM: 0, CM: 0, DF: 0},
+    drb: {ST: 0, W: 1, AM: 0, CM: 0, DF: 0},
+    dis: {ST: 1.03, W: 2, AM: 1, CM: 1.03, DF: 1.02},
+    tkl: {ST: 0, W: 0, AM: 1, CM: 1, DF: 1},
+    int: {ST: 1.1, W: 1, AM: 1, CM: 1.02, DF: 1.03},
+    aw: {ST: 0, W: 0, AM: 1, CM: 0, DF: 0},
+    al: {ST: 0, W: 0, AM: 1, CM: 0, DF: 0},
     fouls: {ST: 0, W: 0, AM: 1, CM: 1, DF: 1},
-    offs: {ST: 0.5, W: 0, AM: 0, CM: 0, DF: 0},
+    offs: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
     beaten: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
     bcm: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0}, err: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0}, saves: {GK: 3.0}
   },
   G: {ST: 1.15, W: 1.10, AM: 1.0, CM: 1.0, DF: 1.25, GK: 1.25},
   A: {ST: 0.8, W: 0.95, AM: 1.05, CM: 1.05, DF: 1.0, GK: 1.0},
-  CS: {ST: 0, W: 0, AM: 0.1, CM: 0.3, DF: 0.7, GK: 0.8}
+  CS: {ST: 0, W: 0, AM: 0.1, CM: 0.3, DF: 0.7, GK: 0.8},
+  // K: the spread. Everything after R0 is scaled by it; the harness fits it with R0 so that the starters' ratings
+  // spread SPREAD about 6.5 (the 2.3 WP-E band is 0.55 to 0.9: the weights above on this simulation's counters alone
+  // spread them about 1.0)
+  K: 0.75, SPREAD: 0.75
 };
 const wOf = (k, arch) => { const w = RATE.W[k]; return typeof w === 'number' ? w : w[arch === 'GK' ? 'DF' : arch]; };
 const eOf = (k, arch) => { const e = RATE.E[k]; if (!e) return 0; return typeof e === 'number' ? e : (e[arch === 'GK' ? 'DF' : arch] || 0); };
@@ -407,9 +427,17 @@ const eOf = (k, arch) => { const e = RATE.E[k]; if (!e) return 0; return typeof 
 // A rating (1.5.8). c: the counters; arch: ST|W|AM|CM|DF|GK; ctx = {mins, res: 'W'|'D'|'L', conceded, role:
 // 'starter'|'sub'|'cameo'|...}. One decimal, 3 to 10.
 export function rateAgent(c, arch, ctx){
-  const m = clamp((ctx.mins || 0)/90, 0.1, 1);
   const A = arch === 'GK' ? 'GK' : ARCHS.includes(arch) ? arch : 'CM';
-  let r = RATE.R0;
+  let r = (typeof RATE.R0 === 'number' ? RATE.R0 : RATE.R0[A] != null ? RATE.R0[A] : 6.25) + (RATE.K != null ? RATE.K : 1)*rateTerms(c, A, ctx);
+  if (ctx.role === 'sub' || ctx.role === 'cameo' || ctx.sub) r = 6 + (r - 6)*0.9;
+  return Math.round(clamp(r, 3, 10)*10)/10;
+}
+
+// the terms of a rating after R0, before the spread (the counters against the expectations, goals, assists, the
+// result, the clean sheet, the cards); A: ST|W|AM|CM|DF|GK
+export function rateTerms(c, A, ctx){
+  const m = clamp((ctx.mins || 0)/90, 0.1, 1);
+  let r = 0;
   const keys = A === 'GK' ? ['pc', 'pf', 'err', 'fouls'] : Object.keys(RATE.W);
   for (const k of keys) r += wOf(k, A)*((c[k] || 0) - eOf(k, A)*m);
   if (A === 'GK'){
@@ -420,8 +448,7 @@ export function rateAgent(c, arch, ctx){
   const k = ctx.conceded || 0;
   r += (RATE.CS[A] || 0)*(k === 0 ? 1 : k === 1 ? 0.2 : -0.35*(k - 1))*m;
   r -= 0.25*(c.yellows || 0) + 1.4*(c.red || 0);
-  if (ctx.role === 'sub' || ctx.role === 'cameo' || ctx.sub) r = 6 + (r - 6)*0.9;
-  return Math.round(clamp(r, 3, 10)*10)/10;
+  return r;
 }
 
 // every player's rating: {[agent id]: rating}, with the result from his team's side and the goals conceded while he was

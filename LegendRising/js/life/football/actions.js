@@ -27,8 +27,8 @@ const DEG = Math.PI/180, R = BALL.R, G = 9.81;
 
 // 1.5.3 and 3.1.7 numbers
 export const ACT = Object.freeze({
-  SAFETY: [18, 3.5, 15, 0.85, 3, 11, 8],   // a clearing header for safety: within 18 m of his goal line, an attacker within
-                                  // 3.5 m or the ball faster than 15 m/s, taken 85% of the time: aimed 3 m beyond his goal
+  SAFETY: [22, 4.5, 13, 0.9, 3, 11, 8],   // a clearing header for safety: within 22 m of his goal line, an attacker within
+                                  // 4.5 m or the ball faster than 13 m/s, taken 90% of the time: aimed 3 m beyond his goal
                                   // line, 11 to 19 m off the middle on the ball's side
   REACH0: 0.45, REACH1: 0.90, REACH_LAT: 0.5,   // the ball's place for a strike: 0.45 to 0.90 m ahead, within 0.5 m across
   TC_MAX: 0.18, ADJUST: 0.35, SCUFF_D: 1.3,     // contact within 0.18 s; a stride adjust of at most 0.35 s; a scuff up to 1.3 m

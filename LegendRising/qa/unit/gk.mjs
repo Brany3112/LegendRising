@@ -174,14 +174,14 @@ const gxOf = ms => ms.spec.hx;
   }
   const C = tally(corners);
   check(C.rate < 0.35, "accuracy-90 shots into the corners from 16 m: saved less than 35%", C);
-  // close range: under 8 m, aimed anywhere in the frame
+  // close range: under 8 m (5.5 to 7.9 m out), aimed anywhere in the frame
   const close = [];
   for (let i = 0; i < 200; i++){
-    const z0 = (i % 5 - 2)*1.6, tz = ((i*37) % 11 - 5)/5*3.1, ty = 0.3 + ((i*13) % 9)/9*1.8;
-    close.push(shoot(rg, 52.5 - 6.5, z0, {x: 52.5, y: ty, z: tz}, 0.8));
+    const z0 = (i % 5 - 2)*1.6, tz = ((i*37) % 11 - 5)/5*3.1, ty = 0.3 + ((i*13) % 9)/9*1.8, d = 5.5 + ((i*7) % 5)*0.6;
+    close.push(shoot(rg, 52.5 - d, z0, {x: 52.5, y: ty, z: tz}, 0.8));
   }
   const K = tally(close);
-  check(K.rate >= 0.2 && K.rate <= 0.4, "close range (6.5 m): save rate 20 to 40%", K);
+  check(K.rate >= 0.2 && K.rate <= 0.4, "close range (under 8 m): save rate 20 to 40%", K);
   // a shot that misses the frame is never a save
   const wide = [];
   for (let i = 0; i < 40; i++) wide.push(shoot(rg, 52.5 - 18, 0, {x: 52.5, y: 0.6, z: (i % 2 ? 1 : -1)*6.5}, 0.8));
