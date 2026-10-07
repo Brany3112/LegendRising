@@ -545,7 +545,7 @@ export function box(x0, y0, z0, x1, y1, z1, color, o = {}){
   return {x0, x1, y0, y1, z0, z1};
 }
 export function cyl(x, y, z, r, h, color, o = {}){
-  const g = new THREE.CylinderGeometry(o.rt == null ? r : o.rt, r, h, lowSeg(o.seg || 10), 1, !!o.open);
+  const g = new THREE.CylinderGeometry(o.rt == null ? r : o.rt, r, h, o.seg || 10, 1, !!o.open);
   if (o.rx) g.rotateX(o.rx); if (o.rz) g.rotateZ(o.rz); if (o.ry) g.rotateY(o.ry);
   g.translate(x, y + (o.rx || o.rz ? 0 : h/2), z);
   addGeo(g, color, Object.assign({ao:false}, o));
@@ -556,15 +556,10 @@ export function blob(x, y, z, r, color, o = {}){        // a low-poly ball: tree
   g.translate(x, y, z); addGeo(g, color, Object.assign({ao:false}, o));
 }
 const roundMin = () => { const P = gfxP(); return P && P.tier === "low" ? .05 : .016; };
-/* round things on Low (made when a place is built, like the rounding above): two thirds of the segments round a
-   cylinder or a sphere, at least min (never more than it had: a square post stays square), and one row of segments
-   round a rounded box's edges */
-export const lowSeg = (n, min = 6) => { const P = gfxP(); return P && P.tier === "low" ? Math.min(n, Math.max(min, Math.round(n*2/3))) : n; };
 /* a box with its edges and corners rounded off. Built from a segmented cube whose outer rows are pushed
    out onto quarter circles, so it costs a few dozen triangles and reads as a soft, made object. */
 export function roundedBoxGeo(w, h, d, r, seg = 1){
   r = Math.max(0, Math.min(r, w/2 - 1e-3, h/2 - 1e-3, d/2 - 1e-3));
-  if (seg > 1 && lowSeg(seg, 1) < seg) seg = 1;
   // a rounding under a couple of centimetres is invisible past arm's length: a plain box is 12 triangles, not 108.
   // Low draws any rounding under 5 cm square (made when a place is built: a change of preset shows from the next place)
   if (r < roundMin()) return new THREE.BoxGeometry(w, h, d);
