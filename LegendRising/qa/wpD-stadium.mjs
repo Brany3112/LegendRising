@@ -26,6 +26,9 @@
 //   build    zone build time against the ground zone's, the same session: at most 1.5 times
 //   walk     with body() from the dressing room spawn through the tunnel to the centre spot: within 1.2 times the
 //            straight-line time, never stuck on the way
+//   preset   a change of preset in the stadium (3.9.1, 3.9.3): the crowd is made again for it (Low's blocks, Medium and
+//            High's billboards) with its fans and the bench as they were, and High's real lights (the tunnel's, the
+//            dugouts') are there to light: one lit standing in the tunnel on High, none on Low
 import {launch, career, freeze, stepN, report, expect} from "./lib.mjs";
 
 const argv = process.argv.slice(2), opt = k => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : null; };
@@ -305,6 +308,39 @@ try {
     if (w.stuckFrames > 0) fail("walk", `stuck for ${w.stuckFrames} frames on the way`);
     if (!res.checks.walk.why) pass("walk");
     console.log(`walk: dressing room to the centre spot in ${w.seconds} s (straight line ${w.straightSeconds} s, x${w.ratio}), stuck ${w.stuckFrames}`);
+  }
+
+  /* ---------- a change of preset in the stadium (last: it leaves the page on the preset it started on) ---------- */
+  if (want("preset")){
+    await enter(3);
+    const steps = await page.evaluate(async (start) => {
+      const L = window.__life, ST = window.__WPD.S.STADIUM, q = await import("/js/life/core/quality.js"), out = [];
+      L.FADE.v = 0; L.FADE.boot = false;
+      ST.crowd.setBench("home", 3);
+      const TUNNEL = {x: 0, z: -48, y: .12, yaw: 0};
+      for (const t of ["high", "low", start === "high" ? "medium" : "high", start]){
+        setGfx(t);
+        for (let i = 0; i < 400 && !(q.RQ.P && q.RQ.P.tier === GFX.tier && !q.RQ.busy && !q.RQ.pending); i++){ L.stepN(1); await new Promise(r => setTimeout(r, 25)); }
+        L.place(TUNNEL); L.stepN(30); L.renderer().render(L.scene(), L.cam);
+        let lit = 0; L.scene().traverse(o => { if (o.isPointLight && o.visible && o.intensity > 0) lit++; });
+        const c = ST.crowd.stats();
+        out.push({gfx: t, applied: q.RQ.P && q.RQ.P.tier, kind: c.kind, draws: c.draws, fans: c.fans, billboards: c.billboards, bench: Object.assign({}, ST.crowd.benchN), lit,
+          pool: L.sky().pool.length, crowdInScene: ST.crowd.meshes.every(m => !!m.parent)});
+      }
+      return out;
+    }, gfx);
+    res.checks.preset = {steps};
+    const fans0 = steps[0].fans;
+    for (const s of steps){
+      if (s.applied !== s.gfx) fail("preset", `${s.gfx} was not applied (${s.applied})`);
+      if (s.kind !== (s.gfx === "low" ? "blocks" : "billboards")) fail("preset", `on ${s.gfx} the crowd is ${s.kind}`);
+      if (s.fans !== fans0 || !s.crowdInScene) fail("preset", `on ${s.gfx} the crowd is not the same people in the scene (${s.fans} fans, in scene ${s.crowdInScene})`);
+      if (s.bench.home !== 3) fail("preset", `on ${s.gfx} the home bench has ${s.bench.home}, not 3`);
+      if (s.gfx === "high" && s.lit < 1) fail("preset", `on High no real light is lit in the tunnel (pool ${s.pool})`);
+      if (s.gfx === "low" && s.lit !== 0) fail("preset", `on Low ${s.lit} point lights are lit`);
+    }
+    if (!res.checks.preset.why) pass("preset");
+    console.log("preset: " + steps.map(s => `${s.gfx} ${s.kind} ${s.draws} draws, ${s.lit} lit`).join("; "));
   }
 
   res.errors = page.errors.slice();

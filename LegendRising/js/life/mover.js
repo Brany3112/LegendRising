@@ -11,12 +11,14 @@
 //   const prm = moverParams({pace: 62, dribbling: 55}, "football", {grip: true});
 //   moverStep(m, {dx, dz, gait: "jog"}, prm, stamFactors(st, eF), 1/60);
 //
-// Directions use the yaw convention of DESIGN 1.1 (yaw 0 faces -Z): yawOf and wrapA from pitchspec.js (and dirOf's
+// Directions use the yaw convention of DESIGN 1.1 (yaw 0 faces -Z): wrapA from pitchspec.js (yawOf and dirOf, their
 // formula, written out where a step would otherwise allocate). Trigonometry, powers and lengths come from detmath.js, so
-// a step gives the same bits in Node and in every browser (D6).
+// a step gives the same bits in Node and in every browser (D6). The step and timeToPoint call detmath's register forms
+// (DR[0] = x; cosQ(); c = DR[0]): a call that passes or returns a fractional number allocates, and these run thousands
+// of times a step (3.9.6). yawOf(dx, dz) is atan2(-dx, -dz), written out the same way.
 
-import {yawOf, wrapA} from "./football/pitchspec.js";
-import {sin, cos, atan2, pow, hypot, exp, log} from "./football/detmath.js";
+import {wrapA} from "./football/pitchspec.js";
+import {hypot, DR, sinQ, cosQ, atan2Q, powQ, expQ, logQ} from "./football/detmath.js";
 import {FRESH} from "./stamina.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -105,7 +107,8 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   if (has){ dx /= dl; dz /= dl; }
   const thr = has ? Math.min(1, dl) : 0;
   const v0 = m.speed;
-  const wishYaw = has ? yawOf(dx, dz) : m.heading;
+  let wishYaw = m.heading;
+  if (has){ DR[0] = -dx; DR[1] = -dz; atan2Q(); wishYaw = DR[0]; }      // yawOf(dx, dz)
   const held = !!(it.face || it.strafe);          // facing is held (look, jockey, keeper), not following the heading
 
   // 1. target speed from the gait, the stamina factors, the facing caps and the caller's cap. The facing caps (the
@@ -144,7 +147,8 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   let planting = false;
   m.cut = 0;
   if (has && v0 > prm.cutMin && theta > prm.cutAngle){
-    vt *= Math.max(prm.cutFloor, cos(theta)); planting = true; m.cut = theta;
+    DR[0] = theta; cosQ();
+    vt *= Math.max(prm.cutFloor, DR[0]); planting = true; m.cut = theta;
   } else if (has && theta > Math.PI/2){
     vt = 0; planting = true;
   }
@@ -160,8 +164,10 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   m.plant = 0;
   if (v < vt){
     const vmax = Math.max(vt, sprintSpeed(prm, fac)), k = prm.a0*fac.accel/vmax;
-    const s0 = 1 - v/vmax, sg = Math.max(0, pow(s0, 0.2) - 0.2*k*h);
-    v = Math.min(vt, vmax*(1 - pow(sg, 5)));
+    const s0 = 1 - v/vmax;
+    DR[0] = s0; DR[1] = 0.2; powQ();
+    const sg = Math.max(0, DR[0] - 0.2*k*h), sg2 = sg*sg;
+    v = Math.min(vt, vmax*(1 - sg*(sg2*sg2)));          // sg^5 multiplied out as pow() does it (the same bits)
   } else if (v > vt){
     const rate = planting ? prm.plant : prm.brake;
     v = staggered && v > prm.staggerCap ? prm.staggerCap : Math.max(vt, v - rate*h);
@@ -182,7 +188,7 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
 
   // 5. body facing: the held facing when given, else the heading while moving; never faster than faceRate
   let faceYaw = null;
-  if (it.face && (it.face.x || it.face.z)) faceYaw = yawOf(it.face.x, it.face.z);
+  if (it.face && (it.face.x || it.face.z)){ DR[0] = -it.face.x; DR[1] = -it.face.z; atan2Q(); faceYaw = DR[0]; }
   else if (!it.strafe && v > SNAP_V) faceYaw = m.heading;
   if (faceYaw != null){
     const e = wrapA(faceYaw - m.yaw), lim = prm.faceRate*h;
@@ -198,7 +204,8 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   // speed's worth (a prefix of the answer's slide), so the body slides as fast as it says it does at any frame rate.
   // An answer that takes nothing from the run (a shove to the side, a push further along) is applied as it is and
   // leaves the velocity alone.
-  const ux = -sin(m.heading), uz = -cos(m.heading);       // dirOf(m.heading), inline
+  DR[0] = m.heading; sinQ(); const ux = -DR[0];
+  DR[0] = m.heading; cosQ(); const uz = -DR[0];          // dirOf(m.heading), inline
   const want = v*h;
   let mx = ux*want, mz = uz*want, vx = ux*v, vz = uz*v;
   if (want > 0){
@@ -221,7 +228,7 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
         const carry = Math.min(v*Math.max(0, ux*sx + uz*sz), v0 - prm.brake*h);
         k = Math.min(v, Math.max(drive, carry));
         vx = sx*k; vz = sz*k;
-        if (k > 1e-9) m.heading = yawOf(sx, sz);
+        if (k > 1e-9){ DR[0] = -sx; DR[1] = -sz; atan2Q(); m.heading = DR[0]; }
         // along the slide the body goes as far as it runs this step (k*h), never further than the answer; the part
         // of the answer across it (the gap closed, a push out) stands in full
         const go = Math.min(tl, k*h);
@@ -246,41 +253,82 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
 // point (a plant at speed, a stop for a slow reversal, or a curve at the turn rate moverStep allows), then the
 // closed-form run-up to the sprint speed the factors allow. An estimate for AI and interception (it never steps the
 // mover): within 1% of moverStep on straight runs, and close on turning ones (qa/unit/mover.mjs).
+// (The register form for the inner loops, which call it thousands of times a step: TT[0] = tx, TT[1] = tz, TT[2] =
+// react in, the seconds out in TT[0]; nothing is boxed or allocated. timeToPoint is the same with arguments.)
+export const TT = new Float64Array(3);
 export function timeToPoint(m, prm, fac, tx, tz, react = 0){
+  TT[0] = tx; TT[1] = tz; TT[2] = react;
+  timeToPointQ(m, prm, fac);
+  return TT[0];
+}
+export function timeToPointQ(m, prm, fac){
+  const tx = TT[0], tz = TT[1], react = TT[2];
   fac = fac || FRESH;
   const ddx = tx - m.x, ddz = tz - m.z, D0 = hypot(ddx, ddz);
-  if (D0 < 1e-6) return react;
+  if (D0 < 1e-6){ TT[0] = react; return; }
   const vs = sprintSpeed(prm, fac), k = prm.a0*fac.accel/vs, aLat = prm.aLat*fac.turn;
   let v = Math.min(m.speed, vs), t = react, D = D0;
-  const th = v > SNAP_V ? Math.abs(wrapA(yawOf(ddx, ddz) - m.heading)) : 0;
+  let th = 0;
+  if (v > SNAP_V){ DR[0] = -ddx; DR[1] = -ddz; atan2Q(); th = Math.abs(wrapA(DR[0] - m.heading)); }
   if (th > 1e-6){
     // a local frame: the heading along +x, the point at angle th to the left (the right is the mirror image)
-    const Tx = D0*cos(th), Ty = D0*sin(th);
+    DR[0] = th; cosQ(); const Tx = D0*DR[0];
+    DR[0] = th; sinQ(); const Ty = D0*DR[0];
     let px = 0, py = 0, hd = 0;
     if (v > prm.cutMin && th > prm.cutAngle){
       // a plant (the cut rule): braking at the plant rate while the heading swings at aLat/v, so the error left at
       // speed u is th + (aLat/plant)*ln(u/v); the plant ends where u meets the cut target vs*max(floor, cos error)
       // (a body that faces where it runs keeps its sprint target through the turn: moverStep step 1)
-      const c = aLat/prm.plant;
-      const left = u => Math.max(0, th + c*log(u/v));
-      const want = u => { const e = left(u); return e <= prm.cutAngle ? Infinity : vs*Math.max(prm.cutFloor, cos(e)); };
-      let lo = 0, hi = v;
-      if (want(v) >= v) lo = v;
-      else for (let i = 0; i < 20; i++){ const mid = (lo + hi)/2; if (mid > want(mid)) hi = mid; else lo = mid; }
-      const v1 = Math.max(lo, 0.05), tp = (v - v1)/prm.plant, turned = th - left(v1), s = (v + v1)/2*tp;
-      t += tp; px = s*cos(turned/2); py = s*sin(turned/2); hd = turned; v = v1;
+      // The plant's exit speed u solves u = want(u): left(u) = max(0, th + c ln(u/v)) is the heading error left at u and
+      // want(u) the cut target there (vs max(floor, cos left), none once the error is within the cut angle). It is
+      // bisected in w = ln(u/v), from ln(0.05/v) (the plant never ends slower than 0.05 m/s) to 0: an exp a halving
+      // instead of a log, and twelve halvings put u within 0.2% of itself. (Written out without closures or boxed
+      // calls: this runs for every opponent and lane sample a pass is weighed against and every sample of a loose
+      // ball's path a chaser is tried at, thousands of times a step, 3.9.6.)
+      const c = aLat/prm.plant, cutA = prm.cutAngle, cutF = prm.cutFloor;
+      let e = th, w = Infinity;                       // at u = v: left = th (ln 1 = 0)
+      if (!(e <= cutA)){ DR[0] = e; cosQ(); w = vs*Math.max(cutF, DR[0]); }
+      let v1 = v, ln1 = 0;
+      if (!(w >= v)){
+        DR[0] = 0.05/v; logQ();
+        let lo = Math.min(0, DR[0]), hi = 0;
+        for (let i = 0; i < 12; i++){
+          const mid = (lo + hi)/2;
+          DR[0] = mid; expQ();
+          const u = v*DR[0];
+          e = Math.max(0, th + c*mid); w = Infinity;
+          if (!(e <= cutA)){ DR[0] = e; cosQ(); w = vs*Math.max(cutF, DR[0]); }
+          if (u > w) hi = mid; else lo = mid;
+        }
+        DR[0] = lo; expQ();
+        v1 = Math.max(v*DR[0], 0.05); ln1 = lo;
+      }
+      const tp = (v - v1)/prm.plant, s = (v + v1)/2*tp;
+      const turned = th - Math.max(0, th + c*ln1);
+      t += tp;
+      DR[0] = turned/2; cosQ(); px = s*DR[0];
+      DR[0] = turned/2; sinQ(); py = s*DR[0];
+      hd = turned; v = v1;
       // out of the plant below the cut speed with the point still more than a quarter turn away: moverStep brakes
       // on at the plant rate (a reversal) while the heading keeps swinging at aLat/u, until the error is back to a
       // quarter turn at u2 = v*exp((pi/2 - e)/c); if that is all but standing, it stops and sets off afresh
-      const e2 = wrapA(atan2(Ty - py, Tx - px) - hd);
+      DR[0] = Ty - py; DR[1] = Tx - px; atan2Q();
+      const e2 = wrapA(DR[0] - hd);
       if (v <= prm.cutMin && e2 > Math.PI/2){
-        const u2 = v*exp((Math.PI/2 - e2)/c);
+        DR[0] = (Math.PI/2 - e2)/c; expQ();
+        const u2 = v*DR[0];
         if (u2 > 0.5){
           const tp2 = (v - u2)/prm.plant, sw = e2 - Math.PI/2, s2 = (v + u2)/2*tp2;
-          t += tp2; px += s2*cos(hd + sw/2); py += s2*sin(hd + sw/2); hd += sw; v = u2;
+          t += tp2;
+          DR[0] = hd + sw/2; cosQ(); px += s2*DR[0];
+          DR[0] = hd + sw/2; sinQ(); py += s2*DR[0];
+          hd += sw; v = u2;
         } else {
           const s2 = v*v/(2*prm.plant);
-          t += v/prm.plant; px += s2*cos(hd); py += s2*sin(hd); v = 0;
+          t += v/prm.plant;
+          DR[0] = hd; cosQ(); px += s2*DR[0];
+          DR[0] = hd; sinQ(); py += s2*DR[0];
+          v = 0;
         }
       }
     } else if (th > Math.PI/2){
@@ -290,24 +338,36 @@ export function timeToPoint(m, prm, fac, tx, tz, react = 0){
     }
     if (v > SNAP_V){
       // a curve for what is left of the error: an arc of radius v/w at w = min(wMax, aLat/v)
-      const e = Math.max(0, wrapA(atan2(Ty - py, Tx - px) - hd));
+      DR[0] = Ty - py; DR[1] = Tx - px; atan2Q();
+      const e = Math.max(0, wrapA(DR[0] - hd));
       const w = Math.min(prm.wMax, aLat/Math.max(v, 0.5)), r = v/w;
       t += e/w;
-      px += r*(sin(hd + e) - sin(hd)); py += r*(cos(hd) - cos(hd + e));
+      DR[0] = hd + e; sinQ(); const sA = DR[0];
+      DR[0] = hd; sinQ(); const sB = DR[0];
+      DR[0] = hd; cosQ(); const cB = DR[0];
+      DR[0] = hd + e; cosQ(); const cA = DR[0];
+      px += r*(sA - sB); py += r*(cB - cA);
     }
     D = hypot(Tx - px, Ty - py);
   }
-  if (D <= 0) return t;
+  if (D <= 0){ TT[0] = t; return; }
   v = clamp(v, 0, vs);
   // closed form from speed v towards vs: s = 1 - v/vs, sigma = s^0.2, x(t) = vs*(t - (sigma^6 - (sigma - 0.2kt)^6)/(1.2k))
-  const sig = pow(1 - v/vs, 0.2), Tr = sig/(0.2*k);
-  const xAt = tt => vs*(tt - (pow(sig, 6) - pow(Math.max(0, sig - 0.2*k*tt), 6))/(1.2*k));
-  const xr = xAt(Tr);
-  if (D >= xr) return t + Tr + (D - xr)/vs;
+  // (the sixth powers are multiplied out as pow() does it for an integer exponent, x^2 (x^2 x^2), so the bits are
+  // the same; no closure, no call a halving)
+  DR[0] = 1 - v/vs; DR[1] = 0.2; powQ();
+  const sig = DR[0], Tr = sig/(0.2*k), s2 = sig*sig, sig6 = s2*(s2*s2), k12 = 1.2*k;
+  let q = Math.max(0, sig - 0.2*k*Tr), q2 = q*q;
+  const xr = vs*(Tr - (sig6 - q2*(q2*q2))/k12);
+  if (D >= xr){ TT[0] = t + Tr + (D - xr)/vs; return; }
   // bisection on the monotonic run-up (24 halvings: far below a frame)
   let lo = 0, hi = Tr;
-  for (let i = 0; i < 24; i++){ const mid = (lo + hi)/2; if (xAt(mid) < D) lo = mid; else hi = mid; }
-  return t + (lo + hi)/2;
+  for (let i = 0; i < 24; i++){
+    const mid = (lo + hi)/2;
+    q = Math.max(0, sig - 0.2*k*mid); q2 = q*q;
+    if (vs*(mid - (sig6 - q2*(q2*q2))/k12) < D) lo = mid; else hi = mid;
+  }
+  TT[0] = t + (lo + hi)/2;
 }
 
 // What the animation and the camera need from the last step: speed, how fast the heading turned (rad/s, + is to

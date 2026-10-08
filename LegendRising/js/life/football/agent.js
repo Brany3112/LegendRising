@@ -51,7 +51,8 @@ export function createAgent(o){
     onPitch: o.onPitch !== false, booked: 0, sentOff: false, injured: false,
     anchor: {u: 0, w: 0}, task: {press: 0, mark: -1, run: null},
     brain: {next: 0, pending: false, last: null},
-    on: [],
+    on: [],          // [[start, end | null]] in match seconds (the clock's running total, 1.4.13): the minutes
+    onT: [],         // the same intervals in simulation seconds (ms.t): event times, real-time gaps
     // additions (not in the 1.4.13 shape): steering target, tiredness factors, the body record for the ball world,
     // where the step started (the no-teleport assert), per-agent accumulators the event log cannot give
     tgt: {x: o.x || 0, z: o.z || 0, gait: 'jog', face: null, speedCap: Infinity, stop: 0.25, strafe: false},
@@ -60,7 +61,16 @@ export function createAgent(o){
     x0: o.x || 0, z0: o.z || 0,
     acc: {dist: 0, sprints: 0, sprintOn: false, oop: 0, oopFar: 0, drain: 0, mins: 0},
     touchFoot: 0, strides: 0, footN: 0, drib: null, ctl: false, plan: null, set: null, wall: false,
-    perceived: 0, callT: -99, calls: 0, lastCall: -99, chalT: -99, gk: null, react: 0.2, cool: {tackle: 0, call: 0, header: 0}
+    perceived: 0, callT: -99, calls: 0, lastCall: -99, chalT: -99, gk: null, react: 0.2, cool: {tackle: 0, call: 0, header: 0},
+    // what the match sets on an agent later, declared here so that every agent keeps one shape: the step reads these
+    // for all 25 bodies, and agents that grew them in different orders turned every one of those reads into a slow,
+    // allocating lookup (3.9.6). Each starts as what it read as before it was first set.
+    slotLine: undefined, baseX: null, diveMoved: false, slideMoved: false, cornerRole: null, fkRole: null, wasOn: false,
+    tgtSet: false, ctlT: undefined, hold: null, lastChoice: undefined, pendKick: null, nudgeT: undefined, invT: undefined,
+    noTouch: undefined, roll: 0, marker: undefined, leaving: false, exit: null, subbedOff: false, penSide: undefined,
+    koMate: undefined,
+    // the agent's own facing vector for faceTo() in the per-step code (one object reused, not a new one a step)
+    faceV: {x: 0, z: 0}
   };
   a.react = 0.25 - 0.0015*clamp(at.interception != null ? at.interception : 50, 0, 99);
   return a;

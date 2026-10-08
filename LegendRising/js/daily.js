@@ -280,7 +280,7 @@ function dailyEnsure(){
   S.odor = clamp(num(S.odor, 12), 0, 100);              // 0 fresh out of the shower, 100 nobody will stand next to you
   S.hyd = clamp(num(S.hyd, 82), 0, 100);                // 100 well watered, 0 parched
   S.chem = clamp(num(S.chem, 20), 0, 100);
-  S.trust = clamp(num(S.trust, 0), -30, 80);
+  trustAdd(0);                                          // a stored trust that is not a number, or out of range, put right
   S.money = Math.round(num(S.money, 0));
   S.traits = Object.assign({team:50, conf:50, dec:50, risk:50}, S.traits || {});
   for (const k of TRAIT_KEYS) S.traits[k] = clamp(num(S.traits[k], 50), 0, 100);
@@ -773,7 +773,8 @@ function nextOrder(){ return S.orders.slice().sort((a, b) => a.eta - b.eta)[0] |
 
 /* ---------- Team Chemistry, the manager, and who you are becoming ---------- */
 function chemAdd(d){ S.chem = clamp(S.chem + d, 0, 100); return d; }
-function trustAdd(d){ S.trust = clamp(S.trust + d, -30, 80); return d; }
+// the one way trust changes (and a stored value is sanitised: trustAdd(0)); never anything but a number in -30..80
+function trustAdd(d){ S.trust = clamp(num(S.trust, 0) + num(d, 0), -30, 80); return d; }
 // slow to move, slower still at the extremes: nobody's character changes in one afternoon
 function trait(k, d){
   const v = num(S.traits[k], 50);

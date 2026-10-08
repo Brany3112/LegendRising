@@ -32,6 +32,7 @@ export const STRIKE = Object.freeze({
   RANGE_EL: 40*DEG,                     // about the longest-range elevation under drag: where a short ball is sent
   CURL_BASE: 18, CURL_K: 0.25,          // finesse sidespin 18 + 0.25 curve rad/s
   TOL: 0.01, MISS_OK: 0.05, ITERS: 4,   // Newton: stop under 1 cm, a solution is ok within 5 cm, at most 4 updates
+  WARM_ITERS: 2,                        // at most 2 from a warm start (a presolve already searched)
   T_MAX: 6,                             // seconds of flight the solver follows
   AIM_Y0: 0.11, AIM_Y1: 6.0,            // aim heights are clamped to this (3.1.3)
   KNUCK: {W: 4, V: 24, P: 0.72, A0: 1.2, A1: 2.6, F0: 5, F1: 9},   // 1.5.1 knuckle conditions and wobble
@@ -108,7 +109,38 @@ function guess(sv, D, dy){
 // contact is a rolling ball (elevation 0). Returns {v, w, ok, tFlight, apex} plus yaw, elev, miss (metres) and iters.
 // ok is false when the target is out of reach at that speed and contact: the launch returned is the closest one, and
 // the ball then falls short or flies over by physics.
-export function solveStrike(req){
+// warm (optional): {yaw, el, J} from a solve of nearly the same strike a moment earlier (presolve: the kick's swing,
+// for the ball where it will be at contact and the target before its deviation). Newton then starts from that launch
+// instead of the closed-form guess, and its first update uses that solve's Jacobian J = [dlat/dyaw, dlat/del,
+// dver/dyaw, dver/del] instead of two more flights; the later ones work theirs out as usual. A warm start is a
+// refinement of a search already made: it stops after STRIKE.WARM_ITERS updates (the closest launch is returned).
+export function solveStrike(req, warm = null){
+  const g = solveGen(req, warm, null);
+  let r = g.next();
+  while (!r.done) r = g.next();
+  return r.value;
+}
+// The same solve one flight at a time (a generator that yields after each flight), so that a kick's swing can carry it a
+// flight a step and no single step of the simulation pays for a whole solve (2.3 WP-E: a step costs at most 1.5 ms).
+// st (optional) receives the best launch so far (st.yaw, st.el, st.n flights flown) and the last Jacobian (st.J).
+export function presolve(req){
+  const st = {yaw: NaN, el: NaN, J: null, n: 0, done: false, res: null, gen: null};
+  st.gen = solveGen(req, null, st);
+  return st;
+}
+// run up to `flights` more flights of a presolve; returns true when it has finished
+export function presolveStep(st, flights = 1){
+  for (let i = 0; i < flights && !st.done; i++){
+    const r = st.gen.next();
+    if (r.done){ st.done = true; st.res = r.value; st.gen = null; }
+  }
+  return st.done;
+}
+// the warm start a presolve gives (null before its first flight)
+export function presolveWarm(st){
+  return st && st.n > 0 && Number.isFinite(st.yaw) && Number.isFinite(st.el) ? {yaw: st.yaw, el: st.el, J: st.J} : null;
+}
+function* solveGen(req, warm, st){
   const from = req.from, tg = req.target;
   const contact = req.contact > 0 ? 1 : req.contact < 0 ? -1 : 0;
   const sv = {from, speed: clamp(+req.speed || 0, 0.1, VMAX), contact, curl: clamp(+req.curl || 0, -1, 1),
@@ -129,16 +161,28 @@ export function solveStrike(req){
   // a rolling ball for a ground target
   if (sv.ty <= R + 0.05 && from.y <= R + 0.05 && contact <= 0){
     let yaw = sv.yawT, e = evalLaunch(sv, yaw, 0), it = 0;
+    if (st){ st.yaw = yaw; st.el = 0; st.n++; }
+    yield;
     while (!e.short && Math.abs(e.lat) > STRIKE.TOL && it < STRIKE.ITERS){
       yaw -= e.lat/D; it++;                     // a rolling ball goes straight: d(lat)/d(yaw) = -D
       e = evalLaunch(sv, yaw, 0);
+      if (st){ st.yaw = yaw; st.n++; }
+      yield;
     }
     const miss = e.short ? Infinity : hypot(e.lat, e.ver);
     return result(sv, null, yaw, 0, !e.short && miss <= STRIKE.MISS_OK, e.short ? Infinity : e.t, e.apex, miss, it);
   }
 
-  const g0 = guess(sv, D, sv.ty - Math.max(R, from.y));
-  let yaw = g0.yaw, el = clamp(g0.el, lo, hi), it = 0;
+  // (each flight below copies what it needs out of the shared result EV before the generator yields: another solve may
+  // fly in between)
+  let yaw, el, it = 0, warmJ = null, maxIt = STRIKE.ITERS;
+  if (warm && Number.isFinite(warm.yaw) && Number.isFinite(warm.el)){
+    yaw = warm.yaw; el = clamp(warm.el, lo, hi); maxIt = STRIKE.WARM_ITERS;
+    warmJ = warm.J && warm.J.length === 4 && warm.J.every(Number.isFinite) ? warm.J : null;
+  } else {
+    const g0 = guess(sv, D, sv.ty - Math.max(R, from.y));
+    yaw = g0.yaw; el = clamp(g0.el, lo, hi);
+  }
   let e = evalLaunch(sv, yaw, el);
   let lat = e.lat, ver = e.ver, short = e.short, t = e.t, apex = e.apex;
   // the closest launch seen: a crossing scores its miss, a ball that dies first scores 1000 plus how far short it is
@@ -146,10 +190,12 @@ export function solveStrike(req){
   const keep = () => {
     const sc = short ? 1000 + Math.max(0, (sv.tx - e.x)*sv.ax + (sv.tz - e.z)*sv.az) : hypot(lat, ver);
     if (sc < best.score){ best.score = sc; best.yaw = yaw; best.el = el; best.t = t; best.apex = apex; best.miss = short ? Infinity : sc; }
+    if (st){ st.yaw = best.yaw; st.el = best.el; st.n++; }
   };
   keep();
+  yield;
   const dp = 1e-3, de = 1e-3;
-  while (it < STRIKE.ITERS){
+  while (it < maxIt){
     if (!short && hypot(lat, ver) <= STRIKE.TOL) break;
     it++;
     if (short){
@@ -159,13 +205,25 @@ export function solveStrike(req){
       el = Math.min(top, el + Math.max(0.08, 0.5*(top - el)));
       e = evalLaunch(sv, yaw, el); lat = e.lat; ver = e.ver; short = e.short; t = e.t; apex = e.apex;
       keep();
+      yield;
       continue;
     }
-    const e1 = evalLaunch(sv, yaw + dp, el), l1 = e1.lat, v1 = e1.ver, s1 = e1.short;
-    const eStep = el + de <= hi ? de : -de;
-    const e2 = evalLaunch(sv, yaw, el + eStep), l2 = e2.lat, v2 = e2.ver, s2 = e2.short;
-    const j00 = s1 ? -D : (l1 - lat)/dp, j10 = s1 ? 0 : (v1 - ver)/dp;
-    const j01 = s2 ? 0 : (l2 - lat)/eStep, j11 = s2 ? 1 : (v2 - ver)/eStep;
+    let j00, j10, j01, j11;
+    if (warmJ){
+      // the first update of a warm start: the presolve's Jacobian (the same strike a moment earlier)
+      j00 = warmJ[0]; j01 = warmJ[1]; j10 = warmJ[2]; j11 = warmJ[3]; warmJ = null;
+    } else {
+      const e1 = evalLaunch(sv, yaw + dp, el), l1 = e1.lat, v1 = e1.ver, s1 = e1.short;
+      if (st) st.n++;
+      yield;
+      const eStep = el + de <= hi ? de : -de;
+      const e2 = evalLaunch(sv, yaw, el + eStep), l2 = e2.lat, v2 = e2.ver, s2 = e2.short;
+      if (st) st.n++;
+      yield;
+      j00 = s1 ? -D : (l1 - lat)/dp; j10 = s1 ? 0 : (v1 - ver)/dp;
+      j01 = s2 ? 0 : (l2 - lat)/eStep; j11 = s2 ? 1 : (v2 - ver)/eStep;
+      if (st) st.J = [j00, j01, j10, j11];
+    }
     const det = j00*j11 - j01*j10;
     let dYaw, dEl;
     if (Math.abs(det) > 1e-9){
@@ -182,6 +240,7 @@ export function solveStrike(req){
     yaw += dYaw; el = elN;
     e = evalLaunch(sv, yaw, el); lat = e.lat; ver = e.ver; short = e.short; t = e.t; apex = e.apex;
     keep();
+    yield;
   }
   return result(sv, null, best.yaw, best.el, best.miss <= STRIKE.MISS_OK, Number.isFinite(best.miss) ? best.t : Infinity,
     best.apex, best.miss, it);
@@ -210,11 +269,16 @@ export function deviation(ctx, r){
   const kv = ctx.contact > 0 ? STRIKE.KV.high : STRIKE.KV.normal;
   const sv = SHOT_KINDS.has(kind) ? 0.04*(1 - clamp(ctx.power != null ? +ctx.power : 50, 0, 150)/150)
     : ctx.weightSigma != null ? +ctx.weightSigma : 0.02;
-  const ex = D*s*truncNormal(r, 1, 2.5);
-  const ey = D*s*kv*truncNormal(r, 1, 2.5);
-  const es = 1 + sv*truncNormal(r, 1, 2.5);
+  // (ctx.z: the three unit draws made earlier, devDraws(); a kick draws them as the swing starts so that its solve can
+  // run through the swing toward the point it will be aimed at)
+  const z = ctx.z && ctx.z.length === 3 ? ctx.z : null;
+  const ex = D*s*(z ? z[0] : truncNormal(r, 1, 2.5));
+  const ey = D*s*kv*(z ? z[1] : truncNormal(r, 1, 2.5));
+  const es = 1 + sv*(z ? z[2] : truncNormal(r, 1, 2.5));
   return {ex, ey, es, s, sv};
 }
+// the three unit draws of a deviation (lateral, vertical, speed), truncated at 2.5, for ctx.z
+export function devDraws(r){ return [truncNormal(r, 1, 2.5), truncNormal(r, 1, 2.5), truncNormal(r, 1, 2.5)]; }
 
 // the angular sigma (radians) of 1.5.3 for a context; no randomness
 export function sigmaOf(ctx){
@@ -238,12 +302,9 @@ export function sigmaOf(ctx){
   return (0.006 + 0.05*pow(1 - acc/100, 1.4))*pressure*foot*body*fatigue*(ctx.firstTime ? 1.3 : 1)*scuff;
 }
 
-// A strike with its deviation (1.4.11): the sample of deviation() moves the aim point in the target plane (a ground
-// pass keeps its height and shows its error in direction and weight), the moved point is solved again at the sampled
-// speed, and a knuckle is armed when 1.5.1's conditions hold (|w| < 4 rad/s, over 24 m/s, Normal contact, no finesse,
-// power over 0.72). Returns {launch, aimed, sigma (radians), quality} plus sigmaM (metres at the target) and dev.
-// quality is 1 for a ball that goes exactly where it was meant to and 0 for a miss of 6% of the distance (or 25 cm).
-export function planShot(req, ctx, r){
+// The deviation of a strike and where it sends the aim (planShot's first half, shared with a kick's presolve): the
+// context completed, the sample, the aimed point and the request to solve. {c, dev, aimed, ground, D, req}
+export function aimOf(req, ctx, r){
   const from = req.from, tg = req.target;
   const D = ctx.dist != null ? +ctx.dist : hypot(tg.x - from.x, tg.z - from.z);
   const c = Object.assign({}, ctx, {dist: D, kind: ctx.kind || req.kind, contact: ctx.contact != null ? ctx.contact : req.contact});
@@ -252,7 +313,17 @@ export function planShot(req, ctx, r){
   const al = hypot(ax, az) || 1; ax /= al; az /= al;
   const ground = tg.y <= R + 0.05 && GROUND_KINDS.has(c.kind || 'pass') && !(c.contact > 0);
   const aimed = {x: tg.x + dev.ex*(-az), y: ground ? tg.y : clamp(tg.y + dev.ey, STRIKE.AIM_Y0, STRIKE.AIM_Y1), z: tg.z + dev.ex*ax};
-  const launch = solveStrike(Object.assign({}, req, {target: aimed, speed: req.speed*dev.es}));
+  return {c, dev, aimed, ground, D, req: Object.assign({}, req, {target: aimed, speed: req.speed*dev.es})};
+}
+
+// A strike with its deviation (1.4.11): the sample of deviation() moves the aim point in the target plane (a ground
+// pass keeps its height and shows its error in direction and weight), the moved point is solved again at the sampled
+// speed, and a knuckle is armed when 1.5.1's conditions hold (|w| < 4 rad/s, over 24 m/s, Normal contact, no finesse,
+// power over 0.72). Returns {launch, aimed, sigma (radians), quality} plus sigmaM (metres at the target) and dev.
+// quality is 1 for a ball that goes exactly where it was meant to and 0 for a miss of 6% of the distance (or 25 cm).
+export function planShot(req, ctx, r, warm = null){
+  const aim = aimOf(req, ctx, r), c = aim.c, dev = aim.dev, aimed = aim.aimed, ground = aim.ground, D = aim.D, tg = req.target;
+  const launch = solveStrike(aim.req, warm);
   const wl = hypot(launch.w.x, launch.w.y, launch.w.z), sp = hypot(launch.v.x, launch.v.y, launch.v.z);
   const K = STRIKE.KNUCK, p = clamp(c.power01 != null ? +c.power01 : 0, 0, 1);
   launch.knuck = null;

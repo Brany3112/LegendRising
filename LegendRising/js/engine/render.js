@@ -879,7 +879,7 @@ function drawDefendScene(){
   if (M.att && !M.att.gone){
     // his legs are the thing you must not catch — shown as a soft shape under him
     if (M.phase === "steal"){
-      const l = worldToScreen(M.att.x, M.att.y, 0), R = (1.05 - (S.skills.tackling || 20)*.004)*scale;
+      const l = worldToScreen(M.att.x, M.att.y, 0), R = (1.05 - (S.skills.tackling ? effSkill("tackling") : 20)*.004)*scale;
       c.fillStyle = "rgba(255,90,96,.16)"; c.beginPath(); c.arc(l.x, l.y, R, 0, 7); c.fill();
       c.strokeStyle = "rgba(255,90,96,.5)"; c.lineWidth = 2*DPR; c.stroke();
     }

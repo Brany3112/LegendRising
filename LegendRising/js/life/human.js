@@ -1363,14 +1363,15 @@ SCHED.task({id:"anim-frame", kind:"keep", run(){ ANIM.frame++; ANIM.hiLast = ANI
 // tests (DESIGN 1.4.20): with trace on, every call logs the body's feet and footfalls
 const ANIM_LOG = typeof window === "object" ? (window.__anim = window.__anim || {trace:false, log:[]}) : {trace:false, log:[]};
 
-function idle(h, T, st, legs = true){
+// (look0: a look to hold instead of st.look, so the poses that stand still need no copy of st a frame: 3.9.6)
+function idle(h, T, st, legs = true, look0 = null){
   const t = h.t, D = h.D, sd = h.seed*10, old = D.old;
   const w = Math.sin(t*.42 + sd)*.8 + Math.sin(t*.17 + sd*2)*.2, br = Math.sin(t*1.5 + sd);
   T[60] = .014*w; T[61] = -.004 + .0025*br - old*.01; T[62] = 0;
   R3(T, B.hips, .0, .04*Math.sin(t*.13 + sd), -.022*w);
   R3(T, B.spine, .02 + old*.06 + .006*br, -.02*Math.sin(t*.13 + sd), .012*w);
   R3(T, B.chest, .01 - .01*br + old*.04, 0, .01*w);
-  const look = st.look != null ? st.look : .3*Math.sin(t*.11 + sd*3) + .2*Math.sin(t*.29 + sd);
+  const look = look0 != null ? look0 : st.look != null ? st.look : .3*Math.sin(t*.11 + sd*3) + .2*Math.sin(t*.29 + sd);
   R3(T, B.neck, -.02 - old*.05, look*.45, 0); R3(T, B.head, .03*Math.sin(t*.23 + sd), look*.55, .02*Math.sin(t*.19));
   for (const s of [1, -1]){
     const [ua, fa, hd] = ARM(s);
@@ -1409,7 +1410,7 @@ const LOCO = new Set(["idle", "move", "stand"]);
 const _stand = {};
 function standLoco(h, T, st, dt){ Object.assign(_stand, st); _stand.look = 0; loco(h, T, _stand, dt); }
 // ---- actions ----
-function stand(h, T, st){ idle(h, T, Object.assign({}, st, {look:0})); }
+function stand(h, T, st){ idle(h, T, st, true, 0); }
 function kickLike(h, T, st, kind){
   const t = st.t != null ? st.t : Math.min(1, h.at/(kind === "kick" ? .9 : .75)), D = h.D, amp = st.amp || 1, s = -1;   // right foot
   stand(h, T, st);
@@ -1522,7 +1523,7 @@ const STRETCHES = [
   }
 ];
 function stretch(h, T, st){
-  idle(h, T, Object.assign({}, st, {look:0}));
+  idle(h, T, st, true, 0);
   const per = 6, i = Math.floor(h.at/per) % STRETCHES.length, f = h.at % per;
   const a = _A; a.set(T); STRETCHES[(i + STRETCHES.length - 1) % STRETCHES.length](h, a);
   const b = _B; b.set(T); STRETCHES[i](h, b);
@@ -1609,7 +1610,7 @@ function squatPose(h, T, st){
 }
 // a dumbbell curl, one arm at a time (st.side), the elbow pinned at the ribs; sloppy reps swing the body into it
 function curlPose(h, T, st){
-  stand(h, T, Object.assign({}, st, {look:0}));
+  stand(h, T, st);
   const k = clamp(st.k || 0, 0, 1), side = st.side || 1, sw = st.sway || 0;
   R3(T, B.spine, .03 - sw*.18*Math.sin(k*Math.PI)); R3(T, B.chest, -sw*.08*Math.sin(k*Math.PI)); R3(T, B.neck, .08, 0, 0);
   for (const s of [1, -1]){
@@ -1649,7 +1650,7 @@ function plyoPose(h, T, st){
   const D = h.D, t = clamp(st.t || 0, 0, 1), fail = !!st.fail, P = plyoPath(t, fail), sc = h.scale || 1, box = st.box || .6;
   if (t < P.jump || t <= 0){
     // the jump itself: down into a crouch with the arms back, up with a tuck, down onto the box and stand tall
-    stand(h, T, Object.assign({}, st, {look:0}));
+    stand(h, T, st);
     const tj = clamp(t/P.jump, 0, 1);
     const crouch = kf(tj, [[0, 0], [.22, 1], [.34, .2], [.45, 0], [.62, fail ? .2 : .9], [.78, fail ? .6 : .25], [1, 0]]);
     const tuck = fail ? kf(tj, [[0, 0], [.36, 0], [.48, .35], [.6, 0]]) : kf(tj, [[0, 0], [.36, 0], [.46, 1], [.58, .3], [.64, 0]]);

@@ -74,7 +74,10 @@ export function depthOf(slot){
 // a team's runtime shape record (one per team in ms.tm)
 export function createShape(style, slots){
   return {phase: 'outPoss', poss: false, changeT: -99, line: 30, lineOpp: 70, oppMid: 55, len: TAC.LEN_OUT, wid: TAC.WID_OUT,
-    ballU: 52, ballW: 34, style, slots, press: [], cover: -1, marks: new Map(), counterT: -99, counter: [], lastT: -1};
+    ballU: 52, ballW: 34, style, slots, press: [-1, -1], cover: -1, marks: new Map(), counterT: -99, counter: [], lastT: -1,
+    // assignDefence's working lists, kept between calls (3.9.6): the markers, the threats and their values, the pairs
+    mk: {defs: [], thr: [], thrV: new Float64Array(16), pd: new Int32Array(256), po: new Int32Array(256), pq: new Float64Array(256),
+      order: new Int32Array(256), used: new Int32Array(256), stamp: 0}};
 }
 
 // Team shape (3.2.2), 5 Hz: phase, line, length, width, every outfield agent's anchor and its role modifiers.
@@ -198,10 +201,13 @@ export function assignDefence(ms, team){
   }
   if (best && (bu < zone || tm.counterOn || bestT < 1.2)) best.task.press = 1;
   if (second && best && best.task.press === 1) second.task.press = 2;
-  tm.press = [best ? best.id : -1, second ? second.id : -1];
+  tm.press[0] = best ? best.id : -1; tm.press[1] = second ? second.id : -1;
   if (tm.counterOn && second) second.task.press = 1;
-  // marking: the remaining back line and midfield against threats in their own half (and a striker who drops)
-  const defs = [], threats = [];
+  // marking: the remaining back line and midfield against threats in their own half (and a striker who drops). The
+  // pairs go cheapest first (distance over 1 + 6 threat, ties by the ids), each man and each threat taken once. (The
+  // lists are tm.mk's, reused: nothing is allocated, 3.9.6.)
+  const K = tm.mk, defs = K.defs, thr = K.thr;
+  defs.length = 0; thr.length = 0;
   for (const a of ms.agents){
     if (a.team !== team || !a.onPitch || a.role !== 'player' || a.isGK || a.task.press) continue;
     if (a.slotLine === 'DF' || a.slotLine === 'CM') defs.push(a);
@@ -210,22 +216,34 @@ export function assignDefence(ms, team){
     if (o.team !== 1 - team || !o.onPitch || o.role !== 'player' || o.isGK || o === carrier) continue;
     const u = dir*o.m.x + L/2;        // the threat's position in the marking team's frame (low u: near our goal)
     if (u > L*0.62) continue;
-    const val = xT(L - u, Wd - (dir*o.m.z + Wd/2), L, Wd);
-    threats.push({o, val});
+    if (thr.length >= K.thrV.length) break;
+    K.thrV[thr.length] = xT(L - u, Wd - (dir*o.m.z + Wd/2), L, Wd);
+    thr.push(o);
   }
-  const pairs = [];
-  for (const d of defs) for (const t of threats){
-    const dist = hypot(d.m.x - t.o.m.x, d.m.z - t.o.m.z);
-    pairs.push({d, o: t.o, q: dist/(1 + 6*t.val)});
+  let np = 0;
+  for (let i = 0; i < defs.length; i++) for (let j = 0; j < thr.length; j++){
+    if (np >= K.pq.length) break;
+    const d = defs[i], o = thr[j], dist = hypot(d.m.x - o.m.x, d.m.z - o.m.z);
+    K.pd[np] = i; K.po[np] = j; K.pq[np] = dist/(1 + 6*K.thrV[j]); K.order[np] = np; np++;
   }
-  pairs.sort((p, q) => p.q - q.q || p.d.id - q.d.id || p.o.id - q.o.id);
-  const done = new Set(), taken = new Set();
-  for (const p of pairs){
-    if (done.has(p.d.id) || taken.has(p.o.id) || p.q > 14) continue;
-    done.add(p.d.id); taken.add(p.o.id);
-    p.d.task.mark = p.o.id; tm.marks.set(p.d.id, p.o.id);
+  // insertion sort of the pair indices by (q, the marker's id, the threat's id): a total order, the same as before
+  const less = (x, y) => K.pq[x] < K.pq[y] || K.pq[x] === K.pq[y] && (defs[K.pd[x]].id < defs[K.pd[y]].id ||
+    defs[K.pd[x]].id === defs[K.pd[y]].id && thr[K.po[x]].id < thr[K.po[y]].id);
+  for (let i = 1; i < np; i++){
+    const v = K.order[i];
+    let j = i - 1;
+    while (j >= 0 && less(v, K.order[j])){ K.order[j + 1] = K.order[j]; j--; }
+    K.order[j + 1] = v;
+  }
+  // taken: by stamp, on the agent ids (the marker's at his id, the threat's at 128 + its id; ids stay far below 128)
+  const stamp = ++K.stamp;
+  for (let k = 0; k < np; k++){
+    const x = K.order[k], d = defs[K.pd[x]], o = thr[K.po[x]];
+    if (K.used[d.id & 127] === stamp || K.used[128 + (o.id & 127)] === stamp || K.pq[x] > 14) continue;
+    K.used[d.id & 127] = stamp; K.used[128 + (o.id & 127)] = stamp;
+    d.task.mark = o.id; tm.marks.set(d.id, o.id);
     // tight within 42 m of his own goal (or on the man about to receive), a zone with a pull toward the man further out
-    p.d.task.markTight = dir*p.o.m.x + L/2 < L*TAC.TIGHT_U;
+    d.task.markTight = dir*o.m.x + L/2 < L*TAC.TIGHT_U;
   }
 }
 

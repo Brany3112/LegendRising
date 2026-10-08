@@ -37,7 +37,7 @@ import {RT, FLAGS, FADE, LIFE, P as ME_P} from "./state.js";
 import {mode, modeFlags} from "./modes.js";
 import {MINI} from "../mini.js";
 import {SCHED} from "./sched.js";
-import {unmergeAll, mergeAll} from "../chunks.js";
+import {unmergeAll, mergeAll, opaqueSort} from "../chunks.js";
 
 const gfx = () => (typeof GFX === "object" && GFX ? GFX : null);
 const preset = () => { const G = gfx(); return (G && G.P) || null; };
@@ -70,6 +70,7 @@ function makeRenderer(canvas, P){
   renderer.shadowMap.autoUpdate = false;                  // redrawn only when the shadow scheduler says so (sky.js SHADOW)
   renderer.shadowMap.enabled = shadowOn(P);
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1;
+  renderer.setOpaqueSort(opaqueSort);                     // front to back across the batches, not by material (chunks.js)
   gateShadows(renderer);
   RQ.aa = aa; RT.renderer = renderer;
   gpuInit();

@@ -114,8 +114,27 @@ export const MAX_STRIDES = 4;
 // When no foot lands the same frozen empty array is returned every time (no allocation on most steps). A distance,
 // speed or scale that is not a finite number, or a move over MAX_STRIDES strides, changes nothing and returns that.
 export function phaseAdvance(g, dist, v, mode, scale = 1){
+  GQ[0] = dist; GQ[1] = v; GQ[2] = scale;
+  return phaseAdvanceQ(g, mode);
+}
+// The register form for a loop that steps many bodies (the match simulation): GQ[0] = dist, GQ[1] = v, GQ[2] = scale
+// in. A call that passes a fractional number boxes it in a fresh heap object, 25 bodies times every step (3.9.6). The
+// step length is worked out inline (stepLen's table and reach, the same arithmetic).
+export const GQ = new Float64Array(3);
+export function phaseAdvanceQ(g, mode){
+  const dist = GQ[0], v = GQ[1], scale = GQ[2];
   if (!dist || !Number.isFinite(dist) || !Number.isFinite(v)) return NONE;
-  const step = stepLen(Math.abs(v), mode, scale);
+  // stepLen(|v|, mode, scale): col(RUN or WALK, |v|, 2)*scale, a walk no longer than the reach (WALK_REACH*scale)
+  const T = mode === 'R' ? RUN : WALK, va = Math.abs(v);
+  let c;
+  if (va <= T[0][0]) c = T[0][2];
+  else {
+    c = T[T.length - 1][2];
+    for (let i = 1; i < T.length; i++){
+      if (va <= T[i][0]){ const a = T[i - 1], b = T[i], t = (va - a[0])/(b[0] - a[0]); c = a[2] + (b[2] - a[2])*t; break; }
+    }
+  }
+  const step = mode === 'R' ? c*scale : Math.min(c*scale, WALK_REACH*scale);
   const dphi = dist/(2*step), p0 = g.phi;
   if (!(Math.abs(dphi) <= MAX_STRIDES) || !Number.isFinite(p0)) return NONE;
   const p1 = p0 + dphi;

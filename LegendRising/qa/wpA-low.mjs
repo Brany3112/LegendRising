@@ -4,8 +4,8 @@
 //   Low        renderer.shadowMap.enabled is false; the real point-light pool is 2; lamp pools and halos are not drawn
 //              at noon (visible false) and are at night; the sky is drawn last (renderOrder above every other object)
 //   walking    20 m along your street at noon: no shadow redraw at all; the scripted 60 m walk (qa/record-perf.mjs WALK):
-//              no frame over 25 ms (p99), and at most 12 collision rays a frame out in the open with at most 30 boxes
-//              tested per ray
+//              no frame over 25 ms (p99), and at most 12 collision rays in any frame out in the open, with at most 30
+//              boxes tested per ray
 //   memory     heap growth under 10 MB over home, ground, town and home again (garbage collected before each reading)
 //   High       the shadow scheduler: walking 20 m redraws the shadows at most as often as the preset allows (5 a second)
 //
@@ -42,7 +42,7 @@ const walkIn = (n) => (async (n) => {
   const q = (a, p) => { const s = a.slice().sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor(p*s.length))].toFixed(3); };
   const sumR = rays.reduce((a, b) => a + b, 0), sumT = tests.reduce((a, b) => a + b, 0);
   return {metres: +Math.abs(P.x - x0).toFixed(1), frames: ms.length, shadowRedraws: sky.shadow.count - sh0, stepMs: {median: q(ms, .5), p99: q(ms, .99), max: +Math.max(...ms).toFixed(2)},
-    raysPerFrame: {median: q(rays, .5), p95: q(rays, .95)}, testsPerRay: +(sumT/Math.max(1, sumR)).toFixed(2), maxTestsPerRay: Math.max(...rays.map((r, i) => r ? tests[i]/r : 0)).toFixed(1)};
+    raysPerFrame: {median: q(rays, .5), p95: q(rays, .95), max: Math.max(...rays), over12: rays.filter(n => n > 12).length}, testsPerRay: +(sumT/Math.max(1, sumR)).toFixed(2), maxTestsPerRay: Math.max(...rays.map((r, i) => r ? tests[i]/r : 0)).toFixed(1)};
 });
 
 {
@@ -70,7 +70,7 @@ const walkIn = (n) => (async (n) => {
     const w60 = await page.evaluate(walkIn(60), 60);
     out.walk60 = w60;
     check("low: the 60 m walk has no frame over 25 ms (p99)", w60.stepMs.p99 <= 25, w60.stepMs);
-    check("low: at most 12 collision rays a frame in the open", w60.raysPerFrame.median <= 12, w60.raysPerFrame);
+    check("low: at most 12 collision rays a frame in the open (every frame of the walk)", w60.raysPerFrame.max <= 12, w60.raysPerFrame);
     check("low: at most 30 boxes tested per ray", w60.testsPerRay <= 30, {mean: w60.testsPerRay, worstFrame: w60.maxTestsPerRay});
     // memory over three zone changes
     const cdp = await page.context().newCDPSession(page);

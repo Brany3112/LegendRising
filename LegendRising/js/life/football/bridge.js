@@ -125,9 +125,11 @@ export function matchConfig(f, M = MT, opts = {}){
   const meP0 = teams[usTeam].players.find(p => p.isMe) || teams[usTeam].bench.find(p => p.isMe);
   // a substitute starts on the bench: the man in his slot plays until the call (sim.js benchMe)
   const role = M.role || "starter";
+  // the planned changes (the call off the bench, the rotation's early exit); none when the match is being played out
+  // after a crash: the player counts as substituted at the checkpoint and stays off (3.4.4, sim.js applyResume)
   const roleTimes = {};
-  if (role === "rotation" && M.subOff) roleTimes.subOff = M.subOff;
-  if ((role === "sub" || role === "cameo") && M.subOn) roleTimes.subOn = M.subOn;
+  if (!opts.resume && role === "rotation" && M.subOff) roleTimes.subOff = M.subOff;
+  if (!opts.resume && (role === "sub" || role === "cameo") && M.subOn) roleTimes.subOn = M.subOn;
   const tier = M.stad ? clamp(M.stad.tier | 0, 0, 4) : 2;
   const seed = opts.seed != null ? opts.seed >>> 0 : seedOf(f);
   const cfg = {seed, mode: "match", spec: makePitch({boards: true, roll: BRIDGE.ROLL[tier]}), halfRealSec: HALF_REAL[speed], tempo: Object.assign({}, TEMPO[speed]),
@@ -144,7 +146,8 @@ export function matchConfig(f, M = MT, opts = {}){
     const r = opts.resume;
     cfg.seed = (r.seed + (r.step || 0)) >>> 0;
     cfg.resume = {score: (r.score || [0, 0]).slice(), goals: r.goals || {home: [], away: []}, half: r.half || 1, sec: r.sec || 0,
-      subsUsed: (r.subsUsed || [0, 0]).slice(), counters: r.counters || null, on: r.on || [], my: r.my || null, mins: r.mins || 0};
+      total: r.tot != null ? r.tot : null, subsUsed: (r.subsUsed || [0, 0]).slice(), counters: r.counters || null, on: r.on || [],
+      my: r.my || null, mins: r.mins || 0};
   }
   return cfg;
 }
@@ -193,11 +196,10 @@ function meAgent(ms){
   if (ms.resumedMe != null) return ms.agents[ms.resumedMe];
   return ms.agents.find(a => a.isMe) || null;
 }
-// his on-pitch intervals in match minutes
+// his on-pitch intervals in match minutes (a.on is in match seconds: 1.4.13)
 function onMinutes(ms, a){
   if (!a) return [];
-  const full = ms.cfg.halfRealSec*2, k = 90/Math.max(1, full);
-  return a.on.map(iv => [Math.round(iv[0]*k), Math.round((iv[1] == null ? ms.t : iv[1])*k)]);
+  return a.on.map(iv => [Math.round(iv[0]/60), Math.round((iv[1] == null ? ms.clock.total : iv[1])/60)]);
 }
 
 // The checkpoint (3.4.4, 1.7): S.life.inMatch from the state now; the caller saves straight after (persistNow) at a
@@ -207,7 +209,8 @@ export function checkpoint(ms){
   if (!f || !S.life) return null;
   const C = countersAll(ms), me = meAgent(ms), c = me ? C[me.id] : null;
   const rs = ms.cfg.resume;
-  const rec = {v: 1, fkey: f.key, cid: S.cid != null ? S.cid : null, seed: ms.cfg.seed >>> 0, half: ms.half, sec: Math.round(ms.clock.sec*100)/100, step: ms.step,
+  const rec = {v: 1, fkey: f.key, cid: S.cid != null ? S.cid : null, seed: ms.cfg.seed >>> 0, half: ms.half, sec: Math.round(ms.clock.sec*100)/100,
+    tot: Math.round(ms.clock.total*100)/100, step: ms.step,
     score: ms.score.slice(), goals: goalLists(ms), my: me ? deriveMy(ms, me.id, C) : null, counters: c ? Object.assign({}, c) : (rs && rs.counters) || null,
     role: MT.role || "starter", on: me ? onMinutes(ms, me) : [], mins: c ? c.mins : 0, energy: me ? Math.round(me.energy*10)/10 : +S.energy || 0,
     fatigueAcc: me ? Math.round(me.acc.drain*100)/100 : 0, booked: me ? (me.booked || 0) + (me.sentOff ? 1 : 0) : 0, subsUsed: ms.subs.used.slice(), late: !!MT.late,
@@ -265,7 +268,8 @@ export function finish(ms){
   if (rs && rs.counters && (!me || !me.on.length)){
     myC = rs.counters;
     const my = ms.score[us], th = ms.score[1 - us];
-    rating = rateAgent(myC, me ? me.arch : "CM", {mins: myC.mins, res: my > th ? "W" : my < th ? "L" : "D", conceded: myC.conceded, sub: true});
+    const slot = ms.cfg.me && ms.cfg.me.slot;
+    rating = rateAgent(myC, me ? me.arch : slot ? archOfSlot(slot) : "CM", {mins: myC.mins, res: my > th ? "W" : my < th ? "L" : "D", conceded: myC.conceded, sub: true});
   }
   if (rating == null) rating = 6.0;
   // the world: both line-ups (with the substitutes who came on), the goals, the ratings fixed

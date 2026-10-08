@@ -677,7 +677,7 @@ export function regulars(list, o = {}){
         // (and never a step into you)
         if (into(me, nx, nz, x, z)) P.v = 0; else P.at = at1;
         h.g.position.set(B.a[0] + (B.b[0] - B.a[0])*P.at, e.y || 0, B.a[1] + (B.b[1] - B.a[1])*P.at);
-        if (P.sol){ const w = (P.sol.x1 - P.sol.x0)/2, d = (P.sol.z1 - P.sol.z0)/2; Object.assign(P.sol, {x0:h.g.position.x - w, x1:h.g.position.x + w, z0:h.g.position.z - d, z1:h.g.position.z + d}); }
+        if (P.sol){ const w = (P.sol.x1 - P.sol.x0)/2, d = (P.sol.z1 - P.sol.z0)/2, gx = h.g.position.x, gz = h.g.position.z; P.sol.x0 = gx - w; P.sol.x1 = gx + w; P.sol.z0 = gz - d; P.sol.z1 = gz + d; }
         turn(P, Math.atan2(ux, uz), dt);
         P.walk.speed = P.v; h.ast = P.walk;
         if ((P.go - P.at)*dir <= 1e-3 || (blocked && (P.wait = (P.wait || 0) + dt) > 2.5)){ P.go = null; P.wait = 0; P.t = 3 + Math.random()*5; }

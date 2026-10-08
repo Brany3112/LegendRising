@@ -12,6 +12,7 @@
        pointLights, canvas, preset}
      window.__perf.views       the named views: {zone, at, pitch}
      window.__perf.setView(n)  you placed at that view (the zone entered first if needed)
+     window.__perf.overdraw({w, h, order}) -> {overdraw, covered}: how many times a pixel of the view is shaded (1.5.11)
    Probe page (3.9.8): index.html?perf=probe&zone=<zone>&view=<view>&gfx=<tier>&t=12:00 starts a test career at that
    time in that zone, at that view, warms up for 30 frames and 60 more, records 300 frames (each one world frame
    stepped by hand, drawn and waited for) and leaves the result in window.__perfResult (&warm= and &frames= change the
@@ -20,7 +21,8 @@ import {RT, FADE} from "./core/state.js";
 import {SCHED} from "./core/sched.js";
 import {SG, SGSTAT} from "./core/collide.js";
 import {Q, RQ} from "./core/quality.js";
-import {CH, MG, OC} from "./chunks.js";
+import {CH, MG, OC, opaqueSort} from "./chunks.js";
+import {THREE} from "./build.js";
 
 const qs = new URLSearchParams(location.search);
 const MODE = qs.get("perf") || "1", PROBE = MODE === "probe";
@@ -125,7 +127,35 @@ function setView(name){
   L.P.pitch = v.pitch || 0;
   return true;
 }
-window.__perf = {snapshot, views:VIEWS, setView, handFrame:() => handFrame(window.__life), mode:MODE};
+/* Overdraw (DESIGN 1.5.11: at most 2.0 in the bedroom and the lobby on Low, 3.9.2): the view drawn once more as it is
+   drawn (the same order, the depth test on), into a w x h float target, every fragment that passes the depth test
+   adding 1/64 to its pixel; the background and the fog left out. The mean over the pixels is how many times a pixel
+   is shaded, covered the share of pixels drawn at all. order "material" draws it in three.js's own order (by material,
+   then depth) instead of the batches' (chunks.js opaqueSort), for comparison */
+function overdraw({w = 640, h = 360, order = "batches"} = {}){
+  const r = RT.renderer, sc = RT.scene, cam = RT.cam; if (!r || !sc || !cam) return null;
+  const rt = new THREE.WebGLRenderTarget(w, h, {type:THREE.HalfFloatType, depthBuffer:true});
+  const m = new THREE.MeshBasicMaterial({blending:THREE.CustomBlending, blendEquation:THREE.AddEquation, blendSrc:THREE.OneFactor, blendDst:THREE.OneFactor,
+    depthTest:true, depthWrite:true});
+  m.color.setScalar(1/64);
+  const bg = sc.background, ov = sc.overrideMaterial, fog = sc.fog, prevRT = r.getRenderTarget(), cc = r.getClearColor(new THREE.Color()), ca = r.getClearAlpha();
+  const px = new Uint16Array(w*h*4);
+  try {
+    if (order === "material") r.setOpaqueSort(null);
+    sc.background = null; sc.overrideMaterial = m; sc.fog = null;
+    r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam);
+    r.readRenderTargetPixels(rt, 0, 0, w, h, px);
+  } finally {
+    sc.background = bg; sc.overrideMaterial = ov; sc.fog = fog;
+    r.setRenderTarget(prevRT); r.setClearColor(cc, ca); r.setOpaqueSort(opaqueSort);
+    rt.dispose(); m.dispose();
+  }
+  const f16 = b => { const e = (b >> 10) & 0x1f, f = b & 0x3ff; return e === 0 ? Math.pow(2, -14)*(f/1024) : Math.pow(2, e - 15)*(1 + f/1024); };
+  let sum = 0, cov = 0;
+  for (let i = 0; i < w*h; i++){ const n = Math.round(f16(px[i*4])*64); sum += n; if (n) cov++; }
+  return {overdraw:+(sum/(w*h)).toFixed(2), covered:+(cov/(w*h)).toFixed(3)};
+}
+window.__perf = {snapshot, views:VIEWS, setView, overdraw, handFrame:() => handFrame(window.__life), mode:MODE};
 
 /* ---------- the probe page ---------- */
 async function probe(){

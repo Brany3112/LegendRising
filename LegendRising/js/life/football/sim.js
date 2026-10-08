@@ -17,7 +17,7 @@ import {makePitch, inBox} from "./pitchspec.js";
 import {mulberry32, hashStr} from "./rng.js";
 import {moverStep} from "../mover.js";
 import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute} from "../stamina.js";
-import {phaseAdvance, gaitModeStep} from "../gaitcore.js";
+import {phaseAdvanceQ, GQ, gaitModeStep} from "../gaitcore.js";
 import {createAgent, separate, bodyRec} from "./agent.js";
 import {levelled} from "./attrs.js";
 import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle, situation} from "./tactics.js";
@@ -63,7 +63,8 @@ export function createMatch(cfg){
   const rate = cfg.clockRate || 45*60/halfRealSec;
   const ms = {
     cfg, r: mulberry32(cfg.seed >>> 0), t: 0, step: 0, spec,
-    phase: 'pre', half: 1, clock: {sec: 0, rate, added: 0, running: false},
+    // (clock.total: the match seconds played so far, both halves and their added time; on-pitch intervals use it)
+    phase: 'pre', half: 1, clock: {sec: 0, rate, added: 0, running: false, total: 0},
     score: [0, 0], dirs: [1, -1],
     agents: [], bench: [[], []], me: -1, gks: [-1, -1],
     ball: null, bw: null, quiet: null, pred: new Float32Array(360), predN: 0, predAt: -1, predT: 0, predSeq: 0,
@@ -80,7 +81,11 @@ export function createMatch(cfg){
     // additions
     tm: null, chain: createChain(), spares: [], kick: null, call: null, meAI: !!cfg.meAI, restartLog: [],
     roleDone: {on: false, off: false}, asserts: {teleport: 0, ballJump: 0, maxAgent: 0, maxBall: 0, restartLate: 0}, vOutMax: 0,
-    judgeQ: [], judgeLast: -999, cutStep: -1, ballSwap: -1, physQ: [], heavyUsed: 0, halfEnd: null, sitT: -99, bumps: []
+    judgeQ: [], judgeLast: -999, cutStep: -1, ballSwap: -1, physQ: [], heavyUsed: 0, halfEnd: null, sitT: -99, bumps: [],
+    // set later by the brains, the rules and the runner; declared here so the match state keeps one shape (3.9.6)
+    judgeSeen: 0, meInvSeen: 0, planSeq: -1, planStep: 0, planDue: 0, planFirst: 0, carrierEval: null, deadBall: false,
+    goalEv: null, goalT: 0, htT: 0, ftT: 0, callUp: null, koMate: null, counterIds: null, koFirst: 0, resumedMe: null,
+    accum: 0, lastSteps: 0, onJump: null, gkCollect: null, liveRating: null, bodyList: null, handList: null
   };
   ms.gkCollect = gkCollect;
   // the AI's lofted-flight tables (strike.js) are built on first use: build them here, never inside a step
@@ -104,7 +109,7 @@ export function createMatch(cfg){
       a.slotLine = (SLOT_POS[p.slot] || SLOT_POS.CM).line;
       a.baseX = p.baseX != null ? p.baseX : null;
       a.eF = effF(a.energy);
-      a.on.push([0, null]);
+      a.on.push([0, null]); a.onT.push([0, null]);
       ms.agents.push(a);
       if (a.isGK) ms.gks[t] = a.id;
       if (a.isMe) ms.me = a.id;
@@ -194,24 +199,33 @@ function benchMe(ms){
 }
 
 // crash recovery (3.4.4): the score, the minute and the half from the checkpoint; the player is off (substituted at
-// the checkpoint minute); the remainder is played from a kick-off at that minute
+// the checkpoint minute) and stays off: a starter is replaced at the kick-off, and a substitute still on the bench (or
+// one who had come on before the checkpoint: the sides line up afresh) is never brought on, by his planned call or by
+// the bench's own changes, so the remainder plays nobody as him and his rating comes from the checkpoint's counters
+// (bridge.finish). The remainder is played from a kick-off at that minute.
 function applyResume(ms){
   const rs = ms.cfg.resume;
   ms.score = (rs.score || [0, 0]).slice();
   ms.stats.goals = ms.score.slice();
   ms.half = rs.half || 1;
   ms.clock.sec = rs.sec || 0;
+  // the match seconds played before the checkpoint (its running total; a record from before it was kept has only the
+  // half and the second)
+  ms.clock.total = rs.total != null && Number.isFinite(+rs.total) ? +rs.total : (ms.half - 1)*2700 + ms.clock.sec;
   if (ms.half === 2) ms.dirs = [-1, 1];
+  // everyone in the line-up is on from the checkpoint's second
+  for (const a of ms.agents) if (a.on.length) a.on[0][0] = ms.clock.total;
+  for (const t of [0, 1]) for (const p of ms.bench[t]) if (p.isMe) p.used = true;
   if (ms.me >= 0){
     const me = ms.agents[ms.me];
-    me.onPitch = false; me.subbedOff = true; me.on.length = 0;
+    me.onPitch = false; me.subbedOff = true; me.on.length = 0; me.onT.length = 0;
     // the man who comes on for him
     const t = me.team, p = ms.bench[t].find(q => !q.isGK && !q.used);
     if (p){
       p.used = true;
       const a = createAgent({id: ms.agents.length, pid: p.pid, team: t, slot: me.slot, arch: p.arch || me.arch, at: p.at, energy: p.energy,
         name: p.name, number: p.number, x: 0, z: 0});
-      a.slotLine = me.slotLine; a.on.push([0, null]); a.prm = Object.assign({}, a.prm, {bounds: ms.spec.runoff});
+      a.slotLine = me.slotLine; a.on.push([ms.clock.total, null]); a.onT.push([0, null]); a.prm = Object.assign({}, a.prm, {bounds: ms.spec.runoff});
       a.fac = stamFactors(a.st, 1, {});
       ms.agents.push(a);
     }
@@ -317,22 +331,7 @@ export function simStep(ms, h = H){
   for (let i = 0; i < n; i++){
     const a = agents[i];
     if (!a.onPitch || a.role === 'off') continue;
-    if (a.role === 'player') actionStep(ms, a, h);
-    const m = a.m;
-    const px = m.x, pz = m.z;
-    if (!a.diveMoved && !a.slideMoved) moverStep(m, a.intent, a.prm, a.fac, h, null);
-    if (a.role === 'player'){
-      EFF.stamina = a.at.stamina != null ? a.at.stamina : 50; EFF.eF = a.eF;
-      stamStep(a.st, h, effortOf(m.gait, m.speed, a.prm.run), EFF);
-      const dist = hypot(m.x - px, m.z - pz);
-      a.acc.dist += dist;
-      const spr = m.gait === 'sprint' && m.speed > a.prm.run;
-      if (spr && !a.acc.sprintOn) a.acc.sprints++;
-      a.acc.sprintOn = spr;
-      gaitModeStep(a.g, m.speed, h);
-      const evs = phaseAdvance(a.g, dist, m.speed, a.g.mode, a.scale || 1);
-      if (evs.length && ms.poss.ctl === a.id && ms.phase === 'live') for (const e of evs) dribbleFoot(ms, a, e.side);
-    }
+    agentStep(ms, a, h);
   }
   // 5. separation; a man who runs hard into the back of the one on the ball may be penalised for it (3.2.9)
   ms.bumps.length = 0;
@@ -398,6 +397,27 @@ export function simStep(ms, h = H){
   }
   if (ms.restart && ms.t - ms.restart.t0 > ms.restart.limit + 5 && !ms.restart.lateNoted){ ms.restart.lateNoted = true; ms.asserts.restartLate++; }
   endStep(ms, h);
+}
+// one body's step 4 (its own function, so the engine inlines the small calls in it: a call that is not inlined boxes
+// every fractional number it passes, 3.9.6)
+function agentStep(ms, a, h){
+  if (a.role === 'player') actionStep(ms, a, h);
+  const m = a.m;
+  const px = m.x, pz = m.z;
+  if (!a.diveMoved && !a.slideMoved) moverStep(m, a.intent, a.prm, a.fac, h, null);
+  if (a.role === 'player'){
+    EFF.stamina = a.at.stamina != null ? a.at.stamina : 50; EFF.eF = a.eF;
+    stamStep(a.st, h, effortOf(m.gait, m.speed, a.prm.run), EFF);
+    const ddx = m.x - px, ddz = m.z - pz, dist = Math.sqrt(ddx*ddx + ddz*ddz);
+    a.acc.dist += dist;
+    const spr = m.gait === 'sprint' && m.speed > a.prm.run;
+    if (spr && !a.acc.sprintOn) a.acc.sprints++;
+    a.acc.sprintOn = spr;
+    gaitModeStep(a.g, m.speed, h);
+    GQ[0] = dist; GQ[1] = m.speed; GQ[2] = a.scale || 1;
+    const evs = phaseAdvanceQ(a.g, a.g.mode);
+    if (evs.length && ms.poss.ctl === a.id && ms.phase === 'live') for (const e of evs) dribbleFoot(ms, a, e.side);
+  }
 }
 function endStep(ms, h){
   ms.t += h; ms.step++;
@@ -482,7 +502,10 @@ export function secondHalf(ms){
 }
 // full time: everyone's time on the pitch closes, the phase ends
 function finishUp(ms){
-  for (const a of ms.agents){ const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = ms.t; }
+  for (const a of ms.agents){
+    const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = ms.clock.total;
+    const ivT = a.onT[a.onT.length - 1]; if (ivT && ivT[1] == null) ivT[1] = ms.t;
+  }
   ms.clock.running = false; ms.clock.ended = true;
   ms.phase = 'over';
 }

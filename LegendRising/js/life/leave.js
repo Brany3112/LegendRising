@@ -33,7 +33,7 @@ function driveOf(g, pts, o = {}){
     g.position.x = P.x; g.position.z = P.z; g.rotation.y = Math.atan2(-T.z, T.x);
     if (o.sol){
       const c = Math.abs(Math.cos(g.rotation.y)), sn = Math.abs(Math.sin(g.rotation.y)), hx = c*L/2 + sn*Wd/2, hz = sn*L/2 + c*Wd/2;
-      Object.assign(o.sol, {x0:P.x - hx, x1:P.x + hx, z0:P.z - hz, z1:P.z + hz});
+      o.sol.x0 = P.x - hx; o.sol.x1 = P.x + hx; o.sol.z0 = P.z - hz; o.sol.z1 = P.z + hz;
     }
   };
   place();

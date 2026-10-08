@@ -10,7 +10,7 @@
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random.
 
 import {ballKick, ballPredict, ballRelease, ballHold, BALL} from "./ball.js";
-import {planShot, solveStrike, idealPassSpeed, shotSpeed} from "./strike.js";
+import {planShot, solveStrike, idealPassSpeed, shotSpeed, presolve, presolveStep, presolveWarm, aimOf, devDraws} from "./strike.js";
 import {reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleOutcome, slideProfile, slideDistance, headerContact,
   classifyContact, TOUCH, TACKLE} from "./touch.js";
 import {stamAction} from "../stamina.js";
@@ -124,7 +124,7 @@ export function startKick(ms, a, action){
   // a dead ball (a set piece) is walked up to: the run-up has no 0.35 s limit, only a generous one
   const dead = ms.ball.state === 'dead' || ms.restart && ms.restart.taker === a.id;
   a.act = {kind: 'kick', action, t: 0, tc: cs.ok ? cs.tc : ACT.ADJUST + ACT.TC_MAX, adjust: !cs.ok, dur: (cs.ok ? cs.tc : ACT.ADJUST) + ACT.FOLLOW,
-    foot: cs.foot, side: cs.side, done: false, plan: null, startStep: ms.step, contactStep: -1, adjustMax: dead ? 3.0 : ACT.ADJUST};
+    foot: cs.foot, side: cs.side, done: false, plan: null, startStep: ms.step, contactStep: -1, adjustMax: dead ? 3.0 : ACT.ADJUST, pre: null, devZ: null};
   a.state = 'strike'; a.stateT = 0;
   if (a.drib) a.drib = null;
   return a.act;
@@ -137,17 +137,11 @@ export function passSpeedFor(d, arrive = 9, roll = 1.1){ return idealPassSpeed(M
 export function loftSpeedFor(d){ return clamp(Math.sqrt(12.5*Math.max(4, d))*(1 + 0.005*d), 9, 30); }
 
 const BS = {x: 0, y: 0, z: 0};
-// the contact itself: plan the launch with the ball as it is now (touch the one ball through ballKick), log the kick
-function strikeContact(ms, a, act, scuff){
+// What a kick asks the strike solver for with the ball at bp ({x, y, z}): the target (moved by a scuff), the speed and
+// the spin. The strike at contact uses it, and so does its presolve through the swing (bp then where the ball will be
+// at contact). Returns {req, tx, ty, tz, dist, isShot, ctxKind, acc, contact}.
+function kickRequest(ms, a, act, scuff, bp, foot){
   const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
-  const r = relBall(a, b, {ahead: 0, lat: 0, dist: 0});
-  if (r.dist > ACT.SCUFF_D || b.p.y - (a.y || 0) > 1.0 || b.state === 'held' && b.holder !== a.id){
-    // the ball is gone: an air kick, still a kick in the log (never a silent cancel)
-    const ev = logEv(ms, 'kick', a.team, a.id, a.m.x, a.m.z, {intent: rq.kind, recv: rq.recv != null ? rq.recv : -1, whiff: true, speed: 0});
-    act.done = true; act.ev = ev;
-    return ev;
-  }
-  const foot = footFor(a, r.lat), weak = a.foot === 'B' ? 'both' : foot !== (a.foot || 'R');
   const tgt = rq.target || {x: a.m.x + dirOf(a.m.yaw).x*20, y: R, z: a.m.z + dirOf(a.m.yaw).z*20};
   let tx = tgt.x, ty = tgt.y != null ? tgt.y : R, tz = tgt.z;
   const kind = rq.kind;
@@ -157,15 +151,7 @@ function strikeContact(ms, a, act, scuff){
     if (isShot){ const gx = ms.dirs[a.team]*ms.spec.hx; tx += (gx - tx)*0.25; tz += (0 - tz)*0.25; ty += (1.0 - ty)*0.25; }
     else if (rq.recv >= 0 && ms.agents[rq.recv]){ const q = ms.agents[rq.recv].m; tx += (q.x - tx)*0.25; tz += (q.z - tz)*0.25; }
   }
-  const dist = hypot(tx - b.p.x, tz - b.p.z);
-  const kdir = yawOf(tx - b.p.x, tz - b.p.z);
-  const bodyAngleDeg = Math.abs(wrapA(kdir - a.m.yaw))/DEG;
-  const plantErr = clamp(Math.abs(r.ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0);
-  const sp = hypot(b.v.x, b.v.y, b.v.z);
-  const air = b.p.y > R + 0.05;
-  const ballState = !air ? (sp < 0.4 ? 'still' : 'rolling') : (b.v.y < 0 && b.p.y > 0.35 ? 'volley' : 'bouncing');
-  const first = !(ms.poss.ctl === a.id) || !!rq.firstTime;
-  const pr = pressureOn(ms, a);
+  const dist = hypot(tx - bp.x, tz - bp.z);
   const contact = rq.contact != null ? rq.contact : 0;
   let speed, ctxKind, acc;
   if (isShot){
@@ -179,19 +165,73 @@ function strikeContact(ms, a, act, scuff){
     ctxKind = kind === 'clear' || kind === 'goalkick' || kind === 'punt' ? 'clear' : kind; acc = at.passAcc;
   }
   if (scuff) speed *= 0.55;
-  const req = {from: {x: b.p.x, y: b.p.y, z: b.p.z}, target: {x: tx, y: ty, z: tz}, speed, contact, curl: rq.finesse ? (rq.curl != null ? rq.curl : 1) : (rq.curl || 0),
+  const req = {from: {x: bp.x, y: bp.y, z: bp.z}, target: {x: tx, y: ty, z: tz}, speed, contact, curl: rq.finesse ? (rq.curl != null ? rq.curl : 1) : (rq.curl || 0),
     foot, kind: ctxKind === 'chip' ? 'chip' : ctxKind, rollDecel: b.rollDecel, curve: at.curve, aero: at.aero};
-  const ctx = {kind: ctxKind, dist, power01: isShot ? clamp(rq.power != null ? rq.power : 0.85, 0, 1) : 0.6, acc, contact, weakFoot: weak,
+  return {req, tx, ty, tz, dist, isShot, ctxKind, acc, contact};
+}
+// The strike's context for its deviation (1.5.3) with the ball at bp, the ball `ahead` m in front of the body
+function kickCtx(ms, a, act, K, bp, ahead, weak, scuff){
+  const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
+  const kdir = yawOf(K.tx - bp.x, K.tz - bp.z);
+  const bodyAngleDeg = Math.abs(wrapA(kdir - a.m.yaw))/DEG;
+  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0);
+  const sp = hypot(b.v.x, b.v.y, b.v.z);
+  const air = b.p.y > R + 0.05;
+  const ballState = !air ? (sp < 0.4 ? 'still' : 'rolling') : (b.v.y < 0 && b.p.y > 0.35 ? 'volley' : 'bouncing');
+  const first = !(ms.poss.ctl === a.id) || !!rq.firstTime;
+  const pr = pressureOn(ms, a);
+  return {kind: K.ctxKind, dist: K.dist, power01: K.isShot ? clamp(rq.power != null ? rq.power : 0.85, 0, 1) : 0.6, acc: K.acc, contact: K.contact, weakFoot: weak,
     bodyAngleDeg, plantErr, ballState, pressure01: pr, composure: at.composure, bF: fac.bF != null ? fac.bF : 1, eF: fac.eF != null ? fac.eF : 1,
     finesse: !!rq.finesse, firstTime: first && sp > 1, vIn: first ? sp : 0, power: at.power, scuff: !!scuff,
-    weightSigma: isShot ? undefined : rq.charged ? (rq.sweet ? 0.02 : 0.0) : (1 - at.passing/120)*0.12};
+    weightSigma: K.isShot ? undefined : rq.charged ? (rq.sweet ? 0.02 : 0.0) : (1 - at.passing/120)*0.12};
+}
+// The kick's presolve (2.3 WP-E step cost): as the swing starts the deviation's three draws are made (devDraws) and the
+// solve starts for the point they aim at, with the ball where it will be at contact; it runs a flight a step through
+// the swing, and the strike at contact (the same draws, the context as it is then) starts from it (solveStrike warm),
+// so it needs a flight or two where a cold solve can need thirteen. Only for the strikes the solver works out by
+// Newton (shots and lofted balls; a ground pass is one or two flights anyway).
+const PRE_B = {x: 0, y: 0, z: 0};
+function kickPresolve(ms, a, act){
+  if (act.pre === false) return;
+  if (!act.pre){
+    const b = ms.ball;
+    if (b.state === 'dead' || b.state === 'held' || hypot(b.v.x, b.v.y, b.v.z) < 0.05){ PRE_B.x = b.p.x; PRE_B.y = b.p.y; PRE_B.z = b.p.z; }
+    else predAt(ms, act.adjust ? ACT.TC_MAX : Math.max(0, act.tc - act.t), PRE_B);
+    const foot = act.foot || 'R', weak = a.foot === 'B' ? 'both' : foot !== (a.foot || 'R');
+    const K = kickRequest(ms, a, act, false, PRE_B, foot);
+    if (K.ty <= R + 0.05 && PRE_B.y <= R + 0.05 && K.contact <= 0){ act.pre = false; return; }
+    act.devZ = devDraws(ms.r);
+    const ctx = kickCtx(ms, a, act, K, PRE_B, 0.65, weak, false);
+    ctx.z = act.devZ;
+    act.pre = presolve(aimOf(K.req, ctx, ms.r).req);
+  }
+  presolveStep(act.pre, 1);
+}
+// the contact itself: plan the launch with the ball as it is now (touch the one ball through ballKick), log the kick
+function strikeContact(ms, a, act, scuff){
+  const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
+  const r = relBall(a, b, {ahead: 0, lat: 0, dist: 0});
+  if (r.dist > ACT.SCUFF_D || b.p.y - (a.y || 0) > 1.0 || b.state === 'held' && b.holder !== a.id){
+    // the ball is gone: an air kick, still a kick in the log (never a silent cancel)
+    const ev = logEv(ms, 'kick', a.team, a.id, a.m.x, a.m.z, {intent: rq.kind, recv: rq.recv != null ? rq.recv : -1, whiff: true, speed: 0});
+    act.done = true; act.ev = ev;
+    return ev;
+  }
+  const foot = footFor(a, r.lat), weak = a.foot === 'B' ? 'both' : foot !== (a.foot || 'R');
+  const kind = rq.kind;
+  const K = kickRequest(ms, a, act, scuff, b.p, foot), req = K.req;
+  const tx = K.tx, ty = K.ty, tz = K.tz, dist = K.dist, isShot = K.isShot, ctxKind = K.ctxKind, acc = K.acc, contact = K.contact;
+  const ctx = kickCtx(ms, a, act, K, b.p, r.ahead, weak, scuff);
+  if (act.devZ) ctx.z = act.devZ;
   // the player's decision, recorded with his options as they were at the strike (judged later: 3.2.11)
   if (a.isMe && !rq.noRecord && (isShot || kind === 'pass' || kind === 'through' || kind === 'cross' || kind === 'lob')){
     const rec = decisionRecord(ms, a, {choice: isShot ? 'shoot' : kind === 'cross' ? 'cross' : 'pass', recv: rq.recv != null ? rq.recv : -1,
       setPiece: ms.restart && ms.restart.taker === a.id ? (ms.restart.kind === 'penalty' ? 'penalty' : ms.restart.kind === 'free' ? 'freekick' : null) : null});
     logEv(ms, 'decision', a.team, a.id, b.p.x, b.p.z, {rec});
   }
-  const plan = planShot(req, ctx, ms.r);
+  // (a scuff changes the speed and the aim: it starts cold)
+  const plan = planShot(req, ctx, ms.r, scuff ? null : presolveWarm(act.pre));
+  act.pre = null; act.devZ = null;
   const L = plan.launch;
   ballKick(b, L.v, L.w, {agent: a.id, team: a.team, kind: isShot ? 'shot' : kind, aero: at.aero, t: ms.t, knuck: L.knuck});
   stamAction(a.st, isShot ? 'shot' : 'pass');
@@ -547,17 +587,34 @@ function headerTry(ms, a, act){
 
 // the throw: from 2.0 m at up to 8 + 0.07 passing m/s, released at 0.62 s of a 1.0 s clip
 export function startThrow(ms, a, target, recv = -1){
-  a.act = {kind: 'throw', t: 0, dur: ACT.THROW_DUR, tc: ACT.THROW_REL, target, recv, done: false};
+  a.act = {kind: 'throw', t: 0, dur: ACT.THROW_DUR, tc: ACT.THROW_REL, target, recv, done: false, pre: null, preReq: null};
   a.state = 'throw'; a.stateT = 0;
   return a.act;
 }
-function throwRelease(ms, a, act){
+// the throw's solve request with the ball where it is (a throw is solved through the clip, a flight a step, and at the
+// release the answer is used when the ball has not moved since; else it is solved again from there)
+function throwRequest(ms, a, act){
   const b = ms.ball, tg = act.target;
   const vmax = 8 + 0.07*a.at.passing;
   const from = {x: b.p.x, y: Math.max(1.6, b.p.y), z: b.p.z};
   const d = hypot(tg.x - from.x, tg.z - from.z);
   const sp = clamp(Math.sqrt(9.81*Math.max(2, d)/0.9396926207859083)*0.92, 5, vmax);
-  const L = solveStrike({from, target: {x: tg.x, y: R, z: tg.z}, speed: sp, contact: 0, curl: 0, foot: 'R', kind: 'throw', rollDecel: b.rollDecel});
+  return {from, target: {x: tg.x, y: R, z: tg.z}, speed: sp, contact: 0, curl: 0, foot: 'R', kind: 'throw', rollDecel: b.rollDecel};
+}
+const sameReq = (p, q) => p.from.x === q.from.x && p.from.y === q.from.y && p.from.z === q.from.z && p.target.x === q.target.x &&
+  p.target.z === q.target.z && p.speed === q.speed && p.rollDecel === q.rollDecel;
+function throwPresolve(ms, a, act){
+  if (!act.pre){ act.preReq = throwRequest(ms, a, act); act.pre = presolve(act.preReq); }
+  presolveStep(act.pre, 1);
+}
+function throwRelease(ms, a, act){
+  const b = ms.ball;
+  const rq = throwRequest(ms, a, act), from = rq.from, d = hypot(rq.target.x - from.x, rq.target.z - from.z), sp = rq.speed;
+  const pre = act.pre, same = !!(pre && act.preReq && sameReq(act.preReq, rq));
+  // the same request solved to the end through the clip is the same answer; anything else (the ball moves a little in
+  // his hands as he throws) is solved here from the presolve's launch
+  const L = same && pre.done ? pre.res : solveStrike(rq, presolveWarm(pre));
+  act.pre = null; act.preReq = null;
   ballRelease(b, from, L.v, {x: 0, y: 0, z: 0});
   b.last.agent = a.id; b.last.team = a.team; b.last.kind = 'throw'; b.last.t = ms.t;
   b.pendN = 0;
@@ -606,10 +663,12 @@ export function actionStep(ms, a, h){
         }
         if (!act.adjust && !act.done){
           const tg = act.action.target;
-          if (tg){ const f = faceTo(a, tg.x, tg.z, {x: 0, z: 0}); I.face = f; }
+          if (tg){ const f = faceTo(a, tg.x, tg.z, a.faceV); I.face = f; }
           I.speedCap = Math.min(I.speedCap, Math.max(1.5, a.m.speed*0.97));
           if (act.t >= act.tc - 1e-9) strikeContact(ms, a, act, false);
         }
+        // the solve, a flight a step through the swing (a stride adjust included)
+        if (!act.done) kickPresolve(ms, a, act);
       } else I.speedCap = Math.min(I.speedCap, 2.5);
       if (act.done && act.t >= act.dur){ a.act = null; a.state = 'idle'; }
       break;
@@ -646,8 +705,9 @@ export function actionStep(ms, a, h){
       break;
     }
     case 'throw': {
-      standStill(a, faceTo(a, act.target.x, act.target.z, {x: 0, z: 0}));
+      standStill(a, faceTo(a, act.target.x, act.target.z, a.faceV));
       if (!act.done && act.t >= act.tc) throwRelease(ms, a, act);
+      else if (!act.done) throwPresolve(ms, a, act);
       if (act.t >= act.dur){ a.act = null; a.state = 'idle'; }
       break;
     }

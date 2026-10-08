@@ -25,6 +25,7 @@
 import {THREE, W, box, rbox, cyl, extrude, solid, wall, doorway, spot, textTex, label, labels, addGeo, reseed, rnd, finishBatches, lightSrc, halo, mat} from "../build.js";
 import {frame, rb, cy, fsolid, worldPt, dugout, tacticsBoard, waterCooler, kitHamper, tree, wireFence} from "../props.js";
 import {registerZone} from "../core/modes.js";
+import {onPresetSwap} from "../core/quality.js";
 import {RT, P} from "../core/state.js";
 import {makePitch, FIFA, BOARDS} from "./pitchspec.js";
 import {buildPitchMesh, WEAR} from "./pitchmesh.js";
@@ -725,7 +726,9 @@ function corridor(opts, tier){
     g.fillText(name.split(" ").map(w => w[0]).join("").slice(0, 3), 128, 120); });
   label(crest, -x + .02, 1.7, -55, 1.2, 1.2, Math.PI/2, {rough:.5, transparent:true, alphaTest:.5});
   label(crest, x - .02, 1.7, -55, 1.2, 1.2, -Math.PI/2, {rough:.5, transparent:true, alphaTest:.5});
-  if (typeof GFX !== "undefined" && GFX && GFX.P && GFX.P.nReal && GFX.P.nReal.stadium >= 2) lightSrc({x:0, y:h - .3, z:-50, color:0xfff1d8, intensity:6, distance:12, indoor:true});
+  // (a real light only on High: the sky's pool in a stadium has none on Low and Medium, 2 on High, P.nReal.stadium, and
+  // follows a change of preset; the source is always there for it)
+  lightSrc({x:0, y:h - .3, z:-50, color:0xfff1d8, intensity:6, distance:12, indoor:true});
 }
 // the mouth: concrete cheeks up the rake either side, a lintel, and the telescopic tunnel out to the boards
 function mouth(opts, tier){
@@ -767,7 +770,7 @@ function dugouts(opts){
     const f = frame(x, -37, Math.PI);
     for (let i = 0; i < 8; i++){ const lx = -2.3 + .32 + i*.55, [wx, wz] = worldPt(f, lx, .32); seats.push({x:wx, y:.05, z:wz, side}); }
   }
-  if (typeof GFX !== "undefined" && GFX && GFX.P && GFX.P.nReal && GFX.P.nReal.stadium >= 2) lightSrc({x:0, y:2.4, z:-37.2, color:0xfff1d8, intensity:5, distance:16});
+  lightSrc({x:0, y:2.4, z:-37.2, color:0xfff1d8, intensity:5, distance:16});     // (lit on High only: the sky's stadium pool)
   // the fourth official's desk and his board, to one side of the walk out
   const d = frame(-3.6, -37.4, 0);
   rb(d, 0, .72, 0, 1.3, .05, .55, .02, 0x2b3036, {key:"metal"});
@@ -886,9 +889,10 @@ export function buildStadium(ctx, o = {}){
   // the crowd: the seats the stands hand it, filled to the attendance
   const crowdStands = stands.map(st => ({id:st.id, away:!!st.away, standing:!!st.standing, roofed:!!(st.roof || L.roofRing),
     rows:st.info.rows.map(r => ({y:r.y, runs:r.runs.map(run => ({pts:run.pts}))}))}));
-  const crowd = buildCrowd(W.scene, {stands:crowdStands, attendance:att, homeShare:o.homeShare == null ? .8 : o.homeShare, kits, preset:typeof GFX !== "undefined" && GFX ? GFX.P : null,
-    renderer:RT.renderer, bench, seed:o.seed});
-  crowd.setBench("home", o.subs != null ? o.subs : 7); crowd.setBench("away", o.subs != null ? o.subs : 7);
+  const crowdOpts = {stands:crowdStands, attendance:att, homeShare:o.homeShare == null ? .8 : o.homeShare, kits, renderer:RT.renderer, bench, seed:o.seed};
+  const crowd = buildCrowd(W.scene, Object.assign({preset:typeof GFX !== "undefined" && GFX ? GFX.P : null}, crowdOpts));
+  const benchN = {home:o.subs != null ? o.subs : 7, away:o.subs != null ? o.subs : 7};
+  crowd.setBench("home", benchN.home); crowd.setBench("away", benchN.away);
   // the place's own spots, for the match to hang its steps on
   const on = o.on || {};
   if (on.ready) spot({x:0, y:1.2, z:-72.5, r:3, near:true, stadium:true, label:"Dressing room", hint:"Get ready", run:() => on.ready()});
@@ -916,7 +920,18 @@ export function buildStadium(ctx, o = {}){
   Object.assign(STADIUM, {tier, spec, pitch, crowd, stands, bench, cones:pitch.cones, att, level:Math.min(1, crowdN/20000 + att*.35), board, seats, kits, clubs, cap, fans:crowdN});
   STADIUM.excite(.15);
   audT = 0;
-  LEAVE = [() => { crowd.dispose(); }];
+  // a change of preset (DESIGN 3.9.1: the crowd's kind and count go with it): the crowd made again for it, the same
+  // people in the same seats (its seed), under the swap's cover and compiled with everything else (quality.js swapNow)
+  const offSwap = onPresetSwap(P => {
+    if (!STADIUM.crowd) return;
+    const bench = {home:STADIUM.crowd.benchN ? STADIUM.crowd.benchN.home : benchN.home, away:STADIUM.crowd.benchN ? STADIUM.crowd.benchN.away : benchN.away};
+    STADIUM.crowd.dispose();
+    const c = buildCrowd(W.scene, Object.assign({preset:P}, crowdOpts, {renderer:RT.renderer}));
+    c.setBench("home", bench.home); c.setBench("away", bench.away);
+    STADIUM.crowd = c;
+    STADIUM.excite(STADIUM.excitement);
+  });
+  LEAVE = [() => { offSwap(); if (STADIUM.crowd) STADIUM.crowd.dispose(); }];
   return Object.assign({}, SPAWNS);
 }
 

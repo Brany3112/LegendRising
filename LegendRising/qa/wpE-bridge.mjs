@@ -138,6 +138,8 @@ async function flowInPage(){
   // an own goal is credited s = -1 (1.4.16 goalLists): career.js newsFromMatch skips it (the P1a hook), so full time
   // goes through whatever the score
   out.ownGoals = ms.events.filter(e => e.kind === "goal" && e.ownGoal && !e.disallowed).length;
+  const meA = ms.me >= 0 ? ms.agents[ms.me] : null;
+  out.meOff = meA ? (meA.sentOff ? "sent off" : meA.injured ? "injured" : null) : null;
   const fin = B.finish(ms);
   // and the news of a fixture that matters, with nothing but an own goal in it, says nothing about anyone
   try { const n0 = (S.news || []).length; newsFromMatch({f: Object.assign({}, f, {kind: "E"}), hg: 1, ag: 0, hG: [{s: -1, a: -1}], aG: [], rt: {}, motm: -1}); out.ogNews = {ok: true, added: (S.news || []).length - n0}; }
@@ -160,7 +162,8 @@ async function flowInPage(){
   out.quick = null;
   if (g){
     const R = quickMatch(g);
-    out.quick = {key: g.key, done: !!W.done[g.key], notice: R && R.notice, toast: document.body.innerText.includes("This match was played out for you")};
+    out.quick = {key: g.key, done: !!W.done[g.key], notice: R && R.notice, toast: document.body.innerText.includes("This match was played out for you"),
+      mtCleared: MT === null, record: !!(R && R.M && R.M.f === g)};
   }
   out.hashChromium = null;
   return out;
@@ -197,11 +200,15 @@ async function hashInPage(cfgJSON){
   check(flow.checkpoint && flow.persist, "bridge.checkpoint writes S.life.inMatch for the fixture", flow.checkpoint);
   check(flow.levelled && flow.afterFinish.pace === flow.afterFinish.want, "a level-up during the match (skillXP) is still there after bridge.finish", flow.afterFinish);
   check(flow.done && flow.inMatchCleared && flow.mt.label === "FT" && flow.R && flow.R.xp > 0, "full time: the world has the result, the checkpoint is cleared, MT is at full time, matchRewards gave XP", {done: flow.done, cleared: flow.inMatchCleared, R: flow.R});
-  check(flow.R && flow.R.mins === 90 && flow.R.fatigue >= 8 && flow.mt.drain, "the minutes from MT.on and the fatigue from the drain (1.5.2)", flow.R);
+  // (a starter: on from 0', and 90 minutes unless he was sent off or went off injured, when MT.on ends where he left)
+  const onMins = flow.mt.on ? Math.min(90, flow.mt.on.reduce((m, iv) => m + iv[1] - iv[0], 0)) : -1;
+  check(flow.R && flow.mt.on && flow.mt.on[0][0] === 0 && flow.R.mins === onMins && (onMins === 90 || flow.meOff) && flow.R.fatigue >= 8 && flow.mt.drain,
+    "the minutes from MT.on and the fatigue from the drain (1.5.2)", Object.assign({on: flow.mt.on, off: flow.meOff}, flow.R));
   check(flow.cards.ft > 200 && flow.cards.ht > 100 && !flow.cards.ftDash && !flow.cards.htDash && flow.cards.htLine && flow.cards.drift, "the full-time and half-time cards build without an em dash, with the manager's lines", flow.cards);
   check(flow.resume.seed === flow.resume.want && flow.resume.score.join() === flow.resume.recScore.join(), "the interrupted match rebuilds from its checkpoint (seed moved on, score kept)", flow.resume);
   check(flow.quick && flow.quick.done && flow.quick.notice === "This match was played out for you. Full matches need the 3D world: open the game from a web address in a browser with WebGL2.",
     "quickMatch plays the fixture out and gives the notice", flow.quick);
+  check(flow.quick && flow.quick.mtCleared && flow.quick.record, "quickMatch leaves the match mirror cleared (MT null) and returns the record (R.M) for the card", flow.quick);
   check(flow.errors.length === 0, "no console or page errors", flow.errors);
   check(flow.ogNews && flow.ogNews.ok && flow.ogNews.added === 0, "an own goal (s = -1) passes through the news without a headline or an error (career.js newsFromMatch)", {ogNews: flow.ogNews, ownGoalsInThisMatch: flow.ownGoals});
   // Node's run of the same configuration

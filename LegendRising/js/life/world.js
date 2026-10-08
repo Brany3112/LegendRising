@@ -85,6 +85,9 @@ function clearScene(){
 let spawns = {};
 // opts.cam: the pose the first frames will be drawn from ({pos, look}), to warm up from
 function enterZone(zone, at, opts = null){
+  // a zone nobody has registered (its module not loaded yet: stadium.js registers itself when it is imported) is
+  // refused before anything is torn down, never built as the flat under another zone's name
+  if (!zoneSpec(zone)){ console.error(`enterZone: no zone "${zone}" is registered (is its module loaded?)`); return false; }
   if (mode() !== "life" && modeFlags().leaveOnZone) exitMode("zone");
   if (BM.on) buildExit();
   const was = zoneSpec(LIFE.zone); if (was && was.leave) was.leave();
@@ -94,7 +97,7 @@ function enterZone(zone, at, opts = null){
   HOLD.sp = null; heldMeshDrop(); flyEnd(); resetParcels();
   LIFE.zone = zone; W.zone = zone;
   meDispose(); clearScene(); begin(RT.scene);
-  spawns = (zoneSpec(zone) || zoneSpec("home")).build(ctx, opts) || {};
+  spawns = zoneSpec(zone).build(ctx, opts) || {};
   compassReset();
   camGridBuild();
   spawnDrops();
@@ -138,20 +141,21 @@ function place(p){
 
 /* ---------- the sky ----------
    How much of the sky over your head is roofed over: five rays from your eyes, straight up and leaning 30 degrees four
-   ways, ten times a second; 0 out in the open, 1 under a ceiling, in between under a shelter or a canopy. Eased, so
-   walking in through a door the light inside comes up over half a second or so */
+   ways, each cast again ten times a second; 0 out in the open, 1 under a ceiling, in between under a shelter or a
+   canopy. Eased, so walking in through a door the light inside comes up over half a second or so. The rays are cast
+   one at a time in turn, not five in one frame (DESIGN 1.5.11: at most 12 camera rays a frame in the open), all five
+   at once only when the answer is needed now (a new place, the sky forced) */
 const hour = () => (LIFE.min/60) % 24;
 let skyT = 0;
-const COVER = {v:0, want:0, t:0, snap:true};
 const COVER_RAYS = [[0, 1, 0], [.5, .866, 0], [-.5, .866, 0], [0, .866, .5], [0, .866, -.5]];
+const COVER = {v:0, want:0, t:0, snap:true, hit:COVER_RAYS.map(() => 0), i:0};
+const coverRay = i => { const d = COVER_RAYS[i]; COVER.hit[i] = camCast(P.x, P.eye, P.z, d[0], d[1], d[2], 14) < 14 ? 1 : 0; };
 function coverStep(real){
-  const snap = FLAGS.forceSky || COVER.snap; COVER.snap = false;
-  if ((COVER.t -= real) <= 0 || snap){
-    COVER.t = .1;
-    let n = 0;
-    for (const [dx, dy, dz] of COVER_RAYS) if (camCast(P.x, P.eye, P.z, dx, dy, dz, 14) < 14) n++;
-    COVER.want = n/COVER_RAYS.length;
-  }
+  const snap = FLAGS.forceSky || COVER.snap, n = COVER_RAYS.length; COVER.snap = false;
+  if (snap){ for (let i = 0; i < n; i++) coverRay(i); COVER.t = .1/n; }
+  else if ((COVER.t -= real) <= 0){ COVER.t += .1/n; if (COVER.t <= 0) COVER.t = .1/n; COVER.i = (COVER.i + 1) % n; coverRay(COVER.i); }
+  let h = 0; for (let i = 0; i < n; i++) h += COVER.hit[i];
+  COVER.want = h/n;
   COVER.v = snap ? COVER.want : COVER.v + (COVER.want - COVER.v)*(1 - Math.exp(-4*real));
   return COVER.v;
 }

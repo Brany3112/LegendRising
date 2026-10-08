@@ -68,7 +68,8 @@ function startAerial(){
 }
 
 /* ---------- stage one: jockey him ---------- */
-const jockeySpeed = () => 5.0 + S.skills.pace*.028 + (S.skills.tackling || 20)*.012;
+// (the player's skills as they are on the day: effSkill, the nerves and tired legs off them, DESIGN D8)
+const jockeySpeed = () => 5.0 + effSkill("pace")*.028 + (S.skills.tackling ? effSkill("tackling") : 20)*.012;
 function updateJockey(dt){
   M.phaseT += dt; M.jockT += dt;
   const a = M.att, p = M.p;
@@ -117,7 +118,7 @@ function beaten(txt){
 }
 // the ball is briefly not his: how long depends on how hard you made him work
 function openWindow(){
-  const tack = S.skills.tackling || 20;
+  const tack = S.skills.tackling ? effSkill("tackling") : 20;
   M.window = .34 + M.press*.42 + tack*.0035;
   M.winT = 0;
   const a = M.att;
@@ -152,7 +153,7 @@ function challenge(fromX, fromY, toX, toY){
   const legs = worldToScreen(a.x, a.y, 0);
   const swipe = Math.hypot(toX - fromX, toY - fromY);
   if (swipe < 18*DPR) return;                      // a tap is not a challenge
-  const tack = S.skills.tackling || 20;
+  const tack = S.skills.tackling ? effSkill("tackling") : 20;
   // where the swipe comes closest to the ball, and where it comes closest to his legs
   const hitBall = segHit(fromX, fromY, toX, toY, bs.x, bs.y);
   const hitLegs = segHit(fromX, fromY, toX, toY, legs.x, legs.y);
@@ -238,12 +239,12 @@ function updateRead(dt){
   if (inp.hx != null){
     const want = screenToWorld(inp.hx, inp.hy);
     const dx = want.x - p.x, dy = want.y - p.y, d = Math.hypot(dx, dy) || 1;
-    const sp = jockeySpeed()*1.05 + (S.skills.interception || 20)*.012;
+    const sp = jockeySpeed()*1.05 + (S.skills.interception ? effSkill("interception") : 20)*.012;
     p.x = clamp(p.x + dx/d*Math.min(d, sp*dt), 1, 67);
     p.y = clamp(p.y + dy/d*Math.min(d, sp*dt), 2, 46);
   }
   b.x += b.vx*dt; b.y += b.vy*dt;
-  const icp = S.skills.interception || S.skills.tackling || 20;
+  const icp = S.skills.interception ? effSkill("interception") : S.skills.tackling ? effSkill("tackling") : 20;
   if (Math.hypot(b.x - p.x, b.y - p.y) < .9 + icp*.0048){
     MT.my.tackles = (MT.my.tackles || 0) + 1;
     skillXP("interception", 18); skillXP("tackling", 4);
@@ -266,7 +267,7 @@ function updateAerial(dt){
   const f = clamp(M.phaseT/M.drop, 0, 1.6);
   b.z = Math.max(.2, 9.5*(1 - f*f));               // it drops faster as it falls
   // hold to load the legs
-  if (inp.down && !M.jumped) M.charge = Math.min(1, M.charge + dt*(1.1 + (S.skills.jumping || 20)*.004));
+  if (inp.down && !M.jumped) M.charge = Math.min(1, M.charge + dt*(1.1 + (S.skills.jumping ? effSkill("jumping") : 20)*.004));
   if (M.jumped){
     M.jumped.t += dt;
     const j = M.jumped;
@@ -287,7 +288,7 @@ function headContact(j){
   const rival = M.rival, b = M.ball;
   // his jump is fixed; yours is what you charged and when you left the floor
   // how high you got and how well you met it: jumping gets you up there, heading wins the contact
-  const mine = j.pow*(1 + (S.skills.jumping || 20)*.0045 + (S.skills.heading || 20)*.0022);
+  const mine = j.pow*(1 + (S.skills.jumping ? effSkill("jumping") : 20)*.0045 + (S.skills.heading ? effSkill("heading") : 20)*.0022);
   const his = rival.jump*rnd(.85, 1.15)*(1 + M.opp*.002);
   skillXP("jumping", 7); skillXP("heading", 8);
   if (mine < his) return endMoment("beaten", "He climbed above you and won the header.");
@@ -295,7 +296,7 @@ function headContact(j){
   if (M.aerialAtk){
     // you are attacking it: a header on goal
     // a good header goes where you meant it; a poor one goes where it likes
-    const hd = S.skills.heading || 20, aimX = 34 + (Math.random() < .5 ? -1 : 1)*rnd(1, 3) + gauss()*(1.3 - hd/100)*3;
+    const hd = S.skills.heading ? effSkill("heading") : 20, aimX = 34 + (Math.random() < .5 ? -1 : 1)*rnd(1, 3) + gauss()*(1.3 - hd/100)*3;
     const dx = aimX - M.p.x, dy = -M.p.y, L = Math.hypot(dx, dy) || 1, sp = 11 + mine*6 + hd*.05;
     b.vz = -1.6 - hd*.01; b.vx = dx/L*sp; b.vy = dy/L*sp;
     b.x = M.p.x; b.y = M.p.y; b.z = 2.1;

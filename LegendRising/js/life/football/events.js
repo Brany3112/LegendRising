@@ -367,18 +367,17 @@ export function countersAll(ms){
   }
   return C;
 }
-// was the agent on the pitch at time t (a.on holds [start, end] pairs in sim seconds)
+// was the agent on the pitch at simulation time t (a.onT holds his intervals in sim seconds, the events' clock)
 function onAt(a, t){
-  for (const iv of a.on) if (t >= iv[0] && (iv[1] == null || t <= iv[1])) return true;
+  for (const iv of a.onT) if (t >= iv[0] && (iv[1] == null || t <= iv[1])) return true;
   return false;
 }
-// match minutes on the pitch, from the agent's intervals (sim seconds) and the match's own clock: minutes are match
-// minutes (the clock's rate), so a full game is 90 whatever the half length
+// match minutes on the pitch, from the agent's intervals in match seconds (a.on, the clock's running total: both halves
+// and their added time, never the half-time break or anything between the halves), at most 90
 export function minsOn(ms, a){
   let s = 0;
-  for (const iv of a.on){ const e = iv[1] == null ? ms.t : iv[1]; s += Math.max(0, e - iv[0]); }
-  const full = ms.cfg.halfRealSec*2;
-  return clamp(Math.round(90*s/Math.max(1, full)), 0, 90);
+  for (const iv of a.on){ const e = iv[1] == null ? ms.clock.total : iv[1]; s += Math.max(0, e - iv[0]); }
+  return clamp(Math.round(s/60), 0, 90);
 }
 
 /* ---------- ratings (1.5.8) ---------- */
@@ -460,7 +459,7 @@ export function ratingsAll(ms, C = null){
     if (a.role !== 'player' || !a.on.length) continue;
     const c = C[a.id], my = ms.score[a.team], th = ms.score[1 - a.team];
     const res = my > th ? 'W' : my < th ? 'L' : 'D';
-    const sub = a.on[0][0] > 1 || a.subbedOff;
+    const sub = a.onT[0][0] > 1 || a.subbedOff;
     out[a.id] = rateAgent(c, a.isGK ? 'GK' : a.arch, {mins: c.mins, res, conceded: c.conceded, sub, role: a.isMe ? ms.cfg.me && ms.cfg.me.role : null});
   }
   return out;

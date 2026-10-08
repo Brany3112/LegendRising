@@ -24,11 +24,11 @@
 // path's parabola, everything else on its chord. Events are handed to onEvent when the step is over (each with the
 // exact time it happened inside it). Nothing here allocates per step except the data of an event that fires.
 
-import {timeToPoint, moverParams, sprintSpeed} from "../mover.js";
+import {timeToPointQ, TT, moverParams, sprintSpeed} from "../mover.js";
 import {yawOf} from "./pitchspec.js";
 import {FRESH} from "../stamina.js";
 import {truncNormal} from "./rng.js";
-import {sin, cos, tan, exp, log, atan, acos, hypot} from "./detmath.js";
+import {sin, cos, tan, exp, log, atan, acos, hypot, DR, sinQ, cosQ, expQ, atanQ, atan2Q} from "./detmath.js";
 
 // 1.5.1, the frozen table
 export const BALL = Object.freeze({R:0.11, G:9.81, KD:0.0135, KM:0.0055, AMAX:9, SPIN_DECAY:0.25, E_MAX:0.62, E_MIN:0.45,
@@ -148,7 +148,7 @@ export function ballRelease(b, p, v, w){
 // (tests), t (the clock ballStep advances; the simulation may set it to ms.t), floorY (the ground without a spec).
 export function createBallWorld({spec = null, bodies = null, hands = null, solids = null, onEvent = null, rng = null,
   trace = null, t = 0, floorY = 0} = {}){
-  const bw = {spec, bodies, hands, solids, onEvent, rng, trace, t, floorY,
+  const bw = {spec, bodies, hands, solids, onEvent, rng, trace, traceQ: null, t, floorY,
     caps: [], panels: [], boards: [], vols: [], goalX: Infinity, touchZ: Infinity, mouthHalf: 0, mouthTop: 0,
     pred: null, qa: [], qb: [], qOn: false, netNear: Infinity};
   if (spec){
@@ -223,9 +223,24 @@ function boardOf(bd){
 
 const CN = {x: 0, y: 0, z: 0};
 
+// The step's own calling convention (3.9.6: the ball allocates nothing per step). A call that passes or returns a
+// fractional number boxes it in a new heap object unless the engine inlines the callee, and these tests run for every
+// sub-step of every ball (the live one, the prediction, the solver's flights), so their numbers go through these
+// arrays instead. PC, the piece: 0..2 its start, 3..5 its motion, 6 its length in seconds, 7 its start within the 60 Hz
+// step, 8 its absolute start, 9..11 the acceleration, 12 the resting centre height, 13 the spin clock's time, 14..15
+// the nets' piece length and time. SW, a swept capsule: 0..2 the point, 3..5 its motion, 6..8 the segment's start,
+// 9..11 its unit direction, 12 its length, 13 the radius; the answer in SW[14]. ZC, the zone check: 0..2 from, 3..5
+// to, 6 the time at the start, 7 the length. TRC, a traced piece (traceQ): 0..2 from, 3..5 to, 6 the length. SUB, a
+// sub-step: 0 its length, 1 its absolute start, 2 its start within the step, 3 the speed it is sized for; the time it
+// used in SUB[4].
+const PC = new Float64Array(16), SW = new Float64Array(15), ZC = new Float64Array(8), TRC = new Float64Array(7), SUB = new Float64Array(5);
+
 // earliest s in [0, 1] at which the point p0 + s*d comes within rr of the segment a + t*u, t in [0, L]; -1 if never.
 // A point already inside and moving deeper counts at s = 0. CN receives the unit normal from the segment at contact.
-function sweepCapsule(px, py, pz, dx, dy, dz, ax, ay, az, ux, uy, uz, L, rr){
+// (Arguments and answer in SW.)
+function sweepCapsuleQ(){
+  const px = SW[0], py = SW[1], pz = SW[2], dx = SW[3], dy = SW[4], dz = SW[5], ax = SW[6], ay = SW[7], az = SW[8];
+  const ux = SW[9], uy = SW[10], uz = SW[11], L = SW[12], rr = SW[13];
   let best = 2;
   const mx = px - ax, my = py - ay, mz = pz - az;
   const md = mx*ux + my*uy + mz*uz, dd = dx*ux + dy*uy + dz*uz;
@@ -241,31 +256,27 @@ function sweepCapsule(px, py, pz, dx, dy, dz, ax, ay, az, ux, uy, uz, L, rr){
       if (s >= 0 && s <= 1){ const ax2 = md + s*dd; if (ax2 >= 0 && ax2 <= L) best = s; }
     }
   }
-  // the two end spheres
-  const s1 = sweepSphere(mx, my, mz, dx, dy, dz, rr);
-  if (s1 >= 0 && s1 < best) best = s1;
-  const s2 = sweepSphere(mx - L*ux, my - L*uy, mz - L*uz, dx, dy, dz, rr);
-  if (s2 >= 0 && s2 < best) best = s2;
-  if (best > 1) return -1;
+  // the two end spheres: the earliest s at which m + s*d (relative to the sphere's centre) comes within rr
+  for (let e = 0; e < 2; e++){
+    const ex = e ? mx - L*ux : mx, ey = e ? my - L*uy : my, ez = e ? mz - L*uz : mz;
+    const A2 = dx*dx + dy*dy + dz*dz, B2 = ex*dx + ey*dy + ez*dz, C2 = ex*ex + ey*ey + ez*ez - rr*rr;
+    let se = -1;
+    if (C2 <= 0) se = B2 < 0 ? 0 : -1;
+    else if (!(A2 < 1e-18)){
+      const disc2 = B2*B2 - A2*C2;
+      if (!(disc2 < 0)){ const s = (-B2 - Math.sqrt(disc2))/A2; se = s >= 0 && s <= 1 ? s : -1; }
+    }
+    if (se >= 0 && se < best) best = se;
+  }
+  if (best > 1){ SW[14] = -1; return; }
   const qx = px + best*dx, qy = py + best*dy, qz = pz + best*dz;
   const t = clamp((qx - ax)*ux + (qy - ay)*uy + (qz - az)*uz, 0, L);
   let nx = qx - (ax + t*ux), ny = qy - (ay + t*uy), nz = qz - (az + t*uz);
-  const nl = hypot(nx, ny, nz);
+  const nl = Math.sqrt(nx*nx + ny*ny + nz*nz);
   if (nl > 1e-12){ CN.x = nx/nl; CN.y = ny/nl; CN.z = nz/nl; }
-  else { const dl = hypot(dx, dy, dz) || 1; CN.x = -dx/dl; CN.y = -dy/dl; CN.z = -dz/dl; }
-  return best;
+  else { const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1; CN.x = -dx/dl; CN.y = -dy/dl; CN.z = -dz/dl; }
+  SW[14] = best;
 }
-// earliest s in [0, 1] at which m + s*d (relative to a sphere centre) comes within rr; -1 if never
-function sweepSphere(mx, my, mz, dx, dy, dz, rr){
-  const A = dx*dx + dy*dy + dz*dz, B = mx*dx + my*dy + mz*dz, C = mx*mx + my*my + mz*mz - rr*rr;
-  if (C <= 0) return B < 0 ? 0 : -1;
-  if (A < 1e-18) return -1;
-  const disc = B*B - A*C;
-  if (disc < 0) return -1;
-  const s = (-B - Math.sqrt(disc))/A;
-  return s >= 0 && s <= 1 ? s : -1;
-}
-
 /* ---------- collision response ---------- */
 
 // an impulse at a contact with unit normal n (pointing to the ball) on a surface moving at sv: restitution e on the
@@ -340,7 +351,7 @@ export function ballStep(b, bw, h){
     const P = b.p, V = b.v;
     const x0 = P.x, z0 = P.z;
     P.x += V.x*h; P.y = Math.max(R, P.y + V.y*h); P.z += V.z*h;
-    if (bw.spec) zoneCheck(b, bw, x0, P.y, z0, P.x, P.y, P.z, t0, h);
+    if (bw.spec){ ZC[0] = x0; ZC[1] = P.y; ZC[2] = z0; ZC[3] = P.x; ZC[4] = P.y; ZC[5] = P.z; ZC[6] = t0; ZC[7] = h; zoneCheckQ(b, bw); }
     bw.t = t0 + h;
     stepEnd(bw);
     return b;
@@ -352,13 +363,26 @@ export function ballStep(b, bw, h){
     if (!wakeCheck(b)){ bw.t = t0 + h; stepEnd(bw); return b; }
     b.sleep = false; b.still = 0;
   }
-  let remT = h, n = subCount(b, h), tL = 0, guard = 0;
+  // sub-steps for T seconds: enough that even the fastest the ball can get in T moves at most SUB_TRAVEL in each, the
+  // most the forces can add to its speed a second being gravity, the Magnus cap and, while it is in a net, the net's
+  // spring at its present stretch plus one sub-step more (written out here, and the sub-step's numbers passed through
+  // SUB: nothing boxed, 3.9.6)
+  const V = b.v;
+  let remT = h, tL = 0, guard = 0;
+  let vb = Math.sqrt(V.x*V.x + V.y*V.y + V.z*V.z) + (G + AMAX + (b.netQ > 0 ? NET_K*(b.netQ + SUB_TRAVEL) : 0))*h;
+  let n = clamp(Math.ceil(vb*h/SUB_TRAVEL - 1e-12), 1, X.MAX_SUB);
   while (n > 0 && remT > 1e-12 && guard++ < X.MAX_PIECES){
     const dt = remT/n;
-    const vSize = speedOf(b) + accBound(b)*dt;
-    const used = subStep(b, bw, dt, t0 + tL, tL, vSize);
+    const vSize = Math.sqrt(V.x*V.x + V.y*V.y + V.z*V.z) + (G + AMAX + (b.netQ > 0 ? NET_K*(b.netQ + SUB_TRAVEL) : 0))*dt;
+    SUB[0] = dt; SUB[1] = t0 + tL; SUB[2] = tL; SUB[3] = vSize;
+    subStepQ(b, bw);
+    const used = SUB[4];
     tL += used; remT -= used; n--;
-    if (used < dt - 1e-12 && remT > 1e-12) n = subCount(b, remT);   // a collision left it faster: re-split the rest
+    if (used < dt - 1e-12 && remT > 1e-12){
+      // a collision left it faster: re-split the rest
+      vb = Math.sqrt(V.x*V.x + V.y*V.y + V.z*V.z) + (G + AMAX + (b.netQ > 0 ? NET_K*(b.netQ + SUB_TRAVEL) : 0))*remT;
+      n = clamp(Math.ceil(vb*remT/SUB_TRAVEL - 1e-12), 1, X.MAX_SUB);
+    }
   }
   bw.t = t0 + h;
   stepEnd(bw);
@@ -366,14 +390,6 @@ export function ballStep(b, bw, h){
 }
 
 function speedOf(b){ return hypot(b.v.x, b.v.y, b.v.z); }
-// the most the forces can add to the ball's speed per second: gravity, the Magnus cap and, while it is in a net, the
-// net's spring at its present stretch plus one sub-step more
-function accBound(b){ return G + AMAX + (b.netQ > 0 ? NET_K*(b.netQ + SUB_TRAVEL) : 0); }
-// sub-steps for T seconds: enough that even the fastest the ball can get in T moves at most SUB_TRAVEL in each
-function subCount(b, T){
-  const vb = speedOf(b) + accBound(b)*T;
-  return clamp(Math.ceil(vb*T/SUB_TRAVEL - 1e-12), 1, X.MAX_SUB);
-}
 
 function flushTouches(b, bw){
   for (let i = 0; i < b.pendN; i++){
@@ -420,7 +436,8 @@ const NB = new Float32Array(3);
 
 // one sub-step of dt seconds starting at absolute time tS (tL into the 60 Hz step). Returns the time consumed: dt, or
 // less when a collision left the ball faster than vSize (the step then re-splits what is left).
-function subStep(b, bw, dt, tS, tL, vSize){
+function subStepQ(b, bw){
+  const dt = SUB[0], tS = SUB[1], tL = SUB[2], vSize = SUB[3];
   const P = b.p, V = b.v, Wv = b.w;
   let rem = dt, used = 0, hits = 0;
   while (rem > 1e-12){
@@ -439,26 +456,26 @@ function subStep(b, bw, dt, tS, tL, vSize){
     // nets act as soft constraints on the velocity for this piece (implicit spring and damper); far from both goals
     // there is nothing to do but forget which side of each panel the ball was on
     if (bw.panels.length){
-      if (Math.abs(P.x) >= bw.netNear) netApply(b, bw, rem, tS + used);
+      if (Math.abs(P.x) >= bw.netNear){ PC[14] = rem; PC[15] = tS + used; netApplyQ(b, bw); }
       else if (b.netAny){ b.netSide.fill(0); b.netQ = 0; b.netHit = false; b.netAny = false; }
     }
 
     // accelerations, constant over the piece
-    const sp = hypot(V.x, V.y, V.z), kd = KD*b.dragMul*sp;
+    const sp = Math.sqrt(V.x*V.x + V.y*V.y + V.z*V.z), kd = KD*b.dragMul*sp;
     let ax = -kd*V.x, ay = -kd*V.y - G, az = -kd*V.z, mT = rem, stops = false;
     if (!gr){
       let mx = KM*(Wv.y*V.z - Wv.z*V.y), my = KM*(Wv.z*V.x - Wv.x*V.z), mz = KM*(Wv.x*V.y - Wv.y*V.x);
-      const ml = hypot(mx, my, mz);
+      const ml = Math.sqrt(mx*mx + my*my + mz*mz);
       if (ml > AMAX){ const k = AMAX/ml; mx *= k; my *= k; mz *= k; }
       ax += mx; ay += my; az += mz;
       const kn = b.knuck;
       if (kn){
-        const vh = hypot(V.x, V.z);
-        if (vh > 0.3){ const a = kn.amp*sin(kn.freq*kn.t + kn.phase); ax += a*V.z/vh; az -= a*V.x/vh; }
+        const vh = Math.sqrt(V.x*V.x + V.z*V.z);
+        if (vh > 0.3){ DR[0] = kn.freq*kn.t + kn.phase; sinQ(); const a = kn.amp*DR[0]; ax += a*V.z/vh; az -= a*V.x/vh; }
       }
     } else {
       ay = 0;
-      const vh = hypot(V.x, V.z);
+      const vh = Math.sqrt(V.x*V.x + V.z*V.z);
       if (vh > 0){
         ax -= b.rollDecel*V.x/vh; az -= b.rollDecel*V.z/vh;
         const dec = b.rollDecel + kd;
@@ -478,21 +495,24 @@ function subStep(b, bw, dt, tS, tL, vSize){
     // the earliest contact along the piece
     HIT.s = 2;
     if (hits < X.MAX_HITS){
-      if (!gr) groundHit(P, V, ax, ay, az, Yc, mT);
-      if (bw.caps.length) capsHit(bw, P.x, P.y, P.z, dX, dY, dZ);
-      if (bw.boards.length) boardsHit(bw, P.x, P.y, P.z, dX, dY, dZ);
-      if (BODIES) bodiesHit(b, bw, P.x, P.y, P.z, dX, dY, dZ, mT, tL + used, tS + used);
-      if (HANDS) handsHit(P.x, P.y, P.z, dX, dY, dZ, mT, tL + used);
-      if (bw.solids && bw.solids.cast) wallHit(bw, P.x, P.y, P.z, dX, dY, dZ);
+      PC[0] = P.x; PC[1] = P.y; PC[2] = P.z; PC[3] = dX; PC[4] = dY; PC[5] = dZ; PC[6] = mT; PC[7] = tL + used; PC[8] = tS + used;
+      PC[9] = ax; PC[10] = ay; PC[11] = az; PC[12] = Yc;
+      if (!gr) groundHitQ(P, V);
+      if (bw.caps.length) capsHitQ(bw);
+      if (bw.boards.length) boardsHitQ(bw);
+      if (BODIES) bodiesHitQ(b, bw);
+      if (HANDS) handsHitQ();
+      if (bw.solids && bw.solids.cast) wallHitQ(bw);
     }
 
     if (HIT.s > 1){
       // no contact: commit the piece
       const x0 = P.x, y0 = P.y, z0 = P.z;
       P.x = ex; P.y = Math.max(ey, Yc); P.z = ez; V.x = evx; V.y = evy; V.z = evz;
-      spinAndClock(b, gr, mT, V);
-      if (bw.trace) bw.trace('', x0, y0, z0, P.x, P.y, P.z, rem);
-      if (bw.spec) zoneCheck(b, bw, x0, y0, z0, P.x, P.y, P.z, tS + used, mT);
+      PC[13] = mT; spinAndClockQ(b, gr, V);
+      if (bw.traceQ){ TRC[0] = x0; TRC[1] = y0; TRC[2] = z0; TRC[3] = P.x; TRC[4] = P.y; TRC[5] = P.z; TRC[6] = rem; bw.traceQ(''); }
+      else if (bw.trace) bw.trace('', x0, y0, z0, P.x, P.y, P.z, rem);
+      if (bw.spec){ ZC[0] = x0; ZC[1] = y0; ZC[2] = z0; ZC[3] = P.x; ZC[4] = P.y; ZC[5] = P.z; ZC[6] = tS + used; ZC[7] = mT; zoneCheckQ(b, bw); }
       used += rem; rem = 0;
       break;
     }
@@ -508,42 +528,60 @@ function subStep(b, bw, dt, tS, tL, vSize){
     }
     if (stops){ V.x *= left; V.z *= left; }
     else { V.x += ax*tc; V.y += ay*tc; V.z += az*tc; }
-    spinAndClock(b, gr, tc, V);
-    if (bw.trace) bw.trace(HIT.kind, x0, y0, z0, P.x, P.y, P.z, tc);
-    if (bw.spec) zoneCheck(b, bw, x0, y0, z0, P.x, P.y, P.z, tS + used, tc);
+    PC[13] = tc; spinAndClockQ(b, gr, V);
+    if (bw.traceQ){ TRC[0] = x0; TRC[1] = y0; TRC[2] = z0; TRC[3] = P.x; TRC[4] = P.y; TRC[5] = P.z; TRC[6] = tc; bw.traceQ(HIT.kind); }
+    else if (bw.trace) bw.trace(HIT.kind, x0, y0, z0, P.x, P.y, P.z, tc);
+    if (bw.spec){ ZC[0] = x0; ZC[1] = y0; ZC[2] = z0; ZC[3] = P.x; ZC[4] = P.y; ZC[5] = P.z; ZC[6] = tS + used; ZC[7] = tc; zoneCheckQ(b, bw); }
     used += tc; rem -= tc; hits++;
     resolve(b, bw, tS + used);
     // a hair off the surface, so the next piece starts outside it
     if (!HIT.ground){ P.x += HIT.nx*1e-7; P.y += HIT.ny*1e-7; P.z += HIT.nz*1e-7; }
     if (P.y < Yc) P.y = Yc;
-    if (speedOf(b) > vSize + 1e-9) return used;
+    if (Math.sqrt(V.x*V.x + V.y*V.y + V.z*V.z) > vSize + 1e-9){ SUB[4] = used; return; }
   }
   // rest
-  if (b.grounded && hypot(V.x, V.y, V.z) < ROLL_STOP && b.state === 'free'){
+  if (b.grounded && Math.sqrt(V.x*V.x + V.y*V.y + V.z*V.z) < ROLL_STOP && b.state === 'free'){
     V.x = 0; V.y = 0; V.z = 0; Wv.x = 0; Wv.y = 0; Wv.z = 0;
     b.still += dt;
     if (bw.solids && b.still >= X.SLEEP_T) b.sleep = true;
   } else b.still = 0;
-  return used;
+  SUB[4] = used;
 }
 
-// spin decay in the air (and the knuckle's clock), or the lock to rolling spin on the ground
-function spinAndClock(b, gr, t, V){
+// spin decay in the air (and the knuckle's clock), or the lock to rolling spin on the ground, over PC[13] seconds. (A
+// step's sub-steps repeat the same few lengths step after step, so the two decay factors are kept for the last lengths
+// asked: the same numbers, without an exp() for every sub-step of every flight the strike solver and the prediction run.)
+const SPK_N = 8, SPK_T = new Float64Array(2*SPK_N).fill(NaN), SPK_K = new Float64Array(2*SPK_N);
+let SPK_I = 0;
+// exp(-rate t) for t = PC[13], left in SPK_K[DK_AT]
+let DK_AT = 0;
+function decayQ(slot, rate){
+  const o = slot*SPK_N, t = PC[13];
+  for (let i = 0; i < SPK_N; i++) if (SPK_T[o + i] === t){ DK_AT = o + i; return; }
+  DR[0] = -rate*t; expQ();
+  const j = o + (SPK_I = (SPK_I + 1) % SPK_N);
+  SPK_T[j] = t; SPK_K[j] = DR[0]; DK_AT = j;
+}
+function spinAndClockQ(b, gr, V){
+  const t = PC[13];
   if (!(t > 0)) return;
   const Wv = b.w;
   if (!gr){
-    const k = exp(-SPIN_DECAY*t);
+    decayQ(0, SPIN_DECAY);
+    const k = SPK_K[DK_AT];
     Wv.x *= k; Wv.y *= k; Wv.z *= k;
     if (b.knuck) b.knuck.t += t;
   } else {
     // rolling spin (n x v)/R with n up: (vz, 0, -vx)/R
-    const f = 1 - exp(-X.ROLL_SPIN*t);
+    decayQ(1, X.ROLL_SPIN);
+    const f = 1 - SPK_K[DK_AT];
     Wv.x += (V.z/R - Wv.x)*f; Wv.y += (0 - Wv.y)*f; Wv.z += (-V.x/R - Wv.z)*f;
   }
 }
 
 // the ground on the piece's exact parabola: the first time y reaches Yc while moving down
-function groundHit(P, V, ax, ay, az, Yc, T){
+function groundHitQ(P, V){
+  const ax = PC[9], ay = PC[10], az = PC[11], Yc = PC[12], T = PC[6];
   const c = P.y - Yc;
   let tau = -1;
   if (c <= 0){ if (V.y < 0) tau = 0; }
@@ -567,12 +605,16 @@ function groundHit(P, V, ax, ay, az, Yc, T){
   HIT.nx = 0; HIT.ny = 1; HIT.nz = 0;
 }
 
-function capsHit(bw, px, py, pz, dx, dy, dz){
+function capsHitQ(bw){
+  const px = PC[0], py = PC[1], pz = PC[2], dx = PC[3], dy = PC[4], dz = PC[5];
   const lx = Math.min(px, px + dx), hx = Math.max(px, px + dx), ly = Math.min(py, py + dy), hy = Math.max(py, py + dy);
   const lz = Math.min(pz, pz + dz), hz = Math.max(pz, pz + dz);
   for (const c of bw.caps){
     if (hx < c.x0 || lx > c.x1 || hy < c.y0 || ly > c.y1 || hz < c.z0 || lz > c.z1) continue;
-    const s = sweepCapsule(px, py, pz, dx, dy, dz, c.ax, c.ay, c.az, c.ux, c.uy, c.uz, c.L, c.rr);
+    SW[0] = px; SW[1] = py; SW[2] = pz; SW[3] = dx; SW[4] = dy; SW[5] = dz;
+    SW[6] = c.ax; SW[7] = c.ay; SW[8] = c.az; SW[9] = c.ux; SW[10] = c.uy; SW[11] = c.uz; SW[12] = c.L; SW[13] = c.rr;
+    sweepCapsuleQ();
+    const s = SW[14];
     if (s < 0 || s >= HIT.s) continue;
     HIT.s = s; HIT.kind = c.kind; HIT.ground = false; HIT.nx = CN.x; HIT.ny = CN.y; HIT.nz = CN.z;
     HIT.e = c.kind === 'board' ? E_BOARD : E_POST; HIT.mu = c.kind === 'board' ? X.MU_BOARD : MU_POST;
@@ -580,7 +622,8 @@ function capsHit(bw, px, py, pz, dx, dy, dz){
   }
 }
 
-function boardsHit(bw, px, py, pz, dx, dy, dz){
+function boardsHitQ(bw){
+  const px = PC[0], py = PC[1], pz = PC[2], dx = PC[3], dy = PC[4], dz = PC[5];
   for (const B of bw.boards){
     const s0 = B.nx*px + B.ny*py + B.nz*pz - B.d, ds = B.nx*dx + B.ny*dy + B.nz*dz;
     let s = -1, side = 1;
@@ -602,7 +645,8 @@ function boardsHit(bw, px, py, pz, dx, dy, dz){
 
 // bodies: standing capsules (legs, torso, head) moved to the step, or one capsule given by the record (a diving keeper).
 // Each moves at its own velocity through the step, so the test runs on the ball's motion relative to it.
-function bodiesHit(b, bw, px, py, pz, dx, dy, dz, T, tPiece, tAbs){
+function bodiesHitQ(b, bw){
+  const px = PC[0], py = PC[1], pz = PC[2], dx = PC[3], dy = PC[4], dz = PC[5], T = PC[6], tPiece = PC[7], tAbs = PC[8];
   const Bd = X.BODY, back = STEP_H - tPiece;    // the body positions are for the end of the step
   for (const bd of BODIES){
     if (!bd || bd.ghost) continue;
@@ -611,21 +655,31 @@ function bodiesHit(b, bw, px, py, pz, dx, dy, dz, T, tPiece, tAbs){
     const rdx = dx - bvx*T, rdy = dy - bvy*T, rdz = dz - bvz*T;    // the ball's motion seen from the body
     if (bd.seg){
       const g = bd.seg, sx = -bvx*back, sy = -bvy*back, sz = -bvz*back;
-      const L = hypot(g.bx - g.ax, g.by - g.ay, g.bz - g.az) || 1e-9;
-      const s = sweepCapsule(px, py, pz, rdx, rdy, rdz, g.ax + sx, g.ay + sy, g.az + sz,
-        (g.bx - g.ax)/L, (g.by - g.ay)/L, (g.bz - g.az)/L, L, (g.r || 0.2) + R);
+      const gx = g.bx - g.ax, gy = g.by - g.ay, gz = g.bz - g.az, L = Math.sqrt(gx*gx + gy*gy + gz*gz) || 1e-9;
+      SW[0] = px; SW[1] = py; SW[2] = pz; SW[3] = rdx; SW[4] = rdy; SW[5] = rdz; SW[6] = g.ax + sx; SW[7] = g.ay + sy; SW[8] = g.az + sz;
+      SW[9] = (g.bx - g.ax)/L; SW[10] = (g.by - g.ay)/L; SW[11] = (g.bz - g.az)/L; SW[12] = L; SW[13] = (g.r || 0.2) + R;
+      sweepCapsuleQ();
+      const s = SW[14];
       if (s >= 0 && s < HIT.s) bodyHitSet(s, bd, 'body', bvx, bvy, bvz);
       continue;
     }
     const hh = +bd.h || 1, by = +bd.y || 0, x0 = bd.x - bvx*back, z0 = bd.z - bvz*back, y0 = by - bvy*back;
-    const reach = Bd.torsoR*hh + R + hypot(rdx, rdz) + 0.05, ddx = px - x0, ddz = pz - z0;
+    const reach = Bd.torsoR*hh + R + Math.sqrt(rdx*rdx + rdz*rdz) + 0.05, ddx = px - x0, ddz = pz - z0;
     if (ddx*ddx + ddz*ddz > reach*reach) continue;
     if (py > y0 + (Bd.headY + Bd.headR)*hh + R + Math.abs(rdy) + 0.05) continue;
-    let s = sweepCapsule(px, py, pz, rdx, rdy, rdz, x0, y0, z0, 0, 1, 0, Bd.legsTop*hh, Bd.legsR*hh + R);
+    // the legs, the torso and the head: three upright capsules (SW's point, motion and direction are the same for all)
+    SW[0] = px; SW[1] = py; SW[2] = pz; SW[3] = rdx; SW[4] = rdy; SW[5] = rdz; SW[9] = 0; SW[10] = 1; SW[11] = 0;
+    SW[6] = x0; SW[7] = y0; SW[8] = z0; SW[12] = Bd.legsTop*hh; SW[13] = Bd.legsR*hh + R;
+    sweepCapsuleQ();
+    let s = SW[14];
     if (s >= 0 && s < HIT.s) bodyHitSet(s, bd, 'legs', bvx, bvy, bvz);
-    s = sweepCapsule(px, py, pz, rdx, rdy, rdz, x0, y0 + Bd.legsTop*hh, z0, 0, 1, 0, (Bd.torsoTop - Bd.legsTop)*hh, Bd.torsoR*hh + R);
+    SW[6] = x0; SW[7] = y0 + Bd.legsTop*hh; SW[8] = z0; SW[12] = (Bd.torsoTop - Bd.legsTop)*hh; SW[13] = Bd.torsoR*hh + R;
+    sweepCapsuleQ();
+    s = SW[14];
     if (s >= 0 && s < HIT.s) bodyHitSet(s, bd, 'torso', bvx, bvy, bvz);
-    s = sweepCapsule(px, py, pz, rdx, rdy, rdz, x0, y0 + Bd.headY*hh, z0, 0, 1, 0, 0, Bd.headR*hh + R);
+    SW[6] = x0; SW[7] = y0 + Bd.headY*hh; SW[8] = z0; SW[12] = 0; SW[13] = Bd.headR*hh + R;
+    sweepCapsuleQ();
+    s = SW[14];
     if (s >= 0 && s < HIT.s) bodyHitSet(s, bd, 'head', bvx, bvy, bvz);
   }
 }
@@ -634,13 +688,17 @@ function bodyHitSet(s, bd, part, vx, vy, vz){
   HIT.e = E_BODY; HIT.mu = X.MU_BODY; HIT.svx = vx; HIT.svy = vy; HIT.svz = vz; HIT.spread = true;
   HIT.end = 0; HIT.part = part; HIT.id = bd.id != null ? bd.id : -1; HIT.team = bd.team != null ? bd.team : -1;
 }
-function handsHit(px, py, pz, dx, dy, dz, T, tPiece){
+function handsHitQ(){
+  const px = PC[0], py = PC[1], pz = PC[2], dx = PC[3], dy = PC[4], dz = PC[5], T = PC[6], tPiece = PC[7];
   const back = STEP_H - tPiece;
   for (const hd of HANDS){
     if (!hd) continue;
     const vx = +hd.vx || 0, vy = +hd.vy || 0, vz = +hd.vz || 0;
     const cx = hd.x - vx*back, cy = hd.y - vy*back, cz = hd.z - vz*back;
-    const s = sweepCapsule(px, py, pz, dx - vx*T, dy - vy*T, dz - vz*T, cx, cy, cz, 0, 1, 0, 0, (hd.r || 0.1) + R);
+    SW[0] = px; SW[1] = py; SW[2] = pz; SW[3] = dx - vx*T; SW[4] = dy - vy*T; SW[5] = dz - vz*T;
+    SW[6] = cx; SW[7] = cy; SW[8] = cz; SW[9] = 0; SW[10] = 1; SW[11] = 0; SW[12] = 0; SW[13] = (hd.r || 0.1) + R;
+    sweepCapsuleQ();
+    const s = SW[14];
     if (s >= 0 && s < HIT.s){
       HIT.s = s; HIT.kind = 'body'; HIT.ground = false; HIT.nx = CN.x; HIT.ny = CN.y; HIT.nz = CN.z;
       HIT.e = E_BODY; HIT.mu = X.MU_BODY; HIT.svx = vx; HIT.svy = vy; HIT.svz = vz; HIT.spread = false;
@@ -649,8 +707,9 @@ function handsHit(px, py, pz, dx, dy, dz, T, tPiece){
   }
 }
 // life walls and furniture: a ray from the centre along the piece, the surface taken as the plane through the hit
-function wallHit(bw, px, py, pz, dx, dy, dz){
-  const len = hypot(dx, dy, dz);
+function wallHitQ(bw){
+  const px = PC[0], py = PC[1], pz = PC[2], dx = PC[3], dy = PC[4], dz = PC[5];
+  const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
   if (len < 1e-9) return;
   const ux = dx/len, uy = dy/len, uz = dz/len;
   const t = bw.solids.cast(px, py, pz, ux, uy, uz, len + R, NB);
@@ -711,7 +770,8 @@ function groundImpact(b, bw, t){
 // piece so it never rings; the side the ball belongs on is remembered per panel, so a ball can bulge the net past
 // its plane and a ball outside the goal is kept out the same way. Once the ball has met a net it is damped by
 // exp(-4 t) while it stays inside the goal.
-function netApply(b, bw, T, t){
+function netApplyQ(b, bw){
+  const T = PC[14], t = PC[15];
   const P = b.p, V = b.v, ns = b.netSide;
   let qMax = 0;
   b.netAny = true;
@@ -757,7 +817,8 @@ function netApply(b, bw, T, t){
 
 // goal and out of play on a pitch (3.1.1 step 5): the first line the ball's centre crosses on the way out, interpolated
 // inside the piece; a goal when that is the goal line inside the mouth (|z| < 3.66, y < 2.44 at the crossing)
-function zoneCheck(b, bw, x0, y0, z0, x1, y1, z1, tA, dtp){
+function zoneCheckQ(b, bw){
+  const x0 = ZC[0], y0 = ZC[1], z0 = ZC[2], x1 = ZC[3], y1 = ZC[4], z1 = ZC[5], tA = ZC[6], dtp = ZC[7];
   const gx = bw.goalX, tz = bw.touchZ;
   if (b.inField === null) b.inField = Math.abs(x0) < gx && Math.abs(z0) < tz;
   const in1 = Math.abs(x1) < gx && Math.abs(z1) < tz;
@@ -837,10 +898,12 @@ function reachMargin(predOut, k, prm, fac, react, reach){
   const o = 4*k, x = predOut[o], z = predOut[o + 2];
   let tx = x, tz = z;
   if (reach > 0){
-    const dx = x - MV.x, dz = z - MV.z, d = hypot(dx, dz);
+    const dx = x - MV.x, dz = z - MV.z, d = Math.sqrt(dx*dx + dz*dz);
     if (d <= reach){ tx = MV.x; tz = MV.z; } else { tx = MV.x + dx*(d - reach)/d; tz = MV.z + dz*(d - reach)/d; }
   }
-  return predOut[o + 3] - timeToPoint(MV, prm, fac, tx, tz, react);
+  TT[0] = tx; TT[1] = tz; TT[2] = react;
+  timeToPointQ(MV, prm, fac);
+  return predOut[o + 3] - TT[0];
 }
 export function firstReach(predOut, count, actor){
   if (!actor || !(count > 0)) return null;
@@ -865,7 +928,7 @@ export function firstReach(predOut, count, actor){
     const o = 4*k, x = predOut[o], y = predOut[o + 1], z = predOut[o + 2], t = predOut[o + 3];
     if (!(y <= reachY)){ pOk = false; continue; }
     // no one gets there sooner than that: most samples stop here
-    const d = Math.max(0, hypot(x - MV.x, z - MV.z) - reach);
+    const ex = x - MV.x, ez = z - MV.z, d = Math.max(0, Math.sqrt(ex*ex + ez*ez) - reach);
     if (t < react + tMin(d) - 1e-9){ pg = NaN; pOk = true; continue; }
     const g = reachMargin(predOut, k, prm, fac, react, reach);
     if (g >= 0){
@@ -893,8 +956,9 @@ export function firstReach(predOut, count, actor){
 // seconds pass, or it comes to rest. bw null is open ground; otherwise the prediction colliders of bw. The crossing is
 // interpolated on the sub-step piece it falls in. out = {hit, x, y, z, t, apex, vx, vy, vz} (filled and returned).
 const FLY = {px: 0, pz: 0, nx: 0, nz: 0, t: 0, done: false, apex: 0, out: null};
-function flyTrace(kind, x0, y0, z0, x1, y1, z1, dt){
+function flyTraceQ(kind){
   if (FLY.done) return;
+  const x0 = TRC[0], y0 = TRC[1], z0 = TRC[2], x1 = TRC[3], y1 = TRC[4], z1 = TRC[5], dt = TRC[6];
   const s0 = (x0 - FLY.px)*FLY.nx + (z0 - FLY.pz)*FLY.nz, s1 = (x1 - FLY.px)*FLY.nx + (z1 - FLY.pz)*FLY.nz;
   if (s0 < 0 && s1 >= 0){
     const f = s0/(s0 - s1), o = FLY.out;
@@ -907,13 +971,13 @@ function flyTrace(kind, x0, y0, z0, x1, y1, z1, dt){
   FLY.t += dt;
 }
 export function ballFlyTo(b, bw, px, pz, nx, nz, tMax, out = {}){
-  const w = predWorld(bw), keep = w.trace;
+  const w = predWorld(bw), keep = w.trace, keepQ = w.traceQ;
   copyBall(FB, b);
   out.hit = false; out.x = FB.p.x; out.y = FB.p.y; out.z = FB.p.z; out.t = 0;
   FLY.px = px; FLY.pz = pz; FLY.nx = nx; FLY.nz = nz; FLY.t = 0; FLY.done = false; FLY.apex = FB.p.y; FLY.out = out;
   const s0 = (FB.p.x - px)*nx + (FB.p.z - pz)*nz;
   if (s0 >= 0){ out.hit = true; out.apex = FB.p.y; out.vx = FB.v.x; out.vy = FB.v.y; out.vz = FB.v.z; return out; }
-  w.trace = flyTrace; w.t = 0;
+  w.trace = null; w.traceQ = flyTraceQ; w.t = 0;
   const h = 1/60;
   let steps = 0;
   const maxSteps = Math.ceil(tMax/h);
@@ -922,7 +986,7 @@ export function ballFlyTo(b, bw, px, pz, nx, nz, tMax, out = {}){
       ballStep(FB, w, h);
       if (FB.grounded && FB.v.x === 0 && FB.v.z === 0) break;
     }
-  } finally { w.trace = keep; }
+  } finally { w.trace = keep; w.traceQ = keepQ; }
   if (!FLY.done){ out.x = FB.p.x; out.y = FB.p.y; out.z = FB.p.z; out.t = FLY.t; }
   out.apex = FLY.apex; out.vx = FB.v.x; out.vy = FB.v.y; out.vz = FB.v.z;
   return out;
@@ -942,13 +1006,34 @@ export function rollSpeedFor(d, v1 = 0, rollDecel = 1.1, dragMul = 1){
   return Math.sqrt(Math.max(0, ((rollDecel + k*v1*v1)*exp(2*k*Math.max(0, d)) - rollDecel)/k));
 }
 // seconds a ball rolling at v0 takes to cover d metres (Infinity when it stops short)
+// (the pass model asks this for one pass speed at a dozen distances in a row: the part that depends only on the speed
+// is kept from the last call, the same numbers it would work out again. rollTimeQ is the register form for the pass
+// model's loops: RQT[0] = v0, RQT[1] = d, RQT[2] = rollDecel, RQT[3] = dragMul in, the seconds in RQT[0] out; nothing
+// boxed, 3.9.6)
+const RT = {v0: NaN, rd: NaN, dm: NaN, phi0: 0, cp: 0};
+export const RQT = new Float64Array(4);
 export function rollTime(v0, d, rollDecel = 1.1, dragMul = 1){
-  if (!(d > 0)) return 0;
-  if (!(v0 > 0)) return Infinity;
-  const k = KD*dragMul, c = Math.sqrt(rollDecel*k), phi0 = atan(v0*Math.sqrt(k/rollDecel));
-  const q = cos(phi0)*exp(k*d);
-  if (q >= 1) return Infinity;
-  return (phi0 - acos(q))/c;
+  RQT[0] = v0; RQT[1] = d; RQT[2] = rollDecel; RQT[3] = dragMul;
+  rollTimeQ();
+  return RQT[0];
+}
+export function rollTimeQ(){
+  const v0 = RQT[0], d = RQT[1], rollDecel = RQT[2], dragMul = RQT[3];
+  if (!(d > 0)){ RQT[0] = 0; return; }
+  if (!(v0 > 0)){ RQT[0] = Infinity; return; }
+  const k = KD*dragMul, c = Math.sqrt(rollDecel*k);
+  if (v0 !== RT.v0 || rollDecel !== RT.rd || dragMul !== RT.dm){
+    RT.v0 = v0; RT.rd = rollDecel; RT.dm = dragMul;
+    DR[0] = v0*Math.sqrt(k/rollDecel); atanQ(); RT.phi0 = DR[0];
+    DR[0] = RT.phi0; cosQ(); RT.cp = DR[0];
+  }
+  DR[0] = k*d; expQ();
+  const phi0 = RT.phi0, q = RT.cp*DR[0];
+  if (q >= 1){ RQT[0] = Infinity; return; }
+  // acos(q) as detmath's acos: atan2(sqrt((1 - q)(1 + q)), q) for q in [-1, 1], else NaN
+  let ac = NaN;
+  if (q >= -1 && q <= 1){ DR[0] = Math.sqrt((1 - q)*(1 + q)); DR[1] = q; atan2Q(); ac = DR[0]; }
+  RQT[0] = (phi0 - ac)/c;
 }
 // the speed of that ball after t seconds
 export function rollSpeedAt(v0, t, rollDecel = 1.1, dragMul = 1){

@@ -580,7 +580,7 @@ function matchRewards(M, rating, out){
   const mins = minutesOn(M);
   const drain = M.drainPerMin != null ? M.drainPerMin : WR.drain[S.workrate || 2];
   const intensity = clamp(drain/.56, 0, 1);
-  const fatigue = mins > 0 ? Math.round(8 + 24*(mins/90)*(.7 + .6*intensity)) : 0;
+  const fatigue = Math.round(8 + 24*(mins/90)*(.7 + .6*intensity));   // a substitute left on the bench still had the day
   A._matchFatigue = fatigue;
   R.mins = mins; R.fatigue = fatigue;
   // playing together builds the group; a good night more so
@@ -707,5 +707,9 @@ function quickMatch(f){
   R.notice = QUICK_NOTE;
   MT.holdToasts = false;
   if (typeof toast === "function") toast(QUICK_NOTE);
+  // the match is over: the mirror is cleared (missed-match handling and the online sync wait while MT is set), and
+  // the record goes back with the result for the full-time card, ftCardHTML(R.M, R)
+  R.M = MT;
+  MT = null;
   return R;
 }

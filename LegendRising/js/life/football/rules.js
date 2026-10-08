@@ -113,10 +113,14 @@ export function onKick(ms, ev){
 // A touch (3.2.7 involvement and reset, possession). how: 'control' | 'dribble' | 'deflect' | 'block' | 'save' |
 // 'tackle' | 'header' | 'kick'. A player in the snapshot who plays the ball (deflections included), or is within
 // 1.5 m of it while an opponent within 1.5 m plays it, is involved: the flag goes up after its delay. A deliberate
-// opponent touch (not a deflection or a save) resets the snapshot. The contract's form onTouch(ms, ev) with a touch
-// event {agent, how} is accepted too.
+// opponent touch (not a deflection or a save) resets the snapshot. The contract's form, onTouch(ms, ev) (1.4.14), takes
+// the event the touch logged: its agent, and its how (a 'touch' event's own, else the event's kind: a 'kick' or a
+// 'save'). The simulation's own callers pass the agent and the how they already hold: onTouch(ms, a, how, ev).
 export function onTouch(ms, a, how, ev = null){
-  if (a && !a.m && a.agent != null){ ev = a; how = ev.how; a = ms.agents[ev.agent]; if (!a) return; }
+  if (a && !a.m && a.agent != null){
+    ev = a; a = ms.agents[ev.agent]; if (!a) return;
+    how = ev.how || (ev.kind === 'kick' || ev.kind === 'save' ? ev.kind : 'control');
+  }
   const O = ms.offside;
   if (O.set.size && !O.pending){
     if (a.team === O.team && O.set.has(a.id)){
@@ -939,7 +943,8 @@ function subStep(ms){
     if (!a.onPitch || !a.leaving || !a.exit) continue;
     if (Math.abs(a.m.z) > ms.spec.hz + 0.6){
       a.onPitch = false; a.leaving = false;
-      const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = ms.t;
+      const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = ms.clock.total;
+      const ivT = a.onT[a.onT.length - 1]; if (ivT && ivT[1] == null) ivT[1] = ms.t;
       a.subbedOff = true;
       if (ms.poss.ctl === a.id) clearCtl(ms);
     }
@@ -966,7 +971,7 @@ function enterSub(ms, team, p, out){
     yaw: side > 0 ? 0 : Math.PI, name: p.name, number: p.number, items: p.items, prefFoot: p.prefFoot});
   a.slotLine = out.slotLine || (SLOT_POS[out.slot] || {}).line;
   a.baseX = out.baseX != null ? out.baseX : null;
-  a.on.push([ms.t, null]);
+  a.on.push([ms.clock.total, null]); a.onT.push([ms.t, null]);
   a.anchor.u = out.anchor.u; a.anchor.w = out.anchor.w; a.anchor.set = true;
   ms.agents.push(a);
   if (p.isMe){ ms.me = id; a.isMe = true; }
@@ -987,7 +992,7 @@ function aiSubs(ms){
     if (diff >= 0 && min < 70) continue;
     let worst = null, wv = Infinity;
     for (const a of ms.agents){
-      if (a.team !== team || !a.onPitch || a.isGK || a.leaving || a.isMe || a.on[0][0] > 1) continue;
+      if (a.team !== team || !a.onPitch || a.isGK || a.leaving || a.isMe || a.onT[0][0] > 1) continue;
       const v = a.energy*(0.5 + (a.acc.touches || 0)/30);
       if (v < wv){ wv = v; worst = a; }
     }
@@ -1026,7 +1031,7 @@ function roleSubs(ms){
 export function refStep(ms, h){
   const C = ms.clock;
   if (C.running){
-    C.sec += h*C.rate;
+    C.sec += h*C.rate; C.total += h*C.rate;
     if (C.sec >= 2700 && !C.added){
       const [lo, hi] = RULES.ADDED[ms.half - 1];
       C.added = clamp(Math.round(ms.stoppage[ms.half - 1]/60), lo, hi);

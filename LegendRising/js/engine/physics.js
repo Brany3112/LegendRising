@@ -37,7 +37,7 @@ function stepBall(b, h, aero){
 // Where will the ball cross the plane y = yPlane? spinMul < 1 simulates a keeper who misreads spin.
 function predictCross(b0, yPlane, spinMul = 1){
   const b = {...b0}; b.spin *= spinMul; b.lift *= spinMul; b.knuck = 0;
-  const aero = S.skills.aero;
+  const aero = effSkill("aero");
   for (let t = 0; t < 3; t += 1/240){
     const py = b.y; stepBall(b, 1/240, aero);
     if (py > yPlane && b.y <= yPlane) return {x:b.x, z:b.z, t};

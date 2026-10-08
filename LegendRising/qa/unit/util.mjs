@@ -257,7 +257,7 @@ function boot({stored = {}, cores = 8, mem = 8, gpu = "ANGLE (Intel, Intel(R) UH
       check("gfxSeg under Auto names the tier and the chip", html.includes("Currently: Low (Intel UHD Graphics 620)"), html);
       // the line promises only what the game does today (the slow-match drop to Low); WP-A's runtime step down
       // brings back the 1.4.4 wording
-      check("gfxSeg under Auto explains Auto", html.includes("Auto picks a level for this computer, and drops to Low by itself if a match runs slowly."));
+      check("gfxSeg under Auto explains Auto", html.includes("Auto picks a level for this computer, and steps down by itself if the game keeps running slowly."));
     } else check(`gfxSeg (${m}): nothing under a chosen tier`, !html.includes("Currently"));
   }
 }

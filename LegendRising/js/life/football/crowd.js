@@ -510,6 +510,7 @@ export function buildCrowd(scene, o = {}){
     },
     // n substitutes sitting on a bench ("home" or "away"); the others have gone to warm up or come on
     setBench(side, n){
+      api.benchN[side === "away" ? "away" : "home"] = n;
       if (!benchMesh) return 0;
       const seats = benchSeats[side === "away" ? "away" : "home"], a = benchMesh.geometry.attributes.aSeat;
       seats.forEach((i, k) => { const b = o.bench[i]; a.array[i*4 + 1] = k < n ? b.y : -50; });
@@ -521,6 +522,8 @@ export function buildCrowd(scene, o = {}){
       f = Math.max(.33, Math.min(1, +f || 1));
       for (const p of per) if (p.bb && p.st.index >= 0) p.bb.geometry.instanceCount = Math.max(1, Math.round(p.bb.userData.count*f));
     },
+    // how many sit on each bench now (setBench), for a crowd made again for a new preset
+    benchN: {home:0, away:0},
     stats(){ return {seats:all, fans:drawn, billboards:bbCount, stripRows, pair, kind:billboards ? "billboards" : "blocks", draws:meshes.length, meshes:meshes.map(m => m.name)}; },
     meshes,
     dispose(){

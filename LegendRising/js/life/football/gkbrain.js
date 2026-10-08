@@ -246,7 +246,7 @@ function shiftStep(ms, a){
     diveStep(ms, a, 1/60);
     return true;
   }
-  const face = faceTo(a, b.p.x, b.p.z, {x: 0, z: 0});
+  const face = faceTo(a, b.p.x, b.p.z, a.faceV);
   steer(a, a.m.x, clamp(SH.z, -3.9, 3.9), 'run', 0.05, face, GK.REPOS_V, true);
   g.handsOn = false;
   return true;
@@ -534,7 +534,7 @@ export function gkStep(ms, a, h){
     if (b.state === 'held' && b.holder === a.id && !(R0 && R0.taker === a.id)){ ballRelease(b, null, {x: 0, y: 0, z: 0}, null); b.state = 'dead'; }
     g.state = 'ready'; g.handsOn = false; g.plan = null; g.read = null; g.claim = null; g.pen = null;
     const t = positionTarget(ms, a, PT);
-    steer(a, t.x, t.z, 'jog', 0.3, faceTo(a, b.p.x, b.p.z, {x: 0, z: 0}));
+    steer(a, t.x, t.z, 'jog', 0.3, faceTo(a, b.p.x, b.p.z, a.faceV));
     return;
   }
   if (ms.phase !== 'live'){ standStill(a); g.handsOn = false; return; }
@@ -558,7 +558,7 @@ export function gkStep(ms, a, h){
     case 'claim': {
       const c = g.claim;
       if (!c || b.state !== 'free' || ms.t - c.at > c.t + 0.6){ g.state = 'ready'; g.claim = null; g.handsOn = false; break; }
-      steer(a, c.x, c.z, 'sprint', 0.1, faceTo(a, b.p.x, b.p.z, {x: 0, z: 0}));
+      steer(a, c.x, c.z, 'sprint', 0.1, faceTo(a, b.p.x, b.p.z, a.faceV));
       // hands up toward the ball as it drops: reach 2.4 + a small jump
       const hy = clamp(b.p.y, 0.8, 2.75);
       const f = dirOf(a.m.yaw), rx = -f.z, rz = f.x;
@@ -586,7 +586,7 @@ export function gkStep(ms, a, h){
   if (threat){ if (g.setT < 0) g.setT = ms.t; if (ms.t - g.setT >= GK.SET_T) g.set = true; }
   else { g.setT = -1; g.set = false; }
   const d = hypot(t.x - a.m.x, t.z - a.m.z);
-  const face = faceTo(a, b.p.x, b.p.z, {x: 0, z: 0});
+  const face = faceTo(a, b.p.x, b.p.z, a.faceV);
   if (!one){
     if (g.set && d < 0.6){ standStill(a, face); g.state = 'set'; }
     else if (d < GK.SHUFFLE_D){ steer(a, t.x, t.z, 'walk', stop, face, GK.SHUFFLE_V, true); g.state = 'shuffle'; }

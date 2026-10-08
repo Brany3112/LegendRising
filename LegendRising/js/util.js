@@ -313,10 +313,10 @@ function gfxDetect(opts = {}){
   try{ localStorage.setItem(GFX_AUTO_KEY, JSON.stringify(d)); }catch(e){}
   return d;
 }
-// What the Settings line under Auto promises, and it must stay true. Today the only automatic step down is the match
-// dropping to Low when it runs slowly (GFX.autoLow). When the 3D world's own step down calls gfxStepDown (DESIGN 1.4.4,
-// WP-A), this becomes "Auto picks a level for this computer, and steps down by itself if the game keeps running slowly."
-const GFX_AUTO_NOTE = "Auto picks a level for this computer, and drops to Low by itself if a match runs slowly.";
+// What the Settings line under Auto promises (DESIGN 1.4.4), and it must stay true: the 3D world steps down a tier by
+// itself after 8 slow seconds at the lowest render scale (quality.js through gfxStepDown, with its toast), and a slow 2D
+// match still asks for Low (GFX.autoLow) until that engine goes.
+const GFX_AUTO_NOTE = "Auto picks a level for this computer, and steps down by itself if the game keeps running slowly.";
 // the Graphics control for a settings screen; fnName is the handler each button calls with its mode
 function gfxSeg(fnName){
   const btns = ["auto", ...GFX_TIERS].map(k => `<button aria-pressed="${GFX.mode === k}" onclick="${fnName}('${k}')">${GFX_LABEL[k]}</button>`).join("");

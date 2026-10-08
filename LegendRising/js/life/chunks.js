@@ -2,8 +2,11 @@
    Owner: WP-A (DESIGN 1.2 chunks.js, 3.9.2, 2.3 WP-A).
    finishBatches (build.js) hands over the place's batches: per material key, indexed vertices and the pieces poured
    into it. Each key becomes ONE batched mesh (three.js BatchedMesh) holding one instance per (tile, layer, band):
-     tiles   24 m squares of the ground plan, aligned to W.bounds; a piece goes to the tile holding the centre of its
-             bounding box, and one more than 1.5 tiles across goes to an instance of its own that is always drawn
+     tiles   16 m squares of the ground plan, aligned to W.bounds; a piece goes to the tile holding the centre of its
+             bounding box, and one more than 36 m across (72 with 48 m tiles) goes to an instance of its own that is
+             always drawn. 16 m, not the 24 of DESIGN 3.9.2: a room, a stairwell or a shop front is then a box of its
+             own, which the occlusion test and the order of the batches below need (24 m tiles left the home lobby at
+             an overdraw of 2.0 to 2.3, qa/wpA-overdraw.mjs)
      layers  0 the main pieces, 1 the detail: pieces under 0.8 m across (not floors, not lamps or anything that glows),
              drawn only within the preset's detailDist
      bands   storeys: 4 m slices of height by the centre of the piece, and one more for pieces taller than 6 m (a
@@ -12,7 +15,8 @@
    Every instance is frustum culled on its own, in the main pass and in the shadow pass, left out of the main pass
    when the walls in front of it hide it (see "what the walls hide"), and the rest are drawn front to back (what you
    are standing in first, so the depth test rejects what is behind it), all of a key in one draw call where the
-   browser has WEBGL_multi_draw (without it, one per visible tile, and the tiles are 48 m).
+   browser has WEBGL_multi_draw (without it, one per visible tile, and the tiles are 48 m). The batches themselves are
+   drawn front to back too, not by material (see "the order of the batches").
    Four times a second the tiles further than the draw distance (the fog's end plus P.drawPad, or P.drawDist) and the
    detail beyond P.detailDist are switched off.
    The vertices are compact: position as float, the normal as four signed bytes, the colour (with its contact shadow)
@@ -27,7 +31,7 @@ import {SCHED} from "./core/sched.js";
 const GLOWS = new Set(["lit", "lamp", "lampB", "street", "neon", "screen"]);
 const DETAIL = .8, BAND = 4, MCELL = 8;
 // what the probes read (perf.js): the batched meshes of the place, their instances, vertex bytes, the atlases
-export const CH = {meshes:[], tile:24, instances:0, verts:0, bytes:0, multiDraw:null, cullT:0};
+export const CH = {meshes:[], tile:16, instances:0, verts:0, bytes:0, multiDraw:null, cullT:0};
 // a new place: the last one's batches are gone with its scene; anything of it that was merged is put back on the
 // camera's layer first (a mesh some module keeps and shows again in the next place must not stay hidden)
 export function resetChunks(){
@@ -41,7 +45,7 @@ const gp = () => (typeof GFX === "object" && GFX && GFX.P) || null;
 export function finishChunks(batches){
   const b = W.bounds || {x0:-40, x1:40, z0:-40, z1:40};
   if (CH.multiDraw == null && RT.renderer) CH.multiDraw = !!RT.renderer.extensions.has("WEBGL_multi_draw");
-  const TILE = CH.tile = CH.multiDraw === false ? 48 : 24;
+  const TILE = CH.tile = CH.multiDraw === false ? 48 : 16, GIANT = 1.5*Math.max(24, TILE);
   const ntx = Math.max(1, Math.ceil((b.x1 - b.x0)/TILE)), ntz = Math.max(1, Math.ceil((b.z1 - b.z0)/TILE));
   const tileOf = (v, v0, n) => Math.max(0, Math.min(n - 1, Math.floor((v - v0)/TILE)));
   for (const [key, B] of batches){
@@ -52,7 +56,7 @@ export function finishChunks(batches){
     for (const pc of B.pieces){
       const dx = pc.x1 - pc.x0, dz = pc.z1 - pc.z0, dy = pc.y1 - pc.y0;
       let gk;
-      if (Math.max(dx, dz) > 1.5*TILE) gk = "giant";
+      if (Math.max(dx, dz) > GIANT) gk = "giant";
       else gk = `${tileOf((pc.x0 + pc.x1)/2, b.x0, ntx)},${tileOf((pc.z0 + pc.z1)/2, b.z0, ntz)},${!noDetail && Math.hypot(dx, dy, dz) < DETAIL ? 1 : 0},${dy > 1.5*BAND ? "t" : Math.max(0, Math.floor((pc.y0 + pc.y1)/2/BAND))}`;
       let g = groups.get(gk); if (!g){ g = {key:gk, pieces:[], nv:0, ni:0, x0:Infinity, x1:-Infinity, y0:Infinity, y1:-Infinity, z0:Infinity, z1:-Infinity}; groups.set(gk, g); }
       g.pieces.push(pc); g.nv += pc.nv; g.ni += pc.ni;
@@ -85,6 +89,7 @@ export function finishChunks(batches){
     CH.meshes.push(bm); CH.instances += inst.length; CH.verts += NV; CH.bytes += NV*(B.tex ? 28 : 20) + NI*(NV > 65535 ? 4 : 2);
   }
   occPack();
+  sortHook(W.scene);
   scan(true);
   SCHED.task({id:"chunks", hz:4, run:cull});
   cull();
@@ -367,12 +372,70 @@ function occSort(list, camera){
   list.sort(this.material.transparent ? byFar : byNear);
 }
 
+/* ---------- the order of the batches ----------
+   three.js draws the opaque objects material by material and only then by depth, so the batches of the room you
+   stand in were drawn after whatever of the rest of the place had an earlier material, and every pixel of a room was
+   shaded three or four times over (DESIGN 1.5.11: an overdraw of 2.0 at most in the bedroom and the lobby). The
+   renderer sorts them front to back instead (opaqueSort, which quality.js gives every renderer it makes): a batched
+   mesh by the nearest of its instances that are switched on and in view (its distance from the camera to the box: 0
+   for the tiles you stand in), and of two as near, the one whose nearest box ends nearer first (the room's own walls,
+   floor and furniture before the tile and storey around them); anything else by its depth. Each batch's place is
+   worked out once a render, the first time the sort asks for it, for the camera that render is for (the scene tells
+   us which, sortHook). The materials changed between draws this costs are a few dozen a frame */
+const SORT = {cam:null, stamp:0, fr:new THREE.Frustum(), m:new THREE.Matrix4(), bx:new THREE.Box3(), x:0, y:0, z:0};
+function sortHook(scene){
+  if (!scene || scene.userData.batchSort) return;
+  scene.userData.batchSort = true;
+  const prev = scene.onBeforeRender;
+  scene.onBeforeRender = function(renderer, sc, camera, rt){
+    prev.call(this, renderer, sc, camera, rt);
+    SORT.cam = camera; SORT.stamp++;
+    SORT.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    SORT.fr.setFromProjectionMatrix(SORT.m);
+    const e = camera.matrixWorld.elements; SORT.x = e[12]; SORT.y = e[13]; SORT.z = e[14];
+  };
+}
+// a batched mesh's place in the order this render: [the distance to its nearest box in view, where that box ends]
+function batchPlace(o){
+  const u = o.userData;
+  if (u.sortStamp === SORT.stamp) return;
+  u.sortStamp = SORT.stamp; u.sortNear = Infinity; u.sortFar = Infinity;
+  const box = u.box; if (!box) return;
+  const px = SORT.x, py = SORT.y, pz = SORT.z, bx = SORT.bx;
+  let best = Infinity, far = Infinity;
+  for (let i = 0; i < box.length; i++){
+    const b = box[i];
+    if (!b || b.vis === false) continue;
+    const dx = Math.max(b.x0 - px, 0, px - b.x1), dy = Math.max(b.y0 - py, 0, py - b.y1), dz = Math.max(b.z0 - pz, 0, pz - b.z1);
+    const d = dx*dx + dy*dy + dz*dz;
+    if (d > best) continue;
+    const fx = Math.max(px - b.x0, b.x1 - px), fy = Math.max(py - b.y0, b.y1 - py), fz = Math.max(pz - b.z0, b.z1 - pz), f = fx*fx + fy*fy + fz*fz;
+    if (d === best && f >= far) continue;
+    bx.min.set(b.x0, b.y0, b.z0); bx.max.set(b.x1, b.y1, b.z1);
+    if (!SORT.fr.intersectsBox(bx)) continue;
+    best = d; far = f;
+  }
+  if (best < Infinity){ u.sortNear = Math.sqrt(best); u.sortFar = Math.sqrt(far); }
+}
+const placeNear = it => { const o = it.object; if (SORT.cam && o.isBatchedMesh && o.userData.box){ batchPlace(o); return o.userData.sortNear; } return it.z; };
+const placeFar = it => { const o = it.object; return SORT.cam && o.isBatchedMesh && o.userData.box ? o.userData.sortFar : it.z; };
+export function opaqueSort(a, b){
+  if (a.groupOrder !== b.groupOrder) return a.groupOrder - b.groupOrder;
+  if (a.renderOrder !== b.renderOrder) return a.renderOrder - b.renderOrder;
+  const na = placeNear(a), nb = placeNear(b);
+  if (na !== nb) return na < nb ? -1 : 1;
+  const fa = placeFar(a), fb = placeFar(b);
+  if (fa !== fb) return fa < fb ? -1 : 1;
+  if (a.material.id !== b.material.id) return a.material.id - b.material.id;
+  return a.z - b.z || a.id - b.id;
+}
+
 /* ---------- fixed parts and signs, merged ----------
    Doors, furniture, fittings, shop shelves and printed signs are meshes of their own (they can move, open, be picked
    up or be redrawn), one draw call each. Most of them, most of the time, do none of that: those are merged. Every mesh
    that has stood still in the same place with the same look for a while (or since the place was built) joins a
    batched mesh with the others that share its kind of material (class, texture, glow, shadows), its colour baked
-   into its vertices, cut into the same 24 m tiles; printed canvases are packed into atlas pages of at most 2048 x 2048
+   into its vertices, cut into 8 m cells by storey; printed canvases are packed into atlas pages of at most 2048 x 2048
    first. The original stays where it is, on a camera layer nothing draws (HIDE): it keeps its parent, its transform
    and its material, so whatever owns it can still move it, hide it, recolour it, redraw its picture or take it away.
    Every frame each merged original is checked against how it was merged (its place in the world, its parents, its
@@ -504,7 +567,7 @@ function leave(it){
   MG.items.delete(it.o); MG.evicted++;
 }
 const _p = new THREE.Vector3(), _n = new THREE.Vector3(), _c = new THREE.Color(), _nm = new THREE.Matrix3();
-/* a page's batched mesh, made again from its items (one instance per 24 m tile). A page made during play is compiled
+/* a page's batched mesh, made again from its items (one instance per 8 m cell and storey). A page made during play is compiled
    first (compileAsync: the driver may do it in parallel), out of sight, and only then takes its pieces' place */
 function rebuild(pg){
   if (!pg.ready){ if (!pg.compiling) compilePage(pg); return; }

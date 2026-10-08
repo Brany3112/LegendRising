@@ -361,7 +361,7 @@ function addXP(x){
 }
 function skillCost(v){ return v < 50 ? 1 : v < 75 ? 2 : 3; }
 // how fast energy burns: stamina 24 -> x1.32, 50 -> x1.03, 75 -> x0.74, 99 -> x0.46 (nutritionist: 20% less)
-function staminaF(){ return (1.6 - 1.15*S.skills.stamina/100)*(S.staff.nutri ? .8 : 1)*(typeof MT !== "undefined" && MT && typeof fatigueDrain === "function" ? fatigueDrain() : 1); }
+function staminaF(){ return (1.6 - 1.15*effSkill("stamina")/100)*(S.staff.nutri ? .8 : 1)*(typeof MT !== "undefined" && MT && typeof fatigueDrain === "function" ? fatigueDrain() : 1); }
 // how much the tank has left: full strength from 60 energy, easing down to 60% at empty with no cliff on the way
 function energyFactor(){ const t = clamp(num(S.energy, 0)/60, 0, 1); return .6 + .4*t*t*(3 - 2*t); }
 function avgRating(l){ return l.length ? l.reduce((a,b) => a+b, 0)/l.length : 0; }

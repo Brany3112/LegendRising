@@ -8,7 +8,8 @@
 //   node qa/harness.mjs --n 100 --from 1        a calibration run
 //   options: --speed 2|1|4  --workers 4  --prefoff 4 (every 4th match is also played with the preference off)
 //            --arch ST|W|AM|CM|DF (the player in that archetype in every match: calibration)
-//            --timing 3 (matches timed alone; 0 to skip)  --fit-ratings  --fit-tempo  --tempo d,s,p  --quiet
+//            --timing 3 (matches timed alone; 0 to skip)  --plays 3 (timed plays of each)  --fit-ratings  --fit-tempo
+//            --tempo d,s,p  --quiet
 //   writes qa/out/harness.json; exits 1 when a band fails (not with --fit-*).
 import fs from "node:fs";
 import path from "node:path";
@@ -150,16 +151,41 @@ const errs = list.filter(m => m.error);
 if (errs.length){ console.log(`${errs.length} matches failed; first:\n${errs[0].error}`); }
 const ok = list.filter(m => !m.error);
 const R = H.aggregate(ok);
-// simStep cost, timed alone on this thread (2.3 WP-E: in Node on the container)
+// simStep cost, timed alone on this thread (2.3 WP-E: in Node on the container). Each timed match is played PLAYS
+// times (the same seed, the same steps) and a step's cost is its fastest play (H.stepCost): the container stalls even
+// an allocation-free loop for milliseconds now and then, and that is not the step's. The slowest single play of a step
+// is reported too (raw), with the heap the simulation allocates a step (it should allocate next to nothing: 3.9.6).
 if (TIMING > 0){
-  const tl = [];
+  const PLAYS = Math.max(1, +arg("plays", 3));
+  const tl = [], costs = [];
   // one match first, untimed: this thread's code is compiled (JIT) before the clock runs
   H.runOne(configFor(FROM + TIMING, opt));
-  for (let i = 0; i < TIMING; i++) tl.push(H.runOne(configFor(FROM + i, opt), {now: () => performance.now()}));
-  R.stepMean = tl.reduce((a, m) => a + m.stepMean, 0)/tl.length;
-  R.stepMax = Math.max(...tl.map(m => m.stepMax));
-  R.stepP99 = Math.max(...tl.map(m => m.stepP99));
-  R.stepP999 = Math.max(...tl.map(m => m.stepP999 || 0));
+  for (let i = 0; i < TIMING; i++){
+    const plays = [];
+    let first = null, n = 0;
+    for (let p = 0; p < PLAYS; p++){
+      const times = new Float64Array(200000);
+      const m = H.runOne(configFor(FROM + i, opt), {now: () => performance.now(), times});
+      if (!first) first = m;
+      if (m.hash !== first.hash || m.steps !== first.steps) throw new Error(`seed ${FROM + i}: a timed replay differs`);
+      plays.push(times); n = m.steps;
+    }
+    tl.push(first); costs.push(H.stepCost(plays, n));
+  }
+  R.stepMean = costs.reduce((a, c) => a + c.mean, 0)/costs.length;
+  R.stepMax = Math.max(...costs.map(c => c.max));
+  R.stepP99 = +Math.max(...costs.map(c => c.p99)).toFixed(3);
+  R.stepP999 = +Math.max(...costs.map(c => c.p999)).toFixed(3);
+  R.stepRawMax = +Math.max(...costs.map(c => c.rawMax)).toFixed(3);
+  // the heap a step allocates (the used heap's growth between collections, summed, over one more play of the first)
+  {
+    const v8 = (await import("node:v8")).default, sim = await import(F("js/life/football/sim.js"));
+    const ms = sim.createMatch(configFor(FROM, opt));
+    let prev = v8.getHeapStatistics().used_heap_size, grow = 0, steps = 0;
+    while (ms.phase !== 'over'){ sim.simStep(ms); steps++; const u = v8.getHeapStatistics().used_heap_size; if (u > prev) grow += u - prev; prev = v8.getHeapStatistics().used_heap_size; }
+    let probe = 0; for (let i = 0; i < 200; i++){ const a = v8.getHeapStatistics().used_heap_size; probe += v8.getHeapStatistics().used_heap_size - a; }
+    R.allocPerStep = Math.max(0, Math.round(grow/steps - 2*probe/200));
+  }
   // determinism: the timed runs give the batch's hashes again
   R.determinism = tl.every((m, i) => ok.find(x => x.seed === FROM + i) ? ok.find(x => x.seed === FROM + i).hash === m.hash : true);
 }
@@ -177,7 +203,7 @@ for (const [k, m] of Object.entries(R.me)) console.log(`  ${k} moments a match: 
 if (R.ratingBy) console.log(`starters' ratings by archetype: ${JSON.stringify(R.ratingBy)}`);
 if (R.assertSeeds && R.assertSeeds.length) console.log(`seeds with a failed assert: ${R.assertSeeds.join(", ")}`);
 console.log(`kicks: ${JSON.stringify(R.kinds)} controlled ${fmt(R.ctlSec)} s`);
-console.log(`other: passes ${fmt(R.passes)} ok ${fmt(R.passesOk)} reds ${fmt(R.reds)} pens ${fmt(R.pens)} restarts ${fmt(R.restarts)} through ${R.through} sides on ${R.sidesOn} off ${R.sidesOff} prefCaps ${R.prefCaps} restartWorst ${fmt(R.restartWorst)}${R.stepP99 != null ? ` step p99 ${R.stepP99} p99.9 ${R.stepP999} ms` : ""}`);
+console.log(`other: passes ${fmt(R.passes)} ok ${fmt(R.passesOk)} reds ${fmt(R.reds)} pens ${fmt(R.pens)} restarts ${fmt(R.restarts)} through ${R.through} sides on ${R.sidesOn} off ${R.sidesOff} prefCaps ${R.prefCaps} restartWorst ${fmt(R.restartWorst)}${R.stepP99 != null ? ` step p99 ${R.stepP99} p99.9 ${R.stepP999} ms, slowest single play of a step ${R.stepRawMax} ms, heap allocated a step about ${R.allocPerStep} bytes` : ""}`);
 const failed = checks.filter(c => !c.pass).length;
 console.log(`harness: ${checks.length - failed} of ${checks.length} checks pass, ${Math.round((Date.now() - t0)/1000)} s`);
 process.exit(failed && !arg("fit-ratings", false) && !arg("fit-tempo", false) ? 1 : 0);

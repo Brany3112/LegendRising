@@ -290,9 +290,11 @@ const gxOf = ms => ms.spec.hx;
 {
   const rg = range();
   const {ms, me, gk, mates} = rg;
-  // a cross into an empty goal area: he decides to come (his arrival beats any head) and claims it
+  // a cross into an empty goal area: he decides to come (his arrival beats any head) and claims it. Sixty crosses, every
+  // combination of the three start rows, four drop depths and five widths once: twelve were too few to say "most"
+  // (the deviation's draws alone moved it between 5 and 8 of 12 while the rate over sixty stayed at 55 to 58%)
   const alone = [];
-  for (let i = 0; i < 12; i++){
+  for (let i = 0; i < 60; i++){
     reset(rg, 40, 30 - (i % 3));
     const n0 = ms.events.length, tgt = {x: 49.5 - (i % 4)*0.6, y: R, z: (i % 5 - 2)*0.8};
     startKick(ms, me, {kind: 'cross', target: tgt, recv: -1, contact: 1, speed: loftSpeedFor(Math.hypot(tgt.x - 40, tgt.z - 30))});
@@ -301,7 +303,7 @@ const gxOf = ms => ms.spec.hx;
     alone.push(out);
   }
   const claims = alone.filter(o => o === 'claim').length;
-  check(claims >= 8, "a cross dropping into an empty goal area: he comes and claims it (most of them)", {claims, of: alone.length, outcomes: alone});
+  check(claims > alone.length/2, "a cross dropping into an empty goal area: he comes and claims it (most of them)", {claims, of: alone.length, outcomes: alone});
   // the contact rule itself: his hands at the ball where he came to meet it; 3 bodies within 2.5 m of that point
   // make it a punch, none a claim
   const contact = crowd => {

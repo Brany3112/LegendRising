@@ -202,10 +202,12 @@ function camRadius(){ const cam = RT.cam, t = Math.tan(cam.fov*Math.PI/360), a =
 const PUSH = (() => { const o = [];
   for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++){ const L = Math.hypot(x, y, z); if (L) o.push([x/L, y/L, z/L]); }
   return o; })();
-/* The push is skipped where nothing is within reach of its rays (camClear: no box and no drawn triangle within r plus
-   the room a first pass can move the eye, DESIGN 3.9.5), and repeated from the last answer while the eye stands where
-   it stood then and nothing that moves (a door's leaf, a person, a car) is near it: the same rays would give the same
-   answer. Either way the eye ends where the full 26-ray push would put it. */
+/* The push is skipped where nothing is within reach of its rays (camClear: no box and no drawn triangle within r of
+   the eye, DESIGN 3.9.5: a ray r long meets nothing further than r, so the first pass would find nothing to push from
+   and there would be no second), and repeated from the last answer while the eye stands where it stood then and
+   nothing that moves (a door's leaf, a person, a car) is near it: the same rays would give the same answer. Either
+   way the eye ends where the full 26-ray push would put it. (Out in the open, walking past a lamp post or a shop sign
+   0.2 to 0.5 m away, the rays used to be cast all the same: up to 38 a frame against the 12 of DESIGN 1.5.11.) */
 const NPC = {x:NaN, y:NaN, z:NaN, r:NaN, rev:-1, tri:null, ox:0, oy:0, oz:0, moved:0};
 const PUSH_REACH = .35;
 function dynNear(x, y, z, R){
@@ -213,7 +215,7 @@ function dynNear(x, y, z, R){
   return false;
 }
 function nearPush(v, r){
-  if (camClear(v.x, v.y, v.z, r + PUSH_REACH)) return 0;
+  if (camClear(v.x, v.y, v.z, r)) return 0;
   if (v.x === NPC.x && v.y === NPC.y && v.z === NPC.z && r === NPC.r && NPC.rev === SG.rev && NPC.tri === CG.tri && !dynNear(v.x, v.y, v.z, r + PUSH_REACH)){
     v.x = NPC.ox; v.y = NPC.oy; v.z = NPC.oz; return NPC.moved;
   }

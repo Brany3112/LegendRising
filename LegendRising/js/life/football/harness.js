@@ -60,9 +60,29 @@ export const BANDS = Object.freeze({
 
 /* ---------- one match ---------- */
 
-// Run one match headless to full time and measure it. opt = {now: () => ms (a clock for the step cost), keep: false}.
+// The cost of a match's steps from several timed plays of it (the same seed plays the same steps): each step's fastest
+// play. A step's own work is in every play; what is not its own (the machine stalling the process, which the container
+// does to an allocation-free loop as well, a collection of garbage from anywhere, the compiler) lands on different steps
+// each time. plays: [Float64Array of step costs], n: the steps. Returns {mean, max, p99, p999, rawMax}.
+export function stepCost(plays, n){
+  const best = new Float64Array(n);
+  let rawMax = 0;
+  for (let i = 0; i < n; i++){
+    let b = Infinity;
+    for (const t of plays){ if (t[i] < b) b = t[i]; if (t[i] > rawMax) rawMax = t[i]; }
+    best[i] = b;
+  }
+  let sum = 0, max = 0;
+  for (let i = 0; i < n; i++){ sum += best[i]; if (best[i] > max) max = best[i]; }
+  const sorted = Float64Array.from(best).sort();
+  return {mean: sum/n, max, p99: sorted[Math.min(n - 1, Math.floor(0.99*n))], p999: sorted[Math.min(n - 1, Math.floor(0.999*n))], rawMax};
+}
+
+// Run one match headless to full time and measure it. opt = {now: () => ms (a clock for the step cost), keep: false,
+// times: a Float64Array that receives each step's cost (the batch runner plays a timed match more than once and keeps
+// each step's fastest: stepCost)}.
 export function runOne(cfg, opt = {}){
-  const now = opt.now || null;
+  const now = opt.now || null, times = opt.times || null;
   const ms = createMatch(cfg);
   let steps = 0, sum = 0, max = 0;
   const hist = new Uint32Array(600);              // 0.01 ms buckets up to 6 ms
@@ -73,6 +93,7 @@ export function runOne(cfg, opt = {}){
       const d = now() - t0;
       sum += d; if (d > max) max = d;
       hist[Math.min(599, Math.floor(d*100))]++;
+      if (times && steps < times.length) times[steps] = d;
     } else simStep(ms);
     steps++;
   }
@@ -122,7 +143,7 @@ export function measure(ms){
   out.ratings = [];
   for (const a of ms.agents){
     if (a.role !== 'player' || RT[a.id] == null) continue;
-    out.ratings.push({arch: a.isGK ? 'GK' : a.arch, r: RT[a.id], starter: a.on.length && a.on[0][0] < 1, mins: C[a.id].mins, c: C[a.id], team: a.team, isMe: a.isMe});
+    out.ratings.push({arch: a.isGK ? 'GK' : a.arch, r: RT[a.id], starter: a.onT.length && a.onT[0][0] < 1, mins: C[a.id].mins, c: C[a.id], team: a.team, isMe: a.isMe});
   }
   // the player
   const meId = ms.me >= 0 ? ms.me : ms.agents.findIndex(a => a.isMe);
@@ -273,7 +294,7 @@ export function involvementOf(ms, a){
   times.sort((x, y) => x - y);
   // gaps while he was on the pitch, between his involvements (and from his start and to his end)
   const gaps = [];
-  for (const iv of a.on){
+  for (const iv of a.onT){
     const s = iv[0], e = iv[1] == null ? ms.t : iv[1];
     let prev = s;
     for (const t of times){ if (t < s || t > e) continue; gaps.push(t - prev); prev = t; }

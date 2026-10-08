@@ -9,11 +9,11 @@
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (choices draw from ms.r).
 
-import {firstReach, rollTime, BALL} from "./ball.js";
+import {firstReach, rollTime, rollTimeQ, RQT, BALL} from "./ball.js";
 import {flightTime} from "./strike.js";
 import {TOUCH} from "./touch.js";
 import {gauss} from "./rng.js";
-import {timeToPoint, sprintSpeed} from "../mover.js";
+import {timeToPointQ, TT, sprintSpeed} from "../mover.js";
 import {xT, SLOT_POS, teamToPitch, depthOf} from "./tactics.js";
 import {xgAt, xgGeo} from "./judge.js";
 import {offsidePosition, RULES} from "./rules.js";
@@ -38,16 +38,19 @@ export const BRAIN = Object.freeze({
   SLIDE_CLOSE: 5.5,          // a slide only below this closing speed (m/s)
   // The harness's stand-in for the player (meAI: the player as an AI-driven agent, 2.3 WP-E), by his archetype, as a
   // player in that position plays: how much more readily than the AI he shoots (a shooter also tries from up to ME_RANGE
-  // m), takes his man on (and drives at goal in their half, ME_DRIVE), goes in for a tackle; how long (s) he goes
-  // without being in the play before he comes to show for it (a winger holds the width); how much higher (m) he plays
-  // with his side on the ball in their half (a forward getting into the box), and how much deeper with it in his own
-  // half (a ten coming short for it). 1, Infinity or 0: as the AI does.
+  // m), takes his man on (and drives at goal in their half, ME_DRIVE), goes in for a tackle (back: how much more readily
+  // still in his own half, where a forward who has tracked back goes in, while up the pitch he only harries); how long
+  // (s) he goes without being in the play before he comes to show for it (a winger holds the width longest); how much
+  // higher (m) he plays with his side on the ball in their half (a forward getting into the box), and how much deeper
+  // with it in his own half (a ten coming short for it); box false: at his side's corners and free kicks into the box
+  // he waits outside it for the ball headed out instead of going in for the delivery (a winger). 1, Infinity, 0 or
+  // true: as the AI does.
   ME: {
-    ST: {shoot: 2.3, dribble: 1.8, tackle: 1, seek: 10, up: 6, drop: 0},
-    W: {shoot: 3.2, dribble: 1, tackle: 1, seek: Infinity, up: 8, drop: 0},
-    AM: {shoot: 5, dribble: 1.8, tackle: 1.3, seek: 5, up: 0, drop: 8},
-    CM: {shoot: 1, dribble: 1, tackle: 2.3, seek: 8, up: 0, drop: 0},
-    DF: {shoot: 1, dribble: 1, tackle: 1, seek: 12, up: 0, drop: 0}
+    ST: {shoot: 2, dribble: 1.8, tackle: 1, back: 2.5, seek: 10, up: 6, drop: 0, box: true},
+    W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 8, drop: 0, box: false},
+    AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 5, up: 4, drop: 8, box: true},
+    CM: {shoot: 1, dribble: 1, tackle: 4, back: 1, seek: 6, up: 0, drop: 0, box: true},
+    DF: {shoot: 1, dribble: 1, tackle: 1, back: 1, seek: 12, up: 0, drop: 0, box: true}
   },
   ME_RANGE: 36, ME_DRIVE: 0.6,
   TAKE_ON: 3.0,              // a dribble at a man within this distance in front is a take-on: a burst past him
@@ -122,10 +125,14 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   if (recv && ground){
     const rr = recv.react + 0.05;
     for (let k = N; k >= 1; k--){
-      const s = d*k/N, tb = rollTime(v0, s, roll) + tw;
+      const s = d*k/N;
+      RQT[0] = v0; RQT[1] = s; RQT[2] = roll; RQT[3] = 1; rollTimeQ();
+      const tb = RQT[0] + tw;
       // his time there from how he is moving now (the mover's estimate, with his reaction), to within 0.6 m of it
       const px = from.x + ux*s, pz = from.z + uz*s, dr = hypot(px - recv.m.x, pz - recv.m.z);
-      const tr = dr <= 0.6 ? rr : timeToPoint(recv.m, recv.prm, recv.fac, recv.m.x + (px - recv.m.x)*(1 - 0.6/dr), recv.m.z + (pz - recv.m.z)*(1 - 0.6/dr), rr);
+      // (timeToPoint's register form: nothing boxed in the pass model's loops, 3.9.6)
+      let tr = rr;
+      if (!(dr <= 0.6)){ TT[0] = recv.m.x + (px - recv.m.x)*(1 - 0.6/dr); TT[1] = recv.m.z + (pz - recv.m.z)*(1 - 0.6/dr); TT[2] = rr; timeToPointQ(recv.m, recv.prm, recv.fac); tr = TT[0]; }
       if (k === N) tMeet = tr;                 // late to it: the ball waits for him there
       if (!Number.isFinite(tb)) continue;
       if (tr > tb) break;
@@ -134,7 +141,8 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   } else if (recv){
     // a lofted ball: whoever is first under it where it comes down (or to it after the bounce) has it
     const dr = hypot(to.x - recv.m.x, to.z - recv.m.z);
-    tMeet = dr <= 0.6 ? recv.react : timeToPoint(recv.m, recv.prm, recv.fac, recv.m.x + (to.x - recv.m.x)*(1 - 0.6/dr), recv.m.z + (to.z - recv.m.z)*(1 - 0.6/dr), recv.react);
+    tMeet = recv.react;
+    if (!(dr <= 0.6)){ TT[0] = recv.m.x + (to.x - recv.m.x)*(1 - 0.6/dr); TT[1] = recv.m.z + (to.z - recv.m.z)*(1 - 0.6/dr); TT[2] = recv.react; timeToPointQ(recv.m, recv.prm, recv.fac); tMeet = TT[0]; }
   }
   for (const o of ms.agents){
     if (o.team === team || o.team < 0 || !o.onPitch || o.role !== 'player' || o.leaving) continue;
@@ -159,7 +167,7 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
       if (!near && !ground && k > 1) break;
       if (ground && k > 0 && k < N && s < 2) continue;
       if (s > d || s < 0.5) continue;
-      const tb = near && !ground ? s/Math.max(1, 0.87*v0) + tw : ground ? rollTime(v0, s, roll) + tw : k === 0 ? Math.max(0.1 + tw, out.tArrive - 0.25) : out.tArrive;
+      const tb = near && !ground ? s/Math.max(1, 0.87*v0) + tw : ground ? (RQT[0] = v0, RQT[1] = s, RQT[2] = roll, RQT[3] = 1, rollTimeQ(), RQT[0]) + tw : k === 0 ? Math.max(0.1 + tw, out.tArrive - 0.25) : out.tArrive;
       if (!Number.isFinite(tb)) break;
       if (s > sMeet + 1e-6) break;
       const x = from.x + ux*s, z = from.z + uz*s;
@@ -170,7 +178,8 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
       // a lower bound first (top speed from his present speed), the full estimate only when it could matter
       const lb = rk + dd/vTop, tRef = atMeet ? Math.min(tb, tMeet) : tb;
       if (lb - tRef > margin || lb - tRef > 0.7) continue;
-      const tt = dd <= 0 ? 0 : timeToPoint(om, o.prm, o.fac, om.x + (x - om.x)*(dd/(dd + reach)), om.z + (z - om.z)*(dd/(dd + reach)), rk);
+      let tt = 0;
+      if (!(dd <= 0)){ TT[0] = om.x + (x - om.x)*(dd/(dd + reach)); TT[1] = om.z + (z - om.z)*(dd/(dd + reach)); TT[2] = rk; timeToPointQ(om, o.prm, o.fac); tt = TT[0]; }
       // a lofted ball over him: he cannot play it until it drops (the landing zone only); where the receiver meets
       // it, he has to get there before the receiver
       const mg = atMeet ? tt - tMeet : tt - tb;
@@ -256,28 +265,31 @@ function reachOf(ms, a, reachY, react = a.react, tMax = Infinity){
   const n = ms.predN, o = 4*(n - 1), P = ms.pred;
   if (!(P[o + 1] <= reachY)) return null;
   const x = P[o], z = P[o + 2], d = hypot(x - a.m.x, z - a.m.z), r = FR.reach;
-  const t = d <= r ? react : timeToPoint(a.m, a.prm, a.fac, a.m.x + (x - a.m.x)*(1 - r/d), a.m.z + (z - a.m.z)*(1 - r/d), react);
+  let t = react;
+  if (!(d <= r)){ TT[0] = a.m.x + (x - a.m.x)*(1 - r/d); TT[1] = a.m.z + (z - a.m.z)*(1 - r/d); TT[2] = react; timeToPointQ(a.m, a.prm, a.fac); t = TT[0]; }
   return {t: Math.max(P[o + 3], t), x, y: P[o + 1], z};
 }
 
 // A lower bound of reachOf's time, cheap: the time of the sample before the first one no run of his could be at
 // sooner (firstReach's own early-out, without asking timeToPoint), or beyond the horizon the last sample's.
+// (tMin(d), the fastest run to d, and the length are written out: a closure a call and a boxed number a sample were
+// garbage every step a ball is loose, 3.9.6)
 function reachLB(ms, a, reachY, react){
   const P = ms.pred, n = ms.predN, m = a.m, prm = a.prm, fac = a.fac;
   if (n <= 0) return 0;
   const vTop = Math.max(0.1, sprintSpeed(prm, fac || undefined)), v0 = Math.min(m.speed || 0, vTop);
   const a0 = Math.max(0.1, prm.a0*(fac && fac.accel != null ? fac.accel : 1)), t1 = (vTop - v0)/a0, d1 = (v0 + vTop)*0.5*t1;
   const reach = a.isGK ? 1.2 : 0.6;
-  const tMin = d => d <= d1 ? (Math.sqrt(v0*v0 + 2*a0*d) - v0)/a0 : t1 + (d - d1)/vTop;
   for (let k = 0; k < n; k++){
     const o = 4*k;
     if (!(P[o + 1] <= reachY)) continue;
-    const d = Math.max(0, hypot(P[o] - m.x, P[o + 2] - m.z) - reach);
-    if (P[o + 3] >= react + tMin(d) - 1e-9) return k > 0 ? P[o - 1] : 0;
+    const ex = P[o] - m.x, ez = P[o + 2] - m.z, d = Math.max(0, Math.sqrt(ex*ex + ez*ez) - reach);
+    if (P[o + 3] >= react + (d <= d1 ? (Math.sqrt(v0*v0 + 2*a0*d) - v0)/a0 : t1 + (d - d1)/vTop) - 1e-9) return k > 0 ? P[o - 1] : 0;
   }
   const o = 4*(n - 1);
   if (!(P[o + 1] <= reachY)) return Infinity;
-  return Math.max(P[o + 3], react + tMin(Math.max(0, hypot(P[o] - m.x, P[o + 2] - m.z) - reach)));
+  const ex = P[o] - m.x, ez = P[o + 2] - m.z, d = Math.max(0, Math.sqrt(ex*ex + ez*ez) - reach);
+  return Math.max(P[o + 3], react + (d <= d1 ? (Math.sqrt(v0*v0 + 2*a0*d) - v0)/a0 : t1 + (d - d1)/vTop));
 }
 
 // Assign one side's ball plans: the intended receiver goes to meet his pass; whoever gets to a loose ball first goes
@@ -308,6 +320,10 @@ function ballPlans(ms, team){
     CAND.push({a, lb: reachLB(ms, a, 1.45*s, (a.wasOn ? 0 : a.react) + age), hlb: a.isGK ? Infinity : reachLB(ms, a, hy, a.react + age), hy});
   }
   CAND.sort((p, q) => p.lb - q.lb || p.a.id - q.a.id);
+  // the highest the ball gets on its path: a header reach can only be taken above head height (hr.y > 1.35 x scale,
+  // and a reach is at or between samples), so a ball that stays below it is not searched for heads at all
+  let maxY = -Infinity;
+  for (let k = 0; k < ms.predN; k++){ const y = ms.pred[4*k + 1]; if (y > maxY) maxY = y; }
   for (const c of CAND){
     const a = c.a, tm = a.team, s = a.scale || 1;
     // can he still matter: first to it (or the receiver within 0.4 s of the first), or a header before both
@@ -319,7 +335,7 @@ function ballPlans(ms, team){
     if (fr && (fr.t < bestT[tm] || fr.t === bestT[tm] && best[tm] && a.id < best[tm].id)){ bestT[tm] = fr.t; best[tm] = a; bestR[tm] = fr; }
     if (a === recv) recvR = fr;
     // a header: the ball is up and first reachable with the head
-    if (needHead && !a.isGK && (!fr || fr.y > 1.3 || fr.t > 0.8)){
+    if (needHead && !a.isGK && maxY > 1.35*s && (!fr || fr.y > 1.3 || fr.t > 0.8)){
       const hr = reachOf(ms, a, c.hy, a.react + age, Math.min(headT[tm], bestT[tm] + 0.3));
       if (hr && hr.y > 1.35*s && (!fr || hr.t < fr.t - 0.15) && (hr.t < headT[tm] || hr.t === headT[tm] && heads[tm] && a.id < heads[tm].id)){ headT[tm] = hr.t; heads[tm] = a; headR[tm] = hr; }
     }
@@ -521,7 +537,8 @@ function* carrierOptions(ms, a){
         if (!o.onPitch || o.role !== 'player' || o.isGK || o === a) continue;
         const d = hypot(o.m.x - zx, o.m.z - zz);
         if (d > 18) continue;
-        const t = timeToPoint(o.m, o.prm, o.fac, zx, zz, o.react);
+        TT[0] = zx; TT[1] = zz; TT[2] = o.react; timeToPointQ(o.m, o.prm, o.fac);
+        const t = TT[0];
         if (o.team === team){ if (t <= tf + BRAIN.CROSS_RUN) ours++; }
         else if (t <= tf) theirs++;
       }
@@ -995,7 +1012,7 @@ function pressMove(ms, a, carrier){
   const stand = BRAIN.PRESS_STOP;
   const tx = cm.x + vx/vl*stand, tz = cm.z + vz/vl*stand;
   const dc = hypot(cm.x - m.x, cm.z - m.z);
-  const face = faceTo(a, b.p.x, b.p.z, {x: 0, z: 0});
+  const face = faceTo(a, b.p.x, b.p.z, a.faceV);
   if (dc > 3.5){ steer(a, tx, tz, dc > 8 ? 'sprint' : 'run', 0.3, null); a.state = 'run'; }
   else { steer(a, tx, tz, 'run', 0.15, face, BRAIN.JOCKEY_V, true); a.state = 'jockey'; }
   // the tackle: the ball out of the carrier's feet, within his reach
@@ -1011,7 +1028,8 @@ function pressMove(ms, a, carrier){
     // a man on a yellow card goes in less, and so does the last man before the keeper (he jockeys instead)
     const care = (a.booked ? BRAIN.CARE[0] : 1)*(lastMan(ms, a, carrier) ? BRAIN.CARE[1] : 1)*(a.slotLine === 'FWD' ? BRAIN.CARE[2] : 1);
     const meT = a.isMe && ms.meAI ? BRAIN.ME[a.arch] : null;
-    const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100)*care*(meT ? meT.tackle : 1);
+    const pref = meT ? meT.tackle*(dir*m.x < 0 ? meT.back : 1) : 1;
+    const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100)*care*pref;
     if (ms.r() < rate/60){
       const err = 0.12*(1 - a.at.tackling/110)*gauss(ms.r);
       const kind = db > 1.0 && !behind ? 'poke' : 'stand';
@@ -1097,7 +1115,11 @@ export function restartShape(ms){
       case 'corner': {
         const side = sp.z > 0 ? 1 : -1;
         if (a === tk){ shift(a, sp.x + (sp.x > 0 ? 0.9 : -0.9)*0.7, sp.z + side*0.9, 'taker'); break; }
-        if (team === att){
+        if (team === att && outOfBox(ms, a)){
+          // (the stand-in for a winger: just outside the box on the corner's side, for the ball headed out to the wing;
+          // a winger chasing the ball out of play is near there already, and never crosses the box to get to it)
+          shift(a, gxA - dirA*19.5, side*24, 'second');
+        } else if (team === att){
           const k = (a.cornerRole != null ? a.cornerRole : (a.cornerRole = cornerSlot(ms, a)));
           const spots = [[5.5, side*2.5, 'near'], [7, -side*3.8, 'far'], [11, 0, 'spot'], [17.5, side*-2, 'edge'], [6, 0, 'six']];
           if (k < spots.length){ const s = spots[k]; shift(a, gxA - dirA*s[0], s[1], s[2]); }
@@ -1127,7 +1149,9 @@ export function restartShape(ms){
           const lineD = clamp(0.5*dGoal, 11, 18), lx = gxA - dirA*lineD;
           const k = a.fkRole != null ? a.fkRole : (a.fkRole = fkSlot(ms, a, team === att));
           if (team === att){
-            if (k < 6){ shift(a, lx - dirA*0.6, clamp(sp.z*0.3 + (k - 2.5)*3.6, -16, 16), 'box'); }
+            // (the stand-in for a winger stays out of the box: wide of it on the kick's side, for the ball headed out)
+            if (outOfBox(ms, a)) shift(a, gxA - dirA*20, (sp.z >= 0 ? 1 : -1)*24, 'second');
+            else if (k < 6){ shift(a, lx - dirA*0.6, clamp(sp.z*0.3 + (k - 2.5)*3.6, -16, 16), 'box'); }
             else { const q = teamToPitch(ms, team, L*0.5 - 4, Wd/2 + (k % 2 ? 9 : -9), {x: 0, z: 0}); shift(a, q.x, q.z, 'back'); }
           } else {
             if (k < 7){ shift(a, lx, clamp(sp.z*0.3 + (k - 3)*3.2, -16, 16), 'line'); }
@@ -1176,7 +1200,8 @@ export function restartShape(ms){
 // a free kick in range: the order players take their places on the line (the best in the air first; for the defence,
 // the defenders first), the rest stay back or keep their shape
 function fkSlot(ms, a, attacking){
-  const team = a.team, R0 = ms.restart, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && !o.leaving && o.id !== R0.taker && !o.wall)
+  const team = a.team, R0 = ms.restart, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && !o.leaving && o.id !== R0.taker && !o.wall
+      && !(attacking && outOfBox(ms, o)))
     .sort((p, q) => attacking ? (q.at.heading + q.at.jumping) - (p.at.heading + p.at.jumping) || p.id - q.id
       : (p.slotLine === 'DF' ? 0 : 1) - (q.slotLine === 'DF' ? 0 : 1) || (q.at.heading - p.at.heading) || p.id - q.id);
   return list.indexOf(a);
@@ -1196,11 +1221,13 @@ function outletOf(ms, R0, team){
   return R0.outlet;
 }
 function cornerSlot(ms, a){
-  // the tallest and best in the air go near and far; the rest fill the spot, the edge and back
-  const team = a.team, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && o.id !== ms.restart.taker)
+  // the tallest and best in the air go near and far; the rest fill the spot, the edge and back (the harness's stand-in
+  // for a player who stays out of the box, BRAIN.ME box false, takes none of them)
+  const team = a.team, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && o.id !== ms.restart.taker && !outOfBox(ms, o))
     .sort((p, q) => (q.at.heading + q.at.jumping) - (p.at.heading + p.at.jumping) || p.id - q.id);
   return list.indexOf(a);
 }
+const outOfBox = (ms, a) => a.isMe && ms.meAI && BRAIN.ME[a.arch] && BRAIN.ME[a.arch].box === false;
 function nearestAttacker(ms, a, att){
   let best = null, bd = Infinity;
   for (const o of ms.agents){
@@ -1422,7 +1449,7 @@ export function brainStep(ms, h){
     const p = a.plan;
     if (p && (p.kind === 'receive' || p.kind === 'chase' || p.kind === 'intercept')){
       // to the reach point, in time (a sprint when the margin is thin), facing the ball
-      const b = ms.ball.p, face = faceTo(a, b.x, b.z, {x: 0, z: 0});
+      const b = ms.ball.p, face = faceTo(a, b.x, b.z, a.faceV);
       const d = hypot(p.x - a.m.x, p.z - a.m.z), tLeft = Math.max(0.05, p.t - (ms.t - p.at));
       const need = d/tLeft;
       const gait = need > a.prm.run*0.9 || p.kind !== 'receive' && d > 3 ? 'sprint' : need > a.prm.jog*0.8 ? 'run' : 'jog';
@@ -1453,7 +1480,7 @@ export function brainStep(ms, h){
     // never into the ball's way when a team-mate has it at his feet: hold the target
     let gait = T.gait;
     if ((a.st.B < 25) && gait === 'sprint') gait = 'run';
-    const face = T.face || (hypot(T.x - a.m.x, T.z - a.m.z) < 2 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, {x: 0, z: 0}) : null);
+    const face = T.face || (hypot(T.x - a.m.x, T.z - a.m.z) < 2 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, a.faceV) : null);
     steer(a, T.x, T.z, gait, T.stop, face);
     a.state = a.m.speed > 0.3 ? 'run' : 'idle';
   }
@@ -1471,7 +1498,7 @@ function setPieceStep(ms, h){
     if (!s){ standStill(a); continue; }
     const d = hypot(s.x - a.m.x, s.z - a.m.z);
     const gait = s.gait === 'sprint' || d > RULES.SPRINT_D && s.role === 'taker' ? 'sprint' : s.gait === 'run' || d > 6 ? 'run' : s.gait === 'walk' ? 'walk' : 'jog';
-    const face = s.face || (d < 1.5 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, {x: 0, z: 0}) : null);
+    const face = s.face || (d < 1.5 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, a.faceV) : null);
     steer(a, s.x, s.z, gait, s.stop != null ? s.stop : 0.3, face, s.speedCap != null ? s.speedCap : Infinity);
   }
   if (R0 && R0.ready && !R0.taken){

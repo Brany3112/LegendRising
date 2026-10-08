@@ -235,7 +235,7 @@ function updateDribble(dt){
 }
 function updateDefs(dt){
   if (M.t < .45) return;
-  const p = M.p, b = M.ball, sk = S.skills; let best = null, bd = 1e9;
+  const p = M.p, b = M.ball, sk = effSkills(); let best = null, bd = 1e9;
   for (const d of M.defs){ if (d.stun > 0 || d.mark) continue; const dd = Math.hypot(d.x-b.x, d.y-b.y); if (dd < bd){ bd = dd; best = d; } }
   M.defs.forEach((d, i) => {
     d.cd -= dt; if (d.stun > 0){ d.stun -= dt; return; }
@@ -349,7 +349,7 @@ function releaseAim(){
 }
 // a throw comes out of the hands: there is no contact point to pick, just a little loft and no spin
 function throwNow(){
-  const jit = (1 - (S.skills.passacc || S.skills.passing)/120)*.055;
+  const jit = (1 - effSkill(S.skills.passacc ? "passacc" : "passing")/120)*.055;
   M.lock.ang += gauss()*jit;
   M.contact = {u:0, v:.22, whiff:false};
   M.p.stepTo = M.p.x < 34 ? 1.2 : 66.8;   // he steps back onto the pitch as the ball leaves his hands (update walks him on)
@@ -407,7 +407,7 @@ function keeperReads(){
   g.tx = clamp(tx, g.x0-g.cap, g.x0+g.cap);
 }
 function updateFlight(dt){
-  const steps = 8, h = dt/steps, b = M.ball, g = M.gk, aero = S.skills.aero;
+  const steps = 8, h = dt/steps, b = M.ball, g = M.gk, aero = effSkill("aero");
   if (M.shot) M.shot.t += dt;
   for (let i=0; i<steps; i++){
     const py = b.y; stepBall(b, h, aero);
@@ -575,7 +575,7 @@ function woodwork(kind){
   updateMatchHUD();
 }
 function updateRebound(dt){
-  const b = M.ball, p = M.p, g = M.gk, r = M.reb, sk = S.skills;
+  const b = M.ball, p = M.p, g = M.gk, r = M.reb, sk = effSkills();
   M.t += dt; r.t += dt;
   // the ball keeps bouncing and rolling on its own
   const steps = 4, h = dt/steps;
@@ -627,7 +627,7 @@ function predictPath(tMax){
   const b = M.ball;
   const c = {x:b.x, y:b.y, z:b.z, vx:b.vx, vy:b.vy, vz:b.vz, spin:b.spin, lift:b.lift, knuck:0, kt:0, kw:0, kph:0};
   const out = [], h = .06;
-  for (let t = 0; t < tMax; t += h){ out.push({t, x:c.x, y:c.y, z:c.z}); stepBall(c, h, S.skills.aero); }
+  for (let t = 0; t < tMax; t += h){ out.push({t, x:c.x, y:c.y, z:c.z}); stepBall(c, h, effSkill("aero")); }
   return out;
 }
 function ballPath(){                                    // one prediction per frame, not per physics step
@@ -848,7 +848,7 @@ function updateSupportRun(dt, meetBall){
   const ky = (keys.arrowdown ? 1 : 0) - (keys.arrowup ? 1 : 0);
   if (kx || ky){ const m = Math.hypot(kx, ky); tx = p.x + kx/m*8; ty = p.y + ky/m*8; }
   if (tx === null && meetBall){                           // it's coming to you — go and meet it
-    const ic = interceptOn(ballPath(), p, 5.5 + S.skills.pace*.036, .05);
+    const ic = interceptOn(ballPath(), p, 5.5 + effSkill("pace")*.036, .05);
     tx = ic ? ic.x : b.x; ty = ic ? ic.y : b.y;
   }
   if (tx === null){                                       // no input: hold a run into space ahead of the man on the ball
@@ -862,7 +862,7 @@ function updateSupportRun(dt, meetBall){
     }
     tx = p.sup.x; ty = p.sup.y;
   }
-  const base = (5.2 + S.skills.pace*.036)*(.62 + .38*energyFactor());
+  const base = (5.2 + effSkill("pace")*.036)*(.62 + .38*energyFactor());
   const dx = tx - p.x, dy = ty - p.y, dl = Math.hypot(dx, dy);
   const want = dl > .4 ? Math.min(1, dl/5) : 0;
   const k = Math.min(1, dt*8);
@@ -935,7 +935,7 @@ function updateAiPass(dt){
   const ap = M.aiPass, b = M.ball;
   ap.t += dt; M.t += dt;
   const steps = Math.max(1, Math.ceil(dt/.008));
-  for (let i = 0; i < steps; i++) stepBall(b, dt/steps, S.skills.aero);
+  for (let i = 0; i < steps; i++) stepBall(b, dt/steps, effSkill("aero"));
   const path = ballPath();
   // the intended man goes to meet it; everyone else keeps playing
   if (ap.isPlayer) updateSupportRun(dt, true);
@@ -949,7 +949,7 @@ function updateAiPass(dt){
     if (d.ic && (!dFirst || d.ic.t < dFirst.ic.t)) dFirst = d;
   }
   const recv = ap.isPlayer ? M.p : ap.to;
-  const recvIc = interceptOn(path, recv, ap.isPlayer ? 5.5 + S.skills.pace*.036 : mateSpeed(recv));
+  const recvIc = interceptOn(path, recv, ap.isPlayer ? 5.5 + effSkill("pace")*.036 : mateSpeed(recv));
   for (const d of M.defs){
     if (d.stun > 0) continue;
     if (d === dFirst && d.ic && (!recvIc || d.ic.t < recvIc.t - .05)) runTo(d, d.ic.x, d.ic.y, d.spd, dt);
