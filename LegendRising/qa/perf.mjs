@@ -14,13 +14,17 @@
 // same CPUs can double a view's render ms (measured here: one view 0.25 of its baseline on a quiet machine and 0.52
 // with three busy workers alongside). So the render ratios against the recorded baseline are printed as notes, and
 // the render acceptance is gated by qa/wpA-ab.mjs, which draws this tree and the I0 tree side by side in one browser,
-// every view, where the load weighs on both alike. --gate-render gates them here too (a quiet machine). Calls,
-// triangles, lights, shadows and the CPU per frame (the 3.9.8 gate: at most 10% over the baseline) always count;
-// --report records the CPU ratio without failing on it.
+// every view, where the load weighs on both alike. --gate-render gates them here too (a quiet machine). The CPU per
+// frame (the 3.9.8 gate: at most 10% over the baseline) swings the same way against a figure recorded on another day
+// (measured: town-road 1.31 and 1.15 of its recorded baseline in two runs, while wpA-ab had the same view's world step
+// at 0.67 of the I0 tree's side by side), so it is a note here too, gated side by side in wpA-ab ('a world step costs
+// at most 10% over the base tree's'), and here only with --gate-time or --gate-render. Calls, triangles, lights and
+// shadows always count; --report gates no time ratio whatever else is asked.
 //
 //   QA_PORT=8772 node qa/perf.mjs                        every life view on Low, the lobby on High
 //   node qa/perf.mjs --views bedroom,street --tiers low --frames 40 --warm 20
-//   node qa/perf.mjs --gate-render                       the render ratios gated as well
+//   node qa/perf.mjs --gate-render                       the render and CPU ratios gated as well (a quiet machine)
+//   node qa/perf.mjs --gate-time                         the CPU ratio gated as well
 //   node qa/perf.mjs --report                            no time ratio gated
 //
 // Writes qa/out/perf.json.
@@ -32,7 +36,7 @@ const a = process.argv.slice(2), opt = (k, d) => { const i = a.indexOf(k); retur
 const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "perf-baseline.json"), "utf8"));
 const VIEWS = opt("--views", "bedroom,lobby,street,park,yard,pitch,town-road").split(",");
 const TIERS = opt("--tiers", "low,high").split(",");
-const GATE_TIME = !a.includes("--report"), GATE_RENDER = GATE_TIME && a.includes("--gate-render");
+const GATE_RENDER = !a.includes("--report") && a.includes("--gate-render"), GATE_TIME = GATE_RENDER || (!a.includes("--report") && a.includes("--gate-time"));
 // 1.5.11, Low at 1280 x 720 (the life views; the stadium's are WP-D's)
 const BUDGET = {
   bedroom: {calls: 60, tris: 60e3}, lobby: {calls: 60, tris: 60e3},

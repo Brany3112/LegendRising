@@ -131,8 +131,13 @@ const arcs = tag => P.lines.filter(l => l.type === 'arc' && l.tag === tag);
   check(Array.isArray(none.colliders.boards) && none.colliders.boards.length === 0, "no boards unless asked");
   const S = makePitch({boards: true});
   const b = S.colliders.boards;
-  check(b.length === 4 && b.every(p => p.e === BOARDS.e && near(p.bounds.y1, 0.9) && -p.d > 0), "stadium boards: four 0.9 m planes facing the pitch, restitution 0.5", b.map(p => [p.side, p.d]));
+  check(b.length === 5 && b.every(p => p.e === BOARDS.e && near(p.bounds.y1, 0.9) && -p.d > 0), "stadium boards: 0.9 m planes facing the pitch on all four sides, restitution 0.5", b.map(p => [p.side, p.d]));
   check(b.some(p => p.side === 'z+' && near(p.bounds.z0, 38)) && b.some(p => p.side === 'x-' && near(p.bounds.x0, -57.5)), "boards at z = +-38.0 and x = +-57.5");
+  // (DESIGN 1.1, 3.3.1: the stadium's near-side boards stop from x = -14 to 14, in front of the dugouts, for the ball too)
+  const near0 = b.filter(p => p.side === 'z-');
+  check(near0.length === 2 && near(near0[0].bounds.x0, -57.5) && near(near0[0].bounds.x1, -14) && near(near0[1].bounds.x0, 14) && near(near0[1].bounds.x1, 57.5),
+    "the stadium layout leaves the dugout gap (x -14 to 14) in the z = -38 boards", near0.map(p => [p.bounds.x0, p.bounds.x1]));
+  check(makePitch({boards: {gaps: []}}).colliders.boards.length === 4, "boards with no gaps asked for: four whole sides");
   const G = makePitch({boards: {gaps: [{side: 'z-', a0: -12, a1: 12}]}});
   const zm = G.colliders.boards.filter(p => p.side === 'z-');
   check(zm.length === 2 && near(zm[0].bounds.x1, -12) && near(zm[1].bounds.x0, 12), "a gap in front of the dugouts splits that board in two");

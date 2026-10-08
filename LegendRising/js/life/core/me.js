@@ -30,7 +30,7 @@ import {human, animateHuman, BONE, EV, onHumanRemat} from "../human.js";
 import {fkQ, newFK, lerp} from "../rig.js";
 import {bodyLook} from "../look.js";
 import {G, LIFE, P, B, ME, RT, FLAGS, FADE} from "./state.js";
-import {camCast, camClear, surfaceUnder, CG, SG} from "./collide.js";
+import {camCast, camClear, camClearance, surfaceUnder, CG, SG} from "./collide.js";
 import {GR, LOCO} from "./move.js";
 import {modeFlags, tutOn, persist} from "./modes.js";
 import {camPush, camPop, camKick} from "./camera.js";
@@ -196,18 +196,14 @@ const _cp = new THREE.Vector3(), _cd = new THREE.Vector3(), _cd2 = new THREE.Vec
 // how far the near plane's corners reach from the eye, and a little more: nothing may come nearer the camera than this
 function camRadius(){ const cam = RT.cam, t = Math.tan(cam.fov*Math.PI/360), a = cam.aspect || 1; return Math.max(.1, cam.near*Math.sqrt(1 + t*t*(1 + a*a)) + .025); }
 /* the near plane is not a point: anything nearer the camera than r on any side (a wall, a door jamb's edge, the slope
-   under a stair, a cabinet with no collision box) pushes it away. 26 short rays (the faces, edges and corners of a
-   cube), the push along each axis the deepest one asks for, never through something on the other side; a second pass
-   takes up what an oblique surface left */
-const PUSH = (() => { const o = [];
-  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++){ const L = Math.hypot(x, y, z); if (L) o.push([x/L, y/L, z/L]); }
-  return o; })();
-/* The push is skipped where nothing is within reach of its rays (camClear: no box and no drawn triangle within r of
-   the eye, DESIGN 3.9.5: a ray r long meets nothing further than r, so the first pass would find nothing to push from
-   and there would be no second), and repeated from the last answer while the eye stands where it stood then and
-   nothing that moves (a door's leaf, a person, a car) is near it: the same rays would give the same answer. Either
-   way the eye ends where the full 26-ray push would put it. (Out in the open, walking past a lamp post or a shop sign
-   0.2 to 0.5 m away, the rays used to be cast all the same: up to 38 a frame against the 12 of DESIGN 1.5.11.) */
+   under a stair, a cabinet with no collision box) pushes it away: the push along each axis the deepest of them asks
+   for (collide.js camClearance, from the nearest points of the boxes and drawn triangles within r themselves), never
+   through something on the other side (one ray along the push); a second pass takes up what an oblique surface left.
+   (It was 26 short rays a pass, the faces, edges and corners of a cube: up to 54 rays a frame walking along a wall or
+   a rail, against the 12 in the open and 35 indoors of DESIGN 1.5.11; now at most 2.) */
+const PV = new Float64Array(3);
+/* The push is skipped where nothing is within r of the eye (camClear, DESIGN 3.9.5), and repeated from the last answer
+   while the eye stands where it stood then and nothing that moves (a door's leaf, a person, a car) is near it */
 const NPC = {x:NaN, y:NaN, z:NaN, r:NaN, rev:-1, tri:null, ox:0, oy:0, oz:0, moved:0};
 const PUSH_REACH = .35;
 function dynNear(x, y, z, R){
@@ -222,15 +218,8 @@ function nearPush(v, r){
   const x0 = v.x, y0 = v.y, z0 = v.z;
   let moved = 0;
   for (let pass = 0; pass < 2; pass++){
-    let px = 0, nx = 0, py = 0, ny = 0, pz = 0, nz = 0;
-    for (const [dx, dy, dz] of PUSH){
-      const h = camCast(v.x, v.y, v.z, dx, dy, dz, r); if (h >= r) continue;
-      const k = r - h;
-      if (dx > 0) nx = Math.max(nx, k*dx); else if (dx < 0) px = Math.max(px, -k*dx);
-      if (dy > 0) ny = Math.max(ny, k*dy); else if (dy < 0) py = Math.max(py, -k*dy);
-      if (dz > 0) nz = Math.max(nz, k*dz); else if (dz < 0) pz = Math.max(pz, -k*dz);
-    }
-    const mx = px - nx, my = py - ny, mz = pz - nz, L = Math.hypot(mx, my, mz);
+    camClearance(v.x, v.y, v.z, r, PV);
+    const mx = PV[0], my = PV[1], mz = PV[2], L = Math.hypot(mx, my, mz);
     if (L < 2e-3) break;
     const k = Math.max(0, Math.min(L, camCast(v.x, v.y, v.z, mx/L, my/L, mz/L, L + .03) - .03))/L;
     v.x += mx*k; v.y += my*k; v.z += mz*k; moved += L*k;
@@ -254,7 +243,8 @@ export function viewStep(dt){
      in front of it: straight ahead and 40 degrees to either side */
   const ahead0 = (.07 + .15*sstep(.75, 1.35, -P.pitch))*ME.scale;
   let ahead = ahead0;
-  for (const a of [0, .7, -.7]){
+  // (three rays, none longer than ahead0 + r + 2 cm: with nothing that near the eye none of them can meet anything)
+  if (!camClear(P.x, P.eye, P.z, ahead0 + r + .02)) for (const a of [0, .7, -.7]){
     const ca = Math.cos(a), sa = Math.sin(a), dx = -sin*ca + cos*sa, dz = -cos*ca - sin*sa;
     ahead = Math.min(ahead, (camCast(P.x, P.eye, P.z, dx, 0, dz, ahead0*ca + r + .02) - r)/ca);
   }

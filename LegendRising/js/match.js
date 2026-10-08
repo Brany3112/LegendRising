@@ -528,8 +528,8 @@ function matchRewards(M, rating, out){
   if (rating == null){
     const f = M.f, me = meP(), [us, th] = M.score;
     Object.assign(R, {dnp:true, res:us > th ? "W" : us < th ? "L" : "D", motm:false, motmId:out ? out.motm : -1, bonus:0, xp:0, trustD:0, chemD:0,
-      rep:me.rep, repD:0, wrep:me.wrep, wrepD:0, repName:(COMP_REP[repTier(f)] || COMP_REP.L).nm, mins:0, fatigue:legsAfter(M, 0)});
-    A._matchFatigue = R.fatigue;
+      rep:me.rep, repD:0, wrep:me.wrep, wrepD:0, repName:(COMP_REP[repTier(f)] || COMP_REP.L).nm});
+    legsAfter(M, R, 0);
     save();
     return R;
   }
@@ -589,9 +589,7 @@ function matchRewards(M, rating, out){
   S.lastMatch = {gw:gw(), rating, goals:my.goals, assists:my.assists, res, opp:M.nameThem, score:`${us}–${th}`, motm};
   // the legs pay for it (1.5.2): the minutes on the pitch and how hard they worked, tomorrow's fatigue
   const mins = minutesOn(M);
-  const fatigue = legsAfter(M, mins);
-  A._matchFatigue = fatigue;
-  R.mins = mins; R.fatigue = fatigue;
+  legsAfter(M, R, mins);
   // playing together builds the group; a good night more so
   if (mins > 0 && typeof chemAdd === "function"){ const g = (.6 + (res === "W" ? .6 : 0) + (rating >= 7.5 ? .5 : 0))*(1 - (S.chem || 0)/140); chemAdd(g); M.chemD = (M.chemD || 0) + g; }
   R.chemD = M.chemD || 0;
@@ -601,12 +599,14 @@ function matchRewards(M, rating, out){
   save();
   return R;
 }
-// tomorrow's fatigue from a match (1.5.2): 8 for the day itself (a substitute left on the bench still had it), and up
-// to 24 more for the minutes on the pitch, by how hard they worked (the mean drain a minute, else the work rate's)
-function legsAfter(M, mins){
+// what the match leaves in his legs (1.5.2): the minutes on the pitch and how hard they worked (the mean drain a
+// minute, else the work rate's), kept on R and in A._matchLegs for the walk back out of the tunnel, where the life world
+// turns them into tomorrow's fatigue with the one formula there is (stamina.js matchFatigue: 8 for the day itself,
+// which a substitute left on the bench still had, and up to 24 more for the minutes, by their intensity)
+function legsAfter(M, R, mins){
   const drain = M.drainPerMin != null ? M.drainPerMin : WR.drain[S.workrate || 2];
-  const intensity = clamp(drain/.56, 0, 1);
-  return Math.round(8 + 24*(mins/90)*(.7 + .6*intensity));
+  R.mins = mins; R.drain = drain;
+  A._matchLegs = {mins, drain};
 }
 // the player's match minutes: from MT.on (pairs of match minutes) when every interval has closed, else as the 2D match
 // counts them (a starter the whole game, a substitute from when he came on, a rotation player until he went off)

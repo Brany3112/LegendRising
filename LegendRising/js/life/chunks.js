@@ -29,7 +29,7 @@ import {RT} from "./core/state.js";
 import {SCHED} from "./core/sched.js";
 
 const GLOWS = new Set(["lit", "lamp", "lampB", "street", "neon", "screen"]);
-const DETAIL = .8, BAND = 4, MCELL = 8;
+const DETAIL = .8, BAND = 4, MCELL = 8, GROUND_Y = .1;
 // what the probes read (perf.js): the batched meshes of the place, their instances, vertex bytes, the atlases
 export const CH = {meshes:[], tile:16, instances:0, verts:0, bytes:0, multiDraw:null, cullT:0};
 // a new place: the last one's batches are gone with its scene; anything of it that was merged is put back on the
@@ -82,6 +82,11 @@ export function finishChunks(batches){
     bm.castShadow = base !== "glass" && base !== "lit" && !FLOORS.has(base); bm.receiveShadow = base !== "glass";
     bm.name = "batch:" + key;
     bm.userData.inst = inst; bm.userData.key = key; bm.userData.box = box;
+    // a batch that only lies on the ground (grass, the pitch, paths, the yard's asphalt) hides nothing but the ground
+    // under it: drawn after every other opaque batch (opaqueSort), the topmost first, and strictly in front (a layer under
+    // another fails the depth test even where the two meet at equal depth far off)
+    const top = inst.reduce((t, it) => Math.max(t, it.y1), -Infinity);
+    if (top <= GROUND_Y){ bm.userData.ground = top; m.depthFunc = THREE.LessDepth; }
     bm.customSort = occSort;
     const ga = bm.geometry;
     bm.userData.tris = {pos:ga.attributes.position.array, index:ga.index.array};
@@ -381,7 +386,10 @@ function occSort(list, camera){
    for the tiles you stand in), and of two as near, the one whose nearest box ends nearer first (the room's own walls,
    floor and furniture before the tile and storey around them); anything else by its depth. Each batch's place is
    worked out once a render, the first time the sort asks for it, for the camera that render is for (the scene tells
-   us which, sortHook). The materials changed between draws this costs are a few dozen a frame */
+   us which, sortHook). The materials changed between draws this costs are a few dozen a frame. The batches that only
+   lie on the ground come after every other opaque thing (the sky still comes after them), the highest layer first: nothing stands below the ground, so
+   it never hides anything, while everything standing on it hides some of it, and the pitch on the grass hides the
+   grass under it (out of doors the ground under the pitch, the paths and the buildings was shaded twice over) */
 const SORT = {cam:null, stamp:0, fr:new THREE.Frustum(), m:new THREE.Matrix4(), bx:new THREE.Box3(), x:0, y:0, z:0};
 function sortHook(scene){
   if (!scene || scene.userData.batchSort) return;
@@ -419,9 +427,12 @@ function batchPlace(o){
 }
 const placeNear = it => { const o = it.object; if (SORT.cam && o.isBatchedMesh && o.userData.box){ batchPlace(o); return o.userData.sortNear; } return it.z; };
 const placeFar = it => { const o = it.object; return SORT.cam && o.isBatchedMesh && o.userData.box ? o.userData.sortFar : it.z; };
+const groundOf = it => { const g = it.object.userData.ground; return g == null ? Infinity : g; };
 export function opaqueSort(a, b){
   if (a.groupOrder !== b.groupOrder) return a.groupOrder - b.groupOrder;
   if (a.renderOrder !== b.renderOrder) return a.renderOrder - b.renderOrder;
+  const ga = groundOf(a), gb = groundOf(b);
+  if (ga !== gb) return ga > gb ? -1 : 1;
   const na = placeNear(a), nb = placeNear(b);
   if (na !== nb) return na < nb ? -1 : 1;
   const fa = placeFar(a), fb = placeFar(b);

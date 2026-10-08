@@ -126,8 +126,10 @@ export function goal(x, z, dir, w = 6, h = 2.2, depth = 1.6){
     cy(f, s*w/2, .02, depth/2, .03, .03, depth, PC.offwhite, {seg:6, rx:Math.PI/2});
   }
   cy(f, 0, .03, depth, .03, .03, w, PC.offwhite, {seg:6, rz:Math.PI/2});
-  // the net: three cut-out planes, sagging a touch
-  const m = mat({map:netTex(12, 1.8), transparent:true, alphaTest:.02, side:THREE.DoubleSide, roughness:.9, depthWrite:false});
+  // the net: three cut-out planes, sagging a touch (drawn in one pass: three.js draws a see-through two-sided surface
+  // twice, back faces then front, recompiling the material's program for each, every frame; a cut-out plane needs no
+  // such ordering)
+  const m = mat({map:netTex(12, 1.8), transparent:true, alphaTest:.02, side:THREE.DoubleSide, forceSinglePass:true, roughness:.9, depthWrite:false});
   const mk = (gw, gh, rep) => { const g = new THREE.PlaneGeometry(gw, gh, 8, 4); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i)*rep[0], uv.getY(i)*rep[1]); return g; };
   const add = (g, px, py, pz, rx, ry) => {
     const n = new THREE.Mesh(g, m); n.rotation.set(rx, ry, 0, "YXZ");
@@ -515,7 +517,7 @@ export function sign(text, x, y, z, ry = 0, w = 1.6, o = {}){
 export function wireFence(x0, z0, x1, z1, h = 2.2){
   const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len/2.6));
   for (let i = 0; i <= n; i++){ const t = i/n, x = x0 + (x1 - x0)*t, z = z0 + (z1 - z0)*t; cy(frame(x, z), 0, 0, 0, .045, .05, h, 0x3d4347, {seg:8, key:"metal"}); }
-  const m = mat({map:netTex(10, 1.4, "#5d666c"), transparent:true, alphaTest:.02, side:THREE.DoubleSide, roughness:.6, metalness:.4, depthWrite:false});
+  const m = mat({map:netTex(10, 1.4, "#5d666c"), transparent:true, alphaTest:.02, side:THREE.DoubleSide, forceSinglePass:true, roughness:.6, metalness:.4, depthWrite:false});
   m.map = m.map.clone(); m.map.repeat.set(len*1.5, h*1.5); m.map.needsUpdate = true;
   const p = new THREE.Mesh(new THREE.PlaneGeometry(len, h - .1), m);
   p.position.set((x0 + x1)/2, h/2, (z0 + z1)/2); p.rotation.y = Math.atan2(-(z1 - z0), x1 - x0);

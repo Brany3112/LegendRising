@@ -706,7 +706,8 @@ function paneOf(x0, x1, y0, y1, z0, z1, s){
       const geo = new THREE.PlaneGeometry(w, h, 6, 8), pos = geo.attributes.position;
       for (let i = 0; i < pos.count; i++){ const px = pos.getX(i)/w + .5, py = pos.getY(i)/h + .5, edge = Math.min(px, 1 - px, py, 1 - py); pos.setZ(i, -s*Math.min(.035, edge*.12)*(1 + .4*Math.sin(px*9 + py*7))); }
       geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, mat({map:tex, transparent:true, roughness:.35, metalness:0, side:THREE.DoubleSide, depthWrite:false}));
+      // (one sheet: drawn in one pass, see props.js goal nets)
+      const m = new THREE.Mesh(geo, mat({map:tex, transparent:true, roughness:.35, metalness:0, side:THREE.DoubleSide, forceSinglePass:true, depthWrite:false}));
       m.position.set((x0 + x1)/2, (y0 + y1)/2, zc); if (s < 0) m.rotation.y = Math.PI; m.renderOrder = 2; g.add(m);
     }
   };

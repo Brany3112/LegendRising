@@ -32,7 +32,7 @@
    A new size is only ever applied at the top of a frame, before it is drawn: resizing the canvas clears it.
    The screen is covered (isScreenCovered) under the opaque fade and while an opaque overlay says it is up
    (screenCover): nothing needs drawing then, and every body is state-only (sched.js). */
-import {THREE, W, remat, rematCache, onBegin, rescaleTextures} from "../build.js";
+import {THREE, W, remat, rematCache, onBegin, rescaleTextures, texFilter} from "../build.js";
 import {RT, FLAGS, FADE, LIFE, P as ME_P} from "./state.js";
 import {mode, modeFlags} from "./modes.js";
 import {MINI} from "../mini.js";
@@ -360,7 +360,8 @@ export function warmNow(pose = null){
   const hid = showAll(scene);
   try {
     renderer.compile(scene, cam);
-    const seen = new Set(), init = t => { if (t && t.isTexture && !seen.has(t)){ seen.add(t); renderer.initTexture(t); } };
+    // (each with the preset's mip filter first: whatever a zone made itself, the stadium's and the crowd's pictures too)
+    const seen = new Set(), init = t => { if (t && t.isTexture && !seen.has(t)){ seen.add(t); if (texFilter(t)) t.needsUpdate = true; renderer.initTexture(t); } };
     scene.traverse(o => {
       if (o.isSkinnedMesh && o.skeleton) init(o.skeleton.boneTexture);
       if (o.material) for (const m of [].concat(o.material)) for (const k of ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "bumpMap", "emissiveMap", "alphaMap"]) init(m[k]);

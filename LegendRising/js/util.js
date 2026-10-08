@@ -170,6 +170,7 @@ const GFX_LABEL = {auto:"Auto", low:"Low", medium:"Medium", high:"High"};
 //   coverEvery              seconds between the camera's cover rays
 //   hudBlur                 backdrop blur on the HUD: "none", "modals" or "full"
 //   anisotropy, texScale    texture anisotropy; canvas textures wider than texScaleOver are drawn at texScale
+//   mip                     how mipmapped textures are read from afar: "linear" (two levels blended) or "nearest" (one)
 //   haloMax                 light halos are drawn within this distance (Infinity: always)
 const GFX_PRESETS = (() => {
   const freeze = o => { if (o && typeof o === "object" && !Object.isFrozen(o)){ Object.freeze(o); for (const k of Object.keys(o)) freeze(o[k]); } return o; };
@@ -181,7 +182,7 @@ const GFX_PRESETS = (() => {
       camFar:0, camFarPad:30, drawDist:0, drawPad:20, detailDist:35,
       lod:{near:8, back:7, lod3:30}, shirtNumDist:6, animNear:12, animMid:35, midDiv:3, farDiv:6, hiddenHz:5, staticHz:5,
       groundLiteBeyond:10, peds:{home:3, town:3}, crowd:{kind:"blocks", count:0, strips:false},
-      coverEvery:0.25, hudBlur:"none", anisotropy:1, texScale:0.5, texScaleOver:1024, haloMax:120},
+      coverEvery:0.25, hudBlur:"none", anisotropy:1, mip:"nearest", texScale:0.5, texScaleOver:1024, haloMax:120},
     medium:{tier:"medium", label:"Medium", antialias:true, pixelBudget:1.6e6, maxRatio:1.25, qMin:0.7,
       shadow:{life:{type:"pcf", size:2048, half:26, grid:6, hz:2}, stadium:{mode:"statics", type:"pcf", size:2048}},
       nReal:{life:4, stadium:0},
@@ -191,7 +192,7 @@ const GFX_PRESETS = (() => {
       camFar:0, camFarPad:40, drawDist:0, drawPad:30, detailDist:60,
       lod:{near:12, back:11, lod3:45}, shirtNumDist:8, animNear:20, animMid:50, midDiv:2, farDiv:4, hiddenHz:8, staticHz:10,
       groundLiteBeyond:20, peds:{home:5, town:4}, crowd:{kind:"billboards", count:4000, strips:true},
-      coverEvery:0.15, hudBlur:"modals", anisotropy:2, texScale:1, texScaleOver:1024, haloMax:Infinity},
+      coverEvery:0.15, hudBlur:"modals", anisotropy:2, mip:"linear", texScale:1, texScaleOver:1024, haloMax:Infinity},
     high:{tier:"high", label:"High", antialias:true, pixelBudget:3.7e6, maxRatio:1.5, qMin:0.6,
       shadow:{life:{type:"pcf", size:2048, half:30, grid:4, hz:5}, stadium:{mode:"follow", type:"pcf", size:2048, box:60, humans:true, hz:15}},
       nReal:{life:8, stadium:2},
@@ -200,7 +201,7 @@ const GFX_PRESETS = (() => {
       camFar:600, camFarPad:0, drawDist:Infinity, drawPad:0, detailDist:90,
       lod:{near:15, back:13.5, lod3:60}, shirtNumDist:9.5, animNear:25, animMid:70, midDiv:2, farDiv:3, hiddenHz:10, staticHz:15,
       groundLiteBeyond:30, peds:{home:6, town:5}, crowd:{kind:"billboards", count:8000, strips:true},
-      coverEvery:0.1, hudBlur:"full", anisotropy:4, texScale:1, texScaleOver:1024, haloMax:Infinity}
+      coverEvery:0.1, hudBlur:"full", anisotropy:4, mip:"linear", texScale:1, texScaleOver:1024, haloMax:Infinity}
   });
 })();
 const GFX_KEY = "freyaFootball.gfx", GFX_AUTO_KEY = "freyaFootball.gfxAuto";

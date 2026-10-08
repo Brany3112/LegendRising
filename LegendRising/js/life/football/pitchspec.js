@@ -27,11 +27,16 @@ export const PITCHES = {
   ground: {L:72, Wd:48, cx:0, cz:-28}      // near touchline at world z = -4 (unchanged), far one at z = -52
 };
 
-// stadium advertising boards (DESIGN 1.1): 0.9 m high at z = +-38.0 and x = +-57.5, restitution 0.5
-export const BOARDS = {hx:57.5, hz:38.0, h:0.9, e:0.5};
+// stadium advertising boards (DESIGN 1.1, 3.3.1): 0.9 m high at z = +-38.0 and x = +-57.5, restitution 0.5, with a gap
+// from x = -14 to 14 in the near-side boards (z = -38) in front of the dugouts. The one layout: the stadium draws it
+// (stadium.js) and every match's ball meets it (makePitch boards: true, bridge.matchConfig)
+export const BOARDS = Object.freeze({hx:57.5, hz:38.0, h:0.9, e:0.5, gaps:Object.freeze([Object.freeze({side:'z-', a0:-14, a1:14})])});
 
 // how far players may run off the field (DESIGN 3.1.5 step 7): |x| <= L/2 + 5, |z| <= Wd/2 + 4
 export const RUNOFF = {x:5, z:4};
+// the grass's rolling deceleration by stadium tier 0..4 (m/s squared, DESIGN 1.5.1): the one table the stadium's pitch
+// (stadium.js) and a real match's simulation (bridge.js matchConfig) both read, so the ball rolls as the grass looks
+export const ROLL = Object.freeze([1.40, 1.25, 1.10, 1.00, .90]);
 
 // a translation-only frame: pitch-local (x, z) to the zone's world and back
 export function makeFrame({cx = 0, cz = 0} = {}){
@@ -61,13 +66,13 @@ function plane(n, p0, quad, extra){
   return Object.assign({n: u, d, bounds, quad}, extra || {});
 }
 
-// boards: null (none), true (the stadium layout of BOARDS), or {hx, hz, h, e, gaps}. gaps lists stretches with no board
-// (in front of the dugouts): [{side: 'z+'|'z-'|'x+'|'x-', a0, a1}] where a0..a1 runs along the board (x for the z
-// boards, z for the x boards), in pitch-local metres.
+// boards: null (none), true (the stadium layout of BOARDS, its dugout gap included), or {hx, hz, h, e, gaps} over
+// BOARDS (gaps: [] for none). gaps lists stretches with no board (in front of the dugouts): [{side: 'z+'|'z-'|'x+'|'x-',
+// a0, a1}] where a0..a1 runs along the board (x for the z boards, z for the x boards), in pitch-local metres.
 function boardPlanes(boards){
   if (!boards) return [];
   const B = boards === true ? BOARDS : Object.assign({}, BOARDS, boards);
-  const gaps = (boards === true ? null : boards.gaps) || [];
+  const gaps = B.gaps || [];
   const out = [];
   const sides = [
     {side:'z+', fixed:B.hz, span:B.hx, n:[0, 0, -1]},

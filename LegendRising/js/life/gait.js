@@ -69,7 +69,7 @@ const turnK = G => 1 + clamp(Math.abs(G.headRate) - .5, 0, 4)*(G.mode === "R" ? 
 const stepOf = (G, v, sc) => G.style === "shuffle" ? v/shufCad(v/sc) : stepLen(v, G.mode, sc)/turnK(G);
 const strideOf = (G, v, sc) => G.style === "shuffle" ? 2/shufCad(v/sc) : strideTime(v, G.mode, sc)/turnK(G);
 
-function newFoot(s){ return {s, down:true, x:0, y:0, z:0, yaw:0, roll:0, tDown:0, sw:null, slip:0, wx:0, wy:0, wz:0}; }
+function newFoot(s){ return {s, down:true, x:0, y:0, z:0, yaw:0, roll:0, tDown:0, sw:null, slip:0, wx:0, wy:0, wz:0, need:0, spare:null, spareV:0, spareT:0}; }
 export function gaitInit(h){
   h.gait = {phi:0, n:0, side:"L", mode:"W", held:0, R:0, state:"STAND", init:false,
     rx:0, rz:0, ry:0, vx:0, vz:0, v:0, vs:0, acc:0, head:0, mdx:0, mdz:1, headRate:0, yawRate:0,
@@ -286,7 +286,7 @@ function liftOff(h, f, i, duty, T, kind){
   const fx = Math.sin(f.yaw), fz = Math.cos(f.yaw);
   const sw = {kind, duty, t:0, T, u:0, x0:f.x + fx*_ar[0]*sc, y0:f.y + _ar[1]*sc, z0:f.z + fz*_ar[0]*sc, yaw0:f.yaw, roll0:f.roll,
     // the footprint it will land on (planned now, re-planned until u = .85)
-    x1:f.x, z1:f.z, y1:f.y, yaw1:f.yaw, roll1:0, ok:false, lift:0, gy:f.y, rays:0, vt:G.vs*T};
+    x1:f.x, z1:f.z, y1:f.y, yaw1:f.yaw, roll1:0, ok:false, lift:0, gy:f.y, rays:0, rayT:0, vt:G.vs*T, ua:-1};
   const v = G.vs;
   sw.lift = (kind === "close" ? .035 : G.R > .5 ? lerp(.14, .5, clamp((v - RUN[0][0])/(RUN[RUN.length - 1][0] - RUN[0][0]), 0, 1)) : .05 + .012*v)*sc;
   if (kind === "pivot" || kind === "settle") sw.lift = .05*sc;
@@ -308,17 +308,21 @@ function updateTarget(h, f, i, rem, dt, force = false){
     sw.x1 += (_pl.x - sw.x1)*k; sw.z1 += (_pl.z - sw.z1)*k; sw.yaw1 += wrap(_pl.yaw - sw.yaw1)*k; sw.roll1 += (_pl.roll - sw.roll1)*k;
   }
   // the ground there: looked for at lift-off and again half way (two rays a step), and again if the spot has moved on
-  // since by more than a few centimetres (a slope or a stair: the height of where it will really land), met smoothly
+  // since by more than a few centimetres (a slope or a stair: the height of where it will really land), met smoothly;
+  // not more often than every 80 ms a swing (pressed against a wall or a rail the spot moves every frame, and two rays
+  // a look for each foot every frame were most of the frame's rays: DESIGN 1.5.11, 12 a frame in the open)
   const moved = sw.rays > 0 ? Math.hypot(sw.x1 - sw.rx, sw.z1 - sw.rz) : 0;
-  if (sw.rays === 0 || (sw.rays === 1 && sw.u >= .5) || (moved > .06*h.scale && sw.rays < 5)){
-    sw.gy = groundFor(h, sw.x1, sw.z1, sw.yaw1, h.g.position.y); sw.rays++; sw.rx = sw.x1; sw.rz = sw.z1;
+  if (sw.rays === 0 || (sw.rays === 1 && sw.u >= .5) || (moved > .06*h.scale && sw.rays < 5 && sw.t - sw.rayT >= .08)){
+    sw.gy = groundFor(h, sw.x1, sw.z1, sw.yaw1, h.g.position.y); sw.rays++; sw.rx = sw.x1; sw.rz = sw.z1; sw.rayT = sw.t;
   }
   sw.y1 += (sw.gy - sw.y1)*(1 - Math.exp(-20*dt));
   void G;
 }
 // the ankle on its way (world), and the foot's angles, at progress u
 function swingAt(h, f, out){
-  const sw = f.sw, D = h.D, sc = h.scale, G = h.gait, u = sw.u, s = f.s;
+  const sw = f.sw, D = h.D, sc = h.scale, G = h.gait, s = f.s;
+  // (progress from where the swing began on the clock: see cycleStep)
+  const u = sw.ua > 0 ? clamp((sw.u - sw.ua)/(1 - sw.ua), 0, 1) : sw.u;
   ankleRel(sw.roll1, D.ankY, _ar);
   const f1x = Math.sin(sw.yaw1), f1z = Math.cos(sw.yaw1);
   const ex = sw.x1 + f1x*_ar[0]*sc, ey = sw.y1 + _ar[1]*sc, ez = sw.z1 + f1z*_ar[0]*sc;
@@ -365,7 +369,7 @@ function touchDown(h, f, i, at, dt){
     // every footfall, the one counter the camera's bob and the sounds go by)
     if (sw.kind !== "phase") G.n++;
   }
-  f.down = true; f.sw = null; f.tDown = 0; f.slip = 0; f.rollLand = f.roll; f.rollAdj = 0;
+  f.down = true; f.sw = null; f.tDown = 0; f.slip = 0; f.rollLand = f.roll; f.rollAdj = 0; f.spare = null; f.spareV = 0;
   if (G.over[i]) G.over[i] = null;
   if (G.via[i]) G.via[i] = null;
   G.ev.mask |= EV.FOOTFALL; G.ev.at = at*dt; G.ev.side = i ? "R" : "L";
@@ -575,7 +579,11 @@ function cycleStep(h, dt, v, intent, st){
     // stands, up a stair, reaches less far behind)
     const dH = (h.g.position.y - f.y)/sc, bH = Math.abs(dH) > .02 ? reachSpan(G, D, vv/sc, dH)[1] : bM;
     const bMf = bH - .1*(1 - Math.cos(wrap(f.yaw - G.head - (G.style === "back" ? Math.PI : 0))));
-    const outOfReach = behind > (bMf - .02)*sc && (G.mode === "R" ? local > .5*duty : local > .2 || f.tDown > .12);
+    // (or the leg pass found it at the end of what the hips can give and closing on it: it would slip this frame,
+    // however lately it landed. The reach above is only a model: a foot left turned across the way of travel, as a start
+    // sideways leaves the standing foot while the hips turn into the run, loses more of it than bMf allows for)
+    const spent = bk > 0 && f.spare != null && f.spare + Math.min(0, f.spareV)*(f.tDown - f.spareT + 1.5*dt) < .002;
+    const outOfReach = spent || (behind > (bMf - .02)*sc && (G.mode === "R" ? local > .5*duty : local > .2 || f.tDown > .12));
     void other;
     if ((local >= duty && local < duty + .45) || outOfReach){
       if (stopping && G.final >= 0) continue;
@@ -589,12 +597,22 @@ function cycleStep(h, dt, v, intent, st){
     const f = G.feet[i], sw = f.sw; if (!sw || (sw.kind !== "phase" && sw.kind !== "stop")) continue;
     if (sw.kind === "stop"){ sw.u = Math.min(1, sw.u0 + (1 - sw.u0)*clamp((sw.t - sw.t0)/Math.max(1e-3, sw.T - sw.t0), 0, 1)); }
     else sw.u = clamp(phaseU(G, i, sw.duty), 0, 1);
+    // (a swing that leaves late, a good share of its stride already run on the clock, is drawn from its own beginning
+    // (swingAt) instead of part way along its path, the foot, its roll and its toes jumping there in one frame; taken on
+    // the clock's first frame of the swing, every frame at every tier)
+    if (sw.ua < 0) sw.ua = sw.u > .1 ? Math.min(sw.u, .9) : 0;
     // (the swing ends by the clock or by its time floor, whichever comes first: the body covers the less of the two)
     // (the time left, at the speed the body will have: it may be slowing into a stop or a cut)
     const left = Math.max(0, (1 - sw.u)*(1 - sw.duty)), tl = Math.min(Math.max(0, sw.T - sw.t), G.phRate > .05 ? left/G.phRate : 9);
     const rem = Math.min(left*2*step*1.5, Math.max(0, v*tl + .5*clamp(G.acc, -8, 8)*tl*tl));
     updateTarget(h, f, i, rem, dt);
-    if (sw.kind === "stop" && sw.u >= 1) touchDown(h, f, i, 1, dt);
+    if (sw.kind === "stop" && sw.u >= 1){
+      touchDown(h, f, i, 1, dt);
+      // (a stop's last step coming down after the body has gone on after all: the clock ran on while it came down, and
+      // would send the foot off again at once on most of a swing; it is set to this footfall instead, the other foot,
+      // down behind, stepping next)
+      if (G.state === "CYCLE" && G.feet[1 - i].down) G.phi = i ? .5 : 0;
+    }
   }
   // 5. stopping (3.5.5): the owner wants to stop and the body is slowing, or it has all but stopped
   // (not a body just getting going: slow, but asked to go and speeding up)
@@ -618,7 +636,10 @@ function cycleStep(h, dt, v, intent, st){
       for (let i = 0; i < 2; i++){
         const f = G.feet[i], sw = f.sw; if (!sw) continue;
         // (running, not a swing too far on to be put somewhere else: it lands where it was going, the other foot last)
-        if (dstop <= .6*step && (sw.u < .6 || G.R < .5)){ G.final = i; sw.kind = "stop"; sw.T = Math.min(sw.T, sw.t + Math.max(.12, (1 - sw.u)*.3)); sw.t0 = sw.t; sw.u0 = sw.u; }
+        // (nor while the other foot is down where the leg will not reach from the rest point: that one steps first, and
+        // its step is the last; held down while the body ran on past it, it would be dragged)
+        const o = G.feet[1 - i], left = o.down ? (G.rest.x - o.x)*G.mdx + (G.rest.z - o.z)*G.mdz : 0;
+        if (dstop <= .6*step && (sw.u < .6 || G.R < .5) && left < (bM - .05)*sc){ G.final = i; sw.kind = "stop"; sw.T = Math.min(sw.T, sw.t + Math.max(.12, (1 - sw.u)*.3)); sw.t0 = sw.t; sw.u0 = sw.u; }
       }
       // both feet down and (almost) stopped: the foot further from its spot beside the rest point closes up
       if (G.final < 0 && G.feet[0].down && G.feet[1].down && v < .25) closeStep(h);
@@ -773,7 +794,7 @@ export function gaitLegs(h, Q, F, dt, lite = false){
         // (the leg pass: the last full solve's correction carried on and one reach test; only a foot that is then out
         // of reach is solved in full below. Standing, stopping or pivoting the roll already carries it)
         rr = lr + (G.state === "CYCLE" ? f.rollAdj || 0 : 0); need0 = needAt(rr, f, fx, fz, hip, t, L, D);
-        if (!(need0 > 0)){ f.roll = rr; t.roll = rr; t.yaw = fyl; t.toe = rr > 0 ? -rr : 0; t.hold = 1; continue; }
+        if (!(need0 > 0)){ f.roll = rr; f.need = need0; t.roll = rr; t.yaw = fyl; t.toe = rr > 0 ? -rr : 0; t.hold = 1; continue; }
         rr = lr;
       }
       need0 = needAt(lr, f, fx, fz, hip, t, L, D);
@@ -793,7 +814,7 @@ export function gaitLegs(h, Q, F, dt, lite = false){
       const rate = run ? 16 : 12;
       rr = clamp(rr, f.roll - rate*dt, f.roll + rate*dt);
       if (rr !== lr) need0 = needAt(rr, f, fx, fz, hip, t, L, D);
-      f.roll = rr; f.rollAdj = rr - lr;
+      f.roll = rr; f.rollAdj = rr - lr; f.need = need0;
       t.roll = rr; t.yaw = fyl; t.toe = rr > 0 ? -rr : 0; t.hold = 1;
       if (need0 > 0) drop = Math.max(drop, need0);
     } else {
@@ -801,11 +822,23 @@ export function gaitLegs(h, Q, F, dt, lite = false){
       toBody(sa.x, sa.y, sa.z, t); t.roll = sa.roll; t.yaw = sa.yaw - ry; t.toe = sa.toe; t.hold = 0;
       // the hips settle for the landing foot over the end of its swing (where the foot is now on its way down)
       const u = f.sw.u;
-      if (u > .7 && G.R < 1){
+      // (and running, once the swing is re-seated on its last 5% (below): it comes straight down from where the held leg
+      // had it, and the hips come down the centimetre or so that takes, as they do into a landing, rather than the leg
+      // hanging short of the ground and the foot snapping onto it as it lands)
+      const seat = f.sw.seat && G.R > 0;
+      if ((u > .7 && G.R < 1) || seat){
         const hip = hipJoint(h, F, f.s), dh = Math.hypot(t.x - hip[0], t.z - hip[2]), nd = hip[1] - (t.y + Math.sqrt(Math.max(0, L*L - dh*dh)));
-        if (nd > 0) drop = Math.max(drop, nd*sstep(.7, 1, u)*(1 - G.R));
+        if (nd > 0) drop = Math.max(drop, nd*sstep(.7, 1, u)*(1 - G.R), seat ? Math.min(nd, .03)*G.R : 0);
       }
     }
+  }
+  // what each planted leg leaves of the hips' budget (body units; below 0 it slips), and how fast that is closing:
+  // cycleStep lifts a trailing foot about to run out of it
+  const room = Q[81] - floor;
+  for (let i = 0; i < 2; i++){
+    const f = G.feet[i]; if (!f.down) continue;
+    const sp = room - f.need, el = f.tDown - f.spareT;
+    f.spareV = f.spare != null && el > 1e-4 ? (sp - f.spare)/el : 0; f.spare = sp; f.spareT = f.tDown;
   }
   // the hips: as low as the reach needs, never below the budget (what is left slips the planted foot and is counted)
   let hy = Q[81] - drop, short = 0;

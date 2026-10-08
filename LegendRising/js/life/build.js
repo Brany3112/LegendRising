@@ -186,7 +186,7 @@ export function mat(a = {}, b = null){
   return makeMat(spec, o);
 }
 // what code may change on a material while it is in use, carried over when it is made again
-const MAT_LIVE = ["transparent", "opacity", "alphaTest", "alphaHash", "side", "depthWrite", "depthTest", "colorWrite", "visible", "toneMapped", "fog",
+const MAT_LIVE = ["transparent", "opacity", "alphaTest", "alphaHash", "side", "forceSinglePass", "depthWrite", "depthTest", "depthFunc", "colorWrite", "visible", "toneMapped", "fog",
   "vertexColors", "flatShading", "wireframe", "blending", "polygonOffset", "polygonOffsetFactor", "polygonOffsetUnits", "emissiveIntensity", "name",
   "map", "emissiveMap", "alphaMap", "lightMap", "aoMap", "bumpMap", "normalMap", "displacementMap", "envMap"];
 const MATC_KEY = new WeakMap();      // an lmat material to its cache key, so remat can put the new one in its place
@@ -252,12 +252,26 @@ function blots(g, s, n, r0, r1, rgb, a){
     }
   }
 }
-// texture filtering per preset (P.anisotropy: 1 on Low, 2 on Medium, 4 on High)
+/* texture filtering per preset: P.anisotropy (1 on Low, 2 on Medium, 4 on High) and P.mip, how a mipmapped texture is
+   read from afar: "linear" blends the two nearest mip levels (8 texels a pixel), "nearest" (Low) reads the nearer one
+   only (4 texels). On SwiftShader the blend was a fifth of the frame in the open, where the grass, the pitch, the road
+   and the sky fill the screen; what it costs the eye is a soft step in sharpness at each mip distance, under the fog */
 const aniso = () => { const P = gfxP(); return P ? P.anisotropy || 1 : 4; };
+const mipOf = P => P && P.mip === "nearest" ? THREE.LinearMipmapNearestFilter : THREE.LinearMipmapLinearFilter;
+const isMip = f => f === THREE.LinearMipmapLinearFilter || f === THREE.LinearMipmapNearestFilter;
+// a mipmapped texture's filter for preset P (default the one in force); true when it changed
+export function texFilter(t, P = gfxP()){
+  if (!t || !t.isTexture || t.isRenderTargetTexture || !isMip(t.minFilter)) return false;
+  const f = mipOf(P);
+  if (t.minFilter === f) return false;
+  t.minFilter = f;
+  return true;
+}
 function finish(c, per){
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = aniso(); t.userData.per = per;            // metres one copy of the picture covers
+  texFilter(t);
   return t;
 }
 const MAKERS = {
@@ -411,6 +425,7 @@ export function netTex(cell = 16, line = 2, col = "#f4f4f0"){
   g.strokeStyle = col; g.lineWidth = line;
   for (let i = 0; i <= 128; i += cell){ g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 128); g.moveTo(0, i); g.lineTo(128, i); g.stroke(); }
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso();
+  texFilter(t);
   return (TEX[k] = t);
 }
 
@@ -892,18 +907,24 @@ function drawScaled(t){
 }
 export function textTex(w, h, draw){
   const [c] = canvas(w, h), t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso();
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso(); texFilter(t);
   t.userData.lw = w; t.userData.lh = h; t.userData.draw = draw;
   drawScaled(t);
   if (w > 1024){ SCALED.add(t); t.addEventListener("dispose", () => SCALED.delete(t)); }
   return t;
 }
 /* a preset changed (quality.js, in-frame): big printed canvases drawn again at the new scale, and every canvas
-   texture in the scene given the new anisotropy (both re-upload the picture once) */
+   texture in the scene given the new anisotropy and mip filter (each re-uploads the picture once) */
 export function rescaleTextures(P, scene){
   for (const t of SCALED){ if (texScaleFor(t.userData.lw) !== t.userData.scale){ drawScaled(t); t.needsUpdate = true; } }
   const a = P ? P.anisotropy || 1 : 4, seen = new Set();
-  const fix = t => { if (t && t.isCanvasTexture && !seen.has(t)){ seen.add(t); if (t.anisotropy !== a){ t.anisotropy = a; t.needsUpdate = true; } } };
+  const fix = t => {
+    if (!t || !t.isCanvasTexture || seen.has(t)) return;
+    seen.add(t);
+    let changed = texFilter(t, P);
+    if (t.anisotropy !== a){ t.anisotropy = a; changed = true; }
+    if (changed) t.needsUpdate = true;
+  };
   for (const k in TEX) fix(TEX[k]);
   if (scene) scene.traverse(o => { if (o.material) for (const m of [].concat(o.material)) { fix(m.map); fix(m.emissiveMap); } });
 }

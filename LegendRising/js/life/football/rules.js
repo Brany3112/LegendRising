@@ -41,12 +41,47 @@ export const RULES = Object.freeze({
   TAKER_AT: 2.6, SPRINT_D: 20, HURRY: 8,     // HURRY: a ball further than this is sprinted for               // the taker is at the ball within this (his run-up spot is 1.8 m back at most); he sprints to a spot further than this
   SUBS: 5,
   THROW_FB: 10,                              // a full-back takes his side's throw-in when within this much of the winger's distance
+  ME_THROW_FB: Object.freeze({W: 30}),       // the harness's stand-in for the player on the wing leaves a throw-in to his
+                                             // full-back when the full-back is within this much (m) further of it
   SERVE_MEET: 1.2,                           // seconds a served ball costs beyond its flight: meeting it and carrying it in
   BOX_EDGE: [18.5, 22],                      // at a set piece into the box, its edge counts: 18.5 m out, 22 m across
   FLYING: 10,                                // a dead ball in the air faster than this (m/s) is let go when a spare is to hand
   DEAD_ROLL: 4.0                             // a dead ball rolls on against this (m/s2): the ball boys, the boards and the
                                              // players stop it (the grass's own value again once it is back in play)
 });
+
+/* The laws a match is played to (1.4.13 cfg.rules), read once at kick-off into ms.rules (lawsOf). cfg.mode gives the
+   defaults: a match ('match') plays every law with five changes a side; a training block (the partial simulations of
+   3.6.2: any other mode of MODES) plays without offside, cards, changes, half time or added time unless its own rules
+   ask for them. A law switched off:
+     offside   no snapshot at a kick, so nobody is ever flagged (offsidePosition still answers, for the HUD's pip)
+     cards     fouls are given and never booked
+     subs      the changes a side may make (0: none; an injured man walks off and is not replaced)
+     halfTime  one period: the end of the first half is full time
+     stoppage  no added time: a half ends at 45:00, by the same end-of-half rule as after added time
+     restarts  no set pieces: a ball out of play or a foul restarts with a kick-in (an indirect free kick from where
+               it happened, inside the field, no wall, no penalty); a kick-off stays a kick-off
+     goals     2: both goals count; 1: only the goal at the +x end; 0: neither (a ball into a goal that does not count
+               is out over the goal line) */
+export const MODES = Object.freeze(['match', 'rondo', 'ssg', 'pattern', 'finishing', 'drill', 'lesson']);
+export const LAWS = Object.freeze({
+  match: Object.freeze({offside: true, cards: true, subs: RULES.SUBS, halfTime: true, stoppage: true, restarts: true, goals: 2}),
+  training: Object.freeze({offside: false, cards: false, subs: 0, halfTime: false, stoppage: false, restarts: true, goals: 2})
+});
+export function lawsOf(cfg = {}){
+  const mode = cfg.mode == null ? 'match' : cfg.mode;
+  if (!MODES.includes(mode)) throw new Error(`createMatch: unknown mode "${mode}" (one of ${MODES.join(', ')})`);
+  const base = mode === 'match' ? LAWS.match : LAWS.training, r = cfg.rules || {}, out = {mode};
+  for (const k of Object.keys(base)){
+    const v = r[k];
+    out[k] = v == null ? base[k] : k === 'subs' || k === 'goals' ? Math.max(0, Math.round(+v || 0)) : !!v;
+  }
+  out.goals = Math.min(2, out.goals);
+  return Object.freeze(out);
+}
+const laws = ms => ms.rules || LAWS.match;
+// does a ball over the goal line at this end, in the mouth, count as a goal (laws.goals)
+export const goalCounts = (ms, end) => { const g = laws(ms).goals; return g >= 2 || (g === 1 && end > 0); };
 
 // a dead ball rolls against RULES.DEAD_ROLL (its own grass value kept in deadRoll0 until it is back in play)
 function deadRoll(b){ if (b.deadRoll0 == null){ b.deadRoll0 = b.rollDecel; b.rollDecel = Math.max(b.rollDecel, RULES.DEAD_ROLL); } }
@@ -99,7 +134,7 @@ export function offsidePosition(ms, attacker, passerTeam = attacker.team){
 export function onKick(ms, ev){
   const O = ms.offside;
   O.set.clear(); O.passer = -1;
-  if (ev.noOffside) return;
+  if (ev.noOffside || !laws(ms).offside) return;
   const team = ev.team;
   O.snap = ms.step; O.t = ms.t; O.passer = ev.agent; O.team = team;
   for (const a of ms.agents){
@@ -192,6 +227,8 @@ export function ballOut(ms, d){
 // ball.js 'goal' {end, x, y, z, t}
 export function goalScored(ms, d){
   if (ms.phase !== 'live') return;
+  // a goal that is not in use (laws.goals): the ball has gone out over the goal line
+  if (!goalCounts(ms, d.end)){ ballOut(ms, {line: 'goal', end: d.end, x: d.x, z: d.z, t: d.t}); return; }
   const b = ms.ball;
   b.state = 'dead';
   const team = ms.dirs[0] === d.end ? 0 : 1, def = 1 - team;
@@ -245,6 +282,11 @@ export function goalScored(ms, d){
 // Chooses the taker and the ball (the game ball within 6 m of the spot, else the nearest spare on a cone), and who
 // fetches it; the clock keeps running (1.5.5).
 export function startRestart(ms, kind, team, spot, opt = {}){
+  // no set pieces (laws.restarts): every restart but a kick-off is a kick-in from where it happened
+  if (!laws(ms).restarts && kind !== 'kickoff'){
+    kind = 'indirect';
+    spot = {x: clamp(spot.x, -ms.spec.hx + 0.5, ms.spec.hx - 0.5), z: clamp(spot.z, -ms.spec.hz + 0.5, ms.spec.hz - 0.5)};
+  }
   const prev = ms.restart;
   if (prev && prev.kind !== kind) endRestartBookkeeping(ms, prev);
   chainDead(ms);
@@ -278,6 +320,9 @@ function isFKWallZone(ms, team, spot){
   return d < 32;
 }
 
+// the harness's stand-in for the player on the wing, with the ball for his side's throw-in: he gives it to the full-back
+// pickTaker chose (RULES.ME_THROW_FB) and stays up for the throw
+const upForThrow = (ms, R0, f) => R0.kind === 'throw' && f.isMe && !!ms.meAI && !!RULES.ME_THROW_FB[f.arch] && R0.taker !== f.id;
 // The restart's taker (3.2.8): kick-off the centre forward; throw-in the nearest full-back or winger on that side (or
 // the nearest player, or the player himself when he is nearest and within 10 m); goal kick the keeper; corners and
 // free kicks near goal the best curve + accuracy in the side (the player if he is the best, or trusted and within 2
@@ -310,8 +355,10 @@ function pickTaker(ms, kind, team, spot){
     const nw = fb && df <= dw0 + RULES.THROW_FB ? fb : nw0;
     const dw = nw ? hypot(nw.m.x - spot.x, nw.m.z - spot.z) : Infinity, dn = no ? hypot(no.m.x - spot.x, no.m.z - spot.z) : Infinity;
     t = nw && dw <= dn + 10 ? nw : no;
-    // the player takes it when he is his side's nearest man to it and within 10 m (3.2.8)
-    if (me && me.team === team && me === no && hypot(me.m.x - spot.x, me.m.z - spot.z) < 10) t = me;
+    // the player takes it when he is his side's nearest man to it and within 10 m (3.2.8); the harness's stand-in for
+    // him on the wing (ms.meAI, RULES.ME_THROW_FB) stays up for it while his full-back comes to take it, as a winger does
+    const dme = me ? hypot(me.m.x - spot.x, me.m.z - spot.z) : Infinity, mfb = me && ms.meAI ? RULES.ME_THROW_FB[me.arch] : 0;
+    if (me && me.team === team && me === no && dme < 10) t = mfb && fb && df <= dme + mfb ? fb : me;
   } else if (kind === 'corner') t = best(at => at.curve + at.accuracy, 40);
   else if (kind === 'penalty') t = best(at => at.accuracy + at.composure, 50);
   else if (kind === 'free'){
@@ -554,7 +601,7 @@ export function restartStep(ms, h){
           // whoever has it takes it when he is near the spot, or when carrying it there is no slower than serving it
           // to the taker (who may still be a long way off); otherwise he serves it to the taker
           const tkD = hypot(tk.m.x - sp.x, tk.m.z - sp.z), viaServe = Math.max(serveT(far) + 0.8, wayT(tk, tkD, tkD));
-          if ((far <= RULES.SERVE || carryT(far) <= viaServe + 0.5) && !(tk.isMe && !ms.meAI)) R0.taker = f.id;
+          if ((far <= RULES.SERVE || carryT(far) <= viaServe + 0.5) && !(tk.isMe && !ms.meAI) && !upForThrow(ms, R0, f)) R0.taker = f.id;
         } else if (!fixedTaker(R0) && far > RULES.SERVE){
           // the taker himself went a long way for it: the nearest man to the spot takes it, served to him, when that
           // is clearly quicker than carrying it back
@@ -777,10 +824,12 @@ export function foul(ms, fouler, victim, severity, x, z, opt = {}){
   const team = victim.team, dir = ms.dirs[team], L = ms.spec.L, Wd = ms.spec.Wd;
   const u = dir*x + L/2, w = dir*z + Wd/2, val = xT(u, w, L, Wd);
   const f = {fouler: fouler.id, victim: victim.id, severity, x, z, team, slide: !!opt.slide, t: ms.t, card: null, booked: false};
-  // the card
+  // the card (none when cards are not shown: laws.cards)
   const dogso = isDogso(ms, fouler, victim);
-  if (severity > RULES.CARD.red || dogso) f.card = 'red';
-  else if (severity > RULES.CARD.yellow || (val > RULES.CARD.tactical && opt.tactical !== false && severity > 0.35)) f.card = 'yellow';
+  if (laws(ms).cards){
+    if (severity > RULES.CARD.red || dogso) f.card = 'red';
+    else if (severity > RULES.CARD.yellow || (val > RULES.CARD.tactical && opt.tactical !== false && severity > 0.35)) f.card = 'yellow';
+  }
   ms.stats.fouls[fouler.team]++;
   const pen = inBox(ms.spec, dir, x, z);
   // advantage: the fouled side still has it and the play is worth something
@@ -802,7 +851,7 @@ function whistleFoul(ms, f){
   if (!f.booked) bookFoul(ms, f);
   const team = f.team, dir = ms.dirs[team];
   ms.offside.set.clear(); ms.offside.pending = null;
-  if (inBox(ms.spec, dir, f.x, f.z)){
+  if (laws(ms).restarts && inBox(ms.spec, dir, f.x, f.z)){
     const pen = ms.spec.spots.penalty.find(p => p.end === dir);
     startRestart(ms, 'penalty', team, {x: pen.x, z: pen.z}, {foul: f});
   } else {
@@ -832,9 +881,10 @@ function isDogso(ms, fouler, victim){
   return true;
 }
 
-// Book an agent (1.4.14): yellow, red, second yellow is red. A red card sends him off (he walks to the nearest
-// touchline). The player's cards also go to the career through bridge.bookPlayer (subscribers of 'card').
+// Book an agent (1.4.14): yellow, red, second yellow is red (nothing when cards are not shown: laws.cards). A red card
+// sends him off (he walks to the nearest touchline). The player's cards also go to the career through bridge.bookPlayer (subscribers of 'card').
 export function bookAgent(ms, a, color, reason){
+  if (!laws(ms).cards) return;
   let c = color;
   if (c === 'yellow' && a.booked >= 1) c = 'red2';
   if (c === 'yellow'){ a.booked = 1; ms.stats.yellows[a.team]++; }
@@ -903,10 +953,23 @@ function offsideCall(ms){
 
 /* ---------- substitutions (3.2.9) ---------- */
 
-// plan a substitution: out (an agent id) for the best bench player for his slot; done at the next stoppage
+// the changes a side may still plan (laws.subs, less those made and those planned)
+function subsLeft(ms, team){
+  let n = laws(ms).subs - ms.subs.used[team];
+  for (const p of ms.subs.plan) if (p.team === team) n--;
+  return n;
+}
+// the player waits on the bench for a planned call (3.4.2) that has not come yet
+function callPending(ms, team){
+  const rt = ms.cfg.roleTimes || {};
+  return !!rt.subOn && !ms.roleDone.on && ms.me < 0 && !!ms.cfg.me && ms.cfg.me.team === team && ms.bench[team].some(p => p.isMe && !p.used);
+}
+// plan a substitution: out (an agent id) for the best bench player for his slot (or inPick); done at the next
+// stoppage. A change the manager chooses (why 'tactical') keeps one change back while the player's planned call is to
+// come; an injury may use it. False when no change is left or that man is already coming off.
 export function planSub(ms, team, outId, why = 'tactical', inPick = null){
-  if (ms.subs.used[team] + ms.subs.plan.filter(p => p.team === team).length >= (ms.cfg.rules.subs || RULES.SUBS)) return false;
   if (ms.subs.plan.some(p => p.out === outId)) return false;
+  if (subsLeft(ms, team) <= (why === 'tactical' && callPending(ms, team) ? 1 : 0)) return false;
   ms.subs.plan.push({team, out: outId, inPick, why, stage: 'wait', t: ms.t});
   return true;
 }
@@ -950,11 +1013,13 @@ function subStep(ms){
     }
   }
 }
+// the bench player the manager sends on for out: never the player himself, who comes on only by his own planned call
+// (roleSubs hands him to planSub as its inPick)
 function bestBench(ms, team, out){
   const bench = ms.bench[team];
   let best = null, bv = -1;
   for (const p of bench){
-    if (p.used) continue;
+    if (p.used || p.isMe) continue;
     const fit = p.isGK === !!out.isGK ? 1 : 0;
     const v = fit*100 + (p.slot === out.slot ? 10 : 0) + (p.at ? (p.at.pace + p.at.passing)/20 : 0) + (p.ovr || 0)/10;
     if (v > bv){ bv = v; best = p; }
@@ -987,7 +1052,7 @@ function aiSubs(ms){
   for (const team of [0, 1]){
     const diff = ms.score[team] - ms.score[1 - team];
     const due = ms.subs.nextAt[team] || 60;
-    if (min < due || ms.subs.used[team] >= RULES.SUBS) continue;
+    if (min < due || ms.subs.used[team] >= laws(ms).subs) continue;
     ms.subs.nextAt[team] = min + 8;
     if (diff >= 0 && min < 70) continue;
     let worst = null, wv = Infinity;
@@ -1000,20 +1065,35 @@ function aiSubs(ms){
   }
 }
 
-// the player's planned role (3.4.2): on as a substitute at subOn, off at subOff (unless he is playing well)
+// the player's planned role (3.4.2): on as a substitute at subOn (match minutes, 1.4.13 roleTimes), off at subOff
+// (unless he is playing well). The call ('Get ready, you're going on', ms.callUp) is made only once his change is
+// planned: when the manager already means to take that man off, the player is the one who goes on for him; when every
+// change left is planned, a tactical one not yet made gives way to his; when all have been made, he stays on the bench
+// with no call. A call that cannot be planned yet is tried again at the next check.
 function roleSubs(ms){
   const rt = ms.cfg.roleTimes || {};
   const min = minuteOf(ms);
   const meTeam = ms.cfg.me ? ms.cfg.me.team : -1;
   if (meTeam < 0) return;
   if (rt.subOn && !ms.roleDone.on && min >= rt.subOn && ms.me < 0){
-    ms.roleDone.on = true;
     const mb = ms.bench[meTeam].find(p => p.isMe && !p.used);
-    if (mb){
-      // the man he replaces: whoever plays his slot, else the most tired outfield player
-      let out = ms.agents.find(a => a.team === meTeam && a.onPitch && !a.leaving && a.slot === mb.slot);
-      if (!out){ let wv = Infinity; for (const a of ms.agents) if (a.team === meTeam && a.onPitch && !a.isGK && !a.leaving && a.energy < wv){ wv = a.energy; out = a; } }
-      if (out){ ms.subs.used[meTeam] = Math.min(ms.subs.used[meTeam], RULES.SUBS - 1); planSub(ms, meTeam, out.id, 'role', mb); ms.callUp = {t: ms.t, out: out.id}; }
+    // the man he replaces: whoever plays his slot, else the most tired outfield player
+    let out = mb ? ms.agents.find(a => a.team === meTeam && a.onPitch && !a.leaving && a.slot === mb.slot) : null;
+    if (mb && !out){ let wv = Infinity; for (const a of ms.agents) if (a.team === meTeam && a.onPitch && !a.isGK && !a.leaving && a.energy < wv){ wv = a.energy; out = a; } }
+    if (!mb || !out) ms.roleDone.on = true;
+    else {
+      const theirs = ms.subs.plan.find(p => p.team === meTeam && p.out === out.id);
+      let ok = false;
+      if (theirs){ theirs.inPick = mb; theirs.why = 'role'; ok = true; }
+      else {
+        ok = planSub(ms, meTeam, out.id, 'role', mb);
+        if (!ok){
+          const i = ms.subs.plan.findIndex(p => p.team === meTeam && p.why === 'tactical' && p.stage === 'wait');
+          if (i >= 0){ ms.subs.plan.splice(i, 1); ok = planSub(ms, meTeam, out.id, 'role', mb); }
+        }
+      }
+      if (ok){ ms.roleDone.on = true; ms.callUp = {t: ms.t, out: out.id}; }
+      else if (ms.subs.used[meTeam] >= laws(ms).subs) ms.roleDone.on = true;
     }
   }
   if (rt.subOff && !ms.roleDone.off && min >= rt.subOff && ms.me >= 0){
@@ -1032,10 +1112,11 @@ export function refStep(ms, h){
   const C = ms.clock;
   if (C.running){
     C.sec += h*C.rate;
-    if (C.sec >= 2700 && !C.added){
+    if (C.sec >= 2700 && !C.addedSet){
       const [lo, hi] = RULES.ADDED[ms.half - 1];
-      C.added = clamp(Math.round(ms.stoppage[ms.half - 1]/60), lo, hi);
-      logEv(ms, 'added', -1, -1, 0, 0, {mins: C.added});
+      C.addedSet = true;
+      C.added = laws(ms).stoppage ? clamp(Math.round(ms.stoppage[ms.half - 1]/60), lo, hi) : 0;
+      if (C.added) logEv(ms, 'added', -1, -1, 0, 0, {mins: C.added});
     }
   }
   // the offside flag and whistle
@@ -1053,7 +1134,7 @@ export function refStep(ms, h){
   if (ms.phase === 'live' && ms.poss.team >= 0) ms.stats.possSec[ms.poss.team] += h;
   // the end of the half: added time is up; at the first dead ball, or a change of possession outside a final third,
   // or 20 real seconds later at most
-  if (C.running && C.added && C.sec >= 2700 + C.added*60){
+  if (C.running && C.addedSet && C.sec >= 2700 + C.added*60){
     if (!ms.halfEnd) ms.halfEnd = {t: ms.t, poss: ms.poss.team};
     const dead = ms.phase !== 'live';
     const b = ms.ball.p, inMiddle = Math.abs(b.x) < ms.spec.hx/3;
@@ -1100,7 +1181,8 @@ function endHalf(ms){
   chainDead(ms);
   for (const a of ms.agents){ a.act = a.act && a.act.kind === 'dive' ? a.act : null; a.drib = null; }
   ms.checkpointDue = true;
-  if (ms.half === 1){
+  // (one period when there is no half time: laws.halfTime)
+  if (ms.half === 1 && laws(ms).halfTime){
     logEv(ms, 'whistle', -1, -1, 0, 0, {why: 'ht'});
     ms.phase = 'halftime'; ms.htT = ms.t;
   } else {

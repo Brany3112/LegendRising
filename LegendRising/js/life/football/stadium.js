@@ -27,18 +27,19 @@ import {frame, rb, cy, fsolid, worldPt, dugout, tacticsBoard, waterCooler, kitHa
 import {registerZone} from "../core/modes.js";
 import {onPresetSwap} from "../core/quality.js";
 import {RT, P} from "../core/state.js";
-import {makePitch, FIFA, BOARDS} from "./pitchspec.js";
+import {makePitch, FIFA, BOARDS, ROLL as PITCH_ROLL} from "./pitchspec.js";
 import {buildPitchMesh, WEAR} from "./pitchmesh.js";
 import {buildCrowd} from "./crowd.js";
 import {AUD} from "./audio.js";
 
-// rolling deceleration of the grass by tier (DESIGN 1.5.1) and the seats each tier is built with (3.3.2)
-export const ROLL = [1.40, 1.25, 1.10, 1.00, .90];
+// rolling deceleration of the grass by tier (DESIGN 1.5.1: pitchspec's table, the one the simulation reads too) and the
+// seats each tier is built with (3.3.2)
+export const ROLL = PITCH_ROLL;
 export const SEATS = [300, 6000, 28000, 50000, 82000];
 export const TIER_NAME = ["Local ground", "Small stadium", "Stadium", "Big stadium", "Giant arena"];
 export const BOUNDS = {x0:-64, x1:64, z0:-80, z1:50};
-// the boards' gap in front of the dugouts, as pitchspec's board colliders take it
-export const BOARD_GAPS = [{side:"z-", a0:-14, a1:14}];
+// the boards' gap in front of the dugouts: pitchspec's stadium layout (BOARDS.gaps), the one the ball meets
+export const BOARD_GAPS = BOARDS.gaps;
 export const SPAWNS = {
   dressing:{x:0, z:-74, y:0, yaw:Math.PI}, tunnelDoor:{x:0, z:-66, y:0, yaw:Math.PI}, tunnelMouth:{x:0, z:-42, y:0, yaw:Math.PI},
   benchHome:{x:-10, z:-37.4, y:0, yaw:Math.PI}, benchAway:{x:10, z:-37.4, y:0, yaw:Math.PI}, fourth:{x:0, z:-35.5, y:0, yaw:Math.PI},
@@ -856,7 +857,7 @@ export function buildStadium(ctx, o = {}){
   const club = hexOf(kits.home[0]);
   const opts = {tier, kits, clubs, club, halos:[], seatCol:mix(club, 0x20242a, .15), seatAlt:mix(hexOf(kits.home[1] || "#ffffff"), 0x9aa0a6, .2)};
   // the pitch, from the one spec the ball and the rules use
-  const spec = makePitch({L:FIFA.L, Wd:FIFA.Wd, roll:ROLL[tier], boards:{gaps:BOARD_GAPS}});
+  const spec = makePitch({L:FIFA.L, Wd:FIFA.Wd, roll:ROLL[tier], boards:true});
   const pitch = buildPitchMesh(spec, {tier, worn:WEAR[tier], stripes:12, cones:true, grass:{hx:X0 + .3, hz:Z0 + .3}, extra:techAreas()});
   surroundings(tier, opts);
   // the stands

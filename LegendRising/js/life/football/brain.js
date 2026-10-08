@@ -44,12 +44,14 @@ export const BRAIN = Object.freeze({
   // higher (m) he plays with his side on the ball in their half (a forward getting into the box), and how much deeper
   // with it in his own half (a ten coming short for it). 1, Infinity or 0: as the AI does. At set pieces he takes the
   // place the AI would give him (restartShape); the winger's throw-ins are counted apart from the oracle comparison
-  // instead (harness.js involvementShares, DESIGN 3.2.12).
+  // instead (harness.js involvementShares, DESIGN 3.2.12). Elsewhere: in central midfield he goes to the ball a little
+  // sooner than the AI when the presser is chosen (tactics.js TAC.ME_EAGER), and on the wing he hands his side's
+  // throw-ins to the full-back coming up for them (rules.js RULES.ME_THROW_FB).
   ME: {
     ST: {shoot: 2, dribble: 1.8, tackle: 1, back: 2.5, seek: 10, up: 6, drop: 0},
     W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 8, drop: 0},
     AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 5, up: 4, drop: 8},
-    CM: {shoot: 1, dribble: 1, tackle: 4, back: 1, seek: 6, up: 0, drop: 0},
+    CM: {shoot: 1, dribble: 1, tackle: 5, back: 1, seek: 2, up: 0, drop: 0},
     DF: {shoot: 1, dribble: 1, tackle: 1, back: 1, seek: 12, up: 0, drop: 0}
   },
   ME_RANGE: 36, ME_DRIVE: 0.6,

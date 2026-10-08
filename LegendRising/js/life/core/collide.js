@@ -362,6 +362,8 @@ export function CGwithin(x, y, z, r){
   return false;
 }
 // the squared distance from a point to triangle a (nine numbers at T[a]): the nearest point by its Voronoi regions
+// (written to _q when asked for)
+const _q = new Float64Array(3);
 function triDist2(T, a, px, py, pz){
   const ax = T[a], ay = T[a + 1], az = T[a + 2], bx = T[a + 3], by = T[a + 4], bz = T[a + 5], cx = T[a + 6], cy = T[a + 7], cz = T[a + 8];
   const abx = bx - ax, aby = by - ay, abz = bz - az, acx = cx - ax, acy = cy - ay, acz = cz - az;
@@ -380,12 +382,61 @@ function triDist2(T, a, px, py, pz){
     else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0){ const w = (d4 - d3)/((d4 - d3) + (d5 - d6)); qx = bx + (cx - bx)*w; qy = by + (cy - by)*w; qz = bz + (cz - bz)*w; }
     else { const den = 1/(va + vb + vc), v = vb*den, w = vc*den; qx = ax + abx*v + acx*w; qy = ay + aby*v + acy*w; qz = az + abz*v + acz*w; }
   }
+  _q[0] = qx; _q[1] = qy; _q[2] = qz;
   const dx = px - qx, dy = py - qy, dz = pz - qz;
   return dx*dx + dy*dy + dz*dz;
 }
 /* is the camera at (x, y, z) clear of everything by r? Nothing to push it away from: no box and no drawn triangle
    within r (DESIGN 3.9.5, the camera push early out: in the open all of its rays are skipped) */
 export function camClear(x, y, z, r){ return !SG.anyWithin(x, y, z, r) && !CGwithin(x, y, z, r); }
+/* The push that keeps the camera r clear of everything near it, worked out from the nearest points themselves (no rays,
+   DESIGN 1.5.11: at most 12 rays a frame in the open and 35 indoors): every box and drawn triangle within r of the eye,
+   at distance d along unit direction u from it, asks for r - d against u; along each axis the deepest ask each way
+   wins, and the two ways are set against each other (a narrow gap pushes from both sides at once). out: Float64Array(3)
+   receives the push. A point inside a box is left to the box's own faces' neighbours (as the 26 rays did: from inside,
+   every way out asks alike and the asks cancel) */
+const PUSHV = new Float64Array(6);
+function pushAsk(dx, dy, dz, k){
+  const P = PUSHV;
+  if (dx > 0){ if (k*dx > P[1]) P[1] = k*dx; } else if (dx < 0){ if (-k*dx > P[0]) P[0] = -k*dx; }
+  if (dy > 0){ if (k*dy > P[3]) P[3] = k*dy; } else if (dy < 0){ if (-k*dy > P[2]) P[2] = -k*dy; }
+  if (dz > 0){ if (k*dz > P[5]) P[5] = k*dz; } else if (dz < 0){ if (-k*dz > P[4]) P[4] = -k*dz; }
+}
+export function camClearance(x, y, z, r, out){
+  PUSHV.fill(0);
+  const r2 = r*r;
+  SG.each(x - r, z - r, x + r, z + r, s => {
+    if (s.off) return false;
+    const qx = Math.max(s._x0, Math.min(x, s._x1)), qy = Math.max(s._y0, Math.min(y, s._y1)), qz = Math.max(s._z0, Math.min(z, s._z1));
+    const dx = qx - x, dy = qy - y, dz = qz - z, d2 = dx*dx + dy*dy + dz*dz;
+    if (d2 >= r2 || d2 < 1e-12) return false;
+    const d = Math.sqrt(d2);
+    pushAsk(dx/d, dy/d, dz/d, r - d);
+    return false;
+  });
+  if (CG.tri){
+    const T = CG.tri, PL = CG.pl, NX = CG.nx, NY = CG.ny, NZ = CG.nz, st = CG.start, it = CG.items, stamp = CG.stamp;
+    const x0 = Math.max(0, Math.floor((x - r - CG.x0)/CS)), x1 = Math.min(NX - 1, Math.floor((x + r - CG.x0)/CS));
+    const y0 = Math.max(0, Math.floor((y - r - CG.y0)/CS)), y1 = Math.min(NY - 1, Math.floor((y + r - CG.y0)/CS));
+    const z0 = Math.max(0, Math.floor((z - r - CG.z0)/CS)), z1 = Math.min(NZ - 1, Math.floor((z + r - CG.z0)/CS));
+    if (++CG.mark > 4e9){ stamp.fill(0); CG.mark = 1; }
+    const mark = CG.mark;
+    for (let k = z0; k <= z1; k++) for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++){
+      const c = (k*NY + j)*NX + i;
+      for (let q = st[c], e = st[c + 1]; q < e; q++){
+        const t = it[q]; if (stamp[t] === mark) continue; stamp[t] = mark;
+        const p = t*4, pd = PL[p]*x + PL[p + 1]*y + PL[p + 2]*z - PL[p + 3];
+        if (pd >= r || pd <= -r) continue;
+        const d2 = triDist2(T, t*9, x, y, z);
+        if (d2 >= r2 || d2 < 1e-12) continue;
+        const d = Math.sqrt(d2);
+        pushAsk((_q[0] - x)/d, (_q[1] - y)/d, (_q[2] - z)/d, r - d);
+      }
+    }
+  }
+  out[0] = PUSHV[0] - PUSHV[1]; out[1] = PUSHV[2] - PUSHV[3]; out[2] = PUSHV[4] - PUSHV[5];
+  return out;
+}
 /* the distance along a ray (unit direction) to the first thing it meets, up to len: a box (SG.ray, with skip) or a
    triangle of the drawn geometry. out (Float32Array(3), optional) receives the unit normal of what it hit, facing
    against the ray; it is left alone when nothing is hit */

@@ -20,6 +20,9 @@
 //   node qa/wp0c-mat.mjs --before <dir>      every check, the views compared with <dir>
 //   node qa/wp0c-mat.mjs                     every check; the views are compared with qa/out/wp0c-before when that
 //                                            exists, and only captured (into qa/out/wp0c-after) when it does not
+//                                            (a capture left from an older tree also holds every later change to the
+//                                            picture, the sun's path and the sky among them: to check one change alone,
+//                                            use --base with the commit before it)
 //   node qa/wp0c-mat.mjs --capture <dir>     only draw the views of this tree into <dir>/<view>.png
 //   node qa/wp0c-mat.mjs --only lint,spec    a subset
 //   node qa/wp0c-mat.mjs --capture <dir> --gfx low      the views on another tier, to look at (nothing is checked)
@@ -133,9 +136,13 @@ async function setView(view){
   L.stepN(30);
   return {zone: L.LIFE.zone, at: [P.x, P.feet, P.z, P.yaw, P.pitch].map(v => +v.toFixed(3))};
 }
+// (the shadows redrawn for this very frame: with the loop frozen a plain needsUpdate is only a request to WP-A's shadow
+// scheduler (quality.js gateShadows), granted on a later frame that never comes, and the map would be the one left from
+// before the view was set. force() is the scheduler's own grant for a frame drawn out of turn)
 function drawView(){
-  const L = window.__life, R = L.renderer();
-  R.shadowMap.needsUpdate = true; R.render(L.scene(), L.cam);
+  const L = window.__life, R = L.renderer(), SK = L.sky && L.sky(), sh = SK && SK.shadow;
+  if (sh && sh.force) sh.force(); else R.shadowMap.needsUpdate = true;
+  R.render(L.scene(), L.cam);
   return R.domElement.toDataURL("image/png");
 }
 

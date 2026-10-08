@@ -775,8 +775,8 @@ const A = {
       if (window.lifeReset) window.lifeReset();
       renderHub();
       // back out of the tunnel, a couple of hours on, facing the pitch you just played on
-      if (window.lifeAfterMatch) window.lifeAfterMatch(A._matchFatigue || 0);
-      A._matchFatigue = 0;
+      if (window.lifeAfterMatch) window.lifeAfterMatch(A._matchLegs || null);
+      A._matchLegs = null;
       return;
     }
     renderHub(); },

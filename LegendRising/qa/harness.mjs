@@ -8,6 +8,7 @@
 //   node qa/harness.mjs --n 100 --from 1        a calibration run
 //   options: --speed 2|1|4  --workers 4  --prefoff 4 (every 4th match is also played with the preference off)
 //            --arch ST|W|AM|CM|DF (the player in that archetype in every match: calibration)
+//            --only W,CM (of the N seeds only those the rotation gives these archetypes: the acceptance run's own)
 //            --timing 3 (matches timed alone; 0 to skip)  --plays 3 (timed plays of each)  --fit-ratings  --fit-tempo
 //            --tempo d,s,p  --quiet
 //   writes qa/out/harness.json; exits 1 when a band fails (not with --fit-*).
@@ -143,9 +144,12 @@ async function batch(seeds, o){
   return out;
 }
 
-const seeds = Array.from({length: N}, (_, i) => FROM + i);
+// (--only W,CM: of those seeds, only the ones whose rotating archetype is one of these, the very matches the acceptance
+// run plays for them: a calibration of one or two archetypes against the acceptance's own samples)
+const ONLY = arg("only", null) && arg("only", null) !== true ? String(arg("only", null)).split(",") : null;
+const seeds = Array.from({length: N}, (_, i) => FROM + i).filter(s => !ONLY || ONLY.includes(ARCHS[s % 5]));
 const t0 = Date.now();
-console.log(`harness: ${N} matches from seed ${FROM}, speed ${SPEED}, ${WORKERS} workers`);
+console.log(`harness: ${seeds.length} matches from seed ${FROM}${ONLY ? ` (the ${ONLY.join(", ")} seeds of ${N})` : ""}, speed ${SPEED}, ${WORKERS} workers`);
 const list = await batch(seeds, opt);
 const errs = list.filter(m => m.error);
 if (errs.length){ console.log(`${errs.length} matches failed; first:\n${errs[0].error}`); }

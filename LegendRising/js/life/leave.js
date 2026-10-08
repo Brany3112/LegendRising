@@ -115,7 +115,8 @@ export function departures(o){
     const g = car(CAR_KINDS[(today + i) % CAR_KINDS.length], carPaint(i*3 + today), {});
     g.position.set(bx, .01, EXIT.bayZ); g.rotation.y = -Math.PI/2; W.scene.add(g);
     const [L, , Wd] = g.userData.size;
-    const sol = solid(bx - Wd/2, bx + Wd/2, EXIT.bayZ - L/2, EXIT.bayZ + L/2, 0, 1.4);
+    // (it drives off later: a moving box, DESIGN 1.4.5)
+    const sol = solid(bx - Wd/2, bx + Wd/2, EXIT.bayZ - L/2, EXIT.bayZ + L/2, 0, 1.4, {dyn:true});
     cars.push({g, sol, bx, leaves, state:"parked", driver:null, east:(i + today) % 2 === 0, t:0, d:null});
   });
   // the stop on the road outside the front gate, and the bus that calls for whoever is waiting there
@@ -128,7 +129,7 @@ export function departures(o){
     list.forEach((h, k) => {
       const x = h.g.position.x, z = h.g.position.z, c = freeCars[k] || null;
       const to = c ? {car:c.bx} : {queue:B.queue.length + people.filter(p => p.bus).length};
-      const sol = solid(x - .25, x + .25, z - .25, z + .25, 0, 1.8); skip.add(sol);
+      const sol = solid(x - .25, x + .25, z - .25, z + .25, 0, 1.8, {dyn:true}); skip.add(sol);
       const p = {h, w:walkerOf(h, routeFrom(x, z, to, skip), {sol, speed:1.25 + (k % 3)*.12}), car:c, bus:!c, start:minute() + k*1.1, sol, gone:false};
       if (c) c.driver = p;
       people.push(p);
@@ -168,7 +169,7 @@ export function departures(o){
     const walkingToBus = people.some(p => p.bus && !p.gone && !p.queued);
     if (B.state === "none" && B.queue.length && (!walkingToBus || m >= end + 30)){
       B.g = bus(); W.scene.add(B.g); B.g.position.y = .01; B.g.userData.lamps(m >= 17*60 + 30);
-      B.sol = solid(0, 0, 0, 0, 0, 3); B.state = "arriving";
+      B.sol = solid(0, 0, 0, 0, 0, 3, {dyn:true}); B.state = "arriving";
       B.d = driveOf(B.g, [[95, EXIT.laneW], [40, EXIT.laneW], [EXIT.stop.x + 2.2, EXIT.laneW]], {sol:B.sol, vmax:u => u < .8 ? 10 : .8 + 9.2*(1 - u)*5});
     }
     if (B.state === "arriving"){ B.d.step(dt); if (B.d.st.done){ B.state = "boarding"; B.t = 0; } }

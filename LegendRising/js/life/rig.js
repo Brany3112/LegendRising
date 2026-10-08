@@ -30,7 +30,10 @@ export const BN = ["root", "hips", "spine", "chest", "neck", "head", "uaL", "faL
 export const PAR = [-1, 0, 1, 2, 3, 4, 3, 6, 7, 3, 9, 10, 1, 12, 13, 14, 1, 16, 17, 18];
 export const BONE = Object.fromEntries(BN.map((n, i) => [n, i]));
 export const B = BONE;
-export const ARM = s => s > 0 ? [6, 7, 8] : [9, 10, 11], LEG = s => s > 0 ? [12, 13, 14, 15] : [16, 17, 18, 19];
+// a limb's bones (one shared, frozen list per side: these are asked for many times in every pose, and a new array each
+// time was garbage the collector then had to sweep up mid-frame)
+const ARM_L = Object.freeze([6, 7, 8]), ARM_R = Object.freeze([9, 10, 11]), LEG_L = Object.freeze([12, 13, 14, 15]), LEG_R = Object.freeze([16, 17, 18, 19]);
+export const ARM = s => s > 0 ? ARM_L : ARM_R, LEG = s => s > 0 ? LEG_L : LEG_R;
 export const NP = 63;                                      // Euler pose: 20 bones x 3 rotations + the hips' offset
 export const NQ = 83;                                      // quaternion pose: 20 bones x 4 + the hips' offset (80..82)
 export const LEGB = [12, 13, 14, 15, 16, 17, 18, 19];
@@ -180,9 +183,11 @@ export function leanTo(h, T, x, y, z, feet, straight = .9, most = 1.3){
 }
 
 /* ---------- quaternions as plain numbers ---------- */
-// Euler XYZ (three.js order) to a quaternion written into out at o
+// Euler XYZ (three.js order) to a quaternion written into out at o (an angle of exactly 0 needs no sine or cosine: most
+// bones of most poses turn about one axis or none, and this runs for every bone of every full pose)
 export function qEuler(out, o, x, y, z){
-  const c1 = Math.cos(x/2), c2 = Math.cos(y/2), c3 = Math.cos(z/2), s1 = Math.sin(x/2), s2 = Math.sin(y/2), s3 = Math.sin(z/2);
+  const c1 = x === 0 ? 1 : Math.cos(x/2), c2 = y === 0 ? 1 : Math.cos(y/2), c3 = z === 0 ? 1 : Math.cos(z/2);
+  const s1 = x === 0 ? 0 : Math.sin(x/2), s2 = y === 0 ? 0 : Math.sin(y/2), s3 = z === 0 ? 0 : Math.sin(z/2);
   out[o] = s1*c2*c3 + c1*s2*s3; out[o + 1] = c1*s2*c3 - s1*c2*s3; out[o + 2] = c1*c2*s3 + s1*s2*c3; out[o + 3] = c1*c2*c3 - s1*s2*s3;
 }
 // a*b (a then b in the frame of a) into out at o (out may be a or b)

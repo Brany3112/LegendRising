@@ -6,6 +6,7 @@
 import {G, LIFE, P, FADE, sync} from "./state.js";
 import {note, clockText} from "./hud.js";
 import {modeFlags} from "./modes.js";
+import {matchFatigue, matchIntensity} from "../stamina.js";
 
 // info: today's match as matchToday() last said; go: you have walked in and the match is starting; quiet: just back
 // from full time, so the bar keeps quiet until you leave the tunnel's reach (or step back into its mouth)
@@ -72,12 +73,13 @@ export function toMatch(){
     }
   }, 950);
 }
-// back from the final whistle: out of the tunnel, a couple of hours later, with tired legs
-window.lifeAfterMatch = (played) => {
+// back from the final whistle: out of the tunnel, a couple of hours later, with tired legs. legs: what the match left
+// in them (match.js matchRewards: {mins, drain}), turned into fatigue by the 1.5.2 formula (stamina.js)
+window.lifeAfterMatch = (legs) => {
   const s = G();
   const end = LIFE.matchEnd || 21*60;
   if (s.life.min < end) dailyPass(end - s.life.min, "match");
-  if (played) S.fatigue = clamp(S.fatigue + played, 0, 100);
+  if (legs && typeof legs === "object") S.fatigue = clamp(S.fatigue + matchFatigue(legs.mins, matchIntensity(legs.drain)), 0, 100);
   sync(); LIFE.zone = "ground";
   // you come out standing in the tunnel mouth: its "closed" bar would only tell you what you've just done, so it keeps
   // quiet until you walk off (or back into the mouth); and the line saying where you are waits its turn behind the

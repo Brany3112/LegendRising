@@ -12,10 +12,11 @@
 
 import {createMatch, TEMPO, HALF_REAL, CALIBRATED} from "./sim.js";
 import {attrsForPlayer, attrsForAI} from "./attrs.js";
-import {makePitch} from "./pitchspec.js";
+import {makePitch, ROLL} from "./pitchspec.js";
 import {countersAll, ratingsAll, rateAgent, deriveMy, teamStats, goalLists, highlights, minuteOf, minsOn, onSec} from "./events.js";
 import {judgeDecision} from "./judge.js";
 import {hashStr} from "./rng.js";
+import {matchFatigue, matchIntensity} from "../stamina.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const has = name => typeof globalThis[name] === "function";
@@ -25,7 +26,6 @@ export const BRIDGE = Object.freeze({
   CHEM_CAP: 4,                    // the judge moves chemistry by at most this much in one match, either way
   BENCH: 7,                       // substitutes named
   NAT_SHAPE: ["GK", "LB", "CB", "CB", "RB", "CM", "CDM", "CM", "LW", "ST", "RW"],   // nations play 4-3-3 (3.2.2)
-  ROLL: [1.25, 1.18, 1.12, 1.06, 1.0],                                            // grass by stadium tier (worse pitches hold the ball)
   NERVES_CAP: 0.45
 });
 // a world player's position code as a slot it is familiar with (positions.js POSITIONS keys)
@@ -125,14 +125,16 @@ export function matchConfig(f, M = MT, opts = {}){
   const meP0 = teams[usTeam].players.find(p => p.isMe) || teams[usTeam].bench.find(p => p.isMe);
   // a substitute starts on the bench: the man in his slot plays until the call (sim.js benchMe)
   const role = M.role || "starter";
-  // the planned changes (the call off the bench, the rotation's early exit); none when the match is being played out
-  // after a crash: the player counts as substituted at the checkpoint and stays off (3.4.4, sim.js applyResume)
+  // the planned changes (the call off the bench, the rotation's early exit), in match minutes as the clock shows them
+  // (1.4.13 roleTimes; matchSetup plans them so); none when the match is being played out after a crash: the player
+  // counts as substituted at the checkpoint and stays off (3.4.4, sim.js applyResume)
   const roleTimes = {};
   if (!opts.resume && role === "rotation" && M.subOff) roleTimes.subOff = M.subOff;
   if (!opts.resume && (role === "sub" || role === "cameo") && M.subOn) roleTimes.subOn = M.subOn;
   const tier = M.stad ? clamp(M.stad.tier | 0, 0, 4) : 2;
   const seed = opts.seed != null ? opts.seed >>> 0 : seedOf(f);
-  const cfg = {seed, mode: "match", spec: makePitch({boards: true, roll: BRIDGE.ROLL[tier]}), halfRealSec: HALF_REAL[speed], tempo: Object.assign({}, TEMPO[speed]),
+  // (the stadium's boards, with their gap in front of the dugouts: pitchspec BOARDS, the layout stadium.js draws)
+  const cfg = {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[tier]}), halfRealSec: HALF_REAL[speed], tempo: Object.assign({}, TEMPO[speed]),
     teams, me: {team: usTeam, slot: meP0 ? meP0.slot : null, prefFoot: footOf(S.player && S.player.foot), chem: +S.chem || 0, trust: +S.trust || 0,
       traits: Object.assign({}, S.traits || {}), staminaF: has("staminaF") ? staminaF() : null, role},
     rules: {offside: true, cards: true, subs: 5}, roleTimes, friendly: f.kind === "F", fkey: f.key,
@@ -147,7 +149,7 @@ export function matchConfig(f, M = MT, opts = {}){
     cfg.seed = (r.seed + (r.step || 0)) >>> 0;
     cfg.resume = {score: (r.score || [0, 0]).slice(), goals: r.goals || {home: [], away: []}, half: r.half || 1, sec: r.sec || 0,
       subsUsed: (r.subsUsed || [0, 0]).slice(), counters: r.counters || null, on: r.on || [],
-      my: r.my || null, mins: r.mins || 0};
+      my: r.my || null, mins: r.mins || 0, energy: r.energy != null ? +r.energy : null, fatigueAcc: +r.fatigueAcc || 0, booked: r.booked || 0};
   }
   return cfg;
 }
@@ -203,17 +205,22 @@ function onMinutes(ms, a){
 }
 
 // The checkpoint (3.4.4, 1.7): S.life.inMatch from the state now; the caller saves straight after (persistNow) at a
-// dead ball. Returns the record.
+// dead ball. Returns the record. In a match played out after a crash the player is off (sim.js applyResume): what he
+// did before it (his counters, goals, on-pitch minutes, energy and how hard his legs worked) is carried over from the
+// checkpoint it was rebuilt from, so a second interruption resumes from the same record, never from a blank one.
 export function checkpoint(ms){
   const f = MT && MT.f;
   if (!f || !S.life) return null;
-  const C = countersAll(ms), me = meAgent(ms), c = me ? C[me.id] : null;
-  const rs = ms.cfg.resume;
-  const rec = {v: 1, fkey: f.key, cid: S.cid != null ? S.cid : null, seed: ms.cfg.seed >>> 0, half: ms.half, sec: Math.round(ms.clock.sec*100)/100, step: ms.step,
-    score: ms.score.slice(), goals: goalLists(ms), my: me ? deriveMy(ms, me.id, C) : null, counters: c ? Object.assign({}, c) : (rs && rs.counters) || null,
-    role: MT.role || "starter", on: me ? onMinutes(ms, me) : [], mins: c ? c.mins : 0, energy: me ? Math.round(me.energy*10)/10 : +S.energy || 0,
-    fatigueAcc: me ? Math.round(me.acc.drain*100)/100 : 0, booked: me ? (me.booked || 0) + (me.sentOff ? 1 : 0) : 0, subsUsed: ms.subs.used.slice(), late: !!MT.late,
-    ts: Date.now()};
+  const C = countersAll(ms), me = meAgent(ms), rs = ms.cfg.resume;
+  const carried = !!rs && (!me || !me.on.length), c = me && !carried ? C[me.id] : null;
+  const rec = carried
+    ? {my: rs.my || null, counters: rs.counters || null, on: (rs.on || []).map(iv => iv.slice()), mins: rs.mins || 0,
+      energy: rs.energy != null ? rs.energy : +S.energy || 0, fatigueAcc: rs.fatigueAcc || 0, booked: rs.booked || 0}
+    : {my: me ? deriveMy(ms, me.id, C) : null, counters: c ? Object.assign({}, c) : null, on: me ? onMinutes(ms, me) : [], mins: c ? c.mins : 0,
+      energy: me ? Math.round(me.energy*10)/10 : +S.energy || 0, fatigueAcc: me ? Math.round(me.acc.drain*100)/100 : 0,
+      booked: me ? (me.booked || 0) + (me.sentOff ? 1 : 0) : 0};
+  Object.assign(rec, {v: 1, fkey: f.key, cid: S.cid != null ? S.cid : null, seed: ms.cfg.seed >>> 0, half: ms.half, sec: Math.round(ms.clock.sec*100)/100,
+    step: ms.step, score: ms.score.slice(), goals: goalLists(ms), role: MT.role || "starter", subsUsed: ms.subs.used.slice(), late: !!MT.late, ts: Date.now()});
   S.life.inMatch = rec;
   ms.checkpointDue = false;
   return rec;
@@ -267,9 +274,11 @@ export function finish(ms){
   const mePid = me && me.pid != null ? me.pid : meBench ? meBench.pid : null;
   // the player: his own counters; after a crash, the counters of the checkpoint (he came off there, 3.4.4). He is rated
   // only when he was on the pitch: a substitute who never got on (left on the bench, or still on it at the checkpoint
-  // of a crash) has no rating at all (null: matchRewards gives him no appearance), never a made-up one
+  // of a crash) has no rating at all (null: matchRewards gives him no appearance), never a made-up one. On the pitch
+  // means an interval on it, however short: a starter whose match broke off in its first seconds started it (on
+  // [[0, 0]]) and is rated from his counters like anyone else who stepped on
   const resumedOff = !!(rs && (!me || !me.on.length));
-  const onBefore = !!(rs && rs.counters && ((rs.counters.mins || 0) > 0 || (rs.on || []).some(iv => iv && iv[1] > iv[0])));
+  const onBefore = !!(rs && ((rs.counters && (rs.counters.mins || 0) > 0) || (rs.on || []).some(iv => Array.isArray(iv) && iv.length === 2)));
   const played = resumedOff ? onBefore : !!(me && me.on.length);
   let myC = me ? C[me.id] : null, rating = me && played ? RT[me.id] : null;
   if (resumedOff){
@@ -278,7 +287,8 @@ export function finish(ms){
     if (played){
       const my = ms.score[us], th = ms.score[1 - us];
       const slot = ms.cfg.me && ms.cfg.me.slot;
-      rating = rateAgent(myC, me ? me.arch : slot ? archOfSlot(slot) : "CM", {mins: myC.mins, res: my > th ? "W" : my < th ? "L" : "D", conceded: myC.conceded, sub: true});
+      const c0 = myC || {};
+      rating = rateAgent(c0, me ? me.arch : slot ? archOfSlot(slot) : "CM", {mins: c0.mins || rs.mins || 0, res: my > th ? "W" : my < th ? "L" : "D", conceded: c0.conceded || 0, sub: true});
     }
   }
   // the world: both line-ups (with the substitutes who came on, and the player whenever he played), the goals, the
@@ -312,13 +322,21 @@ export function finish(ms){
   MT.on = rs && rs.on && (!me || !me.on.length) ? rs.on : onMinutes(ms, me);
   MT.minute = 90; MT.label = "FT";
   MT.sentOff = !!(me && me.sentOff);
-  // how hard the legs worked: the mean drain per minute on the pitch (1.5.2 fatigue on return)
-  const mins = myC ? myC.mins : 0;
-  MT.drainPerMin = me && mins > 0 ? me.acc.drain/mins : null;
+  // how hard the legs worked: the mean drain per minute on the pitch (1.5.2 fatigue on return), and the energy he
+  // finished with; after a crash, the checkpoint's (what his minutes before it cost him: the agent standing for him in
+  // the rebuilt match never ran)
+  const mins = myC ? myC.mins || 0 : 0;
+  if (resumedOff){
+    MT.drainPerMin = played && (rs.mins || 0) > 0 ? (rs.fatigueAcc || 0)/rs.mins : null;
+    if (played && rs.energy != null) S.energy = clamp(Math.round(rs.energy*10)/10, 0, 100);
+  } else {
+    MT.drainPerMin = me && mins > 0 ? me.acc.drain/mins : null;
+    if (me && me.on.length) S.energy = clamp(Math.round(me.energy*10)/10, 0, 100);
+  }
   MT.highlightsFP = me ? highlights(ms, me.id) : [];
-  if (me && me.on.length) S.energy = clamp(Math.round(me.energy*10)/10, 0, 100);
-  // the career
+  // the career; then tomorrow's fatigue from the minutes and the drain matchRewards settled on (stamina.js, 1.5.2)
   const R = has("matchRewards") ? matchRewards(MT, rating, out) : null;
+  if (R && R.mins != null) R.fatigue = matchFatigue(R.mins, matchIntensity(R.drain));
   if (S.life) delete S.life.inMatch;
   return {rating, out, R, highlights: MT.highlightsFP};
 }

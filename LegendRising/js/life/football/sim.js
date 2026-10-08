@@ -32,7 +32,7 @@ import {levelled} from "./attrs.js";
 import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle, situation} from "./tactics.js";
 import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
-import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul, liveRoll} from "./rules.js";
+import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul, liveRoll, lawsOf} from "./rules.js";
 import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, bodyContact, steer, standStill} from "./actions.js";
 import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf, onSec, dribbleWatch} from "./events.js";
 import {judgeDecision} from "./judge.js";
@@ -63,16 +63,21 @@ export const REF = 22, AR1 = 23, AR2 = 24;
 
 // cfg (1.4.13): {seed, mode, spec, halfRealSec, clockRate, tempo, teams: [{name, short, kit, gkKit, formation, style,
 // players: [{pid, name, number, slot, arch, isGK, isMe, scale, at, energy, prefFoot, items}], bench: [...]}, ...],
-// me: {team, slot, prefFoot, chem, trust, traits, staminaF, role}, rules, roleTimes, startSec, startScore, resume}
+// me: {team, slot, prefFoot, chem, trust, traits, staminaF, role}, rules, roleTimes (match minutes), startSec, startScore, resume}
 // plus these additions: meAI (the player driven by the AI, for the harness), htAuto (half time passes by itself:
 // headless), kickoffTeam, visible(x, y, z) (the view's frustum test for returning spare balls), benchSide.
+// cfg.mode ('match' or a training block's) and cfg.rules become ms.mode and ms.rules, the laws every check reads
+// (rules.js lawsOf: offside, cards, subs, halfTime, stoppage, restarts, goals).
 export function createMatch(cfg){
+  // the laws it is played to: cfg.rules over cfg.mode's defaults (rules.js lawsOf; an unknown mode is an error)
+  const laws = lawsOf(cfg);
   const spec = cfg.spec || makePitch({boards: true});
   const halfRealSec = cfg.halfRealSec || HALF_REAL[2];
   const rate = cfg.clockRate || 45*60/halfRealSec;
   const ms = {
     cfg, r: mulberry32(cfg.seed >>> 0), t: 0, step: 0, spec,
-    phase: 'pre', half: 1, clock: {sec: 0, rate, added: 0, running: false},
+    mode: laws.mode, rules: laws,
+    phase: 'pre', half: 1, clock: {sec: 0, rate, added: 0, addedSet: false, running: false},
     score: [0, 0], dirs: [1, -1],
     agents: [], bench: [[], []], me: -1, gks: [-1, -1],
     ball: null, bw: null, quiet: null, pred: new Float32Array(360), predN: 0, predAt: -1, predT: 0, predSeq: 0,
@@ -496,7 +501,7 @@ const PA = {x: 0, z: 0};
 export function secondHalf(ms){
   ms.half = 2;
   ms.dirs = [-ms.dirs[0], -ms.dirs[1]];
-  ms.clock.sec = 0; ms.clock.added = 0; ms.clock.running = false; ms.clock.ended = false;
+  ms.clock.sec = 0; ms.clock.added = 0; ms.clock.addedSet = false; ms.clock.running = false; ms.clock.ended = false;
   ms.offside.set.clear(); ms.offside.pending = null; ms.advantage = null;
   for (const a of ms.agents){ a.act = null; a.plan = null; a.drib = null; a.y = 0; a.task.run = null; if (a.gk){ a.gk.state = 'ready'; a.gk.plan = null; a.gk.handsOn = false; a.gk.read = null; } }
   for (const t of [0, 1]){ ms.tm[t].changeT = ms.t - 10; teamShape(ms, t); }

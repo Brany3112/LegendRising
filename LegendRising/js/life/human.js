@@ -485,6 +485,7 @@ function* buildSteps(look, det, noHead){
       const P = [[x - s*.006, wY - .02, .006], [x - s*.011, wY - .045, .026], [x - s*.015, wY - .068, .034], [x - s*.017, wY - .086, .035]];
       tube(G, P, [.0135 + gl, .0125 + gl, .0105 + gl, .0085 + gl], 6, P.map(() => wt(Hd)), g.gloves ? S.glove : S.skin, .95);
     }
+    if (s > 0) yield;                                    // (each arm a stage of its own: prebuildHumans keeps its slices short)
   }
 
   yield;
@@ -530,6 +531,7 @@ function* buildSteps(look, det, noHead){
     half.push(...CROTCH);
     zip(G, half, LR[0].v, x, 0, S.bottom);
     shoe(G, D, s, g, near);
+    if (s > 0) yield;                                    // (each leg a stage of its own)
   }
 
   yield;
@@ -657,7 +659,7 @@ function* buildSteps(look, det, noHead){
       return lon < 112 && (lat < -24 || (lon > 55 && lat < -8)) ? S.stubble : S.skin; }});
     headHit = G.hit; G.hit = null;
     yield;
-    face(G, D, F, look, headHit, hf, !near);              // (the far body too, plainer: no face popping on and off)
+    yield* face(G, D, F, look, headHit, hf, !near);       // (the far body too, plainer: no face popping on and off)
     const specs = near && (look.props || []).includes("glasses");
     if (specs) G.hit = [];
     yield;
@@ -708,7 +710,8 @@ function shoe(G, D, s, g, near){
 
 /* the face: eyes (whites, irises, a lid line), brows, a nose, a mouth, ears, cast onto the faceted head. lite: the far
    body's (a few triangles each, no lid line), so the face reads the same from 13 m as from 16 */
-function face(G, D, F, look, hit, hf, lite = false){
+// (a generator: each side's eye, brow and ear is a stage of the build, every point of them found on the head by a ray)
+function* face(G, D, F, look, hit, hf, lite = false){
   const hc = D.hc, hs = D.hs, es = .031*(F.eyes || 1), nose = F.nose || 1, brow = F.brow || 1;
   const onF = (x, y, lift) => { const o = [hc[0] + x*hs, hc[1] + y*hs, 2], t = ray(hit, o, [0, 0, -1]); return t < 0 ? null : [o[0], o[1], 2 - t + lift, HEADW]; };
   const poly = (pts, lift, slot, sh = 1, out = [0, 0, 1]) => { const P = pts.map(p => onF(p[0], p[1], lift)); if (P.some(p => !p)) return; const c = P.reduce((s, p) => [s[0] + p[0]/P.length, s[1] + p[1]/P.length, s[2] + p[2]/P.length], [0, 0, 0]); c.push(HEADW);
@@ -741,6 +744,7 @@ function face(G, D, F, look, hit, hf, lite = false){
       loft(G, R);
       cap(G, R[2], [sx + s*.013*hs, side[1] + .002, side[2] - .006, HEADW], S.skin, .78);
     }
+    yield;
   }
   // nose: a little faceted wedge
   const nl = .022*nose, nw = .015*Math.sqrt(nose);
@@ -979,11 +983,20 @@ function* shapeSteps(look, det, noHead){
   yield;                                                 // (the packing below is a stage of its own)
   const {G, torsoHit, D} = r.value, n = G.sl.length;
   const pos = new Float32Array(G.p), nor = new Float32Array(n*3);
+  // (the faces' normals, a few thousand vertices a stage, worked out in place)
   for (let i = 0; i < n; i += 3){
-    const a = i*3, ux = pos[a + 3] - pos[a], uy = pos[a + 4] - pos[a + 1], uz = pos[a + 5] - pos[a + 2], vx = pos[a + 6] - pos[a], vy = pos[a + 7] - pos[a + 1], vz = pos[a + 8] - pos[a + 2];
-    const [nx, ny, nz] = G.tn[i/3] || norm([uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx]);
+    if (i && i % 4500 === 0) yield;
+    const a = i*3, t = G.tn[i/3];
+    let nx, ny, nz;
+    if (t){ nx = t[0]; ny = t[1]; nz = t[2]; }
+    else {
+      const ux = pos[a + 3] - pos[a], uy = pos[a + 4] - pos[a + 1], uz = pos[a + 5] - pos[a + 2], vx = pos[a + 6] - pos[a], vy = pos[a + 7] - pos[a + 1], vz = pos[a + 8] - pos[a + 2];
+      nx = uy*vz - uz*vy; ny = uz*vx - ux*vz; nz = ux*vy - uy*vx;
+      const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    }
     for (let k = 0; k < 3; k++){ nor[a + k*3] = nx; nor[a + k*3 + 1] = ny; nor[a + k*3 + 2] = nz; }
   }
+  yield;
   const g = garb(look.outfit), rough = new Uint8Array(n);
   for (let i = 0; i < n; i++){ const nm = SLOTS[G.sl[i]]; let rr = ROUGH[nm] == null ? .92 : ROUGH[nm]; if (nm === "shoe" && g.footwear === "dress") rr = .3; if (nm === "shoe" && g.footwear === "trainers") rr = .7; rough[i] = Math.round(rr*255); }
   sp = {key, n, D, torsoHit, slot:new Uint8Array(G.sl), shade:new Float32Array(G.sh), attr:{
@@ -1141,6 +1154,7 @@ export function human(look = {}, opts = {}){
   const RO = restOffsets(rest);
   const h = {g, look, D, bones, skel, near, far, lod3m, num, isHuman:true, id:++HID,
     pose:new Float32Array(NQ), posePrev:new Float32Array(NQ), te:new Float32Array(NP), tq:new Float32Array(NQ), base:new Float32Array(3), baseOk:false,
+    lpSame:false, lpAt:new Float64Array(3),
     rest:RO.V, restA:RO.A, inz:{on:false, t:0, w:1, x:new Float64Array(63), v:new Float64Array(63)}, upper:{w:0, g:null, st:null},
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, locks:[null, null], feetTmp:[null, null],
     bw:1, mode:"", at:0, t:r()*100, acc:0, accL:0, dtPrev:0, posed:0, sinceF:0, hid:false, gw:0, lod:1, seed:r(),
@@ -1411,30 +1425,43 @@ const _stand = {};
 function standLoco(h, T, st, dt){ Object.assign(_stand, st); _stand.look = 0; loco(h, T, _stand, dt); }
 // ---- actions ----
 function stand(h, T, st){ idle(h, T, st, true, 0); }
+/* a kick, a pass or a first touch (the right foot). Its keyframes are tables made once (a pass's thigh swing is scaled by
+   st.amp: the keyframes are linear in it), and it starts from the idle's upper body only: both legs are solved below
+   anyway, so the idle's own leg solve (two IKs and the hips' frame each) was work thrown away every pose */
+const KF = Object.freeze({
+  thighTrap:[[0, 0], [.3, -.32], [.55, -.35], [1, 0]], thighKick:[[0, 0], [.3, .7], [.42, -.75], [.55, -1.2], [.75, -.6], [1, 0]],
+  thighPass:[[0, 0], [.3, .45], [.44, -.5], [.6, -.75], [1, 0]],
+  kneeTrap:[[0, .1], [.3, .5], [.55, .45], [1, .05]], kneeKick:[[0, .15], [.3, 1.85], [.42, .25], [.55, .1], [.8, .5], [1, .1]],
+  kneePass:[[0, .15], [.3, 1.05], [.44, .3], [.6, .2], [1, .1]], rot:[[0, 0], [.2, -.75], [.7, -.75], [1, 0]],
+  hipX:[[0, 0], [.35, .03], [.6, .02], [1, 0]], hipYKick:[[0, -.01], [.35, -.07], [.6, -.04], [1, -.005]], hipY:[[0, -.008], [.3, -.03], [.7, -.03], [1, -.008]],
+  hipsYawKick:[[0, 0], [.3, .25], [.55, -.25], [1, 0]], hipsRollKick:[[0, 0], [.4, .12], [1, 0]], hipsRoll:[[0, 0], [.3, .05], [.7, .05], [1, 0]],
+  pitchKick:[[0, 0], [.25, .55], [.85, .55], [1, 0]], pitchTrap:[[0, 0], [.25, -.2], [.8, -.2], [1, 0]], pitch:[[0, 0], [.25, -.12], [.8, -.12], [1, 0]],
+  spineKick:[[0, .05], [.3, .18], [.45, -.08], [.6, -.18], [1, .03]], spine:[[0, .05], [.4, .2], [1, .05]], spineRollKick:[[0, 0], [.42, .15], [1, 0]],
+  armKick:[[0, .2], [.3, 1.0], [.6, 1.15], [1, .2]], arm:[[0, .2], [.4, .55], [1, .2]], armBackKick:[[0, .1], [.42, .6], [1, .1]]
+});
+const _plant = new Float64Array(12);
 function kickLike(h, T, st, kind){
   const t = st.t != null ? st.t : Math.min(1, h.at/(kind === "kick" ? .9 : .75)), D = h.D, amp = st.amp || 1, s = -1;   // right foot
-  stand(h, T, st);
+  idle(h, T, st, false, 0);
   const big = kind === "kick", tr = kind === "trap";
-  const [th, sh, ft, to] = LEG(s);
-  const thighX = tr ? kf(t, [[0, 0], [.3, -.32], [.55, -.35], [1, 0]])
-    : big ? kf(t, [[0, 0], [.3, .7], [.42, -.75], [.55, -1.2], [.75, -.6], [1, 0]]) : kf(t, [[0, 0], [.3, .45*amp], [.44, -.5*amp], [.6, -.75*amp], [1, 0]]);
-  const knee = tr ? kf(t, [[0, .1], [.3, .5], [.55, .45], [1, .05]])
-    : big ? kf(t, [[0, .15], [.3, 1.85], [.42, .25], [.55, .1], [.8, .5], [1, .1]]) : kf(t, [[0, .15], [.3, 1.05], [.44, .3], [.6, .2], [1, .1]]);
-  const rot = big ? 0 : kf(t, [[0, 0], [.2, -.75], [.7, -.75], [1, 0]]);
-  T[60] = kf(t, [[0, 0], [.35, .03], [.6, .02], [1, 0]]); T[61] = big ? kf(t, [[0, -.01], [.35, -.07], [.6, -.04], [1, -.005]]) : kf(t, [[0, -.008], [.3, -.03], [.7, -.03], [1, -.008]]);
-  R3(T, B.hips, 0, big ? kf(t, [[0, 0], [.3, .25], [.55, -.25], [1, 0]]) : .1*Math.sin(t*Math.PI), big ? kf(t, [[0, 0], [.4, .12], [1, 0]]) : kf(t, [[0, 0], [.3, .05], [.7, .05], [1, 0]]));
+  const LG = LEG(s), th = LG[0], sh = LG[1], ft = LG[2], to = LG[3];
+  const thighX = tr ? kf(t, KF.thighTrap) : big ? kf(t, KF.thighKick) : amp*kf(t, KF.thighPass);
+  const knee = tr ? kf(t, KF.kneeTrap) : big ? kf(t, KF.kneeKick) : kf(t, KF.kneePass);
+  const rot = big ? 0 : kf(t, KF.rot);
+  T[60] = kf(t, KF.hipX); T[61] = big ? kf(t, KF.hipYKick) : kf(t, KF.hipY);
+  R3(T, B.hips, 0, big ? kf(t, KF.hipsYawKick) : .1*Math.sin(t*Math.PI), big ? kf(t, KF.hipsRollKick) : kf(t, KF.hipsRoll));
   legIK(h, T, 1, D.hipX + .05, D.ankY, kind === "kick" ? -.08 : -.02, 0);
   // the kicking foot starts and finishes planted beside the other; in between the leg swings freely
   legIK(h, T, -1, -(D.hipX + .02), D.ankY, .0, 0);
-  const plant = [th, sh, ft, to].map(b => [T[b*3], T[b*3 + 1], T[b*3 + 2]]);
-  const pitch = big ? kf(t, [[0, 0], [.25, .55], [.85, .55], [1, 0]]) : tr ? kf(t, [[0, 0], [.25, -.2], [.8, -.2], [1, 0]]) : kf(t, [[0, 0], [.25, -.12], [.8, -.12], [1, 0]]);
+  for (let i = 0; i < 4; i++){ const b = LG[i]; _plant[i*3] = T[b*3]; _plant[i*3 + 1] = T[b*3 + 1]; _plant[i*3 + 2] = T[b*3 + 2]; }
+  const pitch = big ? kf(t, KF.pitchKick) : tr ? kf(t, KF.pitchTrap) : kf(t, KF.pitch);
   R3(T, th, thighX, rot, big ? -.05 : 0); R3(T, sh, knee); R3(T, ft, pitch); R3(T, to, 0);
   const w = Math.max(1 - sstep(0, .18, t), sstep(.82, 1, t));
-  if (w > 0) [th, sh, ft, to].forEach((b, i) => { for (let c = 0; c < 3; c++) T[b*3 + c] = lerp(T[b*3 + c], plant[i][c], w); });
-  R3(T, B.spine, big ? kf(t, [[0, .05], [.3, .18], [.45, -.08], [.6, -.18], [1, .03]]) : kf(t, [[0, .05], [.4, .2], [1, .05]]), 0, big ? kf(t, [[0, 0], [.42, .15], [1, 0]]) : .06); R3(T, B.chest, .02);
+  if (w > 0) for (let i = 0; i < 4; i++){ const b = LG[i]; for (let c = 0; c < 3; c++) T[b*3 + c] = lerp(T[b*3 + c], _plant[i*3 + c], w); }
+  R3(T, B.spine, big ? kf(t, KF.spineKick) : kf(t, KF.spine), 0, big ? kf(t, KF.spineRollKick) : .06); R3(T, B.chest, .02);
   R3(T, B.neck, .1, 0, 0); R3(T, B.head, .2, 0, 0);
-  const ao = big ? kf(t, [[0, .2], [.3, 1.0], [.6, 1.15], [1, .2]]) : kf(t, [[0, .2], [.4, .55], [1, .2]]);
-  R3(T, ARM(1)[0], big ? -.5 : -.2, 0, ao); R3(T, ARM(-1)[0], big ? kf(t, [[0, .1], [.42, .6], [1, .1]]) : .25, 0, -ao*.7); R3(T, ARM(1)[1], -.4, 0, 0); R3(T, ARM(-1)[1], -.4, 0, 0);
+  const ao = big ? kf(t, KF.armKick) : kf(t, KF.arm);
+  R3(T, ARM(1)[0], big ? -.5 : -.2, 0, ao); R3(T, ARM(-1)[0], big ? kf(t, KF.armBackKick) : .25, 0, -ao*.7); R3(T, ARM(1)[1], -.4, 0, 0); R3(T, ARM(-1)[1], -.4, 0, 0);
 }
 
 function header(h, T, st){
@@ -1525,9 +1552,11 @@ const STRETCHES = [
 function stretch(h, T, st){
   idle(h, T, st, true, 0);
   const per = 6, i = Math.floor(h.at/per) % STRETCHES.length, f = h.at % per;
+  const w = h.at < per ? 1 : sstep(0, 1.1, f);
+  // held (5 s of every 6): only the stretch being held is worked out; over the second into the next, both, blended
+  if (w >= 1){ STRETCHES[i](h, T); return; }
   const a = _A; a.set(T); STRETCHES[(i + STRETCHES.length - 1) % STRETCHES.length](h, a);
   const b = _B; b.set(T); STRETCHES[i](h, b);
-  const w = h.at < per ? 1 : sstep(0, 1.1, f);
   for (let k = 0; k < NP; k++) T[k] = lerp(a[k], b[k], w);
 }
 const SIT_HIPS = .162;                 // hip joint above the seat top when the backside rests on it
@@ -1582,14 +1611,16 @@ function counter(h, T, st){
   // eyes on the work (more so while busy)
   T[B.neck*3] += .1 + .12*wk; T[B.head*3] += .08 + .1*wk;
 }
+const _keep = new Float64Array(9);
 function clipboard(h, T, st){
   idle(h, T, st);
-  const t = h.t, write = sstep(.2, .6, Math.sin(t*.35 + h.seed*6)), [ua, fa, hd] = ARM(-1);
+  const t = h.t, write = sstep(.2, .6, Math.sin(t*.35 + h.seed*6));
   R3(T, ARM(1)[0], -.18, 0, .1); R3(T, ARM(1)[1], -1.45, 0, 0); R3(T, ARM(1)[2], 0, 0, 0);      // the board, held in the left hand
   if (write > .01){
-    const keep = [ua, fa, hd].flatMap(b => [T[b*3], T[b*3 + 1], T[b*3 + 2]]);
+    const keep = _keep, arm = ARM(-1);
+    for (let i = 0; i < 3; i++) for (let c = 0; c < 3; c++) keep[i*3 + c] = T[arm[i]*3 + c];
     armIK(h, T, -1, .03 + .02*Math.sin(t*3), 1.2 + .012*Math.sin(t*5), .3, 1.2, -.2);                // and now and then, a note
-    [ua, fa, hd].forEach((b, i) => { for (let c = 0; c < 3; c++) T[b*3 + c] = lerp(keep[i*3 + c], T[b*3 + c], write); });
+    for (let i = 0; i < 3; i++) for (let c = 0; c < 3; c++){ const k = arm[i]*3 + c; T[k] = lerp(keep[i*3 + c], T[k], write); }
   }
   const look = lerp(.35*Math.sin(t*.13 + h.seed*4), .1, write);
   R3(T, B.neck, lerp(-.02, .25, write), look*.5, 0); R3(T, B.head, lerp(0, .2, write), look*.5, 0);
@@ -1848,7 +1879,7 @@ export function animateHuman(h, dt, state = "idle", o = null){
       if (!fam && fn.plant) drawnAnkles(h, h.pose, h.locks);
     }
     h.blendNext = h.posed ? (st.blend || fn.blend || -1) : 0;
-    h.mode = key; h.at = 0;
+    h.mode = key; h.at = 0; h.lpSame = false;
   }
   h.at += dt; h.t += dt; h.acc += dt; h.accL += dt;
   if (fam){
@@ -1877,17 +1908,27 @@ export function animateHuman(h, dt, state = "idle", o = null){
   if (kind === LP){
     // the leg pass: the hips and the legs onto the footprints over the last full pose's upper body
     if (fam && h.baseOk){
+      const G = h.gait, g = h.g, gx = g.position.x, gz = g.position.z, gr = g.rotation.y;
+      // standing still on both feet, where the last leg pass changed nothing: this one would give the same legs again
+      // (a settled body at mid range between its full poses: the stretchers' and passers' team-mates standing by)
+      if (h.lpSame && G.state === "STAND" && !G.feet[0].sw && !G.feet[1].sw && !G.ev.mask && gx === h.lpAt[0] && gz === h.lpAt[1] && gr === h.lpAt[2]){
+        h.accL = 0; ANIM.stats.lp++;
+        return h.ev;
+      }
       const Q = h.tq; Q.set(h.pose); Q[80] = h.base[0]; Q[81] = h.base[1]; Q[82] = h.base[2];
       gaitLegs(h, Q, _FK, h.accL, true); h.accL = 0;
       writeBones(h, Q, LEGW);
-      for (const b of LEGW) for (let c = 0; c < 4; c++) h.pose[b*4 + c] = Q[b*4 + c];
+      let same = Math.abs(h.pose[80] - Q[80]) + Math.abs(h.pose[81] - Q[81]) + Math.abs(h.pose[82] - Q[82]) < 1e-7;
+      for (const b of LEGW) for (let c = 0; c < 4; c++){ const k = b*4 + c; if (same && Math.abs(h.pose[k] - Q[k]) > 1e-7) same = false; h.pose[k] = Q[k]; }
       h.pose[80] = Q[80]; h.pose[81] = Q[81]; h.pose[82] = Q[82];
+      h.lpSame = same; h.lpAt[0] = gx; h.lpAt[1] = gz; h.lpAt[2] = gr;
     }
     ANIM.stats.lp++;
     return h.ev;
   }
   // a full pose update
   ANIM.fpu++; ANIM.stats.fpu++; ANIM.byTier[tier]++; if (tier <= 1) ANIM.hi++;
+  h.lpSame = false;
   const Te = h.te, Q = h.tq, adt = h.acc;
   Te.fill(0); h.gw = 0;
   fn(h, Te, st, adt);

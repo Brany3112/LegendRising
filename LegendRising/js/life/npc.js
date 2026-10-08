@@ -24,8 +24,9 @@ export {human, animateHuman, lookFor, playerRig, CONTACT, BONE, VIEW};
    frame at the body's tier. live(): whether it is out at all (else not posed, its gait state kept) */
 export function actor(h, id, live = null){
   h.ast = h.ast || {mode:"idle"};
+  const opt = {tier:0};                                           // (one per body, not a new one every frame)
   return SCHED.actor({id, kind:"npc", pos:() => h.g.position,
-    anim:(dt, tier) => { if (!live || live()) animateHuman(h, dt, h.ast, {tier:animTier(h, tier)}); }});
+    anim:(dt, tier) => { if (!live || live()){ opt.tier = animTier(h, tier); animateHuman(h, dt, h.ast, opt); } }});
 }
 
 const col = c => c == null ? null : typeof c === "number" ? c : new THREE.Color().setStyle(String(c)).getHex();
@@ -256,9 +257,16 @@ function lapLoop(x0, x1, z0, z1, R0, obst){
     return out;
   };
   const A = {}, Bq = {};
+  /* the last few points asked for, kept: each step asks for every runner's place twice (before and after the group
+     moves on) and the second answer is the next step's first, so half the asks are answered from here */
+  const MEMO = Array.from({length:8}, () => ({s:NaN, x:0, z:0, w:1, left:0, side:0, ux:0, uz:0})), FIELDS = ["x", "z", "w", "left", "side", "ux", "uz"];
+  let memoAt = 0;
   return {total, prof, R:Rc, at(s, out){
+    for (const m of MEMO) if (m.s === s){ for (const k of FIELDS) out[k] = m[k]; return out; }
     base(s, out); base(s - .15, A); base(s + .15, Bq);
     const dx = Bq.x - A.x, dz = Bq.z - A.z, l = Math.hypot(dx, dz) || 1; out.ux = dx/l; out.uz = dz/l;
+    const m = MEMO[memoAt]; memoAt = (memoAt + 1) % MEMO.length;
+    m.s = s; for (const k of FIELDS) m[k] = out[k];
     return out;
   }};
 }

@@ -53,9 +53,12 @@ function lerpHex(out, h1, h2, t){ _a.setHex(h1); _b.setHex(h2); return out.copy(
 const VERT = `varying vec3 vDir;
 void main(){ vec4 wp = modelMatrix*vec4(position, 1.); vDir = wp.xyz - cameraPosition;
   gl_Position = projectionMatrix*viewMatrix*wp; gl_Position.z = gl_Position.w; }`;
-// uOct: cloud octaves; 0 is the cheap sky of Low, one octave of noise for a single band of cloud
+// uOct: cloud octaves (Medium and High). Low (P.skyOct 0) compiles with SKY_LOW: its single band of cloud is the same
+// value noise read from a small baked texture (cloudNoise), one fetch a pixel instead of four sine hashes, which halved
+// the sky's cost on SwiftShader (the sky is a third of the screen out of doors)
 const FRAG = `uniform vec3 uTop, uHor, uGround, uSun, uSunCol, uMoon, uCloud;
 uniform float uStars, uTime, uCover, uSunUp, uOct;
+uniform sampler2D uNoise;
 varying vec3 vDir;
 float hash(vec3 p){ p = fract(p*.3183099 + .1); p *= 17.; return fract(p.x*p.y*p.z*(p.x + p.y + p.z)); }
 float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
@@ -86,7 +89,11 @@ void main(){
   // clouds on a plane above you, lit from the sun's side
   if (h > 0.){
     vec2 uv = d.xz/(h + .16)*1.3 + vec2(uTime*.006, uTime*.0025);
+    #ifdef SKY_LOW
+    float c = texture2D(uNoise, uv*(.9/64.)).r*.62 + .14;
+    #else
     float c = uOct < .5 ? vnoise(uv*.9)*.62 + .14 : fbm(uv*1.4);
+    #endif
     c = smoothstep(.62 - uCover*.28, .95, c)*smoothstep(0., .28, h);
     vec3 cc = mix(uCloud*.82, uCloud*1.12 + uSunCol*.18, s2*sd);
     col = mix(col, cc, c*.78);
@@ -98,14 +105,48 @@ void main(){
 
 const gp = () => (typeof GFX === "object" && GFX && GFX.P) || null;
 const tierOf = P => (P && P.tier) || "high";
+/* Low's clouds: value noise over a 64 x 64 lattice that repeats, baked once at 4 texels a cell with the shader's own
+   smooth interpolation (so the texture's bilinear filter only blends between smooth samples). The lattice values come
+   from a fixed integer hash: the same sky every time. */
+let NOISE = null;
+function cloudNoise(){
+  if (NOISE) return NOISE;
+  const N = 64, R = 4, S = N*R, lat = new Float32Array(N*N), data = new Uint8Array(S*S*4);
+  for (let i = 0; i < N*N; i++){ let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; lat[i] = (h >>> 0)/4294967296; }
+  const at = (x, y) => lat[((y + N) % N)*N + ((x + N) % N)], sm = f => f*f*(3 - 2*f);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++){
+    const gx = x/R, gy = y/R, ix = Math.floor(gx), iy = Math.floor(gy), fx = sm(gx - ix), fy = sm(gy - iy);
+    const a = at(ix, iy) + (at(ix + 1, iy) - at(ix, iy))*fx, b = at(ix, iy + 1) + (at(ix + 1, iy + 1) - at(ix, iy + 1))*fx;
+    const v = Math.round((a + (b - a)*fy)*255), k = (y*S + x)*4;
+    data[k] = data[k + 1] = data[k + 2] = v; data[k + 3] = 255;
+  }
+  NOISE = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
+  NOISE.wrapS = NOISE.wrapT = THREE.RepeatWrapping;
+  // (no mipmaps: toward the horizon a mip level would average the noise to grey and the clouds would melt away; read
+  // like this it is the same value noise the shader worked out, sample for sample)
+  NOISE.magFilter = NOISE.minFilter = THREE.LinearFilter; NOISE.generateMipmaps = false;
+  NOISE.needsUpdate = true;
+  return NOISE;
+}
 
 export function createSky(renderer){
   let P0 = gp();
   const uni = {uTop:{value:new THREE.Color()}, uHor:{value:new THREE.Color()}, uGround:{value:new THREE.Color(0x101418)},
     uSun:{value:new THREE.Vector3(0, 1, 0)}, uSunCol:{value:new THREE.Color()}, uMoon:{value:new THREE.Vector3(0, -1, 0)},
-    uCloud:{value:new THREE.Color()}, uStars:{value:0}, uTime:{value:0}, uCover:{value:.45}, uSunUp:{value:1}, uOct:{value:5}};
+    uCloud:{value:new THREE.Color()}, uStars:{value:0}, uTime:{value:0}, uCover:{value:.45}, uSunUp:{value:1}, uOct:{value:5},
+    uNoise:{value:null}};
   const skyMat = new THREE.ShaderMaterial({uniforms:uni, vertexShader:VERT, fragmentShader:FRAG, side:THREE.BackSide, depthWrite:false, fog:false});
   skyMat.userData.keep = true;
+  // Low's sky is its own program (SKY_LOW): switched only where a preset is put into effect, behind the fade (its noise
+  // baked the first time Low asks for it: Medium and High never need it)
+  const setLowSky = P => {
+    const low = !!P && !(P.skyOct > 0);
+    if (low && !uni.uNoise.value) uni.uNoise.value = cloudNoise();
+    if (!!skyMat.defines.SKY_LOW === low) return;
+    if (low) skyMat.defines.SKY_LOW = ""; else delete skyMat.defines.SKY_LOW;
+    skyMat.needsUpdate = true;
+  };
+  setLowSky(P0);
   const domeSeg = P => (P && P.dome) || [32, 18];
   let segs = domeSeg(P0);
   const dome = new THREE.Mesh(new THREE.SphereGeometry(360, segs[0], segs[1]), skyMat);
@@ -411,6 +452,7 @@ export function createSky(renderer){
     inFrame(P){ setDome(P); },
     // a preset put into effect behind the fade (quality.js): real lights, shadows, reflections and the dome
     applyPreset(P, renderer, scene){
+      setLowSky(P);
       setRealLights(nRealOf(P));
       shadowFrom(P);
       setEnv(P, renderer);
