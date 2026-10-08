@@ -185,7 +185,8 @@ async function specCheck(withBuilt){
     if (!m.userData.spec) continue;
     const r = B.remat(m), d = diff(m, r);
     if (d.length) res.remat.diff.push(`${tag}: ${d.join("; ")}`); else res.remat.same++;
-    GFX.low = true; const lo = B.remat(m); GFX.low = lowWas;
+    // (Low is the Low preset object since WP-A, DESIGN 1.4.4: every 3D module reads GFX.P, the flag GFX.low only follows it)
+    const Plow = GFX.P; GFX.low = true; GFX.P = GFX_PRESETS.low; const lo = B.remat(m); GFX.low = lowWas; GFX.P = Plow;
     const hi = B.remat(lo), d2 = lo.isMeshLambertMaterial ? diff(m, hi) : ["Low made " + lo.type];
     if (d2.length) res.cycle.diff.push(`${tag}: ${d2.join("; ")}`); else res.cycle.same++;
     // Medium (1.4.4 material "mixed"): Standard for the kinds in its standardKinds, Lambert for the rest
@@ -201,9 +202,9 @@ async function specCheck(withBuilt){
 // every distinct material in the scene swapped for its remat() on Low and then again on High (shared ones staying
 // shared, as quality.js rematerialize will), the frame drawn again
 async function rematScene(){
-  const L = window.__life, sc = L.scene(), B = await import("/js/life/build.js"), lowWas = GFX.low;
+  const L = window.__life, sc = L.scene(), B = await import("/js/life/build.js"), lowWas = GFX.low, Pwas = GFX.P;
   const pass = low => {
-    GFX.low = low; const map = new Map(); let n = 0;
+    GFX.low = low; GFX.P = low ? GFX_PRESETS.low : Pwas; const map = new Map(); let n = 0;
     sc.traverse(o => {
       if (!o.isMesh || !o.material) return;
       const one = m => { if (!m || !m.userData || !m.userData.spec) return m; if (!map.has(m)){ map.set(m, B.remat(m)); n++; } return map.get(m); };
@@ -211,7 +212,7 @@ async function rematScene(){
     });
     for (const k in L.W.mats) if (map.has(L.W.mats[k])) L.W.mats[k] = map.get(L.W.mats[k]);
     for (const m of map.keys()) m.dispose();
-    GFX.low = lowWas; return n;
+    GFX.low = lowWas; GFX.P = Pwas; return n;
   };
   return {low: pass(true), high: pass(false)};
 }

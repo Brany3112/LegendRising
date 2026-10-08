@@ -43,6 +43,31 @@ export function oracleShares(arch){
   for (const g in out) out[g] /= tot;
   return out;
 }
+// The oracle's throw-in moments as a share of all its moments for the archetype
+export function oracleThrowShare(arch){
+  const mix = Object.assign({}, ORACLE.MOMENT_MIX[arch], ORACLE.DEFEND_MIX[arch], ORACLE.EXTRA_MIX[arch]);
+  let tot = 0; for (const keys of Object.values(GROUPS)) for (const k of keys) tot += mix[k] || 0;
+  return tot ? (mix.throwin || 0)/tot : 0;
+}
+// The player's involvement shares for the oracle comparison, with throw-ins counted apart (lead decision for P1a,
+// DESIGN 3.2.12). The 2D match handed out its "Throw-in" moments by position for variety (5 to 18 in a hundred). The
+// simulation gives a throw-in to the full-back or the winger on that flank (rules.js pickTaker), as real football
+// does, so a winger takes two or three times the oracle's share of them; holding that against a 2D design figure
+// would mean making him play less like a winger. So a position's throw-ins count in its set-piece share only up to the
+// oracle's own throw-in rate for that position, and any beyond it are counted apart (left out of the set-piece share
+// and the total, and reported a match as throwApart). A position that takes fewer throw-ins than the oracle keeps them
+// all in the share. groups: his involvements by group over the batch ({attack, create, set, defend}); throwins: how
+// many of the set pieces were throw-ins. Returns {shares, apart}.
+export function involvementShares(arch, groups, throwins){
+  const tot = Object.values(groups).reduce((a, x) => a + x, 0);
+  const q = oracleThrowShare(arch), thr = Math.min(Math.max(0, throwins || 0), groups.set || 0);
+  // kept/(the rest + kept) = q: the throw-ins the oracle's rate allows next to everything else he did
+  const kept = q < 1 ? q/(1 - q)*Math.max(0, tot - thr) : thr;
+  const apart = Math.max(0, thr - kept);
+  const t2 = tot - apart || 1, shares = {};
+  for (const g in groups) shares[g] = (g === 'set' ? groups[g] - apart : groups[g])/t2;
+  return {shares, apart};
+}
 
 /* ---------- the acceptance bands (2.3 WP-E, 4.7) ---------- */
 
@@ -353,10 +378,10 @@ export function aggregate(list){
   }
   R.me = {};
   for (const [k, b] of Object.entries(by)){
-    const tot = Object.values(b.groups).reduce((a, x) => a + x, 0) || 1;
-    const shares = {}; for (const g in b.groups) shares[g] = b.groups[g]/tot;
+    // (throw-ins beyond the oracle's own rate are counted apart: involvementShares)
+    const inv = involvementShares(k, b.groups, b.moments.throwin || 0);
     R.me[k] = {n: b.n, touches: mean(b.touches), shots: mean(b.shots), defActs: mean(b.defActs), gapP95: pct([].concat(...b.gapsAll), 0.95), gapMedian: median(b.gap),
-      shares, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating), pd: mean(b.pd || []), trustJ: mean(b.tj || []),
+      shares: inv.shares, throwApart: inv.apart/b.n, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating), pd: mean(b.pd || []), trustJ: mean(b.tj || []),
       moments: Object.fromEntries(Object.entries(b.moments).map(([q, v]) => [q, Math.round(v/b.n*100)/100]))};
   }
   const allMe = list.filter(m => m.me);
@@ -400,7 +425,8 @@ export function checkReport(R){
     band(`${k} defensive actions`, m.defActs, BANDS.defActs[k]);
     for (const g of Object.keys(m.oracle)){
       const o = m.oracle[g], s = m.shares[g];
-      out.push({name: `${k} ${g} share vs oracle`, value: Math.round(s*1000)/1000, lo: Math.round(o*(1 - BANDS.oracle)*1000)/1000,
+      const apart = g === 'set' && m.throwApart > 0.005 ? ` (throw-ins beyond the oracle's rate counted apart: ${m.throwApart.toFixed(2)} a match)` : '';
+      out.push({name: `${k} ${g} share vs oracle${apart}`, value: Math.round(s*1000)/1000, lo: Math.round(o*(1 - BANDS.oracle)*1000)/1000,
         hi: Math.round(o*(1 + BANDS.oracle)*1000)/1000, pass: s >= o*(1 - BANDS.oracle) && s <= o*(1 + BANDS.oracle)});
     }
   }

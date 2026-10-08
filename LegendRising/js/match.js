@@ -522,6 +522,17 @@ function matchRewards(M, rating, out){
   M = M || MT;
   M.holdToasts = true;          // the full-time card is coming: what full time toasts waits until you leave (ui/main.js)
   const R = {rating, composure:0};
+  // he never got on (rating null: a substitute left on the bench, or one still on it when a crash cut the match short,
+  // bridge.finish): no rating, no appearance, no bonus and nothing on his record, the manager's trust and the
+  // reputation as they were; only the day in his legs (1.5.2 at 0 minutes)
+  if (rating == null){
+    const f = M.f, me = meP(), [us, th] = M.score;
+    Object.assign(R, {dnp:true, res:us > th ? "W" : us < th ? "L" : "D", motm:false, motmId:out ? out.motm : -1, bonus:0, xp:0, trustD:0, chemD:0,
+      rep:me.rep, repD:0, wrep:me.wrep, wrepD:0, repName:(COMP_REP[repTier(f)] || COMP_REP.L).nm, mins:0, fatigue:legsAfter(M, 0)});
+    A._matchFatigue = R.fatigue;
+    save();
+    return R;
+  }
   if (M.stad && M.stad.crowd >= 8000 && Math.random() < .35 && S.skills.composure < 99){ S.skills.composure++; R.composure = 1; toast("Big-game experience: Composure +1", "good"); }
   const my = M.my, [us, th] = M.score, res = us > th ? "W" : us < th ? "L" : "D", f = M.f, me = meP(), friendly = f.kind === "F";
   const motm = !!out && out.motm === S.meId;
@@ -578,9 +589,7 @@ function matchRewards(M, rating, out){
   S.lastMatch = {gw:gw(), rating, goals:my.goals, assists:my.assists, res, opp:M.nameThem, score:`${us}–${th}`, motm};
   // the legs pay for it (1.5.2): the minutes on the pitch and how hard they worked, tomorrow's fatigue
   const mins = minutesOn(M);
-  const drain = M.drainPerMin != null ? M.drainPerMin : WR.drain[S.workrate || 2];
-  const intensity = clamp(drain/.56, 0, 1);
-  const fatigue = Math.round(8 + 24*(mins/90)*(.7 + .6*intensity));   // a substitute left on the bench still had the day
+  const fatigue = legsAfter(M, mins);
   A._matchFatigue = fatigue;
   R.mins = mins; R.fatigue = fatigue;
   // playing together builds the group; a good night more so
@@ -591,6 +600,13 @@ function matchRewards(M, rating, out){
   else if (my.goals >= 2) addNews("you", `${my.goals >= 3 ? "Hat-trick" : "Brace"} for ${S.player.name}!`, `${M.nameUs} ${us}–${th} ${M.nameThem}.`, "me");
   save();
   return R;
+}
+// tomorrow's fatigue from a match (1.5.2): 8 for the day itself (a substitute left on the bench still had it), and up
+// to 24 more for the minutes on the pitch, by how hard they worked (the mean drain a minute, else the work rate's)
+function legsAfter(M, mins){
+  const drain = M.drainPerMin != null ? M.drainPerMin : WR.drain[S.workrate || 2];
+  const intensity = clamp(drain/.56, 0, 1);
+  return Math.round(8 + 24*(mins/90)*(.7 + .6*intensity));
 }
 // the player's match minutes: from MT.on (pairs of match minutes) when every interval has closed, else as the 2D match
 // counts them (a starter the whole game, a substitute from when he came on, a rotation player until he went off)
@@ -648,7 +664,7 @@ function scorerLine(list){
 // chemistry changes, reputation, the stats, the highlights (the 3D match's clips carry data-clip; the 2D match's
 // moments their replay). R: matchRewards' result (plus around: the league's other results). Buttons are the caller's.
 function ftCardHTML(M, R){
-  const f = M.f, [us, th] = M.score, my = M.my, me = meP(), rating = R.rating;
+  const f = M.f, [us, th] = M.score, my = M.my, me = meP(), rating = R.rating, dnp = rating == null;
   const h = M.home ? us : th, a = M.home ? th : us;
   const hGoals = M.home ? M.usGoals : M.themGoals, aGoals = M.home ? M.themGoals : M.usGoals;
   const mo = R.motmId != null && R.motmId >= 0 ? W.players[R.motmId] : null;
@@ -660,9 +676,10 @@ function ftCardHTML(M, R){
   return `<div class="eyebrow">Full time · ${esc(compLabel(f))}</div>
     <h2>${esc(sideName(f,"h"))} ${h} – ${a} ${esc(sideName(f,"a"))}</h2>
     ${sc[0] || sc[1] ? `<div class="muted small ft-scorers"><span>${sc[0]}</span><span>${sc[1]}</span></div>` : ""}
-    <div class="ft-grid"><div class="ft-rating ${rating >= 7.5 ? "hi" : rating < 6 ? "lo" : ""}"><b>${rating}</b><span>Your rating</span></div>
-      <div class="ft-list"><div>${my.goals} goals · ${my.assists} assists</div><div>${my.dribbles} dribbles · ${my.spass + my.lpass}/${my.passAtt} passes</div><div>${my.onTarget}/${my.shots} shots on target</div>
-      ${mo ? `<div>Man of the match: <b>${esc(pname(mo))}</b></div>` : ""}<div class="gold">+${Math.round(R.xp || 0)} XP${R.bonus ? ` · +${eur(R.bonus)} bonuses` : ""}</div>
+    <div class="ft-grid">${dnp ? `<div class="ft-rating dnp"><b>Bench</b><span>You didn't get on</span></div>`
+      : `<div class="ft-rating ${rating >= 7.5 ? "hi" : rating < 6 ? "lo" : ""}"><b>${rating}</b><span>Your rating</span></div>`}
+      <div class="ft-list">${dnp ? `<div>The manager kept you on the bench today.</div>` : `<div>${my.goals} goals · ${my.assists} assists</div><div>${my.dribbles} dribbles · ${my.spass + my.lpass}/${my.passAtt} passes</div><div>${my.onTarget}/${my.shots} shots on target</div>`}
+      ${mo ? `<div>Man of the match: <b>${esc(pname(mo))}</b></div>` : ""}${dnp ? "" : `<div class="gold">+${Math.round(R.xp || 0)} XP${R.bonus ? ` · +${eur(R.bonus)} bonuses` : ""}</div>`}
       ${chem ? `<div class="${chem > 0 ? "good" : "bad"}">Team Chemistry ${chem > 0 ? "+" : "−"}${Math.abs(chem).toFixed(1)}</div>` : ""}
       ${trust ? `<div class="${trust > 0 ? "good" : "bad"}">The manager's trust ${trust > 0 ? "+" : "−"}${Math.abs(trust).toFixed(1)}</div>` : ""}</div></div>
     <div class="odo-wrap">${odoHTML(R.rep != null ? R.rep : me.rep, R.repD || 0, `Reputation · ${R.repName || ""}`)}${R.wrepD ? odoHTML(R.wrep, R.wrepD, "World reputation") : ""}</div>

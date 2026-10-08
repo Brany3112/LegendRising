@@ -8,6 +8,15 @@
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (ms.r = mulberry32(cfg.seed)).
 //
+// LEVEL, the one calibration knob of live play outside the tempo table (DESIGN D28): at kick-off every AI player of
+// each side has his attributes moved LEVEL (0.74) of the way from his side's mean overall toward the middle of the two
+// sides' (with cfg.ovr; attrs.js levelled). Without it a side 10 overall higher wins about 80% of the time (79% of the
+// 46 such matches in a 300-match harness run with LEVEL 0), against the 55 to 62% that 2.3 WP-E asks for, because over
+// a whole simulated match every small edge in pace, passing and finishing compounds. It is frozen at kick-off like the
+// tempo, the same rule for both sides, never changes during a match and directs nothing. The player himself is never
+// levelled: he plays with his own numbers (his skills as they are on the day, bridge.effSkills), so every point he
+// trains still counts in full.
+//
 //   const ms = createMatch(cfg);            // bridge.matchConfig(f, MT) or a test config
 //   on(ms, 'goal', ev => ...);
 //   live: const alpha = advance(ms, dtReal); headless: runHeadless(ms, 5400, 12);
@@ -25,7 +34,7 @@ import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
 import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul, liveRoll} from "./rules.js";
 import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, bodyContact, steer, standStill} from "./actions.js";
-import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf, dribbleWatch} from "./events.js";
+import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf, onSec, dribbleWatch} from "./events.js";
 import {judgeDecision} from "./judge.js";
 import {hypot, sin, cos} from "./detmath.js";
 import {flightTime} from "./strike.js";
@@ -63,8 +72,7 @@ export function createMatch(cfg){
   const rate = cfg.clockRate || 45*60/halfRealSec;
   const ms = {
     cfg, r: mulberry32(cfg.seed >>> 0), t: 0, step: 0, spec,
-    // (clock.total: the match seconds played so far, both halves and their added time; on-pitch intervals use it)
-    phase: 'pre', half: 1, clock: {sec: 0, rate, added: 0, running: false, total: 0},
+    phase: 'pre', half: 1, clock: {sec: 0, rate, added: 0, running: false},
     score: [0, 0], dirs: [1, -1],
     agents: [], bench: [[], []], me: -1, gks: [-1, -1],
     ball: null, bw: null, quiet: null, pred: new Float32Array(360), predN: 0, predAt: -1, predT: 0, predSeq: 0,
@@ -209,12 +217,10 @@ function applyResume(ms){
   ms.stats.goals = ms.score.slice();
   ms.half = rs.half || 1;
   ms.clock.sec = rs.sec || 0;
-  // the match seconds played before the checkpoint (its running total; a record from before it was kept has only the
-  // half and the second)
-  ms.clock.total = rs.total != null && Number.isFinite(+rs.total) ? +rs.total : (ms.half - 1)*2700 + ms.clock.sec;
   if (ms.half === 2) ms.dirs = [-1, 1];
-  // everyone in the line-up is on from the checkpoint's second
-  for (const a of ms.agents) if (a.on.length) a.on[0][0] = ms.clock.total;
+  // everyone in the line-up is on from the checkpoint's second (in match seconds, events.onSec)
+  const on0 = onSec(ms);
+  for (const a of ms.agents) if (a.on.length) a.on[0][0] = on0;
   for (const t of [0, 1]) for (const p of ms.bench[t]) if (p.isMe) p.used = true;
   if (ms.me >= 0){
     const me = ms.agents[ms.me];
@@ -225,7 +231,7 @@ function applyResume(ms){
       p.used = true;
       const a = createAgent({id: ms.agents.length, pid: p.pid, team: t, slot: me.slot, arch: p.arch || me.arch, at: p.at, energy: p.energy,
         name: p.name, number: p.number, x: 0, z: 0});
-      a.slotLine = me.slotLine; a.on.push([ms.clock.total, null]); a.onT.push([0, null]); a.prm = Object.assign({}, a.prm, {bounds: ms.spec.runoff});
+      a.slotLine = me.slotLine; a.on.push([on0, null]); a.onT.push([0, null]); a.prm = Object.assign({}, a.prm, {bounds: ms.spec.runoff});
       a.fac = stamFactors(a.st, 1, {});
       ms.agents.push(a);
     }
@@ -503,7 +509,7 @@ export function secondHalf(ms){
 // full time: everyone's time on the pitch closes, the phase ends
 function finishUp(ms){
   for (const a of ms.agents){
-    const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = ms.clock.total;
+    const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = onSec(ms);
     const ivT = a.onT[a.onT.length - 1]; if (ivT && ivT[1] == null) ivT[1] = ms.t;
   }
   ms.clock.running = false; ms.clock.ended = true;

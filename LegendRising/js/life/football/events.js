@@ -29,6 +29,11 @@ export function minuteOf(ms, sec = ms.clock.sec, half = ms.half){
   const m = Math.floor(sec/60) + 1, cap = 45;
   return (half - 1)*45 + Math.min(m, cap);
 }
+// The match second on the clock's own scale, the one the on-pitch intervals use (a.on, 1.4.13): the half's seconds up
+// to 45:00 with its added time held there, plus 2700 in the second half. A player's minutes come from it the way
+// football counts them, whatever the added time: 90 for the whole match, 28 for a substitute on after 62 minutes, and
+// MT.on never runs past 90.
+export function onSec(ms, sec = ms.clock.sec, half = ms.half){ return (half - 1)*2700 + Math.min(sec, 2700); }
 export function addedOf(ms, sec = ms.clock.sec){
   return sec >= 2700 ? Math.floor((sec - 2700)/60) + 1 : 0;
 }
@@ -372,11 +377,11 @@ function onAt(a, t){
   for (const iv of a.onT) if (t >= iv[0] && (iv[1] == null || t <= iv[1])) return true;
   return false;
 }
-// match minutes on the pitch, from the agent's intervals in match seconds (a.on, the clock's running total: both halves
-// and their added time, never the half-time break or anything between the halves), at most 90
+// match minutes on the pitch, from the agent's intervals in match seconds (a.on, on the clock's own scale: onSec), at
+// most 90
 export function minsOn(ms, a){
   let s = 0;
-  for (const iv of a.on){ const e = iv[1] == null ? ms.clock.total : iv[1]; s += Math.max(0, e - iv[0]); }
+  for (const iv of a.on){ const e = iv[1] == null ? onSec(ms) : iv[1]; s += Math.max(0, e - iv[0]); }
   return clamp(Math.round(s/60), 0, 90);
 }
 

@@ -110,6 +110,70 @@ let full = null;
   for (const k of ['S', 'W', 'MT', 'finaliseMatch', 'matchRewards']) delete globalThis[k];
 }
 
+/* ---------- a substitute's interrupted match (3.4.4, D15): after the crash nobody plays him, nothing is made up ---------- */
+{
+  const cfg0 = configFor(7);
+  const meTeam = cfg0.me.team, oppTeam = 1 - meTeam;
+  const pl = {};
+  for (const t of [0, 1]) for (const p of cfg0.teams[t].players.concat(cfg0.teams[t].bench)) pl[p.pid] = {id: p.pid, ovr: p.ovr || 50, pos: p.isGK ? 'GK' : 'CM', no: p.number, me: !!p.isMe};
+  const mePid = cfg0.teams[meTeam].players.find(p => p.isMe).pid;
+  globalThis.S = {cid: "unit-sub", skills: {power: 55, aero: 50, curve: 50, accuracy: 55, passing: 55, passacc: 55, pace: 60, dribbling: 55, stamina: 60, composure: 50,
+    tackling: 45, interception: 45, jumping: 50, heading: 50}, traits: {team: 50, conf: 50, dec: 50, risk: 50}, items: {}, energy: 90, fatigue: 10, trust: 20, chem: 50,
+    speed: 2, player: {name: "Unit Sub", foot: "Right", teamPos: cfg0.teams[meTeam].players.find(p => p.isMe).slot}, life: {}, meId: mePid, level: 4, sp: 0};
+  globalThis.W = {players: pl, season: 1, done: {}, clubs: {}};
+  // the squads the bench is picked from (bridge sideTeam: squadOf)
+  const squad = t => cfg0.teams[t].players.concat(cfg0.teams[t].bench).map(p => pl[p.pid]);
+  globalThis.squadOf = id => squad(id === 1 ? meTeam : oppTeam);
+  const xi = t => cfg0.teams[t].players.map(p => pl[p.pid]);
+  const mt = () => ({f: {key: "U2", kind: "L"}, home: meTeam === 0, usId: 1, themId: 2, usXI: xi(meTeam), themXI: xi(oppTeam), role: "sub", subOn: 60,
+    nameUs: "Us", nameThem: "Them", myKit: null, oppKit: null, stad: {tier: 2, crowd: 5000}, nerves: 0, tired: 0, my: {}, score: [0, 0], usGoals: [], themGoals: []});
+  globalThis.MT = mt();
+  let finalised = null, rewarded = null;
+  globalThis.finaliseMatch = (f, hx, ax, hG, aG, fixed) => { finalised = {hx: hx.map(p => p.id), ax: ax.map(p => p.id), fixed}; return {motm: -1, rt: fixed}; };
+  globalThis.matchRewards = (M, rating) => { rewarded = {rating, on: M.on}; return {rating}; };
+  const cfg = B.matchConfig(MT.f, MT, {seed: 77});
+  check(cfg.roleTimes.subOn === 60, "a substitute's match plans his call (roleTimes.subOn)", cfg.roleTimes);
+  const ms = createMatch(Object.assign(cfg, {meAI: true, htAuto: true}));
+  check(ms.me < 0 && ms.bench[meTeam].some(p => p.isMe && !p.used), "he starts on the bench");
+  runHeadless(ms, 30*60);
+  const rec30 = JSON.parse(JSON.stringify(B.checkpoint(ms)));
+  runHeadless(ms, 72*60);
+  const meNow = ms.me >= 0 ? ms.agents[ms.me] : null;
+  check(meNow && meNow.onPitch, "the planned call brings him on in the uninterrupted match", {me: ms.me});
+  const rec72 = JSON.parse(JSON.stringify(B.checkpoint(ms)));
+  check(rec30.on.length === 0 && rec30.counters === null, "the checkpoint at 30': still on the bench, no counters", {on: rec30.on, counters: rec30.counters});
+  check(rec72.on.length === 1 && rec72.on[0][0] >= 59 && rec72.on[0][0] <= 70 && rec72.on[0][1] >= 70 && rec72.on[0][1] <= 73 && rec72.counters && rec72.counters.mins > 0,
+    "the checkpoint at 72': on from his call, in match minutes (MT.on never runs past the clock)", {on: rec72.on, mins: rec72.counters && rec72.counters.mins});
+  const resumeRun = rec => {
+    globalThis.MT = mt(); S.life = {inMatch: rec};
+    const rc = B.matchConfig(MT.f, MT, {resume: rec});
+    const r = createMatch(Object.assign(rc, {meAI: true, htAuto: true}));
+    runHeadless(r);
+    const asMe = r.agents.filter(a => a.isMe).length;
+    const evMe = r.events.filter(e => e.agent != null && e.agent >= 0 && r.agents[e.agent] && r.agents[e.agent].isMe).length;
+    finalised = null; rewarded = null;
+    const fin = B.finish(r);
+    return {r, rc, asMe, evMe, fin};
+  };
+  // resumed while he was still on the bench: never brought on, so no rating at all
+  {
+    const {r, rc, asMe, evMe, fin} = resumeRun(rec30);
+    check(!rc.roleTimes.subOn && r.phase === 'over' && r.me < 0 && asMe === 0 && evMe === 0,
+      "resumed at 30' from the bench: his call is dropped and nobody plays him in the remainder", {roleTimes: rc.roleTimes, me: r.me, asMe, evMe});
+    check(fin.rating === null && rewarded && rewarded.rating === null && finalised && !(mePid in finalised.fixed) && !finalised.hx.concat(finalised.ax).includes(mePid),
+      "resumed at 30' from the bench: no rating is made up (null to matchRewards), no appearance in the world's line-ups", {rating: fin.rating, fixed: finalised && finalised.fixed[mePid]});
+  }
+  // resumed after he came on: off at the checkpoint, rated on what he did before it
+  {
+    const {r, asMe, evMe, fin} = resumeRun(rec72);
+    check(r.phase === 'over' && r.me < 0 && asMe === 0 && evMe === 0, "resumed at 72' after his call: substituted at the checkpoint, nobody plays him in the remainder", {me: r.me, asMe, evMe});
+    check(typeof fin.rating === 'number' && rewarded.rating === fin.rating && finalised.fixed[mePid] === fin.rating && finalised[meTeam === 0 ? 'hx' : 'ax'].includes(mePid)
+      && JSON.stringify(rewarded.on) === JSON.stringify(rec72.on), "resumed at 72': his rating from the checkpoint's counters, in the world's line-up, his minutes from the checkpoint",
+      {rating: fin.rating, on: rewarded.on});
+  }
+  for (const k of ['S', 'W', 'MT', 'finaliseMatch', 'matchRewards', 'squadOf']) delete globalThis[k];
+}
+
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});
 fs.writeFileSync(path.join(ROOT, "qa", "out", "unit-sim.json"), JSON.stringify(res, null, 1));
 console.log(`${res.checks.filter(c => c.pass).length}/${res.checks.length} checks pass`);

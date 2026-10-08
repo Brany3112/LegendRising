@@ -841,7 +841,7 @@ const A = {
     // a line that backfires still gets you talked about — it just costs you the dressing room
     const gain = Math.max(3, Math.round((8 + me.rep*.012)*l.rep*styleMul()*(back ? .6 : 1)));
     me.rep += gain; me.wrep += Math.round(gain*.18);
-    S.trust = clamp(S.trust + (back ? l.trust - 8 : l.trust), -30, 80);
+    trustAdd(back ? l.trust - 8 : l.trust);
     addNews("you", back ? `${S.player.name}'s words go down badly` : `${S.player.name} speaks to the press`,
       `“${l.say}” ${back ? "It has not landed well inside the club." : ""}`.trim(), "me");
     if (typeof socialEvent === "function") try{ socialEvent("media", l.t); }catch(e){}

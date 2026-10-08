@@ -70,7 +70,7 @@ function postReaction(ctx, text){
   meP().rep = Math.max(0, meP().rep + fromPost
     + (tone === "humble" || tone === "sorry" ? 2 : tone === "toxic" ? -4 : tone === "brag" && s.brag > 3 ? -2 : 0));
   if (worth) meP().wrep = Math.max(0, meP().wrep + Math.round(fromPost*.3));
-  if (tone === "toxic" && /team|coach|antrenor|echip/.test(text.toLowerCase())) S.trust -= 6;
+  if (tone === "toxic" && /team|coach|antrenor|echip/.test(text.toLowerCase())) trustAdd(-6);
   if (ctx.type === "mention" && ctx.extra && ctx.extra.by != null){
     const by = W.players[ctx.extra.by];
     if (tone === "toxic") s.feed.unshift(npcPost(by, pick([`@${s.handle} talk less, play better.`, `Keep crying @${s.handle} 😂`, `Some people can't take criticism. @${s.handle}`]), true));

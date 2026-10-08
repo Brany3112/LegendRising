@@ -13,7 +13,7 @@
 import {createMatch, TEMPO, HALF_REAL, CALIBRATED} from "./sim.js";
 import {attrsForPlayer, attrsForAI} from "./attrs.js";
 import {makePitch} from "./pitchspec.js";
-import {countersAll, ratingsAll, rateAgent, deriveMy, teamStats, goalLists, highlights, minuteOf, minsOn} from "./events.js";
+import {countersAll, ratingsAll, rateAgent, deriveMy, teamStats, goalLists, highlights, minuteOf, minsOn, onSec} from "./events.js";
 import {judgeDecision} from "./judge.js";
 import {hashStr} from "./rng.js";
 
@@ -146,7 +146,7 @@ export function matchConfig(f, M = MT, opts = {}){
     const r = opts.resume;
     cfg.seed = (r.seed + (r.step || 0)) >>> 0;
     cfg.resume = {score: (r.score || [0, 0]).slice(), goals: r.goals || {home: [], away: []}, half: r.half || 1, sec: r.sec || 0,
-      total: r.tot != null ? r.tot : null, subsUsed: (r.subsUsed || [0, 0]).slice(), counters: r.counters || null, on: r.on || [],
+      subsUsed: (r.subsUsed || [0, 0]).slice(), counters: r.counters || null, on: r.on || [],
       my: r.my || null, mins: r.mins || 0};
   }
   return cfg;
@@ -196,10 +196,10 @@ function meAgent(ms){
   if (ms.resumedMe != null) return ms.agents[ms.resumedMe];
   return ms.agents.find(a => a.isMe) || null;
 }
-// his on-pitch intervals in match minutes (a.on is in match seconds: 1.4.13)
+// his on-pitch intervals in match minutes (a.on is in match seconds on the clock's own scale: 1.4.13, events.onSec)
 function onMinutes(ms, a){
   if (!a) return [];
-  return a.on.map(iv => [Math.round(iv[0]/60), Math.round((iv[1] == null ? ms.clock.total : iv[1])/60)]);
+  return a.on.map(iv => [Math.round(iv[0]/60), Math.round((iv[1] == null ? onSec(ms) : iv[1])/60)]);
 }
 
 // The checkpoint (3.4.4, 1.7): S.life.inMatch from the state now; the caller saves straight after (persistNow) at a
@@ -209,8 +209,7 @@ export function checkpoint(ms){
   if (!f || !S.life) return null;
   const C = countersAll(ms), me = meAgent(ms), c = me ? C[me.id] : null;
   const rs = ms.cfg.resume;
-  const rec = {v: 1, fkey: f.key, cid: S.cid != null ? S.cid : null, seed: ms.cfg.seed >>> 0, half: ms.half, sec: Math.round(ms.clock.sec*100)/100,
-    tot: Math.round(ms.clock.total*100)/100, step: ms.step,
+  const rec = {v: 1, fkey: f.key, cid: S.cid != null ? S.cid : null, seed: ms.cfg.seed >>> 0, half: ms.half, sec: Math.round(ms.clock.sec*100)/100, step: ms.step,
     score: ms.score.slice(), goals: goalLists(ms), my: me ? deriveMy(ms, me.id, C) : null, counters: c ? Object.assign({}, c) : (rs && rs.counters) || null,
     role: MT.role || "starter", on: me ? onMinutes(ms, me) : [], mins: c ? c.mins : 0, energy: me ? Math.round(me.energy*10)/10 : +S.energy || 0,
     fatigueAcc: me ? Math.round(me.acc.drain*100)/100 : 0, booked: me ? (me.booked || 0) + (me.sentOff ? 1 : 0) : 0, subsUsed: ms.subs.used.slice(), late: !!MT.late,
@@ -263,28 +262,42 @@ export function finish(ms){
   const us = MT.home ? 0 : 1;
   const me = meAgent(ms);
   const rs = ms.cfg.resume || null;
-  // the player: his own counters; after a crash, the counters of the checkpoint (he came off there)
-  let myC = me ? C[me.id] : null, rating = me ? RT[me.id] : null;
-  if (rs && rs.counters && (!me || !me.on.length)){
-    myC = rs.counters;
-    const my = ms.score[us], th = ms.score[1 - us];
-    const slot = ms.cfg.me && ms.cfg.me.slot;
-    rating = rateAgent(myC, me ? me.arch : slot ? archOfSlot(slot) : "CM", {mins: myC.mins, res: my > th ? "W" : my < th ? "L" : "D", conceded: myC.conceded, sub: true});
+  // the player's record in the world: his agent's, or (a substitute who never stepped on in this simulation) the bench's
+  const meBench = ms.bench[us] ? ms.bench[us].find(p => p.isMe) : null;
+  const mePid = me && me.pid != null ? me.pid : meBench ? meBench.pid : null;
+  // the player: his own counters; after a crash, the counters of the checkpoint (he came off there, 3.4.4). He is rated
+  // only when he was on the pitch: a substitute who never got on (left on the bench, or still on it at the checkpoint
+  // of a crash) has no rating at all (null: matchRewards gives him no appearance), never a made-up one
+  const resumedOff = !!(rs && (!me || !me.on.length));
+  const onBefore = !!(rs && rs.counters && ((rs.counters.mins || 0) > 0 || (rs.on || []).some(iv => iv && iv[1] > iv[0])));
+  const played = resumedOff ? onBefore : !!(me && me.on.length);
+  let myC = me ? C[me.id] : null, rating = me && played ? RT[me.id] : null;
+  if (resumedOff){
+    myC = rs.counters || null;
+    rating = null;
+    if (played){
+      const my = ms.score[us], th = ms.score[1 - us];
+      const slot = ms.cfg.me && ms.cfg.me.slot;
+      rating = rateAgent(myC, me ? me.arch : slot ? archOfSlot(slot) : "CM", {mins: myC.mins, res: my > th ? "W" : my < th ? "L" : "D", conceded: myC.conceded, sub: true});
+    }
   }
-  if (rating == null) rating = 6.0;
-  // the world: both line-ups (with the substitutes who came on), the goals, the ratings fixed
+  // the world: both line-ups (with the substitutes who came on, and the player whenever he played), the goals, the
+  // ratings fixed
   const xiOf = team => {
     const out = [], seen = new Set();
     for (const a of ms.agents){
-      if (a.team !== team || a.role !== "player" || !(a.on.length || (rs && a === me))) continue;
+      if (a.team !== team || a.role !== "player" || !(a.on.length || (played && a === me))) continue;
       const p = a.pid != null && W.players ? W.players[a.pid] : null;
       if (p && !seen.has(p.id)){ seen.add(p.id); out.push(p); }
     }
+    // (a substitute who played before the crash and is not in the rebuilt match)
+    const p = team === us && played && !me && mePid != null && W.players ? W.players[mePid] : null;
+    if (p && !seen.has(p.id)){ seen.add(p.id); out.push(p); }
     return out;
   };
   const fixed = {};
   for (const a of ms.agents){ if (a.role === "player" && a.pid != null && RT[a.id] != null) fixed[a.pid] = RT[a.id]; }
-  if (me && me.pid != null) fixed[me.pid] = rating;
+  if (mePid != null){ if (played) fixed[mePid] = rating; else delete fixed[mePid]; }
   const G = goalLists(ms);
   const hx = xiOf(0), ax = xiOf(1);
   const out = has("finaliseMatch") ? finaliseMatch(MT.f, hx, ax, G.home, G.away, fixed) : {motm: -1, rt: fixed};

@@ -85,9 +85,10 @@ function clearScene(){
 let spawns = {};
 // opts.cam: the pose the first frames will be drawn from ({pos, look}), to warm up from
 function enterZone(zone, at, opts = null){
-  // a zone nobody has registered (its module not loaded yet: stadium.js registers itself when it is imported) is
-  // refused before anything is torn down, never built as the flat under another zone's name
-  if (!zoneSpec(zone)){ console.error(`enterZone: no zone "${zone}" is registered (is its module loaded?)`); return false; }
+  // a zone nobody has registered (its module not loaded yet: stadium.js registers itself when it is imported) is a
+  // caller's mistake: it throws before anything is torn down, so the place you are in stays as it was, and nothing is
+  // ever built as the flat under another zone's name
+  if (!zoneSpec(zone)) throw new Error(`enterZone: no zone "${zone}" is registered. Import its module (it registers itself) before entering it.`);
   if (mode() !== "life" && modeFlags().leaveOnZone) exitMode("zone");
   if (BM.on) buildExit();
   const was = zoneSpec(LIFE.zone); if (was && was.leave) was.leave();

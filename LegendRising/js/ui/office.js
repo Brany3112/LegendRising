@@ -144,13 +144,13 @@ function checkRaise(){
   const c = myClub();
   if (!c || !S.contract){ S.raise = null; return; }   // the deal was with a manager you no longer have
   if (raiseMet()){
-    S.contract.wage = d.wage; S.raise = null; S.trust += 6;
+    S.contract.wage = d.wage; S.raise = null; trustAdd(6);
     addNews("you", "Pay rise agreed", `${c.nm} move you to ${eur(d.wage)}/week — you hit every number the manager asked for.`, "me");
     raiseBox(d);
     return;
   }
   if (gw() >= d.deadline){
-    S.raise = null; S.trust -= 4; S.contract.raiseCool = gw() + 10;
+    S.raise = null; trustAdd(-4); S.contract.raiseCool = gw() + 10;
     addNews("you", "No rise this time", `You fell short of the targets the manager set. Your wage stays at ${eur(S.contract.wage)}/week.`, "me");
     msg(c.nm, "You did not get there. The offer is off the table for now — keep playing and we will look again.");
   }
@@ -311,7 +311,7 @@ function askPos(to){
   }
   S.player.asked = to; assignTeamPos();             // his slot for you, kept until you change clubs
   S.posCool = gw() + POS_COOL;
-  S.trust = Math.max(0, S.trust - 4);                 // a new job, and you start again proving it
+  trustAdd(Math.max(0, S.trust - 4) - S.trust);     // a new job, and you start again proving it: 4 off, never below 0
   POS_ANSWER = {ok:true, to, line:`Right. From Saturday you play ${POSITIONS[to].name.toLowerCase()}. Show me you can do it.`};
   addNews("you", `${S.player.name} moves to ${POSITIONS[to].name.toLowerCase()}`, `${myClub().nm} give him a new job in the side.`, "me");
   save(); renderHub(); openSheet("pos");

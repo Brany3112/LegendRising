@@ -42,15 +42,15 @@ export const BRAIN = Object.freeze({
   // still in his own half, where a forward who has tracked back goes in, while up the pitch he only harries); how long
   // (s) he goes without being in the play before he comes to show for it (a winger holds the width longest); how much
   // higher (m) he plays with his side on the ball in their half (a forward getting into the box), and how much deeper
-  // with it in his own half (a ten coming short for it); box false: at his side's corners and free kicks into the box
-  // he waits outside it for the ball headed out instead of going in for the delivery (a winger). 1, Infinity, 0 or
-  // true: as the AI does.
+  // with it in his own half (a ten coming short for it). 1, Infinity or 0: as the AI does. At set pieces he takes the
+  // place the AI would give him (restartShape); the winger's throw-ins are counted apart from the oracle comparison
+  // instead (harness.js involvementShares, DESIGN 3.2.12).
   ME: {
-    ST: {shoot: 2, dribble: 1.8, tackle: 1, back: 2.5, seek: 10, up: 6, drop: 0, box: true},
-    W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 8, drop: 0, box: false},
-    AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 5, up: 4, drop: 8, box: true},
-    CM: {shoot: 1, dribble: 1, tackle: 4, back: 1, seek: 6, up: 0, drop: 0, box: true},
-    DF: {shoot: 1, dribble: 1, tackle: 1, back: 1, seek: 12, up: 0, drop: 0, box: true}
+    ST: {shoot: 2, dribble: 1.8, tackle: 1, back: 2.5, seek: 10, up: 6, drop: 0},
+    W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 8, drop: 0},
+    AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 5, up: 4, drop: 8},
+    CM: {shoot: 1, dribble: 1, tackle: 4, back: 1, seek: 6, up: 0, drop: 0},
+    DF: {shoot: 1, dribble: 1, tackle: 1, back: 1, seek: 12, up: 0, drop: 0}
   },
   ME_RANGE: 36, ME_DRIVE: 0.6,
   TAKE_ON: 3.0,              // a dribble at a man within this distance in front is a take-on: a burst past him
@@ -1115,11 +1115,7 @@ export function restartShape(ms){
       case 'corner': {
         const side = sp.z > 0 ? 1 : -1;
         if (a === tk){ shift(a, sp.x + (sp.x > 0 ? 0.9 : -0.9)*0.7, sp.z + side*0.9, 'taker'); break; }
-        if (team === att && outOfBox(ms, a)){
-          // (the stand-in for a winger: just outside the box on the corner's side, for the ball headed out to the wing;
-          // a winger chasing the ball out of play is near there already, and never crosses the box to get to it)
-          shift(a, gxA - dirA*19.5, side*24, 'second');
-        } else if (team === att){
+        if (team === att){
           const k = (a.cornerRole != null ? a.cornerRole : (a.cornerRole = cornerSlot(ms, a)));
           const spots = [[5.5, side*2.5, 'near'], [7, -side*3.8, 'far'], [11, 0, 'spot'], [17.5, side*-2, 'edge'], [6, 0, 'six']];
           if (k < spots.length){ const s = spots[k]; shift(a, gxA - dirA*s[0], s[1], s[2]); }
@@ -1149,9 +1145,7 @@ export function restartShape(ms){
           const lineD = clamp(0.5*dGoal, 11, 18), lx = gxA - dirA*lineD;
           const k = a.fkRole != null ? a.fkRole : (a.fkRole = fkSlot(ms, a, team === att));
           if (team === att){
-            // (the stand-in for a winger stays out of the box: wide of it on the kick's side, for the ball headed out)
-            if (outOfBox(ms, a)) shift(a, gxA - dirA*20, (sp.z >= 0 ? 1 : -1)*24, 'second');
-            else if (k < 6){ shift(a, lx - dirA*0.6, clamp(sp.z*0.3 + (k - 2.5)*3.6, -16, 16), 'box'); }
+            if (k < 6){ shift(a, lx - dirA*0.6, clamp(sp.z*0.3 + (k - 2.5)*3.6, -16, 16), 'box'); }
             else { const q = teamToPitch(ms, team, L*0.5 - 4, Wd/2 + (k % 2 ? 9 : -9), {x: 0, z: 0}); shift(a, q.x, q.z, 'back'); }
           } else {
             if (k < 7){ shift(a, lx, clamp(sp.z*0.3 + (k - 3)*3.2, -16, 16), 'line'); }
@@ -1200,8 +1194,7 @@ export function restartShape(ms){
 // a free kick in range: the order players take their places on the line (the best in the air first; for the defence,
 // the defenders first), the rest stay back or keep their shape
 function fkSlot(ms, a, attacking){
-  const team = a.team, R0 = ms.restart, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && !o.leaving && o.id !== R0.taker && !o.wall
-      && !(attacking && outOfBox(ms, o)))
+  const team = a.team, R0 = ms.restart, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && !o.leaving && o.id !== R0.taker && !o.wall)
     .sort((p, q) => attacking ? (q.at.heading + q.at.jumping) - (p.at.heading + p.at.jumping) || p.id - q.id
       : (p.slotLine === 'DF' ? 0 : 1) - (q.slotLine === 'DF' ? 0 : 1) || (q.at.heading - p.at.heading) || p.id - q.id);
   return list.indexOf(a);
@@ -1221,13 +1214,11 @@ function outletOf(ms, R0, team){
   return R0.outlet;
 }
 function cornerSlot(ms, a){
-  // the tallest and best in the air go near and far; the rest fill the spot, the edge and back (the harness's stand-in
-  // for a player who stays out of the box, BRAIN.ME box false, takes none of them)
-  const team = a.team, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && o.id !== ms.restart.taker && !outOfBox(ms, o))
+  // the tallest and best in the air go near and far; the rest fill the spot, the edge and back
+  const team = a.team, list = ms.agents.filter(o => o.team === team && o.onPitch && !o.isGK && o.id !== ms.restart.taker)
     .sort((p, q) => (q.at.heading + q.at.jumping) - (p.at.heading + p.at.jumping) || p.id - q.id);
   return list.indexOf(a);
 }
-const outOfBox = (ms, a) => a.isMe && ms.meAI && BRAIN.ME[a.arch] && BRAIN.ME[a.arch].box === false;
 function nearestAttacker(ms, a, att){
   let best = null, bd = Infinity;
   for (const o of ms.agents){

@@ -12,7 +12,7 @@
 import {ballHold, ballRelease, ballStep, createBallWorld, rollSpeedFor, rollDistance, BALL} from "./ball.js";
 import {inBox} from "./pitchspec.js";
 import {solveStrike} from "./strike.js";
-import {logEv, chainControl, chainOut, chainGoal, chainOffside, chainDead, minuteOf} from "./events.js";
+import {logEv, chainControl, chainOut, chainGoal, chainOffside, chainDead, minuteOf, onSec} from "./events.js";
 import {xT, noteTurnover, SLOT_POS, depthOf} from "./tactics.js";
 import {createAgent} from "./agent.js";
 import {hypot, sin, cos} from "./detmath.js";
@@ -943,7 +943,7 @@ function subStep(ms){
     if (!a.onPitch || !a.leaving || !a.exit) continue;
     if (Math.abs(a.m.z) > ms.spec.hz + 0.6){
       a.onPitch = false; a.leaving = false;
-      const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = ms.clock.total;
+      const iv = a.on[a.on.length - 1]; if (iv && iv[1] == null) iv[1] = onSec(ms);
       const ivT = a.onT[a.onT.length - 1]; if (ivT && ivT[1] == null) ivT[1] = ms.t;
       a.subbedOff = true;
       if (ms.poss.ctl === a.id) clearCtl(ms);
@@ -971,7 +971,7 @@ function enterSub(ms, team, p, out){
     yaw: side > 0 ? 0 : Math.PI, name: p.name, number: p.number, items: p.items, prefFoot: p.prefFoot});
   a.slotLine = out.slotLine || (SLOT_POS[out.slot] || {}).line;
   a.baseX = out.baseX != null ? out.baseX : null;
-  a.on.push([ms.clock.total, null]); a.onT.push([ms.t, null]);
+  a.on.push([onSec(ms), null]); a.onT.push([ms.t, null]);
   a.anchor.u = out.anchor.u; a.anchor.w = out.anchor.w; a.anchor.set = true;
   ms.agents.push(a);
   if (p.isMe){ ms.me = id; a.isMe = true; }
@@ -1031,7 +1031,7 @@ function roleSubs(ms){
 export function refStep(ms, h){
   const C = ms.clock;
   if (C.running){
-    C.sec += h*C.rate; C.total += h*C.rate;
+    C.sec += h*C.rate;
     if (C.sec >= 2700 && !C.added){
       const [lo, hi] = RULES.ADDED[ms.half - 1];
       C.added = clamp(Math.round(ms.stoppage[ms.half - 1]/60), lo, hi);

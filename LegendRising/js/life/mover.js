@@ -186,11 +186,12 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
     }
   }
 
-  // 5. body facing: the held facing when given, else the heading while moving; never faster than faceRate
-  let faceYaw = null;
+  // 5. body facing: the held facing when given, else the heading while moving; never faster than faceRate (NaN for
+  // none: a local that is either null or a number holds every number it is given in a new heap box, 3.9.6)
+  let faceYaw = NaN;
   if (it.face && (it.face.x || it.face.z)){ DR[0] = -it.face.x; DR[1] = -it.face.z; atan2Q(); faceYaw = DR[0]; }
   else if (!it.strafe && v > SNAP_V) faceYaw = m.heading;
-  if (faceYaw != null){
+  if (faceYaw === faceYaw){
     const e = wrapA(faceYaw - m.yaw), lim = prm.faceRate*h;
     m.yaw = wrapA(m.yaw + clamp(e, -lim, lim));
   }

@@ -347,7 +347,7 @@ function pressSay(i){
   const me = meP(), back = Math.random() < l.risk;
   const gain = Math.max(6, Math.round((16 + me.rep*.016)*l.rep*styleMul()*(back ? .55 : 1)));
   me.rep += gain; me.wrep += Math.round(gain*.22);
-  S.trust = clamp(S.trust + (back ? l.trust - 8 : l.trust), -30, 80);
+  trustAdd(back ? l.trust - 8 : l.trust);
   addNews("you", back ? `${S.player.name}'s words cause a stir` : `${S.player.name} speaks after the win`,
     `“${l.say}”${back ? " It has not gone down well." : ""}`, "me");
   socialEvent("match", `Man of the match vs ${lm.opp}`);
