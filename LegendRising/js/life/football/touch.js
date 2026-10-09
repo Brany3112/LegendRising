@@ -31,6 +31,8 @@ export const TOUCH = Object.freeze({
   PUSH: [1, 3],                                   // a first touch pushes 1 to 3 m/s along WASD
   HEAVY: 1.5,                                     // metres: a touch that leaves the ball further than this is heavy
   DRIB_REACH: 0.9, DRIB_CONE: 50*DEG, WEAK_SIDE: 0.25,
+  SMALL: 0.55, HEAVY_K: 1.12,               // the small touch's share of the lead; a touch this much longer than the norm (poor Ball
+                                            // Control, at a run) pops off the grass (A1.1)
   CADENCE: [[3, 1], [6, 2], [Infinity, 3]],       // every stride under 3 m/s, every 2nd to 6, every 3rd above
   HEADER_R: 0.17, HEADER_RK: 0.0015,
   CONTROL: {intercept: [8, 0.12], receive: [18, 0.12]}   // control thresholds (m/s): base + k x skill
@@ -160,8 +162,12 @@ function maxGap(u0, v, rd){
 // A dribble touch on a touch-foot footfall (1.5.3, 3.1.4): the ball is kicked along dir so that its lead over the
 // dribbler, running on at `speed`, peaks at 0.6 + 0.22 v metres (x0.5 walking), with the angle error sigma
 // (1 - drib/110)(0.06 + 0.10 v/8)(1 + 0.5(1 - bF)) and the length error sigma 15%(1 - drib/100)(1 + 0.5(1 - bF)).
-// ctx = {drib, bF, walk, rollDecel}. Returns {v, lead} plus foot (the strong foot unless the ball is more than
-// 0.25 m to the weak side), angErr and the touch's own reach test (ok: the ball within 0.9 m and 50 degrees ahead).
+// ctx = {drib, bF, walk, rollDecel, ctrl, small}. Returns {v, lead} plus foot (the strong foot unless the ball is more
+// than 0.25 m to the weak side), angErr and the touch's own reach test (ok: the ball within 0.9 m and 50 degrees ahead).
+// Ball Control (addendum A1.1, WP-F): the lead is scaled by ctrlLead(ctrl), 1 at 65, so a dribble at 2 m/s pushes the
+// ball about 0.6 m ahead at ctrl 90 and 1.4 m at 40 (sprinting lengthens it, as the 0.22 v term does); a small touch
+// (ctx.small, the player's held modifier) plays it at 0.55 of that; a heavy touch (Ball Control under about 57, at a run) pops a little
+// off the grass, so the ball is seen to get away.
 export function dribbleTouch(agent, ball, dir, speed, ctx, r){
   ctx = ctx || {};
   const T = TOUCH, m = posOf(agent), P = ball.p || ball;
@@ -171,7 +177,8 @@ export function dribbleTouch(agent, ball, dir, speed, ctx, r){
   let dx = dir ? +dir.x || 0 : 0, dz = dir ? +dir.z || 0 : 0;
   const dl = hypot(dx, dz);
   if (dl < 1e-6){ const f = dirOf(yawOfAgent(agent)); dx = f.x; dz = f.z; } else { dx /= dl; dz /= dl; }
-  const lead0 = (0.6 + 0.22*v)*(ctx.walk ? 0.5 : 1);
+  const ctrl = ctx.ctrl != null ? +ctx.ctrl : agent && agent.at && agent.at.ctrl != null ? +agent.at.ctrl : 65;
+  const lead0 = (0.6 + 0.22*v)*(ctx.walk ? 0.5 : 1)*ctrlLead(ctrl)*(ctx.small ? T.SMALL : 1);
   const angErr = truncNormal(r, (1 - drib/110)*(0.06 + 0.10*v/8)*tired, 2.5);
   const lead = Math.max(0.1, lead0*(1 + truncNormal(r, 0.15*(1 - drib/100)*tired, 2.5)));
   // the kick speed whose lead peaks at `lead` (bisection on the monotonic gap)
@@ -188,8 +195,11 @@ export function dribbleTouch(agent, ball, dir, speed, ctx, r){
   if (pf === 'L' && lat > T.WEAK_SIDE) foot = 'R';
   const dist = hypot(bx, bz), ahead = dist > 1e-6 ? acos(clamp((bx*f.x + bz*f.z)/dist, -1, 1)) : 0;
   const ok = dist <= T.DRIB_REACH && ahead <= T.DRIB_CONE && P.y < T.FOOT_Y;
-  return {v: {x: u0*kx, y: 0, z: u0*kz}, lead, foot, angErr, ok, speed: u0};
+  const kc = ctrlLead(ctrl), pop = kc > T.HEAVY_K && v > 2.5 && !ctx.small ? Math.min(1.4, 0.3 + 2*(kc - T.HEAVY_K)) : 0;
+  return {v: {x: u0*kx, y: pop, z: u0*kz}, lead, foot, angErr, ok, speed: u0, heavy: pop > 0};
 }
+// the share of the dribble's lead Ball Control gives (A1.1): 0.6 at 90, 1 at 65, 1.4 at 40, held within 0.5 and 1.6
+export const ctrlLead = ctrl => clamp(1 - 0.016*((ctrl == null || !Number.isFinite(+ctrl) ? 65 : +ctrl) - 65), 0.5, 1.6);
 
 /* ---------- tackles ---------- */
 

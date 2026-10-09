@@ -174,7 +174,8 @@ function kickCtx(ms, a, act, K, bp, ahead, weak, scuff){
   const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
   const kdir = yawOf(K.tx - bp.x, K.tz - bp.z);
   const bodyAngleDeg = Math.abs(wrapA(kdir - a.m.yaw))/DEG;
-  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0);
+  // (a volley's timing from the ring, A1.5: 0 on the moment, 1 at the ring's edge or beyond, widens it as a bad plant)
+  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1);
   const sp = hypot(b.v.x, b.v.y, b.v.z);
   const air = b.p.y > R + 0.05;
   const ballState = !air ? (sp < 0.4 ? 'still' : 'rolling') : (b.v.y < 0 && b.p.y > 0.35 ? 'volley' : 'bouncing');
@@ -435,9 +436,9 @@ export function dribbleFoot(ms, a, side){
   a.strides = 0;
   const d = a.drib, fac = a.fac || {};
   const dt = dribbleTouch(a, b, {x: d.dx, z: d.dz}, Math.max(v, d.speed || v), {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
-    walk: v < 2.0, rollDecel: b.rollDecel}, ms.r);
+    walk: v < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small}, ms.r);
   ballKick(b, dt.v, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
-  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1});
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: dt.heavy ? 0.5 : 1, heavy: !!dt.heavy});
   chainKeep(ms, a);
   onTouch(ms, a, 'dribble', ev);
   refreshPred(ms);
@@ -506,7 +507,8 @@ function tackleApply(ms, a, act){
 
 // Plan a header: take off so that the head meets the ball at tContact (seconds from now) near its apex. intent: 'attack'
 // (toward goal, 5 degrees down), 'pass' (to target), 'clear'. charge 0..1.
-export function startHeader(ms, a, tContact, intent, target = null, charge = 1){
+export function startHeader(ms, a, tContact, intent, target = null, charge = 1, dive = false){
+  if (dive) return startDiveHeader(ms, a, tContact, intent, target);
   const v0 = (0.8 + 0.2*clamp(charge, 0, 1))*(2.6 + 0.012*a.at.jumping);
   const tApex = v0/G, tJump = Math.max(0, tContact - Math.max(0.05, tApex - 0.05));
   a.act = {kind: 'header', t: 0, jumpAt: Math.max(ACT.HEADER_LOAD*0.5, tJump), v0, tc: tContact, intent, target, done: false, air: false,
@@ -516,8 +518,43 @@ export function startHeader(ms, a, tContact, intent, target = null, charge = 1){
   a.cool.header = ms.t + 1.2;
   return a.act;
 }
-// the head's centre now
-function headOf(a, out){ out.x = a.m.x; out.z = a.m.z; out.y = (a.y || 0) + 1.66*(a.scale || 1) + 0.06; return out; }
+// The diving header (addendum A1.5, WP-F): from a stride, the body launched flat at a low ball in front, head first.
+// The hips travel on a straight line to the point that puts the brow on the ball at contact (moves.js diveHeaderRoot
+// draws the same line), the root rising a little and coming down onto the chest; then 0.8 s on the ground. The head
+// leads the hips by DIVE.REACH along the facing, at the root's height plus DIVE.HEAD.
+export const DIVE = Object.freeze({LOAD: 0.12, REACH: 0.95, HEAD: 0.32, RISE: 0.35, GROUND: 0.8, MAX_V: 7.5});
+function startDiveHeader(ms, a, tContact, intent, target){
+  const tc = clamp(tContact, DIVE.LOAD + 0.12, 0.7);
+  const P0 = predAt(ms, tc, {x: 0, y: 0, z: 0}), f = dirOf(a.m.yaw);
+  const t = tc - DIVE.LOAD, cx = P0.x - f.x*DIVE.REACH, cz = P0.z - f.z*DIVE.REACH;
+  let vx = (cx - a.m.x)/t, vz = (cz - a.m.z)/t;
+  const vl = hypot(vx, vz); if (vl > DIVE.MAX_V){ vx *= DIVE.MAX_V/vl; vz *= DIVE.MAX_V/vl; }
+  a.act = {kind: 'header', t: 0, jumpAt: DIVE.LOAD, v0: 0, tc, intent, target, done: false, air: false, dive: true, vx, vz, x0: a.m.x, z0: a.m.z,
+    dur: tc + 0.3 + DIVE.GROUND, standing: false, ballY: Math.max(0.25, P0.y)};
+  a.state = 'jump'; a.stateT = 0;
+  stamAction(a.st, 'jump');
+  a.cool.header = ms.t + 1.6;
+  return a.act;
+}
+// one step of a diving header's body: along its line until it lands (contact + 0.25 s), then on the ground
+function diveStep(ms, a, act, h){
+  const tf = act.t - act.jumpAt;
+  if (tf <= 0) return;
+  const fly = act.tc - act.jumpAt + 0.25;
+  if (tf <= fly){
+    a.m.x += act.vx*h; a.m.z += act.vz*h; a.m.vx = act.vx; a.m.vz = act.vz; a.m.speed = hypot(act.vx, act.vz);
+    const k = tf/fly;
+    a.y = Math.max(0, DIVE.RISE*4*k*(1 - k) + (act.ballY - DIVE.HEAD - 0.1)*Math.max(0, 1 - k)*0.5);
+    act.air = true;
+  } else { a.m.vx = a.m.vz = a.m.speed = 0; a.y = 0; act.air = false; act.landed = true; a.state = 'ground'; }
+  a.slideMoved = true;
+}
+// the head's centre now (a diving header's leads the body)
+function headOf(a, out){
+  const act = a.act;
+  if (act && act.dive){ const f = dirOf(a.m.yaw); out.x = a.m.x + f.x*DIVE.REACH; out.z = a.m.z + f.z*DIVE.REACH; out.y = (a.y || 0) + DIVE.HEAD*(a.scale || 1); return out; }
+  out.x = a.m.x; out.z = a.m.z; out.y = (a.y || 0) + 1.66*(a.scale || 1) + 0.06; return out;
+}
 const HP = {x: 0, y: 0, z: 0};
 function headerTry(ms, a, act){
   const b = ms.ball;
@@ -693,6 +730,12 @@ export function actionStep(ms, a, h){
       break;
     }
     case 'header': {
+      if (act.dive){
+        diveStep(ms, a, act, h);
+        if (!act.done && act.t >= act.jumpAt - 0.02) headerTry(ms, a, act);
+        if (act.t >= act.dur){ a.act = null; a.y = 0; a.vy = 0; a.state = 'idle'; }
+        break;
+      }
       if (act.t >= act.jumpAt && !act.air && !act.landed){ act.air = true; act.t0 = act.t; }
       if (act.air){
         const J = jumpRoot({v0: act.v0}, act.t - act.t0, {y: 0});
@@ -723,7 +766,7 @@ export function startAction(ms, a, rq){
       return startKick(ms, a, rq);
     case 'tackle': { const c = ms.agents[ms.poss.ctl]; if (c && c.team !== a.team) return startTackle(ms, a, rq.sub || 'stand', c, 0); return null; }
     case 'slide': { const c = ms.agents[ms.poss.ctl] || null; if (c && c.team !== a.team) return startTackle(ms, a, 'slide', c, 0); return null; }
-    case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1);
+    case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1, !!rq.dive);
     case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':
       logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how: rq.how || 'here', px: rq.target ? rq.target.x : null, pz: rq.target ? rq.target.z : null});

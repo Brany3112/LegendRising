@@ -108,19 +108,23 @@ export function viewFrame(V, ms, alpha, dt, cam){
     if (a.role === "off") continue;
     const R = V.rec[a.id] || bodyFor(V, a);
     const S = V.src ? V.src.agents[a.id] : null;
-    const on = S ? S.on : a.onPitch || a.leaving;
-    const hide = V.hideAll || !on || (a.isMe && V.fpOn && !V.src);
+    // before the kick-off (the dressing room, the walk-out) a body may be somewhere the controller walks it (pre)
+    const Q = !S && V.pre ? V.pre[a.id] : null;
+    R.pre = Q || null;
+    const on = S ? S.on : Q ? !Q.hide : a.onPitch || a.leaving;
+    const hide = V.hideAll || !on || (a.isMe && V.fpOn && !V.src && !Q);
     R.hidden = hide;
     R.h.g.visible = !hide;
     if (S){ R.pos.x = S.x; R.pos.z = S.z; R.pos.y = S.y || 0; }
+    else if (Q){ R.pos.x = Q.x; R.pos.z = Q.z; R.pos.y = 0; }
     else {
       R.pos.x = a.x0 + (a.m.x - a.x0)*alpha; R.pos.z = a.z0 + (a.m.z - a.z0)*alpha;
       R.pos.y = a.y || 0;
     }
   }
-  // the ball, between its last two steps
-  const B = V.src ? V.src.ball : ms.ball.p, bm = V.ball.mesh;
-  if (V.src) bm.position.set(B.x, B.y, B.z);
+  // the ball, between its last two steps (or in the referee's hands as he walks out with it: ballAt)
+  const B = V.src ? V.src.ball : V.ballAt || ms.ball.p, bm = V.ball.mesh;
+  if (V.src || V.ballAt) bm.position.set(B.x, B.y, B.z);
   else {
     const P0 = V.ballPrev;
     bm.position.set(P0.x + (B.x - P0.x)*alpha, P0.y + (B.y - P0.y)*alpha, P0.z + (B.z - P0.z)*alpha);
@@ -162,15 +166,22 @@ const PB = {x:0, y:0, z:0};
 function animAgent(V, R, dt, tier){
   const a = R.a, h = R.h, ms = V.ms;
   if (R.hidden && !(a.isMe && V.fp)){ if (dt > 0) animateHuman(h, dt, R.st, {tier:4}); return; }
-  const S = V.src ? V.src.agents[a.id] : null;
+  const S = V.src ? V.src.agents[a.id] : null, Q = R.pre;
   h.g.position.set(R.pos.x, 0, R.pos.z);
-  h.g.rotation.y = (S ? S.yaw : a.m.yaw) + Math.PI;
-  const st = S ? replaySt(R, S) : liveSt(V, R, a, ms, dt);
+  h.g.rotation.y = (S ? S.yaw : Q ? Q.yaw : a.m.yaw) + Math.PI;
+  const st = S ? replaySt(R, S) : Q ? preSt(R, Q) : liveSt(V, R, a, ms, dt);
   if (st.groupY != null) h.g.position.y = st.groupY;
   if (st.groupAt){ h.g.position.x = st.groupAt.x; h.g.position.z = st.groupAt.z; }
   const ev = animateHuman(h, dt, st, {tier:R.hidden ? 4 : tier});
   if (R.clip && (ev.mask & EV.END)) R.clip = null;
   R.lastEv = ev.mask;
+}
+// the pose of a body the controller walks (the walk-out) or seats (the dressing room)
+function preSt(R, Q){
+  const st = R.pst || (R.pst = {mode:"move", speed:0});
+  st.mode = Q.mode || "move"; st.speed = Q.speed || 0; st.groupY = null; st.groupAt = null; st.upper = null;
+  R.clip = null;
+  return st;
 }
 // the pose from a replay snapshot: locomotion at its speed, or the clip it was in
 function replaySt(R, S){
@@ -364,12 +375,32 @@ export function viewEvent(V, ev){
   }
 }
 
+// the bodies the controller places before the kick-off: pre[agentId] = {x, z, yaw, speed, mode, hide} (null: the
+// simulation's own); V.ballAt {x, y, z} puts the ball in the referee's hands
+export function viewPre(V, pre){ if (V) V.pre = pre || null; }
+// a faint ring on the grass (your place for the kick-off, 3.4.1 step 5): at {x, z}, or null to take it away
+export function viewRing(V, p){ ring(V, "ringSpot", p, .55, .08, 0xffffff, .28); }
+// the receiver ring (1.5.10): under the team-mate a pass is aimed at, or under the point a pass to you will be met
+export function viewRecv(V, p){ ring(V, "ringRecv", p, .7, .05, 0xc8f060, .55); }
+function ring(V, key, p, r, w, color, op){
+  if (!V) return;
+  let m = V[key];
+  if (!p){ if (m) m.visible = false; return; }
+  if (!m){
+    m = V[key] = new THREE.Mesh(new THREE.RingGeometry(r - w, r, 40), new THREE.MeshBasicMaterial({color, transparent:true, opacity:op, depthWrite:false}));
+    m.rotation.x = -Math.PI/2; m.renderOrder = 2; m.userData.noMerge = true;
+    V.scene.add(m);
+  }
+  m.visible = true; m.position.set(p.x, .025, p.z);
+}
+
 export function viewDispose(V){
   if (!V) return;
   for (const R of V.rec){ if (!R) continue; SCHED.remove(R.actor); R.h.dispose(); }
   V.rec.length = 0;
   if (V.fp){ V.fp.dispose(); V.fp = null; }
   for (const b of [V.ball].concat(V.extra)) if (b && b.mesh.parent) b.mesh.parent.remove(b.mesh);
+  for (const k of ["ringSpot", "ringRecv"]) if (V[k]){ V[k].geometry.dispose(); V[k].material.dispose(); if (V[k].parent) V[k].parent.remove(V[k]); V[k] = null; }
   V.extra.length = 0;
 }
 // a pose of the view's bodies for a replay frame (replay.js): src = {agents: [{x, z, y, yaw, speed, on, mode, st, cid}], ball}
