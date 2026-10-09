@@ -41,7 +41,8 @@ import {CTRL, controlInput, controlStep} from "./control.js";
 import * as CT from "./control.js";
 import {viewInit, viewFrame, viewDispose} from "./view.js";
 import * as VW from "./view.js";
-import {hudInit, hudFrame, hudNotice, hudScenario, hudDispose} from "./fphud.js";
+import * as HUD from "./fphud.js";
+import * as CAM from "./matchcam.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60, R = BALL.R;
@@ -310,14 +311,18 @@ function feedStep(T){
 }
 const worldPt = (T, p) => ({x:p.x + T.F.cx, y:p.y, z:p.z + T.F.cz});
 
-/* ---------- the mode train ---------- */
+/* ---------- the mode train ----------
+   The match's own presentation, on the training pitch: the bodies and the ball (view.js) in a group placed at the
+   item's frame (the simulation's pitch-local metres are the group's own), your eyes and your first-person body (the
+   camera owner match-fp, matchcam.js, with P mirroring your agent, as in a match), the match HUD (fphud.js: the breath,
+   the power arc, the hints, the calls), the controls (control.js). The life HUD stays up (the clock and the needs). */
 let INP = null;
 const RMB = {down:null, up:null, menu:null};
 function inputOn(){
   INP = ev => {
     if (!RUN.T) return false;
     if (ev.type === "keydown" && ev.key === "escape"){ if (ev.prevent) ev.prevent(); if (!ev.repeat) quit(); return true; }
-    if (ev.type === "keydown" && (ev.key === "q" || ev.key === "tab" && false)) return false;
+    if (ev.type === "keydown" && ev.key === "h" && !ev.repeat){ if (ev.prevent) ev.prevent(); if (HUD.hudToggleHints) HUD.hudToggleHints(); return true; }
     if (ev.type === "lock") return false;
     return controlInput(ev);
   };
@@ -335,30 +340,49 @@ function inputOff(){
   if (RMB.down){ removeEventListener("mousedown", RMB.down); removeEventListener("mouseup", RMB.up); removeEventListener("contextmenu", RMB.menu); }
   RMB.down = RMB.up = RMB.menu = null;
 }
+const SET = () => CT.SET || {motion:1, fov:78};
+const _eye = {x:0, y:0, z:0};
 
 registerMode("train", {
   enter(T){
     RUN.T = T;
     if (CT.controlReset) CT.controlReset();
     CTRL.enabled = true; CTRL.walk = false;
-    T.V = viewInit(T.ms, W.scene, T.kits || HOST.kits(), {frame:T.F});
-    try { hudInit(T.ms.cfg); } catch(e){ console.error(e); }
+    // the bodies and the ball in the item's frame
+    const g = T.group = new THREE.Group();
+    g.name = "training"; g.position.set(T.F.cx, 0, T.F.cz); g.updateMatrixWorld(true);
+    W.scene.add(g);
+    const look = HOST.look();
+    T.V = viewInit(T.ms, g, T.kits || HOST.kits(), {meLook:look, meFPLook:look, frame:T.F});
+    T.V.me = T.ms.me;
+    // your eyes: match-fp (matchcam.js) over where your agent is, your first-person body under them
+    CAM.camInit({me:() => T.me, view:() => T.V, eye:out => { out.x = P.x; out.z = P.z; out.y = P.eye; return out; },
+      speed:() => T.me.m.speed, top:() => T.me.prm.sprint || 8, breath:() => T.me.st.B, accel:() => T.me.m.acc || 0, bench:() => null,
+      motion:() => SET().motion, fov:() => SET().fov,
+      pose:(x, z, yaw, dt) => VW.fpPose ? VW.fpPose(T.V, x - T.F.cx, z - T.F.cz, yaw, dt, {speed:T.me.m.speed}) : 0,
+      clip:() => { const R = T.V && T.V.rec[T.ms.me]; return !!(R && R.clip); }, after:() => {}});
+    // the HUD: your breath, the power arc, the hints, the calls; a scorebug only where there is a score to keep
+    const k = T.kits || HOST.kits();
+    HUD.hudInit({home:{short:T.myTeam === 0 ? HOST.clubShort() : "BIB", kit:k.home}, away:{short:T.myTeam === 0 ? "BIB" : HOST.clubShort(), kit:k.away}, us:T.myTeam});
+    const root = HUD.hudRoot ? HUD.hudRoot() : null, bug = root && root.querySelector("[data-part=score]");
+    if (bug && !T.item.score) bug.style.display = "none";
     inputOn();
-    T.evFrom = T.ms.events.length;
-    if (T.item.line && hudScenario) hudScenario(T.item.line);
+    T.evFrom = T.ms.events.length; T.evSeen = T.ms.events.length;
+    if (T.item.line) HUD.hudScenario(T.item.line);
   },
   exit(reason){
     const T = RUN.T; RUN.T = null;
     inputOff();
+    try { CAM.camDispose(); } catch(e){ console.error(e); }
+    try { HUD.hudDispose(); } catch(e){ console.error(e); }
     if (T){
       // you stay where your agent was (P has mirrored it all along); the squad's bodies take their agents' places
       handBack(T);
       if (T.V) viewDispose(T.V);
       T.V = null;
+      if (T.group && T.group.parent) T.group.parent.remove(T.group);
       if (!T.done){ T.done = true; T.quit = reason !== "done"; if (T.onEnd) T.onEnd(T); }
     }
-    try { hudDispose(); } catch(e){ console.error(e); }
-    ME.act = null;
   },
   slice(h){ const T = RUN.T; if (T) sliceItem(T, h); },
   step(dt, real){ const T = RUN.T; if (T) frameItem(T, dt, real); },
@@ -387,9 +411,7 @@ function sliceItem(T, h){
     T.acc -= H; n++;
   }
   if (T.acc >= H) T.acc %= H;
-  if (T.V && !T.done){
-    viewFrame(T.V, T.ms, clamp(T.acc/H, 0, 1), h, RT.cam);
-  }
+  if (T.V && !T.done) viewFrame(T.V, T.ms, clamp(T.acc/H, 0, 1), h, RT.cam);
 }
 function fixedItem(T){
   const ms = T.ms;
@@ -407,47 +429,70 @@ function fixedItem(T){
   T.t += H; T.tRep += H;
 }
 
+// the HUD's frame (fphud.js hudFrame): what it shows of you and the item; screen points from the item's frame
+const _pv = new THREE.Vector3();
+const HS = {ms:null, me:null, ctrl:CTRL, dt:0, B:100, cap:100, energy:100, hints:null, proj:null, w:0, h:0, yaw:0, cam:{x:0, z:0}, offPip:null,
+  cards:0, sweet:null, tick:null, glyph:"", ringAt:.2, offX:null};
+function hudOf(T, dt){
+  const ms = T.ms, me = T.me, cv = RT.renderer && RT.renderer.domElement;
+  HS.ms = ms; HS.me = me; HS.dt = dt; HS.w = cv ? cv.clientWidth : innerWidth; HS.h = cv ? cv.clientHeight : innerHeight;
+  HS.yaw = P.yaw; HS.cam.x = RT.cam.position.x - T.F.cx; HS.cam.z = RT.cam.position.z - T.F.cz;
+  HS.B = me.st.B; HS.cap = me.st.cap; HS.energy = me.energy;
+  HS.ringAt = CT.RING_T != null ? CT.RING_T : .2;
+  HS.proj = HS.proj || ((x, y, z) => {
+    const cam = RT.cam, F = RUN.T ? RUN.T.F : {cx:0, cz:0};
+    _pv.set(x + F.cx, y, z + F.cz).project(cam);
+    return {x:(_pv.x + 1)/2*HS.w, y:(1 - _pv.y)/2*HS.h, on:_pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1};
+  });
+  if ((T.hintT = (T.hintT || 0) - dt) <= 0){ T.hintT = .1; HS.hints = CT.hintsFor ? CT.hintsFor(ms, me) : null; }
+  HUD.hudFrame(HS);
+}
+
 // once a frame: you where your agent is (for the camera, your body, everyone round you), the HUD, the clock
 function frameItem(T, dt, real){
   const ms = T.ms, a = T.me, al = clamp(T.acc/H, 0, 1);
   const x = a.x0 + (a.m.x - a.x0)*al, z = a.z0 + (a.m.z - a.z0)*al;
   const w = worldOf(T, x, z);
-  P.x = w.x; P.z = w.z; P.feet = a.y || 0; P.eye = P.feet + P.eyeH;
+  P.x = w.x; P.z = w.z; P.feet = a.y || 0; P.eye = P.feet + (1.68*(a.scale || 1));
   P.vx = a.m.vx; P.vz = a.m.vz; P.speed = a.m.speed; P.sprint = a.m.gait === "sprint" ? 1 : 0;
   P.moveMode = a.m.speed < .3 ? "idle" : a.m.gait === "sprint" ? "sprint" : a.m.speed > 4 ? "run" : a.m.speed > 2 ? "jog" : "walk";
   FLAGS.moving = a.m.speed > .5;
+  // your life bodies stay out of it (the view's first-person body is you here); they come back with your eyes
+  if (ME.fp) ME.fp.g.visible = false;
+  if (ME.tp) ME.tp.g.visible = false;
   if (CT.scanStep) CT.scanStep(dt);
-  // your first-person body plays the strike, the header or the touch your agent is making (the legacy clip names)
-  ME.act = meClip(T);
-  try { hudFrame(ms, a, CTRL, dt); } catch(e){ console.error(e); }
+  try { hudOf(T, dt); } catch(e){ console.error(e); }
   if (T.script && T.script.frame) T.script.frame(T, real);
   if (T.rate > 0) HOST.pass(real*T.rate);
   // the distance you sprint (pace and stamina XP: one a 60 m)
   if (a.m.gait === "sprint" && a.m.speed > (a.prm.run || 6)) T.sprintD += a.m.speed*real;
   if (AUD && AUD.listener && RT.cam) AUD.listener(RT.cam.position, P.yaw);
-  // calls for the ball: the caller's voice from where he stands (and his name, 1.5.10)
-  for (let i = T.callSeen || 0; i < ms.events.length; i++){
-    const e = ms.events[i];
-    if (e.kind === "call" && e.agent !== a.id && ms.agents[e.agent] && ms.agents[e.agent].team === T.myTeam && AUD && AUD.call){
-      const o = ms.agents[e.agent];
-      AUD.call(o.name ? o.name.split(" ").pop() : "", worldPt(T, {x:o.m.x, y:1.6, z:o.m.z}), o.pid | 0);
-    }
-  }
-  T.callSeen = ms.events.length;
+  events(T);
 }
-// the legacy clips of your first-person body (human.js CONTACT: the moment of contact in each clip), timed to the
-// contact your agent's action has scheduled
-const CLIP = {mode:"kick", t:0};
-function meClip(T){
-  const act = T.me.act; if (!act) return null;
-  const mode = act.kind === "header" ? "header" : act.kind === "kick" ? (act.action && (act.action.kind === "pass" || act.action.kind === "through") ? "pass" : "kick")
-    : act.kind === "tackle" || act.kind === "slide" ? "kick" : null;
-  if (!mode) return null;
-  const C = {kick:.42, pass:.44, header:.5}[mode];
-  const tc = act.tc || act.tEff || .2, t = act.t || 0;
-  CLIP.mode = mode;
-  CLIP.t = t < tc ? C*t/Math.max(tc, 1e-3) : Math.min(1, C + (1 - C)*(t - tc)/Math.max(.2, (act.dur || tc + .3) - tc));
-  return CLIP;
+// what happened since the last frame, for the ears, the eyes and the HUD
+function events(T){
+  const ms = T.ms, me = T.me.id;
+  for (let i = T.evSeen || 0; i < ms.events.length; i++){
+    const e = ms.events[i];
+    if (e.kind === "call"){
+      const o = ms.agents[e.agent];
+      // a team-mate calling for it: his voice from where he stands, his name on the HUD
+      if (o && o.team === T.myTeam && o.id !== me && (e.to == null || e.to === me)){
+        if (HUD.hudCall) HUD.hudCall(o.id, o.name);
+        if (AUD && AUD.call) AUD.call(o.name ? o.name.split(" ").pop() : "", worldPt(T, {x:o.m.x, y:1.6, z:o.m.z}), o.pid | 0);
+      }
+    } else if (e.kind === "kick"){
+      const sp = +e.speed || 0;
+      if (AUD && AUD.cue) AUD.cue("kick", worldPt(T, {x:e.x, y:.2, z:e.z}), clamp(.3 + sp/30, .2, 1.2));
+      if (e.agent === me && !e.whiff){
+        const shot = e.intent === "shot" || e.intent === "header" && e.atGoal;
+        if (CAM.camAction) CAM.camAction(e.intent === "header" ? "header" : shot || sp > 18 ? "strike" : "pass");
+        if (shot && CAM.camTrauma) CAM.camTrauma(.18);
+      }
+    } else if (e.kind === "tackle" && (e.agent === me || e.on === me)){ if (CAM.camTrauma) CAM.camTrauma(e.result === "foul" ? .3 : .2); }
+    else if (e.kind === "goal" && !e.disallowed && T.item.score){ if (HUD.hudNotice) HUD.hudNotice("goal", e.team === T.myTeam ? "Goal" : "They score"); }
+  }
+  T.evSeen = ms.events.length;
 }
 
 /* ---------- leaving ---------- */
@@ -920,4 +965,4 @@ onBegin(() => {
 
 // tests (DESIGN 1.4.20 style): the run, the simulation in play, the coach
 if (typeof window !== "undefined") window.__train = {RUN, TRAIN, COACH, get T(){ return RUN.T; }, get ms(){ return RUN.T ? RUN.T.ms : null; }, get me(){ return RUN.T ? RUN.T.me : null; },
-  startDrill, startSession, startFirstTraining, inGround};
+  startDrill, startSession, startFirstTraining, inGround, input:ev => controlInput(ev), CTRL, TS};

@@ -17,6 +17,7 @@ import {attrsForPlayer} from "../football/attrs.js";
 import {hashStr} from "../football/rng.js";
 import {sessionRewards, SESSION_PLAN_MINS, SESSION_LAST} from "../football/trainspec.js";
 import {speak, active as fdActive} from "../firstday.js";
+import {bodyLook} from "../look.js";
 import {runShift} from "../jobs.js";
 import {MINI} from "../mini.js";
 import {G, LIFE, P, ME, FLAGS, FADE, keys, sync} from "./state.js";
@@ -370,6 +371,9 @@ export const TRAIN_HOST = {
     const list = c && typeof squadOf === "function" ? squadOf(c.id).filter(q => q && !q.me) : [];
     return list.map(q => ({pid:q.id, name:typeof pname === "function" ? pname(q) : "", number:q.no || 0, ovr:q.ovr || 55, pos:q.pos || "CM"}));
   },
+  // you in your training kit (the match's own bodies: your whole body and the one in your eyes)
+  look(){ const s = G(); try { return bodyLook(s.player.look, "training"); } catch(e){ console.error(e); return null; } },
+  clubShort(){ const c = typeof myClub === "function" ? myClub() : null; return c && c.nm ? c.nm.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "YOU" : "YOU"; },
   // the training kit, and the bibs the other half wear
   kits(){
     const c = typeof myClub === "function" ? myClub() : null, k = c && typeof kitOf === "function" ? kitOf(c.nm) : ["#2c66b8", "#ffffff"];
