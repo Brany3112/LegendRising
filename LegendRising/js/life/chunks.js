@@ -359,8 +359,9 @@ function occBox(x0, y0, z0, x1, y1, z1, depth){
 }
 const byNear = (a, b) => a.z - b.z, byFar = (a, b) => b.z - a.z;
 /* the batched meshes' customSort (three.js calls it with the instances the frustum kept, before every draw of the
-   mesh, in the shadow pass too): with the world's camera, the hidden ones are dropped; then front to back (opaque) or
-   back to front (see-through), as three.js would sort them */
+   mesh, in the shadow pass too): with the world's camera, the hidden ones are dropped; in the sun's shadow pass, the
+   ones the light says cannot come between it and anything (sky.js castTop: a stadium's stands and roofs under its
+   floodlights at night); then front to back (opaque) or back to front (see-through), as three.js would sort them */
 function occSort(list, camera){
   const box = this.userData.box;
   if (OC.on && OC.n && box && camera === RT.cam && !camera.isArrayCamera){
@@ -373,6 +374,13 @@ function occSort(list, camera){
       list[k++] = it;
     }
     list.length = k;
+  } else if (box && RT.SKY && camera === RT.SKY.sun.shadow.camera){
+    const top = RT.SKY.castTop;
+    if (top < Infinity){
+      let k = 0;
+      for (let i = 0; i < list.length; i++){ const it = list[i], b = box[it.index]; if (b && b.y1 > top) continue; list[k++] = it; }
+      list.length = k;
+    }
   }
   list.sort(this.material.transparent ? byFar : byNear);
 }

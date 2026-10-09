@@ -147,8 +147,9 @@ const GFX_LABEL = {auto:"Auto", low:"Low", medium:"Medium", high:"High"};
 //   pixelBudget, maxRatio   render pixels: ratio = clamp(sqrt(pixelBudget/(cssW*cssH)), 0.5, min(maxRatio, dpr))*Q.scale
 //   qMin                    the floor adaptive quality may lower Q.scale to
 //   shadow.life/.stadium    null = no shadow map (blob shadows); otherwise the filter, map size, half extent, snap grid
-//                           and the most redraws per second; in the stadium "statics" (drawn once per half) or "follow"
-//                           (a box following the camera, humans casting)
+//                           and the most redraws per second; in the stadium the box is the whole ground's (sky.js fits
+//                           it round the stands and roofs: a box round you would cut their shadows off across the
+//                           pitch), "statics" (drawn once per half) or "bowl" (redrawn up to hz, humans casting)
 //   nReal                   real point lights in the life zones and in the stadium
 //   material                "lambert" everywhere, "mixed" (Lambert for plain and textured surfaces, Standard for the
 //                           standardKinds) or "standard" everywhere; skylineBasic draws the far skyline unlit
@@ -194,7 +195,7 @@ const GFX_PRESETS = (() => {
       groundLiteBeyond:20, peds:{home:5, town:4}, crowd:{kind:"billboards", count:4000, strips:true},
       coverEvery:0.15, hudBlur:"modals", anisotropy:2, mip:"linear", texScale:1, texScaleOver:1024, haloMax:Infinity},
     high:{tier:"high", label:"High", antialias:true, pixelBudget:3.7e6, maxRatio:1.5, qMin:0.6,
-      shadow:{life:{type:"pcf", size:2048, half:30, grid:4, hz:5}, stadium:{mode:"follow", type:"pcf", size:2048, box:60, humans:true, hz:15}},
+      shadow:{life:{type:"pcf", size:2048, half:30, grid:4, hz:5}, stadium:{mode:"bowl", type:"pcf", size:4096, humans:true, hz:15}},
       nReal:{life:8, stadium:2},
       material:"standard", standardKinds:[], skylineBasic:false, env:{size:64, everyH:0.15}, skyOct:5, dome:[32, 18],
       fog:{life:{near:50, far:180, envNear:50, envFar:130}, stadium:{near:170, far:450}},
