@@ -155,7 +155,8 @@ export function hudFrame(s){
   // the scorebug
   if (slow){
     put("sh", E.sh, String(ms.score[0])); put("sa", E.sa, String(ms.score[1]));
-    const C = ms.clock, min = minuteOf(ms), added = C.added && C.sec >= 2700 ? C.added : 0;
+    // (before the first whistle the clock reads 0)
+    const C = ms.clock, min = C.sec <= 0 && ms.half === 1 ? 0 : minuteOf(ms), added = C.added && C.sec >= 2700 ? C.added : 0;
     const baseMin = ms.half === 1 ? 45 : 90;
     put("min", E.min, added ? `${baseMin}'` : `${Math.min(min, baseMin)}'`);
     put("add", E.add, added ? `+${Math.max(1, Math.min(added, Math.ceil((C.sec - 2700)/60) || 1))}` : "");

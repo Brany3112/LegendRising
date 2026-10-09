@@ -31,7 +31,7 @@ import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
 import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, liveRating} from "./sim.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
-import {minuteOf, highlights, onSec} from "./events.js";
+import {minuteOf, highlights, onSec, deriveMy} from "./events.js";
 import {makePitch, ROLL, dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {attrsForAI} from "./attrs.js";
 import {restartReady, offsidePosition} from "./rules.js";
@@ -301,8 +301,8 @@ function walkout(){
   FS.V.ballAt = {x: 0, y: 1.0, z: C.zFront + 1.5};
   // you: at the back of your side's line
   const us = FS.cfg.me ? FS.cfg.me.team : 0, myLine = W.filter(w => w.a.team === us).length;
-  placeOwn({x: us === 0 ? -C.x : C.x, z: C.zFront - myLine*C.gap - .4, yaw: 0});
-  P.yaw = 0; P.pitch = 0;
+  placeOwn({x: us === 0 ? -C.x : C.x, z: C.zFront - myLine*C.gap - .4, yaw: Math.PI});
+  P.yaw = Math.PI; P.pitch = 0;
   FS.koT = 0; FS.ready = false; FS.nagT = 0; FS.lineOut = false;
   const sub = !onTheTeamSheet();
   if (sub) note("Walk out with the substitutes and take your seat on the bench.");
@@ -523,7 +523,9 @@ function events(){
   const me = ms.me;
   for (let i = 0; i < q.length; i++){
     const ev = q[i];
-    viewEvent(FS.V, ev);
+    if (FS.V) viewEvent(FS.V, ev);
+    // what changes the day happens whatever is drawn: you coming on
+    if (ev.kind === "sub" && ev.in === ms.me && ms.me >= 0 && !FS.onPitch && FS.state !== "lateRun") onCameOn();
     if (FS.headless) continue;
     const name = id => { const a = ms.agents[id]; return a ? a.name : ""; };
     const at = ev.x != null ? {x: ev.x, y: .5, z: ev.z} : null;
@@ -555,7 +557,6 @@ function events(){
       case "sub":
         hudNotice("sub", "Substitution", `${ev.inName || name(ev.in)} on, ${ev.outName || name(ev.out)} off`);
         if (FS.real) FS.ckNow = true;
-        if (ev.in === ms.me && ms.me >= 0) onCameOn();
         break;
       case "added": hudNotice("info", `${ev.mins} added minute${ev.mins === 1 ? "" : "s"}`); break;
       case "call": {
@@ -709,15 +710,15 @@ function sitDown(side){
   if (FS.state !== "bench" || FS.seated) return;
   const us = FS.cfg.me ? FS.cfg.me.team : 0;
   const x = (side === "home" ? -10 : 10) + (us === 0 ? -1 : 1)*.0;
-  FS.seated = true; FS.benchSeat = {x, z: -37.4, y: 0, yaw: 0};
-  placeOwn({x, z: -37.4, yaw: 0});
-  P.yaw = 0; P.pitch = -.05;
+  FS.seated = true; FS.benchSeat = {x, z: -37.4, y: 0, yaw: Math.PI};
+  placeOwn({x, z: -37.4, yaw: Math.PI});
+  P.yaw = Math.PI; P.pitch = -.05;
   benchCam(true);
 }
 function standUp(){
   if (!FS.seated) return;
   FS.seated = false; benchCam(false);
-  placeOwn({x: P.x, z: -36.6, yaw: 0});
+  placeOwn({x: P.x, z: -36.6, yaw: Math.PI});
 }
 // you came on (the sub event): your agent takes your place where you stand
 function onCameOn(){
@@ -769,7 +770,7 @@ function skipFrame(){
     if (S0.kind === "late"){
       // arriving late: on the bench (watching) with the match already going
       FS.state = "bench"; FS.seated = false; FS.V.pre = null;
-      placeOwn({x: 0, z: -40.5, yaw: 0}); P.yaw = 0;
+      placeOwn({x: 0, z: -40.5, yaw: Math.PI}); P.yaw = Math.PI;
       note("You're late. You start on the bench.");
       revealAfterFrames(2).then(() => liftCover());
       return;
@@ -777,7 +778,7 @@ function skipFrame(){
     if (S0.kind === "call" && ms.callUp){
       // standing by the fourth official, under the card's cover
       FS.called = true; FS.state = "entering"; FS.seated = false; benchCam(false);
-      const e = entrySpot(); placeOwn({x: e.x, z: e.z - .3, yaw: 0}); P.yaw = 0; FS.atFourth = true;
+      const e = entrySpot(); placeOwn({x: e.x, z: e.z - .3, yaw: Math.PI}); P.yaw = Math.PI; FS.atFourth = true;
       hudNotice("sub", "Get ready, you're going on.");
     }
     revealAfterFrames(2).then(() => liftCover());
@@ -837,7 +838,7 @@ function secondHalfGo(){
   if (me){ P.x = me.m.x; P.z = me.m.z; me.x0 = me.m.x; me.z0 = me.m.z; P.yaw = me.m.yaw; P.pitch = 0; }
   FS.acc = 0;
   FS.state = FS.onPitch ? "live" : "bench";
-  if (FS.state === "bench" && FS.seated){ P.yaw = 0; }
+  if (FS.state === "bench" && FS.seated){ P.yaw = Math.PI; }
   if (HOST && FS.relock !== false) HOST.relock();
   revealAfterFrames(2).then(() => liftCover());
 }
@@ -993,7 +994,7 @@ function input(ev){
     // 1, 2, 3 on the bench: watch at 1x, 2x, 4x (on the pitch they choose the contact)
     if (st === "bench" && FS.seated && ev.type === "keydown" && (k === "1" || k === "2" || k === "3")){ FS.ffRate = DAY.FF[+k - 1]; return true; }
   }
-  if (ev.type === "move" && st === "bench" && FS.seated){ look(ev.dx || 0, ev.dy || 0); benchClamp(0); return true; }
+  if (ev.type === "move" && st === "bench" && FS.seated){ look(ev.dx || 0, ev.dy || 0); benchClamp(Math.PI); return true; }
   if (playing() && (ev.type === "down" || ev.type === "up")) return true;
   return controlInput(ev);
 }
@@ -1158,23 +1159,28 @@ window.__fp = {
   headless(untilSec = 5400){
     const ms = FS.ms; if (!ms) return null;
     FS.headless = true;
+    // (played out with nobody at the keys: your agent plays as the harness's stand-in for you, as it does in the tests)
+    const meAI = ms.meAI; ms.meAI = true;
     let guard = 0;
-    while (ms.phase !== "over" && matchSec(ms) < untilSec && guard++ < 2e6){
+    while (ms.phase !== "over" && (untilSec >= 5400 || matchSec(ms) < untilSec) && guard++ < 2e6){
       if (ms.phase === "halftime"){ writeCheckpoint(true); secondHalf(ms); continue; }
       oneStep();
     }
-    FS.headless = false;
+    FS.headless = false; ms.meAI = meAI;
     events();
+    const meA = ms.agents.find(a => a.isMe) || (ms.resumedMe != null ? ms.agents[ms.resumedMe] : null);
+    const out = {phase: ms.phase, sec: ms.phase === "over" ? 5400 : matchSec(ms), score: ms.score.slice(), my: meA ? deriveMy(ms, meA.id) : null};
     if (ms.phase === "over" && untilSec >= 5400){
-      FS.state = "fulltime"; settle();
+      FS.state = "fulltime"; const R = settle();
+      out.rating = R ? R.rating : null; out.mt = R && R.R ? {mins: R.R.mins, xp: R.R.xp, res: R.R.res} : null;
       leave();
     }
-    return {phase: ms.phase, sec: ms.phase === "over" ? 5400 : matchSec(ms), score: ms.score.slice()};
+    return out;
   },
   input: ev => input(ev), get ctrl(){ return CTRL; }, get state(){ return FS.state; }, FS, FP, MC, FX, CN,
   hud: () => document.getElementById("fpHud"), checkpoint: () => writeCheckpoint(true),
   events: kind => FS.ms ? FS.ms.events.filter(e => !kind || e.kind === kind) : [],
-  ready(){ FS.ready = true; }, skipToCall: () => startSkip("call"), skipFrame: () => skipFrame(), recover: () => recoverCheck(), RECOVER,
+  ready(){ FS.ready = true; }, manager: () => manager(), headOut: () => headOut(), spot: () => FS.ms && FS.ms.me >= 0 ? mySpot() : null, skipToCall: () => startSkip("call"), skipFrame: () => skipFrame(), recover: () => recoverCheck(), RECOVER,
   harness: {runOne}, testInfo: () => FS.testInfo || null, sitDown: s => sitDown(s || "home"), leave: () => leave(),
   halftimeGo: () => secondHalfGo()
 };
