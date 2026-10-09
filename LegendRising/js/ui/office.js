@@ -61,12 +61,12 @@ const MEDIA_LINES = {
 function mediaSheet(){
   const p = mediaPrompt(), lines = MEDIA_LINES[p.k], can = S.actions > 0 && S.energy >= MEDIA_COST;
   return `<h2>Media duty</h2>
-    <p class="muted">A reporter is waiting after training. What you say moves your reputation — and what the manager thinks of you.</p>
+    <p class="muted">A reporter is waiting after training. What you say moves your reputation, and what the manager thinks of you too.</p>
     <blockquote class="mq">${esc(p.q)}</blockquote>
     <div class="stack">${lines.map((l, i) => `<button class="opt media" ${can ? "" : "disabled"} onclick="A.media('${p.k}',${i})">
       <b>${esc(l.t)}</b><span class="muted small">“${esc(l.say)}”</span>
       <span class="row gap6 wrap"><span class="pill">Reputation ${l.rep >= 1.5 ? "＋＋＋" : l.rep >= 1 ? "＋＋" : "＋"}</span>
-        <span class="pill ${l.trust > 0 ? "good" : l.trust < -6 ? "bad" : ""}">Manager ${l.trust > 0 ? "+" : ""}${l.trust}</span>
+        <span class="pill ${l.trust > 0 ? "good" : l.trust < -6 ? "bad" : ""}">Manager ${fmtSigned(l.trust)}</span>
         ${l.risk ? `<span class="pill bad">${Math.round(l.risk*100)}% it backfires</span>` : ""}</span></button>`).join("")}</div>
     <p class="muted small">${can ? `Costs ${MEDIA_COST} energy and one action.` : S.actions ? "Too tired to face the cameras." : "No actions left this week."}</p>`;
 }
@@ -145,14 +145,14 @@ function checkRaise(){
   if (!c || !S.contract){ S.raise = null; return; }   // the deal was with a manager you no longer have
   if (raiseMet()){
     S.contract.wage = d.wage; S.raise = null; trustAdd(6);
-    addNews("you", "Pay rise agreed", `${c.nm} move you to ${eur(d.wage)}/week — you hit every number the manager asked for.`, "me");
+    addNews("you", "Pay rise agreed", `${c.nm} move you to ${eur(d.wage)}/week. You hit every number the manager asked for.`, "me");
     raiseBox(d);
     return;
   }
   if (gw() >= d.deadline){
     S.raise = null; trustAdd(-4); S.contract.raiseCool = gw() + 10;
     addNews("you", "No rise this time", `You fell short of the targets the manager set. Your wage stays at ${eur(S.contract.wage)}/week.`, "me");
-    msg(c.nm, "You did not get there. The offer is off the table for now — keep playing and we will look again.");
+    msg(c.nm, "You did not get there. The offer is off the table for now. Keep playing and we will look again.");
   }
 }
 // the same pop-up shape as a job promotion: old wage → new wage, one OK button
@@ -171,7 +171,7 @@ function raiseBox(d){
       <div class="tut-foot end"><button class="btn sm" onclick="closeConfirm()">OK</button></div></div>`;
 }
 function officeSheet(){
-  const c = myClub(); if (!c || !S.contract) return `<h2>Manager</h2><p class="muted">You are not at a club — there is nobody to talk to yet.</p>`;
+  const c = myClub(); if (!c || !S.contract) return `<h2>Manager</h2><p class="muted">You are not at a club, so there is nobody to talk to yet.</p>`;
   if (RAISE_PEND) return offerHTML();
   const rc = raiseCase(), block = raiseBlock(rc);
   const head = `<h2>The manager's office</h2>
@@ -187,7 +187,7 @@ function officeSheet(){
     const rows = Object.entries(p).map(([k, v]) => {
       const done = v.rating ? (v.n && v.have >= v.target) : v.have >= v.target;
       return `<div class="req ${done ? "done" : ""}"><span>${v.rating ? "Average rating" : REQ_LABEL[k]}</span>
-        <b>${v.rating ? (v.n ? v.have.toFixed(2) : "–") : v.have} / ${v.target}</b></div>`; }).join("");
+        <b>${v.rating ? (v.n ? v.have.toFixed(2) : EMPTY_CELL) : v.have} / ${v.target}</b></div>`; }).join("");
     return `${head}<div class="mgr-deal">
       <div class="row between"><b>Agreed: ${eur(d.from)} → ${eur(d.wage)}/wk</b><span class="pill">${left} week${left === 1 ? "" : "s"} left</span></div>
       <div class="reqs">${rows}</div>
@@ -208,9 +208,9 @@ function officeSheet(){
 let RAISE_PEND = null;
 function askRaise(pct){
   const rc = raiseCase(); if (raiseBlock(rc)) return;
-  if (pct <= rc.maxPct) RAISE_PEND = {pct, t:raiseTerms(pct), line:`Fine. ${eur(raiseWage(pct))} a week — but I want it earned.`};
+  if (pct <= rc.maxPct) RAISE_PEND = {pct, t:raiseTerms(pct), line:`Fine. ${eur(raiseWage(pct))} a week. But I want it earned.`};
   else if (rc.maxPct >= 5) RAISE_PEND = {pct:rc.maxPct, t:raiseTerms(rc.maxPct), asked:pct,
-    line:`+${pct}% is not happening, not at this club. The closest I can get you is +${rc.maxPct}% — ${eur(raiseWage(rc.maxPct))} a week.`};
+    line:`+${pct}% is not happening, not at this club. The closest I can get you is +${rc.maxPct}%, that's ${eur(raiseWage(rc.maxPct))} a week.`};
   else { S.contract.raiseCool = gw() + 8; save(); }
   openSheet("manager");
 }
@@ -292,7 +292,7 @@ function posSheet(){
     <div class="stack">${opts.map(o => {
       const v = posVerdict(o.to);
       return `<button class="opt" onclick="A.askPos('${o.to}')">
-        <b>${esc(o.label)} — ${esc(POSITIONS[o.to].name)}</b>
+        <b>${esc(o.label)}: ${esc(POSITIONS[o.to].name)}</b>
         <span class="muted small">${esc(POS[archOf(o.to)].blurb)}</span>
         <span class="pill">${v.need ? "He is short of bodies there" : v.rival ? `${esc(sname(v.rival))} plays there` : "Nobody is ahead of you"}</span></button>`;
     }).join("")}</div>`;

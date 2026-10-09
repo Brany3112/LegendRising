@@ -97,7 +97,7 @@ const FEED = {
   /* ---------- centre: the moments that matter, one at a time ---------- */
   center(title, sub, o){
     o = o || {};
-    if (!this.live()){ toast(`${title}${sub ? " — " + sub : ""}`, o.kind === "bad" ? "bad" : "gold"); return; }
+    if (!this.live()){ toast(`${title}${sub ? " · " + sub : ""}`, o.kind === "bad" ? "bad" : "gold"); return; }
     // the same news twice in a row is said once
     if (this.queue.some(q => q.title === title && q.sub === sub)) return;
     this.queue.push({title, sub, kind:o.kind || "", icon:o.icon || "", ms:o.ms || 2700});

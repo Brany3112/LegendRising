@@ -37,13 +37,14 @@ function renderPhone(){
    Real button positions: soft keys either side of the D-pad, call/end below them, then the number pad.
    ▲/▼ on the ring (or 2/8) move, centre (or 5, green, left soft) selects, red / right soft go back. */
 function kpView(){
-  const K = PH.kp, me = meP();
+  // between clubs (or before you have signed for one) there is still a phone to use: no view leans on a club
+  const K = PH.kp, me = meP() || {rep:0, wrep:0, club:-1};
   switch (K.view){
     case "home": return {title:"Menu", items:[...(inLife() ? [{l:"Hub ▸"}] : []), {l:"Stats"}, ...(inLife() ? [{l:"Foodies"}] : []), {l:"Scout"}, {l:`Messages${S.msgs.some(m => !m.read) ? " ●" : ""}`}, {l:"Settings"}], soft:["Select","Exit"]};
     case "foodies": return kpFoodiesView();
     case "stats": {
       const s = S.seasonMy, c = S.careerMy, k = S.contract, prog = reqProgress();
-      const lines = [`${S.player.name}`, `${S.player.teamPos || S.player.pos} · OVR ${overall()}`, `Club: ${myClub().nm}`, `Rep ${pad5(me.rep)} World ${pad5(me.wrep)}`, "-- SEASON --",
+      const lines = [`${S.player.name}`, `${S.player.teamPos || S.player.pos} · OVR ${overall()}`, `Club: ${clubLabel(me.club)}`, `Rep ${pad5(me.rep)} World ${pad5(me.wrep)}`, "-- SEASON --",
         `Apps ${s.apps}  Goals ${s.goals}`, `Assists ${s.assists}  MotM ${s.motm}`, `Dribbles ${s.dribbles}`, `Passes ${s.spass + s.lpass}/${s.passAtt}`, `Avg rating ${s.apps ? (s.ratingSum/s.apps).toFixed(2) : "-"}`,
         "-- CAREER --", `Apps ${c.apps}  Goals ${c.goals}`, `Assists ${c.assists}`, "-- SKILLS --", ...SKILLS.map(([key, n]) => `${n} ${num(S.skills[key], 0)}`),
         "-- TODAY --", `Energy ${Math.round(S.energy)} Fatigue ${Math.round(S.fatigue || 0)}`, `Chemistry ${Math.round(S.chem || 0)}`,
@@ -80,9 +81,9 @@ function keypadHTML(){
       <div class="kp-soft"><span>${v.soft[0] || ""}</span><span>${v.soft[1] || ""}</span></div></div>
     <div class="kp-keys">
       <div class="kp-top">
-        ${key("lsoft","soft","—")}
+        ${key("lsoft","soft","━")}
         <div class="dpad"><button class="dp up" onclick="kpKey('up')" aria-label="up"></button><button class="dp ok" onclick="kpKey('ok')" aria-label="ok"></button><button class="dp down" onclick="kpKey('down')" aria-label="down"></button></div>
-        ${key("rsoft","soft","—")}
+        ${key("rsoft","soft","━")}
         ${key("call","call","<i class='ph g'></i>")}
         ${key("end","end","<i class='ph r'></i>")}
       </div>

@@ -72,6 +72,26 @@ function onlineChanged(){
   if (typeof smRefresh === "function" && typeof PH === "object" && PH.stack && PH.stack.length) smRefresh();
 }
 
+/* ---------- words written by older builds ----------
+   Board rows and account saves come from every version of the game, and older ones still carry the long dash the
+   game no longer uses. They are shown through the same replacement the save migration applies to a career's own
+   text (career.js textMigrate, DESIGN 1.7 and 3.10): a dash standing alone for "nothing" becomes the empty-cell
+   mark, and any other one, with the spaces round it, becomes rep (a colon, as in an award's name). */
+const EM_DASH = String.fromCharCode(0x2014);
+const EM_SPACED = new RegExp(`\\s*${EM_DASH}\\s*`, "g");
+function undash(t, rep = ": "){
+  if (typeof t !== "string" || t.indexOf(EM_DASH) < 0) return t;
+  return t.trim() === EM_DASH ? EMPTY_CELL : t.replace(EM_SPACED, rep);
+}
+// one leaderboard row as the phone shows it: every piece of text in it cleaned, numbers left alone
+const BOARD_TEXT = ["name", "handle", "club", "league", "job", "nat"];
+function boardRow(r){
+  if (!r || typeof r !== "object") return r;
+  for (const k of BOARD_TEXT) if (typeof r[k] === "string") r[k] = undash(r[k]);
+  for (const k of ["trophyList", "awardList"]) if (Array.isArray(r[k])) r[k] = r[k].map(t => undash(t));
+  return r;
+}
+
 /* ---------- what a career is worth: one number, so three characters can be compared ---------- */
 function careerScore(sum){
   if (!sum) return 0;
@@ -91,13 +111,14 @@ function careerSummary(d){
   const ovr = Math.round(Object.values(sk).reduce((a, b) => a + b, 0) / (Object.keys(sk).length || 1));
   const sum = {
     name:d.player.name, age:d.player.age, pos:d.player.pos, nat:d.player.nat, number:d.player.number,
-    club:club ? club.nm : "Free agent", league:lg ? lg.nm : "—", tier,
+    club:club ? club.nm : "Free agent", league:lg ? lg.nm : EMPTY_CELL, tier,
     ovr:me.ovr || ovr, level:d.level || 1, skills:sk,
     career:{apps:(d.careerMy || {}).apps || 0, goals:(d.careerMy || {}).goals || 0,
             assists:(d.careerMy || {}).assists || 0, motm:(d.careerMy || {}).motm || 0},
     season:{apps:(d.seasonMy || {}).apps || 0, goals:(d.seasonMy || {}).goals || 0, assists:(d.seasonMy || {}).assists || 0},
-    trophies:(d.trophies || []).length, trophyList:(d.trophies || []).slice(-6).map(t => t.name || t.nm || String(t)),
-    awards:(d.awards || []).length, awardList:(d.awards || []).slice(-6).map(a => a.name || a.nm || String(a)),
+    // a save in another slot may never have been loaded by this build, so its words are cleaned here too
+    trophies:(d.trophies || []).length, trophyList:(d.trophies || []).slice(-6).map(t => undash(t.name || t.nm || String(t))),
+    awards:(d.awards || []).length, awardList:(d.awards || []).slice(-6).map(a => undash(a.name || a.nm || String(a))),
     money:Math.round(d.money || 0), wage:d.contract ? d.contract.wage : 0,
     rep:me.rep || 0, wrep:me.wrep || 0, followers:(d.social || {}).followers || 0,
     job:d.job ? jobNameOf(d.job) : "", clothes:(d.wardrobe || []).length,
@@ -131,7 +152,7 @@ async function loadProfile(){
 }
 function niceAuthError(e){
   const c = (e && (e.code || e.message)) || "";
-  if (/email-already-in-use/.test(c)) return "That email already has an account — sign in instead.";
+  if (/email-already-in-use/.test(c)) return "That email already has an account. Sign in instead.";
   if (/invalid-email/.test(c)) return "That doesn't look like an email address.";
   if (/weak-password/.test(c)) return "Pick a password of at least 6 characters.";
   if (/wrong-password|invalid-credential|user-not-found/.test(c)) return "Wrong email or password.";
@@ -225,7 +246,7 @@ async function cloudBest(){
   let board = null;
   try{ const bd = await getDoc(doc(ONLINE.db, "board", uid)); if (bd.exists()) board = bd.data(); }
   catch(e){ probe.err = String(e && e.message || e).slice(0, 90); }
-  probe.board = !!board; probe.boardSlot = board ? (board.slot == null ? "—" : board.slot) : null;
+  probe.board = !!board; probe.boardSlot = board ? (board.slot == null ? "—" : board.slot) : null;   // nodash-ok: sentinel
   if (board && board.slot){ const hit = await read(board.slot); if (hit){ probe.slots.push(board.slot); return {hit, board}; } }
   let best = null;
   for (let n = 1; n <= CLOUD_SLOTS; n++){
@@ -262,7 +283,7 @@ async function loadBoard(force){
   const {collection, query, orderBy, limit, getDocs} = ONLINE.sdk.store;
   const snap = await getDocs(query(collection(ONLINE.db, "board"), orderBy("score", "desc"), limit(100)));
   const rows = [];
-  snap.forEach(d => rows.push(Object.assign({uid:d.id}, d.data())));
+  snap.forEach(d => rows.push(boardRow(Object.assign({uid:d.id}, d.data()))));
   ONLINE.board = rows; ONLINE.boardAt = Date.now();
   return rows;
 }
@@ -318,7 +339,7 @@ async function cloudInfo(){
     if (!found) return null;
     const d = found.hit.d, b = found.board || {};
     const t = d.updated && d.updated.toMillis ? d.updated.toMillis() : (d.updated && d.updated.__ts) || 0;
-    return {name:d.name || b.name || "Your career", club:d.club || b.club || "", score:d.score || b.score || 0,
+    return {name:undash(d.name || b.name || "Your career"), club:undash(d.club || b.club || ""), score:d.score || b.score || 0,
       ovr:b.ovr || 0, seasons:b.seasons || 1, career:b.career || {}, at:t, uid:ONLINE.user.uid};
   }catch(e){ return null; }
 }
@@ -358,7 +379,7 @@ async function cloudAll(){
       const s = await getDoc(doc(ONLINE.db, "users", uid, "slots", String(n)));
       if (!s.exists()) continue;
       const d = s.data(); if (!d || !d.code) continue;
-      out.push({n, name:d.name || "Career", club:d.club || "", score:d.score || 0, cid:d.cid || "",
+      out.push({n, name:undash(d.name || "Career"), club:undash(d.club || ""), score:d.score || 0, cid:d.cid || "",
         at:d.updated && d.updated.toMillis ? d.updated.toMillis() : (d.updated && d.updated.__ts) || 0,
         kb:Math.round(String(d.code).length/1024)});
     }catch(e){}

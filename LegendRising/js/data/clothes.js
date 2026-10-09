@@ -344,7 +344,7 @@ logo: "maison",
 tier: "mid",
 rep: 450,
 stars: 3.5,
-blurb: "Proper tailoring — shirts, suits and good shoes.",
+blurb: "Proper tailoring: shirts, suits and good shoes.",
 items: [
 {
 n: "Cashmere-blend gilet",

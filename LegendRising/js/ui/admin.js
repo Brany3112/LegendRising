@@ -46,7 +46,7 @@ function adminHTML(){
   // every section is rendered, always — nothing is hidden behind a control that might not draw
   const parts = [
     ["Player", adSecPlayer], ["Skills", adSecSkills], ["Money", adSecMoney], ["Reputation", adSecRep],
-    ["Club", adSecClub], ["Day job", adSecWork], ["Showoff — how people see you", adSecSocial], ["Season", adSecSeason],
+    ["Club", adSecClub], ["Day job", adSecWork], ["Showoff: how people see you", adSecSocial], ["Season", adSecSeason],
     ["Career record", adSecCareer], ["Unlocks", adSecUnlocks]
   ];
   let out = "";
@@ -104,10 +104,10 @@ function adSecRep(){
 function adSecClub(){
   const me = meP(), c = myClub();
   const byLeague = {};
-  for (const x of W.clubs){ const lg = (W.leagues[x.lg] || {}).nm || "—"; (byLeague[lg] || (byLeague[lg] = [])).push(x); }
+  for (const x of W.clubs){ const lg = (W.leagues[x.lg] || {}).nm || EMPTY_CELL; (byLeague[lg] || (byLeague[lg] = [])).push(x); }
   const groups = Object.entries(byLeague).sort((a, b) => a[0].localeCompare(b[0]));
-  return `<div class="ad-now">${c ? crest(c.nm, 34) : ""}<div><b>${c ? esc(c.nm) : "Free agent"}</b>
-      <div class="muted small">${c ? `${esc((W.leagues[c.lg] || {}).nm || "")} · reputation ${fmt(c.rep)} · budget ${eur(c.fin)}` : "No club — pick one below"}</div></div></div>
+  return `<div class="ad-now">${c ? crest(c.nm, 34) : ""}<div><b>${c ? esc(c.nm) : FREE_AGENT}</b>
+      <div class="muted small">${c ? `${esc((W.leagues[c.lg] || {}).nm || "")} · reputation ${fmt(c.rep)} · budget ${eur(c.fin)}` : "No club yet. Pick one below."}</div></div></div>
     <div class="ad-f wide"><label>Move me to any club</label><div class="ad-in">
       <select onchange="adminSet('club', this.value)">${groups.map(([lg, list]) =>
         `<optgroup label="${esc(lg)}">${list.slice().sort((a, b) => b.rep - a.rep).map(x =>
@@ -168,6 +168,12 @@ function adSecCareer(){
     </div>
     <div class="muted small">Trophies: ${fmt(S.trophies.length)} · Awards: ${fmt(S.awards.length)}</div>`;
 }
+// what the clothes are worth, from the tiers themselves (CLOTHES_TIER, SHOPS in js/data/clothes.js)
+function clothesLine(){
+  const pct = v => `+${+(v*100).toFixed(2)}%`, T = CLOTHES_TIER;
+  const all = SHOPS.reduce((s, sh) => s + T[sh.tier].per*sh.items.length, 0);
+  return `Clothes give ${pct(T.low.per)}, ${pct(T.mid.per)} or ${pct(T.high.per)} each to reputation and followers. Unlocking them all is ${pct(all)}.`;
+}
 function adSecUnlocks(){
   return `<div class="ad-row-btns">
       <button class="btn sm ghost" onclick="adminSet('smartphone', 1)">Give smartphone + all apps</button>
@@ -175,7 +181,7 @@ function adSecUnlocks(){
       <button class="btn sm ghost" onclick="adminSet('allClothes', 1)">Unlock every clothing item</button>
       <button class="btn sm ghost" onclick="adminSet('clearClothes', 1)">Empty the wardrobe</button>
     </div>
-    <p class="muted small">Clothes give +0.25% / +0.5% / +1% each to reputation and followers — unlocking them all is +70%.</p>`;
+    <p class="muted small">${clothesLine()}</p>`;
 }
 function adminBump(field, by){
   const cur = adminGet(field);
@@ -262,7 +268,7 @@ function adminSet(field, value){
       me.club = -1; S.contract = null; S.trust = 0;
       const pool = shuffle(W.clubs.filter(x => x.id !== from && clubInterest(x) > .25)).slice(0, 3);
       S.offerSet = {ctx:"contract", list:(pool.length ? pool : shuffle(W.clubs.filter(x => x.rep < (cur ? cur.rep*1.2 : 400))).slice(0, 3)).map(x => baseOffer(x))};
-      save(); closeSheet(); toast("You've been released — pick a new club.");
+      save(); closeSheet(); toast("You've been released. Pick a new club.");
       screenOffers(); return;
     }
     case "offers": {
