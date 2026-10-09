@@ -35,9 +35,8 @@ body.gfx-low{--onb-blur:0px}
 @media (max-width:700px){
   #lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px)}
   #lifeRoot .onb-say{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 252px)}
-  /* the narrative note (style.css puts it under the compass on narrow screens) clears the bars too, and while an
-     objective holds that place it sits above the how-to at the bottom instead */
-  #lifeRoot .lf-note{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px)}
+  /* the narrative note (style.css puts it under the compass on narrow screens): while an objective holds the place
+     under the bars, it sits above the how-to at the bottom instead */
   #lifeRoot:has(> .onb-goal.on) .lf-note{top:auto;bottom:calc(var(--hud-pad) + 236px)}
 }
 
