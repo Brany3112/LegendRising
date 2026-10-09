@@ -18,7 +18,10 @@
                    have blob shadows instead). Every redraw goes through SHADOW, the one shadow scheduler: at most one a
                    frame, at most P.shadow.life.hz a second (half a second apart at night), none while the screen is
                    covered and none within 0.1 s of a place being warmed up. The light turns only when its shadows are
-                   redrawn, so a shadow never creeps away from what casts it
+                   redrawn, so a shadow never creeps away from what casts it. In a stadium (setContext) the box is
+                   never one round you: it is fitted round the whole ground (its stands and roofs throw their shadows
+                   right across a pitch that is in sight from anywhere on it, and a box round you would end them in a
+                   straight line in the middle of the grass); see setNightKey for the floodlights' own rules
      reflections   an environment map baked from the sky (P.env: PMREM of 32 or 64, every everyH game hours), none on
                    Low
      the sky       P.dome segments, P.skyOct cloud octaves (0: one cheap band of cloud), fog per P.fog, the camera's far
@@ -161,7 +164,9 @@ export function createSky(renderer){
   let envRT = null, envAt = -999;
 
   const sun = new THREE.DirectionalLight(0xffffff, 2);
-  sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; sun.shadow.radius = 2.5;   // vogel-disk PCF: soft edge instead of stair-steps
+  // vogel-disk PCF: soft edge instead of stair-steps. RADIUS is in texels of the life zones' box (60 m on 2048: LIFE_TEXEL)
+  const RADIUS = 2.5, LIFE_TEXEL = 60/2048;
+  sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; sun.shadow.radius = RADIUS;
   const hemi = new THREE.HemisphereLight(0xc4dcff, 0x9a9184, 1);
   // where the sky is: 'life' (home, the ground, town) or 'stadium' (its own light and shadow rules)
   let where = "life", scene0 = null;
@@ -175,23 +180,29 @@ export function createSky(renderer){
   let assignT = 0, shadowSize = 0, cut = Infinity, band = 8, shadeForce = true;
   const _eye = new THREE.Vector3(), _zero = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _look = new THREE.Matrix4();
   const _rt = new THREE.Vector3(), _upv = new THREE.Vector3(), _c0 = new THREE.Vector3();
-  // the flood key light of a pitch at night (setNightKey): it takes the sun's place and lifts the hemisphere
-  const KEY = {on:false, dir:new THREE.Vector3(.25, 1, .35).normalize(), intensity:1.6, color:0xf4f6ff, hemi:.35};
+  /* the flood key light of a pitch at night (setNightKey): it takes the sun's place and lifts the hemisphere. It stands
+     for many lamps at once (a ring of them under a roof's edge, or banks on four masts), so: a spot one bank cannot see
+     is still lit by the others (its shadow is partial, `shadow`), and the lamps hang in front of the stands and under
+     the roofs, so nothing of the ground's own build higher than `top` comes between them and the grass (castTop) */
+  const KEY = {on:false, dir:new THREE.Vector3(.25, 1, .35).normalize(), intensity:1.6, color:0xf4f6ff, hemi:.35, shadow:.5, top:Infinity};
+  let keyNow = false;                 // the key light is the one shining (update), as of this frame
 
   /* ---------- the shadow scheduler ----------
      request(why): someone wants the shadows redrawn ('direct': a door, the world; 'sun': the light moved; 'warm';
      'half': a stadium's statics at kick-off and half time);
      granted(): the renderer's needsUpdate, true for the one frame a redraw is allowed; done(): three.js finished one */
-  const SH = {on:false, half:30, grid:4, hz:5, size:2048, follow:true, statics:false};
+  // follow: the box goes round you (the life zones); otherwise it is fitted round `box`, the ground (a stadium).
+  // keyLit: the map was last drawn for the flood key light (what may cast is then castTop's to say)
+  const SH = {on:false, half:30, grid:4, hz:5, size:2048, follow:true, statics:false, box:null, keyLit:false};
   const SHADOW = {pending:false, grant:false, last:-1e9, t:0, frame:0, grantFrame:-1, fresh:true, warmAt:-1e9, count:0, why:"",
     on(){ return SH.on && !!(RT.renderer && RT.renderer.shadowMap.enabled); },
     rate(){ return K.night > .5 && where === "life" ? .5 : SH.hz; },
-    // may a redraw happen this frame?
-    may(){
+    // may a redraw happen this frame? (now: whatever the rate says, for a change of the light itself)
+    may(now = false){
       if (SHADOW.grant || SHADOW.grantFrame === SHADOW.frame) return false;
       if (FADE.v >= .98) return false;
       if (SHADOW.t - SHADOW.warmAt < .1) return false;
-      return SHADOW.t - SHADOW.last >= 1/Math.max(.01, SHADOW.rate()) - 1e-6;
+      return now || SHADOW.t - SHADOW.last >= 1/Math.max(.01, SHADOW.rate()) - 1e-6;
     },
     request(why = "direct"){
       if (!SHADOW.on()) return;
@@ -237,8 +248,11 @@ export function createSky(renderer){
     const s = P ? (where === "stadium" ? P.shadow && P.shadow.stadium : P.shadow && P.shadow.life) : {size:2048, half:30, grid:4, hz:5};
     SH.on = !!s;
     if (!s){ sun.castShadow = false; return; }
-    SH.size = s.size || 2048;
-    if (where === "stadium" && s.mode === "statics"){ SH.follow = false; SH.statics = true; SH.half = 80; SH.grid = 1e9; SH.hz = .02; }
+    const maxTex = RT.renderer && RT.renderer.capabilities ? RT.renderer.capabilities.maxTextureSize : 4096;
+    SH.size = Math.min(s.size || 2048, maxTex || 4096);
+    /* a stadium: one box round the whole ground (shade() fits it to the light), drawn once per half on Medium
+       ('statics') and as often as P.shadow.stadium.hz on High ('bowl', people casting too) */
+    if (where === "stadium"){ SH.follow = false; SH.statics = s.mode === "statics"; SH.grid = 1e9; SH.hz = SH.statics ? .02 : s.hz || 15; }
     else { SH.follow = true; SH.statics = false; SH.half = s.half || (s.box ? s.box/2 : 30); SH.grid = s.grid || 4; SH.hz = s.hz || 5; }
     sun.castShadow = true;
     shadowAt.key = "";
@@ -263,6 +277,30 @@ export function createSky(renderer){
       cubeCam = new THREE.CubeCamera(.1, 100, cubeRT);
       envAt = -999;
     }
+  }
+  /* a stadium's shadow box: the ground's own (setContext), seen from the light. Every corner of it is inside the box
+     across the light's view, and the light stands far enough back that nothing of the ground is in front of its near
+     plane; the box turns with the light, so it is fitted again at every redraw (never between two: the light turns
+     only when its shadows are redrawn) */
+  const GROUND = {x0:-80, x1:80, y0:0, y1:30, z0:-80, z1:80}, _k = new THREE.Vector3();
+  const groundBox = () => SH.box || GROUND;
+  function fitGround(){
+    const b = groundBox(), c = sun.shadow.camera;
+    _c0.set((b.x0 + b.x1)/2, (b.y0 + b.y1)/2, (b.z0 + b.z1)/2);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity, w0 = Infinity, w1 = -Infinity;
+    for (let i = 0; i < 8; i++){
+      _k.set(i & 1 ? b.x1 : b.x0, i & 2 ? b.y1 : b.y0, i & 4 ? b.z1 : b.z0).sub(_c0);
+      const u = _k.dot(_rt), v = _k.dot(_upv), w = _k.dot(shadowDir);
+      if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; if (w < w0) w0 = w; if (w > w1) w1 = w;
+    }
+    const back = w1 + 5;
+    c.left = u0 - 1; c.right = u1 + 1; c.bottom = v0 - 1; c.top = v1 + 1; c.near = 1; c.far = back - w0 + 5; c.updateProjectionMatrix();
+    sun.target.position.copy(_c0);
+    sun.position.copy(_c0).addScaledVector(shadowDir, back);
+    // the soft edge as wide on the ground as in the life zones' box (its radius counts texels, and these are bigger),
+    // so a player's shadow keeps its shape instead of melting into a smudge
+    const texel = Math.max(c.right - c.left, c.top - c.bottom)/(shadowSize || SH.size);
+    sun.shadow.radius = Math.max(1, Math.min(RADIUS, RADIUS*LIFE_TEXEL/texel));
   }
   function setDome(P){
     const s = domeSeg(P);
@@ -299,10 +337,12 @@ export function createSky(renderer){
       const useSun = up > -.02, L = useSun ? dir : moonDir;
       const swap = Math.max(0, Math.min(1, (useSun ? up : moonDir.y)*7));
       const key = KEY.on ? Math.max(0, Math.min(1, (k.lamps - .3)/.4)) : 0;
-      if (key > .5) shadowDir.copy(KEY.dir); else shadowDir.copy(L);
-      sun.intensity = key > .5 ? KEY.intensity*key : k.sunI*swap*(1 - key);
-      if (key > .5) sun.color.setHex(KEY.color); else sun.color.copy(uni.uSunCol.value);
-      sun.shadow.intensity = key > .5 ? 1 : swap;
+      keyNow = key > .5;
+      if (keyNow) shadowDir.copy(KEY.dir); else shadowDir.copy(L);
+      sun.intensity = keyNow ? KEY.intensity*key : k.sunI*swap*(1 - key);
+      if (keyNow) sun.color.setHex(KEY.color); else sun.color.copy(uni.uSunCol.value);
+      // under the floodlights a shadow is a spot one bank of lamps cannot see, still lit by the rest of them
+      sun.shadow.intensity = keyNow ? KEY.shadow : swap;
       hemi.intensity = k.hemiI + KEY.hemi*key;
       fog.color.copy(uni.uHor.value).multiplyScalar(.92);
       const f = P && P.fog ? (where === "stadium" ? P.fog.stadium : P.fog.life) : null;
@@ -339,16 +379,18 @@ export function createSky(renderer){
           force = true;
         }
         /* the shadow area follows you (SH.half each way, on a grid of SH.grid metres, so it is redrawn only when you
-           have walked a fair way, and shade() snaps its centre to whole texels so the edges stay put between redraws);
-           in a stadium on Medium it covers the whole bowl, drawn once. Casters further off still throw their shadows
-           in: the light's depth range reaches 240 m back towards the sun */
-        const fx = focus && SH.follow ? focus.x : 0, fz = focus && SH.follow ? focus.z : 0, g = SH.grid, gx = SH.follow ? Math.round(fx/g)*g : 0, gz = SH.follow ? Math.round(fz/g)*g : 0;
-        const key = `${gx},${gz},${SH.half}`;
-        if (key !== shadowAt.key){
-          shadowAt.key = key; mid.x = gx; mid.z = gz; mid.half = SH.half;
-          const c = sun.shadow.camera; c.left = -mid.half; c.right = mid.half; c.top = mid.half; c.bottom = -mid.half; c.near = 1; c.far = 240; c.updateProjectionMatrix();
-          shadeForce = true;
-        }
+           have walked a fair way, and shade() snaps its centre to whole texels so the edges stay put between redraws).
+           Casters further off still throw their shadows in: the light's depth range reaches 240 m back towards the
+           sun. In a stadium the box is the whole ground's, fitted to the light by shade() at every redraw */
+        if (SH.follow){
+          const fx = focus ? focus.x : 0, fz = focus ? focus.z : 0, g = SH.grid, gx = Math.round(fx/g)*g, gz = Math.round(fz/g)*g;
+          const key = `${gx},${gz},${SH.half}`;
+          if (key !== shadowAt.key){
+            shadowAt.key = key; mid.x = gx; mid.z = gz; mid.half = SH.half;
+            const c = sun.shadow.camera; c.left = -mid.half; c.right = mid.half; c.top = mid.half; c.bottom = -mid.half; c.near = 1; c.far = 240; c.updateProjectionMatrix();
+            shadeForce = true;
+          }
+        } else if (shadowAt.key !== "ground"){ shadowAt.key = "ground"; const b = groundBox(); mid.x = (b.x0 + b.x1)/2; mid.z = (b.z0 + b.z1)/2; shadeForce = true; }
         if (force) shadeForce = true;
       }
       // reflections follow the sky every P.env.everyH game hours; none on Low
@@ -379,20 +421,27 @@ export function createSky(renderer){
       }
       const e = Math.max(.05, shadowDir.y), low = tierOf(gp()) === "low";
       const step = Math.max(low ? .0015 : .0004, Math.min(.006, .02*e*e));
-      if (!shadeForce && shadowAt.d.angleTo(shadowDir) <= step) return false;
+      // the sun handing over to a ground's floodlights, or back: another light altogether, redrawn as soon as a frame
+      // may have a redraw at all (not at the next turn of the rate: on Medium that is the next half)
+      const swap = keyNow !== SH.keyLit;
+      if (!shadeForce && !swap && shadowAt.d.angleTo(shadowDir) <= step) return false;
       // a redraw the scheduler allows this frame (the first of a new place at once), else try again next frame
-      if (!(SHADOW.fresh || SHADOW.may())){ return false; }
+      if (!(SHADOW.fresh || SHADOW.may(swap))){ return false; }
       shadeForce = false;
       shadowAt.d.copy(shadowDir);
-      // the centre, snapped to whole texels across the light's view, so a redraw never shifts an edge by part of one
-      const texel = 2*mid.half/(shadowSize || 2048);
+      SH.keyLit = keyNow;
       _eye.set(shadowDir.x, shadowDir.y, shadowDir.z); _look.lookAt(_eye, _zero, _up);
       _rt.setFromMatrixColumn(_look, 0); _upv.setFromMatrixColumn(_look, 1);
-      _c0.set(mid.x, 0, mid.z);
-      const du = _c0.dot(_rt), dv = _c0.dot(_upv);
-      _c0.addScaledVector(_rt, Math.round(du/texel)*texel - du).addScaledVector(_upv, Math.round(dv/texel)*texel - dv);
-      sun.target.position.copy(_c0);
-      sun.position.set(_c0.x + shadowDir.x*100, _c0.y + shadowDir.y*100, _c0.z + shadowDir.z*100);
+      if (SH.follow){
+        // the centre, snapped to whole texels across the light's view, so a redraw never shifts an edge by part of one
+        const texel = 2*mid.half/(shadowSize || 2048);
+        _c0.set(mid.x, 0, mid.z);
+        const du = _c0.dot(_rt), dv = _c0.dot(_upv);
+        _c0.addScaledVector(_rt, Math.round(du/texel)*texel - du).addScaledVector(_upv, Math.round(dv/texel)*texel - dv);
+        sun.target.position.copy(_c0);
+        sun.position.set(_c0.x + shadowDir.x*100, _c0.y + shadowDir.y*100, _c0.z + shadowDir.z*100);
+        sun.shadow.radius = RADIUS;
+      } else fitGround();
       if (SHADOW.fresh){ SHADOW.grant = true; SHADOW.grantFrame = SHADOW.frame; SHADOW.why = "warm"; } else SHADOW.give();
       return true;
     },
@@ -460,16 +509,31 @@ export function createSky(renderer){
       if (!(P && P.env) && scene) scene.environment = null;
       envAt = -999;
     },
-    // a stadium has its own lights and shadows (DESIGN 1.4.4, 3.3.4): its zone calls this as it is built, behind the fade
-    setContext(w){ where = w === "stadium" ? "stadium" : "life"; const P = gp(); setRealLights(nRealOf(P)); shadowFrom(P); },
-    // a pitch's floodlights at night: one directional key light from dir (towards the light), in the sun's place
+    /* a stadium has its own lights and shadows (DESIGN 1.4.4, 3.3.4): its zone calls this as it is built, behind the
+       fade. o.box {x0, x1, y0, y1, z0, z1}: the ground's extent, which its shadow box is fitted round */
+    setContext(w, o = {}){
+      where = w === "stadium" ? "stadium" : "life";
+      SH.box = where === "stadium" && o.box ? Object.assign({}, o.box) : null;
+      const P = gp(); setRealLights(nRealOf(P)); shadowFrom(P);
+    },
+    /* a pitch's floodlights at night: one directional key light from dir (towards the light), in the sun's place.
+       o.shadow: how dark a spot is that one bank of lamps cannot see (0 to 1); o.top: the height the lamps hang well
+       above, under which the ground's own pieces still throw their shadows (castTop) */
     setNightKey(on, o = {}){
       KEY.on = !!on;
       if (o.dir) KEY.dir.set(o.dir[0], o.dir[1], o.dir[2]).normalize();
       if (o.intensity != null) KEY.intensity = o.intensity;
       if (o.color != null) KEY.color = o.color;
+      KEY.shadow = o.shadow != null ? o.shadow : .5;
+      KEY.top = o.top != null ? o.top : Infinity;
       shadeForce = true;
     },
+    /* what of the place's static pieces may throw a shadow in the shadow map as last drawn (chunks.js reads it in the
+       shadow pass): a piece whose box reaches higher than this is left out. Under the floodlights that is everything
+       of the ground's own build above KEY.top: the stands and the roofs stand behind the lamps and above them, so they
+       never come between a lamp and the pitch (a single key light from one side would otherwise throw a roof's shadow
+       across the near half of the grass); by day (and anywhere else) nothing is left out */
+    get castTop(){ return SH.keyLit && KEY.on ? KEY.top : Infinity; },
     // the renderer was made again (quality.js recreateRenderer): the reflection bake starts afresh with it
     rebind(renderer){
       try { pmrem.dispose(); } catch(e){}

@@ -95,7 +95,8 @@ function boot({stored = {}, cores = 8, mem = 8, gpu = "ANGLE (Intel, Intel(R) UH
   row("maxRatio", 1.0, 1.25, 1.5);
   row("qMin", 0.8, 0.7, 0.6);
   row("shadow.life", null, {type: "pcf", size: 2048, half: 26, grid: 6, hz: 2}, {type: "pcf", size: 2048, half: 30, grid: 4, hz: 5});
-  row("shadow.stadium.mode", undefined, "statics", "follow");
+  row("shadow.stadium.mode", undefined, "statics", "bowl");
+  row("shadow.stadium.size", undefined, 2048, 4096);
   row("nReal", {life: 2, stadium: 0}, {life: 4, stadium: 0}, {life: 8, stadium: 2});
   row("material", "lambert", "mixed", "standard");
   row("env", null, {size: 32, everyH: 1}, {size: 64, everyH: 0.15});

@@ -51,6 +51,12 @@ const MOUTH = {x:3.0, rows:5};                        // the tunnel's cut throug
 const COR = {x:2.5, z0:-66, z1:-44, h:2.9};           // the corridor under the main stand
 // the batch keys of the rooms under the main stand, lit by their own ceiling panels (see W.glows in buildStadium)
 const INNER = ["t:tiles", "t:rubberFloor", "t:paint"];
+/* under the floodlights at night, the ground's static pieces that throw a shadow are those no higher than this (sky.js
+   castTop, by the box of each batched piece): the pitch side (the dugouts, the tunnel, the boards) and the first rows
+   of seats. The lamps hang in front of everything higher (the stands above, the roofs, the masts), and the key light
+   comes down at about 70 degrees, so anything this high can throw its shadow at most 2.5 m forward: never onto the
+   pitch, which starts 4 m in front of the boards and 6 m in front of the first row */
+const KEY_TOP = 7;
 
 export const STADIUM = {tier:-1, spec:null, pitch:null, crowd:null, stands:[], bench:[], cones:[], att:0, level:0, excitement:.15,
   board:null, spawns:SPAWNS,
@@ -755,6 +761,10 @@ function mouth(opts, tier){
   if (idx){ const a = idx.array; for (let i = 0; i < a.length; i += 3){ const t = a[i]; a[i] = a[i + 2]; a[i + 2] = t; } }
   const nn = inner.attributes.normal; for (let i = 0; i < nn.count; i++) nn.setXYZ(i, -nn.getX(i), -nn.getY(i), -nn.getZ(i));
   addGeo(shell, cl, {ao:false, jit:0}); addGeo(inner, 0xd6d9dc, {ao:false, jit:0});
+  // the floor under it: the corridor's rubber matting carried on from the front of the stand (where the corridor's own
+  // floor ends) out to the tunnel's end, wall to wall, so the players walk on matting to the open air and onto the
+  // grass after it
+  box(-2, 0, -Z0, 2, .02, zs, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
   for (let k = 0; k <= 4; k++){
     const z = ze + len*k/4, g = new THREE.TorusGeometry(2.02, .05, 5, 18, Math.PI);
     g.scale(1, 1.35, 1); g.translate(0, .02, z);
@@ -833,6 +843,24 @@ function surroundings(tier, opts){
   }
 }
 
+/* the ground's own build, for the sky's shadow box (sky.js setContext, which fits the box round it for the light of
+   the moment): out to the backs of the stands (a bowl's roof ring reaches no further), the masts, the rooms behind the
+   main stand and the scoreboard's legs, plus a few metres for the shadows they throw just outside; up to the top of the
+   highest roof (the trusses over it) or mast. The trees and the town beyond are scenery, not the ground's */
+function groundExtent(stands, masts, board){
+  const pad = 4;
+  let ex = X0 + .3, ez = Z0 + .3, top = 6;
+  for (const st of stands){
+    const i = st.info, back = i.lastTier.end + (st.bank ? 3.5 : .6);       // (a bank's slope runs on down behind it)
+    for (const pc of st.pieces) for (const [x, z] of pc.at(back)){ ex = Math.max(ex, Math.abs(x)); ez = Math.max(ez, Math.abs(z)); }
+    top = Math.max(top, i.lastTier.top + 11);
+  }
+  for (const [x, z, h] of masts){ ex = Math.max(ex, Math.abs(x) + 1); ez = Math.max(ez, Math.abs(z) + 1); top = Math.max(top, h + 1); }
+  if (board && board.legs) ex = Math.max(ex, board.x + 2);
+  const zMin = Math.min(-ez, -82.5);                 // the dressing room, and on the smaller grounds the building round it
+  return {x0:-ex - pad, x1:ex + pad, y0:-.5, y1:top, z0:zMin - pad, z1:ez + pad};
+}
+
 /* ---------- the zone ---------- */
 let LEAVE = [];
 function lightOnStands(out){
@@ -869,10 +897,12 @@ export function buildStadium(ctx, o = {}){
   let ring = null, boardAt = {x:62, z:30, legs:true};
   if (L.roofRing){ ring = roofRing(L, stands, opts, tier); const t1 = stands.find(s => s.id === "east").info.tiers[1]; boardAt = {x:X0 + t1.d - .5, z:0, y:t1.y - 1.2}; }
   else if (tier === 2){ const e = stands.find(s => s.id === "east").info; boardAt = {x:X0 - 1.6, z:0, y:e.lastTier.top + 3.2 + 1.4 + .9}; }
-  // the floodlights
-  if (tier === 0) for (const [x, z] of [[-32, 44], [32, 44], [-32, -44.5], [32, -44.5]]) mast(x, z, 16, opts, 3);
-  else if (tier === 1) for (const sx of [-1, 1]) for (const sz of [-1, 1]) mast(sx*61, sz*45, 28, opts, 5);
-  else if (tier === 2) for (const sx of [-1, 1]) for (const sz of [-1, 1]) mast(sx*63.5, sz*44.5, 40, opts, 7);
+  // the floodlights: [x, z, height, head width] of each mast
+  const masts = [];
+  if (tier === 0) for (const [x, z] of [[-32, 44], [32, 44], [-32, -44.5], [32, -44.5]]) masts.push([x, z, 16, 3]);
+  else if (tier === 1) for (const sx of [-1, 1]) for (const sz of [-1, 1]) masts.push([sx*61, sz*45, 28, 5]);
+  else if (tier === 2) for (const sx of [-1, 1]) for (const sz of [-1, 1]) masts.push([sx*63.5, sz*44.5, 40, 7]);
+  for (const [x, z, h, w] of masts) mast(x, z, h, opts, w);
   // the boards, the ribbons along the upper tiers' fronts sharing their picture
   const adTex = adsTexture(clubs, kits), ribbons = [];
   if (L.bowl) for (const st of stands){ const t1 = st.info.tiers[1]; if (!t1) continue;
@@ -901,10 +931,16 @@ export function buildStadium(ctx, o = {}){
   if (on.bench) for (const [side, x] of [["home", -10], ["away", 10]]) spot({x, y:.8, z:-37.3, r:2.6, near:true, stadium:true, label:"Bench", hint:"Sit down", run:() => on.bench(side)});
   if (on.leave) spot({x:0, y:1.2, z:-77.6, r:1.8, near:true, stadium:true, label:"Exit", hint:"Leave the ground", run:() => on.leave()});
   finishBatches();
-  // the sky: a stadium's own lights and shadows (DESIGN 3.3.4), and the floodlights' key light for the night
+  /* the sky: a stadium's own lights and shadows (DESIGN 3.3.4), its shadow box round the whole ground, and the
+     floodlights' key light for the night. The key light stands for every lamp at once (a ring under the roof's edge,
+     roof strips or four masts' banks, all aimed at the pitch from in front of the stands): a spot one bank cannot see
+     is still lit by the rest (shadow), and nothing of the stands or the roofs, which the lamps hang in front of and
+     under, comes between them and the grass; only what stands lower than KEY_TOP throws a shadow under them (the
+     people, the goals, the dugouts, the tunnel, the boards, the first rows of seats). One light from one side with
+     every roof casting would leave the near half of the pitch in the main stand's shadow */
   const SKY = RT.SKY;
-  if (SKY && SKY.setContext) SKY.setContext("stadium");
-  if (SKY && SKY.setNightKey) SKY.setNightKey(true, {dir:[.18, 1, -.32], intensity:[1.3, 1.5, 1.7, 1.85, 2.0][tier], color:0xf2f5ff});
+  if (SKY && SKY.setContext) SKY.setContext("stadium", {box:groundExtent(stands, masts, boardAt)});
+  if (SKY && SKY.setNightKey) SKY.setNightKey(true, {dir:[.18, 1, -.32], intensity:[1.3, 1.5, 1.7, 1.85, 2.0][tier], color:0xf2f5ff, shadow:.5, top:KEY_TOP});
   /* the key light comes from one side; real floodlights from all four corners. Under them, at night, the white of the
      goals (frames and nets, kept as meshes of their own for it) is lifted a little on every face. And the rooms under
      the main stand (the tiles, the painted walls and ceilings, the corridor's floor) are lit by their ceiling panels
