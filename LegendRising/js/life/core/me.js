@@ -164,8 +164,22 @@ export function meStep(dt){
   /* looking down at a run (a sprint, a flight of stairs taken at pace), the arm swinging forward would come up the
      middle of the view as a long stiff forearm: the arms are kept lower and nearer the body (less forward swing, the
      shoulders back and a little out) so the hands stay in the bottom of the picture. First person only: the body
-     others see (third person) runs as it always does */
-  const armK = ME.act ? 0 : sstep(.45, 1.0, -P.pitch)*sstep(2.6, 5.5, P.speed);
+     others see (third person) runs as it always does.
+     How much they are kept in follows what brings the hands up the view (DESIGN 3.5.9):
+     · the gait's own run, not your speed (the gait as the last frame left it: all of it eases). Let go of the keys at
+       a sprint and your speed falls away at once while the arms still swing at the run (R, mvA) for half a second;
+     · how far you look down. The run's forward hand comes up to about 0.6 rad (34 degrees) under the eye's level, and
+       the view's lower edge is half its field (37 degrees) under its middle: the hand is in the picture as soon as you
+       look down at all, and above its lower third from about 0.3 rad down. So from 0.1 rad down, fully by 0.6 (kept
+       in from 0.45 to 1.0, it came most of the way up the lower half of the view at every stride looking 0.45 to 0.6
+       rad down);
+     · braking, whatever the pitch: the body leans back (the deceleration's lean, full at 3.3 m/s/s, then the hard
+       stop's brace, gait.js and DESIGN 3.5.5: arms forward, the spine back), which swings the run's arms up the view.
+       The forward hand came up the middle of the view looking ahead and to its top edge looking down, a hand's breadth
+       from the eye. The brace stays in the hips, the lean and the planted step */
+  const Gt = fp.gait, run = Gt ? (Gt.R || 0)*(Gt.mvA || 0) : 0;
+  const brakes = Gt ? Math.max(sstep(0, 3.3, -(Gt.acc || 0)), Gt.brakeW || 0) : 0;
+  const armK = ME.act ? 0 : run*Math.max(sstep(.1, .6, -P.pitch), brakes);
   animateHuman(fp, dt, gaitState(0, armK, neckFix));
   if (!LOCO.old){
     // the camera was placed with last frame's bob: this frame's (the same clock as the feet just drawn)

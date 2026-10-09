@@ -15,7 +15,9 @@
 //   6. tiers: a body posed at T2 and at T3 (the leg pass between full poses) keeps its planted feet within 1 cm;
 //   7. 25 bodies walking at 2 to 60 m from the camera on Low cost under 1 ms a frame to animate;
 //   8. in the game, the first-person head bob runs on the same footfall counter as the body's feet (every footfall
-//      nods the camera in that same frame) and stays within 0.006 + 0.0016 v m (1.9 cm at 8 m/s).
+//      nods the camera in that same frame) and stays within 0.006 + 0.0016 v m (1.9 cm at 8 m/s);
+//   9. in the game, sprinting and letting go of the keys (the hard stop's brace, 3.5.5), your first-person hands stay
+//      in the bottom third of the view looking ahead and down to 0.6 rad, below its middle looking at your feet (3.5.9).
 //
 //   QA_PORT=8771 node qa/wpB-feet.mjs [--sheets]   exits 1 on any failed check; writes qa/out/wpB-feet.json
 //                                                  (--sheets: contact sheets qa/out/wpB-<scenario>.png, side and
@@ -227,9 +229,47 @@ try {
   });
   check(bob.falls > 6 && bob.missed === 0 && bob.nods <= bob.falls && bob.nods >= bob.falls - 2, "first person: the camera nods on the body's own footfalls, same frame and count (phase error 0)", bob);
   check(bob.over === 0 && bob.maxYcm <= 1.9, "first person: bob within 0.006 + 0.0016 v m (1.9 cm at 8 m/s)", {maxYcm: bob.maxYcm, vmax: bob.vmax});
+  // the first-person arms at a sprint and through a hard stop: your own body's skinned arm and hand vertices in the view
+  // (NDC y, -1 the bottom edge), every frame, sprinting and then letting go of the keys, looking ahead, a little down,
+  // down and at your feet. The run's forward forearm came most of the way up the lower half of the view at every
+  // stride looking 0.45 to 0.6 rad down, and the stop brought it up the middle (to the top edge looking down, 13 cm
+  // from the eye). Kept in the bottom third looking ahead and down to 0.6 rad; looking at your feet the hands at your
+  // sides show lower in the picture, below its middle
+  const arms = await page.evaluate(async () => {
+    const {THREE} = await import("./js/life/build.js");
+    const L = window.__life, h = L.ME.fp, m = h.near, cam = L.cam, v = new THREE.Vector3();
+    const pos = m.geometry.attributes.position, si = m.geometry.attributes.skinIndex, sw = m.geometry.attributes.skinWeight;
+    const top = r => {
+      h.g.updateMatrixWorld(true); m.skeleton.update(); cam.updateMatrixWorld(true);
+      for (let i = 0; i < pos.count; i++){
+        const b = sw.getX(i) >= sw.getY(i) ? si.getX(i) : si.getY(i);
+        if (b < 6 || b > 11) continue;                               // (the arms and hands: rig.js BN 6 to 11)
+        m.getVertexPosition(i, v); v.applyMatrix4(m.matrixWorld).applyMatrix4(cam.matrixWorldInverse);
+        const d = -v.z; if (d <= 1e-4) continue;
+        v.applyMatrix4(cam.projectionMatrix);
+        if (v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) continue;
+        r.y = Math.max(r.y, v.y); r.d = Math.min(r.d, d);
+      }
+    };
+    // (on the training pitch, running along it towards -x: some 15 m of grass ahead, nothing to run into)
+    const out = [], p0 = {x: L.P.x, z: L.P.z, yaw: L.P.yaw};
+    for (const pitch of [0, -.3, -.6, -1.2]){
+      L.place({x: 0, z: -14, y: 0, yaw: Math.PI/2}); L.P.pitch = pitch; L.stepN(30);
+      const run = {y: -1, d: 9}, stop = {y: -1, d: 9};
+      L.keys.w = true; L.keys.shift = true;
+      for (let i = 0; i < 150; i++){ L.stepN(1); top(run); }
+      L.keys.w = false; L.keys.shift = false;
+      for (let i = 0; i < 60; i++){ L.stepN(1); top(stop); }
+      L.stepN(60);
+      out.push({pitch, run: +run.y.toFixed(2), stop: +stop.y.toFixed(2), nearM: +Math.min(run.d, stop.d).toFixed(2), most: pitch > -.65 ? -1/3 : 0});
+    }
+    L.place({x: p0.x, z: p0.z, y: 0, yaw: p0.yaw});
+    return out;
+  });
+  check(arms.every(a => a.run <= a.most && a.stop <= a.most), "first person: sprinting and stopping hard, your hands stay in the bottom third of the view looking ahead and down to 0.6 rad, below its middle looking at your feet", arms);
   res.scenarios = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, {drift60: Math.max(0, ...v.r60.drift.map(d => d.mm)), drift240: Math.max(0, ...v.r240.drift.map(d => d.mm)),
     end240: Math.max(0, ...v.r240.end.map(e => e.v)), jump: v.r60.jump, hipsDrop: v.r60.hipsDrop, footfalls: v.r60.falls.length, slipsMm: v.r60.slips}]));
-  res.perf = perf; res.bob = bob;
+  res.perf = perf; res.bob = bob; res.arms = arms;
 } catch(e){ check(false, "ran", String(e && e.stack || e)); }
 if (page.errors.length){ check(false, "no console or page errors", page.errors.slice(0, 5)); }
 report("wpB-feet", res);
