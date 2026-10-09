@@ -1,7 +1,8 @@
-/* css/onb.css: the first day's teaching (firstday.js): objective line, step cards and the HUD spotlight, every class
-   prefixed onb-.
+/* css/onb.css: the first day's teaching (firstday.js, intro.js, the New Game screens of ui/main.js): the objective
+   line, the lines said while you play, the how-to with its keys, the HUD spotlight, the black page and loader of a
+   New Game. Every class prefixed onb-.
    Owner: WP-0B creates it with the shared tokens (DESIGN 1.2, 2.2 WP-0B); WP-H and WP-H2 build the first day on them
-   (DESIGN 3.7, 2.3 WP-H, 2.4 WP-H2). Linked once, after style.css. Until then it holds tokens only and draws nothing. */
+   (DESIGN 3.7, 2.3 WP-H, 2.4 WP-H2). Linked once, after style.css. */
 :root{
   --onb-ink:#fff;                         /* the objective and step text */
   --onb-muted:#b9c8d8;                    /* the line under it: how, where, how far */
@@ -18,3 +19,50 @@
   --onb-in:.3s;                           /* a card or the objective line arriving */
 }
 body.gfx-low{--onb-blur:0px}
+
+/* ---------- a New Game: black at once, a loader only if the city takes a while ---------- */
+.onb-black{position:fixed;inset:0;z-index:95;background:#000;display:grid;place-items:center}
+.onb-loader{opacity:0;transition:opacity .5s ease;text-align:center;color:var(--onb-muted);font-family:var(--onb-font);letter-spacing:.04em}
+.onb-loader.on{opacity:1}
+.onb-loader p{margin:0;font-size:.95rem}
+
+/* ---------- the objective: under the compass and its markers, so they never overlap ---------- */
+#lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 108px);background:var(--onb-panel);
+  backdrop-filter:blur(var(--onb-blur));-webkit-backdrop-filter:blur(var(--onb-blur));border-radius:var(--onb-radius);font-family:var(--onb-font)}
+#lifeRoot .onb-goal span{color:var(--onb-ink)}
+
+/* ---------- a how-to with the keys in it: above the inventory and the narrative note, below the use prompt ---------- */
+#lifeRoot .onb-hint{bottom:calc(var(--hud-pad) + 152px);max-width:min(640px,calc(100vw - 32px));font-family:var(--onb-font);line-height:1.4}
+.onb-hint kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:0 .4em;margin:0 .1em;border-radius:6px;background:#eef3f8;color:#0b1220;
+  font:700 .85em/1 var(--onb-font);box-shadow:0 2px 0 #9aa8b6;vertical-align:.08em}
+/* stepped aside (firstday.js hintPlace): at the left edge, level with the use prompt, while the prompt reaches down to it */
+#lifeRoot .onb-hint.side{left:calc(var(--hud-pad) + env(safe-area-inset-left,0px));bottom:auto;top:calc(50% + 40px);transform:translate(-8px,0);
+  max-width:min(360px,calc(50vw - 252px));text-align:left;font-size:.94rem}
+#lifeRoot .onb-hint.side.on{transform:none}
+.oh-lines{display:grid;gap:6px;text-align:left}
+.oh-lines span{display:block}
+
+/* ---------- a line said while you play: your own thought, or your uncle on a hands-free call. Under the objective at
+   the top, where it reads like a call coming in, clear of the crosshair, the use prompt and the notes below ---------- */
+.onb-say{position:absolute;left:50%;top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 154px);transform:translate(-50%,-8px);z-index:5;width:max-content;max-width:min(620px,calc(100vw - 32px));
+  padding:10px 16px 12px;border-radius:var(--onb-radius);background:var(--onb-panel);border:1px solid var(--onb-line);
+  backdrop-filter:blur(var(--onb-blur));-webkit-backdrop-filter:blur(var(--onb-blur));box-shadow:0 10px 30px rgba(0,0,0,.3);
+  opacity:0;transition:opacity var(--onb-in) ease,transform var(--onb-in) ease;pointer-events:none;font-family:var(--onb-font)}
+.onb-say.on{opacity:1;transform:translate(-50%,0)}
+.onb-say b{display:flex;align-items:center;gap:6px;font-family:var(--onb-title);font-size:.82rem;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:3px}
+.onb-say b svg{width:13px;height:13px;fill:currentColor}
+.onb-say.you b{color:var(--onb-accent)}
+.onb-say.you p{font-style:italic}
+.onb-say p{margin:0;font-size:1.02rem;line-height:1.42;color:#f2f5f8;min-height:1.42em}
+body.cine .onb-say,body.hub-out .onb-say,.onb-say.held,body.cine #lifeRoot .onb-hint{opacity:0 !important}
+
+/* ---------- the spotlight on a part of the HUD (an inventory cell, the compass) ---------- */
+.onb-focus::after{content:"";position:absolute;inset:-6px;border-radius:16px;border:var(--onb-focus-width) solid var(--onb-focus);pointer-events:none;
+  animation:onbPulse var(--onb-focus-pulse) ease-in-out infinite}
+#lifeCompass.onb-focus::after{border-radius:99px;inset:-5px -8px}
+@keyframes onbPulse{0%,100%{opacity:.35;transform:scale(1)}50%{opacity:1;transform:scale(1.04)}}
+body.low .onb-focus::after{animation:none;opacity:.9}
+
+/* ---------- the notice board: what each notice means for you ---------- */
+.nb-item p.nb-fx{color:#e9f3c9}
+.nb-foot{display:flex;justify-content:flex-end;padding-top:12px;margin-top:8px;border-top:1px solid var(--line)}

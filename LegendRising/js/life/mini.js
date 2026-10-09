@@ -3,7 +3,8 @@
    shift. While one is going the world holds still around you: the mouse and the keys go to it, not to looking about
    or walking. start(spec) runs one; spec is
      {title, hint, html (the card's insides), move(mx, my), down(button), up(button), key(k, down), update(dt), cancel()}
-   and it ends when it calls end(result). Esc always gives up (spec.cancel). */
+   and it ends when it calls end(result). Esc always gives up (spec.cancel).
+   Owner: WP-H (Stage 1), WP-H2 (Stage 2). Contract: DESIGN 3.7.5 (H9: the screw-in hint, word for word). */
 export const MINI = {on:null};
 const root = () => document.getElementById("lifeMini");
 
@@ -55,7 +56,7 @@ export function screwIn(o){
     b.querySelector(".sc-ico").style.transform = `rotate(${(spin*180/Math.PI).toFixed(1)}deg)`;
     b.querySelector(".sc-pct").textContent = Math.round(k*100) + "%";
   };
-  return startMini({title:o.title || "Screw it in", hint:o.hint || "Move the mouse round in clockwise circles — or tap Space",
+  return startMini({title:o.title || "Screw it in", hint:o.hint || "Move the mouse in clockwise circles, or tap Space",
     html:`<div class="sc"><div class="sc-ring"><div class="sc-ico">${o.icon || "💡"}</div></div><div class="sc-pct">0%</div><div class="sc-arrows">↻</div></div>`,
     init:(b, M) => draw(M),
     move(mx, my, M){

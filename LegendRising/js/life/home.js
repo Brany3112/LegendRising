@@ -1,10 +1,15 @@
 /* ============ LIFE: the neighbourhood ============
    A few streets of brick blocks. Only one door in the whole street is yours: the block on the near
-   side, flat number on the mailbox in the lobby, up the stairs, your floor, your door. */
+   side, flat number on the mailbox in the lobby, up the stairs, your floor, your door.
+   Owner: WP-0C (materials, Stage 0); WP-H (Stage 1); WP-H2 (Stage 2). Contract for WP-H: DESIGN 3.7.4 (the lifeOnb
+   events the first day listens for: switch, screw, mail, board, plateFell, plateFixed), 3.7.5 (the number on your door
+   stays on until the neighbour's slam; the bed will not sleep the day away on day one), 3.8.1 (the football is a real
+   thing: inv.js ballDrop where the old prop lay), 3.8.4 (no bulb, no light), 3.8.6 (the board says what each notice
+   means; no bath while the water is off). */
 import {THREE, W, LH, box, cyl, blob, solid, floor, spot, wall, textTex, label, labels, part, boxPart, boxGeo, mergeGeos, mat, lmat, reseed, rnd, pick, finishBatches, lightSrc, rbox, beam, extrude, flight, stringer, doorway, slab, roundedBoxGeo, addGeo, tex} from "./build.js";
 import {ensureHome, unread, owed} from "./rent.js";
-import {onYou} from "./inv.js";
-import {frame, rb, cy, worldPt, tree as propTree, streetLamp, bin, bollard, planter, bench as propBench, ball as propBall, PC} from "./props.js";
+import {onYou, ballDrop} from "./inv.js";
+import {frame, rb, cy, worldPt, tree as propTree, streetLamp, bin, bollard, planter, bench as propBench, PC} from "./props.js";
 import {miniMarket} from "./shops.js";
 import {jobUnit, TX} from "./units.js";
 import {barbershop} from "./barber.js";
@@ -16,6 +21,7 @@ import {deliveryPoint} from "./parcels.js";
 import {car as carModel} from "./cars.js";
 import {pedestrians, VIEW} from "./npc.js";
 import {SG} from "./core/collide.js";
+import {refuse} from "./firstday.js";
 
 const C = {
   brick:[0xb04a3c, 0x9c4e38, 0xc06a44, 0x96463c, 0xd2c09a, 0x8d9aa4],
@@ -41,7 +47,14 @@ const winsOf = d => { const a = APT[d], w = a.x1 - a.x0; return [a.x0 + w*.3, a.
 
 const G = () => (typeof S !== "undefined" ? S : null);
 let ctx = null, H = null;
-export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null, street:null, mirror:null, pane:null, plate:null, slam:null, win:null, flat:null};
+// the first day hears what you did here (firstday.js, through window.lifeOnb)
+const onb = (ev, data) => { if (typeof window.lifeOnb === "function") window.lifeOnb(ev, data || {}); };
+// the first day is still being taught (daily.js onboarding(): the introduction is not over)
+const teaching = () => typeof onboarding === "function" && onboarding();
+const euro = n => typeof eur === "function" ? eur(n) : "€" + n;
+export const HOME = {door:null, entrance:null, fridge:null, curtains:[], light:null, bed:null, mailTex:null, clock:null, street:null, mirror:null, pane:null, plate:null, slam:null, win:null, flat:null,
+  // where the football that came through the window comes to rest in your flat: {x, y, z} of the ball's centre
+  ballRest:null};
 
 /* ================= facades =================
    A facade is dressed in layers that stand a few centimetres proud of the wall, so nothing shares a face with
@@ -185,7 +198,7 @@ export function block(b, face, color, o = {}){
   // its front door is locked, and it tells you so
   if (o.doorAt != null){
     const [x, z] = f.at(o.doorAt, .2);
-    spot({x, y:1.2, z, aim:[[x - .8, 0, z - .8], [x + .8, 2.4, z + .8]], label:o.doorLabel || "Front door", hint:o.doorHint || "Locked — you don't live here", hold:.15,
+    spot({x, y:1.2, z, aim:[[x - .8, 0, z - .8], [x + .8, 2.4, z + .8]], label:o.doorLabel || "Front door", hint:o.doorHint || "Locked. You don't live here", hold:.15,
       run:() => ctx.note(o.doorNote || "Locked. You don't live in this block.")});
   }
 }
@@ -324,8 +337,9 @@ function myBlock(F, D){
     skirting("z", -0.27, -3.99, -2.31, base + .02, -1); skirting("z", -13.73, -3.99, -2.31, base + .02, 1);
     for (const x of [-11.5, -6.5, -2]){ rbox(x, top - .05, -3.15, .6, .05, .3, .02, 0xfff3d6, {key:"lampB"}); rbox(x, top - .02, -3.15, .66, .02, .36, .01, C.darkMetal); }
     lightSrc({x:-7, y:top - .3, z:-3.1, color:0xfff0d0, intensity:5, distance:9, indoor:true, on:powerOn});
-    const nb = D === 1 ? 3 : D === 2 ? 4 : D === 3 ? 1 : 2, onb = G().onb || {};
-    const slamDue = !onb.slam && G().flags && !G().flags.ApartmentTutorialCompleted;
+    const nb = D === 1 ? 3 : D === 2 ? 4 : D === 3 ? 1 : 2, ob = G().onb || {};
+    // the neighbour's door stands ajar on the first day until it is slammed (firstday.js H7)
+    const slamDue = ob.v === 2 && ob.step !== "done" && !(ob.seen && ob.seen.slam) && G().flags && !G().flags.ApartmentTutorialCompleted;
     for (let d = 1; d <= 4; d++){
       if (L === F && d === D) continue;
       if (L === F && d === nb && slamDue){ neighbourDoor(L, d); continue; }
@@ -515,7 +529,7 @@ function staticDoor(L, d){
   plate(`${L}0${d}`, a.door, base + 1.68, z + side*.038, side < 0 ? Math.PI : 0);
   const zz = z + side*.4;
   spot({x:a.door, y:base + 1.2, z:zz, aim:[[a.door - .55, base, Math.min(z, zz)], [a.door + .55, base + 2.2, Math.max(z, zz)]],
-    label:`Flat ${L}0${d}`, hint:"Not yours — locked", hold:.15, run:() => ctx.note(`Locked. Somebody else lives at ${L}0${d}.`)});
+    label:`Flat ${L}0${d}`, hint:"Not yours, and locked", hold:.15, run:() => ctx.note(`Locked. Somebody else lives at ${L}0${d}.`)});
 }
 
 /* ================= doors that open ================= */
@@ -721,9 +735,12 @@ export function winRefresh(){
   P.set(w.state === "broken" ? "broken" : w.state === "plastic" ? "plastic" : "ok");
 }
 /* The number on your door. It is on the corridor face of the leaf; a neighbour slamming their door on the first
-   morning shakes it off, and from then on it drops off every time your door is opened or closed — and you pick it
-   up (a left click: it goes in your hand, inv.js) and put it back (click the door with it in your hand).
-   S.home.plate: "door" | "floor" | "carried" (on you, or wherever you dropped it); plateAt where it lies. */
+   morning shakes it off, and from then on it drops off every time your door is opened or closed. You pick it up (a
+   left click: it goes in your hand, inv.js) and put it back (click the door with it in your hand).
+   S.home.plate: "door" | "floor" | "carried" (on you, or wherever you dropped it); plateAt where it lies.
+   Until that slam (on the first day, the moment you carry the bulb home: firstday.js H7) it is still screwed on
+   tight, and opening your door leaves it where it is. */
+const plateLoose = () => { const o = G().onb; return !(o && o.v === 2 && o.step !== "done" && !(o.seen && o.seen.slam)); };
 function plateSetup(D, F, A){
   const h = G().home, pm = D.plate; if (!pm) return;
   pm.material.side = THREE.DoubleSide;
@@ -753,7 +770,7 @@ function plateSetup(D, F, A){
         if (!bounced && v.y < -1.2){ bounced = true; v.y *= -.28; v.x *= .5; v.z *= .5; spin.multiplyScalar(.4); return; }
         const r = Math.random()*Math.PI*2; toFloor(pm.position.x, pm.position.z, r);
         PL.state = "floor"; PL.busy = false; h.plate = "floor"; h.plateAt = {x:+pm.position.x.toFixed(3), z:+pm.position.z.toFixed(3), r:+r.toFixed(3)};
-        if (window.lifeOnb) window.lifeOnb("plateFell");
+        onb("plateFell");
       }
     });
   };
@@ -785,13 +802,14 @@ function plateSetup(D, F, A){
           pm.material.emissive = new THREE.Color(0xffd27a); pm.material.emissiveIntensity = 1.2;
           let k = 0; W.anims.push(function glow(dt2){ if (k > 1) return; k += dt2/.6; pm.material.emissiveIntensity = Math.max(0, 1.2*(1 - k)); });
           if (typeof FEED === "object") FEED.chip(`Room number ${h.apt} is back on the door`, "good");
-          if (window.lifeOnb) window.lifeOnb("plateFixed");
+          onb("plateFixed");
         }
       });
     }});
-  // every time the door is opened or closed, it falls off again. (It is meant to. Do not fix this.)
+  // every time the door is opened or closed, it falls off again, once the slam has loosened it. (It is meant to. Do
+  // not fix this.)
   let was = D.open;
-  W.anims.push(() => { const o = D.open; if (o !== was){ was = o; if (PL.state === "door") PL.fall(); } });
+  W.anims.push(() => { const o = D.open; if (o !== was){ was = o; if (PL.state === "door" && plateLoose()) PL.fall(); } });
 }
 /* ---------- the lock on your door ----------
    A new career's lock is broken: the door shuts but never locks. A new one (Mobila Bună, by the till) is fitted by
@@ -833,7 +851,7 @@ function doorLock(D, A, base, s){
       ctx.timeLapse(20, "work", k => k < .4 ? "Taking out the old lock" : "Fitting the new one", () => {
         fx.lock = "new"; fx.locked = false; show();
         if (typeof FEED === "object") FEED.chip("New lock fitted", "good");
-        ctx.note("New lock fitted. Shut the door and press F to lock it — and again to unlock it.");
+        ctx.note("New lock fitted. Shut the door and press F to lock it, and again to unlock it.");
         ctx.persist(true);
       }, {icon:"🔒", dur:2.4});
     }});
@@ -844,7 +862,7 @@ export function lockKey(P){
   const A = F.A, dx = A.door - P.x, dz = (A.wz - F.s*.1) - P.z;
   if (Math.abs(P.feet - F.base) > .7 || Math.hypot(dx, dz) > 1.7) return false;
   const fx = G().home.fx;
-  if (fx.lock !== "new"){ ctx.note("The lock's broken — the door shuts but it won't lock. Mobila Bună sells new ones, by the till."); return true; }
+  if (fx.lock !== "new"){ ctx.note("The lock's broken. The door shuts, but it won't lock. Mobila Bună sells new ones, by the till."); return true; }
   if (D.a > .08){ ctx.note("Shut the door first."); return true; }
   fx.locked = !fx.locked; if (HOME.lockShow) HOME.lockShow();
   if (typeof FEED === "object") FEED.chip(fx.locked ? "Door locked" : "Door unlocked", fx.locked ? "good" : "");
@@ -863,7 +881,7 @@ function neighbourDoor(L, d){
   N.a = N.target = .5;
   HOME.slam = () => { N.rate = 30; N.target = 0; W.shadowDirty = true; };
   spot({x:a.door, y:base + 1.2, z:z - a.s*.5, aim:[[a.door - .55, base, Math.min(z, z - a.s*.5)], [a.door + .55, base + 2.2, Math.max(z, z - a.s*.5)]],
-    label:`Flat ${L}0${d}`, hint:"Not yours — locked", hold:.15, run:() => ctx.note(`Locked. Somebody else lives at ${L}0${d}.`)});
+    label:`Flat ${L}0${d}`, hint:"Not yours, and locked", hold:.15, run:() => ctx.note(`Locked. Somebody else lives at ${L}0${d}.`)});
 }
 
 /* ================= your flat ================= */
@@ -956,12 +974,22 @@ function myFlat(F, D){
   };
   HOME.light.show();
   W.anims.push(() => { const e = lit() ? 2.2 : 0; if (bulb.material.emissiveIntensity !== e || bulb.visible !== !!fx.bulb) HOME.light.show(); });
+  // the switch: with no bulb in the light it clicks and nothing happens (and nothing is switched on to be billed for)
+  const bulbPrice = () => typeof HARDWARE === "object" && HARDWARE.bulb ? HARDWARE.bulb.price : 3;
   spot({x:X(su), y:base + 1.25, z:Z(.04), aim:[[X(su) - .2, base + 1.0, Math.min(Z(0), Z(.3))], [X(su) + .2, base + 1.5, Math.max(Z(0), Z(.3))]],
-    label:"Light switch", get hint(){ return !G().home.fx.bulb ? "There's no bulb in the light" : !powerOn() ? "No power in the block today" : HOME.light.on ? "Turn the light off" : "Turn the light on"; }, hold:.08,
+    label:"Light switch", get hint(){ return !G().home.fx.bulb ? "There's no bulb in the light" : !powerOn() ? "No power in the block today"
+      : HOME.light.on ? `Turn the light off · it costs about €${(typeof ELEC_RATE === "number" ? ELEC_RATE : .35).toFixed(2)} an hour` : "Turn the light on"; }, hold:.08,
     run:() => {
+      const h = G().home;
+      if (!h.fx.bulb){
+        h.light = false;
+        ctx.note(teaching() ? "Click. Nothing." : `Click. Nothing. There's no bulb in the light. The furniture store next to your block sells them for ${euro(bulbPrice())}.`);
+        onb("switch", {bulb:false, on:false});
+        return;
+      }
       HOME.light.set(!HOME.light.on);
-      if (!G().home.fx.bulb) ctx.note("Click. Nothing. There's no bulb in the light — the furniture store next to your block sells them for €3.");
-      else if (!powerOn()) ctx.note("Click. Nothing. The power's off in the whole block today.");
+      if (!powerOn()) ctx.note("Click. Nothing. The power's off in the whole block today.");
+      onb("switch", {bulb:true, on:HOME.light.on});
     }});
   // the empty holder: with a bulb in your hand, click it to screw the bulb in
   const sy = top - .6;
@@ -974,7 +1002,9 @@ function myFlat(F, D){
         done:() => {
           const h = G().home; h.fx.bulb = true; h.light = true; bulb.position.set(X(bu), top - .62, Z(bv)); HOME.light.show();
           if (typeof FEED === "object") FEED.chip("Bulb in · the light works", "good");
-          ctx.note("Let there be light. Don't leave it on when you go out — it's on the electricity bill.");
+          // (on the first day your uncle says it; firstday.js H9)
+          if (!teaching()) ctx.note("Let there be light. Switch it off when you go out, though. It all goes on the electricity bill.");
+          onb("screw", {done:true});
           if (typeof save === "function") save();
         },
         cancel:() => { bulb.visible = false; ctx.giveBack(it); }});
@@ -985,16 +1015,20 @@ function myFlat(F, D){
 
   // what is in the room: the bed, the fridge and whatever else you have bought, each where you put it
   HOME.flat = {A, base, s, Wd, Dp, X, Z, F, D};
-  furnish(HOME.flat, ctx);
+  // the furniture does what the world does, except that on the first day the bed will not sleep the day away
+  furnish(HOME.flat, Object.assign({}, ctx, {sleepDay(){ const why = refuse("sleepDay"); if (why) return ctx.note(why); ctx.sleepDay(); }}));
   // the walls take new wallpaper: with a roll in your hand, click any wall of the room
   const zr2 = (v0, v1) => [Math.min(Z(v0), Z(v1)), Math.max(Z(v0), Z(v1))];
   for (const [a, b] of [[[X(2.1), base + .15, zr2(0, .06)[0]], [X(Wd), base + 2.8, zr2(0, .06)[1]]], [[X(0), base + .15, zr2(Dp - .06, Dp)[0]], [X(Wd), base + 2.8, zr2(Dp - .06, Dp)[1]]],
     [[X(0), base + .15, zr2(2.3, Dp)[0]], [X(.06), base + 2.8, zr2(2.3, Dp)[1]]], [[X(Wd - .06), base + .15, zr2(0, Dp)[0]], [X(Wd), base + 2.8, zr2(0, Dp)[1]]]])
     spot({kind:"place", takes:"paper", label:"Wall", hint:"Click to hang the new wallpaper · about 1½ hours", aim:[a, b], place(it){ hangPaper(it); }});
   // a hot bath takes the ache out of your legs
+  // (while the water is off in the block, a notice-board event, it says so, and acts.js refuses the bath and the shower)
+  const dry = () => typeof lifeEventOn === "function" && lifeEventOn("water") && LIFE_EVENTS.water;
   spot({aim:[[Math.min(X(.05), X(1.95)), base, Math.min(Z(.05), Z(.8))], [Math.max(X(.05), X(1.95)), base + .6, Math.max(Z(.05), Z(.8))]],
-    x:X(1), z:Z(.45), label:"Bath", get hint(){ return `Shower · 10 min · ${typeof odorLabel === "function" ? odorLabel() : "clean"} now`; }, hold:.3, run:() => ctx.shower(),
-    long:{time:1.5, label:"a hot bath · 30 min · clean, and eases fatigue", run:() => ctx.bath()}});
+    x:X(1), z:Z(.45), label:"Bath", get hint(){ const w = dry(); return w ? `No water until ${typeof fmtTime === "function" ? fmtTime(w.to) : "8:00 PM"} · the showers at the training centre still work`
+      : `Shower · 10 min · ${typeof odorLabel === "function" ? odorLabel() : "clean"} now`; }, hold:.3, run:() => ctx.shower(),
+    long:{time:1.5, get label(){ return dry() ? "no water today" : "a hot bath · 30 min · clean, and eases fatigue"; }, run:() => ctx.bath()}});
 
   // your front door, from both sides
   const into = s;
@@ -1002,8 +1036,11 @@ function myFlat(F, D){
     locked:() => { const fx = G().home.fx; return fx.lock === "new" && !!fx.locked; }});
   doorLock(HOME.door, A, base, s);
   plateSetup(HOME.door, F, A);
-  // the football that came in through the window on the first morning, where it rolled to a stop
-  if (G().home.win && G().home.win.state !== "ok"){ const [w0] = winsOf(D); propBall(w0 + .35, base + .13, Z(Dp - .75)); }
+  // the football that came in through the window on the first morning: a real thing (inv.js), lying where it rolled
+  // to a stop. A career from before it was one gets it there now, once (career.js homeBallMigrate marks it pending)
+  const [w0] = winsOf(D);
+  HOME.ballRest = () => ({x:w0 + .35, y:base + .13, z:Z(Dp - .75)});
+  if (G().home.ballPending){ const r = HOME.ballRest(); ballDrop("home", r.x, r.y, r.z); }
   doorway("x", A.wz - s*.1, A.door - .5, A.door + .5, base, 2.1, .2, {faces:[s], lining:0, proud:.05, color:0xf0eee8});
 
   // a clock on the wall that tells the time you live by
@@ -1082,7 +1119,7 @@ function hangPaper(it){
   ctx.timeLapse(90, "work", k => k < .3 ? "Stripping the old paper" : k < .55 ? "Pasting" : "Hanging the new wallpaper, strip by strip", () => {
     G().home.fx.paper = want; applyPaper();
     if (typeof FEED === "object") FEED.chip("New wallpaper up", "good");
-    ctx.note(`Done — ${PAPER_NAME[want]} all round. It looks like somebody lives here now.`);
+    ctx.note(`Done. ${PAPER_NAME[want][0].toUpperCase() + PAPER_NAME[want].slice(1)} all round. It looks like somebody lives here now.`);
     ctx.persist(true);
   }, {icon:"🧻", dur:3.2});
 }
@@ -1114,8 +1151,8 @@ function mailboxes(){
   // at whenever you look at it (the cabinet is solid: you stand at least 26 cm off its face, x −6.36)
   mailGlow(-6.262, y0, z0);
   spot({x:-6.4, y:y0 + .17, z:z0 + .3, aim:[[-6.34, y0, z0], [-6.1, y0 + .35, z0 + .6]],
-    label:`Your mailbox · ${h.apt}`, get hint(){ const n = unread(), o = owed(); return n ? `${n} new letter${n > 1 ? "s" : ""}` : o ? `You owe €${o}` : "Nothing new"; }, hold:.3,
-    run:() => ctx.openMail()});
+    label:`Your mailbox · ${h.apt}`, get hint(){ const n = unread(), o = owed(); return n ? `${n} new letter${n > 1 ? "s" : ""}` : o ? `You owe ${euro(o)}` : "Nothing new"; }, hold:.3,
+    run:() => { ctx.openMail(); onb("mail", {unread:unread()}); }});
   spot({x:-6.4, y:1.5, z:-.4, aim:[[-6.28, .98, -1.64], [-6.1, 2.1, .84]], label:"Mailboxes", hint:"Find your name on one of them", hold:.2,
     run:() => ctx.note(`Yours is the one that says ${G().player.name} · ${h.apt}.`)});
 }
@@ -1151,7 +1188,7 @@ export function drawMail(){
     g.fillStyle = "#efe6cf"; g.fillRect(x + 30, y + 52, cw - 60, 66);
     g.strokeStyle = "#8a7550"; g.lineWidth = 2; g.strokeRect(x + 30, y + 52, cw - 60, 66);
     g.fillStyle = "#1d1a14"; g.textAlign = "center"; g.textBaseline = "middle";
-    const nm = M.names[apt] || "—";
+    const nm = M.names[apt] || EMPTY_CELL;
     g.font = `${mine ? "bold " : ""}24px Georgia, serif`;
     g.fillText(nm.length > 16 ? nm.slice(0, 15) + "…" : nm, x + cw/2, y + 72);
     g.font = "bold 26px Georgia, serif"; g.fillText(apt, x + cw/2, y + 102);
@@ -1163,7 +1200,8 @@ export function drawMail(){
 
 /* ---------- the notice board, next to the mailboxes ----------
    A cork board with whatever is going on in the block pinned to it (events.js: thieves about, a power cut, a car
-   across the door), and the usual house rules when nothing is. E on it reads it properly. */
+   across the door, the water off, a party, the shop shut, road works, late couriers), and the usual house rules when
+   nothing is. E on it reads it properly: each notice with what it means for you (events.js eventFx) and its hours. */
 const HOUSE_RULES = [["Bins", "Bins go out Thursday night. Not before."], ["Quiet hours", "10 PM to 7 AM. This means you, 302."], ["Stairs", "Bikes do not live on the stairs."]];
 function noticeBoard(){
   const x = -6.13, z0 = 1.05, z1 = 2.4, y0 = 1.15, y1 = 2.15, zc = (z0 + z1)/2;
@@ -1173,11 +1211,16 @@ function noticeBoard(){
   const m = label(t, x - .045, (y0 + y1)/2, zc, z1 - z0, y1 - y0, -Math.PI/2);
   drawNotices();
   spot({aim:[[x - .3, y0, z0], [x, y1, z1]], label:"Notice board", get hint(){ const n = lifeEventsToday().length; return n ? `${n} notice${n > 1 ? "s" : ""} for today · read it` : "House rules · read it"; }, hold:.2,
-    run:() => openNotices()});
+    run:() => { openNotices(); onb("board", {notices:typeof lifeEventsToday === "function" ? lifeEventsToday().length : 0}); }});
 }
 function noticeList(){
-  const list = typeof lifeEventsToday === "function" ? lifeEventsToday().map(ev => ({warn:true, title:eventText(ev), text:LIFE_EVENTS[ev.id].sub, until:ev.to})) : [];
+  const list = typeof lifeEventsToday === "function" ? lifeEventsToday().map(ev => ({warn:true, id:ev.id, title:eventText(ev), text:eventSub(ev), fx:eventFx(ev), until:ev.to})) : [];
   return list.concat(HOUSE_RULES.map(([t, d]) => ({title:t, text:d})));
+}
+// when a notice holds: today only or until a day, and its hours if it has any (events.js LIFE_EVENTS from and to)
+function noticeWhen(n){
+  const s = G(), k = LIFE_EVENTS[n.id] || {}, hrs = k.from != null && typeof fmtRange === "function" ? `, ${fmtRange(k.from, k.to)}` : "";
+  return n.until > s.life.day ? `Until ${dayName((s.life.wd + n.until - s.life.day) % 7)}${hrs}` : `Today only${hrs}`;
 }
 export function drawNotices(){
   const N = HOME.notices; if (!N) return;
@@ -1208,8 +1251,8 @@ function openNotices(){
   const list = noticeList(), esc2 = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
   if (typeof lpShow !== "function"){ ctx.note(list.map(n => n.title).join(" · ")); return; }
   lpShow("notices", `<div class="nb-panel">${typeof lpHead === "function" ? lpHead("Notice board", "The lobby") : "<h3>Notice board</h3>"}
-    <div class="nb-list">${list.map(n => `<div class="nb-item${n.warn ? " warn" : ""}"><b>${esc2(n.title)}</b><p>${esc2(n.text)}</p>${n.warn && n.until != null ? `<em>${n.until > G().life.day ? `Until ${dayName((G().life.wd + n.until - G().life.day) % 7)}` : "Today only"}</em>` : ""}</div>`).join("")}</div>
-    <div class="gd-foot"><button class="btn" onclick="lpClose()">OK</button></div></div>`);
+    <div class="nb-list">${list.map(n => `<div class="nb-item${n.warn ? " warn" : ""}"><b>${esc2(n.title)}</b><p>${esc2(n.text)}</p>${n.fx ? `<p class="nb-fx">What it means: ${esc2(n.fx)}</p>` : ""}${n.warn && n.until != null ? `<em>${esc2(noticeWhen(n))}</em>` : ""}</div>`).join("")}</div>
+    <div class="nb-foot"><button class="btn" onclick="lpClose()">OK</button></div></div>`);
 }
 
 /* ---------- a car across your front door (events.js "blocked") ----------
@@ -1237,10 +1280,10 @@ function blockedCar(){
     ctx.note(into ? "In through the lobby window. Not elegant, but you're in." : "Out through the lobby window, past the car. Somebody's going to get a note on their windscreen.");
   }, 900);
   const blk = () => on();
-  spot({aim:[[LOBBY_WIN[0], LOBBY_WIN[2], 2.45], [LOBBY_WIN[1], LOBBY_WIN[3], 2.9]], label:"Lobby window", get hint(){ return blk() ? "The car's blocking the door — hold E to climb out" : "A window onto the street"; }, hold:.2,
+  spot({aim:[[LOBBY_WIN[0], LOBBY_WIN[2], 2.45], [LOBBY_WIN[1], LOBBY_WIN[3], 2.9]], label:"Lobby window", get hint(){ return blk() ? "The car's blocking the door. Hold E to climb out" : "A window onto the street"; }, hold:.2,
     run:() => ctx.note(blk() ? "Hold E to climb out through the window." : "It only opens a crack. Use the door."),
     long:{time:1.4, label:"climb out", run:() => { if (blk()) climb(false); else ctx.note("It only opens a crack. Use the door."); }}});
-  spot({aim:[[LOBBY_WIN[0], LOBBY_WIN[2], 2.95], [LOBBY_WIN[1], LOBBY_WIN[3], 3.35]], label:"Lobby window", get hint(){ return blk() ? "Your way in today — hold E to climb in" : "Your block's lobby"; }, hold:.2,
+  spot({aim:[[LOBBY_WIN[0], LOBBY_WIN[2], 2.95], [LOBBY_WIN[1], LOBBY_WIN[3], 3.35]], label:"Lobby window", get hint(){ return blk() ? "Your way in today. Hold E to climb in" : "Your block's lobby"; }, hold:.2,
     run:() => ctx.note(blk() ? "Hold E to climb in through the window." : "That's the lobby. The door's right there."),
     long:{time:1.4, label:"climb in", run:() => { if (blk()) climb(true); else ctx.note("That's the lobby. The door's right there."); }}});
 }
@@ -1410,7 +1453,10 @@ export function buildHome(c){
   // lamps in the lobby, flush with the ceiling
   lightSrc({x:-10, y:2.6, z:-1, color:0xffe2b0, intensity:9, distance:9, indoor:true, on:powerOn});
   for (const z of [-1, 1.6]){ rbox(-10, 2.9, z, .5, .05, .5, .02, 0xfff3d6, {key:"lampB"}); rbox(-10, 2.93, z, .56, .02, .56, .01, C.darkMetal); }
-  spot({x:3, y:1.2, z:15.4, r:2.6, aim:[[1.2, 0, 14.6], [4.8, 2.7, 16.8]], near:true, label:"Bus stop · Strada Teiului", hint:"Line 14 · the training centre, Dumbrava", hold:.4, run:() => ctx.busMenu()});
+  // the stop: its back wall and its sign when you look at them, and anywhere close by when you look at nothing else; the
+  // perch bench under the shelter is a bench, to sit and wait for the bus (panels.js openWait: "Until the bus to training")
+  spot({x:3, y:1.2, z:15.4, r:2.6, aim:[[1.2, .75, 16.1], [5.6, 2.7, 16.8]], near:true, label:"Bus stop · Strada Teiului", hint:"Line 14 · the training centre, Dumbrava", hold:.4, run:() => ctx.busMenu()});
+  spot({aim:[[2.25, .12, 15.7], [4.45, .7, 16.2]], label:"Bench", hint:"Sit down and wait for the bus", hold:.2, run:() => ctx.wait("stop")});
   reseed(H.seed + 11);
   miniMarket(ctx);
   // the first job, next door to your block (units.js: the same shop shell as every other workplace)

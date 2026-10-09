@@ -1,8 +1,16 @@
 "use strict";
-/* ============ SCREENS ============ */
+/* ============ SCREENS ============
+   Owner: WP-H (Stage 1: the boot order of a new career, creation, offers, the first day's migration, TUT moved in
+   here, the dream's entry points gone), WP-H2 (Stage 2), WP-L (Stage 3: match routing). Contract: DESIGN 3.7.1 (New
+   Game paints black at once and waits for window.lifeReady), 3.7.2 (creation and offers after the uncle's line,
+   every line on them), 3.7.7 (deletions; the onboarding migration table, onbMigrate), 3.8.2 (the hub's drink goes
+   through consume), 1.3 (trust only through trustAdd). */
 let LAST_SCREEN = null;
 // settles once the 3D world module has loaded (js/life/world.js resolves it), so a new career can wait for it
 window.lifeReady = new Promise(r => { window.lifeReadyResolve = r; });
+// the generic card layer #tutRoot (confirmations, the promotion card, honours, the office): a token that cancels a
+// fade-out still pending when the next card comes up (office.js, admin.js and awards.js count on it too)
+const TUT = {tok:0};
 function render(html, key){
   document.body.classList.remove("in-match");
   const app = $("#app"), same = !!key && key === LAST_SCREEN;
@@ -14,7 +22,7 @@ function setPhoneVisible(v){ const r = $("#phoneRoot"); if (r) r.classList.toggl
 function crest(name, size){ return badgeSVG(name, size || 26, "club"); }
 function leagueBadge(name, size){ return badgeSVG(name, size || 22, "league"); }
 
-// "just now", "4 min", "2 h" — for the last automatic sync
+// "just now", "4 min", "2 h": for the last automatic sync
 function sinceShort(at){
   const s = Math.max(0, Math.round((Date.now() - (at || 0))/1000));
   return s < 45 ? "moments" : s < 5400 ? Math.round(s/60) + " min" : Math.round(s/3600) + " h";
@@ -79,7 +87,7 @@ function promoBox(p, paid){
       <div class="promo-badge">${esc(p.job.icon)}</div>
       <div class="eyebrow">${p.newJob ? "New job" : "Promoted"}</div>
       <h3>You've been promoted for your hard work</h3>
-      <p class="muted small">${p.newJob ? `${esc(p.job.name)} took you on.` : `${esc(p.job.name)}.`} You're now <b>${esc(p.to.name)}</b>${p.to.blurb ? ` — ${esc(p.to.blurb)}` : ""}</p>
+      <p class="muted small">${p.newJob ? `${esc(p.job.name)} took you on.` : `${esc(p.job.name)}.`} You're now <b>${esc(p.to.name)}</b>${p.to.blurb ? `: ${esc(p.to.blurb)}` : ""}</p>
       <div class="promo-pay"><span class="old">${esc(p.from.name)}<b>${payRange(p.from)}</b></span><i>→</i><span class="new">${esc(p.to.name)}<b>${payRange(p.to)}</b></span></div>
       ${p.newJob && typeof jobWhereLine === "function" && JOB_WHERE[p.job.id] ? `<p class="promo-where">${esc(jobWhereLine(p.job.id))}<span>${esc(JOB_WHERE[p.job.id].how[0].toUpperCase() + JOB_WHERE[p.job.id].how.slice(1))}. It's JOB on your compass.</span></p>` : ""}
       ${paid != null ? `<p class="muted small">That shift paid ${eur(paid)}.</p>` : ""}
@@ -118,11 +126,11 @@ function cloudBoxHTML(){
   if (CLOUD.loading) return `<div class="cloud-box"><span class="muted small">Looking at your account…</span></div>`;
   if (!i){
     const p = ONLINE.probe;
-    // when the account looks empty, say what was actually looked at — a leaderboard row with no save
+    // when the account looks empty, say what was actually looked at: a leaderboard row with no save
     // behind it is a different problem from never having synced at all
     const why = !p ? ""
       : p.err ? `Could not read your account: ${esc(p.err)}`
-      : p.board && !p.slots.length ? `You are on the leaderboard${p.boardSlot !== "—" ? ` (save ${esc(String(p.boardSlot))})` : ""}, but no career file came with it. Sync from the computer you play on and it will be here.`
+      : p.board && !p.slots.length ? `You are on the leaderboard${p.boardSlot !== "\u2014" ? ` (save ${esc(String(p.boardSlot))})` : ""}, but no career file came with it. Sync from the computer you play on and it will be here.`  // nodash-ok: sentinel
       : !p.board ? "Nothing has ever been synced from this account."
       : "";
     return `<div class="cloud-box"><b>Nothing saved to your account yet</b>
@@ -141,13 +149,13 @@ function cloudBoxHTML(){
     </div>${cloudAllHTML()}`;
 }
 // the account, as it appears inside another sheet (the in-game menu)
-// the account box redraws itself in place — a whole-sheet refresh does not always take
+// the account box redraws itself in place: a whole-sheet refresh does not always take
 function cloudAllHTML(){
   const rows = CLOUD.all || [];
   if (rows.length < 2) return "";
   return `<div class="cloud-other"><div class="eyebrow">Everything on your account</div>
     ${rows.map(r => `<div class="co-row">
-      <div class="grow"><b>${esc(r.name)}</b><span class="muted small">${esc(r.club || "—")} · ${fmt(r.score)} pts · save ${r.n} · ${r.at ? sinceShort(r.at) + " ago" : "—"} · ${r.kb} KB</span></div>
+      <div class="grow"><b>${esc(r.name)}</b><span class="muted small">${esc(r.club || EMPTY_CELL)} · ${fmt(r.score)} pts · save ${r.n} · ${r.at ? sinceShort(r.at) + " ago" : EMPTY_CELL} · ${r.kb} KB</span></div>
       <button class="btn sm ghost" onclick="A.pullSlot(${r.n})">Play this</button></div>`).join("")}
     <p class="muted small">Careers synced by the older version of the game are kept here. Bringing one down replaces the career on this computer.</p></div>`;
 }
@@ -182,11 +190,92 @@ function cloudCorner(){
     <span class="cc-ico">☁</span><span class="cc-t">${ONLINE.user ? esc(who) : "Sign in"}</span>
     <span class="cc-s">${ONLINE.user ? "Your saved career" : "Pick up a career from your account"}</span></button>`;
 }
-// the test build: a career is lived in first person, the hub lives in your phone
+// a career is lived in first person, the hub lives in your phone. The world's modules may still be loading (a click on
+// Continue straight after the page opens): it starts the moment they are, never with nothing (DESIGN 3.7.1)
 function enterCity(){
-  if (!window.startLife || !S) return;
+  if (!S) return;
+  if (!window.startLife){
+    if (location.protocol === "file:") return;          // (no 3D world from a double-clicked file: the hub is the game)
+    const s0 = S;
+    window.lifeReady.then(() => { if (S === s0 && !document.body.classList.contains("life") && LAST_SCREEN === "hub") enterCity(); });
+    return;
+  }
   document.body.classList.add("life");
   window.startLife();
+}
+/* ---------- a new career: black at once, the city, the film, then who you are (DESIGN 3.7.1, 3.7.2) ----------
+   Nothing of the flat is ever on screen first: the page goes black the moment New Game is clicked (a loader only if
+   it takes a while), the career's shell is built behind it, and the world starts with the intro's own boot plan
+   (intro.js), which keeps the screen covered until the city has been drawn from the film's first camera. The
+   creation screen comes after your uncle's "Tell me about yourself" (intro.js calls onbCreation). Without a 3D world
+   (a double-clicked file, no WebGL 2) the career is made the plain way: creation, offers, the hub. */
+const NG = {tok:0};
+const worldOK = () => location.protocol !== "file:" && typeof WebGL2RenderingContext !== "undefined";
+const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
+async function newGameWorld(){
+  const tok = ++NG.tok;
+  setPhoneVisible(false); closeSheet();
+  render(`<section class="onb-black"><div class="onb-loader"><div class="spinner"></div><p>Getting the city ready</p></div></section>`, "black");
+  const ld = setTimeout(() => { const l = document.querySelector(".onb-black .onb-loader"); if (l) l.classList.add("on"); }, 600);
+  await nextFrame(); await nextFrame();
+  if (tok !== NG.tok) return;
+  careerShell();
+  await nextFrame();
+  const ok = await Promise.race([window.lifeReady, new Promise(r => setTimeout(() => r(false), 60000))]);
+  clearTimeout(ld);
+  if (tok !== NG.tok) return;
+  // the world never came (it failed to load): who you are, and the hub
+  if (!ok || !window.startLife){ CR = null; screenCreate(); return; }
+  document.body.classList.add("life");
+  window.startLife({intro:true});
+}
+// the film has reached "Tell me about yourself" (intro.js): the world stops behind the creation screen
+function onbCreation(){
+  if (window.stopLife) window.stopLife();
+  document.body.classList.remove("life", "cine", "hand", "hub-out");
+  const lr = document.getElementById("lifeRoot"); if (lr) lr.style.display = "none";
+  const f = document.getElementById("lifeFade"); if (f){ f.style.transition = "none"; f.style.opacity = "0"; }
+  setPhoneVisible(false); closeSheet();
+  CR = null; screenCreate();
+}
+window.onbCreation = onbCreation;
+/* ---------- the first day's state from an older build (DESIGN 3.7.7, 1.7) ----------
+   S.onb = {v:2, step, seen}: the step runner (js/life/firstday.js) works out where you are from the state of the
+   world (the bulb in the light, your letters read, the ball moved); seen marks the steps that are only looking at
+   something, and what has already happened. Run once per load (resume, and firstday.js before it reads S.onb). */
+const ONB_V2 = 2;
+function onbMigrate(){
+  if (!S) return;
+  const o = S.onb;
+  if (o && typeof o === "object" && o.v === ONB_V2){ if (!o.seen || typeof o.seen !== "object") o.seen = {}; return; }
+  const f = S.flags && typeof S.flags === "object" ? S.flags : (S.flags = {});
+  const K = ["FirstTimeIntroductionCompleted", "ApartmentTutorialCompleted", "GameplayTutorialCompleted", "TrainingCenterTutorialCompleted"];
+  const old = o && typeof o === "object" ? o : {}, seen = {};
+  S.tutDone = true; delete S.replay;
+  // all of it done, or a save from before the flags (resume gave those every flag): nothing to teach
+  if (K.every(k => f[k]) || old.stage === "done"){ for (const k of K) f[k] = true; S.onb = {v:ONB_V2, step:"done", seen}; return; }
+  // "the whole tutorial" now ends with first-person training: not done, unless everything was
+  f.GameplayTutorialCompleted = false; f.TrainingCenterTutorialCompleted = false;
+  // the neighbour has slammed his door already (the old first arrival): it is not slammed twice
+  if (old.slam){ seen.slam = true; seen.H7 = true; if (old.fixed){ seen.H8 = true; seen.H10 = true; } }
+  if (!f.FirstTimeIntroductionCompleted){
+    // the film again (creation and offers are skipped: you have a name and a club)
+    S.onb = {v:ONB_V2, step:"intro", seen};
+  } else if (!f.ApartmentTutorialCompleted){
+    // the flat's steps resume by what is so (the number plate where it is); the old tour showed the flat, the board
+    // and the table
+    if (old.stage === "tour") for (const k of ["H2", "H12", "H13"]) seen[k] = true;
+    S.onb = {v:ONB_V2, step:"H1", seen};
+  } else {
+    // the flat was done the old way: what was only shown or told is seen, what the world can say is checked (the bulb,
+    // your post, the ball), and it ends with the compass, the stop and the bus. Already at the training centre (the
+    // old stage "centre"): the next arrival there picks up from there
+    for (const k of ["H1", "H2", "H7", "H8", "H10", "H12", "H13", "H14", "H15", "H16", "H18"]) seen[k] = true;
+    seen.slam = true;
+    S.onb = {v:ONB_V2, step:"H3", seen};
+  }
+  // the day you are in, while the first day is not over, is excused at the training centre
+  if (S.life && S.life.att && typeof S.life.att === "object") S.life.att.excused = true;
 }
 function screenTitle(){
   if (document.body.classList.contains("life")){
@@ -215,9 +304,10 @@ function screenTitle(){
 }
 let CR = null;
 /* ---------- creating your player ----------
-   One screen: your player large on the left, turning in the light (drag to spin), and on the right four steps —
+   One screen: your player large on the left, turning in the light (drag to spin), and on the right four steps:
    who you are, where you play (a pitch you click), how you look, what you are good at. Every change shows at once;
-   nothing is fixed until "Find a club". The screen redraws itself on a click; the 3D preview survives that. */
+   nothing is fixed until "That's me". The screen redraws itself on a click; the 3D preview survives that.
+   The cut and the colour you pick here are the ones you own (DESIGN 3.7.3); other cuts cost money at the barber. */
 const CC_TABS = [["you", "Identity"], ["pos", "Position"], ["look", "Appearance"], ["skills", "Abilities"]];
 const CC_LOOK = [["body", "Body"], ["face", "Face"], ["hair", "Hair"], ["beard", "Beard"], ["clothes", "Clothing"]];
 function screenCreate(){
@@ -226,7 +316,7 @@ function screenCreate(){
   CR.pos = archOf(CR.pref);
   CR.tab = CC_TABS.some(t => t[0] === CR.tab) ? CR.tab : "you";
   CR.lookSec = CC_LOOK.some(t => t[0] === CR.lookSec) ? CR.lookSec : "body";
-  /* how you look: a default of your own until you change it — seeded from a token drawn when this screen first opens,
+  /* how you look: a default of your own until you change it, seeded from a token drawn when this screen first opens,
      so every new player starts as somebody different, and what the preview shows is what the career gets
      (the 3D preview needs the world's modules, so not on file://) */
   const looks = typeof lookFormHTML === "function" && location.protocol !== "file:";
@@ -243,12 +333,12 @@ function screenCreate(){
       <div class="cc-plate"><b id="ccName">${esc(CR.name.trim() || "Your name")}</b><span><em id="ccNum">#${CR.number}</em> · <em class="cc-posb">${CR.pref}</em> ${esc(POSITIONS[CR.pref].name)}</span></div></div>`
     : `<div class="cc-stage card glass cc-noprev"><div class="cc-plate"><b id="ccName">${esc(CR.name.trim() || "Your name")}</b><span><em id="ccNum">#${CR.number}</em> · ${esc(POSITIONS[CR.pref].name)}</span></div></div>`;
   render(`<section class="page create cc"><div class="page-inner">
-    <div class="cc-head"><div><div class="eyebrow">New career</div><h1>Create your player</h1></div>${nav}</div>
+    <div class="cc-head"><div><div class="eyebrow">New career</div><h1>Who are you?</h1></div>${nav}</div>
     <div class="cc-grid">${stage}
       <div class="cc-panel card glass">${ccPanel(t)}
-        <div class="cc-foot"><button class="btn ghost" onclick="${idx > 0 ? `A.ccTab('${CC_TABS[idx - 1][0]}')` : "screenTitle()"}">${idx > 0 ? "← Back" : "Cancel"}</button><span class="grow"></span>
+        <div class="cc-foot"><button class="btn ghost" onclick="${idx > 0 ? `A.ccTab('${CC_TABS[idx - 1][0]}')` : "A.ccCancel()"}">${idx > 0 ? "← Back" : "Cancel"}</button><span class="grow"></span>
           ${idx < CC_TABS.length - 1 ? `<button class="btn ghost" onclick="A.ccTab('${CC_TABS[idx + 1][0]}')">Next: ${CC_TABS[idx + 1][1]} →</button>` : ""}
-          <button class="btn" onclick="A.startCareer()">Find a club →</button></div>
+          <button class="btn" onclick="A.startCareer()">That's me</button></div>
       </div>
     </div>
   </div></section>`, "create");
@@ -299,12 +389,17 @@ function ccLookHTML(){
   return `<div class="row between"><h3>Appearance</h3><button class="btn sm ghost" onclick="lkRandom()">🎲 Randomise</button></div>
     <div class="seg wrap cc-sub" role="tablist">${CC_LOOK.map(([k, n]) => `<button role="tab" aria-selected="${k === CR.lookSec}" aria-pressed="${k === CR.lookSec}" onclick="A.ccLook('${k}')">${n}</button>`).join("")}</div>
     <div class="lk-ctl cc-ctl" id="lkCtl">${lookFormHTML(CR.look, CR.lookSec)}</div>
-    <p class="muted small">You can change all of this later — the mirror at home, or the barber in town for a new cut.</p>`;
+    <p class="muted small" id="ccLookNote">${ccLookNote(CR.lookSec)}</p>`;
+}
+// under the look controls: under the hair, what a cut chosen here means for later (DESIGN 3.7.3)
+function ccLookNote(sec){
+  return sec === "hair" ? "This is your starting cut. Other styles cost money at the barber, and you keep the ones you've paid for."
+    : "Your face and build stay as you make them here. At home the mirror changes your clothes, and any cut or colour you own.";
 }
 function screenOffers(){
   setPhoneVisible(false);
   const {ctx, list} = S.offerSet;
-  const head = ctx === "start" ? ["Step 2", "Clubs want you", "Three Liga 4 clubs made you an offer. Your keypad phone only lets you take a basic deal — you'll negotiate once you own a smartphone."]
+  const head = ctx === "start" ? ["Your first contract", "Three Liga 4 clubs want to see you. Pick one.", "Your keypad phone only lets you take a basic deal. You can negotiate once you own a smartphone."]
     : ["Summer", "Your contract is up", "Pick where you play next season. Your current club's renewal is first."];
   render(`<section class="page"><div class="page-inner">
     <div class="eyebrow">${head[0]}</div><h1>${head[1]}</h1><p class="lede">${head[2]}</p>
@@ -353,10 +448,10 @@ function renderHubInner(){
   // living it day by day there is no button that skips time: you sleep, and the week turns on its own
   const tf = life ? todaysFixture() : null;
   const cta = life ? `<div class="life-cta ${tf ? "match" : ""}"><b>${todayName()} · ${fmtTime(S.life.min)}</b><span>${tf
-      ? (inj ? "Match today — you're injured and will watch from the stand." : banned ? "Match today — you're suspended." : `Match today at ${fmtTime(fixtureSlot(tf).min)}. Walk out of the tunnel at the training ground.`)
+      ? (inj ? "Match today, but you're injured and will watch from the stand." : banned ? "Match today, but you're suspended." : `Match today at ${fmtTime(fixtureSlot(tf).min)}. Walk out of the tunnel at the training ground.`)
       : `${esc(todayLine())}. Sleep in your own bed to move on to tomorrow.`}</span></div>`
-    : next ? (inj ? `<button class="btn lg" onclick="A.endWeek()">Injured — watch from the stands, next week →</button>`
-      : banned ? `<button class="btn lg" onclick="A.endWeek()">Suspended — ${S.ban} match${S.ban === 1 ? "" : "es"} to sit out, next week →</button>`
+    : next ? (inj ? `<button class="btn lg" onclick="A.endWeek()">Injured: watch from the stands, next week →</button>`
+      : banned ? `<button class="btn lg" onclick="A.endWeek()">Suspended: ${S.ban} match${S.ban === 1 ? "" : "es"} to sit out, next week →</button>`
       : `<button class="btn lg pulse" onclick="A.playMatch()">Play ${next.kind === "N" ? "for your country" : "match"} →</button>`)
     : `<button class="btn lg" onclick="A.endWeek()">Next week →</button>`;
   const news = S.news.slice(0, 7);
@@ -381,8 +476,8 @@ function renderHubInner(){
         <div class="meter-row"><span>Chemistry</span><div class="meter chem"><i style="width:${num(S.chem, 0)}%"></i></div><b>${Math.round(num(S.chem, 0))}</b></div>` : ""}
         <div class="meter-row"><span>Level ${S.level}</span><div class="meter xp"><i style="width:${100*S.xp/need}%"></i></div><b>${S.xp}/${need}</b></div>
         ${(() => { const js = jobState(), jn = jobNeed(), top = jobIsTop(), {job, rank} = myJob();
-          // at the top of the ladder there is nothing left to earn towards — you just keep working for the money
-          return `<div class="job-row${top ? " maxed" : ""}" title="${top ? "Top of the ladder — keep working for the money" : "Work experience — fill the bar to get promoted"}">
+          // at the top of the ladder there is nothing left to earn towards: you just keep working for the money
+          return `<div class="job-row${top ? " maxed" : ""}" title="${top ? "Top of the ladder. Keep working for the money" : "Work experience. Fill the bar to get promoted"}">
             <div class="job-head"><span class="ji">${job.icon}</span><b>${esc(rank.name)}</b><span class="muted">${top ? "top rank" : esc(job.name)}</span><em>${top ? payRange(rank) : `${js.xp}/${jn}`}</em></div>
             <div class="meter work"><i style="width:${top ? 100 : Math.min(100, 100*js.xp/jn)}%"></i></div></div>`; })()}
         <div class="kvs"><div class="kv-money"><span>Money</span><b>${eurFull(S.money)}</b></div>${k ? `<div><span>Wage</span><b>${eur(k.wage)}/wk${k.loan ? " (loan)" : ""}</b></div><div><span>Contract</span><b>${k.years} season${k.years !== 1 ? "s" : ""}${k.promised ? " · promised" : ""}</b></div>` : ""}
@@ -393,11 +488,11 @@ function renderHubInner(){
         ${life ? "" : `<div class="drink-row"><button class="btn sm drink" ${S.inv.drink ? "" : "disabled"} onclick="A.drink('drink')">Energy-UP ×${S.inv.drink}</button>
           <button class="btn sm drink" ${S.inv.max ? "" : "disabled"} onclick="A.drink('max')">Energy-UP MAX ×${S.inv.max}</button></div>`}
         <div class="activities me-acts">
-          ${life ? "" : tile("train", "Train", "🏃", S.actions && S.energy >= trainCost() && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${trainCost()} energy`)}
+          ${life ? "" : tile("train", "Train", "🏃", S.actions && S.energy >= trainCost() && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired. You need ${trainCost()} energy`)}
           ${tile("staff", "Staff", "🧑‍🏫", true)}
           ${life ? "" : tile("rest", "Rest at home", "🛏", S.actions > 0, "No actions left this week")}
-          ${life ? tile("media", "Media", "🎙", !S.today.media && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : S.today.media ? "Done for today" : `Too tired — needs ${MEDIA_COST} energy`)
-            : tile("media", "Media", "🎙", S.actions && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${MEDIA_COST} energy`)}
+          ${life ? tile("media", "Media", "🎙", !S.today.media && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : S.today.media ? "Done for today" : `Too tired. You need ${MEDIA_COST} energy`)
+            : tile("media", "Media", "🎙", S.actions && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired. You need ${MEDIA_COST} energy`)}
           ${tile("manager", "Manager", "🧑‍💼", !!myClub(), "You have no club")}
         </div>
         ${myClub() ? formStrip() : ""}
@@ -427,7 +522,7 @@ function renderHubInner(){
   </section>`, "hub");
   phoneBadge();
 }
-/* the flag only wears a dot until you've read the newest notes — it never interrupts you */
+/* the flag only wears a dot until you've read the newest notes: it never interrupts you */
 function patchUnseen(){ return !!(typeof PATCH !== "undefined" && PATCH.length && S && S.seenPatch !== PATCH[0].v); }
 /* ---------- your team: the eleven laid out on the pitch, with the bench beside it ---------- */
 const LINE_ORDER = ["GK", "DF", "CM", "CAM", "LW", "RW", "ST"];
@@ -523,7 +618,7 @@ function leaguePanel(){
     <div class="lgbody">${body}</div>`;
 }
 function tile(id, label, icon, enabled, why){
-  // a greyed-out tile says why — the rank you've reached is never the reason
+  // a greyed-out tile says why; the rank you've reached is never the reason
   return `<button class="tile" ${enabled ? "" : "disabled"} title="${esc(enabled ? label : (why || label))}" onclick="A.tile('${id}')">
     <span class="ti">${icon}</span><span>${label}</span>${!enabled && why ? `<span class="tile-why">${esc(why)}</span>` : ""}</button>`;
 }
@@ -531,7 +626,7 @@ function tile(id, label, icon, enabled, why){
 function workWhy(inj){
   if (inj) return "You're injured";
   if (!S.actions) return "No actions left this week";
-  if (S.energy < 8) return "Too tired — needs 8 energy";
+  if (S.energy < 8) return "Too tired. You need 8 energy";
   return "";
 }
 function trainCost(){ return 14 - (carTier() >= 2 ? 3 : 0); }
@@ -574,7 +669,7 @@ function openSheet(kind){
         ${has ? `<button class="btn sm ghost" onclick="A.fire('${s.id}')">Let go</button>` : `<button class="btn sm" ${S.money >= s.hire ? "" : "disabled"} onclick="A.hire('${s.id}')">Hire</button>`}</div>`; }).join("")}</div>`;
   } else if (kind === "skills"){
     body = `<h2>Skills</h2><p class="muted">${S.sp} skill points. Upgrades cost 1 point below 50, 2 below 75, then 3.</p>
-      <p class="muted small">Each skill also fills its own bar as you play — shooting builds power and accuracy, beating a man builds dribbling, and so on. Fill it and that skill goes up by 1 for free.</p>
+      <p class="muted small">Each skill also fills its own bar as you play: shooting builds power and accuracy, beating a man builds dribbling, and so on. Fill it and that skill goes up by 1 for free.</p>
       ${SKILLS.map(([k,n,d]) => { const v = S.skills[k], c = skillCost(v), xp = (S.skillXp && S.skillXp[k]) || 0, need = skillNeed(k), pct = v >= 99 ? 100 : Math.round(100*xp/need);
       return `<div class="skillrow"><div><b>${n}</b><div class="muted small">${d}</div><div class="meter thin"><i style="width:${v}%"></i></div>
         <div class="xprow"><div class="meter xp"><i style="width:${pct}%"></i></div><span class="muted small">${v >= 99 ? "max" : `${Math.round(xp)}/${need} xp`}</span></div></div>
@@ -589,7 +684,7 @@ function openSheet(kind){
             ${shopLogo(sh)}
             <div class="grow"><b>${esc(sh.nm)}</b> <span class="tierpill ${sh.tier}">${CLOTHES_TIER[sh.tier].label}</span>
               <div class="muted small">${esc(sh.blurb)}</div>
-              <div class="stars">${starsHTML(sh.stars)}<span class="muted small">Reputation ${fmt(sh.rep)}${open ? "" : ` — you have ${fmt(r)}`}</span></div></div>
+              <div class="stars">${starsHTML(sh.stars)}<span class="muted small">Reputation ${fmt(sh.rep)}${open ? "" : `, you have ${fmt(r)}`}</span></div></div>
             <div class="shopright">${open ? `${owned}/${sh.items.length}` : "🔒"}</div></button>`; }).join("")}`;
     } else {
       const open = shopOpen(shop);
@@ -618,7 +713,7 @@ function openSheet(kind){
       <button class="btn" onclick="A.fullscreen()">⛶ Toggle full screen</button>
       <div><label>Graphics</label>${gfxSeg("A.gfx")}</div>
       <button class="btn ghost" onclick="saveNow();toast('Saved','good')">Save now</button>
-      <button class="btn ghost" onclick="A.faultReport()">🩺 Report a problem — copy the details${S && S.faults && S.faults.length ? ` (${S.faults.length})` : ""}</button>
+      <button class="btn ghost" onclick="A.faultReport()">🩺 Report a problem: copy the details${S && S.faults && S.faults.length ? ` (${S.faults.length})` : ""}</button>
       <textarea id="faultOut" class="codebox" style="display:none"></textarea>
 
       <div class="transfer">
@@ -638,7 +733,7 @@ function openSheet(kind){
       ${ONLINE.user ? cloudPanel() : accountPanel()}
 
       <button class="btn ghost" onclick="A.quit()">Quit to title</button></div>
-      <p class="muted small">Your career saves automatically in this browser — the code is only needed to move it somewhere else.</p>`;
+      <p class="muted small">Your career saves automatically in this browser. The code is only needed to move it somewhere else.</p>`;
   } else if (kind === "patch"){
     body = `<h2>Updates <span class="fl big">⚑</span></h2><p class="muted small">Everything that's changed, newest first. You're on build ${esc(window.FF_BUILD || "dev")}.</p>
       <div class="patchlist">${PATCH.map((p, i) => `<div class="patch${i === 0 ? " latest" : ""}">
@@ -717,7 +812,10 @@ function placeToasts(){
   ts.forEach(t => { if (t.style.bottom !== lift) t.style.bottom = lift; });
 }
 const A = {
-  newGame(n){ useSlot(n || 1); CR = null; screenCreate(); },
+  // New Game: black at once, the world and the film, then who you are (newGameWorld); without a 3D world, straight to it
+  newGame(n){ useSlot(n || 1); CR = null; if (worldOK()) return newGameWorld(); screenCreate(); },
+  // back to the title from the creation screen: a career that was never made is let go, the film with it
+  ccCancel(){ NG.tok++; if (window.lifeOnboard && window.lifeOnboard.waiting()) window.lifeOnboard.abort(); screenTitle(); },
   deleteSlot(n){
     const m = slotMeta(n); if (!m) return;
     confirmBox(`Delete slot ${n}?`, `${esc(m.name)} · ${esc(m.club)} · ${m.apps} matches, ${playTime(m.ms)} played. This can't be undone.`, () => { deleteSlot(n); toast("Save deleted."); screenTitle(); });
@@ -727,25 +825,28 @@ const A = {
     if (t !== "look" && LK.view !== "front" && typeof lkView === "function") lkView("front"); screenCreate(); },
   ccLook(k){ CR.lookSec = k; LK.only = k; const c = $("#lkCtl"); if (c){ c.innerHTML = lookFormHTML(CR.look, k); for (const b of document.querySelectorAll(".cc-sub button")){ const on = b.getAttribute("onclick").includes(`'${k}'`); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-selected", String(on)); } }
     if (typeof lkView === "function") lkView(k === "face" || k === "hair" || k === "beard" ? "face" : "front");
-    if (k === "clothes" && typeof lkKind === "function") lkKind("casual"); },
+    if (k === "clothes" && typeof lkKind === "function") lkKind("casual");
+    const nt = $("#ccLookNote"); if (nt) nt.textContent = ccLookNote(k); },
   ccPos(k){ if (!POSITIONS[k] || k === "GK") return; CR.pref = k; CR.pos = archOf(k); screenCreate(); },
   ccName(v){ CR.name = v; const e = $("#ccName"); if (e) e.textContent = v.trim() || "Your name"; },
   ccNumber(v){ CR.number = clamp(+v || 9, 1, 99); const e = $("#ccNum"); if (e) e.textContent = "#" + CR.number; if (LK.o){ LK.o.number = CR.number; if (typeof lkUpdate === "function") lkUpdate(); } },
   startCareer(){
     const name = (CR.name || "").trim(); if (!name){ toast("Give your player a name first."); if (CR.tab !== "you") A.ccTab("you"); const n = $("#nm"); if (n) n.focus(); return; }
     CR.name = name;
-    render(`<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world — clubs, squads, fixtures…</p></div></section>`);
+    // the career whose shell the film was built on (New Game in the world): you, in it, and the clubs that want you
+    if (S && S.flags && S.flags.CharacterCreated === false){ applyCreation(CR); screenOffers(); return; }
+    render(`<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world: clubs, squads, fixtures…</p></div></section>`);
     setTimeout(() => { newCareer(CR); save(); screenOffers(); }, 50);
   },
-  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); if (!S.tutDone && S.week === 0 && !window.startLife) return startTutorial(); renderHub(); enterCity();
-    },      // nothing announces itself after an update — the flag in the top bar has the notes when you want them
+  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); onbMigrate(); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); renderHub(); enterCity();
+    },      // nothing announces itself after an update: the flag in the top bar has the notes when you want them
   sign(i){
     const o = S.offerSet.list[i], ctx = S.offerSet.ctx; S.offerSet = null;
-    joinClub(o); if (ctx === "start"){ addNews("you", `A career begins at ${W.clubs[o.club].nm}`, "Liga 4. Keypad phone. Big dreams.", "me"); msg("Branyfon", "Welcome! Use ▲▼ to move, the centre key to select, the red key to go back."); }
+    joinClub(o); if (ctx === "start"){ addNews("you", `A career begins at ${W.clubs[o.club].nm}`, "Liga 4. Keypad phone. Big dreams.", "me"); msg("Branyfon", "Welcome! Use the arrows or the wheel to move, Enter to select, Esc to go back."); }
     save();
-    // a new career goes straight to the city: the first-day introduction (intro.js) starts there, and the dream comes
-    // the first night you sleep (tutorial.js); without the 3D world, the dream is the introduction
-    if (ctx === "start" && !S.tutDone && !window.startLife) return startTutorial();
+    // a new career made in the middle of the film: back into the world, in your own eyes, for your uncle's last
+    // lines (intro.js); the hub waits in your phone
+    if (ctx === "start" && window.lifeOnboard && window.lifeOnboard.waiting()){ renderHub(); document.body.classList.add("life"); window.lifeOnboard.afterSign(); return; }
     renderHub();
     if (!document.body.classList.contains("life")) enterCity();
   },
@@ -783,7 +884,7 @@ const A = {
   city(n){
     if (n) useSlot(n);
     const d = load(); if (!d) return screenTitle();
-    startPlayClock(); resume(d);
+    startPlayClock(); resume(d); onbMigrate();
     if (S.offerSet) return screenOffers();
     S.tutDone = true;
     document.body.classList.add("life");
@@ -803,11 +904,11 @@ const A = {
       return toast("One part of the week had a problem and was skipped. Menu → Report a problem has the details.", "bad");
     }
     if (r.seasonOver){
-      let sum; try{ sum = seasonEnd(); }catch(e){ console.error("seasonEnd failed", e); S.faults = (S.faults || []).concat([{gw:gw(), wk:S.week, at:"seasonEnd", m:String(e && e.message || e).slice(0, 160)}]); sum = {pos:0, lg:"—", report:[]}; }
+      let sum; try{ sum = seasonEnd(); }catch(e){ console.error("seasonEnd failed", e); S.faults = (S.faults || []).concat([{gw:gw(), wk:S.week, at:"seasonEnd", m:String(e && e.message || e).slice(0, 160)}]); sum = {pos:0, lg:EMPTY_CELL, report:[]}; }
       save(); return screenSeasonEnd(sum);
     }
     save(); renderHub();
-    if (r.skipped && r.skipped.length) return toast(`Week ${S.week}. One part of the week was skipped (${r.skipped.join(", ")}) — Menu → Report a problem has the details.`, "bad");
+    if (r.skipped && r.skipped.length) return toast(`Week ${S.week}. One part of the week was skipped (${r.skipped.join(", ")}). Menu → Report a problem has the details.`, "bad");
     if (r.income != null) toast(`Week ${S.week}: +${eur(r.income)} wage${r.cost ? `, −${eur(r.cost)} staff` : ""}`);
   },
   faultReport(){
@@ -822,7 +923,7 @@ const A = {
       ...((S.faults || []).length ? S.faults.map(f => `  s${Math.floor(f.gw/CAL.W)+1} w${f.wk} ${f.at}: ${f.m}`) : ["  none recorded"])
     ];
     const txt = lines.join("\n");
-    try{ navigator.clipboard.writeText(txt); toast("Problem report copied — paste it to whoever is fixing this", "good"); }
+    try{ navigator.clipboard.writeText(txt); toast("Problem report copied. Paste it to whoever is fixing this.", "good"); }
     catch(e){ const t = $("#faultOut"); if (t){ t.style.display = "block"; t.value = txt; t.focus(); t.select(); toast("Copy the text in the box", "bad"); } }
     return txt;
   },
@@ -838,7 +939,7 @@ const A = {
       S.actions--; S.energy -= MEDIA_COST;
     }
     const me = meP(), back = Math.random() < l.risk;
-    // a line that backfires still gets you talked about — it just costs you the dressing room
+    // a line that backfires still gets you talked about; it just costs you the dressing room
     const gain = Math.max(3, Math.round((8 + me.rep*.012)*l.rep*styleMul()*(back ? .6 : 1)));
     me.rep += gain; me.wrep += Math.round(gain*.18);
     trustAdd(back ? l.trust - 8 : l.trust);
@@ -846,7 +947,7 @@ const A = {
       `“${l.say}” ${back ? "It has not landed well inside the club." : ""}`.trim(), "me");
     if (typeof socialEvent === "function") try{ socialEvent("media", l.t); }catch(e){}
     closeSheet(); save(); renderHub();
-    toast(back ? `+${fmt(gain)} reputation — but that one stung` : `+${fmt(gain)} reputation`, back ? "bad" : "good");
+    toast(back ? `+${fmt(gain)} reputation, but that one stung` : `+${fmt(gain)} reputation`, back ? "bad" : "good");
   },
   askRaise(p){ askRaise(p); },
   askPos(to){ askPos(to); },
@@ -875,13 +976,13 @@ const A = {
     }
     if (r.did === "local-ahead"){
       cloudRefresh();
-      acctMsg(`The career on this computer (${r.local.apps} matches) is further along than the one on your account (${(r.info.career || {}).apps || 0}). It has been left alone — sync it up to make it the account's copy.`, true);
+      acctMsg(`The career on this computer (${r.local.apps} matches) is further along than the one on your account (${(r.info.career || {}).apps || 0}). It has been left alone. Sync it up to make it the account's copy.`, true);
       return;
     }
     if (r.did === "ask"){
       cloudRefresh();
       confirmBox("There is already a career on this computer",
-        `<b>${esc(r.local.name)}</b> — ${esc(r.local.club)}, ${r.local.apps} match${r.local.apps === 1 ? "" : "es"}, ${playTime(r.local.ms)} played — is saved here and ${r.local.owner ? "belongs to a different account" : "has never been put on an account"}. Replacing it with <b>${esc(r.info.name)}</b> from your account deletes it for good.`,
+        `<b>${esc(r.local.name)}</b> (${esc(r.local.club)}, ${r.local.apps} match${r.local.apps === 1 ? "" : "es"}, ${playTime(r.local.ms)} played) is saved here and ${r.local.owner ? "belongs to a different account" : "has never been put on an account"}. Replacing it with <b>${esc(r.info.name)}</b> from your account deletes it for good.`,
         async () => {
           ONLINE.busy = "Fetching your career"; refreshSheet();
           try{
@@ -919,9 +1020,9 @@ const A = {
         closeSheet(); toast(`${i.name} is ready to play`, "good"); screenTitle();
       }catch(e){ ONLINE.busy = ""; refreshSheet(); acctMsg("Couldn't fetch it. Check your connection and try again."); }
     };
-    // there is a career on this device that is about to be written over — say exactly whose
+    // there is a career on this device that is about to be written over: say exactly whose
     if (local) return confirmBox("Replace the career on this computer?",
-      `<b>${esc(local.name)}</b> — ${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"}, ${playTime(local.ms)} played — will be deleted from this device and replaced with <b>${esc(i.name)}</b> from your account. Anything in it you have not synced is gone for good.`, go);
+      `<b>${esc(local.name)}</b> (${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"}, ${playTime(local.ms)} played) will be deleted from this device and replaced with <b>${esc(i.name)}</b> from your account. Anything in it you have not synced is gone for good.`, go);
     go();
   },
   acctMode(m){ ONLINE.mode = m; ONLINE.err = ""; refreshSheet(); },
@@ -954,7 +1055,7 @@ const A = {
       closeSheet(); toast(`${r.name} is on this computer now`, "good"); screenTitle();
     };
     if (local) return confirmBox("Replace the career on this computer?",
-      `<b>${esc(local.name)}</b> — ${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"} — will be deleted from this device and replaced with <b>${esc(row.name)}</b> from your account.`, go);
+      `<b>${esc(local.name)}</b> (${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"}) will be deleted from this device and replaced with <b>${esc(row.name)}</b> from your account.`, go);
     go();
   },
   async syncUp(){
@@ -1013,13 +1114,18 @@ const A = {
     if (promo) return promoBox(promo, m);
     toast(`${before.job.name} · ${before.rank.name}: +${eur(m)}`);
   },
-  drink(id, inMatch){ if (!S.inv[id]) return; S.inv[id]--; const g = Math.round((id === "max" ? 60 : 30)*energyMult()); S.energy = Math.min(100, S.energy + g); save(); if (inMatch) return updateMatchHUD(); renderHub(); toast(`+${g} energy`); },
+  // a drink from your stock (the hub, half time): what it does is what consume() says, the same as from a fridge
+  drink(id, inMatch){
+    const r = consume(id);
+    if (!r.ok){ if (inMatch) return updateMatchHUD(); return toast(r.why); }
+    save(); if (inMatch) return updateMatchHUD(); renderHub(); toast(`${r.item.name} · Energy ${fmtSigned(r.gain)}`);
+  },
   up(k){ const c = skillCost(S.skills[k]); if (S.sp < c || S.skills[k] >= 99) return; S.sp -= c; S.skills[k]++; meP().ovr = overall(); save(); refreshSheet(); renderHub(); },
   buy(id){
     const it = SHOP.find(x => x.id === id); if (S.money < it.price) return;
     S.money -= it.price;
     if (it.stack) S.inv[id] = (S.inv[id] || 0) + 1;
-    else if (id === "smartphone"){ S.phone = "smart"; addNews("you", "New phone!", "The Branyfon S1 is yours. Open the Branystore to get apps.", "me"); toast("Smartphone unlocked — pull up your phone!", "gold"); }
+    else if (id === "smartphone"){ S.phone = "smart"; addNews("you", "New phone!", "The Branyfon S1 is yours. Open the Branystore to get apps.", "me"); toast("Smartphone unlocked. Pull up your phone!", "gold"); }
     else S.items[id] = true;
     if (!it.stack){ S.purchases.push({id, name:it.name, gw:gw()}); socialEvent("purchase", it.name); }
     save(); refreshSheet(); renderHub(); if (!it.stack && id !== "smartphone") toast(`Bought: ${it.name}`, "good");
@@ -1044,7 +1150,7 @@ const A = {
     if (!item || ownsCloth(id) || !shopOpen(shop) || S.money < item.p) return;
     S.money -= item.p; (S.wardrobe || (S.wardrobe = [])).push(id);
     const per = CLOTHES_TIER[shop.tier].per*100;
-    toast(`${item.n} — looking sharp. +${per.toFixed(2)}% reputation and followers`, "good");
+    toast(`${item.n}. Looking sharp. +${per.toFixed(2)}% reputation and followers`, "good");
     socialEvent("purchase", item.n);
     save(); refreshSheet(); renderHub();
   },
@@ -1056,7 +1162,7 @@ const A = {
       const code = await makeCode();
       const box = $("#saveCode"); if (box){ box.value = code; box.select && box.select(); }
       const ok = await copyText(code);
-      toast(ok ? `Save code copied — ${Math.round(code.length/1024)} KB. Paste it on the other device.` : "Code ready below — select it all and copy.", ok ? "good" : "");
+      toast(ok ? `Save code copied (${Math.round(code.length/1024)} KB). Paste it on the other device.` : "Code ready below. Select it all and copy.", ok ? "good" : "");
     }catch(e){ toast("Couldn't build the code."); }
     if (btn){ btn.disabled = false; btn.textContent = `💾 ${SAVE_CODE_LABEL}`; }
   },
@@ -1069,7 +1175,7 @@ const A = {
         const r = await applyCode(txt, n);
         closeConfirm(); closeSheet(); closePhone();
         const d = load(n); if (!d) throw new Error("bad");
-        resume(d); startPlayClock();
+        resume(d); onbMigrate(); startPlayClock();
         toast(`${r.name} imported into slot ${n}.`, "good");
         if (S.offerSet) return screenOffers();
         renderHub();
@@ -1082,7 +1188,7 @@ const A = {
   quit(){ saveNow(); closeSheet(); closePhone(); screenTitle(); },
   fullscreen(){
     const d = document;
-    if (!d.fullscreenElement){ const el = d.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => Promise.reject())).call(el).catch(() => toast("Your browser blocked full screen — press F11.")); }
+    if (!d.fullscreenElement){ const el = d.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => Promise.reject())).call(el).catch(() => toast("Your browser blocked full screen. Press F11.")); }
     else (d.exitFullscreen || d.webkitExitFullscreen).call(d);
   }
 };
