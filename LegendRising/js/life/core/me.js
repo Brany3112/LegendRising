@@ -74,6 +74,9 @@ const feetGround = (x, z) => surfaceUnder(x, P.feet + .45, z);
 export function meBuild(){
   meDispose();
   const s = G(); if (!s || !s.player || !RT.scene) return;
+  // no body while the character is still being made (the film, creation, the offers: DESIGN 3.7.2); the signing's
+  // lifeLookChanged() builds the real one
+  if (s.flags && s.flags.CharacterCreated === false) return;
   ME.kind = meKind();
   let look;
   try { look = bodyLook(s.player.look, ME.kind); } catch(e){ console.error(e); return; }

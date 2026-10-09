@@ -7,7 +7,7 @@
     "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed.",
     "merged: the packages the integrator has merged so far. A rule is active exactly when the package in its activatedBy is in this list (qa/unit/qatools.mjs checks it), so at each stage merge the integrator adds the packages and flips their rules on together."
   ],
-  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G"],
+  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1"],
   "pure": [
     "js/life/mover.js", "js/life/stamina.js", "js/life/gaitcore.js",
     "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/detmath.js", "js/life/football/ball.js", "js/life/football/strike.js",
@@ -113,7 +113,7 @@
     },
     {
       "id": "trust-writes",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-T1",
       "ref": "DESIGN 1.3 (trust single owner), 2.3 WP-G and WP-T1 acceptance, 4.11",
       "what": "Trust changes only through trustAdd (daily.js); the load-time clamp in dailyEnsure is the one other write. The admin editor sets values directly by design. js/engine goes with WP-L.",
@@ -125,7 +125,7 @@
     },
     {
       "id": "inv-writes",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-H",
       "ref": "DESIGN 1.3 (food single owner), 4.11",
       "what": "S.inv changes only in consume(), parcelStep and the shops (buyFood, shopBuy, the hub's buy); dailyEnsure only normalises it on load. The admin editor sets values directly by design.",

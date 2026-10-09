@@ -216,8 +216,11 @@ function openBus(from){
   const works = typeof lifeEventOn === "function" && lifeEventOn("roadworks");
   lpShow("bus", `${lpHead("Line 14", `Bus stop · ${BUS_STOPS[from] ? BUS_STOPS[from].name : ""}`)}
     <p class="lpn-p">Where to? It's ${fmtTime(m)}. The clock runs on while you ride.</p>
-    <div class="wait-list bus-list">${order.map(k => { const mins = busMins(from, k), shut = k === "ground" && !centreOpen(m + mins), slow = works && (from === "home" || k === "home");
-      return `<button class="wait-opt bus-opt" ${shut ? "disabled" : ""} onclick="busGo('${k}')"><i>${BUS_STOPS[k].icon}</i><b>${esc(BUS_STOPS[k].name)}<em>${esc(shut ? `Closed by then · open ${centreHours()}` : [BUS_STOPS[k].sub, why(k), slow ? `Road works: ${ROADWORKS_DELAY} minutes longer` : ""].filter(Boolean).join(" · "))}</em></b><span>${busDur(mins)}<em>arrive ${fmtTime(m + mins)}</em></span></button>`; }).join("")}</div>
+    <div class="wait-list bus-list">${order.map(k => { const mins = busMins(from, k), slow = works && (from === "home" || k === "home");
+      // day one's gate (firstday.js busGate) says when the training-centre ride opens; otherwise shut only if the centre is closed on arrival
+      const gate = typeof window.lifeBusGate === "function" ? window.lifeBusGate(from, k) : null;
+      const shut = !!gate || (k === "ground" && !centreOpen(m + mins));
+      return `<button class="wait-opt bus-opt" ${shut ? "disabled" : ""} onclick="busGo('${k}')"><i>${BUS_STOPS[k].icon}</i><b>${esc(BUS_STOPS[k].name)}<em>${esc(gate ? gate : shut ? `Closed by then · open ${centreHours()}` : [BUS_STOPS[k].sub, why(k), slow ? `Road works: ${ROADWORKS_DELAY} minutes longer` : ""].filter(Boolean).join(" · "))}</em></b><span>${busDur(mins)}<em>arrive ${fmtTime(m + mins)}</em></span></button>`; }).join("")}</div>
     <p class="lpn-foot">Hungry or tired? Sort it before you go. There's nothing to eat on the bus.</p>`);
   if (typeof window.lifeOnb === "function") window.lifeOnb("openBus", {from});
 }

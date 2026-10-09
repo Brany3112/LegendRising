@@ -74,15 +74,8 @@ function onlineChanged(){
 
 /* ---------- words written by older builds ----------
    Board rows and account saves come from every version of the game, and older ones still carry the long dash the
-   game no longer uses. They are shown through the same replacement the save migration applies to a career's own
-   text (career.js textMigrate, DESIGN 1.7 and 3.10): a dash standing alone for "nothing" becomes the empty-cell
-   mark, and any other one, with the spaces round it, becomes rep (a colon, as in an award's name). */
-const EM_DASH = String.fromCharCode(0x2014);
-const EM_SPACED = new RegExp(`\\s*${EM_DASH}\\s*`, "g");
-function undash(t, rep = ": "){
-  if (typeof t !== "string" || t.indexOf(EM_DASH) < 0) return t;
-  return t.trim() === EM_DASH ? EMPTY_CELL : t.replace(EM_SPACED, rep);
-}
+   game no longer uses. They are shown through util.js undash, the same replacement the save migration applies to a
+   career's own text (career.js textMigrate, DESIGN 1.7 and 3.10). */
 // one leaderboard row as the phone shows it: every piece of text in it cleaned, numbers left alone
 const BOARD_TEXT = ["name", "handle", "club", "league", "job", "nat"];
 function boardRow(r){
@@ -232,6 +225,8 @@ async function syncUp(){
    remembers which one it was. We look there first, then fall back to sweeping every old slot, so a
    career uploaded by any version of the game is still found. */
 const CLOUD_SLOTS = 3;
+// a board row with no slot recorded: the probe holds this, and ui/main.js compares against it before naming a slot (never shown)
+const BOARD_NO_SLOT = "—";   // nodash-ok: sentinel
 async function cloudBest(){
   if (!ONLINE.user) return null;
   const {doc, getDoc} = ONLINE.sdk.store, uid = ONLINE.user.uid;
@@ -246,7 +241,7 @@ async function cloudBest(){
   let board = null;
   try{ const bd = await getDoc(doc(ONLINE.db, "board", uid)); if (bd.exists()) board = bd.data(); }
   catch(e){ probe.err = String(e && e.message || e).slice(0, 90); }
-  probe.board = !!board; probe.boardSlot = board ? (board.slot == null ? "—" : board.slot) : null;   // nodash-ok: sentinel
+  probe.board = !!board; probe.boardSlot = board ? (board.slot == null ? BOARD_NO_SLOT : board.slot) : null;
   if (board && board.slot){ const hit = await read(board.slot); if (hit){ probe.slots.push(board.slot); return {hit, board}; } }
   let best = null;
   for (let n = 1; n <= CLOUD_SLOTS; n++){

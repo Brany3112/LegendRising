@@ -12,7 +12,9 @@
 //            --only W,CM (of the N seeds only those the rotation gives these archetypes: a re-check, not for fitting)
 //            --timing 3 (matches timed alone; 0 to skip)  --plays 3 (timed plays of each)  --fit-ratings  --fit-tempo
 //            --tempo d,s,p  --quiet
-//   writes qa/out/harness.json; exits 1 when a band fails (not with --fit-*).
+//   writes qa/out/harness.json; exits 1 when a band fails (not with --fit-*). The bands are judged on the acceptance
+//   run (seeds 1 to 1000, the slot rotating); any other run is reported, and fails only on a band missed by more than
+//   two standard errors or on a check with none (asserts, step cost, determinism): lead decision for P1b, 3.2.12.
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -203,20 +205,30 @@ if (TIMING > 0){
 }
 const checks = H.checkReport(R);
 if (R.determinism != null) checks.push({name: 'same seed, same event log (two runs in Node)', value: R.determinism, lo: true, hi: true, pass: R.determinism});
-const out = {about: "WP-E harness (qa/harness.mjs): DESIGN 2.3 WP-E bands", when: new Date().toISOString(), n: ok.length, speed: SPEED, tempo: opt.tempo || TEMPO[SPEED],
+// Which misses fail the run (lead decision for P1b, DESIGN 3.2.12): the bands are judged on the acceptance run, seeds 1
+// to 1000 with the player's slot rotating (any tempo). Any other run (other seeds, fewer matches, --only, --arch) is
+// reported against the bands and fails only where a band is missed by more than two standard errors (the check's ci2
+// wholly outside it); a check with no standard error (an assert, the step cost, determinism) fails it in every run.
+const ACCEPTANCE = FROM === 1 && N >= 1000 && !ONLY && !opt.arch;
+for (const c of checks){
+  const out2 = c.ci2 && (c.ci2[1] < c.lo || c.ci2[0] > c.hi);
+  c.gate = c.pass ? "ok" : ACCEPTANCE || !c.ci2 || out2 ? "FAIL" : "miss";
+}
+const out = {about: "WP-E harness (qa/harness.mjs): DESIGN 2.3 WP-E bands", when: new Date().toISOString(), n: ok.length, from: FROM, acceptance: ACCEPTANCE, speed: SPEED, tempo: opt.tempo || TEMPO[SPEED],
   seconds: Math.round((Date.now() - t0)/1000), report: R, checks};
 if (arg("fit-ratings", false)){ out.fitRatings = H.fitRatings(ok); console.log("fit-ratings:", JSON.stringify(out.fitRatings)); }
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});
 fs.writeFileSync(path.join(ROOT, "qa", "out", "harness.json"), JSON.stringify(out, null, 1));
 const fmt = v => v == null ? "-" : typeof v === 'number' ? (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(3)) : String(v);
-for (const c of checks) console.log(`${c.pass ? "ok  " : "FAIL"} ${c.name}: ${fmt(c.value)}  [${fmt(c.lo)} .. ${fmt(c.hi)}]`);
-console.log(`me by archetype: ${JSON.stringify(Object.fromEntries(Object.entries(R.me).map(([k, m]) => [k, {n: m.n, touches: +m.touches.toFixed(1), shots: +m.shots.toFixed(2), def: +m.defActs.toFixed(1), gap: Math.round(m.gapP95), trust: +m.trust.toFixed(2), rating: +m.rating.toFixed(2), posDisc: +m.pd.toFixed(2), judged: +m.trustJ.toFixed(2)}])))}`);
+for (const c of checks) console.log(`${c.gate === "ok" ? "ok  " : c.gate} ${c.name}: ${fmt(c.value)}  [${fmt(c.lo)} .. ${fmt(c.hi)}]${c.ci2 && c.gate !== "ok" ? `  (two standard errors: ${fmt(c.ci2[0])} .. ${fmt(c.ci2[1])})` : ""}`);
+if (!ACCEPTANCE) console.log(`(not the acceptance run, seeds 1 to 1000: "miss" is a band missed by less than two standard errors, reported and not gated)`);
+console.log(`me by archetype: ${JSON.stringify(Object.fromEntries(Object.entries(R.me).map(([k, m]) => [k, {n: m.n, touches: +m.touches.toFixed(1), touchesAll: +m.touchesAll.toFixed(1), shots: +m.shots.toFixed(2), def: +m.defActs.toFixed(1), gap: Math.round(m.gapP95), trust: +m.trust.toFixed(2), rating: +m.rating.toFixed(2), posDisc: +m.pd.toFixed(2), judged: +m.trustJ.toFixed(2)}])))}`);
 for (const [k, m] of Object.entries(R.me)) console.log(`  ${k} moments a match: ${JSON.stringify(m.moments)}`);
 if (R.ratingBy) console.log(`starters' ratings by archetype: ${JSON.stringify(R.ratingBy)}`);
 if (R.assertSeeds && R.assertSeeds.length) console.log(`seeds with a failed assert: ${R.assertSeeds.join(", ")}`);
 console.log(`kicks: ${JSON.stringify(R.kinds)} controlled ${fmt(R.ctlSec)} s`);
 console.log(`other: passes ${fmt(R.passes)} ok ${fmt(R.passesOk)} reds ${fmt(R.reds)} pens ${fmt(R.pens)} restarts ${fmt(R.restarts)} through ${R.through} sides on ${R.sidesOn} off ${R.sidesOff} prefCaps ${R.prefCaps} restartWorst ${fmt(R.restartWorst)}${R.stepP99 != null ? ` step p99 ${R.stepP99} p99.9 ${R.stepP999} ms, slowest single play of a step ${R.stepRawMax} ms, heap allocated a step about ${R.allocPerStep} bytes` : ""}`);
-const failed = checks.filter(c => !c.pass).length;
-console.log(`harness: ${checks.length - failed} of ${checks.length} checks pass, ${Math.round((Date.now() - t0)/1000)} s`);
+const failed = checks.filter(c => c.gate === "FAIL").length, missed = checks.filter(c => c.gate === "miss").length;
+console.log(`harness: ${checks.length - failed - missed} of ${checks.length} checks pass${missed ? `, ${missed} missed within two standard errors (reported)` : ""}${failed ? `, ${failed} fail` : ""}, ${Math.round((Date.now() - t0)/1000)} s`);
 process.exit(failed && !arg("fit-ratings", false) && !arg("fit-tempo", false) ? 1 : 0);
 }

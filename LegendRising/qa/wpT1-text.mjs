@@ -9,8 +9,8 @@
 // 3. trust: no direct write to S.trust in the owned files (admin.js is the editor and sets it by design), and the
 //    lint rule trust-writes finds nothing in the whole tree.
 // 4. hours: no clock time written by hand in a string of the owned files; copy reads them from the constants.
-// 5. older text from other players: undash() and boardRow() (online.js) turn a board row written by an older build into
-//    the punctuation the game uses now, the same replacement the save migration applies (career.js textMigrate).
+// 5. older text from other players: util.js undash() and online.js boardRow() turn a board row written by an older build
+//    into the punctuation the game uses now, the same replacement the save migration applies (career.js textMigrate).
 // 6. quick posts: every ready-made Showoff line still reads as the personality it was written for after the rewrite.
 // 7. clothes: the admin panel's line about clothes is worked out from the clothing tiers themselves.
 import fs from "node:fs";
@@ -40,12 +40,14 @@ const check = (name, ok, detail) => { checks.push({name, ok: !!ok, detail}); con
 
 // 2. the sentinel, as written and as compared
 {
-  const onl = read("js/online.js").split("\n"), main = read("js/ui/main.js");
-  const line = onl.find(l => /nodash-ok: sentinel/.test(l) && /boardSlot/.test(l)) || "";
-  const set = (line.match(/board\.slot == null \? "([^"]*)"/) || [])[1];
-  const cmp = (main.match(/boardSlot !== "([^"]*)"/) || [])[1];
-  check("the board-slot sentinel is marked in online.js", !!line && set === EM, line.trim().slice(0, 120));
-  check("main.js compares against the same sentinel", set != null && cmp === set, `online.js ${JSON.stringify(set)}, main.js ${JSON.stringify(cmp)}`);
+  // one named constant (online.js BOARD_NO_SLOT, on the marked line) that the probe sets and main.js compares against
+  const onlTxt = read("js/online.js"), onl = onlTxt.split("\n"), main = read("js/ui/main.js");
+  const line = onl.find(l => /nodash-ok: sentinel/.test(l) && /\bBOARD_NO_SLOT\s*=/.test(l)) || "";
+  const set = (line.match(/BOARD_NO_SLOT\s*=\s*"([^"]*)"/) || [])[1];
+  const uses = /board\.slot == null \? BOARD_NO_SLOT\b/.test(onlTxt);
+  const cmp = /boardSlot !== BOARD_NO_SLOT\b/.test(main);
+  check("the board-slot sentinel is marked in online.js", !!line && set === EM && uses, line.trim().slice(0, 120));
+  check("main.js compares against the same sentinel", set != null && cmp, `online.js ${JSON.stringify(set)}, main.js compares against BOARD_NO_SLOT: ${cmp}`);
 }
 
 // 3. trust only through trustAdd
@@ -77,7 +79,12 @@ const check = (name, ok, detail) => { checks.push({name, ok: !!ok, detail}); con
 
 // 5. other players' rows through the same replacement as the save migration
 {
-  const ctx = vm.createContext({EMPTY_CELL: EN, window: {}, console, clamp: (v, a, b) => Math.min(b, Math.max(a, v))});
+  // util.js (undash, EMPTY_CELL) then online.js, as the page loads them; util.js gets the little of a page it touches
+  const cls = () => ({toggle(){}, add(){}, remove(){}, contains: () => false});
+  const ctx = vm.createContext({window: {}, console, clamp: (v, a, b) => Math.min(b, Math.max(a, v)), navigator: {},
+    document: {body: {classList: cls(), appendChild(){}}, createElement: () => ({classList: cls(), style: {}, remove(){}, getContext: () => null}), querySelector: () => null, querySelectorAll: () => []},
+    localStorage: {getItem: () => null, setItem(){}, removeItem(){}}, requestAnimationFrame: () => 0, setTimeout: () => 0, clearTimeout(){}, resize(){}});
+  vm.runInContext(read("js/util.js"), ctx, {filename: "util.js"});
   vm.runInContext(read("js/online.js"), ctx, {filename: "online.js"});
   const run = s => vm.runInContext(s, ctx);
   const row = run(`boardRow({uid:"u1", name:"Ion Popa", handle:"ionp", club:"Free agent", league:${JSON.stringify(EM)}, job:"Cafe ${EM} Barista",
@@ -87,11 +94,13 @@ const check = (name, ok, detail) => { checks.push({name, ok: !!ok, detail}); con
   check("award names read as label: value", row.awardList[0] === "Player of the Week: Liga 4" && row.awardList[1] === "Golden Boot: Liga 4 (21 goals)", JSON.stringify(row.awardList));
   check("a lone dash becomes the empty-cell mark", row.league === EN, JSON.stringify(row.league));
   check("numbers and clean text are left alone", row.score === 812 && row.money === 1500 && row.name === "Ion Popa" && row.trophyList[0] === "Cupa României", "");
-  // the save migration's own rule, on the same inputs (career.js textMigrate: spaced dash -> rep, lone dash -> EMPTY_CELL)
-  const mig = (t, rep) => t.trim() === EM ? EN : t.replace(new RegExp(`\\s*${EM}\\s*`, "g"), rep).replace(new RegExp(EM, "g"), "-");
-  const samples = [["Player of the Month (August) " + EM + " Liga 1", ": "], [EM, ": "], ["  " + EM + " ", ": "], ["A" + EM + "B", ": "], ["no dash here", ": "], ["News " + EM + " body", ". "]];
-  const diff = samples.filter(([t, rep]) => run(`undash(${JSON.stringify(t)}, ${JSON.stringify(rep)})`) !== mig(t, rep));
-  check("undash() gives what the save migration gives", diff.length === 0, diff.map(d => JSON.stringify(d[0])).join(", ") || `${samples.length} samples agree`);
+  // one rule: util.js undash is what the save migration calls too (career.js textMigrate has no rule of its own)
+  const want = [["Player of the Month (August) " + EM + " Liga 1", ": ", "Player of the Month (August): Liga 1"], [EM, ": ", EN], ["  " + EM + " ", ": ", EN],
+    ["A" + EM + "B", ": ", "A: B"], ["no dash here", ": ", "no dash here"], ["News " + EM + " body", ". ", "News. Body"]];
+  const diff = want.filter(([t, rep, w]) => run(`undash(${JSON.stringify(t)}, ${JSON.stringify(rep)})`) !== w);
+  const mig = (read("js/career.js").match(/function textMigrate\(\)\{[\s\S]*?\n\}/) || [""])[0];
+  const shared = /\bundash\(/.test(mig) && !/new RegExp/.test(mig) && !/function undash/.test(read("js/online.js"));
+  check("undash() is the save migration's rule", diff.length === 0 && shared, diff.map(d => JSON.stringify(d[0])).join(", ") || `${want.length} samples as expected; textMigrate calls util.js undash: ${shared}`);
   // careerSummary() of a save that this build never loaded uploads clean award names
   const sum = run(`careerSummary({player:{name:"A", age:20, pos:"ST", nat:"RO", number:9}, meId:0, W:{players:[{id:0, club:-1}], clubs:[], leagues:{}, season:2},
     skills:{a:50}, awards:[{name:"Player of the Week ${EM} Liga 4"}], trophies:[], careerMy:{}, seasonMy:{}})`);

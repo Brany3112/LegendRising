@@ -346,23 +346,29 @@ export function aggregate(list){
   const R = {n: list.length};
   for (const k of ['goals', 'shots', 'onTarget', 'corners', 'offsides', 'fouls', 'yellows', 'reds', 'passes', 'passesOk', 'crosses',
     'headersOnTarget', 'fkFinal', 'pens', 'counters', 'seqs5', 'restarts', 'ctlSec']) R[k] = mean(list.map(m => m[k] || 0));
+  // the standard error of each banded number (lead decision for P1b, DESIGN 3.2.12: a run on seeds other than the
+  // acceptance run's is reported against the bands and gated only where it misses one by more than two of these)
+  const seOf = l => l.length > 1 ? sd(l)/Math.sqrt(l.length) : null, seP = (p, k) => k > 0 ? Math.sqrt(Math.max(0, p*(1 - p))/k) : null;
+  R.se = {};
+  for (const k of ['goals', 'shots', 'onTarget', 'corners', 'offsides', 'fouls', 'yellows', 'crosses', 'headersOnTarget', 'fkFinal', 'counters', 'seqs5']) R.se[k] = seOf(list.map(m => m[k] || 0));
   R.kinds = {};
   for (const m of list) for (const [k, v] of Object.entries(m.kinds || {})) R.kinds[k] = (R.kinds[k] || 0) + v/list.length;
   for (const k of Object.keys(R.kinds)) R.kinds[k] = Math.round(R.kinds[k]*10)/10;
   const saves = list.reduce((a, m) => a + m.saves, 0), faced = list.reduce((a, m) => a + m.faced, 0);
-  R.saveRate = faced ? saves/faced : 0;
+  R.saveRate = faced ? saves/faced : 0; R.se.saveRate = seP(R.saveRate, faced);
   // the side with the higher mean overall, 7 to 13 points higher: its share of the points (draws half)
-  let pts = 0, nWin = 0;
+  let pts = 0, nWin = 0; const wp = [];
   for (const m of list){
     const d = m.ovr[0] - m.ovr[1];
     if (Math.abs(d) < 7 || Math.abs(d) > 13) continue;
-    const s = d > 0 ? 0 : 1, o = 1 - s;
-    pts += m.score[s] > m.score[o] ? 1 : m.score[s] === m.score[o] ? 0.5 : 0; nWin++;
+    const s = d > 0 ? 0 : 1, o = 1 - s, p = m.score[s] > m.score[o] ? 1 : m.score[s] === m.score[o] ? 0.5 : 0;
+    pts += p; nWin++; wp.push(p);
   }
-  R.win10 = nWin ? pts/nWin : null; R.win10n = nWin;
+  R.win10 = nWin ? pts/nWin : null; R.win10n = nWin; R.se.win10 = seOf(wp);
   // ratings of starters
   const st = []; for (const m of list) for (const x of m.ratings) if (x.starter && x.arch !== 'GK') st.push(x.r);
   R.ratingMean = mean(st); R.ratingSd = sd(st);
+  R.se.ratingMean = seOf(st); R.se.ratingSd = st.length > 1 ? R.ratingSd/Math.sqrt(2*(st.length - 1)) : null;
   // and by archetype (keepers too)
   const ra = {}; for (const m of list) for (const x of m.ratings) if (x.starter) (ra[x.arch] || (ra[x.arch] = [])).push(x.r);
   R.ratingBy = Object.fromEntries(Object.entries(ra).map(([k, v]) => [k, {mean: Math.round(mean(v)*100)/100, sd: Math.round(sd(v)*100)/100, n: v.length}]));
@@ -380,19 +386,27 @@ export function aggregate(list){
   for (const [k, b] of Object.entries(by)){
     // (throw-ins beyond the oracle's own rate are counted apart: involvementShares)
     const inv = involvementShares(k, b.groups, b.moments.throwin || 0);
-    R.me[k] = {n: b.n, touches: mean(b.touches), shots: mean(b.shots), defActs: mean(b.defActs), gapP95: pct([].concat(...b.gapsAll), 0.95), gapMedian: median(b.gap),
-      shares: inv.shares, throwApart: inv.apart/b.n, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating), pd: mean(b.pd || []), trustJ: mean(b.tj || []),
-      moments: Object.fromEntries(Object.entries(b.moments).map(([q, v]) => [q, Math.round(v/b.n*100)/100]))};
+    // the touches band counts the same throw-ins apart (lead decision for P1b, DESIGN 3.2.12): each throw-in he takes
+    // is a spell of his own, one touch, so the throw-ins beyond the oracle's rate leave his touches as they leave his
+    // set-piece share. touchesAll: every touch
+    const apart = inv.apart/b.n, tsum = Object.values(b.groups).reduce((a, x) => a + x, 0) - inv.apart;
+    R.me[k] = {n: b.n, touches: mean(b.touches) - apart, touchesAll: mean(b.touches), shots: mean(b.shots), defActs: mean(b.defActs), gapP95: pct([].concat(...b.gapsAll), 0.95), gapMedian: median(b.gap),
+      shares: inv.shares, throwApart: apart, oracle: oracleShares(k), trust: mean(b.trust), rating: mean(b.rating), pd: mean(b.pd || []), trustJ: mean(b.tj || []),
+      moments: Object.fromEntries(Object.entries(b.moments).map(([q, v]) => [q, Math.round(v/b.n*100)/100])),
+      se: {touches: seOf(b.touches), shots: seOf(b.shots), defActs: seOf(b.defActs), shares: Object.fromEntries(Object.entries(inv.shares).map(([g, v]) => [g, seP(v, tsum)]))}};
   }
   const allMe = list.filter(m => m.me);
   // the 95th percentile of every gap between the player's involvements, all matches together
-  R.gapP95 = pct([].concat(...allMe.map(m => m.me.gaps || [])), 0.95);
-  R.trust = mean(allMe.map(m => m.me.trustD));
+  const gapsAll = [].concat(...allMe.map(m => m.me.gaps || []));
+  R.gapP95 = pct(gapsAll, 0.95);
+  // (a percentile has no plain standard error: the gaps two standard errors of the rank either side of it)
+  if (gapsAll.length > 1){ const sp = 2*Math.sqrt(0.95*0.05/gapsAll.length); R.gapCi2 = [pct(gapsAll, 0.95 - sp), pct(gapsAll, Math.min(0.999999, 0.95 + sp))]; }
+  R.trust = mean(allMe.map(m => m.me.trustD)); R.se.trust = seOf(allMe.map(m => m.me.trustD));
   const dec = list.reduce((a, m) => a + m.pref.decided, 0), rec = list.reduce((a, m) => a + m.pref.received, 0);
-  R.prefShare = rec ? dec/rec : 0;
+  R.prefShare = rec ? dec/rec : 0; R.se.prefShare = seP(R.prefShare, rec);
   R.prefCaps = list.reduce((a, m) => a + (m.pref.capEvents || 0), 0);
   const thr = list.reduce((a, m) => a + m.through, 0), tho = list.reduce((a, m) => a + m.throughOff, 0);
-  R.throughOff = thr ? tho/thr : 0; R.through = thr;
+  R.throughOff = thr ? tho/thr : 0; R.through = thr; R.se.throughOff = seP(R.throughOff, thr);
   R.teleports = list.reduce((a, m) => a + m.asserts.teleport, 0);
   R.ballJumps = list.reduce((a, m) => a + m.asserts.ballJump, 0);
   R.restartLate = list.reduce((a, m) => a + m.asserts.restartLate, 0);
@@ -412,40 +426,44 @@ export function aggregate(list){
 }
 
 // the report against the bands: [{name, value, lo, hi, pass}]
+// Each statistical check carries ci2, its value plus and minus two standard errors (R.se): a run on seeds other than the
+// acceptance run's is gated only where ci2 lies wholly outside the band (qa/harness.mjs). The asserts, the step cost,
+// determinism and the side distribution carry none and are gated in every run.
 export function checkReport(R){
-  const out = [];
-  const band = (name, v, b) => out.push({name, value: v == null ? null : Math.round(v*1000)/1000, lo: b[0], hi: b[1], pass: v != null && v >= b[0] && v <= b[1]});
-  for (const k of ['goals', 'shots', 'onTarget', 'corners', 'offsides', 'fouls', 'yellows']) band(k + ' per match', R[k], BANDS[k]);
-  band('win share, 10 overall higher', R.win10, BANDS.win10);
-  band('keeper save rate', R.saveRate, BANDS.saveRate);
+  const out = [], se = R.se || {}, r3 = v => Math.round(v*1000)/1000;
+  const ci = (v, e) => v != null && e != null && isFinite(e) ? [r3(v - 2*e), r3(v + 2*e)] : null;
+  const band = (name, v, b, e, c2) => out.push({name, value: v == null ? null : r3(v), lo: b[0], hi: b[1], pass: v != null && v >= b[0] && v <= b[1], ci2: c2 || ci(v, e)});
+  for (const k of ['goals', 'shots', 'onTarget', 'corners', 'offsides', 'fouls', 'yellows']) band(k + ' per match', R[k], BANDS[k], se[k]);
+  band('win share, 10 overall higher', R.win10, BANDS.win10, se.win10);
+  band('keeper save rate', R.saveRate, BANDS.saveRate, se.saveRate);
   for (const [k, m] of Object.entries(R.me)){
     if (!BANDS.touches[k]) continue;
-    band(`${k} touches`, m.touches, BANDS.touches[k]);
-    band(`${k} shots`, m.shots, BANDS.meShots[k]);
-    band(`${k} defensive actions`, m.defActs, BANDS.defActs[k]);
+    const ms = m.se || {}, apart = m.throwApart > 0.005 ? ` (throw-ins beyond the oracle's rate counted apart: ${m.throwApart.toFixed(2)} a match)` : '';
+    band(`${k} touches${apart}`, m.touches, BANDS.touches[k], ms.touches);
+    band(`${k} shots`, m.shots, BANDS.meShots[k], ms.shots);
+    band(`${k} defensive actions`, m.defActs, BANDS.defActs[k], ms.defActs);
     for (const g of Object.keys(m.oracle)){
       const o = m.oracle[g], s = m.shares[g];
-      const apart = g === 'set' && m.throwApart > 0.005 ? ` (throw-ins beyond the oracle's rate counted apart: ${m.throwApart.toFixed(2)} a match)` : '';
-      out.push({name: `${k} ${g} share vs oracle${apart}`, value: Math.round(s*1000)/1000, lo: Math.round(o*(1 - BANDS.oracle)*1000)/1000,
-        hi: Math.round(o*(1 + BANDS.oracle)*1000)/1000, pass: s >= o*(1 - BANDS.oracle) && s <= o*(1 + BANDS.oracle)});
+      out.push({name: `${k} ${g} share vs oracle${g === 'set' ? apart : ''}`, value: r3(s), lo: r3(o*(1 - BANDS.oracle)),
+        hi: r3(o*(1 + BANDS.oracle)), pass: s >= o*(1 - BANDS.oracle) && s <= o*(1 + BANDS.oracle), ci2: ci(s, ms.shares && ms.shares[g])});
     }
   }
-  band('95th percentile gap between the player\'s involvements (s)', R.gapP95, BANDS.gapP95);
-  band('preference-decided share of passes received', R.prefShare, BANDS.prefShare);
+  band('95th percentile gap between the player\'s involvements (s)', R.gapP95, BANDS.gapP95, null, R.gapCi2);
+  band('preference-decided share of passes received', R.prefShare, BANDS.prefShare, se.prefShare);
   if (R.sideDiff != null) band('attacking side distribution vs preference off (points)', R.sideDiff, BANDS.sideDiff);
-  band('through balls to an offside receiver', R.throughOff, BANDS.throughOff);
-  band('starters\' mean rating', R.ratingMean, BANDS.ratingMean);
-  band('starters\' rating spread', R.ratingSd, BANDS.ratingSd);
-  band('player\'s trust change per match', R.trust, BANDS.trust);
+  band('through balls to an offside receiver', R.throughOff, BANDS.throughOff, se.throughOff);
+  band('starters\' mean rating', R.ratingMean, BANDS.ratingMean, se.ratingMean);
+  band('starters\' rating spread', R.ratingSd, BANDS.ratingSd, se.ratingSd);
+  band('player\'s trust change per match', R.trust, BANDS.trust, se.trust);
   out.push({name: 'no teleports (agents)', value: R.teleports, lo: 0, hi: 0, pass: R.teleports === 0});
   out.push({name: 'no ball jumps', value: R.ballJumps, lo: 0, hi: 0, pass: R.ballJumps === 0});
   out.push({name: 'restarts within limit + 5 s', value: R.restartLate, lo: 0, hi: 0, pass: R.restartLate === 0});
   if (R.stepMean != null){ band('simStep mean (ms)', R.stepMean, BANDS.stepMean); band('simStep max (ms)', R.stepMax, BANDS.stepMax); }
-  band('sequences of 5+ passes per team', R.seqs5, BANDS.seqs5);
-  band('counters per match', R.counters, BANDS.counters);
-  band('crosses per match', R.crosses, BANDS.crosses);
-  band('headers on target per match', R.headersOnTarget, BANDS.headersOnTarget);
-  band('final-third free kicks per match', R.fkFinal, BANDS.fkFinal);
+  band('sequences of 5+ passes per team', R.seqs5, BANDS.seqs5, se.seqs5);
+  band('counters per match', R.counters, BANDS.counters, se.counters);
+  band('crosses per match', R.crosses, BANDS.crosses, se.crosses);
+  band('headers on target per match', R.headersOnTarget, BANDS.headersOnTarget, se.headersOnTarget);
+  band('final-third free kicks per match', R.fkFinal, BANDS.fkFinal, se.fkFinal);
   return out;
 }
 

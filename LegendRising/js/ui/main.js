@@ -130,7 +130,7 @@ function cloudBoxHTML(){
     // behind it is a different problem from never having synced at all
     const why = !p ? ""
       : p.err ? `Could not read your account: ${esc(p.err)}`
-      : p.board && !p.slots.length ? `You are on the leaderboard${p.boardSlot !== "\u2014" ? ` (save ${esc(String(p.boardSlot))})` : ""}, but no career file came with it. Sync from the computer you play on and it will be here.`  // nodash-ok: sentinel
+      : p.board && !p.slots.length ? `You are on the leaderboard${p.boardSlot !== BOARD_NO_SLOT ? ` (save ${esc(String(p.boardSlot))})` : ""}, but no career file came with it. Sync from the computer you play on and it will be here.`
       : !p.board ? "Nothing has ever been synced from this account."
       : "";
     return `<div class="cloud-box"><b>Nothing saved to your account yet</b>
@@ -838,7 +838,7 @@ const A = {
     render(`<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world: clubs, squads, fixtures…</p></div></section>`);
     setTimeout(() => { newCareer(CR); save(); screenOffers(); }, 50);
   },
-  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); onbMigrate(); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); renderHub(); enterCity();
+  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); renderHub(); enterCity();
     },      // nothing announces itself after an update: the flag in the top bar has the notes when you want them
   sign(i){
     const o = S.offerSet.list[i], ctx = S.offerSet.ctx; S.offerSet = null;
@@ -884,7 +884,7 @@ const A = {
   city(n){
     if (n) useSlot(n);
     const d = load(); if (!d) return screenTitle();
-    startPlayClock(); resume(d); onbMigrate();
+    startPlayClock(); resume(d);
     if (S.offerSet) return screenOffers();
     S.tutDone = true;
     document.body.classList.add("life");
@@ -1175,7 +1175,7 @@ const A = {
         const r = await applyCode(txt, n);
         closeConfirm(); closeSheet(); closePhone();
         const d = load(n); if (!d) throw new Error("bad");
-        resume(d); onbMigrate(); startPlayClock();
+        resume(d); startPlayClock();
         toast(`${r.name} imported into slot ${n}.`, "good");
         if (S.offerSet) return screenOffers();
         renderHub();

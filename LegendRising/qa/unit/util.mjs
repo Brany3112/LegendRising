@@ -70,6 +70,14 @@ function boot({stored = {}, cores = 8, mem = 8, gpu = "ANGLE (Intel, Intel(R) UH
   eq("fmtDur(120)", p.run("fmtDur(120)"), "2 hours");
   eq("fmtDur(89.6) rounds", p.run("fmtDur(89.6)"), "1 hour 30 minutes");
   eq("EMPTY_CELL is an en dash", p.run("EMPTY_CELL"), EN);
+  // undash: text from older builds (DESIGN 1.7, 3.10), the one rule of the save migration and the leaderboard
+  const ud = (t, rep) => p.run(`undash(${JSON.stringify(t)}${rep ? ", " + JSON.stringify(rep) : ""})`);
+  eq("undash: an award name reads label: value", ud(`Player of the Week ${EM} Liga 4`), "Player of the Week: Liga 4");
+  eq("undash: a lone dash is the empty cell", ud(` ${EM} `), EN);
+  eq("undash: between two sentences, a full stop and a capital", ud(`Off the table for now ${EM} they've moved on.`, ". "), "Off the table for now. They've moved on.");
+  eq("undash: a dash at the end leaves no trailing space", ud(`Done ${EM}`, ". "), "Done.");
+  eq("undash: text with no dash is untouched", ud("Cupa României"), "Cupa României");
+  eq("undash: not a string, untouched", p.run("undash(null)"), null);
   eq("SAVE_CODE_LABEL", p.run("SAVE_CODE_LABEL"), "Save game: copy code");
 }
 

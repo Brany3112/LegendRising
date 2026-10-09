@@ -403,7 +403,7 @@ async function afterSign(){
   const start = typeof SESSION === "object" ? SESSION.start : 600;
   try {
     await step(wait(.5));
-    await step(say(UNCLE_NAME, `${c ? c.nm : "Your club"}. Good choice. They want you at the training centre at ${typeof fmtTime === "function" ? fmtTime(start) : "10:00 AM"}.`));
+    await step(say(UNCLE_NAME, `${c ? c.nm : "Your club"}. Good choice. They want you at the training centre at ${fmtTime(start)}.`));
     await step(say(UNCLE_NAME, `Your flat is ${h.apt}, on floor ${h.floor}. Go on up${first ? `, ${first}` : ""}. Call me if you need anything.`));
   } catch(e){ if (!(e instanceof Skip)) console.error(e); }
   RUN.skip = false;

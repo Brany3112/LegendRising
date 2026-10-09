@@ -71,9 +71,9 @@ export async function launch({gfx = "low", query = "", w = 1280, h = 720, seed =
   return {browser, context, page, errors, close};
 }
 
-// a signed career standing in the 3D world. Before WP-H lands this is the legacy path: newCareer(CR), and with
-// onb "done" (the default) every first-day flag set and the dream marked done (any other onb leaves the old first-day
-// introduction to start by itself); offer `club` signed; then the calendar is slept forward to `day`, the clock set to
+// a signed career standing in the 3D world: newCareer(CR) (careerShell and applyCreation, the path without the film),
+// and with onb "done" (the default) every first-day flag set and the step runner's record finished (S.onb, DESIGN 1.7
+// and 3.7.7; any other onb leaves the first day to start by itself, from the film); offer `club` signed; then the calendar is slept forward to `day`, the clock set to
 // `min`, and startLife({zone, at}). Waits until `frames` frames have been presented (pass 0 for a page that was
 // frozen first: nothing is presented until the test draws). Resolves the career's summary.
 // The career is created at a fixed wall-clock moment (CAREER_AT): its id (S.cid) is the time in base 36 plus random
@@ -86,7 +86,7 @@ export async function career(page, {pos = "ST", club = 0, day = 1, min = 9*60 + 
     try {
       CR = {name, number: 9, pos, pref: pos, foot: "Right", nat: "RO", alloc: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts: 30};
       newCareer(CR);
-      if (onb === "done"){ for (const k in S.flags) S.flags[k] = true; S.tutDone = true; S.onb = {stage: "done"}; }
+      if (onb === "done"){ for (const k in S.flags) S.flags[k] = true; S.tutDone = true; S.onb = {v: 2, step: "done", seen: {}}; }
       // A.sign walks a new career into the city itself unless the body is already in it: this call places it instead
       document.body.classList.add("life");
       A.sign(Math.max(0, Math.min(S.offerSet.list.length - 1, club)));

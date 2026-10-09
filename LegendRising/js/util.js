@@ -331,6 +331,19 @@ function gfxSeg(fnName){
    Copy never spells out an hour, a duration or a signed amount by hand: it asks these, with the constant it describes,
    so the text always says what the game does (DESIGN 1.8). No em dash in anything a player reads. */
 const EMPTY_CELL = "–";                      // an empty table cell (an en dash)
+/* words saved or sent by older builds, which still carry the long dash (DESIGN 1.7, 3.10): a dash standing alone for
+   "nothing" becomes EMPTY_CELL, and any other one, with the spaces round it, becomes rep: ": " in a name or a title,
+   ". " between two sentences (the word after it then starts with a capital). The one rule for a career's own text
+   (career.js textMigrate) and for board rows and account saves from other players (online.js boardRow) */
+const EM_DASH = String.fromCharCode(0x2014);
+const EM_SPACED = new RegExp(`\\s*${EM_DASH}\\s*(\\p{Ll})?`, "gu");
+function undash(t, rep = ": "){
+  if (typeof t !== "string" || t.indexOf(EM_DASH) < 0) return t;
+  if (t.trim() === EM_DASH) return EMPTY_CELL;
+  const cap = /[.!?]\s*$/.test(rep);
+  const r = t.replace(EM_SPACED, (m, c) => rep + (c ? (cap ? c.toUpperCase() : c) : ""));
+  return /\s$/.test(t) ? r : r.replace(/\s+$/, "");
+}
 const SAVE_CODE_LABEL = "Save game: copy code";
 // 45 -> "45 minutes", 60 -> "1 hour", 150 -> "2 hours 30 minutes"
 function fmtDur(mins){

@@ -191,17 +191,25 @@ function resume(data){
   assignTeamPos();                  // your preferred and team positions (saves from before there were seventeen)
   indexSquads();
   dailyEnsure();                    // the daily-life fields (and S.player.owned, S.home), new skills for older careers
+  // the first day's progress in the step runner's terms (DESIGN 3.7.7, ui/main.js): every way a career is loaded
+  // (Continue, the city, an import, a cloud restore) comes through here
+  if (typeof onbMigrate === "function") onbMigrate();
 }
-/* text a career saved before the no-dash rule (DESIGN 1.7, once: S.textV = 2): an award or a headline's spaced dash
-   becomes a colon, a news body's a full stop, and a lone dash standing for "nothing" the empty-cell mark */
+/* text a career saved before the no-dash rule (DESIGN 1.7), through util.js undash: an award or a headline's spaced
+   dash becomes a colon, a sentence's a full stop (and the next word a capital), and a lone dash standing for "nothing"
+   the empty-cell mark. Step 2 (S.textV = 2): awards, news, the history's cells. Step 3: the messages and the Showoff
+   notes, which older builds also wrote with dashes */
 function textMigrate(){
-  if (S.textV >= 2) return;
-  const EM = String.fromCharCode(0x2014), spaced = new RegExp(`\\s*${EM}\\s*`, "g");
-  const fix = (t, rep) => typeof t === "string" ? (t.trim() === EM ? EMPTY_CELL : t.replace(spaced, rep).replace(new RegExp(EM, "g"), "-")) : t;
-  for (const a of S.awards || []) if (a) a.name = fix(a.name, ": ");
-  for (const n of S.news || []) if (n){ n.title = fix(n.title, ": "); n.body = fix(n.body, ". "); }
-  for (const h of S.history || []) if (h){ for (const k of ["lg", "avg", "club"]) if (typeof h[k] === "string" && h[k].trim() === EM) h[k] = EMPTY_CELL; }
-  S.textV = 2;
+  const v = num(S.textV, 0);
+  if (v >= 3) return;
+  if (v < 2){
+    for (const a of S.awards || []) if (a) a.name = undash(a.name, ": ");
+    for (const n of S.news || []) if (n){ n.title = undash(n.title, ": "); n.body = undash(n.body, ". "); }
+    for (const h of S.history || []) if (h){ for (const k of ["lg", "avg", "club"]) if (typeof h[k] === "string" && h[k].trim() === EM_DASH) h[k] = EMPTY_CELL; }
+  }
+  for (const m of S.msgs || []) if (m) m.text = undash(m.text, ". ");
+  if (S.social && Array.isArray(S.social.notes)) S.social.notes = S.social.notes.map(t => undash(t, ". "));
+  S.textV = 3;
 }
 /* the football that came in through your window on the first morning is a real thing now (inv.js item "ball"). A
    career past the intro that has none lying about gets it where the old prop lay; the home zone puts it there the next
@@ -373,7 +381,8 @@ function carTier(){ return S.items.sports ? 3 : S.items.suv ? 2 : S.items.car ? 
 function energyMult(){ return [1, 1.15, 1.3, 1.5][homeTier()]; }
 function weeklyRecovery(){ return 22 + [0,5,10,15][homeTier()] + (S.items.physio ? 10 : 0); }
 function weeklyActions(){ return 3 + (carTier() ? 1 : 0); }
-function staffCost(){ let c = 0; for (const s of STAFF) if (S.staff[s.id]) c += s.pct ? S.contract.wage*s.pct : s.weekly; return Math.round(c); }
+// a share of the wage costs nothing while there is no contract (a released player who kept his agent)
+function staffCost(){ let c = 0; const wage = S.contract ? num(S.contract.wage, 0) : 0; for (const s of STAFF) if (S.staff && S.staff[s.id]) c += s.pct ? wage*s.pct : s.weekly; return Math.round(c); }
 function hotness(){ return clamp((recentAvg() - 6.2)*.6 + S.seasonMy.goals*.03 + S.seasonMy.assists*.02, 0, 1.5); }
 
 /* ---------- news ---------- */
@@ -422,7 +431,7 @@ function careerShell(o = {}){
     inv:{drink:2, max:0, sandwich:3, meal:2, fruit:3, water:4, pasta:1}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
     contract:null, trust:0, raise:null, ban:0, cards:{y:0, r:0, run:0}, seasonMy:blankMy(), careerMy:blankMy(), ratings:[], awards:[], trophies:[], news:[], msgs:[], requests:[],
     locks:{}, pendingMove:null, actions:3, weekDone:{}, history:[], meId:-1, rivalId:-1, offerSet:null, social:null, purchases:[], speed:2, lastMatch:null, promiseLog:[],
-    textV:2, life:Object.assign({}, CAREER_START),
+    textV:3, life:Object.assign({}, CAREER_START),
     // the first day, one step at a time (firstday.js); each flag is kept the moment it is done
     flags:{CharacterCreated:false, FirstTimeIntroductionCompleted:false, ApartmentTutorialCompleted:false, GameplayTutorialCompleted:false, TrainingCenterTutorialCompleted:false},
     onb:{v:2, step:"intro", seen:{}}};

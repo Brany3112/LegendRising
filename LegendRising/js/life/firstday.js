@@ -479,7 +479,7 @@ export function onEvent(ev, d = {}){
     case "eat": if (seen("fridgeOpen") && (d.ok || d.full)) mark("ate"); break;
     case "nap": mark("nap"); break;
     case "foodiesOrder": if (d.ok) mark("ordered"); break;
-    case "openBus": if (d.from === "home") mark("busPanel"); gateBusPanel(d.from); break;
+    case "openBus": if (d.from === "home") mark("busPanel"); break;
     case "zone": if (d.zone === "ground") arrivedAtGround(); break;
   }
   RUN.dirty = true;
@@ -522,16 +522,8 @@ export function busGate(from, to){
   const gate = busGateAt(from);
   return LIFE.min < gate ? `From ${time(gate)} today. The club wants you there at ${time(SESS().start)}.` : null;
 }
+// ui/panels.js openBus asks it for every option of the Line 14 panel and draws a gated one disabled with this line
 window.lifeBusGate = busGate;
-// the Line 14 panel just drawn: the training-centre option, shut until the gate
-function gateBusPanel(from){
-  const why = busGate(from, "ground"); if (!why) return;
-  for (const b of document.querySelectorAll(".bus-opt")){
-    if (!/busGo\('ground'\)/.test(b.getAttribute("onclick") || "")) continue;
-    b.disabled = true; b.setAttribute("aria-disabled", "true");
-    const em = b.querySelector("b em"); if (em) em.textContent = why;
-  }
-}
 // a step before the training centre is the one you are on: the slow clock
 export function slow(){ return active() && !!RUN.cur && RUN.cur.zone === "home"; }
 

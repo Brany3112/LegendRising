@@ -171,7 +171,7 @@ async function probe(){
   try {
     CR = {name:"Test Player", number:9, pos:"ST", pref:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
     newCareer(CR);
-    for (const k in S.flags) S.flags[k] = true; S.tutDone = true; S.onb = {stage:"done"};
+    for (const k in S.flags) S.flags[k] = true; S.tutDone = true; S.onb = {v:2, step:"done", seen:{}};
     document.body.classList.add("life");
     A.sign(0);
   } finally { Date.now = realNow; }

@@ -277,10 +277,16 @@ run(`S.home.fx.bulb = false; S.home.light = true; homeMigrate(S.home)`);
 eq("no bulb: the light is off", run(`S.home.light`), false);
 run(`delete S.player.owned; S.player.look.hair = "messy"; dailyEnsure()`);
 eq("an old save owns what it wears", run(`S.player.owned.hair`), ["messy"]);
-run(`S.awards = [{name:"Player of the Week ${EM} Liga 4"}]; S.news = [{title:"A ${EM} B", body:"One ${EM} two"}]; S.history = [{lg:"${EM}"}]; delete S.textV; textMigrate()`);
+run(`S.awards = [{name:"Player of the Week ${EM} Liga 4"}]; S.news = [{title:"A ${EM} B", body:"One ${EM} two"}]; S.history = [{lg:"${EM}"}];
+  S.msgs = [{from:"Agent", text:"The offer is off the table for now ${EM} they've moved on."}]; S.social = Object.assign(S.social || {}, {notes:["Ana followed you back ${EM} you're friends now."]}); delete S.textV; textMigrate()`);
 eq("text migration: awards", run(`S.awards[0].name`), "Player of the Week: Liga 4");
-eq("text migration: news", run(`[S.news[0].title, S.news[0].body]`), ["A: B", "One. two"]);
+eq("text migration: news (the next sentence starts with a capital)", run(`[S.news[0].title, S.news[0].body]`), ["A: B", "One. Two"]);
 eq("text migration: history placeholder", run(`S.history[0].lg`), run(`EMPTY_CELL`));
+eq("text migration: messages and Showoff notes (step 3)", run(`[S.msgs[0].text, S.social.notes[0], S.textV]`), ["The offer is off the table for now. They've moved on.", "Ana followed you back. You're friends now.", 3]);
+// a career already at step 2 gets only step 3: its awards are not touched again
+run(`S.textV = 2; S.awards = [{name:"Kept ${EM} as is"}]; S.msgs = [{text:"Hi ${EM} there"}]; textMigrate()`);
+eq("text migration: step 3 alone on a step-2 save", run(`[S.awards[0].name, S.msgs[0].text]`), ["Kept " + EM + " as is", "Hi. There"]);
+eq("text migration runs once", run(`(S.msgs[0].text = "A ${EM} b", textMigrate(), S.msgs[0].text)`), "A " + EM + " b");
 // effSkill: read-time modifiers, nothing written (DESIGN D8)
 run(`MT = {nerves:.2, tired:.1}; S.skills.power = 60;`);
 eq("effSkill applies the match's hit", run(`effSkill("power")`), 42);
