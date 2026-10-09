@@ -201,7 +201,7 @@ export function jobUnit(id, T, ctx, o = {}){
     get hint(){ return mine() ? `Start a shift · ${typeof jobLabel === "function" ? jobLabel() : "your job"}` : "Staff only"; }, hold:.3,
     run:() => mine() ? ctx.work() : ctx.note(`You don't work here. ${typeof myJob === "function" ? `Your job: ${myJob().job.name}, ${JOB_PLACE[jobState().id].how}.` : ""}`)});
   spot({...(([x, z]) => ({x, z}))(T.p(4.8, 2.4)), y:1.2, r:1.6, near:true, label:name, get hint(){ return mine() ? "Your workplace · clock in at the back" : job ? `${job.name} · ${job.ranks.map(r => r.name).join(" → ")}` : "A business"; }, hold:.2,
-    run:() => ctx.note(mine() ? "Clock in at the terminal on the back wall to start a shift." : job ? `${job.name}. ${typeof jobStage === "function" && JOBS.indexOf(job)*3 > jobStage() ? "A better job than yours — keep working up the ladder and it can be yours." : "Not your job these days."}` : "")});
+    run:() => ctx.note(mine() ? "Clock in at the terminal on the back wall to start a shift." : job ? `${job.name}. ${typeof jobStage === "function" && JOBS.indexOf(job)*3 > jobStage() ? "A better job than yours. Keep working up the ladder and it can be yours." : "Not your job these days."}` : "")});
   for (const [x, z] of [[6, -1], [11.5, -1]]){ const [a, b] = T.p(x, z); lightSrc({x:a, y:2.9, z:b, color:0xfff0d8, intensity:8, distance:10, indoor:true}); }
   for (const x of [5, 9, 13]) T.box(x - .5, g0 - .1, -1.2, x + .5, g0 - .05, -.8, 0xfff6e0, {key:"lamp", ao:false});
   { const [a, b] = T.p(10.3, 4.4); pool(a, b, 3.2, .125); }

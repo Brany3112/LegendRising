@@ -56,7 +56,7 @@ function weekAwards(w){
     (W.awards.potw || (W.awards.potw = {}))[lgId] = p.id;
     p.rep += Math.round(6 + (W.clubs[p.club] ? W.clubs[p.club].rep : 0)*.004);
     if (p.me){
-      myAward(`Player of the Week — ${lg.nm}`, 25);
+      myAward(`Player of the Week: ${lg.nm}`, 25);
       honourBox("⭐", `Week ${w} · ${lg.nm}`, "Player of the Week",
         `The best performance in the division this week.`,
         `${statChip(b.g, "goals")}${statChip(b.a, "assists")}${statChip(b.r.toFixed(1), "rating")}`);
@@ -117,16 +117,16 @@ function leagueAwards(lg, report){
   for (const p of xi) p.rep += 40;
 
   const won = [];
-  if (pick2.pos.me){ myAward(`Player of the Season — ${lg.nm}`, 400); won.push(["🏅", "Player of the Season", `${pick2.pos.st.g} goals and ${pick2.pos.st.a} assists in ${pick2.pos.st.ap} games.`,
+  if (pick2.pos.me){ myAward(`Player of the Season: ${lg.nm}`, 400); won.push(["🏅", "Player of the Season", `${pick2.pos.st.g} goals and ${pick2.pos.st.a} assists in ${pick2.pos.st.ap} games.`,
     `${statChip(pick2.pos.st.g, "goals")}${statChip(pick2.pos.st.a, "assists")}${statChip((pick2.pos.st.rs/Math.max(1, pick2.pos.st.ap)).toFixed(2), "average")}`]); }
-  if (pick2.boot.me){ myAward(`Golden Boot — ${lg.nm} (${pick2.boot.st.g} goals)`, 250); won.push(["👟", "Golden Boot", `Nobody in the division scored more.`,
+  if (pick2.boot.me){ myAward(`Golden Boot: ${lg.nm} (${pick2.boot.st.g} goals)`, 250); won.push(["👟", "Golden Boot", `Nobody in the division scored more.`,
     `${statChip(pick2.boot.st.g, "goals")}${statChip(pick2.boot.st.ap, "games")}`]); }
-  if (pick2.play.me){ myAward(`Playmaker — ${lg.nm} (${pick2.play.st.a} assists)`, 220); won.push(["🎯", "Playmaker of the Season", `Nobody in the division made more.`,
+  if (pick2.play.me){ myAward(`Playmaker: ${lg.nm} (${pick2.play.st.a} assists)`, 220); won.push(["🎯", "Playmaker of the Season", `Nobody in the division made more.`,
     `${statChip(pick2.play.st.a, "assists")}${statChip(pick2.play.st.ap, "games")}`]); }
-  if (pick2.glove && pick2.glove.me){ myAward(`Golden Glove — ${lg.nm}`, 220); won.push(["🧤", "Golden Glove", `The best goalkeeper in the division.`, ""]); }
-  if (pick2.young && pick2.young.me){ myAward(`Young Player of the Season — ${lg.nm}`, 300); won.push(["🌱", "Young Player of the Season", `The best of the division's under-21s.`,
+  if (pick2.glove && pick2.glove.me){ myAward(`Golden Glove: ${lg.nm}`, 220); won.push(["🧤", "Golden Glove", `The best goalkeeper in the division.`, ""]); }
+  if (pick2.young && pick2.young.me){ myAward(`Young Player of the Season: ${lg.nm}`, 300); won.push(["🌱", "Young Player of the Season", `The best of the division's under-21s.`,
     `${statChip(pick2.young.st.g, "goals")}${statChip(pick2.young.st.a, "assists")}`]); }
-  if (xi.some(p => p.me)){ myAward(`Team of the Season — ${lg.nm}`, 180); won.push(["⭐", "Team of the Season", `Named in the division's eleven of the year.`, ""]); }
+  if (xi.some(p => p.me)){ myAward(`Team of the Season: ${lg.nm}`, 180); won.push(["⭐", "Team of the Season", `Named in the division's eleven of the year.`, ""]); }
   for (const [ic, t, l, d] of won) HONOUR_QUEUE.push([ic, lg.nm, t, l, d]);
 
   const mine = typeof myLg === "function" ? myLg() : null;
@@ -147,7 +147,7 @@ function worldAwards(report){
     shoe.rep += 220; shoe.wrep += 400;
     if (shoe.me){ myAward(`Golden Shoe (${shoe.st.g} goals)`, 600, 900);
       HONOUR_QUEUE.push(["👑", "Across every league in the world", "The Golden Shoe", "No player on earth scored more league goals this season.", statChip(shoe.st.g, "goals")]); }
-    else addNews("award", `${pname(shoe)} wins the Golden Shoe`, `${shoe.st.g} league goals — more than anyone in the world.`);
+    else addNews("award", `${pname(shoe)} wins the Golden Shoe`, `${shoe.st.g} league goals, more than anyone in the world.`);
   }
   for (const [key, label, icon] of [["ct", CONT.CL, "🏆"], ["el", CONT.EL, "🥈"]]){
     const best = all.filter(p => p[key] && p[key].ap).sort((a, b) => b[key].g - a[key].g)[0];
@@ -294,11 +294,11 @@ function goalOfMonth(w){
   S.gotm = (S.gotm || 0) + 1;
   const me = meP();
   me.rep += Math.round(45 + (myClub().rep || 0)*.008); me.wrep += 12;
-  myAward(`Goal of the Month — ${monthName(w)}`, 150, 60);
+  myAward(`Goal of the Month: ${monthName(w)}`, 150, 60);
   addNews("award", `${S.player.name} wins Goal of the Month`, `${goalWords(g)}${g.opp ? ` against ${g.opp}` : ""}. Nothing else came close.`, "me");
   HONOUR_QUEUE.push(["🎬", `${monthName(w)} · ${lg ? lg.nm : ""}`, "Goal of the Month", goalWords(g),
     `${statChip(g.d, "metres")}${statChip(S.gotm, S.gotm === 1 ? "won" : "won")}`]);
-  socialEvent("goal", `Goal of the Month — ${goalWords(g)}`);   // and you can post about it
+  socialEvent("goal", `Goal of the Month, ${goalWords(g)}`);   // and you can post about it
   checkLadder("gotm", S.gotm, "Goal of the Month award", "🎬",
     n => n === 1 ? "The first of them." : `You have won it ${fmt(n)} times now.`);
 }
@@ -314,7 +314,7 @@ function goalOfSeason(){
   myAward("Goal of the Season", 800, 1400);
   addNews("award", `${S.player.name} wins Goal of the Season`, `${goalWords(g)}. The best goal anyone scored all year.`, "me");
   HONOUR_QUEUE.push(["🏹", "The best goal in the world", "Goal of the Season", goalWords(g), statChip(g.d, "metres")]);
-  socialEvent("goal", `Goal of the Season — ${goalWords(g)}`);
+  socialEvent("goal", `Goal of the Season, ${goalWords(g)}`);
 }
 
 /* ---------- the press, after a man-of-the-match display ---------- */
@@ -331,14 +331,14 @@ function pressSheet(){
   if (!lm || !lm.motm) return `<h2>The press</h2><p class="muted">They only want you when you are the best man on the pitch.</p>`;
   if (S.pressDone === lm.gw) return `<h2>The press</h2><p class="muted">You have already spoken today.</p>`;
   return `<h2>Man of the match</h2>
-    <p class="muted">The cameras want you. What you say here is worth more than a normal week — you are the story.</p>
+    <p class="muted">The cameras want you. What you say here is worth more than a normal week. You are the story.</p>
     <blockquote class="mq">You were the best player on the pitch against ${esc(lm.opp)}. Talk us through it.</blockquote>
     <div class="stack">${PRESS_LINES.map((l, i) => `<button class="opt media" onclick="A.press(${i})">
       <b>${esc(l.t)}</b><span class="muted small">“${esc(l.say)}”</span>
       <span class="row gap6 wrap"><span class="pill">Reputation ${l.rep >= 2 ? "＋＋＋" : l.rep >= 1.2 ? "＋＋" : "＋"}</span>
-        <span class="pill ${l.trust > 0 ? "good" : l.trust < -6 ? "bad" : ""}">Manager ${l.trust > 0 ? "+" : ""}${l.trust}</span>
+        <span class="pill ${l.trust > 0 ? "good" : l.trust < -6 ? "bad" : ""}">Manager ${fmtSigned(l.trust)}</span>
         ${l.risk ? `<span class="pill bad">${Math.round(l.risk*100)}% it backfires</span>` : ""}</span></button>`).join("")}</div>
-    <p class="muted small">No energy, no action — this one is on the way off the pitch.</p>`;
+    <p class="muted small">No energy, no action. This one is on the way off the pitch.</p>`;
 }
 function pressSay(i){
   const l = PRESS_LINES[i], lm = S.lastMatch;
@@ -352,5 +352,5 @@ function pressSay(i){
     `“${l.say}”${back ? " It has not gone down well." : ""}`, "me");
   socialEvent("match", `Man of the match vs ${lm.opp}`);
   closeSheet(); save(); renderHub();
-  toast(back ? `+${fmt(gain)} reputation — but that one stung` : `+${fmt(gain)} reputation`, back ? "bad" : "good");
+  toast(back ? `+${fmt(gain)} reputation, but that one stung` : `+${fmt(gain)} reputation`, back ? "bad" : "good");
 }

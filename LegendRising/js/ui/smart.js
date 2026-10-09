@@ -45,7 +45,7 @@ function renderSmart(anim){
   if (!t){
     const apps = [...(document.body.classList.contains("life") ? ["hub"] : []), "store","msgs","settings","stats", ...(fbConfigured() ? ["rank"] : []), ...Object.keys(APPS).filter(a => S.apps.includes(a))];
     const unread = S.msgs.filter(m => !m.read).length, mentions = S.social ? S.social.ctx.length : 0;
-    screen = `<div class="sm-home"><div class="sm-clock">${time}</div><div class="sm-date">${monthName(S.week)} ${calYear(S.week)} · ${esc(myClub().nm)}</div>
+    screen = `<div class="sm-home"><div class="sm-clock">${time}</div><div class="sm-date">${monthName(S.week)} ${calYear(S.week)} · ${esc(clubLabel(meP() ? meP().club : -1))}</div>
       <div class="sm-grid">${apps.map((a, i) => `<button class="app" style="animation-delay:${i*30}ms" onclick="smOpen('${a}')"><span class="ico ${a}" style="background:${ICON_BG[a]}">${a === "showoff" ? `<span class="s-logo">S</span>` : ICONS[a]}</span><span>${APP_TITLE[a]}</span>${a === "msgs" && unread ? `<i class="badge">${unread}</i>` : ""}${a === "showoff" && mentions ? `<i class="badge">${mentions}</i>` : ""}</button>`).join("")}</div></div>`;
   } else {
     const fn = APPVIEWS[t.app], out = fn ? fn(t) : {title:"", html:""};
@@ -56,7 +56,7 @@ function renderSmart(anim){
   }
   const fresh = PH.fresh; h.classList.toggle("still", !(fresh || anim)); PH.fresh = false;
   const html = `<div class="phone smart ${PH.land ? "land" : ""} ${fresh ? "pop-up" : ""}"><div class="sm-notch"></div><div class="sm-status"><span>${time}</span><span>5G ▮▮▮ 87%</span></div>
-    <div class="sm-screen">${screen}</div><button class="sm-homebar" aria-label="Home — swipe up"></button></div>`;
+    <div class="sm-screen">${screen}</div><button class="sm-homebar" aria-label="Home, swipe up"></button></div>`;
   // same app, same view: patch in place (keeps scroll, no flicker). Navigating: fresh draw with the app zoom.
   if (!fresh && !anim && h.querySelector(".phone.smart")) morph(h, html); else h.innerHTML = html;
   bindHomeBar();
@@ -91,7 +91,7 @@ APPVIEWS.msgs = t => {
   return {title:m.from, html:`<div class="bubble">${esc(m.text)}</div>${m.offer ? `<div class="card-in"><div class="row gap8">${crest(c.nm, 30)}<div><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · ${esc(W.leagues[c.lg].nm)}</div></div></div>
     <div class="kvs"><div><span>Wage</span><b>${eur(m.offer.wage)}/wk</b></div><div><span>Length</span><b>${m.offer.years}y</b></div><div><span>Role</span><b>${ROLE[m.offer.role]}</b></div><div><span>Signing</span><b>${eur(m.offer.sign)}</b></div></div>
     ${m.done ? `<div class="muted">This offer is closed.</div>` : `<div class="row gap6 wrap"><button class="btn sm" onclick="msgAccept(${t.p.i})">Accept</button>${S.apps.includes("scout") ? `<button class="btn sm ghost" onclick="startNeg(${c.id},${t.p.i})">Negotiate</button>` : ""}<button class="btn sm ghost" onclick="msgDecline(${t.p.i})">Decline</button></div>
-      ${windowAt(S.week).open ? "" : `<p class="muted small">The window is shut — if you accept you move when the ${windowAt(S.week).next.toLowerCase()} opens.</p>`}`}</div>` : ""}`};
+      ${windowAt(S.week).open ? "" : `<p class="muted small">The window is shut. If you accept, you move when the ${windowAt(S.week).next.toLowerCase()} opens.</p>`}`}</div>` : ""}`};
 };
 function msgAccept(i){ const m = S.msgs[i]; m.done = true; agreeMove(m.offer); save(); smRefresh(); if (!MT) renderHub(); }
 function msgDecline(i){ const m = S.msgs[i]; m.done = true; S.locks[m.offer.club] = gw() + 4; save(); smRefresh(); }
@@ -106,7 +106,7 @@ APPVIEWS.news = t => {
 
 /* ---------- Tables ---------- */
 APPVIEWS.league = t => {
-  const lgId = t.p.lg || myClub().lg, view = t.p.v || "table";
+  const lgId = t.p.lg || shownLg(), view = t.p.v || "table";
   const tabs = [["table","Table"],["fx","My fixtures"],["cup","Cup"],["CL",CONT.CL],["EL",CONT.EL],["wc","World Champs"]].map(([k,l]) => `<button class="${view === k ? "on" : ""}" onclick="Object.assign(PH.stack[PH.stack.length-1].p,{v:'${k}'});smRefresh()">${l}</button>`).join("");
   let html = "";
   if (view === "table"){
@@ -114,19 +114,19 @@ APPVIEWS.league = t => {
     html = `<select class="sel" onchange="Object.assign(PH.stack[PH.stack.length-1].p,{lg:this.value});smRefresh()">${Object.values(W.leagues).sort((a,b) => a.cc.localeCompare(b.cc) || a.t - b.t).map(l => `<option value="${l.id}" ${l.id === lgId ? "selected" : ""}>${COUNTRIES[l.cc].name} · ${esc(l.nm)}</option>`).join("")}</select>` + tableHTML(lg.tab, order, lg);
   } else if (view === "fx"){
     const me = meP(), rows = [];
-    for (let w = 0; w < CAL.W; w++) for (const f of fixturesAt(w)) if (f.kind !== "N" && (f.h === me.club || f.a === me.club)){ const d = W.done[f.key]; rows.push(`<div class="res ${w === S.week ? "now" : ""}"><span class="muted small">${monthName(w).slice(0,3)}</span><span>${esc(W.clubs[f.h].nm)}</span><b>${d ? `${d.hg}–${d.ag}` : "–"}</b><span>${esc(W.clubs[f.a].nm)}</span></div>`); }
-    html = rows.join("") || `<div class="empty">No fixtures.</div>`;
+    if (myClub()) for (let w = 0; w < CAL.W; w++) for (const f of fixturesAt(w)) if (f.kind !== "N" && (f.h === me.club || f.a === me.club)){ const d = W.done[f.key]; rows.push(`<div class="res ${w === S.week ? "now" : ""}"><span class="muted small">${monthName(w).slice(0,3)}</span><span>${esc(W.clubs[f.h].nm)}</span><b>${d ? `${d.hg}–${d.ag}` : EMPTY_CELL}</b><span>${esc(W.clubs[f.a].nm)}</span></div>`); }
+    html = rows.join("") || `<div class="empty">${myClub() ? "No fixtures." : "No club, so no fixtures. Sign for a club and your games show up here."}</div>`;
   } else if (view === "cup"){
     const cup = myCup();
-    html = !Object.keys(W.cups || {}).length ? `<div class="empty">No cup this season — it starts again next season.</div>`
+    html = !Object.keys(W.cups || {}).length ? `<div class="empty">No cup this season. It starts again next season.</div>`
       : cup ? `<div class="muted small">${esc(cup.nm)}${cup.winner != null ? ` · Winner: <b>${esc(W.clubs[cup.winner].nm)}</b>` : ""}</div>`
       + cup.weeks.map(w => { const res = cup.res[w] || []; if (!res.length) return "";
-          return `<h4>${cupRoundName(cup, w)}</h4>` + res.map(r => `<div class="res ${r.h === meP().club || r.a === meP().club ? "now" : ""}"><span>${esc(W.clubs[r.h].nm)}</span><b>${r.hg}–${r.ag}</b><span>${esc(W.clubs[r.a].nm)}</span></div>`).join(""); }).join("")
+          return `<h4>${cupRoundName(cup, w)}</h4>` + res.map(r => `<div class="res ${myClub() && (r.h === meP().club || r.a === meP().club) ? "now" : ""}"><span>${esc(W.clubs[r.h].nm)}</span><b>${r.hg}–${r.ag}</b><span>${esc(W.clubs[r.a].nm)}</span></div>`).join(""); }).join("")
       : `<div class="empty">No cup for your country.</div>`;
     if (cup && !Object.keys(cup.res).length) html += `<div class="empty">The cup hasn't kicked off yet.</div>`;
   } else if (view === "wc"){
     const wc = W.wc;
-    if (!wc) html = `<div class="empty">No World Championship this season — the next one starts with the new season.</div>`;
+    if (!wc) html = `<div class="empty">No World Championship this season. The next one starts with the new season.</div>`;
     else {
       const order = sortNatTab(wc.tab);
       html = `<div class="muted small">Group stage, then semi-finals and the final${wc.winner ? ` · Champions: <b>${esc(NAMES[wc.winner].n)}</b>` : ""}</div>`
@@ -144,7 +144,7 @@ APPVIEWS.league = t => {
   return {title:"Tables", tabs, html};
 };
 function tableHTML(tab, order, lg){
-  const mine = meP().club, n = order.length;
+  const mine = myClub() ? meP().club : null, n = order.length;
   return `<table class="tbl"><thead><tr><th>#</th><th class="l">Club</th><th>P</th><th>GD</th><th>Pts</th></tr></thead><tbody>${order.map((cid, i) => { const r = tab[cid], c = W.clubs[cid];
     const zone = lg ? (lg.t > 1 && i < (lg.clubs.length < 14 ? 1 : 2) ? "up" : (MOVES[lg.cc] && MOVES[lg.cc][lg.t] && i >= n - Math.max(1, Math.round(MOVES[lg.cc][lg.t]/Object.values(W.leagues).filter(x => x.cc === lg.cc && x.t === lg.t).length)) ? "down" : "")) : (i < 8 ? "up" : "");
     return `<tr class="${cid === mine ? "me" : ""} ${zone}"><td>${i+1}</td><td class="l">${crest(c.nm, 14)} ${esc(c.nm)}</td><td>${r[0]}</td><td>${r[4]-r[5]}</td><td><b>${r[6]}</b></td></tr>`; }).join("")}</tbody></table>`;
@@ -154,10 +154,10 @@ function tableHTML(tab, order, lg){
 APPVIEWS.bank = () => {
   const k = S.contract, prog = reqProgress();
   return {title:"Bank", html:`<div class="bank-card"><span class="muted small">Balance</span><b>${eur(S.money)}</b><span class="muted small">Rising Bank · **** ${String(S.meId).padStart(4,"0")}</span></div>
-    <div class="kvs"><div><span>Weekly wage</span><b>${k ? eur(k.wage) : "–"}</b></div><div><span>Staff costs</span><b>−${eur(staffCost())}/wk</b></div><div><span>Home</span><b>${["Shared room","Rented flat","House","Villa"][homeTier()]}</b></div><div><span>Car</span><b>${["None","Dacia Logan","SUV","Sports car"][carTier()]}</b></div></div>
-    ${k ? `<h4>Contract · ${esc(myClub().nm)}${k.loan ? " (loan)" : ""}</h4><div class="kvs"><div><span>Years left</span><b>${k.years}</b></div><div><span>Role</span><b>${ROLE[k.role]}</b></div><div><span>Yearly raise</span><b>${k.raise || 0}%</b></div>
+    <div class="kvs"><div><span>Weekly wage</span><b>${k ? eur(k.wage) : EMPTY_CELL}</b></div><div><span>Staff costs</span><b>−${eur(staffCost())}/wk</b></div><div><span>Home</span><b>${["Shared room","Rented flat","House","Villa"][homeTier()]}</b></div><div><span>Car</span><b>${["None","Dacia Logan","SUV","Sports car"][carTier()]}</b></div></div>
+    ${k ? `<h4>Contract · ${esc(clubLabel(meP().club))}${k.loan ? " (loan)" : ""}</h4><div class="kvs"><div><span>Years left</span><b>${k.years}</b></div><div><span>Role</span><b>${ROLE[k.role]}</b></div><div><span>Yearly raise</span><b>${k.raise || 0}%</b></div>
       <div><span>Per goal</span><b>${eur(k.bG || 0)}</b></div><div><span>Per assist</span><b>${eur(k.bA || 0)}</b></div><div><span>Per appearance</span><b>${eur(k.bApp || 0)}</b></div><div><span>Per win</span><b>${eur(k.bW || 0)}</b></div></div>
-      ${prog ? `<h4>Targets${k.promised ? ` · promised by ${monthName(k.deadline % CAL.W)} ${S.year + Math.floor((k.deadline - (W.season-1)*CAL.W)/CAL.W)}` : ""}</h4>${Object.entries(prog).map(([key, v]) => `<div class="meter-row"><span>${REQ_LABEL[key]}</span><div class="meter ${v.have >= v.target ? "energy" : "xp"}"><i style="width:${Math.min(100, 100*v.have/v.target)}%"></i></div><b>${Math.min(v.have, v.target)}/${v.target}</b></div>`).join("")}${k.failed ? `<p class="bad">Promise broken — wage halved, bonuses removed.</p>` : k.metDone ? `<p class="good">All targets met.</p>` : ""}` : ""}` : ""}
+      ${prog ? `<h4>Targets${k.promised ? ` · promised by ${monthName(k.deadline % CAL.W)} ${S.year + Math.floor((k.deadline - (W.season-1)*CAL.W)/CAL.W)}` : ""}</h4>${Object.entries(prog).map(([key, v]) => `<div class="meter-row"><span>${REQ_LABEL[key]}</span><div class="meter ${v.have >= v.target ? "energy" : "xp"}"><i style="width:${Math.min(100, 100*v.have/v.target)}%"></i></div><b>${Math.min(v.have, v.target)}/${v.target}</b></div>`).join("")}${k.failed ? `<p class="bad">Promise broken. Wage halved, bonuses removed.</p>` : k.metDone ? `<p class="good">All targets met.</p>` : ""}` : ""}` : ""}
     <h4>Purchases</h4>${S.purchases.length ? S.purchases.map(p => `<div class="small">${esc(p.name)}</div>`).join("") : `<div class="muted small">Nothing yet.</div>`}`};
 };
 
@@ -171,7 +171,7 @@ APPVIEWS.settings = () => ({title:"Settings", html:`<div class="stack">
   <textarea id="phCode" rows="3" readonly placeholder="Your save code will appear here" onclick="this.select()"></textarea>
   <label>Import save</label><textarea id="impCode" rows="3" placeholder="Paste a save code"></textarea>
   <div class="row gap6 wrap"><button class="btn sm ghost" onclick="importCode()">Import into slot ${SLOT}</button><button class="btn sm ghost" onclick="saveNow();toast('Saved','good')">Save now</button><button class="btn sm danger" onclick="phoneDeleteCareer()">Delete career</button></div>
-  <p class="muted small">The code holds the whole football world, so it's long — copy all of it.</p></div>`});
+  <p class="muted small">The code holds the whole football world, so it's long. Copy all of it.</p></div>`});
 async function phoneSaveCode(){
   const btn = $("#phSaveBtn"); if (btn){ btn.disabled = true; btn.textContent = "Packing…"; }
   saveNow();
@@ -179,7 +179,7 @@ async function phoneSaveCode(){
     const code = await makeCode();
     const box = $("#phCode"); if (box){ box.value = code; }
     const ok = await copyText(code);
-    toast(ok ? `Save code copied — ${Math.round(code.length/1024)} KB.` : "Code ready — select it all and copy.", ok ? "good" : "");
+    toast(ok ? `Save code copied (${Math.round(code.length/1024)} KB).` : "Code ready. Select it all and copy.", ok ? "good" : "");
   }catch(e){ toast("Couldn't build the code."); }
   if (btn){ btn.disabled = false; btn.textContent = `💾 ${SAVE_CODE_LABEL}`; }
 }

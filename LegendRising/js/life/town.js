@@ -15,6 +15,8 @@ let ctx = null;
 export const TOWNZ = {street:null};
 const HOUSE_COL = [0xefe3c8, 0xe9d8a6, 0xcfdde6, 0xf0cdb4, 0xf4f1ea, 0xd9e2c4, 0xe8c9c0];
 const ROOF_COL = [0x9a3b2a, 0x7a4a32, 0x5a3b2e, 0x8a2f2a, 0x4a4f55];
+// the town hall's weekday hours, as its door says them
+const TOWN_HALL = {open:8*60, close:16*60};
 
 /* a detached house on its lot. The lot's frame: x across the frontage, z back from the pavement (0 at the pavement's
    edge, the lot 14 deep); turned to face its street (face: the way the front looks). */
@@ -118,7 +120,7 @@ export function buildTown(c){
   const sq = textTex(512, 128, g => { g.fillStyle = "#1f4a8a"; g.fillRect(0, 0, 512, 128); g.strokeStyle = "#fff"; g.lineWidth = 5; g.strokeRect(7, 7, 498, 114); g.fillStyle = "#fff"; g.font = "800 50px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(`PIAȚA ${HOOD.toUpperCase()}`, 256, 50); g.font = "600 22px 'Barlow', sans-serif"; g.fillText(`${TOWN} · Strada Mare`, 256, 98); });
   cy(frame(-24.8, -3.6), 0, .14, 0, .04, .04, 2.5, 0x3b4146, {seg:8, key:"metal"}); label(sq, -24.8, 2.4, -3.59, 1.1, .28, 0, {rough:.5}); label(sq, -24.8, 2.4, -3.61, 1.1, .28, Math.PI, {rough:.5});
   // the town hall closes the square at the back; behind the shops, the rest of the town against the sky
-  block({x0:-24, x1:6, z0:-36, z1:-15}, "+z", 0xe8dcc0, {doorAt:15, floors:3, doorLabel:`Primăria ${TOWN}`, doorHint:"The town hall · open weekdays, 8:00 AM – 4:00 PM", doorNote:"The town hall. Nothing for you in there today — unless you fancy queueing for a form."});
+  block({x0:-24, x1:6, z0:-36, z1:-15}, "+z", 0xe8dcc0, {doorAt:15, floors:3, doorLabel:`Primăria ${TOWN}`, doorHint:`The town hall · open weekdays, ${fmtRange(TOWN_HALL.open, TOWN_HALL.close)}`, doorNote:"The town hall. Nothing for you in there today, unless you fancy queueing for a form."});
   { const t = textTex(1024, 128, g => { g.fillStyle = "#e8dcc0"; g.fillRect(0, 0, 1024, 128); g.fillStyle = "#3b3a36"; g.font = "700 64px Georgia, serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(`PRIMĂRIA ${TOWN.toUpperCase()}`, 512, 68); });
     label(t, -9, 8.6, -14.94, 9, 1.1, 0, {rough:.8}); }
   reseed(31338);

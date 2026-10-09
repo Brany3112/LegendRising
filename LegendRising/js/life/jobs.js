@@ -33,7 +33,7 @@ export function runShift(plan, h){
     $(".jb-clock").textContent = h.clock();
     const q = mean(st.scores);
     $(".jb-perf i").style.width = (st.scores.length ? q*100 : 0).toFixed(0) + "%";
-    $(".jb-perf b").textContent = st.scores.length ? `${Math.round(q*100)}%` : "–";
+    $(".jb-perf b").textContent = st.scores.length ? `${Math.round(q*100)}%` : EMPTY_CELL;
     $(".jb-pay").textContent = `€${paySoFar()}`;
   };
   const next = () => {
@@ -79,15 +79,15 @@ export function runShift(plan, h){
       <div class="jb-rows">
         <div><span>${G.unit[0].toUpperCase() + G.unit.slice(1)}</span><b>${r.done} / ${r.N}</b></div>
         <div><span>Performance</span><b>${Math.round(r.q*100)}% · ${v}</b></div>
-        <div><span>Clocked</span><b>${fmtTime(r.start)} → ${fmtTime(r.end)}</b><em>${closing ? "closing time" : diff > 4 ? `${diff} min early — quick work` : diff < -4 ? `${-diff} min over` : "right on time"}</em></div>
+        <div><span>Clocked</span><b>${fmtTime(r.start)} → ${fmtTime(r.end)}</b><em>${closing ? "closing time" : diff > 4 ? `${diff} min early, quick work` : diff < -4 ? `${-diff} min over` : "right on time"}</em></div>
         <div><span>Pay</span><b>€${r.pay}</b><em>${r.tips ? `with €${r.tips} in tips` : `${Math.round((.7 + .55*r.q)*100)}% of the rate`}</em></div>
-        <div><span>Job XP</span><b>${r.xp ? "+" + r.xp : "—"}</b><em>${r.xp ? (r.speed > 1.03 ? "a bonus for speed" : "") : "top of the ladder"}</em></div>
+        <div><span>Job XP</span><b>${r.xp ? "+" + r.xp : EMPTY_CELL}</b><em>${r.xp ? (r.speed > 1.03 ? "a bonus for speed" : "") : "top of the ladder"}</em></div>
       </div>
       <button class="btn jb-off">Clock off <kbd>Enter</kbd></button></div>`;
     $(".jb-off").addEventListener("click", () => M.end(true));
     head(); $(".jb-n").innerHTML = `<b>${r.done}</b> / ${N} ${G.unit}`;
   };
-  M = startMini({title:G.title, hint:G.hint(rank), wide:true, free:true, foot:"Esc — clock out early (you're paid for what you've done)",
+  M = startMini({title:G.title, hint:G.hint(rank), wide:true, free:true, foot:"Esc: clock out early (you're paid for what you've done)",
     html:`<div class="jb">
       <div class="jb-top"><span class="jb-ico">${job.icon}</span><div class="jb-who"><b>${job.name}</b><span>${rk.name}</span></div>
         <div class="jb-stats"><span class="jb-n"></span><span class="jb-clock"></span><span class="jb-perf"><span><i></i></span><b></b></span><span class="jb-pay"></span></div></div>
@@ -110,7 +110,7 @@ export function runShift(plan, h){
 const GAMES = {
   /* ---------- the café: the order on the ticket ---------- */
   cafe:{title:"Corner Café", unit:"orders", perHour:3, tips:true,
-    hint:r => r < 2 ? "Pull the shots (stop the needle in the green), hold to pour and let go at the line, then serve" : "Make what's on the ticket — you know the recipes by heart now",
+    hint:r => r < 2 ? "Pull the shots (stop the needle in the green), hold to pour and let go at the line, then serve" : "Make what's on the ticket. You know the recipes by heart now",
     task(area, o){
       const MENU = [
         {n:"Espresso", shots:1, txt:"1 shot"}, {n:"Double espresso", shots:2, txt:"2 shots"},
@@ -156,7 +156,7 @@ const GAMES = {
         const fl = d.pour ? clamp01(1 - Math.abs(level - d.fill)/.16) : (pour ? 0 : 1);
         const fm = !!d.foam === foam ? 1 : .4;
         let s = .3*sc + .15*sq + .2*pt + .25*fl + .1*fm; if (level > 1.02) s *= .6;
-        const why = sc < 1 ? `${shots.length} shot${shots.length === 1 ? "" : "s"} — it wanted ${d.shots}` : pt < 1 ? (d.pour ? `that wasn't ${d.pour === "milk" ? "milk" : "water"}` : "it didn't want topping up") : fl < .7 ? (level > d.fill ? "too full" : "not full enough") : sq < .5 ? "a bitter shot" : "";
+        const why = sc < 1 ? `${shots.length} shot${shots.length === 1 ? "" : "s"}, it wanted ${d.shots}` : pt < 1 ? (d.pour ? `that wasn't ${d.pour === "milk" ? "milk" : "water"}` : "it didn't want topping up") : fl < .7 ? (level > d.fill ? "too full" : "not full enough") : sq < .5 ? "a bitter shot" : "";
         o.done(s, {why});
       };
       area.querySelectorAll(".cf-btns button").forEach(b => {
@@ -184,7 +184,7 @@ const GAMES = {
 
   /* ---------- the store: through the till, and the right change ---------- */
   store:{title:"Neighbourhood Store · the till", unit:"customers", perHour:2.5, tips:false,
-    hint:r => r ? "Scan everything, then count out the change — the till won't do the sum for you" : "Click each item to scan it, then count out the change shown",
+    hint:r => r ? "Scan everything, then count out the change. The till won't do the sum for you" : "Click each item to scan it, then count out the change shown",
     task(area, o){
       const GOODS = [["Bread", "🍞", 120], ["Milk", "🥛", 95], ["Eggs", "🥚", 235], ["Apples", "🍎", 180], ["Cheese", "🧀", 345], ["Pasta", "🍝", 115], ["Coffee", "☕", 460], ["Juice", "🧃", 165],
         ["Crisps", "🥔", 105], ["Chocolate", "🍫", 85], ["Rice", "🍚", 190], ["Tomatoes", "🍅", 210], ["Soap", "🧼", 140], ["Water", "💧", 60], ["Biscuits", "🍪", 125], ["Yoghurt", "🥣", 75]];
@@ -214,7 +214,7 @@ const GAMES = {
       const give = () => {
         if (phase !== "change") return;
         const off = Math.abs(given - due);
-        o.done(off === 0 ? 1 : clamp01(1 - off/50)*.6, {why:off === 0 ? "" : `${given > due ? "too much" : "short"} by ${euro(off)} — it was ${euro(due)}`});
+        o.done(off === 0 ? 1 : clamp01(1 - off/50)*.6, {why:off === 0 ? "" : `${given > due ? "too much" : "short"} by ${euro(off)}, it was ${euro(due)}`});
       };
       q(".tl-give").addEventListener("click", give);
       return {par:4 + 1.1*n + (o.rank ? 6 : 4), key(k, down){ if (down && k === "enter") give(); }, get state(){ return {bag, total, note, due, given, phase}; }};
@@ -222,7 +222,7 @@ const GAMES = {
 
   /* ---------- the courier: the shortest round of drops ---------- */
   courier:{title:"City Courier · dispatch", unit:"runs", perHour:2, tips:false,
-    hint:r => "Click the drops in the order you'll ride them — the shortest round trip back to the depot is the best run",
+    hint:r => "Click the drops in the order you'll ride them. The shortest round trip back to the depot is the best run",
     task(area, o){
       const C = 8, Rw = 5, W0 = 560, H0 = 300, gx = i => 40 + i*(W0 - 80)/(C - 1), gy = j => 30 + j*(H0 - 60)/(Rw - 1);
       const depot = {x:0, y:Rw - 1}, k = [3, 4, 5][o.rank], stops = [];
@@ -268,7 +268,7 @@ const GAMES = {
           pp(stops.slice(), 0); shown = br;
         }
         draw();
-        o.done(s, {why:mine === best ? `${mine} blocks — the shortest way round` : `${mine} blocks — ${best} was possible`, hold:1300});
+        o.done(s, {why:mine === best ? `${mine} blocks, the shortest way round` : `${mine} blocks, ${best} was possible`, hold:1300});
       };
       cv.addEventListener("click", e => {
         if (route.length === k) return;
@@ -285,7 +285,7 @@ const GAMES = {
 
   /* ---------- the sports centre: the front desk ---------- */
   gym:{title:"Sports Centre · front desk", unit:"members", perHour:4, tips:false,
-    hint:r => "Check each card: out of date — renew first; Basic is the gym floor only, classes and the pool are Gold",
+    hint:r => "Check each card. Out of date means renew first. Basic is the gym floor only, classes and the pool are Gold",
     task(area, o){
       const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       const today = new Date(2026, 9, 8 + Math.floor(o.R()*16)), gold = o.R() < .45;
@@ -294,7 +294,7 @@ const GAMES = {
       const answer = off < 0 ? "renew" : want[1] !== "floor" && !gold ? "gold" : "in";
       const name = `${NAMES[Math.floor(o.R()*NAMES.length)]} ${SURN[Math.floor(o.R()*SURN.length)]}`, hue = Math.floor(o.R()*360);
       const fmt = d => `${d.getDate()} ${MON[d.getMonth()]}`;
-      o.ask(`“Hi — here for ${want[0]}.”`);
+      o.ask(`“Hi, here for ${want[0]}.”`);
       area.innerHTML = `<div class="dk-desk">
         <div class="dk-card ${gold ? "gold" : ""}"><div class="dk-av" style="background:hsl(${hue},45%,42%)">${name.split(" ").map(w => w[0]).join("")}</div>
           <div class="dk-info"><b>${name}</b><span class="dk-plan">${gold ? "GOLD" : "BASIC"} MEMBER</span><span>Valid until <b>${fmt(exp)}</b></span></div></div>
@@ -307,7 +307,7 @@ const GAMES = {
 
   /* ---------- the academy: who's free? ---------- */
   academy:{title:"Youth Academy · the session", unit:"drills", perHour:4, tips:false,
-    hint:r => "The kid with the ball needs a pass: click the teammate who's free — nobody near them, nobody in the way",
+    hint:r => "The kid with the ball needs a pass. Click the teammate who's free, with nobody near them and nobody in the way",
     task(area, o){
       const W0 = 560, H0 = 320, nR = [3, 4, 5][o.rank];
       let blues, reds, free;
@@ -354,7 +354,7 @@ const GAMES = {
       // now and then: p2) — the skill is the moment
       const W0 = 560, H0 = 315, w = [1.15, 1.5, 1.9][o.rank], p1 = o.R()*6, p2 = (o.R() - .5)*.5, shots = [];
       let t = 0, cool = 0, flash = 0;
-      o.ask(["Portrait session", "Match-day action", "The team photo — one at a time", "Product shots for the club shop"][Math.floor(o.R()*4)]);
+      o.ask(["Portrait session", "Match-day action", "The team photo, one at a time", "Product shots for the club shop"][Math.floor(o.R()*4)]);
       area.innerHTML = `<div class="pz"><canvas width="${W0}" height="${H0}"></canvas><div class="pz-strip"><i></i><i></i><i></i></div></div>`;
       const cv = area.querySelector("canvas"), g = cv.getContext("2d");
       const pos = () => ({x:W0/2 + 200*Math.sin(w*t + p1), y:H0/2 + 62*Math.sin(2*(w*t + p1) + p2)});

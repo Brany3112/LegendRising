@@ -94,7 +94,7 @@ function rules(id, x, z, r){
   const b = footprint(x, z, r, m.w, m.len);
   const u0 = b.x0 - A.x0, u1 = b.x1 - A.x0, v0 = Math.min((b.z0 - A.wz)*F.s, (b.z1 - A.wz)*F.s), v1 = Math.max((b.z0 - A.wz)*F.s, (b.z1 - A.wz)*F.s);
   const Wd = A.x1 - A.x0, du = A.door - A.x0;
-  if (u0 < .04 || u1 > Wd - .04 || v0 < .04 || v1 > F.Dp - .05) return "Against the wall — not in it";
+  if (u0 < .04 || u1 > Wd - .04 || v0 < .04 || v1 > F.Dp - .05) return "Against the wall, not in it";
   if (u0 < 2.15 && v0 < 2.35) return "That's the bathroom";
   if (!m.flat && u1 > du - .62 && u0 < du + .62 && v0 < 1.1) return "It would block the front door";
   for (const wx of winsOf(A)){ const ru = wx - A.x0; if (!m.flat && u1 > ru - .48 && u0 < ru + .48 && v1 > F.Dp - .17) return "In the way of the radiator"; }
@@ -150,7 +150,7 @@ function put(){
   dropGhost();
   placePiece(p);
   sel = null;
-  H.note(gone ? `Done. The old ${gone.toLowerCase()} goes down to the bins.` : `${f.name} — set up.`);
+  H.note(gone ? `Done. The old ${gone.toLowerCase()} goes down to the bins.` : `Done. The ${f.name.toLowerCase()} is set up.`);
   if (typeof FEED === "object") FEED.chip(`${f.name} placed`, "good");
   H.persist(true);
   const next = boxes()[0]; if (next) choose(next[0]); else render();
@@ -208,7 +208,7 @@ export function buildStep(dt, cam){
     // nothing chosen: what is under the pointer can be picked up and moved
     hover = null;
     for (const q of placed){ const o = footprint(q.wx, q.wz, q.p.ry, q.model.w, q.model.len); if (_hit.x > o.x0 && _hit.x < o.x1 && _hit.z > o.z0 && _hit.z < o.z1 && (!hover || hover.model.flat)) hover = q; }
-    hint(hover ? `${hover.f.name} · click to move it${hover.f.kind === "bed" || hover.f.kind === "fridge" ? "" : " · X to pack it into its box"}` : boxes().length ? "Pick a box below — or click a piece in the room to move it" : "Click a piece in the room to move it");
+    hint(hover ? `${hover.f.name} · click to move it${hover.f.kind === "bed" || hover.f.kind === "fridge" ? "" : " · X to pack it into its box"}` : boxes().length ? "Pick a box below, or click a piece in the room to move it" : "Click a piece in the room to move it");
   }
 }
 function hint(t){ const el = ui && ui.querySelector(".bm-hint"); if (el && el.textContent !== t) el.textContent = t; }
@@ -216,7 +216,7 @@ function render(){
   if (!ui) return;
   const c = INV.carry(), cell = (slot, it, key) => {
     const ok = it && it.id === "box" && FURN[it.fid], on = sel && !sel.q && sel.slot === slot;
-    return `<button class="bm-cell${on ? " on" : ""}${ok ? "" : " empty"}" ${ok ? `onclick="lifeBuildChoose('${slot}')"` : "disabled"}><kbd>${key}</kbd><span>${ok ? "📦" : ""}</span><b>${ok ? FURN[it.fid].name : it ? "—" : "Empty"}</b></button>`;
+    return `<button class="bm-cell${on ? " on" : ""}${ok ? "" : " empty"}" ${ok ? `onclick="lifeBuildChoose('${slot}')"` : "disabled"}><kbd>${key}</kbd><span>${ok ? "📦" : ""}</span><b>${ok ? FURN[it.fid].name : it ? EMPTY_CELL : "Empty"}</b></button>`;
   };
   ui.innerHTML = `<div class="bm-top"><b>BUILD MODE</b><span class="bm-hint"></span></div>
     <div class="bm-bar">${cell(0, c.slots[0], "1")}${cell("hand", c.hand, "H")}${cell(1, c.slots[1], "2")}</div>

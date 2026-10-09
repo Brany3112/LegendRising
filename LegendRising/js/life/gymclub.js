@@ -133,7 +133,7 @@ export function privateGym(ctx){
   box(b.x0 + .26, 3.6, b.z0 + .25, b.x0 + .28, 3.7, b.z1 - .25, lk.accent, {ao:false});
   // the sign over the door
   const st = textTex(1024, 192, g => { g.fillStyle = "#16181b"; g.fillRect(0, 0, 1024, 192); g.fillStyle = "#c8463a"; g.fillRect(0, 176, 1024, 16);
-    g.fillStyle = "#fff"; g.font = "800 104px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("IRONWORKS", 512, 80); g.font = "700 34px 'Barlow', sans-serif"; g.fillStyle = "#c9cdd1"; g.fillText("GYM · MEMBERS ONLY · 6 AM – 11 PM", 512, 150); });
+    g.fillStyle = "#fff"; g.font = "800 104px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("IRONWORKS", 512, 80); g.font = "700 34px 'Barlow', sans-serif"; g.fillStyle = "#c9cdd1"; g.fillText(`GYM · MEMBERS ONLY · ${fmtRange(IRON.open, IRON.close).toUpperCase()}`, 512, 150); });
   box(b.x0 - .12, 3.45, -24.5, b.x0, 4.3, -12, 0x16181b, {ao:false, jit:0});
   label(st, b.x0 - .125, 3.88, -18.25, 12.4, .82, -Math.PI/2, {glow:.9});
   pool(b.x0 - 1.4, -18.8, 3, .125);
@@ -157,13 +157,13 @@ export function privateGym(ctx){
   // every piece: members only
   for (const [kind, lo, hi, label_] of [["squat", [55.3, 0, -28.4], [57.3, 2.2, -21.6], "Squat rack"], ["dumbbell", [57.4, 0, -20], [58.6, 1.1, -18], "Dumbbells"],
     ["plyo", [49.8, 0, -28.8], [53.2, .9, -28.0], "Plyo boxes"], ["ladder", [51.3, 0, -22.6], [53.9, 1.0, -9], "Sprint ladder"], ["treadmill", [56.1, 0, -15], [57.1, 1.7, -10.3], "Treadmill"], ["bike", [55.7, 0, -17.6], [57.1, 1.2, -15.6], "Exercise bike"]])
-    spot({aim:[lo, hi], label:label_, get hint(){ return memberToday() ? `${({squat:"Strength set · power", dumbbell:"Strength set · power", plyo:"Jump set · jumping", ladder:"Speed set · pace", treadmill:"Endurance run · stamina", bike:"Intervals · stamina and pace"})[kind]} · tier 4 · 45 min` : "Members only — join at reception"; }, hold:.2,
+    spot({aim:[lo, hi], label:label_, get hint(){ return memberToday() ? `${({squat:"Strength set · power", dumbbell:"Strength set · power", plyo:"Jump set · jumping", ladder:"Speed set · pace", treadmill:"Endurance run · stamina", bike:"Intervals · stamina and pace"})[kind]} · tier 4 · 45 min` : "Members only. Join at reception"; }, hold:.2,
       run:() => memberToday() ? ctx.reps(kind) : ctx.note(`Members only. Reception will sign you up: €${IRON.price} for four weeks.`)});
   W.places.push({name:IRON.name, kind:"gym", x:44.4, z:-18.8, at:`at ${IRON.name}`, b:{x0:b.x0, x1:b.x1, z0:b.z0, z1:b.z1}});
 }
 function joinGym(ctx){
   const s = G(), m = ctx.minute() % 1440;
-  if (m < IRON.open || m >= IRON.close) return ctx.note("IronWorks is closed. It opens at 6:00 AM.");
+  if (m < IRON.open || m >= IRON.close) return ctx.note(`IronWorks is closed. It opens at ${fmtTime(IRON.open)}.`);
   if (memberToday()) return ctx.note(`You're a member until ${dayName((s.life.wd + s.gymSub.until - s.life.day) % 7)} (day ${s.gymSub.until}). Tier-4 kit: every set here counts for more than on your club's.`);
   if (typeof odorLabel === "function" && num(s.odor, 0) >= ODOR_SMELLY) return ctx.note(`"Showers are for after, not instead of." Have a wash and come back.`);
   if (!spend(IRON.price)) return ctx.note(`Four weeks is €${IRON.price}. You haven't got it.`);

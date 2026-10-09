@@ -13,6 +13,8 @@ const G = () => (typeof S !== "undefined" ? S : null);
 const FL = .12;                                  // the shop floor is level with the pavement: no step at the door
 export const BARBER_B = {x0:0, x1:14, z0:17, z1:29};
 const CHAIRS = [3.4, 6.8, 10.2];
+// the hours on the door and the chairs: the shop's own (BARBER, js/ui/barber.js), so they always say what it does
+const barberHours = () => typeof BARBER === "object" ? fmtRange(BARBER.open, BARBER.close) : "";
 
 // shelves of tubs and bottles (pomade, wax, tonic, shampoo)
 function products(f, lx, y, w, seed){
@@ -178,9 +180,9 @@ export function barbershop(c){
   staffer(CHAIRS[1] + .75, back - 1.6, Math.PI, {role:"barista", seed:58, when:m => typeof barberOpen === "function" ? barberOpen(m) : m >= 540 && m < 1200, minute:ctx.minute});
   // sit in any chair to open the book; the door tells you the hours
   CHAIRS.forEach(x => spot({aim:[[x - .35, FL, back - 1.5], [x + .35, FL + 1.3, back - .8]], x, z:back - 1.6, r:1.5, near:true, label:"Barber's chair",
-    get hint(){ const m = ctx.minute(); return typeof barberOpen === "function" && !barberOpen(m) ? "Closed · open 9:00 AM – 8:00 PM" : "Sit down · new hairstyle, beard or colour"; },
+    get hint(){ const m = ctx.minute(); return typeof barberOpen === "function" && !barberOpen(m) ? `Closed · open ${barberHours()}` : "Sit down · new hairstyle, beard or colour"; },
     hold:.3, run:() => ctx.barber()}));
-  spot({x:(door[0] + door[1])/2, y:1.2, z:b.z0 - .4, r:1.8, near:true, label:"Fade & Co. Barbers", hint:"Open 9:00 AM – 8:00 PM · walk in", hold:.2,
-    run:() => ctx.note(typeof barberOpen === "function" && !barberOpen(ctx.minute()) ? "Closed. Fade & Co. opens at 9:00 AM." : "Walk in and take a seat in one of the chairs.")});
+  spot({x:(door[0] + door[1])/2, y:1.2, z:b.z0 - .4, r:1.8, near:true, label:"Fade & Co. Barbers", hint:`Open ${barberHours()} · walk in`, hold:.2,
+    run:() => ctx.note(typeof barberOpen === "function" && !barberOpen(ctx.minute()) ? `Closed. ${BARBER.name} opens at ${fmtTime(BARBER.open)}.` : "Walk in and take a seat in one of the chairs.")});
   return {door:{x:(door[0] + door[1])/2, z:b.z0 - 1.2}};
 }

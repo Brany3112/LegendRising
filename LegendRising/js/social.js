@@ -74,7 +74,7 @@ function postReaction(ctx, text){
   if (ctx.type === "mention" && ctx.extra && ctx.extra.by != null){
     const by = W.players[ctx.extra.by];
     if (tone === "toxic") s.feed.unshift(npcPost(by, pick([`@${s.handle} talk less, play better.`, `Keep crying @${s.handle} 😂`, `Some people can't take criticism. @${s.handle}`]), true));
-    else if (tone === "humble" || tone === "sorry"){ if (!s.friends.includes(by.id) && Math.random() < .4){ s.friends.push(by.id); if (!s.following.includes(by.id)) s.following.push(by.id); s.notes.unshift(`${pname(by)} followed you back — you're friends now.`); } }
+    else if (tone === "humble" || tone === "sorry"){ if (!s.friends.includes(by.id) && Math.random() < .4){ s.friends.push(by.id); if (!s.following.includes(by.id)) s.following.push(by.id); s.notes.unshift(`${pname(by)} followed you back. You're friends now.`); } }
   }
   return post;
 }
@@ -107,7 +107,7 @@ function followPlayer(pid){
   const s = S.social; if (s.following.includes(pid)) return "Already following.";
   s.following.push(pid);
   const p = W.players[pid], chance = clamp(.1 + s.followers/(p.fol + 50)*1.5 + (p.club === meP().club ? .5 : 0) + (s.respect > 20 ? .1 : 0), .02, .95);
-  if (pid !== S.rivalId && Math.random() < chance){ s.friends.push(pid); return `${pname(p)} followed you back — you're friends now.`; }
+  if (pid !== S.rivalId && Math.random() < chance){ s.friends.push(pid); return `${pname(p)} followed you back. You're friends now.`; }
   return `You're following ${pname(p)}.`;
 }
 // weekly: other players post, some mention you, rival talks
