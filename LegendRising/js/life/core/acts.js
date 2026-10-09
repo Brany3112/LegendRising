@@ -238,7 +238,7 @@ function arrive(leaving, to){
     else if (LIFE.min < SESSION.start && !a.excused && SESSION.start - LIFE.min >= EARLY.by && SESSION.start - LIFE.min <= 2*EARLY.by)
       note(`You're here at ${clockText()}. Training starts at ${clockText(SESSION.start)}. Stay around until then and the manager will notice.`);
     else if (LIFE.min < SESSION.start) note(`You're here at ${clockText()}. Training starts at ${clockText(SESSION.start)}. The gym is open, or you can sit on the bench and wait.`);
-    else if (LIFE.min < SESSION.end) note(a.status === "late" ? `${clockText()}. Training started at ${clockText(SESSION.start)}. The manager saw you come in late.` : `${clockText()}. Training's on and the squad is out on the pitch.`);
+    else if (LIFE.min < SESSION.end) note(a.status === "late" ? (a.excused ? `${clockText()}. Training started at ${clockText(SESSION.start)}, but you're new here, so nobody's counting. The squad's out on the pitch.` : `${clockText()}. Training started at ${clockText(SESSION.start)}. The manager saw you come in late.`) : `${clockText()}. Training's on and the squad is out on the pitch.`);
     else note(`${clockText()}. The session finished at ${clockText(SESSION.end)}. The gym's open till ${clockText(CENTRE.close)}.`);
     return;
   }

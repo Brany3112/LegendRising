@@ -1387,7 +1387,9 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
 }
 @media (max-width:420px){ .pc-nav button{padding:7px 8px;font-size:.8rem} }
 @media (max-width:900px){
-  .lf-note{bottom:auto;top:calc(var(--hud-pad) + 92px);max-width:min(520px,88vw)}
+  /* the need bars hang down beside the compass here, so the note goes under them (onb.css moves it down to the
+     pockets while an objective holds this place) */
+  .lf-note{bottom:auto;top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px);width:max-content;max-width:min(520px,calc(100vw - 32px))}
   .lf-keys{display:none}
   .dr-card{max-width:calc(100vw - 2*130px)}
 }

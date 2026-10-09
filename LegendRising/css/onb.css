@@ -26,28 +26,36 @@ body.gfx-low{--onb-blur:0px}
 .onb-loader.on{opacity:1}
 .onb-loader p{margin:0;font-size:.95rem}
 
-/* ---------- the objective: under the compass and its markers, so they never overlap ---------- */
-#lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 108px);background:var(--onb-panel);
+/* ---------- the objective: under the compass and its markers, and between the clock and the need bars, so it never
+   runs into any of them (the bars are 175px plus the bar itself wide, css/style.css .hud-needs) ---------- */
+#lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 108px);width:max-content;
+  max-width:calc(100% - 2*(var(--hud-pad) + 175px + clamp(96px,9vw,140px)));background:var(--onb-panel);
   backdrop-filter:blur(var(--onb-blur));-webkit-backdrop-filter:blur(var(--onb-blur));border-radius:var(--onb-radius);font-family:var(--onb-font)}
 #lifeRoot .onb-goal span{color:var(--onb-ink)}
 #lifeRoot .onb-goal b{white-space:nowrap}
-/* a phone-width screen: the need bars hang down beside the compass, so the objective and the lines go below them */
-@media (max-width:700px){
-  #lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px)}
+/* up to a tablet held upright the need bars hang down beside the compass and leave no room between, so the
+   objective and the lines go below them, across the width (style.css puts the narrative note there too) */
+@media (max-width:900px){
+  #lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px);max-width:calc(100% - 32px)}
   #lifeRoot .onb-say{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 252px)}
-  /* the narrative note (style.css puts it under the compass on narrow screens): while an objective holds the place
-     under the bars, it sits above the how-to at the bottom instead */
-  #lifeRoot:has(> .onb-goal.on) .lf-note{top:auto;bottom:calc(var(--hud-pad) + 236px)}
+  /* while an objective holds the place under the bars, the narrative note goes down above the pockets, where it is
+     on a wide screen; the how-to above it steps up clear of it (firstday.js hintPlace) */
+  #lifeRoot:has(> .onb-goal.on) .lf-note{top:auto;bottom:calc(var(--hud-pad) + env(safe-area-inset-bottom,0px) + 104px)}
 }
 
-/* ---------- a how-to with the keys in it: above the inventory and the narrative note, below the use prompt ---------- */
-#lifeRoot .onb-hint{bottom:calc(var(--hud-pad) + 152px);max-width:min(640px,calc(100vw - 32px));font-family:var(--onb-font);line-height:1.4}
+/* ---------- a how-to with the keys in it: above the inventory and the narrative note, below the use prompt. As wide
+   as its words up to the screen's width (from the middle, it would otherwise wrap at half the screen) ---------- */
+#lifeRoot .onb-hint{bottom:calc(var(--hud-pad) + env(safe-area-inset-bottom,0px) + 152px);width:max-content;max-width:min(640px,calc(100vw - 32px));
+  font-family:var(--onb-font);line-height:1.4}
 .onb-hint kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:0 .4em;margin:0 .1em;border-radius:6px;background:#eef3f8;color:#0b1220;
   font:700 .85em/1 var(--onb-font);box-shadow:0 2px 0 #9aa8b6;vertical-align:.08em}
 /* stepped aside (firstday.js hintPlace): at the left edge, level with the use prompt, while the prompt reaches down to it */
 #lifeRoot .onb-hint.side{left:calc(var(--hud-pad) + env(safe-area-inset-left,0px));bottom:auto;top:calc(50% + 40px);transform:translate(-8px,0);
   max-width:min(360px,calc(50vw - 252px));text-align:left;font-size:.94rem}
 #lifeRoot .onb-hint.side.on{transform:none}
+/* the same on a screen too narrow to step aside: just under the use prompt, across the middle (firstday.js sets top) */
+#lifeRoot .onb-hint.under{bottom:auto;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;text-align:left;font-size:.9rem;line-height:1.32}
+#lifeRoot .onb-hint.under .oh-lines{gap:4px}
 .oh-lines{display:grid;gap:6px;text-align:left}
 .oh-lines span{display:block}
 

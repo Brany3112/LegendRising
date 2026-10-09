@@ -72,36 +72,80 @@ export function goal(text, at = null){
 // for the compass: where the objective is, and in which area
 window.lifeGoal = () => GOAL.text && GOAL.at ? GOAL.at : null;
 // a how-to with the keys in it, at the bottom of the screen; it stays until another replaces it or ms runs out
-const HINT = {html:"", t:0, fit:"", vh:0, top:0, side:false, pEl:null, pKey:""};
+const HINT = {html:"", t:0, base:"", top:0, mode:"", lift:"", pEl:null, nEl:null, pKey:""};
 // what a step's tick shows: it waits while a timed how-to from the step before is still up
 function tip(html){ if (HINT.t > 0 && html !== HINT.html) return; hint(html); }
 export function hint(html, ms = 0){
   const h = el("onbHint", "onb-hint");
   if (!html){ HINT.html = ""; h.classList.remove("on"); return; }
-  if (html !== HINT.html){ HINT.html = html; h.innerHTML = html; HINT.fit = ""; }
+  if (html !== HINT.html){ HINT.html = html; h.innerHTML = html; HINT.base = ""; }
   HINT.t = ms ? ms/1000 : 0;
   h.classList.add("on");
 }
-// the how-to sits above the pockets; when the use prompt grows down to it (a fridge item's numbers, the bed's plan),
-// it steps aside to the left edge, level with the prompt, so both read. Measured once per how-to in its own place,
-// and the prompt only when it changes (shown, hidden or its text), so a frame that also writes to the page (a line
-// typing in, the distance) is not made to lay the page out again just to find nothing has moved
+// the how-to sits above the pockets, and above a narrative note there when one is up. When the use prompt grows down
+// to it (a fridge item's numbers, the bed's plan), it steps aside to the left edge, level with the prompt, so both
+// read; a screen too narrow for that (a phone, a tablet held upright) puts it just under the prompt instead. Its own
+// place is measured once per how-to, screen size and note, and the prompt only when it changes (shown, hidden or its
+// text), so a frame that also writes to the page (a line typing in, the distance) is not made to lay the page out
+// again just to find nothing has moved
+const SIDE_ROOM = 240;     // the narrowest the stepped-aside how-to may be: onb.css .side is min(360px, 50vw - 252px)
+function hintMode(h, mode){
+  h.classList.toggle("side", mode === "side"); h.classList.toggle("under", mode === "under");
+  h.style.bottom = mode ? "" : HINT.lift;
+  h.style.top = "";
+}
 function hintPlace(){
   const h = document.getElementById("onbHint");
   if (!h || !HINT.html || !h.classList.contains("on")) return;
-  let fresh = false;
-  if (HINT.fit !== HINT.html || HINT.vh !== innerHeight){
-    h.classList.remove("side");
-    const r = h.getBoundingClientRect();
-    HINT.fit = HINT.html; HINT.vh = innerHeight; HINT.top = r.top - 10; HINT.side = false; fresh = true;
-  }
   if (!HINT.pEl || !HINT.pEl.isConnected) HINT.pEl = document.querySelector("#lifeRoot .lf-prompt");
-  const p = HINT.pEl, on = !!(p && p.classList.contains("on")), key = on ? p.textContent : "";
-  if (!fresh && key === HINT.pKey) return;
-  HINT.pKey = key;
-  const r = on ? p.getBoundingClientRect() : null;
-  const side = !!(r && r.height > 0 && r.bottom + 10 > HINT.top);
-  if (side !== HINT.side){ HINT.side = side; h.classList.toggle("side", side); }
+  if (!HINT.nEl || !HINT.nEl.isConnected) HINT.nEl = document.getElementById("lifeNote");
+  const p = HINT.pEl, n = HINT.nEl, nOn = !!(n && n.classList.contains("on"));
+  const base = `${HINT.html}|${innerWidth}x${innerHeight}|${nOn ? n.textContent : ""}`;
+  const pOn = !!(p && p.classList.contains("on")), pKey = pOn ? p.textContent : "";
+  if (base === HINT.base && pKey === HINT.pKey) return;
+  // offsetTop and offsetHeight are the laid-out place, before the fade-in slide, so a card still arriving reads right.
+  // With the transition held off while it is measured, stepping back to its own place and out again in one frame
+  // never shows as a slide
+  const was = h.style.transition; h.style.transition = "none";
+  if (base !== HINT.base){
+    HINT.base = base; HINT.lift = ""; HINT.mode = ""; hintMode(h, "");
+    if (nOn && n.offsetTop > h.offsetTop && h.offsetTop + h.offsetHeight + 8 > n.offsetTop){
+      HINT.lift = Math.round(h.offsetParent.clientHeight - n.offsetTop + 8) + "px"; h.style.bottom = HINT.lift;
+    }
+    HINT.top = h.offsetTop - 10;
+  }
+  HINT.pKey = pKey;
+  let mode = "";
+  if (pOn && p.offsetHeight > 0 && p.offsetTop + p.offsetHeight > HINT.top) mode = innerWidth/2 - 252 >= SIDE_ROOM ? "side" : "under";
+  if (mode !== HINT.mode || mode === "under"){ HINT.mode = mode; hintMode(h, mode); }
+  if (mode === "under") h.style.top = hintUnder(h, p) + "px";
+  void h.offsetTop; h.style.transition = was;
+}
+// where the how-to goes on a narrow screen while the use prompt reaches down to it: under the prompt if it fits above
+// the pockets, else over the crosshair if it fits under the objective and the line being said, else wherever it
+// covers the least
+function hintUnder(h, p){
+  const hh = h.offsetHeight, H = h.offsetParent ? h.offsetParent.clientHeight : innerHeight;
+  const inv = document.getElementById("lifeInv"), floor = (inv && inv.offsetHeight ? inv.offsetTop : H - 90) - 26;
+  let ceil = 0;
+  for (const id of ["onbGoal", "onbSay"]){ const e = document.getElementById(id); if (e && e.classList.contains("on")) ceil = Math.max(ceil, e.offsetTop + e.offsetHeight + 8); }
+  const below = Math.round(p.offsetTop + p.offsetHeight + 10), above = Math.round(H/2 - 26 - hh);
+  if (below + hh <= floor) return below;
+  if (above >= ceil) return above;
+  return below + hh - floor <= ceil - above ? below : above;
+}
+// a line being said sits under the objective: when the objective wraps onto more lines than its place allows (a long
+// one on a narrow screen), the line moves down with it. Measured only when the objective or the screen changes
+const SAYPOS = {key:""};
+function sayPlace(){
+  const b = document.getElementById("onbSay"); if (!b) return;
+  const g = document.getElementById("onbGoal"), gOn = !!(g && g.classList.contains("on"));
+  const key = `${gOn ? GOAL.shown : ""}|${innerWidth}x${innerHeight}`;
+  if (key === SAYPOS.key) return;
+  SAYPOS.key = key; b.style.top = "";
+  if (!gOn) return;
+  const under = g.offsetTop + g.offsetHeight + 8;
+  if (under > b.offsetTop) b.style.top = under + "px";
 }
 // a ring that pulses round a part of the HUD (an inventory cell, the compass)
 export function focus(sel){ RUN.focus = sel || null; }
@@ -203,6 +247,8 @@ const SESS = () => (typeof SESSION === "object" && SESSION ? SESSION : {start:60
 const busToTraining = from => typeof busMins === "function" ? busMins(from, "ground") : 40;
 // when the bus from here gets you to training for the start (9:20 from your street)
 export const busGateAt = (from = "home") => SESS().start - busToTraining(from);
+// is there team training today? (a weekend or a match day has none, so no gate and nothing about being on time)
+const trainingToday = () => typeof trainingDay === "function" ? !!trainingDay() : true;
 const NUM = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
 
 /* ---------- the steps (DESIGN 3.7.5) ----------
@@ -375,7 +421,8 @@ const STEPS = [
     },
     done:() => { const d = ballDrop(), b0 = OB().seen.ball0; return !!(d && b0 && !onYou("ball") && (b0.held || Math.hypot(d.x - b0.x, d.z - b0.z) >= 1)); },
     // (the spec's second sentence, "Walk into it and you'll push it along.", waits for the ball you can push, which
-    // WP-H2 builds on ball.js (DESIGN 3.8.1); said before that, it would tell you something the ball does not do)
+    // WP-H2 builds on ball.js (DESIGN 3.8.1) and then adds here, as its entry in DESIGN 2.4 says; said before that, it
+    // would tell you something the ball does not do)
     end(){ hint(null); speak("You", "There. You can pick it up and move it any time."); }},
 
   {id:"H18", zone:"home", objective:() => "Have a look around your street",
@@ -409,8 +456,9 @@ const STEPS = [
 
   // (from any stop: Line 14 runs to the training centre from Dumbrava too, so away from home the objective stays the same)
   {id:"H21", zone:"home", anyZone:true, objective:() => "Take the bus to the training centre", at:() => { const b = busStop(); return {x:b.x, z:b.z, zone:"home", outdoor:true}; },
-    start(){ if (LIFE.min < busGateAt("home")) speak("You", "Too early. Grab something from the Mini Market, or sit down and wait."); },
+    start(){ if (trainingToday() && LIFE.min < busGateAt("home")) speak("You", "Too early. Grab something from the Mini Market, or sit down and wait."); },
     tick(){
+      if (!trainingToday()) return;
       const m = LIFE.min, gate = busGateAt("home"), st = SESS().start;
       if (m >= gate && m < st && mark("gateSaid")) speak(UNCLE, `Training starts at ${time(st)}. You can head over now.`);
       if (m >= st && mark("lateSaid")) speak(UNCLE, `It's ${time(Math.floor(m))}. You're running late, but it's your first day. Head over now.`);
@@ -548,7 +596,7 @@ export function refuse(what){
 }
 // the training-centre bus before the ride would get you there for the start: shut, with when it opens
 export function busGate(from, to){
-  if (to !== "ground" || !active()) return null;
+  if (to !== "ground" || !active() || !trainingToday()) return null;
   const gate = busGateAt(from);
   return LIFE.min < gate ? `From ${time(gate)} today. The club wants you there at ${time(SESS().start)}.` : null;
 }
@@ -589,6 +637,7 @@ export function fdTick(dt){
   markerStep(dt);
   focusStep();
   hintPlace();
+  sayPlace();
 }
 // for tests and the HUD
 export const FD = {active, slow, refuse, busGate, busGateAt, currentId, STEP_IDS, onEvent, goal:() => GOAL.text, hint:() => HINT.html, saying, inFlat, said:() => SAID.slice()};
