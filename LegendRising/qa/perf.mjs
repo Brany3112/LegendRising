@@ -17,20 +17,23 @@
 // every view, where the load weighs on both alike. --gate-render gates them here too (a quiet machine). The CPU per
 // frame (the 3.9.8 gate: at most 10% over the baseline) swings the same way against a figure recorded on another day
 // (measured: town-road 1.31 and 1.15 of its recorded baseline in two runs, while wpA-ab had the same view's world step
-// at 0.67 of the I0 tree's side by side), so it is a note here too, gated side by side in wpA-ab ('a world step costs
-// at most 10% over the base tree's'), and here only with --gate-time or --gate-render. Calls, triangles, lights and
-// shadows always count; --report gates no time ratio whatever else is asked.
+// at 0.67 of the I0 tree's side by side). So the 3.9.8 CPU gate is measured here the fair way, by default: after the
+// probes, the Low views' world step is timed side by side with the I0 tree in one browser (qa/wpA-ab.mjs --only step,
+// lib.mjs sideBySide), and a view whose step costs more than 10% over the I0 tree's fails the run. The ratio against
+// the recorded figure is printed as a note, and gated as well only with --gate-time or --gate-render (a quiet
+// machine). Calls, triangles, lights and shadows always count; --report gates no time ratio whatever else is asked.
 //
 //   QA_PORT=8772 node qa/perf.mjs                        every life view on Low, the lobby on High
 //   node qa/perf.mjs --views bedroom,street --tiers low --frames 40 --warm 20
-//   node qa/perf.mjs --gate-render                       the render and CPU ratios gated as well (a quiet machine)
-//   node qa/perf.mjs --gate-time                         the CPU ratio gated as well
-//   node qa/perf.mjs --report                            no time ratio gated
+//   node qa/perf.mjs --gate-render                       the render and recorded CPU ratios gated as well (a quiet machine)
+//   node qa/perf.mjs --gate-time                         the recorded CPU ratio gated as well
+//   node qa/perf.mjs --report                            no time ratio gated (and no side-by-side step)
 //
 // Writes qa/out/perf.json.
 import fs from "node:fs";
 import path from "node:path";
-import {launch, report, ROOT} from "./lib.mjs";
+import {spawnSync} from "node:child_process";
+import {launch, report, ROOT, OUT} from "./lib.mjs";
 
 const a = process.argv.slice(2), opt = (k, d) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : d; };
 const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "perf-baseline.json"), "utf8"));
@@ -104,13 +107,25 @@ for (const tier of TIERS){
         // (the gate for the camera rays is the 60 m walk, side by side with the base tree: qa/wpA-ab.mjs)
         check(`low ${view}: 1000 collision rays from the view's eye against the baseline`, true, {ratio: rc, us: r.castUs, baseline: bl.castUs}, true);
         const rs = +(r.ms.step.median/bl.stepMs.median).toFixed(3);
-        check(`low ${view}: CPU per frame (step) not over the baseline by more than 10%`, rs <= 1.1, {ratio: rs, ms: r.ms.step.median, baseline: bl.stepMs.median}, !GATE_TIME);
+        check(`low ${view}: CPU per frame (step) against the recorded baseline (the gate is side by side, below)`, rs <= 1.1, {ratio: rs, ms: r.ms.step.median, baseline: bl.stepMs.median}, !GATE_TIME);
       }
     }
     if (tier === "high" && view === "lobby"){
       check("high lobby: within 90 draw calls", r.calls <= 90, r.calls);
       check("high lobby: within 120k triangles", r.tris <= 120e3, r.tris);
     }
+  }
+}
+// the 3.9.8 CPU gate: each Low view's world step against the I0 tree's, side by side in one browser (qa/wpA-ab.mjs)
+if (!a.includes("--report") && TIERS.includes("low")){
+  const views = VIEWS.filter(v => BASE.tiers.low[v]);
+  const r = spawnSync(process.execPath, [path.join(ROOT, "qa", "wpA-ab.mjs"), "--views", views.join(","), "--only", "step", "--rounds", opt("--step-rounds", "6"), "--report", "perf-step"],
+    {cwd: ROOT, env: process.env, encoding: "utf8", timeout: 60*60*1000});
+  let ab = null; try { ab = JSON.parse(fs.readFileSync(path.join(OUT, "perf-step.json"), "utf8")); } catch(e){}
+  if (!ab || r.status == null) check("low: the world step side by side with the I0 tree ran", false, (r.stderr || r.stdout || "").slice(-400));
+  else for (const v of views){
+    const x = ab.views[v];
+    check(`low ${v}: CPU per frame (world step) at most 10% over the I0 tree's, side by side (3.9.8)`, !!x && x.stepRatio <= 1.1, x ? {ratio: x.stepRatio, ms: x.stepNew, base: x.stepBase} : "not measured");
   }
 }
 report("perf", out);

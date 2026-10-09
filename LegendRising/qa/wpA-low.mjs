@@ -5,7 +5,8 @@
 //              at noon (visible false) and are at night; the sky is drawn last (renderOrder above every other object)
 //   walking    20 m along your street at noon: no shadow redraw at all; the scripted 60 m walk (qa/record-perf.mjs WALK):
 //              no frame over 25 ms (p99), and at most 12 collision rays in any frame out in the open, with at most 30
-//              boxes tested per ray
+//              boxes tested per ray in every frame (not only on average); indoors (the bedroom and the lobby, walking,
+//              turning, backing into corners and along the walls) at most 35 rays and 30 boxes a ray in any frame
 //   memory     heap growth under 10 MB over home, ground, town and home again (garbage collected before each reading)
 //   High       the shadow scheduler: walking 20 m redraws the shadows at most as often as the preset allows (5 a second)
 //
@@ -71,7 +72,39 @@ const walkIn = (n) => (async (n) => {
     out.walk60 = w60;
     check("low: the 60 m walk has no frame over 25 ms (p99)", w60.stepMs.p99 <= 25, w60.stepMs);
     check("low: at most 12 collision rays a frame in the open (every frame of the walk)", w60.raysPerFrame.max <= 12, w60.raysPerFrame);
-    check("low: at most 30 boxes tested per ray", w60.testsPerRay <= 30, {mean: w60.testsPerRay, worstFrame: w60.maxTestsPerRay});
+    check("low: at most 30 boxes tested per ray, in every frame of the walk", w60.testsPerRay <= 30 && +w60.maxTestsPerRay <= 30, {mean: w60.testsPerRay, worstFrame: w60.maxTestsPerRay});
+    // indoors: walking and turning in the bedroom, along and into the lobby's walls, backing into corners (1.5.11)
+    const inside = await page.evaluate(async () => {
+      const C = await import("./js/life/core/collide.js"), L = __life, ST = C.SGSTAT, out = {};
+      const walk = (name, at, steps, plan) => {
+        L.enterZone("home", typeof at === "string" ? at : "bus"); if (typeof at === "object") L.place(at);
+        for (let i = 0; i < 30; i++) L.stepN(1);
+        let maxR = 0, maxT = 0, rays = 0, tests = 0;
+        for (let i = 0; i < steps; i++){
+          const k = plan(i);
+          for (const kk of ["w", "a", "s", "d", "shift"]) L.keys[kk] = !!k[kk];
+          if (k.yaw != null) L.P.yaw += k.yaw;
+          if (k.pitch != null) L.P.pitch = k.pitch;
+          const r0 = ST.rays, t0 = ST.tests;
+          L.stepN(1);
+          const dr = ST.rays - r0, dt = ST.tests - t0;
+          rays += dr; tests += dt; if (dr > maxR) maxR = dr; if (dr) maxT = Math.max(maxT, dt/dr);
+        }
+        for (const kk of ["w", "a", "s", "d", "shift"]) L.keys[kk] = false;
+        out[name] = {maxRays: maxR, testsPerRay: rays ? +(tests/rays).toFixed(2) : 0, maxTestsPerRay: +maxT.toFixed(1)};
+      };
+      walk("bedroom-turn", "bed", 240, i => ({yaw: .05, pitch: Math.sin(i/20)*.4}));
+      walk("bedroom-walk", "bed", 300, i => ({w: true, yaw: i % 60 < 30 ? .04 : -.04}));
+      walk("bedroom-corner", "bed", 400, i => ({s: true, a: i % 100 < 50, d: i % 100 >= 50, yaw: .05, pitch: Math.sin(i/25)*.8}));
+      walk("lobby", {x: -9.5, z: -1, y: .12, yaw: Math.PI}, 300, i => ({w: i % 90 < 70, a: i % 120 > 100, yaw: .03}));
+      walk("lobby-wallhug", {x: -9.5, z: -1, y: .12, yaw: Math.PI/2}, 400, i => ({w: i % 120 < 90, d: true, yaw: i % 80 < 40 ? .03 : -.03, pitch: Math.sin(i/30)*.6}));
+      walk("stairs-area", {x: -9.5, z: -1, y: .12, yaw: 0}, 300, i => ({w: true, shift: i > 150, yaw: i % 100 < 50 ? .05 : -.05}));
+      return out;
+    });
+    out.inside = inside;
+    const worst = Object.values(inside).reduce((m, x) => ({rays: Math.max(m.rays, x.maxRays), tests: Math.max(m.tests, x.maxTestsPerRay)}), {rays: 0, tests: 0});
+    check("low indoors: at most 35 collision rays in any frame", worst.rays <= 35, inside);
+    check("low indoors: at most 30 boxes tested per ray in any frame", worst.tests <= 30, worst);
     // memory over three zone changes
     const cdp = await page.context().newCDPSession(page);
     const heap = async () => { await cdp.send("HeapProfiler.collectGarbage"); await cdp.send("HeapProfiler.collectGarbage"); return (await cdp.send("Runtime.getHeapUsage")).usedSize; };

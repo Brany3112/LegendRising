@@ -45,10 +45,8 @@ export const TAC = Object.freeze({
   FWD_ON: 0.5,                        // a forward in his own half presses (outside the counter-press) only a ball this close (s)
   CAM_PRESS: 0.42,                    // the ten presses a ball this far up the pitch (share of the length from his goal) or more
   FLANK: 12,                          // a wide midfielder in his own half presses a ball this far (m) or more out on his side
-  ME_PRESS: 20,                       // the harness's stand-in for the player at centre forward, this long (s) out of the
+  ME_PRESS: 20                        // the harness's stand-in for the player at centre forward, this long (s) out of the
                                       // play: he presses wherever the ball is, as a striker looking for it does
-  ME_EAGER: Object.freeze({CM: 0.04})  // and in central midfield he goes to the ball first: this much (s) is taken off his
-                                      // time to it when the presser is chosen (a midfielder who wins it back)
 });
 
 // A club's style from its name (3.2.2): line -6..6 m, press -1..1, width -4..4 m, directness 0.35..0.65. Frozen at
@@ -190,7 +188,7 @@ export function assignDefence(ms, team){
     // a man goal side of the ball engages it face on; one caught upfield of it has to chase it from behind (where fouls
     // and missed tackles come from), so the man goal side goes unless the other is clearly nearer
     const upfield = dir*m.x + L/2 - bu;
-    const t = d/(a.prm.sprint*0.9) + 0.15 + (upfield > 1 ? TAC.BEHIND*Math.min(1, upfield/6) : 0) - (a.isMe && ms.meAI ? TAC.ME_EAGER[a.arch] || 0 : 0);
+    const t = d/(a.prm.sprint*0.9) + 0.15 + (upfield > 1 ? TAC.BEHIND*Math.min(1, upfield/6) : 0);
     // the forwards close the ball down in the opponents' half and on a turnover (the counter-press); in their own half
     // they hold their places for the counter and leave the ball to the midfield and the defence, unless it is right on
     // them (a wide midfielder tracks back on his own flank: a ball out on his side he presses); the ten drops in to press

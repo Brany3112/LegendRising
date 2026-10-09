@@ -120,11 +120,14 @@ class Geo {
     if (nx*nx + ny*ny + nz*nz < 1e-15) return;
     if (out && nx*out[0] + ny*out[1] + nz*out[2] < 0){ const t = b; b = c; c = t; const q = sb; sb = sc; sc = q; }
     this.tn.push(this.fn);                                 // a decal's facet normal (null: its own)
-    for (const [v, s] of [[a, sa], [b, sb], [c, sc]]){
-      this.p.push(v[0], v[1], v[2]); this.sl.push(slot); this.sh.push(s);
-      const w = v[3] || ROOTW; this.bi.push(w[0], w[2], 0, 0); this.bw.push(w[1], w[3], 0, 0);
-    }
+    // (the three corners one by one: no little arrays made for every triangle, which a squad built ahead in slices
+    // would leave to the collector by the hundred thousand)
+    this.vert(a, slot, sa); this.vert(b, slot, sb); this.vert(c, slot, sc);
     if (this.hit) this.hit.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  }
+  vert(v, slot, s){
+    this.p.push(v[0], v[1], v[2]); this.sl.push(slot); this.sh.push(s);
+    const w = v[3] || ROOTW; this.bi.push(w[0], w[2], 0, 0); this.bw.push(w[1], w[3], 0, 0);
   }
   quad(a, b, c, d, slot, sh = 1, out = null){ this.tri(a, b, c, slot, sh, sh, sh, out); this.tri(a, c, d, slot, sh, sh, sh, out); }
 }
@@ -380,6 +383,7 @@ function* buildSteps(look, det, noHead){
   const botOff = {kitshorts:.011, shorts:.011, trousers:.009, jeans:.008, trackpants:.012}[g.legwear] || .01;
   const shorts = g.legwear === "kitshorts" || g.legwear === "shorts";
   D.thighCloth = shorts ? botOff + .016 : botOff + .002;          // how far the cloth stands off the top of the thigh
+  D.arC = new Map();          // (gait.js ankleAt's cache, made with the rest: every body's D the same shape for the engine)
   const jacketish = g.top === "jacket" || g.top === "suit";
   /* torso: pelvis → waist → chest → shoulders → neck */
   const {hp, wa, ch, sh, belly, bust, mus, nk} = D;
@@ -436,8 +440,8 @@ function* buildSteps(look, det, noHead){
 
   yield;
   /* arms */
-  for (const s of [1, -1]){
-    const [U, Fa, Hd] = ARM(s), x = s*D.shX, y0 = D.shY, a = D.arm, eY = y0 - D.elbowL, wY = eY - D.foreL;
+  for (let s = 1; s >= -1; s -= 2){
+    const _d12 = ARM(s), U = _d12[0], Fa = _d12[1], Hd = _d12[2], x = s*D.shX, y0 = D.shY, a = D.arm, eY = y0 - D.elbowL, wY = eY - D.foreL;
     const st = (y, rx, rf, rb, dx, w, dz = 0) => ({y, rx, rf, rb, x:x + s*dx, z:-.005 + dz, w});
     let ast = [
       st(y0 + .016, .018, .022, .021, -.018, wt(C, .55, U, .45)),
@@ -490,8 +494,8 @@ function* buildSteps(look, det, noHead){
 
   yield;
   /* legs */
-  for (const s of [1, -1]){
-    const [TH, SH, FT] = LEG(s), x = s*D.hipX, l = D.leg;
+  for (let s = 1; s >= -1; s -= 2){
+    const _d13 = LEG(s), TH = _d13[0], SH = _d13[1], FT = _d13[2], x = s*D.hipX, l = D.leg;
     const st = (y, rx, rf, rb, dx, dz, w) => ({y, rx:rx*l, rf:rf*l, rb:rb*l, x:x + s*dx, z:dz, w});
     let lst = [
       st(.8, .079, .08, .086, -.005, -.002, wt(TH, .65, H, .35)),
@@ -605,14 +609,17 @@ function* buildSteps(look, det, noHead){
     R.unshift(ring([0, .95, 0], [1, 0, 0], [0, 0, 1], ell(.162*hp + topOff + .002, .096 + topOff + .002, .108 + topOff + .002), n, wt(B.hips), {s:S.top}));
     loft(G, R, {sf:(i, k, r) => k === 0 || k === n - 1 ? -1 : r.s});                    // open down the front: the trousers show between its edges
   }
+  yield;                                                 // (the decals below each lay rays over the shirt: stages of their own)
   /* things printed or sewn on the front and back. The ones that make big blocks of colour (an open front, a V neck,
      a tie, lapels) go on the far body too, so nothing changes colour when it takes over; the small ones only up close */
   if (g.collar === "v" && !noHead){
     decal(G, torsoHit, [[[-.045, 1.505], [.045, 1.505], [0, 1.43]]], 1, .004, S.skin, wTorso);
     decal(G, torsoHit, [...stroke([[-.05, 1.51], [0, 1.425], [.05, 1.51]], .014)], 1, .005, S.trim, wTorso);
   }
+  if (g.tie && !jacketish) yield;
   if (g.tie && !jacketish) decal(G, torsoHit, [...fan([[-.009, 1.495], [.009, 1.495], [.006, 1.47], [-.006, 1.47]]), ...fan([[-.008, 1.47], [.008, 1.47], [.02, 1.19], [0, 1.165], [-.02, 1.19]])], 1, .006, S.tie, wTorso);
   if (jacketish){
+    yield;
     const vb = g.top === "suit" ? 1.24 : .9;
     // the open front in two halves split down the middle, where the chest has a crease
     decal(G, torsoHit, [[[-.075, 1.5], [0, 1.5], [0, vb]], [[0, 1.5], [.075, 1.5], [0, vb]]], 1, .004, S.inner, wTorso);
@@ -621,20 +628,24 @@ function* buildSteps(look, det, noHead){
     if (g.top === "suit" && near) for (const y of [1.2, 1.1]) decal(G, torsoHit, fan([0, 1, 2, 3, 4].map(k => [Math.cos(k/5*TAU)*.007, y + Math.sin(k/5*TAU)*.007])), 1, .005, S.dark, wTorso);
   }
   // (the crest on the far body too: a patch of colour that would otherwise blink out at the switch)
+  if (g.crest) yield;
   if (g.crest) decal(G, torsoHit, fan([[.06, 1.385], [.09, 1.385], [.09, 1.36], [.075, 1.345], [.06, 1.36]]), 1, near ? .004 : .007, S.trim, wTorso);
   if (near){
+    yield;
     if (g.zip) decal(G, torsoHit, stroke([[0, 1.5], [0, hem + .05]], .007), 1, .004, S.trim, wTorso);
-    if (g.placket){ const bot = g.collar === "polo" ? 1.38 : g.tuck ? 1.05 : 1.0; decal(G, torsoHit, stroke([[0, 1.5], [0, bot]], .016), 1, .003, S.trim, wTorso);
+    if (g.placket){ yield; const bot = g.collar === "polo" ? 1.38 : g.tuck ? 1.05 : 1.0; decal(G, torsoHit, stroke([[0, 1.5], [0, bot]], .016), 1, .003, S.trim, wTorso);
       for (let y = 1.46; y > bot + .02; y -= .075) decal(G, torsoHit, fan([0, 1, 2, 3, 4].map(k => [Math.cos(k/5*TAU)*.0045, y + Math.sin(k/5*TAU)*.0045])), 1, .0045, S.dark, wTorso); }
     if (g.hood){
+      yield;
       decal(G, torsoHit, [...stroke([[-.03, 1.49], [-.032, 1.37]], .007), ...stroke([[.03, 1.49], [.032, 1.37]], .007)], 1, .005, S.trim, wTorso);
       decal(G, torsoHit, fan([[-.1, 1.15], [.1, 1.15], [.115, 1.0], [-.115, 1.0]]), 1, .005, S.top, wTorso, .8);
     }
+    if (g.belt || g.tuck) yield;
     if (g.belt || g.tuck) decal(G, torsoHit, fan([[-.016, 1.03], [.016, 1.03], [.016, 1.005], [-.016, 1.005]]), 1, .006, S.metal, wTorso);
   }
   /* props */
   if ((look.props || []).includes("clipboard")){
-    const s = 1, [, , Hd] = ARM(s), hx = s*D.shX, hy = D.shY - D.elbowL - D.foreL;
+    const s = 1, _d14 = ARM(s), Hd = _d14[2], hx = s*D.shX, hy = D.shY - D.elbowL - D.foreL;
     const T = norm([0, -.45, 1]), X = [1, 0, 0], N = cross(X, T);   // board plane in the hand's own frame (rest pose)
     const c = [hx - s*.1, hy - .06, -.005 + .09], hw = wt(Hd);
     boxG(G, c, [.115, 0, 0], T.map(v => v*.155), N.map(v => v*.006), S.prop, hw);
@@ -672,7 +683,7 @@ function* buildSteps(look, det, noHead){
 
 /* shoes: a lofted last with a sole you can see, a toe, a heel, a stripe, and studs on football boots */
 function shoe(G, D, s, g, near){
-  const [, , FT, TO] = LEG(s), lx = s*D.hipX, type = g.footwear, boot = type === "boots", dress = type === "dress";
+  const _d15 = LEG(s), FT = _d15[2], TO = _d15[3], lx = s*D.hipX, type = g.footwear, boot = type === "boots", dress = type === "dress";
   const sole = boot ? .011 : dress ? .012 : .024, lift = boot ? .008 : 0, Wm = boot ? .94 : dress ? .96 : 1.06, Lm = dress ? 1.05 : 1;
   // [z, half width, height]: a heel counter and an instep that rise to the ankle collar, tapering down to a low toe
   const sta = [[-.074, .027, .05], [-.062, .036, .066], [-.032, .041, .074], [.018, .044, .07], [.065, .046, .054], [.11, .045, .038], [.152, .039, .027], [.186, .027, .018]];
@@ -717,7 +728,7 @@ function* face(G, D, F, look, hit, hf, lite = false){
   const poly = (pts, lift, slot, sh = 1, out = [0, 0, 1]) => { const P = pts.map(p => onF(p[0], p[1], lift)); if (P.some(p => !p)) return; const c = P.reduce((s, p) => [s[0] + p[0]/P.length, s[1] + p[1]/P.length, s[2] + p[2]/P.length], [0, 0, 0]); c.push(HEADW);
     for (let i = 0; i < P.length; i++) G.tri(c, P[i], P[(i + 1) % P.length], slot, sh, sh, sh, out); };
   const beardLift = look.beard === "full" ? .013 : look.beard === "beard" || look.beard === "goatee" ? .008 : 0;
-  for (const s of [1, -1]){
+  for (let s = 1; s >= -1; s -= 2){
     const ex = s*es, ey = .004;
     const white = [], iris = [], lid = [];
     const nw = lite ? 6 : 8, ni = lite ? 5 : 7;
@@ -769,14 +780,14 @@ function glasses(G, D, F, hit, outer){
   const onF = (x, y) => { const t = ray(hit, [hc[0] + x*hs, hc[1] + y*hs, 2], [0, 0, -1]); return t < 0 ? null : 2 - t; };
   const sideAt = (s, y, z) => { const t = ray(outer, [hc[0] + s*.3, y, z], [-s, 0, 0]); return t < 0 ? null : hc[0] + s*.3 - s*t; };
   const gy = .005, hw = .0235, hh = .0145, lw = .0034, rim = [];
-  for (const s of [1, -1]) for (let k = 0; k <= 14; k++){ const a = k/14*TAU, c = Math.cos(a), q = Math.sin(a);
+  for (let s = 1; s >= -1; s -= 2) for (let k = 0; k <= 14; k++){ const a = k/14*TAU, c = Math.cos(a), q = Math.sin(a);
     rim.push([s*es + Math.sign(c)*Math.pow(Math.abs(c), .55)*hw, gy + Math.sign(q)*Math.pow(Math.abs(q), .55)*hh, s]); }
   let zp = -1; for (const [x, y] of [...rim, [0, gy + .006]]){ const q = onF(x, y); if (q != null) zp = Math.max(zp, q); }
   if (zp < 0) return;
   zp += .006;
   const P3 = ([x, y]) => [hc[0] + x*hs, hc[1] + y*hs, zp, HEADW];
   const flat = (tris, z = zp, n = 1) => { for (const [a, b, c] of tris){ const A = P3(a), Bq = P3(b), Cq = P3(c); A[2] = Bq[2] = Cq[2] = z; G.tri(A, Bq, Cq, S.dark, 1, 1, 1, [0, 0, n]); } };
-  for (const s of [1, -1]){
+  for (let s = 1; s >= -1; s -= 2){
     const loop = rim.filter(p => p[2] === s).map(p => [p[0], p[1]]);
     flat(stroke(loop, lw)); flat(stroke(loop, lw), zp - .0025, -1);      // a rim with a back to it
     // where the ear joins the head (as face() puts it): the arm comes to rest on top of that root
@@ -1158,7 +1169,7 @@ export function human(look = {}, opts = {}){
     rest:RO.V, restA:RO.A, inz:{on:false, t:0, w:1, x:new Float64Array(63), v:new Float64Array(63)}, upper:{w:0, g:null, st:null},
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, locks:[null, null], feetTmp:[null, null],
     bw:1, mode:"", at:0, t:r()*100, acc:0, accL:0, dtPrev:0, posed:0, sinceF:0, hid:false, gw:0, lod:1, seed:r(),
-    stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1, stag:HID % 6, groundAt:null};
+    stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1, stag:HID % 6, groundAt:null, stx:null, blendNext:0};
   h.sinceF = h.stag;
   for (let i = 0; i < 20; i++) h.pose[i*4 + 3] = h.posePrev[i*4 + 3] = 1;
   g.scale.setScalar(h.scale); g.userData.human = h;
@@ -1222,8 +1233,8 @@ function lod3Build(look){
   band(R(1.6, .08*D.hs, .09*D.hs, wt(HD), .01), R(1.71, .085*D.hs, .095*D.hs, wt(HD), .005), 6, S.skin);
   band(R(1.71, .085*D.hs, .095*D.hs, wt(HD), .005), R(1.795, .03, .035, wt(HD), -.005), 6, bald ? S.skin : S.hair, 1, false, true);
   // arms: the shoulder, the elbow, the wrist, the fingertips
-  for (const s of [1, -1]){
-    const [U, Fa, Hd] = ARM(s), x = s*D.shX, y0 = D.shY, eY = y0 - D.elbowL, wY = eY - D.foreL, a = D.arm;
+  for (let s = 1; s >= -1; s -= 2){
+    const _d16 = ARM(s), U = _d16[0], Fa = _d16[1], Hd = _d16[2], x = s*D.shX, y0 = D.shY, eY = y0 - D.elbowL, wY = eY - D.foreL, a = D.arm;
     const r = (y, rr, w) => [x, y, -.005, rr*a, rr*a, w];
     const longS = g.sleeves === "long";
     band(r(y0, .05, wt(C, .5, U, .5)), r(eY, .04, wt(U, .5, Fa, .5)), 4, longS || g.top !== "kit" ? topS : topS);
@@ -1231,8 +1242,8 @@ function lod3Build(look){
     band(r(wY, .03, wt(Fa, .5, Hd, .5)), r(wY - .15, .02, wt(Hd)), 4, g.gloves ? S.glove : S.skin, 1, false, true);
   }
   // legs: the hip, the hem, the knee, the ankle; the shoe a box on the foot
-  for (const s of [1, -1]){
-    const [T0, SH0, FT, TO] = LEG(s), x = s*D.hipX, l = D.leg;
+  for (let s = 1; s >= -1; s -= 2){
+    const _d17 = LEG(s), T0 = _d17[0], SH0 = _d17[1], FT = _d17[2], TO = _d17[3], x = s*D.hipX, l = D.leg;
     const r = (y, rr, w) => [x, y, 0, rr*l, rr*l, w];
     const hem = shorts ? (g.legwear === "kitshorts" ? .7 : .6) : .1;
     band(r(D.hipY, .08, wt(H, .5, T0, .5)), r(Math.max(hem, .52), .065, wt(T0)), 4, botS);
@@ -1387,15 +1398,15 @@ function idle(h, T, st, legs = true, look0 = null){
   R3(T, B.chest, .01 - .01*br + old*.04, 0, .01*w);
   const look = look0 != null ? look0 : st.look != null ? st.look : .3*Math.sin(t*.11 + sd*3) + .2*Math.sin(t*.29 + sd);
   R3(T, B.neck, -.02 - old*.05, look*.45, 0); R3(T, B.head, .03*Math.sin(t*.23 + sd), look*.55, .02*Math.sin(t*.19));
-  for (const s of [1, -1]){
-    const [ua, fa, hd] = ARM(s);
+  for (let s = 1; s >= -1; s -= 2){
+    const _d18 = ARM(s), ua = _d18[0], fa = _d18[1], hd = _d18[2];
     R3(T, ua, .04 + .02*Math.sin(t*.5 + s + sd) - .03*h.arm, 0, s*(.11 + .02*h.arm)); R3(T, fa, -.16 - .06*h.arm, -s*.2, 0); R3(T, hd, .08, 0, -s*.04);
   }
-  if (legs) for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0);
+  if (legs) for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0);
   const arms = st.arms;
-  if (arms === "hips") for (const s of [1, -1]) armIK(h, T, s, s*.205, 1.0, .02, -s*.6, -.3, [1, -.2, -.25]);
+  if (arms === "hips") for (let s = 1; s >= -1; s -= 2) armIK(h, T, s, s*.205, 1.0, .02, -s*.6, -.3, [1, -.2, -.25]);
   // hands clasped on the small of the back, elbows out behind
-  else if (arms === "behind") for (const s of [1, -1]) armIK(h, T, s, s*.045, 1.02, -.17 - .012*D.belly, -s*1.3, .25, [.8, -.2, -.6]);
+  else if (arms === "behind") for (let s = 1; s >= -1; s -= 2) armIK(h, T, s, s*.045, 1.02, -.17 - .012*D.belly, -s*1.3, .25, [.8, -.2, -.6]);
   // arms crossed: each forearm lies across the chest and the hand tucks in by the other elbow
   else if (arms === "folded"){
     const z = .17 + .01*(D.belly + D.bust);
@@ -1411,11 +1422,11 @@ function loco(h, T, st, dt = 0){
   gaitPose(h, T, st, st.fac || null, dt);
   // standing still or moving: eased (a body that stops hard settles its arms and back over a few tenths of a second)
   const s0 = 1 - sstep(.1, .9, G.vs/h.scale);
-  G.still = G.still == null || !(dt > 0) ? s0 : G.still + (s0 - G.still)*(1 - Math.exp(-(s0 > G.still ? 6 : 10)*dt));
+  G.still = G.still !== G.still || !(dt > 0) ? s0 : G.still + (s0 - G.still)*(1 - Math.exp(-(s0 > G.still ? 6 : 10)*dt));
   const still = G.still;
   if (still > 1e-3){
     idle(h, _A, st, false);
-    for (const k of IDLE_MIX) T[k] = lerp(T[k], _A[k], still);
+    for (let i = 0; i < IDLE_MIX.length; i++){ const k = IDLE_MIX[i]; T[k] = lerp(T[k], _A[k], still); }
     T[61] = (_A[61] + .004)*still;
   } else T[61] = 0;
   if (st.look != null && still < 1){ const k = 1 - still; T[B.neck*3 + 1] += st.look*.45*k; T[B.head*3 + 1] += st.look*.55*k; }
@@ -1473,8 +1484,8 @@ function header(h, T, st){
   R3(T, B.chest, kf(t, [[0, 0], [.42, -.15], [.52, .2], [1, 0]]));
   R3(T, B.neck, kf(t, [[0, 0], [.42, -.3], [.52, .35], [1, 0]])); R3(T, B.head, kf(t, [[0, 0], [.42, -.2], [.52, .2], [1, 0]]));
   const fy = Math.max(0, up - .02)*kf(t, [[0, 0], [.3, .8], [.6, .8], [.8, 0], [1, 0]]);
-  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .02), D.ankY + fy + (t > .3 && t < .7 ? .12*Math.sin((t - .3)/.4*Math.PI) : 0), s > 0 ? .03 : -.06, t > .25 && t < .75 ? .5 : 0);
-  for (const s of [1, -1]){ const [ua, fa] = ARM(s); R3(T, ua, kf(t, [[0, .1], [.2, .7], [.42, -1.6], [.55, -.9], [1, .05]]), 0, s*kf(t, [[0, .12], [.42, .7], [.6, .5], [1, .12]])); R3(T, fa, kf(t, [[0, -.2], [.42, -.9], [1, -.2]])); }
+  for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + .02), D.ankY + fy + (t > .3 && t < .7 ? .12*Math.sin((t - .3)/.4*Math.PI) : 0), s > 0 ? .03 : -.06, t > .25 && t < .75 ? .5 : 0);
+  for (let s = 1; s >= -1; s -= 2){ const _d19 = ARM(s), ua = _d19[0], fa = _d19[1]; R3(T, ua, kf(t, [[0, .1], [.2, .7], [.42, -1.6], [.55, -.9], [1, .05]]), 0, s*kf(t, [[0, .12], [.42, .7], [.6, .5], [1, .12]])); R3(T, fa, kf(t, [[0, -.2], [.42, -.9], [1, -.2]])); }
 }
 function tackle(h, T, st){
   const t = st.t != null ? st.t : Math.min(1, h.at/1.2), k = kf(t, [[0, 0], [.18, 1], [.8, 1], [1, .9]]);
@@ -1482,7 +1493,7 @@ function tackle(h, T, st){
   T[61] = -.7*k; T[62] = .05*k; T[60] = .03*k; h.gw = sstep(.3, .9, k);
   R3(T, B.hips, -.5*k, .2*k, -.35*k);
   R3(T, B.spine, .14*k, -.15*k, .2*k); R3(T, B.chest, .06*k, -.1*k, .1*k); R3(T, B.neck, .15*k, 0, .1*k); R3(T, B.head, .2*k, 0, .05*k);
-  const [tR, sR, fR, oR] = LEG(-1), [tL, sL, fL, oL] = LEG(1);
+  const _d20 = LEG(-1), tR = _d20[0], sR = _d20[1], fR = _d20[2], oR = _d20[3], _d21 = LEG(1), tL = _d21[0], sL = _d21[1], fL = _d21[2], oL = _d21[3];
   // the sliding leg straight out along the grass, studs to the ball
   R3(T, tR, lerp(0, -1.1, k), 0, lerp(0, .06, k)); R3(T, sR, lerp(.1, .12, k)); R3(T, fR, lerp(0, -.25, k)); R3(T, oR, 0);
   // the trailing leg turned out at the hip so the knee folds sideways: the shin tucks across under the other one
@@ -1494,8 +1505,8 @@ function gkReady(h, T, st){
   const D = h.D, t = h.t, b = Math.sin(t*6.5)*.012;
   T[61] = -.13 + b; T[60] = 0; T[62] = 0;
   R3(T, B.hips, .2, 0, 0); R3(T, B.spine, .22); R3(T, B.chest, .08); R3(T, B.neck, -.25); R3(T, B.head, -.15);
-  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .1), D.ankY + Math.max(0, b)*.5, .02, .1);
-  for (const s of [1, -1]) armIK(h, T, s, s*.3, 1.02, .34, s*1.25, -.5);
+  for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + .1), D.ankY + Math.max(0, b)*.5, .02, .1);
+  for (let s = 1; s >= -1; s -= 2) armIK(h, T, s, s*.3, 1.02, .34, s*1.25, -.5);
 }
 function dive(h, T, st){
   const t = st.t != null ? st.t : Math.min(1, h.at/1.3), dir = st.dir || 1, D = h.D;
@@ -1503,20 +1514,20 @@ function dive(h, T, st){
   T[60] = dir*1.05*side; T[61] = -.12*(1 - side) + .3*air - .52*sstep(.55, .8, t); T[62] = .05*side; h.gw = sstep(.58, .82, t);   // lands and lies on his side
   R3(T, B.hips, .1, 0, -dir*roll);
   R3(T, B.spine, .1*(1 - side), 0, -dir*.15*side); R3(T, B.chest, 0, dir*.15*side, -dir*.1*side); R3(T, B.neck, 0, 0, dir*.25*side); R3(T, B.head, -.1*side, 0, dir*.2*side);
-  for (const s of [1, -1]){
-    const [ua, fa, hd] = ARM(s), lead = s === dir;
+  for (let s = 1; s >= -1; s -= 2){
+    const _d22 = ARM(s), ua = _d22[0], fa = _d22[1], hd = _d22[2], lead = s === dir;
     R3(T, ua, lerp(-.7, lead ? -2.7 : -2.9, side), 0, s*lerp(.35, lead ? .15 : -.1, side)); R3(T, fa, lerp(-.7, -.15, side), s*1.2, 0); R3(T, hd, -.3);
-    const [th, sh, ft, to] = LEG(s);
+    const _d23 = LEG(s), th = _d23[0], sh = _d23[1], ft = _d23[2], to = _d23[3];
     R3(T, th, lerp(-.15, lead ? -.35 : .15, side), 0, s*lerp(.05, lead ? .25 : .05, side)); R3(T, sh, lerp(.6, lead ? .9 : .25, side)); R3(T, ft, .3); R3(T, to, 0);
   }
-  if (t < .15) for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .1), D.ankY, .02, .1);
+  if (t < .15) for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + .1), D.ankY, .02, .1);
 }
 function celebrate(h, T, st){
   const t = h.at, D = h.D, hop = Math.abs(Math.sin(t*5.2)), up = .08*hop;
   T[61] = -.05 + up; T[60] = 0; T[62] = 0;
   R3(T, B.hips, -.05); R3(T, B.spine, -.15); R3(T, B.chest, -.1); R3(T, B.neck, -.15); R3(T, B.head, -.2, .2*Math.sin(t*1.3), 0);
-  for (const s of [1, -1]){
-    const [ua, fa, hd] = ARM(s), pump = s > 0 ? Math.sin(t*5.2) : Math.sin(t*5.2 + 1);
+  for (let s = 1; s >= -1; s -= 2){
+    const _d24 = ARM(s), ua = _d24[0], fa = _d24[1], hd = _d24[2], pump = s > 0 ? Math.sin(t*5.2) : Math.sin(t*5.2 + 1);
     R3(T, ua, -2.75 + .15*pump, 0, s*.38); R3(T, fa, -.35 - .45*Math.max(0, pump), 0, 0); R3(T, hd, -.2);
     legIK(h, T, s, s*(D.hipX + .05), D.ankY + Math.max(0, up - .03)*1.2, 0, .1);
   }
@@ -1525,7 +1536,7 @@ const _Ms = new THREE.Matrix4(), _Hv = new THREE.Vector3(), _Dv = new THREE.Vect
 const STRETCHES = [
   (h, T) => {                                                                       // quad: heel to the backside, held there
     const D = h.D; T[61] = -.015; R3(T, B.spine, .07, 0, -.05); R3(T, B.chest, .02, 0, -.04); legIK(h, T, 1, D.hipX - .02, D.ankY, 0, 0);
-    const [th, sh, ft] = LEG(-1); R3(T, th, .12, 0, -.03); R3(T, sh, 2.5); R3(T, ft, .8);
+    const _d25 = LEG(-1), th = _d25[0], sh = _d25[1], ft = _d25[2]; R3(T, th, .12, 0, -.03); R3(T, sh, 2.5); R3(T, ft, .8);
     // the right hand round the top of the raised foot (the wrist just behind the instep, the fingers over it), the left
     // arm out to the side for balance
     frameOf(h, T, ft, _Ms); _Hv.set(0, .085, .045).applyMatrix4(_Ms);
@@ -1537,16 +1548,16 @@ const STRETCHES = [
     legIK(h, T, 1, D.hipX + .02, D.ankY, -.12, 0); legIK(h, T, -1, -D.hipX, D.ankY + .03, .42, -.55);
     // both hands slide down the front of the straight leg's shin (never through the knees)
     frameOf(h, T, LEG(-1)[1], _Ms);
-    for (const s of [1, -1]){ _Hv.set(s*.04, -.12, .085).applyMatrix4(_Ms); armIK(h, T, s, _Hv.x, _Hv.y, _Hv.z, -s*.4, -.25, [.9, .3, -.3]); }
+    for (let s = 1; s >= -1; s -= 2){ _Hv.set(s*.04, -.12, .085).applyMatrix4(_Ms); armIK(h, T, s, _Hv.x, _Hv.y, _Hv.z, -s*.4, -.25, [.9, .3, -.3]); }
   },
   (h, T) => {                                                                       // reach overhead and lean
     const D = h.D, k = Math.sin(h.at*.9); T[60] = -.02*k; R3(T, B.spine, 0, 0, .22*k); R3(T, B.chest, 0, 0, .18*k);
-    for (const s of [1, -1]){ legIK(h, T, s, s*(D.hipX + .07), D.ankY, 0, 0); R3(T, ARM(s)[0], -2.85, 0, s*.15); R3(T, ARM(s)[1], -.25); }
+    for (let s = 1; s >= -1; s -= 2){ legIK(h, T, s, s*(D.hipX + .07), D.ankY, 0, 0); R3(T, ARM(s)[0], -2.85, 0, s*.15); R3(T, ARM(s)[1], -.25); }
   },
   (h, T) => {                                                                       // lunge, hands on hips
     const D = h.D; T[61] = -.2; T[62] = .05; R3(T, B.spine, -.04);
     legIK(h, T, -1, -D.hipX - .01, D.ankY, .5, 0); legIK(h, T, 1, D.hipX + .01, D.ankY + .05, -.48, .7, -.7);
-    for (const s of [1, -1]) armIK(h, T, s, s*.205, 1.0, .02, -s*.6, -.3, [1, -.2, -.25]);
+    for (let s = 1; s >= -1; s -= 2) armIK(h, T, s, s*.205, 1.0, .02, -s*.6, -.3, [1, -.2, -.25]);
   }
 ];
 function stretch(h, T, st){
@@ -1566,13 +1577,13 @@ function sit(h, T, st, typing){
   T[61] = seat + SIT_HIPS - D.hipsY; T[62] = 0; T[60] = 0;
   R3(T, B.hips, -.12); R3(T, B.spine, typing ? .2 : .1 + .01*Math.sin(t*1.5)); R3(T, B.chest, .04);
   R3(T, B.neck, typing ? .05 : -.05, typing ? 0 : .25*Math.sin(t*.12), 0); R3(T, B.head, typing ? .1 : .02);
-  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .03), D.ankY, .46 + (s > 0 ? .02 : -.02), 0);
+  for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + .03), D.ankY, .46 + (s > 0 ? .02 : -.02), 0);
   if (typing){
     const desk = (st.desk || .74)/sc, reach = (st.reach || .4)/sc;
     // on a keyboard (its keys a little over the desk, the fingers tapping), or with keys:false simply resting flat on the table
     const kb = st.keys === false ? 0 : .017;
-    for (const s of [1, -1]){ const tap = kb ? .007*Math.max(0, Math.sin(t*(17 + s*3))) : 0; plantHand(h, T, s, s*.15, desk + PALM + kb + tap, reach, _Dv.set(-s*.3, -.08, 1), _UPV, [.5, -.2, -.8]); }
-  } else for (const s of [1, -1]){
+    for (let s = 1; s >= -1; s -= 2){ const tap = kb ? .007*Math.max(0, Math.sin(t*(17 + s*3))) : 0; plantHand(h, T, s, s*.15, desk + PALM + kb + tap, reach, _Dv.set(-s*.3, -.08, 1), _UPV, [.5, -.2, -.8]); }
+  } else for (let s = 1; s >= -1; s -= 2){
     // hands resting on the thighs, fingers toward the knees: the wrist over the top of the thigh, wherever the leg lies
     const th = LEG(s)[0], L1 = D.hipY - D.kneeY, f = .5, top = lerp(.078, .066, clamp((f*L1 - .19)/.12, 0, 1))*D.leg + .004 + (D.thighCloth || .01) + PALM;
     frameOf(h, T, th, _Ms);
@@ -1591,9 +1602,9 @@ function counter(h, T, st){
   const D = h.D, sc = h.scale || 1, top = (st.counter || 1.0)/sc, wy = top + PALM + .003, reach = (st.reach || .34)/sc, wx = D.hipX + .07;
   T[60] *= .3; T[B.spine*3] += .03; T[B.spine*3 + 1] *= .5; T[B.neck*3 + 1] *= .5; T[B.head*3 + 1] *= .5;
   const most = st.lean != null ? st.lean : .16 + Math.max(0, .95 - top)*2.4;
-  leanTo(h, T, wx, wy, reach, () => { for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0); }, .95, most);
+  leanTo(h, T, wx, wy, reach, () => { for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + h.stance), D.ankY, s*h.fz, 0); }, .95, most);
   let wk = 0;
-  for (const s of [1, -1]){
+  for (let s = 1; s >= -1; s -= 2){
     let x = s*wx, z = reach;
     if (st.work){
       // a 9 s round: the right hand wipes (0–4 s), both rest (4–5.5 s), the left hand slides a cup across and back (5.5–8 s)
@@ -1635,17 +1646,17 @@ function squatPose(h, T, st){
   T[61] = -drop; T[62] = -.1*k; T[60] = wob*.025*Math.sin(t*23);
   R3(T, B.hips, .62*k, 0, wob*.05*Math.sin(t*19)); R3(T, B.spine, .12*k - .04 + wob*.06*Math.sin(t*17)); R3(T, B.chest, -.06*k);
   R3(T, B.neck, -.5*k - .05, 0, 0); R3(T, B.head, -.12*k + .05, 0, 0);
-  for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .1), D.ankY, .02, 0, 0);
+  for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + .1), D.ankY, .02, 0, 0);
   frameOf(h, T, B.chest, _Gm);
-  for (const s of [1, -1]){ _Gv.set(s*.36, .2 + wob*.01*Math.sin(t*29), -.075).applyMatrix4(_Gm); armIK(h, T, s, _Gv.x, _Gv.y, _Gv.z, 0, .2, [.35, -1, -.25]); }
+  for (let s = 1; s >= -1; s -= 2){ _Gv.set(s*.36, .2 + wob*.01*Math.sin(t*29), -.075).applyMatrix4(_Gm); armIK(h, T, s, _Gv.x, _Gv.y, _Gv.z, 0, .2, [.35, -1, -.25]); }
 }
 // a dumbbell curl, one arm at a time (st.side), the elbow pinned at the ribs; sloppy reps swing the body into it
 function curlPose(h, T, st){
   stand(h, T, st);
   const k = clamp(st.k || 0, 0, 1), side = st.side || 1, sw = st.sway || 0;
   R3(T, B.spine, .03 - sw*.18*Math.sin(k*Math.PI)); R3(T, B.chest, -sw*.08*Math.sin(k*Math.PI)); R3(T, B.neck, .08, 0, 0);
-  for (const s of [1, -1]){
-    const [ua, fa, hd] = ARM(s), on = s === side, kk = on ? k : 0;
+  for (let s = 1; s >= -1; s -= 2){
+    const _d26 = ARM(s), ua = _d26[0], fa = _d26[1], hd = _d26[2], on = s === side, kk = on ? k : 0;
     R3(T, ua, .06 - .25*kk - sw*.3*Math.sin(kk*Math.PI), 0, s*.1);
     R3(T, fa, -(.2 + 2.15*kk), -s*.55, 0); R3(T, hd, -.15*kk, 0, 0);
   }
@@ -1670,7 +1681,8 @@ export function plyoPath(t, fail){
 }
 function plyoFoot(spec, t){
   let [f, u] = spec, lift = 0;
-  for (const [t0, t1, f1, u1, l] of spec[2]){
+  for (let i = 0, S2 = spec[2]; i < S2.length; i++){
+    const K = S2[i], t0 = K[0], t1 = K[1], f1 = K[2], u1 = K[3], l = K[4];
     if (t >= t1){ f = f1; u = u1; continue; }
     if (t > t0){ const k = sstep(t0, t1, t); lift = l*Math.sin(Math.PI*k); f += (f1 - f)*k; u += (u1 - u)*k; }
     break;
@@ -1689,9 +1701,9 @@ function plyoPose(h, T, st){
     T[61] = -drop + .02*tuck; T[62] = -.06*crouch;
     R3(T, B.hips, .5*crouch + .25*tuck); R3(T, B.spine, .2*crouch + .1*tuck + (fail ? .2*sstep(.5, .7, tj)*(1 - sstep(.85, 1, tj)) : 0)); R3(T, B.chest, .05);
     R3(T, B.neck, -.35*crouch, 0, 0); R3(T, B.head, -.1*crouch, 0, 0);
-    for (const s of [1, -1]) legIK(h, T, s, s*(D.hipX + .06), D.ankY + .3*tuck, .03 + .1*tuck, .2*tuck, 0);
+    for (let s = 1; s >= -1; s -= 2) legIK(h, T, s, s*(D.hipX + .06), D.ankY + .3*tuck, .03 + .1*tuck, .2*tuck, 0);
     const sw = kf(tj, [[0, 0], [.22, .9], [.38, -2.2], [.5, -1.6], [.66, -.6], [1, .05]]);
-    for (const s of [1, -1]){ const [ua, fa] = ARM(s); R3(T, ua, sw + (fail ? .5*Math.sin(h.t*14)*sstep(.5, .6, tj)*(1 - sstep(.8, .95, tj)) : 0), 0, s*(.12 + (fail ? .5 : 0)*sstep(.5, .65, tj)*(1 - sstep(.85, 1, tj)))); R3(T, fa, -.3 - .4*crouch); }
+    for (let s = 1; s >= -1; s -= 2){ const _d27 = ARM(s), ua = _d27[0], fa = _d27[1]; R3(T, ua, sw + (fail ? .5*Math.sin(h.t*14)*sstep(.5, .6, tj)*(1 - sstep(.8, .95, tj)) : 0), 0, s*(.12 + (fail ? .5 : 0)*sstep(.5, .65, tj)*(1 - sstep(.85, 1, tj)))); R3(T, fa, -.3 - .4*crouch); }
     return;
   }
   // back down and back to the mark: the feet step, the body follows them down and back
@@ -1699,10 +1711,10 @@ function plyoPose(h, T, st){
   const F = PLYO.feet[fail ? 1 : 0], lean = kf(t, fail ? [[P.jump, .05], [.6, .12], [1, 0]] : [[P.jump, 0], [.52, .22], [.62, .3], [.72, .12], [1, 0]]);
   R3(T, B.hips, .1*lean); R3(T, B.spine, .12 + .3*lean); R3(T, B.chest, .04); R3(T, B.neck, -.3*lean - .06); R3(T, B.head, -.15*lean);
   T[60] = 0; T[62] = -.04*lean;
-  for (const s of [1, -1]){
+  for (let s = 1; s >= -1; s -= 2){
     const [f, u, lift] = plyoFoot(s > 0 ? F.L : F.R, t);
     legIK(h, T, s, s*(D.hipX + .06), ((u - P.up)*box + lift)/sc + D.ankY, (f - P.fwd)/sc + .03, -.3*lift/.14, 0);
-    const [ua, fa] = ARM(s); R3(T, ua, -.35*lean + .05, 0, s*(.14 + .1*lean)); R3(T, fa, -.35 - .3*lean);
+    const _d28 = ARM(s), ua = _d28[0], fa = _d28[1]; R3(T, ua, -.35*lean + .05, 0, s*(.14 + .1*lean)); R3(T, fa, -.35 - .3*lean);
   }
 }
 // on the bike: sat on the saddle, leant onto the bars, the feet going round on the pedals. st.ph is the crank angle of
@@ -1713,13 +1725,13 @@ function bikePose(h, T, st){
   sit(h, T, {seat:(st.seat || .86)}, false);
   R3(T, B.hips, -.05); R3(T, B.spine, .42 + .03*Math.sin((st.ph || 0)*2)); R3(T, B.chest, .1); R3(T, B.neck, -.42); R3(T, B.head, -.1);
   const a = st.ph || 0, r = (st.crankR || .16)/sc, cy = (st.crankY || .36)/sc, cz = (st.crankZ || .16)/sc;
-  for (const s of [1, -1]){
+  for (let s = 1; s >= -1; s -= 2){
     const p = a + (s > 0 ? 0 : Math.PI);
     // the ball of the foot on the pedal, the ankle a little above and behind it; the toes dip as the foot comes round the
     // bottom and lift over the top (ankling)
     legIK(h, T, s, s*(D.hipX + .04), cy + r*Math.cos(p) + D.ankY*.75, cz + r*Math.sin(p) - .07/sc, -.12 - .14*Math.sin(p - .6), 0);
   }
-  for (const s of [1, -1]) armIK(h, T, s, s*.22, (st.barY || 1.05)/sc, (st.barZ || .55)/sc, 0, 0, [.3, -.6, -.8]);
+  for (let s = 1; s >= -1; s -= 2) armIK(h, T, s, s*.22, (st.barY || 1.05)/sc, (st.barZ || .55)/sc, 0, 0, [.3, -.6, -.8]);
 }
 const MODES = {
   idle:loco, move:loco, stand:standLoco, squat:squatPose, curl:curlPose, plyo:plyoPose, bike:bikePose,
@@ -1731,6 +1743,7 @@ MODES.kick.plant = (h, st, o) => clipPlant(h, st, o, .9); MODES.pass.plant = (h,
 // (DESIGN 3.5.9); upright clips keep their feet on the floor by their own legs
 for (const k of ["squat", "curl", "plyo", "bike", "header", "tackle", "dive", "gkready", "stretch", "celebrate"]) MODES[k].low = true;
 const lowPreset = () => { const P = typeof GFX === "object" && GFX && GFX.P; return !!(P && P.tier === "low"); };
+const UPPER_LOW = 22;            // on Low, upper-body layers are drawn within this distance of the camera (DESIGN 3.5.9)
 MODES.kick.blend = .1; MODES.pass.blend = .1; MODES.trap.blend = .15; MODES.header.blend = .12; MODES.celebrate.blend = .3; MODES.dive.blend = .06;
 function clipPlant(h, st, out, dur){ const t = st.t != null ? st.t : Math.min(1, h.at/dur); out[0] = 1; out[1] = Math.max(1 - sstep(0, .18, t), sstep(.82, 1, t)); return out; }
 /* registerMode(name, fn(h, Te, st, dt)): a pose any caller may then ask for by name (WP-K's football and keeper moves).
@@ -1751,7 +1764,7 @@ export function registerMode(name, fn, o = {}){
 const GAPB = [B.hips, B.spine, B.chest, B.uaL, B.uaR, B.thL, B.thR, B.shL, B.shR];
 function poseGap(A, Q){
   let m = 0;
-  for (const b of GAPB) m = Math.max(m, qAngle(A, b*4, Q, b*4));
+  for (let i = 0; i < GAPB.length; i++){ const b = GAPB[i]; m = Math.max(m, qAngle(A, b*4, Q, b*4)); }
   return Math.max(m, 2*Math.hypot(Q[80] - A[80], Q[81] - A[81], Q[82] - A[82]));
 }
 
@@ -1806,7 +1819,8 @@ function upperLayer(h, Q, st, dt){
   if (U.w <= 0 || !U.g) return;
   const w = sstep(0, 1, U.w)*(U.st && U.st.w != null ? U.st.w : 1);
   _B.fill(0); MODES["upper:" + U.g](h, _B, U.st || {}, dt);
-  for (const [b, m] of UPMASK){
+  for (let i = 0; i < UPMASK.length; i++){
+    const b = UPMASK[i][0], m = UPMASK[i][1];
     qEuler(_up4, 0, _B[b*3], _B[b*3 + 1], _B[b*3 + 2]);
     slerpInto(Q, b*4, _up4, w*m);
   }
@@ -1853,8 +1867,9 @@ function plantLegs(h, Q, w){
 }
 
 /* ---------- the pipeline ---------- */
-const _st = {mode:"idle"};
-const STR = ["t", "look", "arms", "dir", "seat", "desk", "counter", "reach", "amp", "keys", "upper", "root", "intent", "belt", "phase", "shift", "fac", "style", "correct", "armsIn", "blend", "fatigue"];
+// a state given as a mode name: one state object per name, made the first time it is asked for (nothing deleted from a
+// shared object, which would leave it slow to read for every body after)
+const STR_ST = new Map();
 const FPU = 1, LP = 2, NONE = 0;
 export function animateHuman(h, dt, state = "idle", o = null){
   let st = state;
@@ -1862,8 +1877,15 @@ export function animateHuman(h, dt, state = "idle", o = null){
   // (named after it is made, so asked every time: a body is posed while it is being made)
   const nm = h.g.name;
   if (nm === "me-fp" || nm === "me-tp") noteYou(h);
-  if (typeof st === "string"){ _st.mode = st; _st.speed = PRESET[st]; st = _st; for (const k of STR) if (k in _st) delete _st[k]; }
-  else if (PRESET[st.mode] != null && st.speed == null){ _st.mode = "move"; for (const k in st) _st[k] = st[k]; _st.speed = PRESET[st.mode]; st = _st; }
+  if (typeof st === "string"){ let c = STR_ST.get(st); if (!c){ c = Object.freeze({mode:st, speed:PRESET[st]}); STR_ST.set(st, c); } st = c; }
+  else if (PRESET[st.mode] != null && st.speed == null){
+    // a gait named as the mode (walk, jog, run, sprint) with no speed: the body's own copy with that speed (only the
+    // keys this state has; the ones an earlier state left are cleared)
+    const c = h.stx || (h.stx = {});
+    for (const k in c) c[k] = undefined;
+    for (const k in st) c[k] = st[k];
+    c.mode = "move"; c.speed = PRESET[st.mode]; st = c;
+  }
   let mode = st.mode || "idle";
   if (PRESET[mode] != null) mode = "move";
   if (!MODES[mode]) mode = "move";
@@ -1909,17 +1931,19 @@ export function animateHuman(h, dt, state = "idle", o = null){
     // the leg pass: the hips and the legs onto the footprints over the last full pose's upper body
     if (fam && h.baseOk){
       const G = h.gait, g = h.g, gx = g.position.x, gz = g.position.z, gr = g.rotation.y;
-      // standing still on both feet, where the last leg pass changed nothing: this one would give the same legs again
-      // (a settled body at mid range between its full poses: the stretchers' and passers' team-mates standing by)
+      // standing on both feet just where the last pose was made, neither moved nor turned since: its feet are still on
+      // their footprints, so the legs of that pose stand (a body at mid range between its full poses: the passers and
+      // the stretchers' team-mates standing by). What the leg pass would still ease (the hips settling after a clip,
+      // a heel coming down) waits for the next full pose, a few frames on, with the time gone by (accL kept)
       if (h.lpSame && G.state === "STAND" && !G.feet[0].sw && !G.feet[1].sw && !G.ev.mask && gx === h.lpAt[0] && gz === h.lpAt[1] && gr === h.lpAt[2]){
-        h.accL = 0; ANIM.stats.lp++;
+        ANIM.stats.lp++;
         return h.ev;
       }
       const Q = h.tq; Q.set(h.pose); Q[80] = h.base[0]; Q[81] = h.base[1]; Q[82] = h.base[2];
-      gaitLegs(h, Q, _FK, h.accL, true); h.accL = 0;
+      gaitLegs(h, Q, _FK, h.accL, true, true); h.accL = 0;
       writeBones(h, Q, LEGW);
       let same = Math.abs(h.pose[80] - Q[80]) + Math.abs(h.pose[81] - Q[81]) + Math.abs(h.pose[82] - Q[82]) < 1e-7;
-      for (const b of LEGW) for (let c = 0; c < 4; c++){ const k = b*4 + c; if (same && Math.abs(h.pose[k] - Q[k]) > 1e-7) same = false; h.pose[k] = Q[k]; }
+      for (let j = 0; j < LEGW.length; j++) for (let c = 0; c < 4; c++){ const k = LEGW[j]*4 + c; if (same && Math.abs(h.pose[k] - Q[k]) > 1e-7) same = false; h.pose[k] = Q[k]; }
       h.pose[80] = Q[80]; h.pose[81] = Q[81]; h.pose[82] = Q[82];
       h.lpSame = same; h.lpAt[0] = gx; h.lpAt[1] = gz; h.lpAt[2] = gr;
     }
@@ -1943,18 +1967,30 @@ export function animateHuman(h, dt, state = "idle", o = null){
   } else if (h.hid) inertiaStart(h, Q, .15, true);
   h.hid = false;
   const left = inertiaApply(h, Q, adt);
-  if (st.upper || h.upper.w > 0) upperLayer(h, Q, st, adt);
+  // how near the camera (VIEW): beyond the preset's groundLiteBeyond (Low 10 m, Medium 20, High 30: DESIGN 1.4.4) a
+  // full pose solves its legs the way a leg pass does (the last full solve's heel roll carried on, searched for again
+  // only when it no longer reaches) and a low clip's grounding skips its second pass; on Low the upper-body layers
+  // (a wave, a call) are not drawn beyond 22 m (3.5.9 Low extras). Never at T0 (your own body, a match body in the
+  // play): those are posed in full wherever the camera last was
+  const GP = typeof GFX === "object" && GFX && GFX.P, vdx = h.g.position.x - VIEW.x, vdz = h.g.position.z - VIEW.z, vd2 = tier > 0 ? vdx*vdx + vdz*vdz : 0;
+  const lite = !!(GP && GP.groundLiteBeyond) && vd2 > GP.groundLiteBeyond*GP.groundLiteBeyond;
+  if ((st.upper || h.upper.w > 0) && !(GP && GP.tier === "low" && vd2 > UPPER_LOW*UPPER_LOW)) upperLayer(h, Q, st, adt);
   if (st.shift){ Q[80] += st.shift.x || 0; Q[81] += st.shift.y || 0; Q[82] += st.shift.z || 0; }
   // a body-space correction worked out from this pose (your first-person body keeping its neck below the eye)
   if (st.correct) st.correct(h, Q);
   // the constraints, after all blending
-  if (fam){ gaitLegs(h, Q, _FK, h.accL); h.accL = 0; }
+  if (fam){ gaitLegs(h, Q, _FK, h.accL, lite); h.accL = 0; }
   else {
     if (fn.plant){ fn.plant(h, st, _pw); plantLegs(h, Q, _pw); }
-    if (fn.ground !== false && (fn.low || fn.ground === true || !lowPreset())) ground(h, Q, _FK, h.gw*(1 - left));
+    if (fn.ground !== false && (fn.low || fn.ground === true || !lowPreset())) ground(h, Q, _FK, h.gw*(1 - left), lite);
   }
   writeBones(h, Q);
   h.posePrev.set(h.pose); h.pose.set(Q); h.dtPrev = adt; h.acc = 0; h.posed++; h.sinceF = 0;
+  // a body standing on both feet: the leg passes before its next full pose are skipped (above) until it moves, turns,
+  // steps or the gait has news (in the middle of a blend too: its legs are on their footprints in this pose)
+  if (fam && h.gait.state === "STAND" && !h.gait.feet[0].sw && !h.gait.feet[1].sw && !h.gait.ev.mask){
+    h.lpSame = true; h.lpAt[0] = h.g.position.x; h.lpAt[1] = h.g.position.z; h.lpAt[2] = h.g.rotation.y;
+  }
   return h.ev;
 }
 // the footfalls of the last call: [{side: 'L' | 'R', t (seconds into it), x, z}]
@@ -2125,12 +2161,12 @@ export function clashFree(color, avoid = []){
    holds the last run's slices, the longest one, and the longest single stage (stageMs, stageAt: [job, detail, stage]). */
 const idleSlice = fn => typeof requestIdleCallback === "function" ? requestIdleCallback(fn, {timeout:250}) : setTimeout(fn, 16);
 // the last run's slices (tests: the longest one, how many there were, the longest stage and where it was)
-export const PREBUILD = {slices:0, maxMs:0, built:0, stageMs:0, stageAt:null};
+export const PREBUILD = {slices:0, maxMs:0, built:0, stageMs:0, stageAt:null, long:[]};
 export function prebuildHumans(looks, {budgetMs = 3} = {}){
   const jobs = [];
   for (const l of looks || []) if (l){ const L = normLook(l); jobs.push([L, 1], [L, 0], [L, -1]); }
   let i = 0, built = 0, gen = null, est = 0;
-  PREBUILD.slices = 0; PREBUILD.maxMs = 0; PREBUILD.built = 0; PREBUILD.stageMs = 0; PREBUILD.stageAt = null;
+  PREBUILD.slices = 0; PREBUILD.maxMs = 0; PREBUILD.built = 0; PREBUILD.stageMs = 0; PREBUILD.stageAt = null; PREBUILD.long.length = 0;
   let stage = 0;
   return new Promise(resolve => {
     const slice = () => {
@@ -2151,6 +2187,8 @@ export function prebuildHumans(looks, {budgetMs = 3} = {}){
         const ms = performance.now() - s0;
         est = Math.max(est, ms);
         if (ms > PREBUILD.stageMs){ PREBUILD.stageMs = ms; PREBUILD.stageAt = [ji, jobs[ji][1], stage]; }
+        // (every stage over 2 ms, for the tests: [ms, job, detail, stage])
+        if (ms > 2 && PREBUILD.long.length < 64) PREBUILD.long.push([+ms.toFixed(2), ji, jobs[ji][1], stage]);
         stage++;
       }
       PREBUILD.maxMs = Math.max(PREBUILD.maxMs, performance.now() - t0); PREBUILD.built = built;

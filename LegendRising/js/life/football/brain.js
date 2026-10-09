@@ -16,7 +16,7 @@ import {gauss} from "./rng.js";
 import {timeToPointQ, TT, sprintSpeed} from "../mover.js";
 import {xT, SLOT_POS, teamToPitch, depthOf} from "./tactics.js";
 import {xgAt, xgGeo} from "./judge.js";
-import {offsidePosition, RULES} from "./rules.js";
+import {offsidePosition, RULES, lawOf} from "./rules.js";
 import {logEv} from "./events.js";
 import {decisionRecord} from "./judge.js";
 import {steer, standStill, faceTo, startKick, startTackle, startHeader, startThrow, passSpeedFor, loftSpeedFor, pressureOn,
@@ -44,14 +44,15 @@ export const BRAIN = Object.freeze({
   // higher (m) he plays with his side on the ball in their half (a forward getting into the box), and how much deeper
   // with it in his own half (a ten coming short for it). 1, Infinity or 0: as the AI does. At set pieces he takes the
   // place the AI would give him (restartShape); the winger's throw-ins are counted apart from the oracle comparison
-  // instead (harness.js involvementShares, DESIGN 3.2.12). Elsewhere: in central midfield he goes to the ball a little
-  // sooner than the AI when the presser is chosen (tactics.js TAC.ME_EAGER), and on the wing he hands his side's
-  // throw-ins to the full-back coming up for them (rules.js RULES.ME_THROW_FB).
+  // instead (harness.js involvementShares, DESIGN 3.2.12), and he takes a throw-in when he is his side's nearest man
+  // within 10 m, as the player does (rules.js pickTaker, 3.2.8). Everywhere else he is the AI: the same presser choice,
+  // the same takers. The table is fitted on calibration seeds (qa/harness.mjs --from 20001, 30001, 40001), never on
+  // the acceptance run's 1 to 1000.
   ME: {
-    ST: {shoot: 2, dribble: 1.8, tackle: 1, back: 2.5, seek: 10, up: 6, drop: 0},
+    ST: {shoot: 1.8, dribble: 1.2, tackle: 1.3, back: 3, seek: 8, up: 5, drop: 2},
     W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 8, drop: 0},
-    AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 5, up: 4, drop: 8},
-    CM: {shoot: 1, dribble: 1, tackle: 5, back: 1, seek: 2, up: 0, drop: 0},
+    AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 3, up: 4, drop: 8},
+    CM: {shoot: 1.3, dribble: 1.2, tackle: 5.5, back: 1, seek: 2, up: 2, drop: 0},
     DF: {shoot: 1, dribble: 1, tackle: 1, back: 1, seek: 12, up: 0, drop: 0}
   },
   ME_RANGE: 36, ME_DRIVE: 0.6,
@@ -93,6 +94,9 @@ export const BRAIN = Object.freeze({
 /* ---------- small helpers ---------- */
 
 const ctlAgent = ms => ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
+// the furthest a man of the side can stand and be onside (team frame u): the opponents' line, or nowhere when the
+// offside law is not played (a training block, rules.js LAWS)
+const onsideU = (ms, tm) => lawOf(ms, 'offside') ? tm.lineOpp : Infinity;
 const isAI = (ms, a) => !a.isMe || ms.meAI;
 const uOf = (ms, team, x) => ms.dirs[team]*x + ms.spec.L/2;
 const wOf = (ms, team, z) => ms.dirs[team]*z + ms.spec.Wd/2;
@@ -458,15 +462,13 @@ function* carrierOptions(ms, a){
   let bestPass = 0;
   const directMul = (tempo.directness || 1.25) + (style.directness || 0.5) - 0.5 + (tm.lateDirect || 0);
   const vision = at.vision;
-  const offErr = 0.6*(1 - vision/120);
+  const offErr = 0.6*(1 - vision/120), offOn = lawOf(ms, 'offside');
   for (const o of ms.agents){
     if (o.team !== team || o === a || !o.onPitch || o.role !== 'player' || o.leaving || o.sentOff) continue;
-    if (o.isMe && !ms.meAI && false) continue;
     const om = o.m;
     if (o.isGK && !(u < L*0.3 && press > 0.4)) continue;
-    // perceived offside: the receiver's margin seen with an error
-    const off = offsidePosition(ms, o, team);
-    const seenOff = off.margin + offErr*gauss(ms.r) > RULES.OFF.eps && uOf(ms, team, om.x) > L/2;
+    // perceived offside: the receiver's margin seen with an error (nobody is offside when the law is not played)
+    const seenOff = offOn && offsidePosition(ms, o, team).margin + offErr*gauss(ms.r) > RULES.OFF.eps && uOf(ms, team, om.x) > L/2;
     // a pass to his feet (a little ahead of where he is going)
     const tx = clamp(om.x + om.vx*0.35, -ms.spec.hx + 1, ms.spec.hx - 1), tz = clamp(om.z + om.vz*0.35, -ms.spec.hz + 1, ms.spec.hz - 1);
     const d = hypot(tx - m.x, tz - m.z);
@@ -797,7 +799,7 @@ export function decideOffBall(ms, a){
   let ancU = a.anchor.u;
   if (meT && ms.poss.team === team){
     const bu = uOf(ms, team, ms.ball.p.x);
-    if (meT.up > 0 && bu > L/2) ancU = Math.max(ancU, Math.min(ancU + meT.up, tm.lineOpp - 1));
+    if (meT.up > 0 && bu > L/2) ancU = Math.max(ancU, Math.min(ancU + meT.up, onsideU(ms, tm) - 1));
     else if (meT.drop > 0 && bu <= L/2) ancU = Math.max(bu + 4, ancU - meT.drop);
   }
   const anc = teamToPitch(ms, team, ancU, a.anchor.w, {x: 0, z: 0});
@@ -809,7 +811,7 @@ export function decideOffBall(ms, a){
   // a man standing offside gets back onside before anything else (unless he is on a run): with the ball, so that he
   // can be played in; without it, so that a header or a block that falls to him is not given against him
   const myU = uOf(ms, team, m.x);
-  if (!(ms.poss.team === team && a.task.run) && myU > tm.lineOpp - 0.2 && myU > ms.spec.L/2 && a.task.press !== 1){
+  if (!(ms.poss.team === team && a.task.run) && myU > onsideU(ms, tm) - 0.2 && myU > ms.spec.L/2 && a.task.press !== 1){
     const p = teamToPitch(ms, team, tm.lineOpp - 1.2, wOf(ms, team, m.z), {x: 0, z: 0});
     out.x = p.x; out.z = clamp(anc.z, -ms.spec.hz + 1, ms.spec.hz - 1)*0.4 + p.z*0.6; out.gait = 'run'; out.stop = 0.4;
     return out;
@@ -842,7 +844,8 @@ export function decideOffBall(ms, a){
           const depth = BRAIN.RUN_DEPTH[0] + (BRAIN.RUN_DEPTH[1] - BRAIN.RUN_DEPTH[0])*ms.r();
           const tw = clamp(wOf(ms, team, m.z) + (ms.r() - 0.5)*10, 4, Wd - 4);
           const t = teamToPitch(ms, team, Math.min(L - 4, tm.lineOpp + depth), tw, {x: 0, z: 0});
-          a.task.run = {x: t.x, z: t.z, until: ms.t + 4.5, go: false};
+          // (with no offside law there is no line to hold: he goes at once)
+          a.task.run = {x: t.x, z: t.z, until: ms.t + 4.5, go: !lawOf(ms, 'offside')};
           return decideOffBall(ms, a);
         }
       }
@@ -852,7 +855,7 @@ export function decideOffBall(ms, a){
         const gx = dir*ms.spec.hx, side = carrier.m.z > 0 ? 1 : -1;
         const slot = (a.id*7 + Math.floor(ms.t/6)) % 3;
         const z = [side*2.5, 0, -side*4][slot];
-        const zu = Math.min(L - [6, 11, 7][slot], tm.lineOpp - 0.6);
+        const zu = Math.min(L - [6, 11, 7][slot], onsideU(ms, tm) - 0.6);
         const p = teamToPitch(ms, team, zu, wOf(ms, team, z), PT);
         out.x = p.x; out.z = p.z; out.gait = 'run'; out.stop = 0.6;
         return out;
@@ -875,7 +878,7 @@ export function decideOffBall(ms, a){
         }
         // stay onside
         const ou = uOf(ms, team, out.x);
-        if (ou > tm.lineOpp - 0.3){ const p = teamToPitch(ms, team, tm.lineOpp - 0.5, wOf(ms, team, out.z), PT); out.x = p.x; out.z = p.z; }
+        if (ou > onsideU(ms, tm) - 0.3){ const p = teamToPitch(ms, team, tm.lineOpp - 0.5, wOf(ms, team, out.z), PT); out.x = p.x; out.z = p.z; }
       }
     }
     out.x = clamp(out.x, -ms.spec.hx + 1, ms.spec.hx - 1); out.z = clamp(out.z, -ms.spec.hz + 1, ms.spec.hz - 1);
@@ -947,7 +950,7 @@ function supportSpot(ms, a, c, anc, out){
       if (Math.abs(x) > hx - 2 || Math.abs(z) > hz - 2) continue;
       if (hypot(x - anc.x, z - anc.z) > S0[3]) continue;
       const u = uOf(ms, team, x);
-      if (u > tm.lineOpp - 0.5) continue;
+      if (u > onsideU(ms, tm) - 0.5) continue;
       let space = 9, lane = 4;
       const vx = x - cm.x, vz = z - cm.z, l2 = vx*vx + vz*vz || 1;
       for (const o of ms.agents){
@@ -1141,9 +1144,10 @@ export function restartShape(ms){
         const dGoal = hypot(gxA - sp.x, sp.z);
         if (a === tk){ const kx = gxA - sp.x, kz = 0 - sp.z, kl = hypot(kx, kz) || 1; shift(a, sp.x - kx/kl*1.6, sp.z - kz/kl*1.6, 'taker'); break; }
         if (team === def && a.wall){ break; }
-        if (dGoal < 40 && dirA*sp.x > 0){
-          // in range: the defence holds a line 11 to 18 m out (deeper for a nearer kick), the attackers line up on it,
-          // onside, and attack the ball when it is struck; two of the attackers' defenders stay back
+        if (dGoal < 40 && dirA*sp.x > 0 && !R0.kickIn){
+          // in range (not a kick-in, which is taken as play goes on): the defence holds a line 11 to 18 m out (deeper
+          // for a nearer kick), the attackers line up on it, onside, and attack the ball when it is struck; two of the
+          // attackers' defenders stay back
           const lineD = clamp(0.5*dGoal, 11, 18), lx = gxA - dirA*lineD;
           const k = a.fkRole != null ? a.fkRole : (a.fkRole = fkSlot(ms, a, team === att));
           if (team === att){
@@ -1170,7 +1174,7 @@ export function restartShape(ms){
   }
   // the wall for a free kick in range (3.2.8): 5 at 22 m or closer, 4 to 28 m, 3 to 32 m, minus 2 at a wide angle;
   // 9.15 m from the ball on the line to the near post plus 0.6 m, 0.62 m apart
-  if ((R0.kind === 'free' || R0.kind === 'indirect') && !R0.wallSet){
+  if ((R0.kind === 'free' || R0.kind === 'indirect') && !R0.wallSet && !R0.kickIn){
     R0.wallSet = true;
     const dGoal = hypot(gxA - sp.x, sp.z);
     let n = dGoal <= 22 ? 5 : dGoal <= 28 ? 4 : dGoal <= 32 ? 3 : 0;
@@ -1490,7 +1494,10 @@ function setPieceStep(ms, h){
     const s = a.set;
     if (!s){ standStill(a); continue; }
     const d = hypot(s.x - a.m.x, s.z - a.m.z);
-    const gait = s.gait === 'sprint' || d > RULES.SPRINT_D && s.role === 'taker' ? 'sprint' : s.gait === 'run' || d > 6 ? 'run' : s.gait === 'walk' ? 'walk' : 'jog';
+    // the taker sprints to a far spot, and to any but the last few metres once the restart is past its limit (a corner
+    // taker picked for his delivery may have the length of the pitch to come)
+    const hurry = s.role === 'taker' && (d > RULES.SPRINT_D || d > 6 && !!R0 && ms.t - R0.t0 > R0.limit);
+    const gait = s.gait === 'sprint' || hurry ? 'sprint' : s.gait === 'run' || d > 6 ? 'run' : s.gait === 'walk' ? 'walk' : 'jog';
     const face = s.face || (d < 1.5 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, a.faceV) : null);
     steer(a, s.x, s.z, gait, s.stop != null ? s.stop : 0.3, face, s.speedCap != null ? s.speedCap : Infinity);
   }
@@ -1544,7 +1551,7 @@ function aiMeCall(ms){
   if (pressureOn(ms, me) > 0.2) return;
   const vm = valueAt(ms, me.team, me.m.x, me.m.z), vc = valueAt(ms, me.team, c.m.x, c.m.z);
   if (vm < vc*0.9) return;
-  if (offsidePosition(ms, me, me.team).off) return;
+  if (lawOf(ms, 'offside') && offsidePosition(ms, me, me.team).off) return;
   callFor(ms, me, 'here', null);
 }
 // a call for the ball (the player's R, or the AI player's): the preference for 2.5 s, half within 20 s of the last

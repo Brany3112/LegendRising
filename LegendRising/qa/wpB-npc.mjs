@@ -2,8 +2,16 @@
 // (DESIGN 2.3 WP-B, 3.5.9, 3.9.6). Owner: WP-B (Stage 1). Contracts 1.4.3 (SCHED.actor), 1.4.18 (human.js).
 //
 //   1. the training session on Low, seen from the pitch at noon (the I0 perf view): animating everyone costs at most
-//      half of what it did at I0 (qa/perf-baseline.json, tiers.low.pitch.animMs: the W.anims closures run once more
-//      in a frame; now the same closures, which only think and move, plus the actors' animation that frame);
+//      half of what it did at I0, measured side by side with the I0 tree in one browser (lib.mjs sideBySide: both
+//      pages cross-origin isolated, so the clock reads to 5 us; frames taken in turns, 150 at a time, 1200 from each:
+//      a recorded figure from another day says as much about the machine as about the code), once the session has
+//      run for 30 s in both (the first seconds in a place run code the engine has not optimised yet, in both trees,
+//      and say more about the compiler than about the animation). The figure is the median frame, as in every CPU
+//      gate (DESIGN 3.9.8): a collection of the page's garbage lands in whichever frame and code happen to be running
+//      (the means, and the frames over 1 ms, are reported beside it). The I0 measure is record-perf's (the W.anims
+//      closures run once more in a frame); this tree's is the same closures, which only think and move now, plus the
+//      actors' animation that frame. And the 1.5.11 budget: at most 0.35 ms a frame (mean) for the training ground's
+//      animation on Low;
 //   2. at most 12 full poses in any frame on Low, and no body beyond GFX.P.animMid posed every frame;
 //   3. a body hidden (T4, state only) while it walks on and then seen again catches up without any bone turning more
 //      than 0.35 rad in a frame;
@@ -15,7 +23,7 @@
 //   QA_PORT=8771 node qa/wpB-npc.mjs          exits 1 on any failed check; writes qa/out/wpB-npc.json
 import fs from "node:fs";
 import path from "node:path";
-import {launch, career, freeze, report, ROOT} from "./lib.mjs";
+import {launch, career, freeze, report, sideBySide, ROOT} from "./lib.mjs";
 
 const res = {name: "wpB-npc", checks: [], ok: true};
 const check = (pass, name, value) => {
@@ -25,6 +33,49 @@ const check = (pass, name, value) => {
 };
 const base = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "perf-baseline.json"), "utf8"));
 const I0 = base.tiers.low.pitch.animMs;
+
+// 1. side by side with the I0 tree: the ground at noon on Low, seen from the pitch, frames taken in turns
+{
+  const AB = await sideBySide();
+  try {
+    const at = {zone: "ground", at: {x: 0, z: -1, y: 0, yaw: 0}, pitch: -.1};
+    const pages = {base: await AB.open("base", "low", at), new: await AB.open("new", "low", at)};
+    const measure = (p, which) => p.evaluate(async ({which, n}) => {
+      const L = __life, R = L.renderer(), sc = L.scene(), cam = L.cam;
+      const SC = which === "new" ? (await import("./js/life/core/sched.js")).SCHED : null;
+      if (SC) SC.timing = true;
+      const v = [];
+      for (let i = 0; i < n; i++){
+        L.stepN(1);
+        const a = SC ? SC.stats().animMs : 0;
+        const t = performance.now(); for (const f of L.W.anims) f(1/60); const w = performance.now() - t;
+        v.push(a + w);
+        R.render(sc, cam);
+      }
+      if (SC) SC.timing = false;
+      return v;
+    }, {which, n: 150});
+    // the same warm-up for both: 30 s of the session (drawn every tenth frame), then 150 frames measured and thrown
+    // away, then eight rounds each, in turns
+    for (const w of ["base", "new"]) await pages[w].evaluate(n => { const L = __life, R = L.renderer(); for (let i = 0; i < n; i++){ L.stepN(1); if (i % 10 === 0) R.render(L.scene(), L.cam); } }, 1800);
+    for (const w of ["base", "new"]) await measure(pages[w], w);
+    const all = {base: [], new: []};
+    for (let k = 0; k < 8; k++) for (const w of k % 2 ? ["new", "base"] : ["base", "new"]) all[w].push(...await measure(pages[w], w));
+    const q = (a, p) => { const s = a.slice().sort((x, y) => x - y); return +s[Math.floor(p*(s.length - 1))].toFixed(4); };
+    const mean = a => +(a.reduce((s, x) => s + x, 0)/a.length).toFixed(4);
+    const over = a => { const b = a.filter(x => x > 1); return {n: b.length, ms: +b.reduce((s, x) => s + x, 0).toFixed(1)}; };
+    const sum = a => ({median: q(a, .5), mean: mean(a), p95: q(a, .95), over1ms: over(a), n: a.length});
+    const ab = {base: sum(all.base), new: sum(all.new), isolated: {base: pages.base.isolated, new: pages.new.isolated},
+      errors: Object.values(pages).flatMap(p => p.errs).slice(0, 5)};
+    ab.ratio = +(ab.new.median/ab.base.median).toFixed(3); ab.meanRatio = +(ab.new.mean/ab.base.mean).toFixed(3);
+    res.ab = ab;
+    check(ab.isolated.base && ab.isolated.new, "both pages cross-origin isolated (a clock that reads to 5 us)", ab.isolated);
+    check(ab.ratio <= .5, "ground session on Low: animation at most half of the I0 tree's, side by side (median frame of 1200)", ab);
+    check(ab.new.mean <= .35, "ground session on Low: animation within the 1.5.11 budget of 0.35 ms a frame (mean)", ab.new);
+    check(!ab.errors.length, "no errors in either tree (side by side)", ab.errors);
+  } catch(e){ check(false, "side by side with the I0 tree ran", String(e && e.stack || e)); }
+  finally { await AB.close(); }
+}
 
 const {page, close} = await launch({gfx: "low", seed: 1, w: 1280, h: 720});
 try {
@@ -70,7 +121,8 @@ try {
       far: far.size, farPosedShareMax: +Math.max(0, ...farShare).toFixed(2), mid, session: !!(L.W.runners && L.W.runners.length)};
   });
   check(sess.session, "the training session is on at noon", sess);
-  check(sess.animMs.median <= I0.median*.5, `ground session on Low: animation at most half of I0 (${I0.median} ms median)`, sess.animMs);
+  // (against the figure recorded at I0 on another day: a note; the gate is side by side, above)
+  console.log(`note ground session on Low against the recorded I0 figure (${I0.median} ms median): ${JSON.stringify(sess.animMs)}`);
   check(sess.fpuMax <= 12, "at most 12 full poses in a frame on Low", {max: sess.fpuMax});
   check(sess.far === 0 || sess.farPosedShareMax < .6, "no body beyond animMid posed every frame", {far: sess.far, maxShare: sess.farPosedShareMax, animMid: sess.mid});
   // 3, 4, 5, 6

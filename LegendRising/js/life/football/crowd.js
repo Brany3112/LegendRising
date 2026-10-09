@@ -357,6 +357,8 @@ export function buildCrowd(scene, o = {}){
   // the seats, and how many of each side's fans there are
   for (const st of stands) st.seats = seatsOf(st);
   const all = stands.reduce((s, st) => s + st.seats.length, 0), fans = Math.round(att*all);
+  // (seats proper, against the places on a terrace or a grass bank: the modelled seats of DESIGN 3.3.2 are the former)
+  const seatedN = stands.reduce((s, st) => s + (st.standing ? 0 : st.seats.length), 0);
   const awaySeats = stands.filter(s => s.away).reduce((s, st) => s + st.seats.length, 0);
   const awayFans = Math.min(awaySeats, Math.round(fans*(1 - homeShare))), homeFans = Math.min(all - awaySeats, fans - awayFans);
   for (const st of stands){
@@ -524,7 +526,7 @@ export function buildCrowd(scene, o = {}){
     },
     // how many sit on each bench now (setBench), for a crowd made again for a new preset
     benchN: {home:0, away:0},
-    stats(){ return {seats:all, fans:drawn, billboards:bbCount, stripRows, pair, kind:billboards ? "billboards" : "blocks", draws:meshes.length, meshes:meshes.map(m => m.name)}; },
+    stats(){ return {seats:all, seated:seatedN, standing:all - seatedN, fans:drawn, billboards:bbCount, stripRows, pair, kind:billboards ? "billboards" : "blocks", draws:meshes.length, meshes:meshes.map(m => m.name)}; },
     meshes,
     dispose(){
       for (const m of meshes){ if (m.parent) m.parent.remove(m); m.geometry.dispose(); m.material.dispose(); }

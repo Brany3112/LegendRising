@@ -434,8 +434,13 @@ export function closingTime(allowed = modeFlags().closing){
   if (!allowed || FLAGS.busy || FLAGS.modal || MINI.on || TUN.go) return;
   if (!closing){
     closing = {t:performance.now()};
-    FEED.center("The training centre is closing", "Everyone out. The bus home is at the gate.", {kind:"day", icon:"🔒", ms:3600});
-    note(`It's ${clockText(CENTRE.close)} and they're locking up. The bus is waiting for you at the gate.`);
+    // the time now, and why it's shut: locking up right at closing, closed for the night, or not open yet
+    const d = ((LIFE.min % 1440) + 1440) % 1440, justShut = d >= CENTRE.close && d - CENTRE.close < 15;
+    FEED.center(justShut ? "The training centre is closing" : "The training centre is closed", justShut ? "Everyone out. The bus home is at the gate." : "The bus home is at the gate.", {kind:"day", icon:"🔒", ms:3600});
+    // (each about as long as the one line it replaces: a phone held upright has room for two lines of note)
+    note(justShut ? `It's ${clockText()} and they're locking up. The bus is waiting for you at the gate.`
+      : d < CENTRE.open ? `It's ${clockText()} and it opens at ${clockText(CENTRE.open)}. The bus is waiting at the gate.`
+      : `It's ${clockText()} and they locked up at ${clockText(CENTRE.close)}. The bus is waiting at the gate.`);
     return;
   }
   if (performance.now() - closing.t > 3800){ closing = null; bus("home"); }

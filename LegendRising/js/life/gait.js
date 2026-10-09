@@ -69,13 +69,19 @@ const turnK = G => 1 + clamp(Math.abs(G.headRate) - .5, 0, 4)*(G.mode === "R" ? 
 const stepOf = (G, v, sc) => G.style === "shuffle" ? v/shufCad(v/sc) : stepLen(v, G.mode, sc)/turnK(G);
 const strideOf = (G, v, sc) => G.style === "shuffle" ? 2/shufCad(v/sc) : strideTime(v, G.mode, sc)/turnK(G);
 
-function newFoot(s){ return {s, down:true, x:0, y:0, z:0, yaw:0, roll:0, tDown:0, sw:null, slip:0, wx:0, wy:0, wz:0, need:0, spare:null, spareV:0, spareT:0}; }
+// (every field a foot ever has, set here with its type: a body's feet keep one shape, so the leg pass reads them through
+// one hidden class, and a number field never boxes a new number (NaN stands for none where the code asks for none))
+function newFoot(s){ return {s, down:true, x:0, y:0, z:0, yaw:0, roll:0, tDown:0, sw:null, slip:0, wx:0, wy:0, wz:0, need:0, spare:null, spareV:0, spareT:0,
+  ballPivot:0, kf:NaN, miss:0, rollAdj:0, rollLand:0}; }
 export function gaitInit(h){
   h.gait = {phi:0, n:0, side:"L", mode:"W", held:0, R:0, state:"STAND", init:false,
     rx:0, rz:0, ry:0, vx:0, vz:0, v:0, vs:0, acc:0, head:0, mdx:0, mdz:1, headRate:0, yawRate:0,
     style:"fwd", twist:0, intentT:0, pivotT:0, settleT:0, brakeT:0, cut:0, final:-1, rest:null,
-    feet:[newFoot(1), newFoot(-1)], hipDy:0, hipLat:0, hipY:null, slips:0, t:0,
-    ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, falls:[], over:[null, null], via:[null, null], belt:0, ext:false};
+    feet:[newFoot(1), newFoot(-1)], hipDy:0, hipLat:0, hipY:NaN, slips:0, t:0,
+    ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, falls:[], over:[null, null], via:[null, null], belt:0, ext:false,
+    // (and the ones the steps fill in as they go, here from the start: one shape for every body's gait, NaN for none)
+    accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
+    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN};
   return h.gait;
 }
 
@@ -96,7 +102,7 @@ function groundFor(h, x, z, yaw, yRef){
    current drawn feet (world points) when there is a pose to keep, else under the root */
 export function gaitPlace(h, from = null){
   const G = h.gait || gaitInit(h), g = h.g, sc = h.scale, ry = g.rotation.y, D = h.D;
-  const rx = G.rootX != null ? G.rootX : g.position.x, rz = G.rootZ != null ? G.rootZ : g.position.z;
+  const rx = G.rootX === G.rootX ? G.rootX : g.position.x, rz = G.rootZ === G.rootZ ? G.rootZ : g.position.z;
   const lx = Math.cos(ry), lz = -Math.sin(ry), w = halfW(D, 0)*sc;
   for (let i = 0; i < 2; i++){
     const f = G.feet[i], s = f.s;
@@ -108,7 +114,7 @@ export function gaitPlace(h, from = null){
   G.rx = rx; G.rz = rz; G.ry = ry; G.vx = G.vz = G.vs = G.v = G.acc = 0; G.headRate = G.yawRate = 0;
   G.head = ry; G.mdx = Math.sin(ry); G.mdz = Math.cos(ry);
   G.state = "STAND"; G.phi = 0; G.mode = "W"; G.held = 0; G.R = 0; G.init = true; G.intentT = 0; G.pivotT = G.settleT = 0;
-  G.hipY = null; G.final = -1; G.rest = null; G.over[0] = G.over[1] = null; G.via[0] = G.via[1] = null;
+  G.hipY = NaN; G.final = -1; G.rest = null; G.over[0] = G.over[1] = null; G.via[0] = G.via[1] = null;
 }
 
 /* ---------- overrides: a planned footprint (strike run-ups, stops), a dribble touch ---------- */
@@ -286,7 +292,9 @@ function liftOff(h, f, i, duty, T, kind){
   const fx = Math.sin(f.yaw), fz = Math.cos(f.yaw);
   const sw = {kind, duty, t:0, T, u:0, x0:f.x + fx*_ar[0]*sc, y0:f.y + _ar[1]*sc, z0:f.z + fz*_ar[0]*sc, yaw0:f.yaw, roll0:f.roll,
     // the footprint it will land on (planned now, re-planned until u = .85)
-    x1:f.x, z1:f.z, y1:f.y, yaw1:f.yaw, roll1:0, ok:false, lift:0, gy:f.y, rays:0, rayT:0, vt:G.vs*T, ua:-1};
+    x1:f.x, z1:f.z, y1:f.y, yaw1:f.yaw, roll1:0, ok:false, lift:0, gy:f.y, rays:0, rayT:0, vt:G.vs*T, ua:-1,
+    // (filled in by the kind of step it is: a pivot's turn, a stop's start, a dribble touch's bump; one shape for all)
+    first:false, frac:NaN, yawS:0, seat:false, t0:0, u0:0, tx:0, tz:0, tyaw:0, rx:0, rz:0, vx:NaN, vy:0, vz:0};
   const v = G.vs;
   sw.lift = (kind === "close" ? .035 : G.R > .5 ? lerp(.14, .5, clamp((v - RUN[0][0])/(RUN[RUN.length - 1][0] - RUN[0][0]), 0, 1)) : .05 + .012*v)*sc;
   if (kind === "pivot" || kind === "settle") sw.lift = .05*sc;
@@ -347,8 +355,8 @@ function swingAt(h, f, out){
   if (via && sw.kind === "phase"){
     const m = u < .7 ? sstep(0, .7, u) : 1 - sstep(.7, 1, u);
     if (m > 0){
-      if (sw.vx == null && u <= .7){ sw.vx = via.x - (sw.x0 + (ex - sw.x0)*sH(.7)); sw.vz = via.z - (sw.z0 + (ez - sw.z0)*sH(.7)); sw.vy = Math.max(0, via.y - .06*sc - (sw.y0 + (ey - sw.y0)*sV(.7))); }
-      if (sw.vx != null){ x += sw.vx*m; z += sw.vz*m; y += (sw.vy || 0)*m; }
+      if (sw.vx !== sw.vx && u <= .7){ sw.vx = via.x - (sw.x0 + (ex - sw.x0)*sH(.7)); sw.vz = via.z - (sw.z0 + (ez - sw.z0)*sH(.7)); sw.vy = Math.max(0, via.y - .06*sc - (sw.y0 + (ey - sw.y0)*sV(.7))); }
+      if (sw.vx === sw.vx){ x += sw.vx*m; z += sw.vz*m; y += (sw.vy || 0)*m; }
     }
   }
   out.x = x; out.y = y; out.z = z;
@@ -405,7 +413,7 @@ export function gaitStep(h, dt, st){
   G.vs = Math.hypot(G.vx, G.vz);
   G.acc += ((G.vs - vs0)/dt - G.acc)*(1 - Math.exp(-8*dt));
   // (and the root's own speed change, barely smoothed: how hard it is braking right now, for where a stop ends)
-  G.accR = G.vRaw0 == null ? 0 : G.accR + ((G.v - G.vRaw0)/dt - G.accR)*(1 - Math.exp(-25*dt)); G.vRaw0 = G.v;
+  G.accR = G.vRaw0 !== G.vRaw0 ? 0 : G.accR + ((G.v - G.vRaw0)/dt - G.accR)*(1 - Math.exp(-25*dt)); G.vRaw0 = G.v;
   if (G.vs > .08){
     const hd = Math.atan2(G.vx, G.vz), d = wrap(hd - G.head);
     G.headRate += (clamp(d/dt, -12, 12) - G.headRate)*(1 - Math.exp(-10*dt));
@@ -431,7 +439,7 @@ export function gaitStep(h, dt, st){
   G.R = clamp(G.R + (G.mode === "R" ? dt : -dt)/R_EASE, 0, 1);
   G.cut = v > 3 && Math.abs(G.headRate)*.3 > .5 ? 1 : 0;
   if (G.brakeT > 0) G.brakeT -= dt;
-  for (const f of G.feet){ if (f.down) f.tDown += dt; else f.sw.t += dt; }
+  for (let i = 0; i < 2; i++){ const f = G.feet[i]; if (f.down) f.tDown += dt; else f.sw.t += dt; }
 
   if (G.state === "STAND") standStep(h, dt, v, intent);
   else cycleStep(h, dt, v, intent, st);
@@ -440,7 +448,7 @@ export function gaitStep(h, dt, st){
     const f = G.feet[i];
     if (!f.sw || f.sw.kind === "phase" || f.sw.kind === "stop") continue;
     f.sw.u = Math.min(1, f.sw.t/f.sw.T);
-    if (f.sw.frac != null && f.sw.u < .85) pivotTarget(h, f);
+    if (f.sw.frac === f.sw.frac && f.sw.u < .85) pivotTarget(h, f);
     updateTarget(h, f, i, 0, dt);
     if (f.sw.u >= 1) touchDown(h, f, i, 1, dt);
   }
@@ -483,7 +491,7 @@ function standStep(h, dt, v, intent){
     // half way, the other comes right round, the first closes beside it
     const many = ady > 1.6 || G.turnN > 0, first = dy > 0 ? 0 : 1, f = G.feet[first], o = G.feet[1 - first];
     // (the feet take turns through a turn; the first step is the foot turned furthest from the way the body faces)
-    const pick = G.turnN > 0 && G.lastPivot != null ? 1 - G.lastPivot : Math.abs(wrap(ry - f.yaw)) > Math.abs(wrap(ry - o.yaw)) ? first : 1 - first;
+    const pick = G.turnN > 0 && G.lastPivot >= 0 ? 1 - G.lastPivot : Math.abs(wrap(ry - f.yaw)) > Math.abs(wrap(ry - o.yaw)) ? first : 1 - first;
     const half = ady > 1.6 && !G.turnN;
     G.turnN = (G.turnN || 0) + 1; G.lastPivot = pick;
     return pivotStep(h, pick, many ? .26 : .3, half ? .55 : 1);
@@ -560,7 +568,7 @@ function cycleStep(h, dt, v, intent, st){
   if (need > 0) advance(h, Math.min(need, .5)*2*step*kS, vv, dt);
   // how fast the clock really runs (by distance, or faster when a swing's time floor pushes it)
   let dph = G.phi - phi0; dph -= Math.floor(dph);
-  G.phRate = G.phRate == null ? dph/dt : G.phRate + (dph/dt - G.phRate)*(1 - Math.exp(-10*dt));
+  G.phRate = G.phRate !== G.phRate ? dph/dt : G.phRate + (dph/dt - G.phRate)*(1 - Math.exp(-10*dt));
   // 3. lift-offs: a planted foot whose share of the stride is over, or that the body has left behind beyond reach
   const duty = dutyOf(vv, G.mode), bM = reachSpan(G, D, vv/sc)[1], stopping = G.state === "STOP";
   for (let i = 0; i < 2; i++){
@@ -696,10 +704,10 @@ export function gaitPose(h, T, st, fac = null, dt = 0){
   const G = h.gait, D = h.D, sc = h.scale, v = G.vs/sc, R = G.R;
   // how much the body is on the move, eased: arms and lean settle over a few tenths of a second after a hard stop
   const m0 = sstep(.05, .9, v);
-  G.mvA = G.mvA == null || !(dt > 0) ? m0 : G.mvA + (m0 - G.mvA)*(1 - Math.exp(-(m0 > G.mvA ? 10 : 6)*dt));
+  G.mvA = G.mvA !== G.mvA || !(dt > 0) ? m0 : G.mvA + (m0 - G.mvA)*(1 - Math.exp(-(m0 > G.mvA ? 10 : 6)*dt));
   const mv = G.mvA;
   // the hard stop's brace (3.5.5), eased in and out
-  G.brakeW = G.brakeW == null || !(dt > 0) ? (G.brakeT > 0 ? 1 : 0) : G.brakeW + ((G.brakeT > 0 ? 1 : 0) - G.brakeW)*(1 - Math.exp(-12*dt));
+  G.brakeW = G.brakeW !== G.brakeW || !(dt > 0) ? (G.brakeT > 0 ? 1 : 0) : G.brakeW + ((G.brakeT > 0 ? 1 : 0) - G.brakeW)*(1 - Math.exp(-12*dt));
   const pL = G.phi, duty = dutyOf(Math.max(v, .3), G.mode), cL = Math.cos(TAU*pL), mid = Math.cos(TAU*(pL - duty/2));
   const lk = fac && Number.isFinite(fac.lean) ? fac.lean : 1,          // (stamina factors not worked out yet: a fresh body)
     tired = clamp(+st.fatigue || 0, 0, 1);
@@ -719,8 +727,8 @@ export function gaitPose(h, T, st, fac = null, dt = 0){
   const A = lerp(.22 + .14*Math.min(1, v/1.4), Math.min(1.05, .55 + .07*(v - 3)), R)*mv*lk*(1 - .2*tired)*(G.style === "fwd" ? 1 : .35);
   const e0 = lerp(.22, 1.3 + .12*sstep(5, 8, v), R)*Math.max(mv, .5) + (1 - mv)*.16;
   const fwdArms = .5*G.brakeW;
-  for (const s of [1, -1]){
-    const [ua, fa, hd] = ARM(s), p = s > 0 ? pL : (pL + .5) % 1, c = Math.cos(TAU*p);
+  for (let s = 1; s >= -1; s -= 2){
+    const _d11 = ARM(s), ua = _d11[0], fa = _d11[1], hd = _d11[2], p = s > 0 ? pL : (pL + .5) % 1, c = Math.cos(TAU*p);
     let ux = A*c - .08*R - fwdArms + (G.jockey ? -.35 : 0), uz = s*(.1 + .05*R + (G.jockey ? .45 : 0));
     // first person looking down at a run: the arms kept low and near the body, so the hands stay at the bottom of the view
     const ak = +st.armsIn || 0;
@@ -749,10 +757,11 @@ function needAt(rr, f, fx, fz, hip, t, L, D){
   const dh = Math.hypot(t.x - hip[0], t.z - hip[2]);
   return hip[1] - (t.y + Math.sqrt(Math.max(0, L*L - dh*dh))) + (dh > L ? dh - L : 0);
 }
-/* lite: the leg pass of a far body between its full poses (DESIGN 3.5.9: the gait, two leg solves and the hips'
-   height): a planted foot keeps the reach correction its roll had at the last full solve, and is searched for (the heel
-   rise) only when that no longer reaches; a swinging knee is not rate-limited */
-export function gaitLegs(h, Q, F, dt, lite = false){
+/* lite: a far body's legs (DESIGN 3.5.9: the gait, two leg solves and the hips' height): a planted foot keeps the reach
+   correction its roll had at the last full solve, and is searched for (the heel rise) only when that no longer reaches.
+   pass: the leg pass between full poses, where a swinging knee is not rate-limited either (a full pose always is: no
+   bone of it turns more than the rate allows in a frame, however far the body) */
+export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
   const G = h.gait, D = h.D, sc = h.scale, g = h.g, ry = g.rotation.y, cy = Math.cos(ry), sy = Math.sin(ry);
   const gx = g.position.x, gy = g.position.y, gz = g.position.z, v = G.vs/sc;
   const L = REACH*(D.hipY - D.ankY), run = G.R > .5, mv = sstep(.05, .9, v);
@@ -844,7 +853,7 @@ export function gaitLegs(h, Q, F, dt, lite = false){
   let hy = Q[81] - drop, short = 0;
   if (hy < floor){ short = floor - hy; hy = floor; }
   // falling at once, rising at most 0.6 m/s
-  if (G.hipY != null && hy > G.hipY) hy = Math.min(hy, G.hipY + .6*dt/sc);
+  if (G.hipY === G.hipY && hy > G.hipY) hy = Math.min(hy, G.hipY + .6*dt/sc);
   G.hipY = hy;
   G.hipDy = hy; G.hipLat = Q[80];
   Q[81] = hy;
@@ -867,7 +876,7 @@ export function gaitLegs(h, Q, F, dt, lite = false){
     // air; the path's end, the footprint, is where the plan keeps it within reach)
     const kf = kneeFlex(D, Math.min(de, l1 + l2));
     // (not as the foot comes down: from u = 0.9 it goes straight to its footprint)
-    if (!lite && !f.down && f.kf != null && dt > 0 && dt < .05 && f.sw.u < .9){
+    if (!pass && !f.down && f.kf === f.kf && dt > 0 && dt < .05 && f.sw.u < .9){
       const k2 = clamp(kf, f.kf - KNEE_RATE*dt, f.kf + KNEE_RATE*dt);
       if (k2 !== kf){ de = Math.sqrt(l1*l1 + l2*l2 + 2*l1*l2*Math.cos(k2)); f.kf = k2; } else f.kf = kf;
     } else f.kf = kf;

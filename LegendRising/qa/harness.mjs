@@ -5,10 +5,11 @@
 // Owner: WP-E. DESIGN 3.2.12 (harness), 2.3 WP-E acceptance, 4.5 and 4.7.
 //
 //   node qa/harness.mjs --n 1000                the acceptance run (Standard tempo)
-//   node qa/harness.mjs --n 100 --from 1        a calibration run
+//   node qa/harness.mjs --n 200 --from 30001    a calibration run: on seeds apart from the acceptance run's 1 to 1000
+//                                               (fitting to the seeds a band is gated on hides how it holds out of sample)
 //   options: --speed 2|1|4  --workers 4  --prefoff 4 (every 4th match is also played with the preference off)
 //            --arch ST|W|AM|CM|DF (the player in that archetype in every match: calibration)
-//            --only W,CM (of the N seeds only those the rotation gives these archetypes: the acceptance run's own)
+//            --only W,CM (of the N seeds only those the rotation gives these archetypes: a re-check, not for fitting)
 //            --timing 3 (matches timed alone; 0 to skip)  --plays 3 (timed plays of each)  --fit-ratings  --fit-tempo
 //            --tempo d,s,p  --quiet
 //   writes qa/out/harness.json; exits 1 when a band fails (not with --fit-*).
@@ -23,15 +24,15 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const F = rel => pathToFileURL(path.join(ROOT, rel)).href;
 const H = await import(F("js/life/football/harness.js"));
 const {mulberry32, hashStr, gauss} = await import(F("js/life/football/rng.js"));
-const {makePitch} = await import(F("js/life/football/pitchspec.js"));
+const {makePitch, ROLL} = await import(F("js/life/football/pitchspec.js"));
 const {attrsForAI} = await import(F("js/life/football/attrs.js"));
 const {TEMPO, HALF_REAL} = await import(F("js/life/football/sim.js"));
 
 /* ---------- the game's clubs and shapes (classic scripts, read in a sandbox) ---------- */
 
-function classic(file, names){
+function classic(file, names, globals = {}){
   const src = fs.readFileSync(path.join(ROOT, file), "utf8") + `\n;this.__out = {${names.join(", ")}};`;
-  const ctx = vm.createContext({});
+  const ctx = vm.createContext(globals);
   vm.runInContext(src, ctx, {filename: file});
   return ctx.__out;
 }
@@ -45,6 +46,12 @@ const meanOvr = rep => 28 + Math.pow(Math.max(1, rep)/9500, 0.7)*57;
 const formationOf = nm => PS.FORMATION_KEYS[Math.floor(hash01("form:" + nm)*PS.FORMATION_KEYS.length) % PS.FORMATION_KEYS.length];
 const CLUBS = [];
 for (const [cc, C] of Object.entries(CL.COUNTRIES)) for (const L of C.leagues) for (const nm of L.clubs) CLUBS.push({nm, cc, t: L.t, rep: repOf(nm, cc, L.t)});
+// The home club's ground as the game gives it: match.js stadiumFor (read in a sandbox whose W holds the home club; a
+// league match), and the grass's rolling deceleration for that tier from pitchspec ROLL, the one table the stadium's
+// pitch and a real match (bridge.matchConfig) read (DESIGN 1.5.1, 3.3.2). The crowd's random size is not used here.
+const STW = {clubs: [{rep: 0}]};
+const MJ = classic("js/match.js", ["stadiumFor"], {W: STW, ri: (a, b) => (a + b)/2, rnd: (a, b) => (a + b)/2});
+export function groundTier(homeRep){ STW.clubs[0].rep = homeRep; return MJ.stadiumFor({h: 0, kind: "L"}).tier; }
 
 const ARCHS = ['ST', 'W', 'AM', 'CM', 'DF'];
 const SLOTS_FOR = {ST: ['ST', 'CF', 'LF', 'RF'], W: ['LW', 'RW', 'LM', 'RM'], AM: ['CAM'], CM: ['CM', 'CDM'], DF: ['CB', 'LB', 'RB', 'LWB', 'RWB']};
@@ -80,7 +87,8 @@ export function configFor(seed, opt = {}){
   const speed = opt.speed || 2;
   const tempo = Object.assign({}, TEMPO[speed], opt.tempo || {});
   const meSlot = teams[meTeam].players.find(p => p.isMe);
-  return {seed, mode: 'match', spec: makePitch({boards: true, roll: [1.25, 1.1, 1.1, 1.0, 0.9][Math.min(4, Math.max(0, 4 - teams[0].tier))]}),
+  const ground = groundTier(a.rep);
+  return {seed, mode: 'match', spec: makePitch({boards: true, roll: ROLL[ground]}), ground,
     halfRealSec: HALF_REAL[speed], tempo, teams, me: {team: meTeam, slot: meSlot.slot, chem: 50, trust: 20, staminaF: 1.0, role: 'starter'},
     rules: {offside: true, cards: true, subs: 5}, roleTimes: {}, meAI: true, htAuto: true, prefOff: !!opt.prefOff,
     ovr: [Math.round(teams[0].ovr*10)/10, Math.round(teams[1].ovr*10)/10]};

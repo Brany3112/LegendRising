@@ -138,3 +138,60 @@ export function report(name, data){
   fs.writeFileSync(file, JSON.stringify(data, null, 1));
   return file;
 }
+
+/* ---------- side by side with the tree before the rework ----------
+   SwiftShader's milliseconds follow the machine's load, so a time against a figure recorded on another day says as
+   much about the machine as about the code. sideBySide() serves this tree and a base tree (git archive of `ref`, by
+   default c7d4760, the I0 tree qa/perf-baseline.json was recorded from, exported once into qa/out/ab-base-<ref>) to
+   one browser from disk (no second server or port): open("new" | "base", gfx, place) gives a page with a test career
+   standing at place ({zone, at: "bus" | "bed" | {x, z, y, yaw}, pitch}) at noon, frozen, a few frames drawn. A test
+   then takes its measures from both pages in turns, so whatever else the machine is doing weighs on both alike.
+   (DESIGN 3.9.8, 2.3 WP-A and WP-B acceptance.) */
+export async function sideBySide({ref = "c7d4760"} = {}){
+  const {execFileSync} = await import("node:child_process");
+  const base = path.join(OUT, `ab-base-${ref}`);
+  if (!fs.existsSync(path.join(base, "index.html"))){
+    fs.mkdirSync(base, {recursive: true});
+    const top = path.dirname(ROOT), sub = path.basename(ROOT), tar = path.join(OUT, `ab-base-${ref}.tar`);
+    execFileSync("git", ["archive", "--format=tar", "-o", tar, ref, sub], {cwd: top});
+    execFileSync("tar", ["-xf", tar, "-C", base, "--strip-components=1"]);
+    fs.rmSync(tar);
+  }
+  const roots = {base, new: ROOT};
+  const MIME = {".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2"};
+  const origin = `http://${HOST}:${PORT}`;
+  const ISO = {"Cache-Control": "no-store", "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp", "Cross-Origin-Resource-Policy": "same-origin"};
+  const browser = await chromium.launch({headless: true, args: ARGS});
+  async function open(which, gfx, v){
+    const ctx = await browser.newContext({viewport: {width: 1280, height: 720}});
+    await ctx.addInitScript(pageInit, {seed: 1, gfx});
+    // every request answered from disk: /base/... from the base tree, /new/... from this one, anything else empty.
+    // Both pages cross-origin isolated (COOP and COEP), which is what gives performance.now() its fine grain (5 us,
+    // against 100 us otherwise): a frame's animation is a tenth of a millisecond or two
+    await ctx.route("**/*", route => {
+      const u = new URL(route.request().url()), m = /^\/(base|new)(\/.*)$/.exec(decodeURIComponent(u.pathname));
+      if (u.origin !== origin || !m) return route.fulfill({status: 200, body: "", headers: {"Cross-Origin-Resource-Policy": "cross-origin"}, contentType: /\.m?js(\?|$)/.test(u.pathname) || /firebase/.test(u.href) ? "text/javascript" : /\.css|fonts/.test(u.href) ? "text/css" : "text/plain"});
+      const f = path.join(roots[m[1]], m[2] === "/" ? "/index.html" : m[2]);
+      fs.readFile(f, (e, d) => e ? route.fulfill({status: 404, body: "", headers: ISO}) : route.fulfill({status: 200, body: d, contentType: MIME[path.extname(f)] || "application/octet-stream", headers: ISO}));
+    });
+    const page = await ctx.newPage(); page.errs = [];
+    page.on("pageerror", e => page.errs.push(e.message)); page.on("console", m => { if (m.type() === "error") page.errs.push(m.text()); });
+    await page.goto(`${origin}/${which}/index.html`);
+    await page.waitForFunction(() => typeof newCareer === "function" && typeof window.startLife === "function" && !!window.__life, null, {timeout: 120000});
+    await page.evaluate(() => new Promise(r => { window.__qa.frozen = true; window.__qa.realRAF(() => window.__qa.realRAF(() => r())); }));
+    await page.evaluate(({v, now}) => {
+      const realNow = Date.now; Date.now = () => now;
+      CR = {name: "Test Player", number: 9, pos: "ST", pref: "ST", foot: "Right", nat: "RO", alloc: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts: 30};
+      newCareer(CR); for (const k in S.flags) S.flags[k] = true; S.tutDone = true; S.onb = {stage: "done"};
+      document.body.classList.add("life"); A.sign(0); Date.now = realNow;
+      S.life.min = 12*60; window.startLife({zone: v.zone});
+      const L = __life; L.enterZone(v.zone, typeof v.at === "string" ? v.at : "bus"); if (typeof v.at === "object") L.place(v.at); L.P.pitch = v.pitch || 0;
+      for (const k in L.keys) L.keys[k] = false;
+      if (L.FADE){ L.FADE.v = 0; L.FADE.boot = false; }
+      for (let i = 0; i < 12; i++){ L.stepN(1); L.renderer().render(L.scene(), L.cam); }
+    }, {v, now: CAREER_AT});
+    page.ctx = ctx; page.isolated = await page.evaluate(() => !!window.crossOriginIsolated);
+    return page;
+  }
+  return {browser, base, open, close: () => browser.close().catch(() => {})};
+}

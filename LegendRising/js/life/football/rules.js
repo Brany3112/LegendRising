@@ -38,12 +38,15 @@ export const RULES = Object.freeze({
   PLACE_MAX: 50,                             // a team-mate carries the ball this far to put it on the spot for a specialist
   WALL_D: 9.15, WALL_GAP: 0.62, WALL_POST: 0.6, WALL_JUMP: 0.6,
   READY_D: 2, CELEBRATE: 3,
-  TAKER_AT: 2.6, SPRINT_D: 20, HURRY: 8,     // HURRY: a ball further than this is sprinted for               // the taker is at the ball within this (his run-up spot is 1.8 m back at most); he sprints to a spot further than this
+  TAKER_AT: 2.6, SPRINT_D: 20, HURRY: 8,     // the taker is at the ball within TAKER_AT (his run-up spot is 1.8 m back at most);
+                                             // he sprints to a spot further than SPRINT_D; a ball further than HURRY is sprinted for
+  HANDOVER: 10,                              // past the restart's limit, a taker still further than this (m) from the ball leaves
+                                             // it to the man nearest it (3.2.8: the AI takes it from where everyone is)
   SUBS: 5,
   THROW_FB: 10,                              // a full-back takes his side's throw-in when within this much of the winger's distance
-  ME_THROW_FB: Object.freeze({W: 30}),       // the harness's stand-in for the player on the wing leaves a throw-in to his
-                                             // full-back when the full-back is within this much (m) further of it
   SERVE_MEET: 1.2,                           // seconds a served ball costs beyond its flight: meeting it and carrying it in
+  NEAR_SLOW: 1.5, NEAR_T: 0.6, NEAR_V: 1.2,  // a man this near the ball he is fetching (or the spot he is carrying it to) for
+                                             // longer than this without getting there walks the rest, at this speed at most
   BOX_EDGE: [18.5, 22],                      // at a set piece into the box, its edge counts: 18.5 m out, 22 m across
   FLYING: 10,                                // a dead ball in the air faster than this (m/s) is let go when a spare is to hand
   DEAD_ROLL: 4.0                             // a dead ball rolls on against this (m/s2): the ball boys, the boards and the
@@ -80,6 +83,8 @@ export function lawsOf(cfg = {}){
   return Object.freeze(out);
 }
 const laws = ms => ms.rules || LAWS.match;
+// one law of the match (lawsOf's keys), for the brains: is offside played, are there set pieces
+export const lawOf = (ms, k) => laws(ms)[k];
 // does a ball over the goal line at this end, in the mouth, count as a goal (laws.goals)
 export const goalCounts = (ms, end) => { const g = laws(ms).goals; return g >= 2 || (g === 1 && end > 0); };
 
@@ -282,8 +287,10 @@ export function goalScored(ms, d){
 // Chooses the taker and the ball (the game ball within 6 m of the spot, else the nearest spare on a cone), and who
 // fetches it; the clock keeps running (1.5.5).
 export function startRestart(ms, kind, team, spot, opt = {}){
-  // no set pieces (laws.restarts): every restart but a kick-off is a kick-in from where it happened
-  if (!laws(ms).restarts && kind !== 'kickoff'){
+  // no set pieces (laws.restarts): every restart but a kick-off is a kick-in from where it happened (an indirect free
+  // kick with no wall and no set-piece line-up: R0.kickIn)
+  const kickIn = !laws(ms).restarts && kind !== 'kickoff';
+  if (kickIn){
     kind = 'indirect';
     spot = {x: clamp(spot.x, -ms.spec.hx + 0.5, ms.spec.hx - 0.5), z: clamp(spot.z, -ms.spec.hz + 0.5, ms.spec.hz - 0.5)};
   }
@@ -303,7 +310,7 @@ export function startRestart(ms, kind, team, spot, opt = {}){
   const R0 = ms.restart = {kind, team, spot: {x: spot.x, z: spot.z}, taker: -1, fetcher: -1, ballFrom: 'game', spare: -1,
     ready: false, t0: ms.t, limit, stage: 'fetch', wall: [], noOff: kind === 'goalkick' || kind === 'throw' || kind === 'corner',
     first: !!opt.first, after: !!opt.after, placed: false, foul: opt.foul || null, offender: opt.offender != null ? opt.offender : -1,
-    taken: false, lowerT: 0, tTake: -1, carrier: -1};
+    taken: false, lowerT: 0, tTake: -1, carrier: -1, kickIn, nearT: 0};
   R0.taker = pickTaker(ms, kind, team, spot);
   R0.special = kind === 'free' && hypot(ms.dirs[team]*ms.spec.hx - spot.x, spot.z) < 35;
   chooseSource(ms, R0);
@@ -320,9 +327,6 @@ function isFKWallZone(ms, team, spot){
   return d < 32;
 }
 
-// the harness's stand-in for the player on the wing, with the ball for his side's throw-in: he gives it to the full-back
-// pickTaker chose (RULES.ME_THROW_FB) and stays up for the throw
-const upForThrow = (ms, R0, f) => R0.kind === 'throw' && f.isMe && !!ms.meAI && !!RULES.ME_THROW_FB[f.arch] && R0.taker !== f.id;
 // The restart's taker (3.2.8): kick-off the centre forward; throw-in the nearest full-back or winger on that side (or
 // the nearest player, or the player himself when he is nearest and within 10 m); goal kick the keeper; corners and
 // free kicks near goal the best curve + accuracy in the side (the player if he is the best, or trusted and within 2
@@ -355,10 +359,9 @@ function pickTaker(ms, kind, team, spot){
     const nw = fb && df <= dw0 + RULES.THROW_FB ? fb : nw0;
     const dw = nw ? hypot(nw.m.x - spot.x, nw.m.z - spot.z) : Infinity, dn = no ? hypot(no.m.x - spot.x, no.m.z - spot.z) : Infinity;
     t = nw && dw <= dn + 10 ? nw : no;
-    // the player takes it when he is his side's nearest man to it and within 10 m (3.2.8); the harness's stand-in for
-    // him on the wing (ms.meAI, RULES.ME_THROW_FB) stays up for it while his full-back comes to take it, as a winger does
-    const dme = me ? hypot(me.m.x - spot.x, me.m.z - spot.z) : Infinity, mfb = me && ms.meAI ? RULES.ME_THROW_FB[me.arch] : 0;
-    if (me && me.team === team && me === no && dme < 10) t = mfb && fb && df <= dme + mfb ? fb : me;
+    // the player takes it when he is his side's nearest man to it and within 10 m (3.2.8), and so does the harness's
+    // stand-in for him (DESIGN 3.2.12: a winger's throw-ins beyond the oracle's rate are counted apart instead)
+    if (me && me.team === team && me === no && hypot(me.m.x - spot.x, me.m.z - spot.z) < 10) t = me;
   } else if (kind === 'corner') t = best(at => at.curve + at.accuracy, 40);
   else if (kind === 'penalty') t = best(at => at.accuracy + at.composure, 50);
   else if (kind === 'free'){
@@ -590,8 +593,11 @@ export function restartStep(ms, h){
       const src = R0.ballFrom === 'spare' ? ms.spares[R0.spare].ball : b;
       const sv = hypot(src.v.x, src.v.z), lead = Math.min(1, sv/4);
       const d = hypot(f.m.x - src.p.x, f.m.z - src.p.z);
-      // he hurries for it: a quick restart is his side's to take
-      f.set = {x: src.p.x + src.v.x*lead*0.5, z: src.p.z + src.v.z*lead*0.5, gait: d > RULES.HURRY ? 'sprint' : 'run', stop: 0.3, role: 'fetch'};
+      // he hurries for it: a quick restart is his side's to take. (Circling it: a man who has been within NEAR_SLOW m of
+      // it for NEAR_T s without getting it slows to a walk, as his turn round it at a run can be wider than his reach.)
+      R0.nearT = d < RULES.NEAR_SLOW ? R0.nearT + h : 0;
+      const slow = R0.nearT > RULES.NEAR_T;
+      f.set = {x: src.p.x + src.v.x*lead*0.5, z: src.p.z + src.v.z*lead*0.5, gait: slow ? 'walk' : d > RULES.HURRY ? 'sprint' : 'run', stop: 0.3, role: 'fetch', speedCap: slow ? RULES.NEAR_V : Infinity};
       if (d < 0.65 && sv < 3.5 && src.p.y < 1.4){
         if (R0.ballFrom === 'spare') takeSpare(ms, R0.spare);
         holdAt(ms, f, false, h);
@@ -601,7 +607,7 @@ export function restartStep(ms, h){
           // whoever has it takes it when he is near the spot, or when carrying it there is no slower than serving it
           // to the taker (who may still be a long way off); otherwise he serves it to the taker
           const tkD = hypot(tk.m.x - sp.x, tk.m.z - sp.z), viaServe = Math.max(serveT(far) + 0.8, wayT(tk, tkD, tkD));
-          if ((far <= RULES.SERVE || carryT(far) <= viaServe + 0.5) && !(tk.isMe && !ms.meAI) && !upForThrow(ms, R0, f)) R0.taker = f.id;
+          if ((far <= RULES.SERVE || carryT(far) <= viaServe + 0.5) && !(tk.isMe && !ms.meAI)) R0.taker = f.id;
         } else if (!fixedTaker(R0) && far > RULES.SERVE){
           // the taker himself went a long way for it: the nearest man to the spot takes it, served to him, when that
           // is clearly quicker than carrying it back
@@ -617,7 +623,7 @@ export function restartStep(ms, h){
           if (far <= RULES.SERVE || far <= RULES.PLACE_MAX && tkT >= cT - 1.0) R0.carrier = f.id;
         }
         R0.stage = R0.taker === f.id || R0.carrier >= 0 ? 'carry' : 'serve';
-        R0.serveT = ms.t;
+        R0.serveT = ms.t; R0.nearT = 0;
       }
       break;
     }
@@ -729,8 +735,11 @@ export function restartStep(ms, h){
       // walk the ball to the spot: stand just short of it, so the hands are over it
       const ux = sp.x - cr.m.x, uz = sp.z - cr.m.z, ul = hypot(ux, uz);
       if (ul > 0.6 || !R0.standAt){ const k = ul > 1e-6 ? 0.28/ul : 0; R0.standAt = {x: sp.x - ux*k, z: sp.z - uz*k}; }
-      // (past the restart's limit he runs it in, however near)
-      cr.set = {x: R0.standAt.x, z: R0.standAt.z, gait: ul > 10 ? 'sprint' : 'run', stop: 0.1, role: 'carry', speedCap: ul > 6 || el > R0.limit ? RULES.CARRY_FAR : RULES.CARRY, face: ul > 0.05 ? {x: ux/ul, z: uz/ul} : null};
+      // (past the restart's limit he runs it in, however near; going round and round the spot, he walks it in: NEAR_T)
+      R0.nearT = ul < RULES.NEAR_SLOW ? R0.nearT + h : 0;
+      const slow = R0.nearT > RULES.NEAR_T;
+      cr.set = {x: R0.standAt.x, z: R0.standAt.z, gait: slow ? 'walk' : ul > 10 ? 'sprint' : 'run', stop: 0.1, role: 'carry',
+        speedCap: slow ? RULES.NEAR_V : ul > 6 || el > R0.limit ? RULES.CARRY_FAR : RULES.CARRY, face: ul > 0.05 ? {x: ux/ul, z: uz/ul} : null};
       const d = hypot(b.p.x - sp.x, b.p.z - sp.z);
       if (d < 0.55 && cr.m.speed < 1.5){
         if (R0.kind === 'throw'){ R0.stage = 'wait'; R0.placed = true; }
@@ -771,8 +780,20 @@ export function restartStep(ms, h){
         R0.ready = true;
         break;
       }
-      const tkAt = R0.kind === 'throw' || hypot(tk.m.x - b.p.x, tk.m.z - b.p.z) <= RULES.TAKER_AT;
+      const tkD = hypot(tk.m.x - b.p.x, tk.m.z - b.p.z), tkAt = R0.kind === 'throw' || tkD <= RULES.TAKER_AT;
       if (ready || el >= R0.limit && tkAt){ R0.ready = true; R0.stage = 'go'; }
+      else if (el >= R0.limit && R0.kind !== 'throw' && R0.kind !== 'penalty' && tkD > RULES.HANDOVER){
+        // the limit is up and the taker (a specialist from the far side of the pitch) is still a long way off: the
+        // nearest man to the ball takes it from where everyone is (3.2.8), a keeper only for a goal kick
+        let alt = null, ad = tkD;
+        for (const a of ms.agents){
+          if (a.team !== R0.team || !a.onPitch || a.role !== 'player' || a.sentOff || a.leaving || a.injured || (a.isMe && !ms.meAI)) continue;
+          if (a.isGK !== (R0.kind === 'goalkick')) continue;
+          const d = hypot(a.m.x - b.p.x, a.m.z - b.p.z);
+          if (d < ad){ ad = d; alt = a; }
+        }
+        if (alt){ tk.set = null; R0.taker = alt.id; R0.shapeStep = -99; }
+      }
       break;
     }
     case 'go':
@@ -901,6 +922,10 @@ export function walkOff(ms, a){
 }
 function sendOff(ms, a){
   walkOff(ms, a);
+  shortHanded(ms, a);
+}
+// a man who leaves and is not replaced (a red card, an injury with no change left): his side fills the gap
+function shortHanded(ms, a){
   if (ms.poss.ctl === a.id) clearCtl(ms);
   // the team drops a forward into the gap, if he was not one
   if (a.slotLine !== 'FWD' && !a.isGK){
@@ -915,12 +940,15 @@ function sendOff(ms, a){
     if (d){ d.isGK = true; d.slot = 'GK'; d.slotLine = 'GK'; d.at = Object.assign({}, d.at, {gk: {reflex: 35, dive: 35, handling: 35, posit: 35, distrib: d.at.passing}}); ms.gks[a.team] = d.id; }
   }
 }
-// an injury: he goes off at the next stoppage and a substitute comes on (AI), or the bridge records it (the player)
+// an injury (3.2.9): he plays no further part and walks off at the nearest touchline point at once (subStep), and a
+// substitute comes on at halfway once he is off; with no change left (all made, or laws.subs 0) nobody replaces him and
+// his side fills the gap as for a red card. The bridge records the player's own injury.
 function injure(ms, a){
   a.injured = true;
   logEv(ms, 'injury', a.team, a.id, a.m.x, a.m.z, {});
   ms.stoppage[ms.half - 1] += RULES.STOP.injury;
-  planSub(ms, a.team, a.id, 'injury');
+  if (!planSub(ms, a.team, a.id, 'injury') && !ms.subs.plan.some(p => p.out === a.id))
+    ms.subs.plan.push({team: a.team, out: a.id, inPick: null, why: 'injury', stage: 'wait', t: ms.t, none: true});
 }
 
 /* ---------- offside signal ---------- */
@@ -956,7 +984,7 @@ function offsideCall(ms){
 // the changes a side may still plan (laws.subs, less those made and those planned)
 function subsLeft(ms, team){
   let n = laws(ms).subs - ms.subs.used[team];
-  for (const p of ms.subs.plan) if (p.team === team) n--;
+  for (const p of ms.subs.plan) if (p.team === team && !p.none) n--;
   return n;
 }
 // the player waits on the bench for a planned call (3.4.2) that has not come yet
@@ -983,13 +1011,17 @@ function subStep(ms){
     if (!a){ p.stage = 'done'; continue; }
     // the man taking the restart, or bringing the ball for it, finishes that first
     const R0 = ms.restart, busy = !!R0 && !R0.taken && (a.id === R0.taker || a.id === R0.fetcher || a.id === R0.carrier) && !a.injured;
-    if (p.stage === 'wait' && (dead && !busy || a.injured && !a.onPitch)){
+    // (an injured man does not wait for a stoppage: he cannot play on)
+    if (p.stage === 'wait' && (dead && !busy || a.injured)){
       p.stage = 'off';
-      walkOff(ms, a);
+      if (a.onPitch && !a.leaving) walkOff(ms, a);
+      if (p.none) shortHanded(ms, a);
     }
     if (p.stage === 'off' && !a.onPitch){
-      // he is off: the substitute enters at the halfway line on the bench side
-      const pick = p.inPick || bestBench(ms, p.team, a);
+      // he is off: the substitute enters at the halfway line on the bench side (nobody when no change was left, or
+      // nobody is left on the bench: his side plays a man short)
+      const pick = p.none ? null : p.inPick || bestBench(ms, p.team, a);
+      if (!pick && !p.none) shortHanded(ms, a);
       if (pick){
         const sub = enterSub(ms, p.team, pick, a);
         logEv(ms, 'sub', p.team, sub.id, sub.m.x, sub.m.z, {out: a.id, in: sub.id, outName: a.name, inName: sub.name});

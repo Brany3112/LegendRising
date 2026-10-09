@@ -101,6 +101,7 @@ export const SG = {
     SGSTAT.rays++;
     RAY.best = len; RAY.hit = null;
     RAY.ox = ox; RAY.oy = oy; RAY.oz = oz; RAY.ix = 1/(dx || 1e-12); RAY.iy = 1/(dy || 1e-12); RAY.iz = 1/(dz || 1e-12); RAY.skip = skip;
+    RAY.dx = dx; RAY.dy = dy; RAY.dz = dz;
     if (!SG.cells){ for (const s of W.solids) slab(s); }
     else {
       const m = ++SG.mark; RAY.m = m;
@@ -159,9 +160,17 @@ function file(s){
   s._h = 1;
 }
 // the ray in flight, and the slab test of one box against it
-const RAY = {best:0, hit:null, ox:0, oy:0, oz:0, ix:0, iy:0, iz:0, skip:null, m:0};
+const RAY = {best:0, hit:null, ox:0, oy:0, oz:0, ix:0, iy:0, iz:0, dx:0, dy:0, dz:0, skip:null, m:0};
+const REACH_EPS = 1e-6;
 function slab(s){
   if (s.off) return;
+  // a box wholly outside the box round the ray so far (from its start to the nearest hit yet, a micron wider) cannot be
+  // met nearer: passed over without its slab test, as the cells the ray does not cross are (what SGSTAT counts as
+  // tested is the slab test, DESIGN 1.5.11 at most 30 a ray)
+  const rb = RAY.best, ex = RAY.dx*rb, ey = RAY.dy*rb, ez = RAY.dz*rb;
+  if (s._x1 < RAY.ox + (ex < 0 ? ex : 0) - REACH_EPS || s._x0 > RAY.ox + (ex > 0 ? ex : 0) + REACH_EPS
+    || s._z1 < RAY.oz + (ez < 0 ? ez : 0) - REACH_EPS || s._z0 > RAY.oz + (ez > 0 ? ez : 0) + REACH_EPS
+    || s._y1 < RAY.oy + (ey < 0 ? ey : 0) - REACH_EPS || s._y0 > RAY.oy + (ey > 0 ? ey : 0) + REACH_EPS) return;
   SGSTAT.tests++;
   const ox = RAY.ox, oy = RAY.oy, oz = RAY.oz, skip = RAY.skip;
   if (skip && s._x0 < skip[1][0] && s._x1 > skip[0][0] && s._y0 < skip[1][1] && s._y1 > skip[0][1] && s._z0 < skip[1][2] && s._z1 > skip[0][2]) return;

@@ -64,10 +64,10 @@ export function restPos(D){
   const P = [];
   P[B.root] = [0, 0, 0]; P[B.hips] = [0, D.hipsY, 0]; P[B.spine] = [0, D.spineY, .004]; P[B.chest] = [0, D.chestY, 0];
   P[B.neck] = [0, D.neckY, -.012]; P[B.head] = [0, D.headY, -.004];
-  for (const s of [1, -1]){
-    const [u, f, h] = ARM(s), x = s*D.shX;
+  for (let s = 1; s >= -1; s -= 2){
+    const _d1 = ARM(s), u = _d1[0], f = _d1[1], h = _d1[2], x = s*D.shX;
     P[u] = [x, D.shY, -.005]; P[f] = [x, D.shY - D.elbowL, -.005]; P[h] = [x, D.shY - D.elbowL - D.foreL, -.005];
-    const [t, k, a, o] = LEG(s), lx = s*D.hipX;
+    const _d2 = LEG(s), t = _d2[0], k = _d2[1], a = _d2[2], o = _d2[3], lx = s*D.hipX;
     P[t] = [lx, D.hipY, 0]; P[k] = [lx, D.kneeY, 0]; P[a] = [lx, D.ankY, 0]; P[o] = [lx, .025, .11];
   }
   return P;
@@ -87,10 +87,13 @@ export function restOffsets(rest){
 const _M = new THREE.Matrix4(), _M2 = new THREE.Matrix4(), _E = new THREE.Euler(), _Q = new THREE.Quaternion(), _V = new THREE.Vector3(), _P = new THREE.Vector3(), _ONE = new THREE.Vector3(1, 1, 1);
 export const R3 = (T, b, x, y = 0, z = 0) => { T[b*3] = x; T[b*3 + 1] = y; T[b*3 + 2] = z; };
 // the body-space matrix of a bone under Euler pose T (rest rotations are all identity)
+const _CH = new Int32Array(32);
 export function frameOf(h, T, b, out){
-  const chain = []; for (let i = b; i > 0; i = PAR[i]) chain.unshift(i);
+  // (the chain from the root down to b, gathered upwards into a scratch array and walked back: no array made a call)
+  let n = 0; for (let i = b; i > 0; i = PAR[i]) _CH[n++] = i;
   out.identity();
-  for (const i of chain){
+  for (let j = n - 1; j >= 0; j--){
+    const i = _CH[j];
     _P.copy(h.rest[i]); if (i === B.hips){ _P.x += T[60]; _P.y += T[61]; _P.z += T[62]; }
     _E.set(T[i*3], T[i*3 + 1], T[i*3 + 2], "XYZ"); _Q.setFromEuler(_E);
     out.multiply(_M2.compose(_P, _Q, _ONE));
@@ -113,7 +116,7 @@ function twoBone(T, b0, b1, v, L1, L2, bend){
   return th;
 }
 export function legIK(h, T, s, x, y, z, pitch = 0, toe = 0){
-  const [th, sh, ft, to] = LEG(s), D = h.D;
+  const _d3 = LEG(s), th = _d3[0], sh = _d3[1], ft = _d3[2], to = _d3[3], D = h.D;
   frameOf(h, T, B.hips, _M).invert();
   _V.set(x, y, z).applyMatrix4(_M).sub(h.rest[th]);
   const t = twoBone(T, th, sh, _V, D.hipY - D.kneeY, D.kneeY - D.ankY, 1);
@@ -125,7 +128,7 @@ export function legIK(h, T, s, x, y, z, pitch = 0, toe = 0){
 const _Wv = new THREE.Vector3(), _Ev = new THREE.Vector3(), _Xa = new THREE.Vector3(), _Ya = new THREE.Vector3(), _Za = new THREE.Vector3(), _Pv = new THREE.Vector3();
 export const POLE = [.3, -.25, -1];
 export function armIK(h, T, s, x, y, z, twist = 0, wrist = 0, pole = POLE){
-  const [ua, fa, hd] = ARM(s), D = h.D, L1 = D.elbowL, L2 = D.foreL;
+  const _d4 = ARM(s), ua = _d4[0], fa = _d4[1], hd = _d4[2], D = h.D, L1 = D.elbowL, L2 = D.foreL;
   frameOf(h, T, B.chest, _M).invert();
   _Wv.set(x, y, z).applyMatrix4(_M).sub(h.rest[ua]);
   let d = _Wv.length(); if (d < 1e-6){ _Wv.set(0, -1, 0); d = 1; }
@@ -281,7 +284,7 @@ export function fkHips(h, Q, F){ return fkQ(h, Q, F, 2); }
    body-space direction). Needs F up to the hips (fkHips). Returns how far the ankle falls short of the target. */
 const _sl = new Float64Array(16);
 export function solveLeg(h, Q, F, s, x, y, z, fq, fi, toe = 0, pole = null){
-  const [th, sh, ft, to] = LEG(s), D = h.D, L1 = D.hipY - D.kneeY, L2 = D.kneeY - D.ankY, A = h.restA, w = _sl;
+  const _d5 = LEG(s), th = _d5[0], sh = _d5[1], ft = _d5[2], to = _d5[3], D = h.D, L1 = D.hipY - D.kneeY, L2 = D.kneeY - D.ankY, A = h.restA, w = _sl;
   // the hip joint, and the target from it
   qRot(F, 10, A[th*3], A[th*3 + 1], A[th*3 + 2], w, 0);
   const hx = F[7] + w[0], hy = F[8] + w[1], hz = F[9] + w[2];
@@ -317,7 +320,7 @@ export function solveLeg(h, Q, F, s, x, y, z, fq, fi, toe = 0, pole = null){
 /* solveArm: the wrist of arm s to (x, y, z) in body space with the elbow towards pole (in the chest's frame, given for
    the left arm and mirrored), the forearm turned by twist and the wrist bent by wrist. Needs F up to the chest. */
 export function solveArm(h, Q, F, s, x, y, z, twist = 0, wrist = 0, pole = POLE){
-  const [ua, fa, hd] = ARM(s), D = h.D, L1 = D.elbowL, L2 = D.foreL, A = h.restA, w = _sl, C = B.chest*7;
+  const _d6 = ARM(s), ua = _d6[0], fa = _d6[1], hd = _d6[2], D = h.D, L1 = D.elbowL, L2 = D.foreL, A = h.restA, w = _sl, C = B.chest*7;
   // the target in the chest's frame, from the shoulder
   qRotInv(F, C + 3, x - F[C], y - F[C + 1], z - F[C + 2], w, 0);
   let vx = w[0] - A[ua*3], vy = w[1] - A[ua*3 + 1], vz = w[2] - A[ua*3 + 2];
@@ -348,14 +351,14 @@ export function solveArm(h, Q, F, s, x, y, z, twist = 0, wrist = 0, pole = POLE)
    own frame), radius]. */
 export const BODYPTS = [[B.hips, .09, -.1, -.06, .07], [B.hips, -.09, -.1, -.06, .07], [B.hips, 0, -.11, .05, .06], [B.spine, 0, 0, 0, .1], [B.spine, .15, -.03, 0, .05], [B.spine, -.15, -.03, 0, .05],
   [B.chest, 0, .04, 0, .1], [B.chest, .16, .05, 0, .06], [B.chest, -.16, .05, 0, .06], [B.head, 0, .06, .01, .11]];
-for (const s of [1, -1]){
-  const [, fa, hd] = ARM(s), [th, sh] = LEG(s);
+for (let s = 1; s >= -1; s -= 2){
+  const _d7 = ARM(s), fa = _d7[1], hd = _d7[2], _d8 = LEG(s), th = _d8[0], sh = _d8[1];
   BODYPTS.push([fa, 0, 0, 0, .04], [hd, 0, -.08, .01, .03], [th, 0, -.22, 0, .07], [sh, 0, 0, .01, .05], [sh, 0, -.2, 0, .045]);
 }
 export const FOOTPTS = [[0, 0, -.085, -.078], [0, .028, -.083, -.062], [0, -.028, -.083, -.062], [0, .045, -.085, .085], [0, -.045, -.085, .085], [1, 0, -.025, .08], [1, .032, -.025, .05], [1, -.032, -.025, .05]];
 const _g3 = new Float64Array(3);
 const lowY = (F, b, x, y, z) => { qRot(F, b*7 + 3, x, y, z, _g3, 0); return F[b*7 + 1] + _g3[1]; };
-export function footLow(F, s){ const [, , ft, to] = LEG(s); let m = 1e9; for (const [k, x, y, z] of FOOTPTS){ const v = lowY(F, k ? to : ft, x, y, z); if (v < m) m = v; } return m; }
+export function footLow(F, s){ const _d9 = LEG(s), ft = _d9[2], to = _d9[3]; let m = 1e9; for (let i = 0; i < FOOTPTS.length; i++){ const P = FOOTPTS[i], v = lowY(F, P[0] ? to : ft, P[1], P[2], P[3]); if (v < m) m = v; } return m; }
 const _Qa = new THREE.Quaternion(), _Qb = new THREE.Quaternion(), _Qc = new THREE.Quaternion(), _Qd = new THREE.Quaternion(), _Qe = new THREE.Quaternion(), _Va = new THREE.Vector3(), _Vb = new THREE.Vector3(), _Eg = new THREE.Euler();
 const qIn = (Q, i, q) => q.set(Q[i], Q[i + 1], Q[i + 2], Q[i + 3]);
 const qOut = (q, Q, i) => { Q[i] = q.x; Q[i + 1] = q.y; Q[i + 2] = q.z; Q[i + 3] = q.w; };
@@ -363,7 +366,7 @@ const qOut = (q, Q, i) => { Q[i] = q.x; Q[i + 1] = q.y; Q[i + 2] = q.z; Q[i + 3]
    hip-ankle distance, then the thigh turns by the smallest rotation that brings the ankle up, so a leg folded out
    sideways (a slide, a dive) stays folded the same way and is only nudged, never re-solved into a new pose. */
 function liftFoot(h, Q, F, s, dy){
-  const [th, sh, ft] = LEG(s), D = h.D, L1 = D.hipY - D.kneeY, L2 = D.kneeY - D.ankY, A = h.restA;
+  const _d10 = LEG(s), th = _d10[0], sh = _d10[1], ft = _d10[2], D = h.D, L1 = D.hipY - D.kneeY, L2 = D.kneeY - D.ankY, A = h.restA;
   const fw = qIn(F, ft*7 + 3, _Qd);                                                      // the foot in body space, kept
   const hr = qIn(F, 10, _Qe);
   _Va.set(F[ft*7] - F[7], F[ft*7 + 1] + dy - F[8], F[ft*7 + 2] - F[9]).applyQuaternion(_Qb.copy(hr).invert());
@@ -379,14 +382,17 @@ function liftFoot(h, Q, F, s, dy){
   _Qa.copy(hr).multiply(qt).multiply(_Qb);
   qOut(_Qa.invert().multiply(fw), Q, ft*4);
 }
-export function ground(h, Q, F, rest){
+// lite (a body beyond the preset's groundLiteBeyond): the hips are lifted clear but the second pass (the body's frames
+// worked out again and each foot kept above the floor) is skipped
+export function ground(h, Q, F, rest, lite = false){
   fkQ(h, Q, F);
   let lo = 1e9;
-  for (const [b, x, y, z, r] of BODYPTS){ const v = lowY(F, b, x, y, z) - r - .008; if (v < lo) lo = v; }
+  for (let i = 0; i < BODYPTS.length; i++){ const P = BODYPTS[i], v = lowY(F, P[0], P[1], P[2], P[3]) - P[4] - .008; if (v < lo) lo = v; }
   let lift = lo < 0 ? -lo : 0;
   if (rest > 0){ const m = Math.min(lo, footLow(F, 1), footLow(F, -1)); if (m > 0) lift = -m*rest; }
-  if (Math.abs(lift) > 1e-4){ Q[81] += lift; fkQ(h, Q, F); }
-  for (const s of [1, -1]){ const m = footLow(F, s); if (m < -.002){ liftFoot(h, Q, F, s, -m); fkQ(h, Q, F); } }
+  if (Math.abs(lift) > 1e-4){ Q[81] += lift; if (lite) return; fkQ(h, Q, F); }
+  if (lite) return;
+  for (let s = 1; s >= -1; s -= 2){ const m = footLow(F, s); if (m < -.002){ liftFoot(h, Q, F, s, -m); fkQ(h, Q, F); } }
 }
 
 /* ---------- the bones themselves ----------

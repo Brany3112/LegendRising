@@ -73,13 +73,17 @@ export function toMatch(){
     }
   }, 950);
 }
-// back from the final whistle: out of the tunnel, a couple of hours later, with tired legs. legs: what the match left
-// in them (match.js matchRewards: {mins, drain}), turned into fatigue by the 1.5.2 formula (stamina.js)
-window.lifeAfterMatch = (legs) => {
+// the fatigue a 2D match leaves, for its caller in ui/main.js (a classic script): what matchRewards recorded in
+// A._matchLegs ({mins, drain}) through the one formula there is (stamina.js matchFatigue, 1.5.2), as bridge.finish
+// does for R.fatigue
+window.lifeMatchFatigue = legs => legs ? matchFatigue(legs.mins, matchIntensity(legs.drain)) : 0;
+// back from the final whistle (DESIGN 3.4.3): out of the tunnel, a couple of hours later, with tired legs. fatigue: the
+// number the match adds to S.fatigue (bridge.finish R.fatigue for a 3D match; lifeMatchFatigue above for the 2D one)
+window.lifeAfterMatch = (fatigue) => {
   const s = G();
   const end = LIFE.matchEnd || 21*60;
   if (s.life.min < end) dailyPass(end - s.life.min, "match");
-  if (legs && typeof legs === "object") S.fatigue = clamp(S.fatigue + matchFatigue(legs.mins, matchIntensity(legs.drain)), 0, 100);
+  if (+fatigue > 0) S.fatigue = clamp(S.fatigue + +fatigue, 0, 100);
   sync(); LIFE.zone = "ground";
   // you come out standing in the tunnel mouth: its "closed" bar would only tell you what you've just done, so it keeps
   // quiet until you walk off (or back into the mouth); and the line saying where you are waits its turn behind the

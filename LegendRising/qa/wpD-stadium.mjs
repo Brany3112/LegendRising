@@ -196,10 +196,12 @@ try {
       await enter(tier);
       const s = await page.evaluate(() => window.__WPD.S.STADIUM.crowd.stats());
       out.push(Object.assign({tier}, s));
-      console.log(`crowd: tier ${tier}: ${s.seats} seats, ${s.fans} fans, ${s.draws} draws (${s.kind})`);
+      console.log(`crowd: tier ${tier}: ${s.seated} seats and ${s.standing} standing places, ${s.fans} fans, ${s.draws} draws (${s.kind})`);
       if (gfx === "low" && s.draws > 8) fail("crowd", `tier ${tier}: the crowd is ${s.draws} draws on Low (at most 8)`);
+      // the modelled seats of 3.3.2, every tier the local ground's 300 included (seats proper: its grass banks are
+      // standing room, counted apart)
       const target = [300, 6000, 28000, 50000, 82000][tier];
-      if (tier > 0 && (s.seats < target*.7 || s.seats > target*1.3)) fail("crowd", `tier ${tier}: ${s.seats} seats built for a ${target}-seat ground`);
+      if (s.seated < target*.7 || s.seated > target*1.3) fail("crowd", `tier ${tier}: ${s.seated} seats built for a ${target}-seat ground`);
       if (s.fans <= 0) fail("crowd", `tier ${tier}: nobody in the stands`);
     }
     res.checks.crowd = Object.assign(res.checks.crowd || {}, {tiers: out});

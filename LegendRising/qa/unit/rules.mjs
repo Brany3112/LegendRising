@@ -290,10 +290,11 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   for (let i = 0; i < kinds.length; i++){
     const [kind, team, spot] = kinds[i];
     const ms = createMatch(configFor(20 + i));
-    // play 40 s of the match, then the referee stops it for this restart where the ball happens to be
+    // play 40 s of the match, then the referee stops it for this restart where the ball happens to be (a corner once
+    // the play is in that side's attacking third, where corners come from: not with all 22 at the other end)
     let n = 0;
     while (ms.t < 40 && n++ < 10000) simStep(ms);
-    while (ms.phase !== 'live' && n++ < 20000) simStep(ms);
+    while ((ms.phase !== 'live' || kind === 'corner' && ms.dirs[team]*ms.ball.p.x < 25 && ms.t < 160) && n++ < 20000) simStep(ms);
     ms.ball.last.team = 1 - team;
     const R0 = startRestart(ms, kind, team, spot, kind === 'kickoff' ? {after: true} : {});
     const t0 = ms.t;
@@ -307,6 +308,23 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   }
   check(allOk, `every restart is taken within its limit + 5 s (worst ${r2(worst)} s over the limit)`, out);
   check(ballJumps === 0 && teleports === 0, "no agent or ball displacement assert fired around the restarts", {ballJumps, teleports});
+  // a corner whose specialist is the length of the pitch away: once the limit is up, the man nearest the ball takes it
+  // (3.2.8: the AI takes it from where everyone is), well inside the limit + 5 s
+  {
+    const ms = createMatch(configFor(24));
+    let n = 0;
+    while (ms.t < 40 && n++ < 10000) simStep(ms);
+    while (ms.phase !== 'live' && n++ < 20000) simStep(ms);
+    ms.ball.last.team = 1;
+    const R0 = startRestart(ms, 'corner', 0, {x: 52.1, z: 33.6}), first = ms.agents[R0.taker];
+    first.m.x = -45; first.m.z = -30; first.m.vx = first.m.vz = 0;
+    const t0 = ms.t;
+    n = 0;
+    while (!R0.taken && n++ < 60*(R0.limit + 12)) simStep(ms);
+    const took = R0.taken ? ms.t - t0 : Infinity, by = ms.agents[R0.taker];
+    check(took <= R0.limit + 3 && by !== first && !by.isGK, "a far specialist past the limit: the man nearest the ball takes the corner",
+      {took: r2(took), limit: R0.limit, first: first.slot, by: by && by.slot});
+  }
   // and as they come in two whole matches: every restart, from the dead ball to the kick
   const kindsSeen = {};
   let late = 0, lateAssert = 0, worstN = -1e9;

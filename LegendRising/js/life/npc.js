@@ -259,14 +259,16 @@ function lapLoop(x0, x1, z0, z1, R0, obst){
   const A = {}, Bq = {};
   /* the last few points asked for, kept: each step asks for every runner's place twice (before and after the group
      moves on) and the second answer is the next step's first, so half the asks are answered from here */
-  const MEMO = Array.from({length:8}, () => ({s:NaN, x:0, z:0, w:1, left:0, side:0, ux:0, uz:0})), FIELDS = ["x", "z", "w", "left", "side", "ux", "uz"];
+  const MEMO = Array.from({length:8}, () => ({s:NaN, x:0, z:0, w:1, left:0, side:0, ux:0, uz:0}));
   let memoAt = 0;
+  // (the fields copied one by one, not by name from a list: a copy by computed name is a slow lookup every time)
+  const copy = (a, b) => { b.x = a.x; b.z = a.z; b.w = a.w; b.left = a.left; b.side = a.side; b.ux = a.ux; b.uz = a.uz; };
   return {total, prof, R:Rc, at(s, out){
-    for (const m of MEMO) if (m.s === s){ for (const k of FIELDS) out[k] = m[k]; return out; }
+    for (let i = 0; i < MEMO.length; i++){ const m = MEMO[i]; if (m.s === s){ copy(m, out); return out; } }
     base(s, out); base(s - .15, A); base(s + .15, Bq);
     const dx = Bq.x - A.x, dz = Bq.z - A.z, l = Math.hypot(dx, dz) || 1; out.ux = dx/l; out.uz = dz/l;
     const m = MEMO[memoAt]; memoAt = (memoAt + 1) % MEMO.length;
-    m.s = s; for (const k of FIELDS) m[k] = out[k];
+    m.s = s; copy(out, m);
     return out;
   }};
 }

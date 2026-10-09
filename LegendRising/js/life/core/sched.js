@@ -182,26 +182,22 @@ function actors(dt, view){
     }
     rr = (rr + Math.max(1, rays)) % n; ST.rays = rays;
   }
+  // 1. what everyone thinks and does, at its tier; then 2. everyone's animation at its tier. (Two passes, each timed as
+  // a whole: a clock read per actor, a dozen a frame, cost more than some of what they timed, ?perf=1 and tests only)
+  let t0 = now();
   for (let k = 0; k < n; k++){
     const a = ACTORS[k];
     let tier = a.tier;
     if ((tier === 1 || tier === 2) && a.occ && a.kind !== "match") tier = a.tier = 4;
+    ST.tiers[tier]++;
     if (a.kind === "static"){
       // asked once a second whether it is posed at all; posed at staticHz while in view, frozen otherwise
       ST.statics++;
       if ((a.whenT -= dt) <= 0){ a.whenT = 1; a.whenOk = a.when ? !!a.when() : true; }
-      ST.tiers[tier]++;
-      let t0 = now();
       if (a.think) a.think(dt);
       if (a.move) a.move(dt);
-      thinkMs += now() - t0;
-      a.animAcc += dt;
-      if (a.anim && a.whenOk && tier >= 1 && tier <= 2 && a.animAcc >= 1/stHz){ t0 = now(); a.anim(a.animAcc, tier); animMs += now() - t0; a.animAcc = 0; }
-      else if (tier === 0 && a.anim){ t0 = now(); a.anim(a.animAcc, 0); animMs += now() - t0; a.animAcc = 0; }
       continue;
     }
-    ST.tiers[tier]++;
-    let t0 = now();
     if (tier <= 1){
       if (a.think) a.think(dt + a.thinkAcc);
       if (a.move) a.move(dt + a.moveAcc);
@@ -218,14 +214,23 @@ function actors(dt, view){
       a.thinkAcc += dt; a.moveAcc += dt;
       if (a.moveAcc >= 1/hidHz){ if (a.think) a.think(a.thinkAcc); if (a.move) a.move(a.moveAcc); a.thinkAcc = 0; a.moveAcc = 0; }
     }
-    thinkMs += now() - t0;
-    if (a.anim){
-      t0 = now();
-      if (tier < 4){ a.anim(dt + a.animAcc, tier); a.animAcc = 0; }
-      else { a.animAcc += dt; if (a.animAcc >= 1/hidHz){ a.anim(a.animAcc, 4); a.animAcc = 0; } }
-      animMs += now() - t0;
-    }
   }
+  thinkMs = now() - t0;
+  t0 = now();
+  for (let k = 0; k < n; k++){
+    const a = ACTORS[k];
+    if (!a.anim) continue;
+    const tier = a.tier;
+    if (a.kind === "static"){
+      a.animAcc += dt;
+      if (a.whenOk && tier >= 1 && tier <= 2 && a.animAcc >= 1/stHz){ a.anim(a.animAcc, tier); a.animAcc = 0; }
+      else if (tier === 0){ a.anim(a.animAcc, 0); a.animAcc = 0; }
+      continue;
+    }
+    if (tier < 4){ a.anim(dt + a.animAcc, tier); a.animAcc = 0; }
+    else { a.animAcc += dt; if (a.animAcc >= 1/hidHz){ a.anim(a.animAcc, 4); a.animAcc = 0; } }
+  }
+  animMs = now() - t0;
   ST.thinkMs = thinkMs; ST.animMs = animMs;
 }
 

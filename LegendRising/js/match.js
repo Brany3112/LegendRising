@@ -600,9 +600,10 @@ function matchRewards(M, rating, out){
   return R;
 }
 // what the match leaves in his legs (1.5.2): the minutes on the pitch and how hard they worked (the mean drain a
-// minute, else the work rate's), kept on R and in A._matchLegs for the walk back out of the tunnel, where the life world
-// turns them into tomorrow's fatigue with the one formula there is (stamina.js matchFatigue: 8 for the day itself,
-// which a substitute left on the bench still had, and up to 24 more for the minutes, by their intensity)
+// minute, else the work rate's), kept on R, where bridge.finish turns them into R.fatigue for a 3D match, and in
+// A._matchLegs for the 2D match's walk back out of the tunnel (ui/main.js through the life world's lifeMatchFatigue):
+// either way the one formula there is (stamina.js matchFatigue: 8 for the day itself, which a substitute left on the
+// bench still had, and up to 24 more for the minutes, by their intensity), handed to lifeAfterMatch(fatigue) (3.4.3)
 function legsAfter(M, R, mins){
   const drain = M.drainPerMin != null ? M.drainPerMin : WR.drain[S.workrate || 2];
   R.mins = mins; R.drain = drain;
