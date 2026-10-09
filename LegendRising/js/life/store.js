@@ -1,10 +1,12 @@
 /* ============ LIFE: the furniture store ============
    Mobila Bună, on the ground floor of the block to your right as you come out of your own: a tier-2 furniture store
-   (game.js FURN, store "furn"). The big things stand about on the floor with a price on them — hold E on one to buy it
+   (game.js FURN, store "furn"). The big things stand about on the floor with a price on them: hold E on one to buy it
    and it is boxed up in front of you, into your arms (a box, inv.js), to carry home and put down in build mode. The
-   small things — bulbs, locks, wallpaper — are on the rack by the till: take them off it (left click), put them on the
+   small things (bulbs, locks, wallpaper) are on the rack by the till: take them off it (left click), put them on the
    belt (left click), the cashier scans them through, you pay at the card reader, and they wait for you at the end of
-   the counter. Walk out with anything you have not paid for and the alarm goes off. */
+   the counter. Walk out with anything you have not paid for and the alarm goes off.
+   Owner: WP-H (Stage 1), WP-H2 (Stage 2). Contract: DESIGN 3.7.4 (lifeOnb "belt" and "paid", which the first day's
+   checkout lesson listens for), 3.7.5 (H5, H6: the bulb on the rack, the declined card), 1.8 (hours from fmtRange). */
 import {THREE, W, LH, box, rbox, wall, solid, floor, spot, label, textTex, lightSrc, pool, reseed, rnd, mat} from "./build.js";
 import {frame, rb, cy, fsolid, worldPt, PC} from "./props.js";
 import {staffer, VIEW} from "./npc.js";
@@ -14,6 +16,9 @@ import * as INV from "./inv.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 const eur = n => "€" + Math.round(n).toLocaleString("en-GB");
+// the first day hears what you did at the till (firstday.js, through window.lifeOnb)
+const onb = (ev, data) => { if (typeof window.lifeOnb === "function") window.lifeOnb(ev, data || {}); };
+const hours = shop => typeof fmtRange === "function" ? fmtRange(shop.open, shop.close) : `${fmtTime(shop.open)} to ${fmtTime(shop.close)}`;
 export const STORE = {name:"Mobila Bună", sub:"FURNITURE & HOME · TIER 2", b:{x0:-31, x1:-16, z0:-9, z1:3}, open:8*60, close:21*60};
 let ctx = null;
 
@@ -103,8 +108,8 @@ export function furnitureStore(c){
   });
   label(ft, (b.x0 + b.x1)/2, 3.2, b.z1 + .105, 14.4, .6, 0, {glow:.75, rough:.4});
   box(b.x0 + .5, 2.87, b.z1 + .02, b.x1 - .5, 2.9, b.z1 + .08, 0xfff1d0, {key:"lamp", ao:false, jit:0});
-  spot({x:-17.95, y:1.2, z:b.z1 + .4, r:1.6, near:true, label:"Mobila Bună", get hint(){ return storeOpen() ? "Furniture store · open till 9:00 PM" : "Closed · opens at 8:00 AM"; }, hold:.2,
-    run:() => ctx.note(storeOpen() ? "Beds, fridges, tables and chairs on the floor; bulbs, locks and wallpaper on the rack by the till." : "Closed. Mobila Bună is open 8:00 AM – 9:00 PM.")});
+  spot({x:-17.95, y:1.2, z:b.z1 + .4, r:1.6, near:true, label:"Mobila Bună", get hint(){ return storeOpen() ? `Furniture store · open till ${fmtTime(STORE.close)}` : `Closed · opens at ${fmtTime(STORE.open)}`; }, hold:.2,
+    run:() => ctx.note(storeOpen() ? "Beds, fridges, tables and chairs on the floor; bulbs, locks and wallpaper on the rack by the till." : `Closed. Mobila Bună is open ${hours(STORE)}.`)});
 
   /* ---------- the floor: the big things, each on show with its price ---------- */
   const show = [
@@ -123,7 +128,7 @@ export function furnitureStore(c){
     priceTag(tx, tz, 0, f.name, f.price);
     const aim = [[x - hw - .05, 0, z - hd - .05], [x + hw + .05, Math.min(2.1, id === "laptop" ? .75 : m.h + .1), z + hd + .05]];
     const sp = spot({aim, label:f.name, get hint(){ return `${eur(f.price)} · ${f.desc}`; }, hold:.2,
-      run:() => ctx.note(`${f.name} · ${eur(f.price)}. Hold E to buy it — it comes boxed, for you to carry home and set up (B, in your flat).`),
+      run:() => ctx.note(`${f.name} · ${eur(f.price)}. Hold E to buy it. It comes boxed, for you to carry home and set up (B, in your flat).`),
       long:{time:1, label:`buy · ${eur(f.price)}`, run:() => buyBig(id, m, sp)}});
   }
   // a sign over the floor
@@ -153,7 +158,8 @@ export function furnitureStore(c){
     const t = textTex(256, 96, g => { g.fillStyle = "#fff8d6"; g.fillRect(0, 0, 256, 96); g.fillStyle = "#1d2328"; g.font = "700 24px 'Barlow', sans-serif"; g.textAlign = "center"; g.fillText(h.name, 128, 38); g.fillStyle = "#c8463a"; g.font = "800 34px 'Barlow Condensed', sans-serif"; g.fillText(eur(h.price), 128, 80); });
     const [px, pz] = worldPt(rack, lx, .232);
     label(t, px, y - .03, pz, .24, .09, -Math.PI/2, {rough:.6});
-    spot({kind:"pick", label:h.name, get hint(){ return `${eur(h.price)} · ${h.desc} · left click to take one`; },
+    // (what it is for, without the full stop the shop's card puts after it)
+    spot({kind:"pick", label:h.name, get hint(){ return `${eur(h.price)} · ${String(h.desc).replace(/\.$/, "")} · left click to take one`; },
       aim:[[Math.min(ax, bx), y - .02, Math.min(az, bz)], [Math.max(ax, bx), y + .2, Math.max(az, bz)]],
       pick:() => { if (!storeOpen()){ ctx.note("The store is closed."); return null; } return it(); }});
   }
@@ -207,7 +213,8 @@ export function furnitureStore(c){
       W.scene.add(m);
       const e = {it, m, t:0, scanned:false, from:m.position.clone()};
       belt.push(e);
-      if (window.lifeNote) window.lifeNote("On the belt. The cashier scans it through — then pay at the card reader.");
+      if (window.lifeNote) window.lifeNote("On the belt. The cashier scans it through, then you pay at the card reader.");
+      onb("belt", {id:it.id});
     }});
   W.anims.push(dt => {
     for (const e of belt){
@@ -227,7 +234,7 @@ export function furnitureStore(c){
   spot({aim:[[rx - .15, .85, rz - .15], [rx + .15, 1.3, rz + .15]], label:"Card reader", get hint(){ return T.total ? `Pay ${eur(T.total)}` : "Put your things on the belt first"; }, hold:.2,
     run:() => {
       if (!T.items.length) return ctx.note(belt.length ? "Wait for the cashier to scan it." : "Nothing to pay for. Put what you want on the belt.");
-      if (!spend(T.total)) return ctx.note(`Card declined — you need ${eur(T.total)}. Take something off the belt? (Leave it and it goes back on the shelf.)`);
+      if (!spend(T.total)) return ctx.note(`Card declined. You need ${eur(T.total)}.`);
       const paid = T.total, n0 = INV.dropsOf("home").filter(d => d.till).length;
       T.items.forEach((e, i) => {
         belt.splice(belt.indexOf(e), 1); e.it.unpaid = false; delete e.it.store;
@@ -236,6 +243,7 @@ export function furnitureStore(c){
       T.items = []; T.total = 0; drawTill();
       if (typeof FEED === "object") FEED.chip(`Paid ${eur(paid)}`, "good");
       ctx.note(`Paid ${eur(paid)}. Your things are at the end of the counter.`);
+      onb("paid", {total:paid});
       if (typeof save === "function") save();
     }});
   // the way out: anything you have not paid for sets the alarm off, and the cashier takes it back
@@ -247,7 +255,7 @@ export function furnitureStore(c){
       if (bad.length){
         INV.removeWhere(it => it.unpaid && it.store === "furn");
         alarm = 2.4;
-        ctx.note(`BEEP BEEP BEEP — the alarm goes off. The cashier hurries over and takes back the ${bad.map(it => it.name.toLowerCase()).join(", ")}. "Pay at the till, please."`);
+        ctx.note(`BEEP BEEP BEEP. The alarm goes off. The cashier hurries over and takes back the ${bad.map(it => it.name.toLowerCase()).join(", ")}. "Pay at the till, please."`);
         if (typeof FEED === "object") FEED.chip("Shoplifting alarm", "bad");
       }
     }
@@ -256,12 +264,11 @@ export function furnitureStore(c){
   });
 }
 function storeOpen(m, shop = STORE){ const t = m == null ? (ctx ? ctx.minute() : 600) : m; const d = ((t % 1440) + 1440) % 1440; return d >= shop.open && d < shop.close; }
-const hours = shop => `${fmtTime(shop.open)} – ${fmtTime(shop.close)}`;
 // hold E on a piece on the floor: pay, it is boxed up in a puff of packing, and the box is in your arms
 function buyBig(id, m, sp, shop = STORE){
   const f = FURN[id];
   if (!storeOpen(null, shop)) return ctx.note(`${shop.name} is closed. It's open ${hours(shop)}.`);
-  if (INV.hand()) return ctx.note("Your hands are full. Pocket what you're holding (1 or 2) or drop it (G) — a box needs both arms.");
+  if (INV.hand()) return ctx.note("Your hands are full, and a box needs both arms. Pocket what you're holding (1 or 2) or put it down (G).");
   if (!spend(f.price)) return ctx.note(`You need ${eur(f.price)} for the ${f.name.toLowerCase()}.`);
   const p = m.g.position; puff(p.x, .3, p.z);
   // it shrinks away into the dust (the shop has more in the back for next time)
@@ -317,7 +324,7 @@ export function showroom(c, b){
   box(b.x0 + .5, 4.17, b.z1 + .02, b.x1 - .5, 4.2, b.z1 + .08, 0xfff1d0, {key:"lamp", ao:false, jit:0});
   const dx = (door[0] + door[1])/2;
   spot({x:dx, y:1.2, z:b.z1 + .4, r:1.6, near:true, label:"Casa Nova", get hint(){ return storeOpen(null, CASA) ? `Furniture showroom · open till ${fmtTime(CASA.close)}` : `Closed · opens at ${fmtTime(CASA.open)}`; }, hold:.2,
-    run:() => ctx.note(storeOpen(null, CASA) ? "Beds along the back wall, fridges down the left. Tiers 3 to 6 — the box rides home with you on the bus." : `Closed. Casa Nova is open ${hours(CASA)}.`)});
+    run:() => ctx.note(storeOpen(null, CASA) ? "Beds along the back wall, fridges down the left, tiers 3 to 6. The box rides home with you on the bus." : `Closed. Casa Nova is open ${hours(CASA)}.`)});
   // the floor: beds along the back wall, fridges down the side, each with its price
   const show = [["bed3", ix0 + 4.2, Math.PI], ["bed4", ix0 + 8.0, Math.PI], ["bed5", ix0 + 12.1, Math.PI], ["bed6", ix0 + 16.6, Math.PI]]
     .map(([id, x, ry]) => [id, x, iz0 + BEDLEN(id)/2 + .2, ry])
@@ -333,7 +340,7 @@ export function showroom(c, b){
     else priceTag(x + .1, z + hd + .4, 0, f.name, f.price, "CASA NOVA", "#1f4a5a");
     const aim = [[x - hw - .05, 0, z - hd - .05], [x + hw + .05, Math.min(2.1, m.h + .1), z + hd + .05]];
     const sp = spot({aim, label:f.name, get hint(){ return `${eur(f.price)} · tier ${f.tier} · ${f.desc}`; }, hold:.2,
-      run:() => ctx.note(`${f.name} · tier ${f.tier} · ${eur(f.price)}. Hold E to buy it — it comes boxed, for you to carry home on the bus and set up (B, in your flat).`),
+      run:() => ctx.note(`${f.name} · tier ${f.tier} · ${eur(f.price)}. Hold E to buy it. It comes boxed, for you to carry home on the bus and set up (B, in your flat).`),
       long:{time:1, label:`buy · ${eur(f.price)}`, run:() => buyBig(id, m, sp, CASA)}});
   }
   // signs over the two ranges
