@@ -316,12 +316,13 @@ export function teamSession(o){
     root.add(P[0].g, P[1].g);
     avoid.push(...[P[0], P[1]].map(h => [h.g.position.x, h.g.position.z, .6]), [(p1.x + p2.x)/2 + nx, (p1.z + p2.z)/2 + nz, L/2 - .4]);
     const ball = o.ballMesh(); root.add(ball);
-    actors.push({kind:"pair", P, ball, who:0, st:"pass", t:r()*.5, at:null, to:null, roll:0, ax:new THREE.Vector3()});
+    actors.push({kind:"pair", P, ball, who:0, st:"pass", t:r()*.5, at:null, to:null, roll:0, ax:new THREE.Vector3(),
+      home:P.map(h => ({x:h.g.position.x, z:h.g.position.z, ry:h.g.rotation.y}))});
   }
   // the keeper stretching by the touchline
   const gkLook = lookFor("goalkeeper", base + 7, {kit:[a, b]}), gk = human(gkLook); looks.set(gk, gkLook);
   gk.g.position.set(c.x - 3.5, 0, c.z + 6); gk.g.rotation.y = Math.PI*.85; root.add(gk.g);
-  actors.push({kind:"stretch", P:gk});
+  actors.push({kind:"stretch", P:gk, home:[{x:gk.g.position.x, z:gk.g.position.z, ry:gk.g.rotation.y}]});
   avoid.push([gk.g.position.x, gk.g.position.z, .8]);
   // three running laps together, round the pitch: past the coach on the pitch side, round anything else
   const lp = o.lap || [{x:-18, z:-6}, {x:18, z:-6}, {x:18, z:-25}, {x:-18, z:-25}];
@@ -346,7 +347,8 @@ export function teamSession(o){
   // everyone in the session is drawn by the scheduler while the session is on and still theirs (leave.js takes over)
   let on = null;
   const live = () => on === true && !self.left;
-  for (const ac of actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) actor(h, "team", live);
+  // (a body lent to a drill is drawn by the drill's view while it plays: its own is hidden, and not posed)
+  for (const ac of actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) actor(h, "team", () => live() && h.g.visible);
   for (const ac of actors) if (ac.kind === "stretch") ac.P.ast = {mode:"stretch"};
   coach.ast = {mode:"clipboard"}; actor(coach, "team-coach", live);
   // (a clip state each, changed in place as the drill goes on)
@@ -401,6 +403,9 @@ export function teamSession(o){
       // the session ending while you are here: if somebody (leave.js) is taking them home, its people are handed over
       // where they stand (they don't vanish), and the balls are gathered up
       if (!now && was === true && self.leave){
+        // anyone lent to a drill is given back first (its owner hands the bodies back where they stand)
+        for (const f of self.beforeLeave.slice()) try { f(); } catch(e){ console.error(e); }
+        for (const ac of actors){ ac.away = false; ac.homing = false; for (const h of ac.kind === "pair" ? ac.P : [ac.P]) h.g.visible = true; }
         for (const ac of actors) if (ac.ball) ac.ball.visible = false;
         for (const q of solids) q.off = true; for (const q of bodies) q.off = true;
         const list = []; for (const ac of actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) list.push(h); list.push(coach);
@@ -468,7 +473,8 @@ export function teamSession(o){
       const sv = ac.tx == null || !(dt > 0) ? group.v : Math.hypot(tx - ac.tx, tz - ac.tz)/dt;
       ac.tx = tx; ac.tz = tz;
       if (ac.px == null){ c.X = tx; c.Z = tz; ac.lag = 0; continue; }
-      let mx = tx - ac.px, mz = tz - ac.pz; const ml = Math.hypot(mx, mz), lim = (Math.min(sv, 7) + 1.5)*dt;
+      // (catching the group up after a drill borrowed him: never faster than a borrowed body may go, 6 m/s)
+      let mx = tx - ac.px, mz = tz - ac.pz; const ml = Math.hypot(mx, mz), lim = Math.min(Math.min(sv, 7) + 1.5, ac.lag > 1 ? 6 : 8.5)*dt;
       if (ml > lim){ mx *= lim/ml; mz *= lim/ml; }
       let X = ac.px + mx, Z = ac.pz + mz;
       const offLap = Math.abs(group.off) > .05 || ac.lag > .3;          // (on the lap itself everything is clear already)
@@ -489,6 +495,7 @@ export function teamSession(o){
     }
     for (const ac of actors){
       if (ac.away) continue;
+      if (ac.homing){ walkHome(ac, dt); continue; }
       if (ac.kind === "pair"){
         const A = ac.P[ac.who], Bp = ac.P[1 - ac.who];
         ac.t += dt;
@@ -541,6 +548,29 @@ export function teamSession(o){
       }
     }
   });
+  /* given back after a drill: a pair or the keeper walk back to where they were (a jog, never over 6 m/s), and pick up
+     their work there */
+  const HOME_V = 3.4;
+  const walkHome = (ac, dt) => {
+    let all = true;
+    (ac.kind === "pair" ? ac.P : [ac.P]).forEach((h, i) => {
+      const hm = ac.home[i], g = h.g, dx = hm.x - g.position.x, dz = hm.z - g.position.z, d = Math.hypot(dx, dz);
+      if (d < .08){ g.rotation.y += Math.max(-4*dt, Math.min(4*dt, Math.atan2(Math.sin(hm.ry - g.rotation.y), Math.cos(hm.ry - g.rotation.y)))); h.ast = {mode:"idle"}; return; }
+      all = false;
+      const k = Math.min(1, HOME_V*dt/d); g.position.x += dx*k; g.position.z += dz*k;
+      let dy = Math.atan2(dx, dz) - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      g.rotation.y += Math.max(-7*dt, Math.min(7*dt, dy));
+      h.ast = {mode:"move", speed:Math.min(HOME_V, d/Math.max(dt, 1e-3))};
+    });
+    if (!all) return;
+    ac.homing = false;
+    if (ac.kind === "pair"){
+      ac.st = "pass"; ac.t = 0; ac.at = null; ac.who = 0; ac.ball.visible = true;
+      ac.P.forEach((h, i) => { h.g.rotation.y = ac.home[i].ry; h.ast = {mode:"idle"}; });
+    } else if (ac.kind === "stretch"){ ac.P.g.rotation.y = ac.home[0].ry; ac.P.ast = {mode:"stretch"}; }
+    if (ac.sols) for (const q of ac.sols) q.off = !on;
+  };
+  self.beforeLeave = [];
   /* borrowing (training.js, DESIGN 3.6.2): n of the squad step out of what they are doing for a block of the session
      the player joins; the borrower moves them (h.g) and says what they do (h.ast), the scheduler still draws them. A
      pair goes together (its ball is picked up), then the runners, the keeper only when asked for (o.keeper). Their
@@ -550,32 +580,33 @@ export function teamSession(o){
   self.borrow = (n, o = {}) => {
     const out = [];
     if (!on || self.left) return out;
-    const take = (ac, h, role) => {
-      ac.away = true;
-      out.push({h, role, ac, look:looks.get(h) || null, x:h.g.position.x, z:h.g.position.z});
+    const rec = (ac, h, role) => {
+      const lk = looks.get(h) || null;
+      return {h, role, ac, look:lk, x:h.g.position.x, z:h.g.position.z, number:lk && lk.outfit ? lk.outfit.number || 0 : 0, scale:lk && lk.height ? lk.height : 1};
     };
+    const take = (ac, h, role) => { ac.away = true; ac.homing = false; out.push(rec(ac, h, role)); };
     if (o.keeper){ const k = actors.find(ac => ac.kind === "stretch" && !ac.away); if (k) take(k, k.P, "keeper"); }
     for (const ac of borrowable()){
       if (out.filter(b => b.role !== "keeper").length >= n) break;
-      if (ac.kind === "pair"){ ac.ball.visible = false; for (const h of ac.P) out.push({h, role:"player", ac, look:looks.get(h) || null, x:h.g.position.x, z:h.g.position.z}); ac.away = true; }
+      if (ac.kind === "pair"){ ac.ball.visible = false; ac.away = true; ac.homing = false; for (const h of ac.P) out.push(rec(ac, h, "player")); }
       else take(ac, ac.P, "player");
     }
-    for (const b of out){ const q = solids.find(sq => Math.abs((sq.x0 + sq.x1)/2 - b.x) < .01 && Math.abs((sq.z0 + sq.z1)/2 - b.z) < .01); if (q){ q.off = true; b.sol = q; } if (b.ac.sol) b.ac.sol.off = true; }
+    // their solids go off while they are away (the drill's own bodies collide in the simulation)
+    for (const b of out){
+      const q = solids.find(sq => Math.abs((sq.x0 + sq.x1)/2 - b.x) < .01 && Math.abs((sq.z0 + sq.z1)/2 - b.z) < .01);
+      if (q){ q.off = true; b.sol = q; const L = b.ac.sols || (b.ac.sols = []); if (!L.includes(q)) L.push(q); }
+      if (b.ac.sol) b.ac.sol.off = true;
+    }
     return out;
   };
   self.release = list => {
     for (const b of list || []){
       const ac = b.ac; if (!ac || !ac.away) continue;
       ac.away = false;
-      if (ac.kind === "pair"){
-        // they pick up where they stand: a fresh pass between them, the ball at the first one's feet
-        ac.st = "pass"; ac.t = 0; ac.at = null; ac.who = 0; ac.ball.visible = true;
-        const A = ac.P[0], B2 = ac.P[1];
-        A.g.rotation.y = Math.atan2(B2.g.position.x - A.g.position.x, B2.g.position.z - A.g.position.z);
-        B2.g.rotation.y = Math.atan2(A.g.position.x - B2.g.position.x, A.g.position.z - B2.g.position.z);
-      } else if (ac.kind === "lap"){ ac.px = b.h.g.position.x; ac.pz = b.h.g.position.z; ac.yaw = b.h.g.rotation.y; ac.lag = 99; }
-      else if (ac.kind === "stretch") ac.P.ast = {mode:"stretch"};
-      if (b.sol) b.sol.off = !on;
+      b.h.g.visible = true;
+      // a pair and the keeper walk back to their places first; a runner catches the group up
+      if (ac.kind === "pair" || ac.kind === "stretch") ac.homing = true;
+      else if (ac.kind === "lap"){ ac.px = b.h.g.position.x; ac.pz = b.h.g.position.z; ac.yaw = b.h.g.rotation.y; ac.lag = 99; }
     }
   };
   self.lookOf = h => looks.get(h) || null;
@@ -685,11 +716,17 @@ export function staffer(x, z, ry, o = {}){
   let on = true;
   if (o.when){ on = !!o.when(dayMin(o)); h.g.visible = on; if (sol) sol.off = !on; }
   if (o.when) W.anims.push(() => {
+    if (h.held) return;                          // (lent to a drill: he is where it has him, not at his post)
     const want = !!o.when(dayMin(o));
     if (want !== on && !inSight(x, z)){ on = want; h.g.visible = on; if (sol) sol.off = !on; W.shadowDirty = true; }
   });
-  h.ast = st; actor(h, "staff-" + role, () => on);
+  h.ast = st; actor(h, "staff-" + role, () => on || h.held);
   h.role = role; h.st = st;
+  /* lent (training.js: the assistant coach plays the balls in): he leaves his post, and its solid with it, until he is
+     given back at it */
+  h.lend = () => { h.held = true; on = true; h.g.visible = true; if (sol) sol.off = true; };
+  h.giveBack = () => { h.held = false; h.ast = st; if (sol) sol.off = !on; };
+  h.post = {x, z, ry};
   return h;
 }
 

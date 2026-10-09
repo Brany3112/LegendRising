@@ -3,7 +3,8 @@
    staff office and the computer that knows everything about you; beyond them the training pitch,
    the stand and the tunnel you walk out of on match day. From ten to five on a training day the
    squad is out there working, and being among them is how a dressing room comes to trust you. */
-import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, labels, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam} from "./build.js";
+import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, labels, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam, onBegin} from "./build.js";
+import {RT} from "./core/state.js";
 import {facer, decoWin, pilasters, roofTop, busStop, hingedDoor, leafGuard} from "./home.js";
 import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, bench, dugout, floodlight,
   waterCooler, bottle, kitBag, bibs, kitHamper, lockers, shelfUnit, tacticsBoard, noticeBoard, desk, monitor, chair, vending, vendTex, plyoBox, bike,
@@ -17,7 +18,7 @@ import {deliveryPoint, POINT_NAME} from "./parcels.js";
 import {departures, EXIT} from "./leave.js";
 import {bakeCar, CAR_KINDS} from "./cars.js";
 import {buildPitchMesh, ballMesh as ballLook} from "./football/pitchmesh.js";
-import {GP, groundPitch, meshTierFor, wornFor, DRILLS, toWorld} from "./football/trainspec.js";
+import {GP, groundPitch, meshTierFor, wornFor, DRILLS, toWorld, SESSION_PLAN_MINS} from "./football/trainspec.js";
 
 let ctx = null;
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -26,12 +27,20 @@ export const GROUND = {fridge:null, session:null, tier:3, pitch:null, spec:null,
    touchline stays at z = -4 and the pitch grows north. Its numbers come from pitchspec.js through trainspec.js (GP);
    the spec itself (with the grass's rolling deceleration for the club's tier) is made in buildGround: GROUND.spec */
 export const PITCH = {L:GP.L, Wd:GP.Wd, cx:GP.cx, cz:GP.cz, x0:GP.cx - GP.L/2, x1:GP.cx + GP.L/2, z0:GP.cz - GP.Wd/2, z1:GP.cz + GP.Wd/2, goalW:7.32, goalH:2.44};
+// the assistant coach's post: on the near touchline, between the dugouts' east end and the drill stations
+const trainAssist = {x:14.5, z:-2.9, ry:Math.PI};
 // where the stand's front wall is (it was 1.6 m behind the old far touchline; now 4 m behind the new one) and the tunnel
 const STAND_Z = PITCH.z0 - 4, TUNNEL = {x:0, z:STAND_Z + 1.8};
 
+// what the coach's spot says: the session's length from the plan it runs (trainspec.js), or that today's is done
+export function sessionHint(){
+  const s = G(), ss = s && s.life && s.life.att && s.life.att.sess;
+  return ss && ss.done ? "Done for today" : `Join the team session · ${SESSION_PLAN_MINS} min · once a day`;
+}
+
 /* ---------- the gym ---------- */
 const GY = {wall:0xe1dbcf, dark:0x2b2f34, grey:0xa5aba7, teal:0x2f8f86};
-// (the equipment itself — racks, dumbbells, plyo boxes, the sprint lane, treadmills, bikes — is gymclub.js, in six tiers)
+// (the equipment itself, the racks, dumbbells, plyo boxes, sprint lane, treadmills and bikes, is gymclub.js, in six tiers)
 function gym(){
   const x0 = -13, x1 = 13, z0 = 4, z1 = 16, H = 4.2;
   box(x0, 0, z0, x1, .03, z1, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
@@ -54,7 +63,7 @@ function gym(){
     for (const y of [.8, 3.34]) rbox((a0 + a1)/2, y, zz, a1 - a0, .07, .18, .02, 0x3d434a, {key:"metal"});
     rbox((a0 + a1)/2, .74, zz + (zz > 10 ? .1 : -.1), a1 - a0 + .2, .06, .2, .02, 0xc7c2b8);         // the sill outside
   }
-  // a dark stripe along the walls (broken at the door), and a lime one at eye level — the club's colours inside
+  // a dark stripe along the walls (broken at the door), and a lime one at eye level: the club's colours inside
   box(x0 + .25, .03, z0 + .26, x1 - .25, .5, z0 + .28, 0x2b2f34, {ao:false, jit:0});
   box(x0 + .25, .03, z1 - .28, -.9, .5, z1 - .26, 0x2b2f34, {ao:false, jit:0}); box(.9, .03, z1 - .28, x1 - .25, .5, z1 - .26, 0x2b2f34, {ao:false, jit:0});
   box(x0 + .26, .03, z0 + .25, x0 + .28, .5, z1 - .25, 0x2b2f34, {ao:false, jit:0}); box(x1 - .28, .03, z0 + .25, x1 - .26, .5, z1 - .25, 0x2b2f34, {ao:false, jit:0});
@@ -88,7 +97,7 @@ function gym(){
     // at the bottom tier one of them has given up
     const broken = t <= 2 && x === 9.8;
     treadmill(x, 6.9, t, {broken});
-    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order — has been for months" : "Endurance run · stamina · 45 min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
+    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order. It has been for months" : "Endurance run · stamina · 45 min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
   }
   spinBike(5.6, 10.8, 0, t); spinBike(7.6, 10.8, 0, t);
   spot({aim:[[4.9, 0, 10.4], [8.4, 1.2, 11.2]], x:6.6, z:10.8, label:"Exercise bike", hint:"Intervals · stamina and pace · 45 min", run:() => ctx.reps("bike")});
@@ -292,6 +301,19 @@ function stand(clubName){
   for (const dx of [-2.6, 2.6]) rbox(dx, 0, -54.73, .16, 2.9, .06, .03, 0xc8f060, {key:"neon", solid:true});
   solid(-1.5, 1.5, -56, -55.9, 0, 2.4);                   // the doors and their push bars
   lightSrc({x:0, y:2.6, z:-54, color:0xfff1c8, intensity:6, distance:8, indoor:true});
+}
+
+/* the floodlights at night (DESIGN 3.9.3): no point lights over the pitch, the sky's flood key light in the sun's place
+   instead, the way the stadium does it. It stands for the four masts' banks at once, from the stand's side and high up,
+   so a spot one bank cannot see is still lit by the others (shadow), and the stand's roof, which the lamps look over,
+   throws no shadow across the grass (top). A poor club runs half its lamps, and those not so bright. The light goes
+   off again as the next place is built (onBegin), before that place can turn its own on */
+let KEYED = false;
+onBegin(() => { if (KEYED){ KEYED = false; if (RT.SKY && RT.SKY.setNightKey) RT.SKY.setNightKey(false); } });
+function floodKey(tier){
+  if (!RT.SKY || !RT.SKY.setNightKey) return;
+  RT.SKY.setNightKey(true, {dir:[.16, 1, -.42], intensity:[.85, 1.0, 1.2, 1.35, 1.5, 1.65][Math.max(1, Math.min(6, tier)) - 1], color:0xf2f5ff, shadow:.5, top:6.6});
+  KEYED = true;
 }
 
 /* ---------- the clubhouse: dressing room, staff office and the stats computer ---------- */
@@ -551,11 +573,9 @@ export function buildGround(c){
   parkingBays(19.2, 19, 4, 2.7, 5, 1);
   pitch(tier);
   dugout(-8, -2.1, 0, 5, 0x1f5fb0); dugout(8, -2.1, 0, 5, 0x6d737a);
-  // the floodlight masts at the four corners, outside the run-off, aimed at the middle
-  for (const [x, z] of [[-41.4, STAND_Z + 1.2], [41.4, STAND_Z + 1.2], [-41.4, -1.2], [41.4, -1.2]]) floodlight(x, z, 0, PITCH.cz, 16);
-  // the floodlights light the pitch once it gets dark (a poor club runs half of them, and those not so bright)
-  for (const [x, z] of tier <= 2 ? [[-18, PITCH.cz], [18, PITCH.cz]] : [[-24, PITCH.cz + 10], [24, PITCH.cz - 10], [-24, PITCH.cz - 10], [24, PITCH.cz + 10]])
-    lightSrc({x, y:15, z, color:0xf4f6ff, intensity:tier <= 2 ? 52 : tier >= 5 ? 80 : 68, distance:48, decay:1.2});
+  // the floodlight masts at the four corners, just outside the fences, aimed at the middle
+  for (const [x, z] of [[-43.6, STAND_Z + 1.2], [43.6, STAND_Z + 1.2], [-43.6, -1.2], [43.6, -1.2]]) floodlight(x, z, 0, PITCH.cz, 16);
+  floodKey(tier);
   gym(); gymLook(tier);
   drillStations();
   // the bench in the yard, for waiting out the morning
@@ -608,9 +628,15 @@ export function buildGround(c){
     lap:[{x:PITCH.x0 - 3.8, z:PITCH.z1 - 1}, {x:PITCH.x1 + 3.8, z:PITCH.z1 - 1}, {x:PITCH.x1 + 3.8, z:PITCH.z0 - 1.2}, {x:PITCH.x0 - 3.8, z:PITCH.z0 - 1.2}]});
   // and at four, home: walking off to their cars or the bus (leave.js)
   GROUND.leave = departures({minute:ctx.minute, session:GROUND.session, mine:!!ct});
-  // the coach: the team session, once a day (3.6.2; the hint from ctx.sessionHint: "Done for today" once it is)
+  /* the assistant coach: at his post on the near touchline, between the drills, while the centre is open. He plays the
+     balls in for the drills and the lessons (football/training.js lends him: he walks to his spot, plays them with a
+     real strike, and walks back when it is over) */
+  const AC = trainAssist, ah = staffer(AC.x, AC.z, AC.ry, {role:"coach", seed:21, kit, noSolid:false,
+    when:m => m >= (typeof CENTRE === "object" ? CENTRE.open : 6*60) + 45 && m < (typeof CENTRE === "object" ? CENTRE.close : 17*60) - 10, minute:ctx.minute});
+  GROUND.assist = {h:ah, x:AC.x, z:AC.z, ry:AC.ry, lend:() => ah.lend(), giveBack:() => ah.giveBack()};
+  // the coach: the team session, once a day (3.6.2): "Done for today" once it is
   spot({x:-6, y:1.2, z:-5.4, r:2.2, near:true, when:() => typeof sessionOn === "function" && sessionOn(), label:"Coach",
-    get hint(){ return ctx.sessionHint ? ctx.sessionHint() : "Join the team session"; }, run:() => ctx.session()});
+    get hint(){ return sessionHint(); }, run:() => ctx.session()});
   finishBatches();
   // the players' tunnel: where you come out on a match day, and how far into it the match begins (tunnel.js reads it:
   // within 1.6 m of its line and 1.55 m past this spot)

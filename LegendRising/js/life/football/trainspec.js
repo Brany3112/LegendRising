@@ -11,6 +11,8 @@
 
 import {makePitch, PITCHES} from "./pitchspec.js";
 import {hypot} from "./detmath.js";
+import {SLOT_POS} from "./tactics.js";
+export {SLOT_POS};
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
@@ -37,10 +39,15 @@ export const onPitch = (wx, wz, margin = 0) => Math.abs(wx - GP.cx) <= GP.L/2 + 
    the ball goes out over, its run-off keeps the players near). area = {x0, x1, z0, z1} in the training pitch's own
    frame, or null for the whole pitch. Only a real goal of the training pitch is a goal: an end of the area that is not
    one of the training pitch's goal lines has no posts, bar or net, and a ball over it is simply out. */
+// how far off the training pitch anybody in a drill may go (the training pitch's frame): 3 m past the goal lines (the
+// nets end 2 m back) and 1.1 m past the touchlines (the dugouts' fronts stand 1.34 m off the near one)
+export const GROUND_RUN = Object.freeze({x: GP.L/2 + 3, z: GP.Wd/2 + 1.1});
 export function areaPitch(area, tier = 3){
-  if (!area) return groundPitch(tier);
+  if (!area){ const g = groundPitch(tier); g.runoff = {hx: GROUND_RUN.x, hz: GROUND_RUN.z}; return g; }
   const L = area.x1 - area.x0, Wd = area.z1 - area.z0, cx = (area.x0 + area.x1)/2, cz = (area.z0 + area.z1)/2;
   const spec = makePitch({L, Wd, cx: GP.cx + cx, cz: GP.cz + cz, roll: rollFor(tier)});
+  // the run-off round an area: 2 m, never past the ground's own (a symmetric box about the area's middle)
+  spec.runoff = {hx: Math.min(L/2 + 2, GROUND_RUN.x - Math.abs(cx)), hz: Math.min(Wd/2 + 2, GROUND_RUN.z - Math.abs(cz))};
   // the ends of the area that are the training pitch's own goal lines, with its goals in them (full width only)
   const full = Math.abs(Wd - GP.Wd) < 1e-6 && Math.abs(cz) < 1e-6;
   const real = end => full && Math.abs(cx + end*L/2 - end*GP.L/2) < 1e-6;
@@ -67,32 +74,36 @@ export const DRILLS = Object.freeze({
   shoot: {kind: 'shoot', mode: 'drill', title: "Finishing", label: "Finishing against the keeper", sub: "The coach lays it off, you finish past the keeper",
     hint: "Five shots against the keeper · accuracy and shot power · 30 min", mins: 30, reps: 5,
     spot: {x: 17, z: 4}, board: {x: 14.5, z: 9.5}, area: null, dir: 1,
-    mates: 0, opps: 0, keeper: true, feed: {kind: 'pass', from: {x: 24, z: 15}},
+    mates: 0, opps: 0, keeper: true, feed: {kind: 'pass', to: 'me', from: {x: 24, z: 15}},
     xp: [['accuracy', 3, 4], ['power', 1, 2]]},
   pass: {kind: 'pass', mode: 'drill', title: "Passing lanes", label: "Passing lanes", sub: "Three team-mates on the move: find them",
     hint: "Six passes · pass accuracy and passing · 30 min", mins: 30, reps: 6,
     spot: {x: -2, z: 13}, board: {x: -19, z: 16}, area: {x0: -17, x1: 13, z0: 1, z1: 21}, dir: 1,
-    mates: 3, mateSlots: ['LW', 'RW', 'ST'], opps: 0, keeper: false, feed: {kind: 'mate'},
+    mates: 3, mateSlots: ['LW', 'RW', 'ST'], mateAt: [{x: -14, z: 5}, {x: 10, z: 5}, {x: -2, z: 2.5}], opps: 0, keeper: false,
+    feed: {kind: 'pass', to: 'me', from: {x: -8, z: 23}},
     xp: [['passacc', 2, 4], ['passing', 1, 2]]},
   head: {kind: 'head', mode: 'drill', title: "Crossing and heading", label: "Crossing and heading", sub: "The coach crosses from the wing, you attack it",
     hint: "Five crosses to head · heading and jumping · 30 min", mins: 30, reps: 5,
     spot: {x: -27, z: -1}, board: {x: -23.5, z: -6.5}, area: null, dir: -1,
-    mates: 0, opps: 0, keeper: true, feed: {kind: 'cross', from: {x: -30, z: 19}},
+    mates: 0, opps: 0, keeper: true, feed: {kind: 'cross', to: 'head', from: {x: -30, z: 19}},
     xp: [['heading', 3, 3], ['jumping', 1, 0]]},
   intercept: {kind: 'intercept', mode: 'drill', title: "Reading the lane", label: "Reading the lane", sub: "Two of them pass it between them, you cut it out",
     hint: "Six passes to read · interception · 30 min", mins: 30, reps: 6,
     spot: {x: -16, z: -15}, board: {x: -16, z: -5.5}, area: {x0: -28, x1: -4, z0: -22, z1: -8}, dir: 1,
-    mates: 0, opps: 2, oppSlots: ['LB', 'RB'], keeper: false, feed: {kind: 'opp'},
+    mates: 0, opps: 2, oppSlots: ['LB', 'RB'], oppAt: [{x: -26, z: -15}, {x: -6, z: -15}], keeper: false,
+    feed: {kind: 'pass', to: 'opp', from: {x: -26, z: -23.5}},
     xp: [['interception', 3, 0]]},
   duel: {kind: 'duel', mode: 'drill', title: "One against one", label: "Defending one against one", sub: "Stop him getting past you down the channel",
     hint: "Five duels · tackling · 30 min", mins: 30, reps: 5,
     spot: {x: 22, z: -15}, board: {x: 19, z: -5}, area: {x0: 12, x1: 32, z0: -22.5, z1: -7.5}, dir: -1,
-    mates: 0, opps: 1, oppSlots: ['ST'], keeper: false, feed: {kind: 'attacker'},
+    mates: 0, opps: 1, oppSlots: ['ST'], oppAt: [{x: 14, z: -15}], keeper: false,
+    feed: {kind: 'pass', to: 'opp', from: {x: 10, z: -19}},
     xp: [['tackling', 3, 0]]},
   setpiece: {kind: 'setpiece', mode: 'drill', title: "Free kicks", label: "Free kicks", sub: "Over the wall or round it, the keeper's in",
     hint: "Five free kicks · curve and accuracy · 30 min", mins: 30, reps: 5,
     spot: {x: 13, z: -4}, board: {x: 9.5, z: -9.5}, area: null, dir: 1,
-    mates: 0, opps: 3, oppSlots: ['CB', 'CB', 'CDM'], keeper: true, feed: {kind: 'freekick', at: {x: 13, z: -4}},
+    mates: 0, opps: 3, oppSlots: ['CB', 'CB', 'CDM'], oppAt: [{x: 22, z: -5}, {x: 22, z: -4}, {x: 22, z: -3}], keeper: true,
+    feed: {kind: 'freekick', to: 'spot', at: {x: 13, z: -4}},
     xp: [['curve', 2, 3], ['accuracy', 2, 0]]}
 });
 export const DRILL_KINDS = Object.freeze(Object.keys(DRILLS));
@@ -102,12 +113,16 @@ export const SESSION_PLAN_MINS = 90;
 export const SESSION_LAST = 20;                // fewer minutes than this left before SESSION.end: too late to join
 export const BLOCKS = Object.freeze([
   {kind: 'rondo', mode: 'rondo', title: "Rondo", line: "Rondo · keep the ball, two in the middle", mins: 20, real: 120,
+    coach: "Rondo first. Five round the outside, two in the middle. Keep it moving.",
     area: {x0: -6, x1: 6, z0: -6, z1: 6}, dir: 1, mates: 4, mateSlots: ['LW', 'RW', 'CM', 'ST'], opps: 2, oppSlots: ['CB', 'CDM'], keeper: false},
   {kind: 'pattern', mode: 'pattern', title: "Pattern play", line: "Pattern play · third man runs", mins: 20, real: 120,
+    coach: "Pattern play. Give it and go, and the third man runs in behind.",
     area: {x0: 0, x1: 36, z0: -24, z1: 24}, dir: 1, mates: 4, mateSlots: ['CB', 'CM', 'LW', 'ST'], opps: 0, keeper: true},
   {kind: 'ssg', mode: 'ssg', title: "Small-sided game", line: "Small-sided game · four against four", mins: 35, real: 180,
+    coach: "Four against four now. Win it back quick when you lose it.",
     area: null, dir: 1, mates: 3, mateSlots: ['CB', 'CM', 'ST'], opps: 4, oppSlots: ['CB', 'CM', 'LW', 'ST'], keeper: true},
   {kind: 'finishing', mode: 'finishing', title: "Finishing", line: "Finishing · rebounds are live", mins: 15, real: 90,
+    coach: "Finishing to end with. Rebounds are live, so follow everything in.",
     area: null, dir: 1, mates: 2, mateSlots: ['LW', 'RW'], opps: 1, oppSlots: ['CB'], keeper: true}
 ]);
 export const sessionMins = () => BLOCKS.reduce((s, b) => s + b.mins, 0);     // 90 (SESSION_PLAN_MINS)
