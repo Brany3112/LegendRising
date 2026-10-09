@@ -72,7 +72,7 @@ export function goal(text, at = null){
 // for the compass: where the objective is, and in which area
 window.lifeGoal = () => GOAL.text && GOAL.at ? GOAL.at : null;
 // a how-to with the keys in it, at the bottom of the screen; it stays until another replaces it or ms runs out
-const HINT = {html:"", t:0, fit:"", vh:0, top:0, side:false};
+const HINT = {html:"", t:0, fit:"", vh:0, top:0, side:false, pEl:null, pKey:""};
 // what a step's tick shows: it waits while a timed how-to from the step before is still up
 function tip(html){ if (HINT.t > 0 && html !== HINT.html) return; hint(html); }
 export function hint(html, ms = 0){
@@ -83,28 +83,40 @@ export function hint(html, ms = 0){
   h.classList.add("on");
 }
 // the how-to sits above the pockets; when the use prompt grows down to it (a fridge item's numbers, the bed's plan),
-// it steps aside to the left edge, level with the prompt, so both read. Measured once per how-to in its own place
+// it steps aside to the left edge, level with the prompt, so both read. Measured once per how-to in its own place,
+// and the prompt only when it changes (shown, hidden or its text), so a frame that also writes to the page (a line
+// typing in, the distance) is not made to lay the page out again just to find nothing has moved
 function hintPlace(){
   const h = document.getElementById("onbHint");
   if (!h || !HINT.html || !h.classList.contains("on")) return;
+  let fresh = false;
   if (HINT.fit !== HINT.html || HINT.vh !== innerHeight){
     h.classList.remove("side");
     const r = h.getBoundingClientRect();
-    HINT.fit = HINT.html; HINT.vh = innerHeight; HINT.top = r.top - 10; HINT.side = false;
+    HINT.fit = HINT.html; HINT.vh = innerHeight; HINT.top = r.top - 10; HINT.side = false; fresh = true;
   }
-  const p = document.querySelector("#lifeRoot .lf-prompt.on"), r = p ? p.getBoundingClientRect() : null;
+  if (!HINT.pEl || !HINT.pEl.isConnected) HINT.pEl = document.querySelector("#lifeRoot .lf-prompt");
+  const p = HINT.pEl, on = !!(p && p.classList.contains("on")), key = on ? p.textContent : "";
+  if (!fresh && key === HINT.pKey) return;
+  HINT.pKey = key;
+  const r = on ? p.getBoundingClientRect() : null;
   const side = !!(r && r.height > 0 && r.bottom + 10 > HINT.top);
   if (side !== HINT.side){ HINT.side = side; h.classList.toggle("side", side); }
 }
 // a ring that pulses round a part of the HUD (an inventory cell, the compass)
 export function focus(sel){ RUN.focus = sel || null; }
+// (the ringed parts are looked up again only when the ring moves, or one of them has been redrawn by its HUD)
 function focusStep(){
   const want = RUN.focus && !(document.body.classList.contains("cine")) ? RUN.focus : null;
   if (want !== RUN.focused){
     for (const e of document.querySelectorAll(".onb-focus")) e.classList.remove("onb-focus");
-    RUN.focused = want;
+    RUN.focused = want; RUN.focusEls = null;
   }
-  if (want) for (const e of document.querySelectorAll(want)) if (!e.classList.contains("onb-focus")) e.classList.add("onb-focus");
+  if (!want) return;
+  const els = RUN.focusEls;
+  if (els && els.length && els.every(e => e.isConnected && e.classList.contains("onb-focus"))) return;
+  RUN.focusEls = Array.from(document.querySelectorAll(want));
+  for (const e of RUN.focusEls) e.classList.add("onb-focus");
 }
 // a diamond turning over an outdoor objective more than 25 m away
 function markerSet(at){
@@ -355,16 +367,15 @@ const STEPS = [
     at:() => { const d = ballDrop(); return d ? {x:d.x, z:d.z, y:d.y, zone:"home"} : null; },
     // a career that has never had the ball (its flat has none): nothing to move. (A ball in the air, thrown, is still one)
     skip:() => !home().ballGiven && !ballDrop() && !onYou("ball"),
-    start(){
-      const d = ballDrop(), o = OB();
-      if (d && !o.seen.ball0) o.seen.ball0 = {x:d.x, z:d.z};
-      speak(UNCLE, "And get that ball off the floor before you trip over it.");
-    },
+    start(){ ball0(); speak(UNCLE, "And get that ball off the floor before you trip over it."); },
     tick(){
+      ball0();
       if (onYou("ball")) tip(`<span>${kbd("G")} puts it down. Find it a spot out of the way.</span>`);
       else tip(`<span class="oh-mouse click"></span><span>The ball takes both hands, so it won't fit in a pocket. Left click to pick it up.</span>`);
     },
-    done:() => { const d = ballDrop(), b0 = OB().seen.ball0; return !!(d && b0 && !onYou("ball") && Math.hypot(d.x - b0.x, d.z - b0.z) >= 1); },
+    done:() => { const d = ballDrop(), b0 = OB().seen.ball0; return !!(d && b0 && !onYou("ball") && (b0.held || Math.hypot(d.x - b0.x, d.z - b0.z) >= 1)); },
+    // (the spec's second sentence, "Walk into it and you'll push it along.", waits for the ball you can push, which
+    // WP-H2 builds on ball.js (DESIGN 3.8.1); said before that, it would tell you something the ball does not do)
     end(){ hint(null); speak("You", "There. You can pick it up and move it any time."); }},
 
   {id:"H18", zone:"home", objective:() => "Have a look around your street",
@@ -396,7 +407,8 @@ const STEPS = [
     start(){ speak(UNCLE, `Line 14 goes to the training centre and to Dumbrava. The ride to training takes ${busToTraining("home")} minutes.`); },
     done:() => seen("busPanel")},
 
-  {id:"H21", zone:"home", objective:() => "Take the bus to the training centre", at:() => { const b = busStop(); return {x:b.x, z:b.z, zone:"home", outdoor:true}; },
+  // (from any stop: Line 14 runs to the training centre from Dumbrava too, so away from home the objective stays the same)
+  {id:"H21", zone:"home", anyZone:true, objective:() => "Take the bus to the training centre", at:() => { const b = busStop(); return {x:b.x, z:b.z, zone:"home", outdoor:true}; },
     start(){ if (LIFE.min < busGateAt("home")) speak("You", "Too early. Grab something from the Mini Market, or sit down and wait."); },
     tick(){
       const m = LIFE.min, gate = busGateAt("home"), st = SESS().start;
@@ -406,6 +418,17 @@ const STEPS = [
     done:() => seen("H21")}
 ];
 export const STEP_IDS = STEPS.map(s => s.id);
+// where the ball was when H17 asked you to move it: the spot it lay on, or, in your hands at that moment, "held" (it
+// is moved once it is put down anywhere). Read while the step is current, so a ball carried when the step began, or
+// a reload in the middle, still has a start to measure from
+function ball0(){
+  const o = OB(); if (!o || o.seen.ball0) return;
+  const d = ballDrop();
+  if (d) o.seen.ball0 = {x:d.x, z:d.z};
+  else if (onYou("ball")) o.seen.ball0 = {held:true};
+  else return;
+  persist();
+}
 
 // the bed's lines on day one, from the plan the bed itself sleeps by (daily.js sleepPlan)
 function bedLines(){
@@ -419,7 +442,7 @@ function bedLines(){
 }
 
 /* ---------- the runner ---------- */
-const RUN = {cur:undefined, dirty:true, aim:{label:null}, focus:null, focused:null, unfocusT:0, goalT:0, h2:0, h13:0, h15:0, h15told:false, h19:0, started:new Set()};
+const RUN = {cur:undefined, dirty:true, aim:{label:null}, focus:null, focused:null, focusEls:null, unfocusT:0, goalT:0, h2:0, h13:0, h15:0, h15told:false, h19:0, started:new Set()};
 function stepDone(st){
   const o = OB(); if (!o) return true;
   if (o.seen[st.id]) return true;
@@ -445,17 +468,22 @@ function enter(st){
 }
 function showGoal(){
   const st = RUN.cur; if (!st){ goal(null); return; }
-  if (st.zone !== LIFE.zone){ goal(st.zone === "home" ? "Take the bus back to Strada Teiului" : "Take the bus to the training centre", null); return; }
+  if (st.zone !== LIFE.zone){
+    // a step to do somewhere else: the ride there (DESIGN 3.7.4). A home step that ends on the bus to training (H21)
+    // is the ride to the training centre wherever you are
+    goal(st.anyZone ? st.objective() : st.zone === "home" ? "Take the bus back to Strada Teiului" : "Take the bus to the training centre", null);
+    return;
+  }
   goal(st.objective(), st.at ? st.at() : null);
 }
 /* the home chapter is over: you are at the training centre (the bus took you there). The training centre's own
-   chapters (DESIGN 3.7.6) are not part of this build yet, so the first day's teaching ends here, and the rest of the
-   day is an ordinary one, still excused (the day's attendance was set excused when it began) */
+   chapters (DESIGN 3.7.6, WP-H2) are not part of this build yet, so the first day's teaching stops here and the rest of
+   the day is an ordinary one, still excused (the day's attendance was set excused when it began). Only the flat's flag
+   is set: TrainingCenterTutorialCompleted and GameplayTutorialCompleted belong to G8 and G9, and stay false so those
+   chapters can pick this career up (a finished home chapter, step "done", with the training centre's flag unset) */
 function finishHome(){
   const s = G(), o = OB(); if (!s || !o) return;
   s.flags.ApartmentTutorialCompleted = true;
-  s.flags.TrainingCenterTutorialCompleted = true;
-  s.flags.GameplayTutorialCompleted = true;
   o.step = "done";
   goal(null); hint(null); focus(null); markerOff();
   persist(true);
@@ -480,6 +508,8 @@ export function onEvent(ev, d = {}){
     case "nap": mark("nap"); break;
     case "foodiesOrder": if (d.ok) mark("ordered"); break;
     case "openBus": if (d.from === "home") mark("busPanel"); break;
+    // the bus to the training centre pulls away: the flat's chapter is done from here (DESIGN 3.7.5 H21)
+    case "busGo": if (d.to === "ground") s.flags.ApartmentTutorialCompleted = true; break;
     case "zone": if (d.zone === "ground") arrivedAtGround(); break;
   }
   RUN.dirty = true;

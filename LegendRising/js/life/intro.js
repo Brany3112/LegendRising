@@ -414,7 +414,9 @@ async function afterSign(){
   s.onb = Object.assign(OB() || {}, {v:2, step:"H1"});
   INTRO.on = false;
   endCine();
-  if (H.persist) H.persist(true);
+  // (the career was saved when it was made, applyCreation; this is only the step on, so it is written at the next quiet
+  // moment instead of stalling a frame the player can see, modes.js persist)
+  if (H.persist) H.persist();
   fdStart();
   H.relock();
 }

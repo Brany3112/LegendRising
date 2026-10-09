@@ -93,7 +93,8 @@ try {
   const back = await page.evaluate(n => window.__frames.slice(n), n0);
   check("back from the offers: covered until cine draws, never life-fp", back.every(f => (f.op >= .98 || f.owner === "cine") && f.owner !== "life-fp"), back.slice(0, 4));
   await page.waitForFunction(() => S.flags.FirstTimeIntroductionCompleted === true && !document.body.classList.contains("cine"), null, {timeout: 240000, polling: 200});
-  await page.waitForTimeout(1500);
+  // (the objective is drawn by the step runner's next tick: waited for, not a fixed sleep, so a busy machine still passes)
+  await page.waitForFunction(() => /^Go up to flat/.test((document.querySelector("#onbGoal.on span") || {}).textContent || ""), null, {timeout: 60000, polling: 100}).catch(() => {});
   const done = await page.evaluate(() => {
     const L = window.__life, me = L.ME.tp, pl = S.player.look, K = ["hair", "hairColor", "beard", "skin", "build", "height"];
     return {owner: L.camera.top(), step: S.onb.step, saved: !!localStorage.getItem(slotKey(SLOT)), goal: (document.querySelector("#onbGoal.on span") || {}).textContent || "",

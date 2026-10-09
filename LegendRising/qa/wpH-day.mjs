@@ -255,6 +255,10 @@ try {
   // H17 The ball: pick it up, put it down out of the way
   await page.evaluate(() => { const B = __bot, d = S.drops.find(d => d.item.id === "ball"); B.listen(); B.look(); B.place(d.x - .9, B.flat().base + .02, d.z - .6); B.aim(d.x, d.y, d.z); B.idle(1); B.click(); B.idle(1); });
   s = await state(); check("the ball in both hands: 'G puts it down. Find it a spot out of the way.'", s.hand === "ball" && /G puts it down\. Find it a spot out of the way\./.test(s.hint), s);
+  // the ball already in your hands when the step began (no starting spot on the floor): the step still has a start,
+  // and putting the ball down anywhere ends it (no soft-lock until a reload)
+  const b0held = await page.evaluate(() => { delete S.onb.seen.ball0; __bot.idle(.5); return S.onb.seen.ball0 || null; });
+  check("ball in hand when H17 began: its start is 'held', so any put-down counts", !!(b0held && b0held.held), b0held);
   await page.evaluate(() => { const B = __bot; B.look(); B.P.yaw += Math.PI*.6; B.P.pitch = -.3; B.step(2); B.key("g"); B.idle(4); B.listen(); });
   await doneStep("H17", true);
 

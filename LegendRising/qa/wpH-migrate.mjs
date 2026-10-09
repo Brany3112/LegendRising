@@ -60,7 +60,11 @@ try {
   check("the old tour ran: H2, H12, H13 seen; the number back on: H8 and H10 too", ["H2", "H12", "H13", "H8", "H10"].every(k => rows.flatTour.onb.seen[k]), rows.flatTour);
   check("flat done the old way: look-only steps seen, the bulb (H3), the post (H11), the ball (H17) and H19 to H21 by state",
     ["H1", "H2", "H7", "H8", "H10", "H12", "H13", "H14", "H15", "H16", "H18"].every(k => rows.flatDone.onb.seen[k]) && !["H3", "H4", "H5", "H6", "H9", "H11", "H17", "H19", "H20", "H21"].some(k => rows.flatDone.onb.seen[k]), rows.flatDone);
-  check("old training-centre stage: the flat is done, the next arrival at the ground goes on", rows.centre.flags.ApartmentTutorialCompleted && rows.centre.onb.step !== "done", rows.centre);
+  // (no home step comes back: step "done" turns the runner, the slow clock and the bus gate off; the training centre's
+  // flag stays false, which is what the training centre's chapters G1 to G9 pick a career up by)
+  check("old training-centre stage: the flat is done, no home step comes back, the training centre's chapters still to come",
+    rows.centre.flags.ApartmentTutorialCompleted && rows.centre.onb.step === "done" && !rows.centre.flags.TrainingCenterTutorialCompleted
+      && Array.from({length: 21}, (_, i) => "H" + (i + 1)).every(k => rows.centre.onb.seen[k]) && rows.centre.excused === true, rows.centre);
   check("GameplayTutorialCompleted is false unless every flag was true", !rows.centre.flags.GameplayTutorialCompleted && !rows.gameplayOnly.flags.GameplayTutorialCompleted, {centre: rows.centre.flags, g: rows.gameplayOnly.flags});
   check("the day a migrated onboarding is in is excused", rows.flatDone.excused === true && rows.flatNot.excused === true, {flatDone: rows.flatDone.excused, flatNot: rows.flatNot.excused});
 } catch(e){ out.error = String(e && e.stack || e); console.log(out.error); }

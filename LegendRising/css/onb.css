@@ -30,6 +30,16 @@ body.gfx-low{--onb-blur:0px}
 #lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 108px);background:var(--onb-panel);
   backdrop-filter:blur(var(--onb-blur));-webkit-backdrop-filter:blur(var(--onb-blur));border-radius:var(--onb-radius);font-family:var(--onb-font)}
 #lifeRoot .onb-goal span{color:var(--onb-ink)}
+#lifeRoot .onb-goal b{white-space:nowrap}
+/* a phone-width screen: the need bars hang down beside the compass, so the objective and the lines go below them */
+@media (max-width:700px){
+  #lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px)}
+  #lifeRoot .onb-say{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 252px)}
+  /* the narrative note (style.css puts it under the compass on narrow screens) clears the bars too, and while an
+     objective holds that place it sits above the how-to at the bottom instead */
+  #lifeRoot .lf-note{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px)}
+  #lifeRoot:has(> .onb-goal.on) .lf-note{top:auto;bottom:calc(var(--hud-pad) + 236px)}
+}
 
 /* ---------- a how-to with the keys in it: above the inventory and the narrative note, below the use prompt ---------- */
 #lifeRoot .onb-hint{bottom:calc(var(--hud-pad) + 152px);max-width:min(640px,calc(100vw - 32px));font-family:var(--onb-font);line-height:1.4}

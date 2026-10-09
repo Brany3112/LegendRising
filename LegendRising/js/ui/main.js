@@ -266,10 +266,18 @@ function onbMigrate(){
     // and the table
     if (old.stage === "tour") for (const k of ["H2", "H12", "H13"]) seen[k] = true;
     S.onb = {v:ONB_V2, step:"H1", seen};
+  } else if (old.stage === "centre"){
+    // already at the training centre the old way: the flat and the bus are behind you, so none of the home steps come
+    // back and day one's home rules (the slow clock, the bus gate) do not apply. The training centre's own chapters
+    // (G1 to G9, DESIGN 3.7.6) pick this career up on its next arrival there: they look for a finished home chapter
+    // (step "done", ApartmentTutorialCompleted) with TrainingCenterTutorialCompleted still false
+    f.ApartmentTutorialCompleted = true;
+    for (const k of ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12", "H13", "H14", "H15", "H16", "H17", "H18", "H19", "H20", "H21"]) seen[k] = true;
+    seen.slam = true;
+    S.onb = {v:ONB_V2, step:"done", seen};
   } else {
-    // the flat was done the old way: what was only shown or told is seen, what the world can say is checked (the bulb,
-    // your post, the ball), and it ends with the compass, the stop and the bus. Already at the training centre (the
-    // old stage "centre"): the next arrival there picks up from there
+    // the flat was done the old way (the old guide or bus stage): what was only shown or told is seen, what the world
+    // can say is checked (the bulb, your post, the ball), and it ends with the compass, the stop and the bus
     for (const k of ["H1", "H2", "H7", "H8", "H10", "H12", "H13", "H14", "H15", "H16", "H18"]) seen[k] = true;
     seen.slam = true;
     S.onb = {v:ONB_V2, step:"H3", seen};
