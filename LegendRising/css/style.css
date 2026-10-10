@@ -1787,3 +1787,58 @@ body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass,
 .bus-opt[disabled]{opacity:.45;cursor:not-allowed} .bus-opt[disabled]:hover{background:rgba(255,255,255,.04);border-color:var(--line)}
 /* the keypad phone takes the mouse while it's out: a line under the pointer lights, a click chooses it */
 .kp-item{cursor:pointer} .kp-item:not(.sel):hover{background:rgba(47,127,193,.35)}
+
+@font-face{font-family:"Yellowtail";font-style:normal;font-weight:400;font-display:block;src:url("../fonts/yellowtail-latin.woff2") format("woff2")}
+/* ---------- title screen (2026.10.10): the stadium photo out of focus, a hand-written neon name ---------- */
+.ts{display:block;min-height:100vh;min-height:100dvh;padding:0;overflow:hidden;cursor:pointer;user-select:none}
+.ts-photo{position:fixed;inset:-3%;background:#04070d url("../img/title-stadium.jpg") center/cover no-repeat;transform:scale(1.02);
+  filter:blur(0) brightness(.9);transition:filter 2.2s cubic-bezier(.3,.7,.2,1),transform 6s ease-out;z-index:0}
+.ts.t-blur .ts-photo{filter:blur(9px) brightness(.5) saturate(1.1);transform:scale(1.07)}
+.ts-shade{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(ellipse 70% 55% at 50% 44%,rgba(4,7,13,0) 0%,rgba(4,7,13,.35) 60%,rgba(4,7,13,.8) 100%)}
+.ts-center{position:relative;z-index:1;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:24px 16px;text-align:center}
+.ts-logo{width:min(1100px,94vw);height:auto;overflow:visible}
+.ts-word{font-family:"Yellowtail",cursive;font-size:190px;fill:transparent;stroke:#ffe9ee;stroke-width:2.2;stroke-linejoin:round;
+  stroke-dasharray:1400;stroke-dashoffset:1400;paint-order:stroke}
+.ts-pen{transition:width 2.4s cubic-bezier(.45,.05,.4,1)}
+.ts.t-write .ts-pen{width:1200px}
+.ts.t-write .ts-word{animation:tsDraw 2.5s cubic-bezier(.45,.05,.4,1) forwards}
+@keyframes tsDraw{to{stroke-dashoffset:0}}
+.ts.t-lit .ts-word{fill:#fff4f6;stroke:#ff3b5c;stroke-width:3;stroke-dashoffset:0;animation:none;
+  filter:drop-shadow(0 0 4px #ff2d55) drop-shadow(0 0 14px #ff2d55) drop-shadow(0 0 34px rgba(255,30,70,.75));
+  animation:tsFlicker 1.3s linear forwards, tsBuzz 6s 1.3s ease-in-out infinite}
+@keyframes tsFlicker{
+  0%{opacity:.15;filter:none}6%{opacity:1}9%{opacity:.25;filter:none}14%{opacity:1}
+  20%{opacity:1}22%{opacity:.35;fill:#ff8fa3;filter:drop-shadow(0 0 3px #ff2d55)}25%{opacity:1}
+  48%{opacity:1}50%{opacity:.6;fill:#ff6f8a}53%{opacity:1}100%{opacity:1}}
+@keyframes tsBuzz{0%,100%{opacity:1}46%{opacity:1}47%{opacity:.82}48%{opacity:1}72%{opacity:.93}73%{opacity:1}}
+.ts-sub{font-family:"Yellowtail",cursive;font-size:clamp(1.6rem,4vw,2.8rem);color:#ffe2e8;margin-top:-6px;
+  opacity:0;transform:scale(.55) translateY(10px);text-shadow:0 0 8px rgba(255,45,85,.55),0 0 22px rgba(255,45,85,.3)}
+.ts.t-sub .ts-sub{animation:tsPop .7s cubic-bezier(.2,1.6,.4,1) forwards}
+@keyframes tsPop{0%{opacity:0;transform:scale(.55) translateY(10px)}60%{opacity:1;transform:scale(1.08)}100%{opacity:1;transform:none}}
+.ts-press{margin-top:clamp(36px,9vh,90px);font-family:var(--display);font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  font-size:clamp(1rem,2.4vw,1.6rem);color:#fff;opacity:0;text-shadow:0 2px 18px rgba(0,0,0,.6)}
+.ts.t-ready .ts-press{animation:tsPulse 2.2s ease-in-out infinite}
+@keyframes tsPulse{0%,100%{opacity:0}50%{opacity:1}}
+.ts-save{margin-top:22px;display:grid;gap:2px;justify-items:center;padding:10px 20px;border-radius:14px;opacity:0;transform:translateY(8px);
+  background:rgba(8,13,22,.42);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  transition:opacity .6s .2s,transform .6s .2s cubic-bezier(.2,.8,.2,1);color:#c9d6e3;font-size:.86rem}
+.ts.t-ready .ts-save{opacity:1;transform:none}
+.ts-save-k{font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,226,232,.7)}
+.ts-save b{font-size:1.1rem;color:#fff;display:flex;align-items:center;gap:8px}
+.ts-save b i{font-style:normal;font-size:.78rem;padding:1px 7px;border-radius:8px;background:rgba(255,59,92,.22);color:#ffd0da;border:1px solid rgba(255,59,92,.4)}
+.ts-version{position:absolute;left:calc(16px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top));z-index:2;
+  font-size:.78rem;letter-spacing:.06em;color:rgba(220,230,240,.6);font-variant-numeric:tabular-nums;pointer-events:none}
+.ts-tools{position:absolute;right:calc(16px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));z-index:3;
+  display:flex;gap:8px;align-items:center;opacity:0;transition:opacity .6s}
+.ts.t-ready .ts-tools,.ts.t-blur .ts-tools{opacity:1}
+.ts-tool,.ts-del{cursor:pointer;border-radius:11px;border:1px solid rgba(255,255,255,.16);background:rgba(8,13,22,.5);color:#e7eef7;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background .2s,border-color .2s,color .2s}
+.ts-tool{width:40px;height:40px;font-size:1.05rem}
+.ts-del{height:40px;padding:0 14px;font-size:.82rem;font-weight:600;color:#ffb3c1}
+.ts-tool:hover{background:rgba(255,255,255,.12)}
+.ts-del:hover{background:rgba(255,59,92,.2);border-color:rgba(255,59,92,.55);color:#fff}
+.ts .cloud-corner{z-index:3}
+@media (max-width:600px){.ts-word{font-size:200px}.ts-press{letter-spacing:.08em}}
+@media (prefers-reduced-motion:reduce){.ts-photo{transition:none}.ts .ts-word{animation:none}}

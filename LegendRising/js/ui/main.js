@@ -293,21 +293,59 @@ function screenTitle(){
   }
   setPhoneVisible(false); closeSheet();
   migrateOldSave(); collapseToOneSlot();
-  const mix = (a, b, t) => "#" + [0,1,2].map(i => Math.round(a[i] + (b[i] - a[i])*t).toString(16).padStart(2, "0")).join("");
-  const bounce = (t, c1, c2) => [...t].map((ch, i) => `<span style="--b:${i};color:${mix(c1, c2, [...t].length > 1 ? i/([...t].length - 1) : 0)}">${ch}</span>`).join("");
-  render(`<section class="title-screen">
-    <div class="title-inner">
-      <div class="eyebrow">A football career from the bottom up</div>
-      <h1 class="logo bouncy"><i>${bounce("LEGEND", [255,255,255], [184,199,214])}</i><span>${bounce("RISING", [200,240,96], [255,215,90])}</span></h1>
-      <p class="lede">Start in Romanian Liga 4 with a keypad phone and nothing else. Every shot and pass is physics. Every word you post is remembered.</p>
-      <div class="slots one">${Array.from({length:SLOTS}, (_, i) => slotCard(i + 1)).join("")}</div>
-      <div class="row gap10 center">
-        <button class="btn lg ghost" onclick="A.fullscreen()">⛶ Full screen</button>
-        <button class="btn lg ghost" onclick="openSheet('settings0')">⚙ Settings</button>
-      </div>
-      <div class="build">Build ${esc(window.FF_BUILD || "dev")}</div>
+  const m = slotMeta(1);
+  const save = m ? `<div class="ts-save"><span class="ts-save-k">Your career</span><b>${esc(m.name)}<i>${m.ovr}</i></b><span>${esc(m.club)}${m.lg ? ` · ${esc(m.lg)}` : ""} · ${playTime(m.ms)} played</span></div>`
+    : `<div class="ts-save new"><span class="ts-save-k">No career yet</span><b>Start a new one</b></div>`;
+  render(`<section class="title-screen ts">
+    <div class="ts-photo" aria-hidden="true"></div><div class="ts-shade" aria-hidden="true"></div>
+    <div class="ts-center">
+      <svg class="ts-logo" viewBox="0 0 1200 300" role="img" aria-label="Legend Rising">
+        <defs><clipPath id="tsPen"><rect class="ts-pen" x="0" y="0" width="0" height="300"/></clipPath></defs>
+        <g clip-path="url(#tsPen)"><text class="ts-word" x="600" y="205" text-anchor="middle">Legend Rising</text></g>
+      </svg>
+      <div class="ts-sub">A game with a soul</div>
+      <div class="ts-press">Click anywhere or press any key to start</div>
+      ${save}
+    </div>
+    <div class="ts-version">Version ${esc(window.FF_BUILD || "dev")}</div>
+    <div class="ts-tools">
+      <button class="ts-tool" data-keep onclick="A.fullscreen()" title="Full screen">⛶</button>
+      <button class="ts-tool" data-keep onclick="openSheet('settings0')" title="Settings">⚙</button>
+      ${m ? `<button class="ts-del" data-keep onclick="A.deleteSlot(1)">Delete save</button>` : ""}
     </div>${cloudCorner()}</section>`, "title");
+  titleIntro();
   if (typeof fbInit === "function" && fbConfigured()) fbInit().then(() => { if (LAST_SCREEN === "title") { const c = $("#cloudCorner"); if (c) c.outerHTML = cloudCorner(); } }).catch(() => {});
+}
+/* the title's entrance: the photo racks out of focus, the name is written by hand, lights up like a neon sign and
+   flickers, the line under it pops in, then any key or click starts (a key or click before that finishes the entrance) */
+let TITLE_T = null;
+function titleIntro(){
+  const root = $(".ts"); if (!root) return;
+  clearTimeout(TITLE_T);
+  const quiet = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const finish = () => { root.classList.add("t-blur", "t-write", "t-lit", "t-sub", "t-ready"); };
+  const go = () => {
+    if (quiet) return finish();
+    const seq = [[80, "t-blur"], [500, "t-write"], [3000, "t-lit"], [4200, "t-sub"], [5000, "t-ready"]];
+    let i = 0;
+    const next = () => { if (!document.body.contains(root)) return; const [ms, c] = seq[i]; TITLE_T = setTimeout(() => { root.classList.add(c); if (++i < seq.length) next(); }, ms - (i ? seq[i - 1][0] : 0)); };
+    next();
+  };
+  // the script face first, so the pen never writes in a fallback font
+  const f = document.fonts && document.fonts.load ? document.fonts.load('120px "Yellowtail"') : Promise.resolve();
+  Promise.race([f, new Promise(r => setTimeout(r, 1500))]).then(go, go);
+  const start = e => {
+    if (LAST_SCREEN !== "title" || !document.body.contains(root)) return off();
+    if (document.querySelector("#sheetRoot.open") || document.querySelector("#tutRoot.on")) return;
+    if (e.type === "keydown" && (e.repeat || ["Tab", "Shift", "Control", "Alt", "Meta", "F5", "F11", "F12"].includes(e.key))) return;
+    if (e.type === "pointerdown" && e.target.closest("[data-keep], button, a, input, .cloud-corner")) return;
+    if (!root.classList.contains("t-ready")){ clearTimeout(TITLE_T); finish(); return; }
+    off();
+    if (slotMeta(1)) A.continue(1); else A.newGame(1);
+  };
+  const off = () => { removeEventListener("keydown", start, true); root.removeEventListener("pointerdown", start); };
+  addEventListener("keydown", start, true);
+  root.addEventListener("pointerdown", start);
 }
 let CR = null;
 /* ---------- creating your player ----------
