@@ -104,12 +104,17 @@ function relBall(a, b, out = RB){
 
 // The reach window for release-to-contact (1.4.14, 1.5.3): the ball 0.45 to 0.90 m ahead on the kicking side and within
 // 0.5 m across, low: contact on the next swing, at most 0.18 s later. Returns {ok, side, tc} plus foot and the geometry.
-export function canStrike(a, ball){
+// A strike in the air (A1.5, the resolver's style: a volley, a side volley, a scissor or an overhead kick) widens the
+// window: the ball up to VOLLEY.H (VOLLEY.HI for the acrobatic ones) and, struck side-on, further across and less ahead.
+export const VOLLEY = Object.freeze({STYLES: new Set(['volley', 'sidevolley', 'scissor', 'bicycle']), H: 1.25, HI: 1.7, LAT: 1.05, AHEAD0: -0.15,
+  WAIT: 1.2, WHIFF_H: 1.0});
+export function canStrike(a, ball, style){
   const r = relBall(a, ball, {ahead: 0, lat: 0, dist: 0});
   const foot = footFor(a, r.lat), side = foot === 'R' ? 1 : -1;
   const s = a.scale || 1;
-  const low = ball.p.y - (a.y || 0) < 0.6*s;
-  const ok = low && r.ahead >= ACT.REACH0*0.6 && r.ahead <= ACT.REACH1*s && Math.abs(r.lat) <= ACT.REACH_LAT;
+  const air = !!style && VOLLEY.STYLES.has(style), wide = air && style !== 'volley';
+  const low = ball.p.y - (a.y || 0) < (air ? (style === 'scissor' || style === 'bicycle' ? VOLLEY.HI : VOLLEY.H) : 0.6)*s;
+  const ok = low && r.ahead >= (wide ? VOLLEY.AHEAD0 : ACT.REACH0*0.6) && r.ahead <= ACT.REACH1*s*(air ? 1.2 : 1) && Math.abs(r.lat) <= (wide ? VOLLEY.LAT : ACT.REACH_LAT);
   // the next swing: sooner when the ball is well placed, a little later at the edge of the window
   const tc = ok ? clamp(0.11 + 0.07*Math.abs(r.ahead - 0.65)/0.25, 0.10, ACT.TC_MAX) : ACT.TC_MAX;
   return {ok, side, tc, foot, ahead: r.ahead, lat: r.lat, dist: r.dist};
@@ -120,11 +125,14 @@ export function canStrike(a, ball){
 // Contact comes at the scheduled step: within 0.18 s with the ball in reach, else after a stride adjust of up to
 // 0.35 s, then a scuff if it is still not there.
 export function startKick(ms, a, action){
-  const cs = canStrike(a, ms.ball);
-  // a dead ball (a set piece) is walked up to: the run-up has no 0.35 s limit, only a generous one
+  const cs = canStrike(a, ms.ball, action.style);
+  // a dead ball (a set piece) is walked up to: the run-up has no 0.35 s limit, only a generous one; a ball in the air
+  // met on the volley (A1.5) is waited for until it arrives (the resolver's time to the meeting point, at most 1.2 s)
   const dead = ms.ball.state === 'dead' || ms.restart && ms.restart.taker === a.id;
+  const air = !!action.style && VOLLEY.STYLES.has(action.style);
+  const wait = air ? clamp((+action.tc || 0) + 0.2, ACT.ADJUST, VOLLEY.WAIT) : ACT.ADJUST;
   a.act = {kind: 'kick', action, t: 0, tc: cs.ok ? cs.tc : ACT.ADJUST + ACT.TC_MAX, adjust: !cs.ok, dur: (cs.ok ? cs.tc : ACT.ADJUST) + ACT.FOLLOW,
-    foot: cs.foot, side: cs.side, done: false, plan: null, startStep: ms.step, contactStep: -1, adjustMax: dead ? 3.0 : ACT.ADJUST, pre: null, devZ: null};
+    foot: cs.foot, side: cs.side, done: false, plan: null, startStep: ms.step, contactStep: -1, adjustMax: dead ? 3.0 : wait, pre: null, devZ: null, air};
   a.state = 'strike'; a.stateT = 0;
   if (a.drib) a.drib = null;
   return a.act;
@@ -174,7 +182,8 @@ function kickCtx(ms, a, act, K, bp, ahead, weak, scuff){
   const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
   const kdir = yawOf(K.tx - bp.x, K.tz - bp.z);
   const bodyAngleDeg = Math.abs(wrapA(kdir - a.m.yaw))/DEG;
-  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0);
+  // (a volley's timing from the ring, A1.5: 0 on the moment, 1 at the ring's edge or beyond, widens it as a bad plant)
+  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1);
   const sp = hypot(b.v.x, b.v.y, b.v.z);
   const air = b.p.y > R + 0.05;
   const ballState = !air ? (sp < 0.4 ? 'still' : 'rolling') : (b.v.y < 0 && b.p.y > 0.35 ? 'volley' : 'bouncing');
@@ -183,7 +192,7 @@ function kickCtx(ms, a, act, K, bp, ahead, weak, scuff){
   return {kind: K.ctxKind, dist: K.dist, power01: K.isShot ? clamp(rq.power != null ? rq.power : 0.85, 0, 1) : 0.6, acc: K.acc, contact: K.contact, weakFoot: weak,
     bodyAngleDeg, plantErr, ballState, pressure01: pr, composure: at.composure, bF: fac.bF != null ? fac.bF : 1, eF: fac.eF != null ? fac.eF : 1,
     finesse: !!rq.finesse, firstTime: first && sp > 1, vIn: first ? sp : 0, power: at.power, scuff: !!scuff,
-    weightSigma: K.isShot ? undefined : rq.charged ? (rq.sweet ? 0.02 : 0.0) : (1 - at.passing/120)*0.12};
+    weightSigma: K.isShot ? undefined : rq.weightSigma != null ? rq.weightSigma : rq.charged ? (rq.sweet ? 0.02 : 0.0) : (1 - at.passing/120)*0.12};
 }
 // The kick's presolve (2.3 WP-E step cost): as the swing starts the deviation's three draws are made (devDraws) and the
 // solve starts for the point they aim at, with the ball where it will be at contact; it runs a flight a step through
@@ -211,7 +220,7 @@ function kickPresolve(ms, a, act){
 function strikeContact(ms, a, act, scuff){
   const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
   const r = relBall(a, b, {ahead: 0, lat: 0, dist: 0});
-  if (r.dist > ACT.SCUFF_D || b.p.y - (a.y || 0) > 1.0 || b.state === 'held' && b.holder !== a.id){
+  if (r.dist > ACT.SCUFF_D || b.p.y - (a.y || 0) > (act.air ? VOLLEY.HI : VOLLEY.WHIFF_H) || b.state === 'held' && b.holder !== a.id){
     // the ball is gone: an air kick, still a kick in the log (never a silent cancel)
     const ev = logEv(ms, 'kick', a.team, a.id, a.m.x, a.m.z, {intent: rq.kind, recv: rq.recv != null ? rq.recv : -1, whiff: true, speed: 0});
     act.done = true; act.ev = ev;
@@ -429,21 +438,37 @@ export function dribbleFoot(ms, a, side){
   const v = a.m.speed;
   if (side === touchSideOf(a)) a.strides++;
   const every = dribbleCadence(v);
-  if (a.strides < every && v > 0.6) return false;
-  const r = relBall(a, b, {ahead: 0, lat: 0, dist: 0});
+  const r = relBall(a, b, RB3);
+  // (the cadence waits only while the ball will still be well ahead at the next footfall: one he is about to run onto
+  // is played now, WP-F; a short touch, Ball Control's, closes faster)
+  const f = dirOf(a.m.yaw), close = Math.max(0, v - (b.v.x*f.x + b.v.z*f.z));
+  if (a.strides < every && v > 0.6 && r.ahead - close*DRIB_FOOT_DT > DRIB_CLOSE*0.5) return false;
   if (r.dist > TOUCH.DRIB_REACH || r.ahead < r.dist*cos(TOUCH.DRIB_CONE) || b.p.y > 0.5) return false;
   a.strides = 0;
-  const d = a.drib, fac = a.fac || {};
-  const dt = dribbleTouch(a, b, {x: d.dx, z: d.dz}, Math.max(v, d.speed || v), {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
-    walk: v < 2.0, rollDecel: b.rollDecel}, ms.r);
+  return dribbleKick(ms, a);
+}
+// a dribble touch now: the ball played on along a.drib's way (a footfall's, or the first stride's from standing)
+function dribbleKick(ms, a){
+  const b = ms.ball, v = a.m.speed;
+  const d = a.drib, fac = a.fac || {}, vv = Math.max(v, d.speed || v);
+  // played back onto the line he runs along (a point on it about where the next touch comes), so a touch that went a little
+  // wide is brought back on the next one rather than drifting off his line (WP-F)
+  const dl = hypot(d.dx, d.dz) || 1, ux = d.dx/dl, uz = d.dz/dl;
+  const along = (b.p.x - a.m.x)*ux + (b.p.z - a.m.z)*uz + 3.0;
+  let kx = a.m.x + ux*along - b.p.x, kz = a.m.z + uz*along - b.p.z;
+  const kl = hypot(kx, kz) || 1; kx /= kl; kz /= kl;
+  const dt = dribbleTouch(a, b, {x: kx, z: kz}, vv, {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
+    walk: vv < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small}, ms.r);
   ballKick(b, dt.v, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
-  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1});
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: dt.heavy ? 0.5 : 1, heavy: !!dt.heavy});
   chainKeep(ms, a);
   onTouch(ms, a, 'dribble', ev);
   refreshPred(ms);
   return true;
 }
 function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
+const RB2 = {ahead: 0, lat: 0, dist: 0}, RB3 = {ahead: 0, lat: 0, dist: 0};
+const DRIB_CLOSE = 0.6, DRIB_FOOT_DT = 0.4;      // (a footfall comes about every 0.3 to 0.4 s at a jog)
 
 // a stationary or slow controller with the ball at his feet but not ahead keeps it there: a small touch back under
 // him on a footfall (the sole), so a turn with the ball is a real turn of the ball
@@ -506,8 +531,15 @@ function tackleApply(ms, a, act){
 
 // Plan a header: take off so that the head meets the ball at tContact (seconds from now) near its apex. intent: 'attack'
 // (toward goal, 5 degrees down), 'pass' (to target), 'clear'. charge 0..1.
-export function startHeader(ms, a, tContact, intent, target = null, charge = 1){
-  const v0 = (0.8 + 0.2*clamp(charge, 0, 1))*(2.6 + 0.012*a.at.jumping);
+export function startHeader(ms, a, tContact, intent, target = null, charge = 1, dive = false, ballY = null){
+  if (dive) return startDiveHeader(ms, a, tContact, intent, target);
+  let v0 = (0.8 + 0.2*clamp(charge, 0, 1))*(2.6 + 0.012*a.at.jumping);
+  // the player's header (WP-F, A1.5) sizes the leap to the ball: none for a ball at the brow (a standing header,
+  // the head meets it as it comes), the jump that lifts the brow to it for one above
+  if (ballY != null){
+    const need = ballY - (headOf(a, HP).y - (a.y || 0));
+    v0 = need <= 0.08 ? 0 : Math.min(v0, Math.sqrt(2*G*need) + 0.25);
+  }
   const tApex = v0/G, tJump = Math.max(0, tContact - Math.max(0.05, tApex - 0.05));
   a.act = {kind: 'header', t: 0, jumpAt: Math.max(ACT.HEADER_LOAD*0.5, tJump), v0, tc: tContact, intent, target, done: false, air: false,
     dur: Math.max(tContact, tJump) + 2*tApex + ACT.HEADER_RECOVER, standing: false};
@@ -516,8 +548,43 @@ export function startHeader(ms, a, tContact, intent, target = null, charge = 1){
   a.cool.header = ms.t + 1.2;
   return a.act;
 }
-// the head's centre now
-function headOf(a, out){ out.x = a.m.x; out.z = a.m.z; out.y = (a.y || 0) + 1.66*(a.scale || 1) + 0.06; return out; }
+// The diving header (addendum A1.5, WP-F): from a stride, the body launched flat at a low ball in front, head first.
+// The hips travel on a straight line to the point that puts the brow on the ball at contact (moves.js diveHeaderRoot
+// draws the same line), the root rising a little and coming down onto the chest; then 0.8 s on the ground. The head
+// leads the hips by DIVE.REACH along the facing, at the root's height plus DIVE.HEAD.
+export const DIVE = Object.freeze({LOAD: 0.12, REACH: 0.95, HEAD: 0.32, RISE: 0.35, GROUND: 0.8, MAX_V: 7.5});
+function startDiveHeader(ms, a, tContact, intent, target){
+  const tc = clamp(tContact, DIVE.LOAD + 0.12, 0.7);
+  const P0 = predAt(ms, tc, {x: 0, y: 0, z: 0}), f = dirOf(a.m.yaw);
+  const t = tc - DIVE.LOAD, cx = P0.x - f.x*DIVE.REACH, cz = P0.z - f.z*DIVE.REACH;
+  let vx = (cx - a.m.x)/t, vz = (cz - a.m.z)/t;
+  const vl = hypot(vx, vz); if (vl > DIVE.MAX_V){ vx *= DIVE.MAX_V/vl; vz *= DIVE.MAX_V/vl; }
+  a.act = {kind: 'header', t: 0, jumpAt: DIVE.LOAD, v0: 0, tc, intent, target, done: false, air: false, dive: true, vx, vz, x0: a.m.x, z0: a.m.z,
+    dur: tc + 0.3 + DIVE.GROUND, standing: false, ballY: Math.max(0.25, P0.y)};
+  a.state = 'jump'; a.stateT = 0;
+  stamAction(a.st, 'jump');
+  a.cool.header = ms.t + 1.6;
+  return a.act;
+}
+// one step of a diving header's body: along its line until it lands (contact + 0.25 s), then on the ground
+function diveStep(ms, a, act, h){
+  const tf = act.t - act.jumpAt;
+  if (tf <= 0) return;
+  const fly = act.tc - act.jumpAt + 0.25;
+  if (tf <= fly){
+    a.m.x += act.vx*h; a.m.z += act.vz*h; a.m.vx = act.vx; a.m.vz = act.vz; a.m.speed = hypot(act.vx, act.vz);
+    const k = tf/fly;
+    a.y = Math.max(0, DIVE.RISE*4*k*(1 - k) + (act.ballY - DIVE.HEAD - 0.1)*Math.max(0, 1 - k)*0.5);
+    act.air = true;
+  } else { a.m.vx = a.m.vz = a.m.speed = 0; a.y = 0; act.air = false; act.landed = true; a.state = 'ground'; }
+  a.slideMoved = true;
+}
+// the head's centre now (a diving header's leads the body)
+function headOf(a, out){
+  const act = a.act;
+  if (act && act.dive){ const f = dirOf(a.m.yaw); out.x = a.m.x + f.x*DIVE.REACH; out.z = a.m.z + f.z*DIVE.REACH; out.y = (a.y || 0) + DIVE.HEAD*(a.scale || 1); return out; }
+  out.x = a.m.x; out.z = a.m.z; out.y = (a.y || 0) + 1.66*(a.scale || 1) + 0.06; return out;
+}
 const HP = {x: 0, y: 0, z: 0};
 function headerTry(ms, a, act){
   const b = ms.ball;
@@ -637,6 +704,13 @@ function throwRelease(ms, a, act){
 export function actionStep(ms, a, h){
   const I = a.intent;
   if (I.action && !a.act){ startAction(ms, a, I.action); I.action = null; }
+  // setting off with the ball from standing (a.drib.start, the player's controls): the first stride plays it on, before
+  // the body can run over it (the footfalls come half a stride later)
+  if (!a.act && a.drib && a.drib.start && ms.poss.ctl === a.id && ms.phase === 'live' && ms.ball.state === 'free'){
+    const r = relBall(a, ms.ball, RB2);
+    if (r.dist <= TOUCH.DRIB_REACH && r.ahead > 0.15 && ms.ball.p.y < 0.5){ a.drib.start = false; a.strides = 0; dribbleKick(ms, a); }
+    else if (r.ahead <= 0.15) a.drib.start = false;
+  }
   const act = a.act;
   if (!act){ if (a.state !== 'idle' && a.state !== 'run' && a.state !== 'jockey' && a.state !== 'shield') a.state = a.m.speed > 0.3 ? 'run' : 'idle'; return; }
   act.t += h;
@@ -646,15 +720,19 @@ export function actionStep(ms, a, h){
         const b = ms.ball;
         if (act.adjust){
           // the stride adjust: steer to the plant spot behind the ball; strike the moment it is in the window
-          const cs = canStrike(a, b);
-          if (cs.ok){ act.adjust = false; act.tc = act.t + cs.tc; act.dur = act.tc + ACT.FOLLOW; }
+          const cs = canStrike(a, b, act.action.style);
+          // a volley is struck as the ball drops into the window, on the next swing (the timing is the ring's)
+          if (cs.ok){ act.adjust = false; act.tc = act.t + (act.air ? Math.min(cs.tc, 1/30) : cs.tc); act.dur = act.tc + ACT.FOLLOW; }
           else if (act.t >= (act.adjustMax || ACT.ADJUST)){ strikeContact(ms, a, act, true); act.dur = act.t + ACT.FOLLOW; break; }
           else {
-            const tg = act.action.target || {x: b.p.x, z: b.p.z};
-            const kx = tg.x - b.p.x, kz = tg.z - b.p.z, kl = hypot(kx, kz) || 1;
+            // a ball in the air: to where it will be met (the resolver's point), else the ball itself
+            const mp = act.air && act.action.meet ? act.action.meet : b.p;
+            const tg = act.action.target || {x: mp.x, z: mp.z};
+            const kx = tg.x - mp.x, kz = tg.z - mp.z, kl = hypot(kx, kz) || 1;
             // the plant: behind the ball on the line of the kick, a little to the support foot's side
             const sd = act.foot === 'L' ? 1 : -1, rx = -kz/kl, rz = kx/kl;
-            const px = b.p.x - kx/kl*0.62 + rx*sd*0.12, pz = b.p.z - kz/kl*0.62 + rz*sd*0.12;
+            const back = act.air && act.action.style !== 'volley' ? 0.15 : 0.62;
+            const px = mp.x - kx/kl*back + rx*sd*(act.air && act.action.style !== 'volley' ? 0.75 : 0.12), pz = mp.z - kz/kl*back + rz*sd*(act.air && act.action.style !== 'volley' ? 0.75 : 0.12);
             // at a dead ball, slowing as he comes onto the spot (1.5 m/s a metre away), so he settles on it rather than
             // circling it; a moving ball is chased at full stride
             const cap = act.adjustMax > 1 ? Math.max(0.6, 1.5*hypot(px - a.m.x, pz - a.m.z) + 0.3) : Infinity;
@@ -693,6 +771,12 @@ export function actionStep(ms, a, h){
       break;
     }
     case 'header': {
+      if (act.dive){
+        diveStep(ms, a, act, h);
+        if (!act.done && act.t >= act.jumpAt - 0.02) headerTry(ms, a, act);
+        if (act.t >= act.dur){ a.act = null; a.y = 0; a.vy = 0; a.state = 'idle'; }
+        break;
+      }
       if (act.t >= act.jumpAt && !act.air && !act.landed){ act.air = true; act.t0 = act.t; }
       if (act.air){
         const J = jumpRoot({v0: act.v0}, act.t - act.t0, {y: 0});
@@ -723,7 +807,7 @@ export function startAction(ms, a, rq){
       return startKick(ms, a, rq);
     case 'tackle': { const c = ms.agents[ms.poss.ctl]; if (c && c.team !== a.team) return startTackle(ms, a, rq.sub || 'stand', c, 0); return null; }
     case 'slide': { const c = ms.agents[ms.poss.ctl] || null; if (c && c.team !== a.team) return startTackle(ms, a, 'slide', c, 0); return null; }
-    case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1);
+    case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1, !!rq.dive, rq.ballY != null ? rq.ballY : null);
     case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':
       logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how: rq.how || 'here', px: rq.target ? rq.target.x : null, pz: rq.target ? rq.target.z : null});

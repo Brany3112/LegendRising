@@ -39,7 +39,7 @@ export function createAgent(o){
     isGK: !!o.isGK, isMe: !!o.isMe, role, scale: o.scale || 1,
     name: o.name || '', number: o.number || 0, foot: o.prefFoot === 'Left' || o.prefFoot === 'L' ? 'L' : o.prefFoot === 'Both' ? 'B' : 'R',
     m: createMover({x: o.x || 0, z: o.z || 0, yaw: o.yaw || 0}),
-    prm: moverParams({pace: at.pace, dribbling: at.dribbling}, "football", o.items || {}),
+    prm: moverParams({pace: at.pace, dribbling: at.dribbling, acceleration: at.acceleration, sprintSpeed: at.sprintSpeed, agility: at.agility}, "football", o.items || {}),
     st: createStam({stamina: at.stamina != null ? at.stamina : 50, energy, fatigue: o.fatigue || 0}),
     g: createGait(),
     y: 0, vy: 0,
