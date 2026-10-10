@@ -83,9 +83,10 @@ if (ONLY.includes("bench")) try {
     }
     F.input({type: "keyup", key: "e"});
     const sorted = ms0.map(x => x[0]).sort((a, b) => a - b), p99 = sorted[Math.floor(sorted.length*.99)] || 0;
-    // a frame over the budget is only allowed when one step on its own stalled (> 6 ms: the page preempted or a
-    // collection; a step's own work is well under a millisecond): the budget decides how many steps run, not the OS
-    const over = ms0.filter(x => x[0] > 13), unexplained = over.filter(x => x[1] <= 6);
+    // a frame over the budget is only allowed when one step on its own stalled (over 8 times the frame's mean step and
+    // over 2 ms: the page preempted or a collection; a step's own work is a fraction of a millisecond): the budget
+    // decides how many steps run, not the machine
+    const over = ms0.filter(x => x[0] > 13), unexplained = over.filter(x => x[1] <= Math.max(2, 8*x[0]/Math.max(1, x[2])));
     return {frames: ms0.length, max: Math.max(...sorted), p99, over: over.length, unexplained: unexplained.length, worstOver: over.slice(0, 4).map(x => x.map(v => +v.toFixed(1))), called: F.FS.called, callUp: ms.callUp, min: Math.floor(((ms.half - 1)*2700 + ms.clock.sec)/60), state: F.state, card: card.slice(0, 2), P: [window.__life.P.x, window.__life.P.z]};
   });
   check(sk.frames > 10 && sk.p99 <= 13 && sk.unexplained === 0, "holding E skips to the call with at most 13 ms of simulation work a frame",
