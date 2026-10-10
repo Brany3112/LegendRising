@@ -787,14 +787,16 @@ function lockerPlate(){
 }
 // your first training: the lessons, on the match's controls; their end is the end of the first day
 function startLessons(){
-  if (RUN.lessons || typeof window.lifeFirstTraining !== "function") return;
+  if (RUN.lessons || PLAY.t < RUN.lessonAt || typeof window.lifeFirstTraining !== "function") return;
   RUN.lessons = true;
-  window.lifeFirstTraining().then(ok => { RUN.lessons = false; if (ok) RUN.dirty = true; }).catch(e => { RUN.lessons = false; console.error(e); });
+  // (cut short, or refused because something else is running: not asked again for a few seconds)
+  const over = () => { RUN.lessons = false; RUN.lessonAt = PLAY.t + 3; RUN.dirty = true; };
+  window.lifeFirstTraining().then(over).catch(e => { over(); console.error(e); });
 }
 
 /* ---------- the runner ---------- */
 const RUN = {cur:undefined, dirty:true, aim:{label:null}, focus:null, focused:null, focusEls:null, unfocusT:0, goalT:0, h2:0, h13:0, h15:0, h15told:false, h19:0, started:new Set(),
-  cardDue:false, lessons:false, closing:false};
+  cardDue:false, lessons:false, lessonAt:0, closing:false};
 function stepDone(st){
   const o = OB(); if (!o) return true;
   if (o.seen[st.id]) return true;
@@ -912,10 +914,11 @@ export function busGate(from, to){
 }
 // ui/panels.js openBus asks it for every option of the Line 14 panel and draws a gated one disabled with this line
 window.lifeBusGate = busGate;
-// a step before your first training is the one you are on, and you are where it is (or on your way to it from home
-// on the first day): the slow clock. Not once the tour is put off until tomorrow, nor in the lessons (their own rate)
+// a step before your first training is under way is the one you are on, and you are where it is (or on your way to
+// it from home on the first day): the slow clock. Not once the tour is put off until tomorrow, nor in the lessons
+// (they keep their own rate)
 export function slow(){
-  if (!active() || !RUN.cur || RUN.cur.id === "G9" || postponed()) return false;
+  if (!active() || !RUN.cur || RUN.lessons || postponed()) return false;
   return RUN.cur.zone === "home" || LIFE.zone === "ground";
 }
 // the tour of the centre is put off until tomorrow (S.onb.post: the day it was put off)
