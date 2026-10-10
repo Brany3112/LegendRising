@@ -332,7 +332,9 @@ function inputOn(){
     if (!RUN.T) return false;
     if (ev.type === "keydown" && ev.key === "escape"){ if (ev.prevent) ev.prevent(); if (!ev.repeat) quit(); return true; }
     if (ev.type === "keydown" && ev.key === "h" && !ev.repeat){ if (ev.prevent) ev.prevent(); if (HUD.hudToggleHints) HUD.hudToggleHints(); return true; }
-    if (ev.type === "lock") return false;
+    // Esc with the pointer held lets the pointer go (the browser keeps that key): letting it go steps out of a drill or
+    // the session as Esc does (the lessons only pause, flags.pauseOnUnlock)
+    if (ev.type === "lock"){ if (!ev.locked && RUN.cur && RUN.cur.kind !== "lessons") quit(); return false; }
     return controlInput(ev);
   };
   pushInput(INP);
@@ -384,6 +386,8 @@ registerMode("train", {
     const T = RUN.T; RUN.T = null;
     inputOff();
     document.body.classList.remove("drillview");
+    // (ordinary life does not pause when the pointer goes: a pause this mode was in ends with it)
+    FLAGS.lockLost = false;
     try { CAM.camDispose(); } catch(e){ console.error(e); }
     try { HUD.hudDispose(); } catch(e){ console.error(e); }
     if (T){
