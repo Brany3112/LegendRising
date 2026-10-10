@@ -1,7 +1,9 @@
 /* ============ LIFE: your first day, one step at a time ============
    Owner: WP-H (Stage 1); WP-H2 (Stage 2) adds the training centre's chapters. Contract: DESIGN 3.7.4 (the step
-   runner), 3.7.5 (the home steps H1 to H21, every line), 3.7.7 (the onboarding state, S.onb = {v:2, step, seen}),
-   1.4.1 (setClockScale; the 'aim' and 'zone' events world.js sends through onbEmit), 1.7, 3.8.4, 3.8.6.
+   runner), 3.7.5 (the home steps H1 to H21, every line), 3.7.6 (the training centre's steps G1 to G9, every line, the
+   postponement and the early arrival after day one), 3.7.7 (the onboarding state, S.onb = {v:2, step, seen}), 3.6.3
+   (G9 is the first-person lessons of football/training.js startFirstTraining), 1.4.1 (setClockScale; the 'aim' and
+   'zone' events world.js sends through onbEmit), 1.7, 3.8.4, 3.8.6.
 
    The first day is taught by doing: no card to read and close, no tour you watch. Each step is a thing you do in the
    world (buy a bulb, put it on the belt, pay at the reader, screw it in, read your post), and the step is over when
@@ -15,11 +17,21 @@
    objective and gone after their reading time (they never take a key, and wait while a panel is open); a short how-to
    with the keys in it, above your pockets; and the objective under the compass, with how far it is. Every number in a line comes from the constant it describes.
 
-   Day one also runs slower (setClockScale: ONB_RATE of the usual passive clock while a home step is current), counts
-   as excused at the training centre (daily.js onboarding()), will not let you sleep the day away, and keeps the bus to
-   training shut until the ride would get you there for the start. */
-import {THREE, W, LH} from "./build.js";
+   At the training centre the assistant coach meets you at the gate and walks you round: the pitch, the lads, the
+   gym, the delivery counter and the gym fridge, the dressing room, the manager. He is the same person who plays the
+   balls in for the drills (ground.js GROUND.assist), lent to the first day while he shows you round and walking a
+   real route between the buildings (through doorways, opening the gym door), and back at his post on the touchline
+   for your first training: the lessons run on the match's own controls (training.js), and their end is the end of
+   the first day.
+
+   Day one also runs slower (setClockScale: ONB_RATE of the usual passive clock while a step before the lessons is
+   current: at home, and at the training centre), counts as excused at the training centre (daily.js onboarding()),
+   will not let you sleep the day away, and keeps the bus to training shut until the ride would get you there for the
+   start. A tour of the centre not finished by POSTPONE_AT carries on the next day, still excused. */
+import {THREE, W, LH, textTex, label} from "./build.js";
 import {HOME, APT} from "./home.js";
+import {GROUND, PITCH} from "./ground.js";
+import * as DRILLS from "./drills.js";
 import {STORE} from "./store.js";
 import {pieceOf, BED_HOLD} from "./furniture.js";
 import * as INV from "./inv.js";
@@ -43,14 +55,26 @@ export function OB(){
   if ((!s.onb || s.onb.v !== 2) && typeof window.onbMigrate === "function") window.onbMigrate();
   if (!s.onb || typeof s.onb !== "object") s.onb = {v:2, step:"done", seen:{}};
   if (!s.onb.seen || typeof s.onb.seen !== "object") s.onb.seen = {};
+  reopenCentre(s);
   return s.onb;
+}
+/* a career whose flat chapter an earlier build finished and stopped at (step "done" with the flat's flag, before the
+   training centre's chapters existed): those chapters pick it up, behind every home step (DESIGN 3.7.7, ui/main.js) */
+function reopenCentre(s){
+  const o = s.onb, f = s.flags;
+  if (o.step !== "done" || o.centre || !f || !f.FirstTimeIntroductionCompleted || !f.ApartmentTutorialCompleted || f.TrainingCenterTutorialCompleted || f.GameplayTutorialCompleted) return;
+  o.centre = true;
+  for (const st of STEPS) if (st.zone === "home" && !o.seen[st.id]) o.seen[st.id] = "skipped";
+  o.step = "G1";
+  if (s.life && s.life.att && typeof s.life.att === "object" && !s.life.att.settled) s.life.att.excused = true;
 }
 const seen = k => { const o = OB(); return !!(o && o.seen[k]); };
 function mark(k, v = true){ const o = OB(); if (!o || o.seen[k]) return false; o.seen[k] = v; persist(); RUN.dirty = true; return true; }
 // the home steps are running: the introduction is over and the first day is not
 export function active(){
   const s = G(), o = s && s.onb;
-  return !!(o && o.v === 2 && o.step !== "done" && o.step !== "intro" && s.flags && s.flags.FirstTimeIntroductionCompleted);
+  // (and for the moment the first training ends: its last word is still the first day's, RUN.closing)
+  return !!(o && o.v === 2 && (o.step !== "done" || RUN.closing) && o.step !== "intro" && s.flags && s.flags.FirstTimeIntroductionCompleted);
 }
 
 /* ---------- on screen ---------- */
@@ -89,6 +113,7 @@ export function hint(html, ms = 0){
 // text), so a frame that also writes to the page (a line typing in, the distance) is not made to lay the page out
 // again just to find nothing has moved
 const SIDE_ROOM = 240;     // the narrowest the stepped-aside how-to may be: onb.css .side is min(360px, 50vw - 252px)
+const COMPACT_H = 520, COMPACT_W = 620;   // a phone on its side: onb.css @media (max-height:520px) and (min-width:621px)
 function hintMode(h, mode){
   h.classList.toggle("side", mode === "side"); h.classList.toggle("under", mode === "under");
   h.style.bottom = mode ? "" : HINT.lift;
@@ -101,6 +126,12 @@ function hintPlace(){
   if (!HINT.nEl || !HINT.nEl.isConnected) HINT.nEl = document.getElementById("lifeNote");
   const p = HINT.pEl, n = HINT.nEl, nOn = !!(n && n.classList.contains("on"));
   const base = `${HINT.html}|${innerWidth}x${innerHeight}|${nOn ? n.textContent : ""}`;
+  // a phone on its side: the how-to has the right side under the need bars to itself (onb.css), clear of the prompt
+  // and the note in the middle, so it stays there
+  if (innerHeight <= COMPACT_H && innerWidth > COMPACT_W){
+    if (HINT.base !== base || HINT.mode){ HINT.base = base; HINT.mode = ""; HINT.lift = ""; HINT.pKey = ""; hintMode(h, ""); }
+    return;
+  }
   const pOn = !!(p && p.classList.contains("on")), pKey = pOn ? p.textContent : "";
   if (base === HINT.base && pKey === HINT.pKey) return;
   // offsetTop and offsetHeight are the laid-out place, before the fade-in slide, so a card still arriving reads right.
@@ -420,10 +451,8 @@ const STEPS = [
       else tip(`<span class="oh-mouse click"></span><span>The ball takes both hands, so it won't fit in a pocket. Left click to pick it up.</span>`);
     },
     done:() => { const d = ballDrop(), b0 = OB().seen.ball0; return !!(d && b0 && !onYou("ball") && (b0.held || Math.hypot(d.x - b0.x, d.z - b0.z) >= 1)); },
-    // (the spec's second sentence, "Walk into it and you'll push it along.", waits for the ball you can push, which
-    // WP-H2 builds on ball.js (DESIGN 3.8.1) and then adds here, as its entry in DESIGN 2.4 says; said before that, it
-    // would tell you something the ball does not do)
-    end(){ hint(null); speak("You", "There. You can pick it up and move it any time."); }},
+    // (the ball is a live ball of ball.js, core/hand.js: walking into it really does push it along, DESIGN 3.8.1)
+    end(){ hint(null); speak("You", "There. You can pick it up and move it any time. Walk into it and you'll push it along."); }},
 
   {id:"H18", zone:"home", objective:() => "Have a look around your street",
     tick(){
@@ -463,7 +492,77 @@ const STEPS = [
       if (m >= gate && m < st && mark("gateSaid")) speak(UNCLE, `Training starts at ${time(st)}. You can head over now.`);
       if (m >= st && mark("lateSaid")) speak(UNCLE, `It's ${time(Math.floor(m))}. You're running late, but it's your first day. Head over now.`);
     },
-    done:() => seen("H21")}
+    done:() => seen("H21")},
+
+  /* ---------- the training centre (DESIGN 3.7.6): the assistant coach walks you round ---------- */
+  {id:"G1", zone:"ground", objective:() => "Meet the assistant coach at the gate", at:() => guideAt(),
+    start(){ guideTo("gate"); },
+    tick(){ const g = guideAt(); if (g && Math.hypot(g.x - P.x, g.z - P.z) < 3 && P.feet < 1) mark("metCoach"); },
+    done:() => seen("metCoach"),
+    end(){ speak(ASSIST, `You must be ${firstName()}. Welcome. Walk with me, I'll show you round before the lads finish.`); }},
+
+  {id:"G2", zone:"ground", objective:() => "Walk out to the training pitch", at:() => ({x:G_NODE.pitch[0], z:G_NODE.pitch[1], zone:"ground", outdoor:true}),
+    start(){ guideTo("pitch"); },
+    tick(){ if (onPitch()) mark("onPitch"); },
+    done:() => seen("onPitch"),
+    end(){ speak(ASSIST, `Team training is out here, ${hours()}, Monday to Friday unless there's a game.`); }},
+
+  // (a day with no session on, or none left: nobody out there to meet)
+  {id:"G3", zone:"ground", objective:() => "Say hello to the lads", at:() => { const m = nearestMate(); return m ? {x:m.x, z:m.z, zone:"ground", outdoor:true} : null; },
+    skip:() => !squadOut(),
+    start(){ guideTo("pitch"); },
+    tick(){ const m = nearestMate(); if (m && m.d < 4) mark("metLads"); },
+    done:() => seen("metLads"),
+    end(){ speak(mateName(), "You're the new one? Welcome. Don't let the coach catch you walking."); }},
+
+  {id:"G4", zone:"ground", objective:() => "Have a look in the gym", at:() => ({x:G_NODE.gymDoor[0], z:G_NODE.gymDoor[1], zone:"ground", outdoor:true}),
+    start(){ guideTo("gymIn"); },
+    tick(){ if (inGym()) mark("inGym"); },
+    done:() => seen("inGym"),
+    end(){ speak(ASSIST, `Weights, bikes, sprint lane. Each set takes ${setMins()} minutes and trains a couple of skills.`); }},
+
+  // your lunch on the staff counter in the clubhouse (or on its way there); with nothing ordered to the centre, no step
+  {id:"G5", zone:"ground",
+    objective:() => { const o = groundOrder(); return !groundBag() && o ? `Your order arrives at about ${time(o.eta % 1440)}` : "Your lunch is at the delivery counter in the clubhouse"; },
+    at:() => ({x:COUNTER.x, z:COUNTER.z, zone:"ground"}),
+    skip:() => !groundBag() && !groundOrder() && !INV.bagsOnYou().length,
+    start(){ guideTo("counter"); },
+    tick(){
+      if (!seen("counterSaid") && groundBag() && Math.hypot(P.x - COUNTER.x, P.z - COUNTER.z) < 2.6 && P.feet < 1){
+        mark("counterSaid"); speak(ASSIST, "Deliveries come to this counter. Take the bag to the gym fridge and the food goes in.");
+      }
+    },
+    done:() => { const h = INV.hand(); return !!(h && h.id === "bag"); }},
+
+  // the bag carried up to the gym fridge (the food goes in, acts.js parcelPut), then the fridge opened to see it there
+  {id:"G6", zone:"ground", objective:() => seen("gymPut") ? "Open the gym fridge" : "Put it in the gym fridge", at:() => gymFridgeAt(),
+    skip:() => OB().seen.G5 === "skipped" && !INV.bagsOnYou().length,
+    start(){ guideTo("fridge"); },
+    tick(){ if (seen("gymPut") && GROUND.fridge && GROUND.fridge.open && GROUND.fridge.open()) mark("gymFridgeOpen"); },
+    done:() => seen("gymPut") && seen("gymFridgeOpen"),
+    end(){ speak(ASSIST, "Same food as your fridge at home. It all comes off one stock."); }},
+
+  {id:"G7", zone:"ground", objective:() => "Find the dressing room", at:() => ({x:G_NODE.dress[0], z:G_NODE.dress[1], zone:"ground"}),
+    start(){ guideTo("dress"); },
+    tick(){ if (inDressing()) mark("inDressing"); },
+    done:() => seen("inDressing"),
+    end(){ speak(ASSIST, "This is the dressing room. Your locker's the one with your number on it."); }},
+
+  // E on the manager at his desk: what he notices, said, and then shown once on a card (the trust it moves, from
+  // the constants daily.js settles the day with)
+  {id:"G8", zone:"ground", objective:() => "See the manager in his office", at:() => ({x:26.6, z:15.2, zone:"ground"}),
+    start(){ guideTo("offDoor"); },
+    done:() => seen("manager") && !!(G().flags && G().flags.TrainingCenterTutorialCompleted)},
+
+  // your first training: the lessons on the match's own controls (training.js startFirstTraining, DESIGN 3.6.3)
+  {id:"G9", zone:"ground", objective:() => "Join the coach on the pitch", at:() => { const c = lessonCoach(); return {x:c.x, z:c.z, zone:"ground", outdoor:true}; },
+    start(){ guideHome(); },
+    tick(){
+      if (RUN.lessons || !G().flags) return;
+      const c = lessonCoach();
+      if (Math.hypot(P.x - c.x, P.z - c.z) < 2.6 && P.feet < 1 && !FLAGS.modal) startLessons();
+    },
+    done:() => !!(G().flags && G().flags.GameplayTutorialCompleted)}
 ];
 export const STEP_IDS = STEPS.map(s => s.id);
 // where the ball was when H17 asked you to move it: the spot it lay on, or, in your hands at that moment, "held" (it
@@ -489,8 +588,215 @@ function bedLines(){
     <span>The day changes at midnight.</span></div>`;
 }
 
+/* ---------- the training centre: where things are, who is there ---------- */
+const ASSIST = "Assistant coach", MANAGER = "Manager", COACH = "Coach";
+// a tour of the centre not done by then carries on tomorrow (DESIGN 3.7.6)
+export const POSTPONE_AT = 15*60 + 30;
+const firstName = () => String((G().player && G().player.name) || "").trim().split(/\s+/)[0] || "mate";
+const hours = () => typeof sessionHours === "function" ? sessionHours() : `${time(SESS().start)} to ${time(SESS().end)}`;
+// a gym set's length: drills.js passes this much of the clock for one (its SET_MINS when it names it)
+const setMins = () => +DRILLS.SET_MINS > 0 ? +DRILLS.SET_MINS : 45;
+const onPitch = () => LIFE.zone === "ground" && P.feet < 1 && P.x > PITCH.x0 && P.x < PITCH.x1 && P.z > PITCH.z0 && P.z < PITCH.z1;
+const inGym = () => LIFE.zone === "ground" && P.feet < 1.2 && P.x > -13 && P.x < 13 && P.z > 4 && P.z < 16;
+// the dressing room: the clubhouse's ground floor behind the lobby wall (x 22.5), on the south side of the office wall (z 10.5)
+const inDressing = () => LIFE.zone === "ground" && P.feet < 1.2 && P.x > 22.6 && P.x < 29.75 && P.z > 3.25 && P.z < 10.4;
+// the staff delivery counter in the clubhouse lobby (ground.js deliveryCounter): where you stand at it
+const COUNTER = {x:19.25, z:6.0};
+const groundOrder = () => (G().orders || []).filter(o => o.where === "ground").sort((a, b) => a.eta - b.eta)[0] || null;
+const groundBag = () => (G().parcels || []).some(p => p.at === "ground");
+function gymFridgeAt(){ const f = (W.fridges || []).find(q => /gym/.test(q.name || "")); return f ? {x:f.x, z:f.z, zone:"ground"} : {x:G_NODE.fridge[0], z:G_NODE.fridge[1], zone:"ground"}; }
+// the squad out on the pitch (npc.js teamSession): its players' bodies, while the session is on and they are still out
+function squadBodies(){
+  const T = GROUND.session; if (!T || T.left || !T.actors || !T.root || !T.root.visible) return [];
+  const out = [];
+  for (const ac of T.actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) if (h && h.g && h.g.visible) out.push(h.g.position);
+  return out;
+}
+const squadOut = () => LIFE.zone === "ground" && typeof sessionOn === "function" && sessionOn() && squadBodies().length > 0;
+function nearestMate(){
+  let best = null;
+  for (const p of squadBodies()){ const d = Math.hypot(p.x - P.x, p.z - P.z); if (!best || d < best.d) best = {x:p.x, z:p.z, d}; }
+  return best;
+}
+// a teammate's first name, from your club's squad (the same one every time)
+function mateName(){
+  try {
+    const c = typeof myClub === "function" ? myClub() : null, sq = c && typeof squadOf === "function" ? squadOf(c.id) : [];
+    const p = sq.filter(q => q && !q.me && q.pos !== "GK").sort((a, b) => a.id - b.id)[0];
+    if (p && typeof pname === "function") return pname(p).split(" ")[0];
+  } catch(e){}
+  return "Teammate";
+}
+// who runs your first training: the coach with the squad while the session is on, else his assistant at his post
+function lessonCoach(){
+  const T = GROUND.session, on = typeof sessionOn === "function" && sessionOn() && T && !T.left && T.coach;
+  if (on) return {x:T.coach.g.position.x, z:T.coach.g.position.z, who:COACH};
+  const A = GROUND.assist; return A ? {x:A.x, z:A.z, who:ASSIST} : {x:14.5, z:-2.9, who:ASSIST};
+}
+
+/* ---------- the assistant coach, walking you round ----------
+   He walks a real route between the buildings: a small graph of points on the paths, through the doorways (he opens
+   the gym's door if it is shut), from the gate to wherever the step you are on is. He keeps a few steps ahead, waits
+   for you when you fall behind, never walks into you, and turns to you when he is there */
+const G_NODE = {
+  gate:[-12.6, 19.2], yardW:[-7.5, 18.4], gymDoor:[0, 17.6], gymIn:[0, 13.6], fridge:[10.6, 14.2],
+  yardM:[5.6, 18.5], yardE:[12.6, 18.7], walkN:[15.3, 17.0], walkS:[15.3, 1.2], pitch:[11, -6.5], post:[14.5, -2.9],
+  clubOut:[16.0, 10.1], clubIn:[19.5, 10.1], counter:[20.1, 7.4], drDoor:[21.7, 9.0], dress:[23.8, 9.0],
+  offDoor:[21.7, 12.1], office:[23.9, 12.1]
+};
+const G_EDGE = [["gate", "yardW"], ["yardW", "gymDoor"], ["gymDoor", "gymIn"], ["gymIn", "fridge"], ["gymDoor", "yardM"], ["yardM", "yardE"],
+  ["yardE", "walkN"], ["walkN", "walkS"], ["walkS", "pitch"], ["walkS", "post"], ["pitch", "post"], ["walkN", "clubOut"], ["walkS", "clubOut"],
+  ["clubOut", "clubIn"], ["clubIn", "counter"], ["clubIn", "drDoor"], ["drDoor", "dress"], ["clubIn", "offDoor"], ["drDoor", "offDoor"], ["offDoor", "office"]];
+const GUIDE = {h:null, at:"gate", path:[], to:null, v:0, home:false, done:false, yaw:0};
+const GUIDE_V = 1.35, GUIDE_WAIT = 6.5, GUIDE_GAP = 1.1;
+function routeTo(from, to){
+  if (from === to) return [];
+  const prev = {[from]:null}, q = [from];
+  while (q.length){
+    const n = q.shift(); if (n === to) break;
+    for (const [a, b] of G_EDGE){ const m = a === n ? b : b === n ? a : null; if (m && !(m in prev)){ prev[m] = n; q.push(m); } }
+  }
+  if (!(to in prev)) return [];
+  const path = []; for (let n = to; n !== from; n = prev[n]) path.unshift(n);
+  return path;
+}
+// lent to the first day (the same body as at his post): put at the gate when you arrive with the tour to do
+function guideTake(){
+  const A = GROUND.assist; if (!A || !A.h || !A.h.g) return null;
+  if (GUIDE.h !== A.h){
+    GUIDE.h = A.h; if (A.lend) A.lend();
+    const [x, z] = G_NODE.gate; A.h.g.position.set(x, 0, z); A.h.g.rotation.y = 0; GUIDE.yaw = 0;
+    GUIDE.at = "gate"; GUIDE.path = []; GUIDE.v = 0; GUIDE.home = false; GUIDE.done = false;
+    A.h.ast = {mode:"idle"};
+  }
+  return GUIDE.h;
+}
+function guideTo(node){
+  if (LIFE.zone !== "ground" || GUIDE.done || !guideTake()) return;
+  if (GUIDE.to === node) return;
+  GUIDE.to = node; GUIDE.home = false;
+  // (on the way to a point already: from there)
+  const from = GUIDE.path.length ? GUIDE.path[0] : GUIDE.at;
+  GUIDE.path = GUIDE.path.length ? [GUIDE.path[0], ...routeTo(GUIDE.path[0], node)] : routeTo(from, node);
+}
+// the tour is over: back to his post on the touchline, and his own again once he is there
+function guideHome(){
+  if (LIFE.zone !== "ground" || !GUIDE.h || GUIDE.done) return;
+  guideTo("post"); GUIDE.home = true;
+}
+export function guideAt(){ const h = GUIDE.h; return h && h.g && LIFE.zone === "ground" ? {x:h.g.position.x, z:h.g.position.z, zone:"ground", outdoor:true} : null; }
+function guideStep(dt){
+  const h = GUIDE.h; if (!h || !h.g || GUIDE.done) return;
+  // a drill or the lessons have him now (training.js lends him too): leave him to them
+  if (window.__train && window.__train.RUN && window.__train.RUN.cur){ GUIDE.done = true; return; }
+  const g = h.g.position, you = Math.hypot(P.x - g.x, P.z - g.z);
+  let want = 0, face = null;
+  if (GUIDE.path.length){
+    const [tx, tz] = G_NODE[GUIDE.path[0]], dx = tx - g.x, dz = tz - g.z, d = Math.hypot(dx, dz);
+    // he waits for you when you fall behind (not when you have gone on ahead, nor on his way home), and never walks
+    // into you
+    const end = G_NODE[GUIDE.path[GUIDE.path.length - 1]], behind = Math.hypot(P.x - end[0], P.z - end[1]) > Math.hypot(g.x - end[0], g.z - end[1]);
+    // (standing in his way, close: he steps round you, out to the side away from you, rather than stopping for good)
+    const ahead = you < GUIDE_GAP && ((P.x - g.x)*dx + (P.z - g.z)*dz) > 0;
+    if (GUIDE.home || you < GUIDE_WAIT || !behind) want = ahead ? GUIDE_V*.6 : GUIDE_V;
+    if (GUIDE.path[0] === "gymIn") gymDoorOpen(g);
+    if (d < .15){ GUIDE.at = GUIDE.path.shift(); }
+    else {
+      GUIDE.v += Math.max(-3*dt, Math.min(2*dt, want - GUIDE.v));
+      let ux = dx/d, uz = dz/d;
+      if (ahead){
+        const sx = -uz, sz = ux, side = (P.x - g.x)*sx + (P.z - g.z)*sz > 0 ? -1 : 1;
+        ux += sx*side*1.4; uz += sz*side*1.4; const ul = Math.hypot(ux, uz); ux /= ul; uz /= ul;
+      }
+      const step = Math.min(GUIDE.v*dt, d); g.x += ux*step; g.z += uz*step;
+      if (GUIDE.v > .05) face = Math.atan2(ux, uz);
+    }
+  } else {
+    GUIDE.v = Math.max(0, GUIDE.v - 3*dt);
+    if (GUIDE.home && GROUND.assist){
+      // at his post: facing the pitch as he always stands, and his own again
+      const A = GROUND.assist; h.g.rotation.y = A.ry; h.ast = {mode:"idle"};
+      if (A.giveBack) A.giveBack();
+      GUIDE.done = true; GUIDE.h = null; return;
+    }
+    face = Math.atan2(P.x - g.x, P.z - g.z);
+  }
+  if (face != null){ const r = wrapA(face - h.g.rotation.y); h.g.rotation.y += r*(1 - Math.exp(-6*dt)); }
+  h.ast = GUIDE.v > .05 ? {mode:"move", speed:GUIDE.v} : {mode:"idle"};
+}
+// the gym's door, opened for you as he gets to it
+function gymDoorOpen(g){
+  if (Math.hypot(g.x - G_NODE.gymDoor[0], g.z - G_NODE.gymDoor[1]) > 1.6) return;
+  const d = W.spots.find(sp => sp.kind === "drag" && sp.label === "Gym door");
+  if (d && d.angle != null && d.angle < .5 && d.toggle) d.toggle();
+}
+
+/* ---------- the manager (G8): E on him, what he notices, and the card that shows it ---------- */
+const sgn = (x, dp = 1) => typeof fmtSigned === "function" ? fmtSigned(x, dp) : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(dp).replace(/\.0$/, "");
+function managerTalk(){
+  if (seen("manager")) return;
+  mark("manager");
+  const st = SESS().start;
+  speak(MANAGER, `Training's at ${time(st)}. Be on time and I notice. Be here early and I notice that too.`);
+  speak(MANAGER, "Miss it, and I notice that most of all.");
+  G().flags.TrainingCenterTutorialCompleted = true;
+  persist();
+  // the card, once the lines have been said
+  RUN.cardDue = true;
+}
+// what the manager notices, from daily.js's own numbers (ATTEND, EARLY, MISS_MATCH)
+export function noticesCard(){
+  const A = typeof ATTEND === "object" ? ATTEND : {good:1.2, late:-3, absent:-6}, E = typeof EARLY === "object" ? EARLY : {bonus:[.3, .45, .6], weekCap:3};
+  const miss = typeof MISS_MATCH === "number" ? MISS_MATCH : -10, lo = Math.min(...E.bonus), hi = Math.max(...E.bonus);
+  const times = NUM[E.weekCap] || E.weekCap;
+  return [["A full session", sgn(A.good)], ["In early as well", `${sgn(lo)} to ${sgn(hi)}, up to ${times} times a week`],
+    ["Late", sgn(A.late, 0)], ["Missing training", sgn(A.absent, 0)], ["Missing a match", sgn(miss, 0)]];
+}
+function showCard(){
+  if (seen("card")) return;
+  if (typeof lpShow !== "function"){ mark("card"); return; }
+  const rows = noticesCard().map(([k, v]) => `<div class="onb-card-row"><span>${esc(k)}</span><b${/^−/.test(v) ? ` class="bad"` : ""}>${esc(v)}</b></div>`).join("");
+  const head = typeof lpHead === "function" ? lpHead("What the manager notices", "His office") : "<h3>What the manager notices</h3>";
+  lpShow("onbcard", `<div class="onb-card">${head}<p class="onb-card-sub">Manager trust, as he settles each day</p><div class="onb-card-list">${rows}</div>
+    <p class="onb-card-foot">And how you play: your match ratings and the decisions you make on the pitch.</p>
+    <div class="nb-foot"><button class="btn" onclick="lpClose()">Got it</button></div></div>`, {onClose:() => mark("card")});
+}
+// a spot of the first day's in front of the world's own: the manager while G8 is on, the coach until your lessons
+function tourSpots(){
+  if (LIFE.zone !== "ground") return;
+  const boss = W.spots.find(sp => sp.label === "The manager" && !sp.onb);
+  if (boss) W.spots.unshift({onb:true, aim:boss.aim, x:boss.x, z:boss.z, label:"The manager", hint:"Talk to him", hold:.2,
+    when:() => (!boss.when || boss.when()) && RUN.cur && RUN.cur.id === "G8" && !seen("manager"), run:() => managerTalk()});
+  W.spots.unshift({onb:true, x:-6, y:1.2, z:-5.4, r:2.4, near:true, label:COACH,
+    when:() => active() && !(G().flags && G().flags.GameplayTutorialCompleted) && typeof sessionOn === "function" && sessionOn(),
+    get hint(){ return RUN.cur && RUN.cur.id === "G9" ? "Your first training" : "After you've had a look round"; },
+    run:() => { if (RUN.cur && RUN.cur.id === "G9") startLessons(); else speak(COACH, "Get yourself shown round first. I'll see you out here after."); }});
+}
+// your locker in the dressing room: the middle one on the south wall, your number on its name card (props.js lockers)
+function lockerPlate(){
+  if (LIFE.zone !== "ground") return;
+  const p = G().player || {}, num = p.number != null ? String(p.number) : "", sur = String(p.name || "").trim().split(/\s+/).slice(-1)[0] || "";
+  if (!num) return;
+  const tex = textTex(256, 112, g => {
+    g.fillStyle = "#f2efe6"; g.fillRect(0, 0, 256, 112);
+    g.fillStyle = "#1c2c4a"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = `800 84px "Barlow Condensed", sans-serif`; g.fillText(num, 58, 60);
+    g.font = `800 40px "Barlow Condensed", sans-serif`; g.fillText(sur.toUpperCase().slice(0, 9), 172, 60, 150);
+  });
+  label(tex, 26.2, 1.755, 3.5 + .253 + .011, .16, .07, 0, {rough:.6});
+}
+// your first training: the lessons, on the match's controls; their end is the end of the first day
+function startLessons(){
+  if (RUN.lessons || PLAY.t < RUN.lessonAt || typeof window.lifeFirstTraining !== "function") return;
+  RUN.lessons = true;
+  // (cut short, or refused because something else is running: not asked again for a few seconds)
+  const over = () => { RUN.lessons = false; RUN.lessonAt = PLAY.t + 3; RUN.dirty = true; };
+  window.lifeFirstTraining().then(over).catch(e => { over(); console.error(e); });
+}
+
 /* ---------- the runner ---------- */
-const RUN = {cur:undefined, dirty:true, aim:{label:null}, focus:null, focused:null, focusEls:null, unfocusT:0, goalT:0, h2:0, h13:0, h15:0, h15told:false, h19:0, started:new Set()};
+const RUN = {cur:undefined, dirty:true, aim:{label:null}, focus:null, focused:null, focusEls:null, unfocusT:0, goalT:0, h2:0, h13:0, h15:0, h15told:false, h19:0, started:new Set(),
+  cardDue:false, lessons:false, lessonAt:0, closing:false};
 function stepDone(st){
   const o = OB(); if (!o) return true;
   if (o.seen[st.id]) return true;
@@ -515,7 +821,8 @@ function enter(st){
   showGoal();
 }
 function showGoal(){
-  const st = RUN.cur; if (!st){ goal(null); return; }
+  const st = RUN.cur; if (!st || RUN.lessons){ goal(null); return; }
+  if (st.zone === "ground" && postponed()){ goal(`Back at the training centre tomorrow, ${time(SESS().start)}`, null); return; }
   if (st.zone !== LIFE.zone){
     // a step to do somewhere else: the ride there (DESIGN 3.7.4). A home step that ends on the bus to training (H21)
     // is the ride to the training centre wherever you are
@@ -524,14 +831,12 @@ function showGoal(){
   }
   goal(st.objective(), st.at ? st.at() : null);
 }
-/* the home chapter is over: you are at the training centre (the bus took you there). The training centre's own
-   chapters (DESIGN 3.7.6, WP-H2) are not part of this build yet, so the first day's teaching stops here and the rest of
-   the day is an ordinary one, still excused (the day's attendance was set excused when it began). Only the flat's flag
-   is set: TrainingCenterTutorialCompleted and GameplayTutorialCompleted belong to G8 and G9, and stay false so those
-   chapters can pick this career up (a finished home chapter, step "done", with the training centre's flag unset) */
+/* every step is behind you: the first training is done (training.js and acts.js lessonsDone set the flag and the
+   step), and the first day with it. Whatever is left on screen goes */
 function finishHome(){
   const s = G(), o = OB(); if (!s || !o) return;
   s.flags.ApartmentTutorialCompleted = true;
+  if (s.flags.GameplayTutorialCompleted) s.flags.TrainingCenterTutorialCompleted = true;
   o.step = "done";
   goal(null); hint(null); focus(null); markerOff();
   persist(true);
@@ -541,6 +846,7 @@ function finishHome(){
 export function onEvent(ev, d = {}){
   const s = G(); if (!s || !s.flags) return;
   if (ev === "aim"){ RUN.aim = {label:d.label || null}; return; }
+  if (ev === "zone" && d.zone === "ground" && !active()){ earlyWord(); return; }
   if (!active()) return;
   switch (ev){
     case "switch": if (!d.bulb) mark("switchNoBulb"); break;
@@ -559,6 +865,12 @@ export function onEvent(ev, d = {}){
     // the bus to the training centre pulls away: the flat's chapter is done from here (DESIGN 3.7.5 H21)
     case "busGo": if (d.to === "ground") s.flags.ApartmentTutorialCompleted = true; break;
     case "zone": if (d.zone === "ground") arrivedAtGround(); break;
+    // the bag carried up to the gym fridge: the food is in (acts.js parcelPut)
+    case "parcelPut": if (d.zone === "ground") mark("gymPut"); break;
+    // the last lesson is over: the coach's last word, which comes after the first day has been marked done, is still
+    // said in the first day's own box (active() holds while RUN.closing)
+    case "lesson": if (d.ok != null && typeof d.n === "number" && d.n >= 6) RUN.closing = true; break;
+    case "trainingDone": RUN.closing = true; RUN.dirty = true; break;
   }
   RUN.dirty = true;
 }
@@ -566,7 +878,7 @@ window.lifeOnb = (ev, data) => onEvent(ev, data || {});
 // off the bus at the training centre: the home chapter is behind you, whatever of it is left
 function arrivedAtGround(){
   const o = OB();
-  for (const st of STEPS) if (!o.seen[st.id]) o.seen[st.id] = st.id === "H21" ? true : "skipped";
+  for (const st of STEPS) if (st.zone === "home" && !o.seen[st.id]) o.seen[st.id] = st.id === "H21" ? true : "skipped";
   RUN.cur = undefined; RUN.dirty = true;
 }
 
@@ -602,8 +914,32 @@ export function busGate(from, to){
 }
 // ui/panels.js openBus asks it for every option of the Line 14 panel and draws a gated one disabled with this line
 window.lifeBusGate = busGate;
-// a step before the training centre is the one you are on: the slow clock
-export function slow(){ return active() && !!RUN.cur && RUN.cur.zone === "home"; }
+// a step before your first training is under way is the one you are on, and you are where it is (or on your way to
+// it from home on the first day): the slow clock. Not once the tour is put off until tomorrow, nor in the lessons
+// (they keep their own rate)
+export function slow(){
+  if (!active() || !RUN.cur || RUN.lessons || postponed()) return false;
+  return RUN.cur.zone === "home" || LIFE.zone === "ground";
+}
+// the tour of the centre is put off until tomorrow (S.onb.post: the day it was put off)
+const postponed = () => { const o = OB(); return !!(o && o.post != null && G().life && G().life.day <= o.post); };
+function postponeCheck(){
+  const o = OB(), st = RUN.cur;
+  if (!st || st.zone !== "ground" || st.id === "G9" || postponed()) return;
+  if (o.post != null){ delete o.post; persist(); }
+  if (LIFE.zone !== "ground" || LIFE.min < POSTPONE_AT || RUN.lessons) return;
+  o.post = G().life.day; persist();
+  speak(COACH, `Let's pick this up tomorrow at ${time(SESS().start)}.`);
+  guideHome(); RUN.dirty = true;
+}
+/* after the first day: in 30 to 60 minutes before training starts, and the coach has seen you (acts.js arrive prints
+   the time; trust comes at four if you stay, daily.js settleAttendance) */
+function earlyWord(){
+  const s = G(), a = s && s.life && s.life.att, E = typeof EARLY === "object" ? EARLY : {by:30};
+  if (!a || a.excused || !trainingToday() || (typeof todaysFixture === "function" && todaysFixture())) return;
+  const left = SESS().start - s.life.min;
+  if (left >= E.by && left <= 2*E.by) speak(COACH, "In early. Good.");
+}
 
 /* ---------- what intro.js calls ---------- */
 export function fdInit(host){ H = host; setClockScale(() => slow() ? ONB_RATE : 1); }
@@ -612,20 +948,37 @@ export function fdStart(){
   OB(); RUN.cur = undefined; RUN.dirty = true; RUN.h15told = false; sayClear();
   if (!active()){ goal(null); hint(null); return; }
 }
-export function fdZone(){ GOAL.marker = null; RUN.cur = undefined; RUN.dirty = true; hint(null); }
+export function fdZone(zone){
+  OB();
+  GOAL.marker = null; RUN.cur = undefined; RUN.dirty = true; hint(null);
+  // (the place was rebuilt: the assistant coach is a new body, at his post, until the tour takes him again)
+  GUIDE.h = null; GUIDE.to = null; GUIDE.path = []; GUIDE.done = false; GUIDE.home = false;
+  RUN.started.delete("G1"); for (const id of ["G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9"]) RUN.started.delete(id);
+  if ((zone || LIFE.zone) === "ground"){
+    lockerPlate();
+    if (active()) tourSpots();
+  }
+}
 export function fdTick(dt){
   const s = G(); if (!s || !s.flags || !H) return;
   if (!active()){
     if (RUN.cur !== null && RUN.cur !== undefined){ RUN.cur = null; goal(null); hint(null); focus(null); markerOff(); }
+    // (a word said after the first day, the coach's when you are in early, still has its box)
+    if (SAY.cur || SAY.q.length){ if (!paused()) PLAY.t += dt; sayStep(paused() ? 0 : dt, paused()); sayPlace(); }
     focusStep(); return;
   }
   if (H.cine && H.cine.on){ focusStep(); return; }
   if (!paused()) PLAY.t += dt;
   laterStep();
   sayStep(paused() ? 0 : dt, paused());
+  // the first training's last word said: the first day is over
+  if (RUN.closing && OB().step === "done" && !saying()){ RUN.closing = false; return; }
   const cur = current();
   if (cur !== RUN.cur){ enter(cur); if (!cur) return; }
-  if (cur && cur.zone === LIFE.zone && cur.tick && !paused()) try { cur.tick(dt); } catch(e){ console.error(e); }
+  if (cur && cur.zone === LIFE.zone && cur.tick && !paused() && !postponed()) try { cur.tick(dt); } catch(e){ console.error(e); }
+  if (LIFE.zone === "ground" && !paused()){ guideStep(dt); postponeCheck(); }
+  // the manager's card, once his lines have been said
+  if (RUN.cardDue && !saying() && !paused()){ RUN.cardDue = false; showCard(); }
   if (HINT.t > 0 && (HINT.t -= dt) <= 0) hint(null);
   if (RUN.unfocusT > 0 && (RUN.unfocusT -= dt) <= 0) focus(null);
   if ((RUN.goalT -= dt) <= 0){
@@ -640,5 +993,7 @@ export function fdTick(dt){
   sayPlace();
 }
 // for tests and the HUD
-export const FD = {active, slow, refuse, busGate, busGateAt, currentId, STEP_IDS, onEvent, goal:() => GOAL.text, hint:() => HINT.html, saying, inFlat, said:() => SAID.slice()};
+export const FD = {active, slow, refuse, busGate, busGateAt, currentId, STEP_IDS, onEvent, goal:() => GOAL.text, hint:() => HINT.html, saying, inFlat, said:() => SAID.slice(),
+  guide:() => ({at:GUIDE.at, to:GUIDE.to, path:GUIDE.path.slice(), done:GUIDE.done, pos:guideAt()}), postponed, noticesCard, POSTPONE_AT, NODES:G_NODE,
+  lessons:() => RUN.lessons};
 window.lifeFirstDay = FD;

@@ -83,3 +83,51 @@ body.low .onb-focus::after{animation:none;opacity:.9}
 /* ---------- the notice board: what each notice means for you ---------- */
 .nb-item p.nb-fx{color:#e9f3c9}
 .nb-foot{display:flex;justify-content:flex-end;padding-top:12px;margin-top:8px;border-top:1px solid var(--line)}
+
+/* ---------- what the manager notices (firstday.js G8): a card in the world's panel frame, once ---------- */
+#lifePanel.onbcard .lpn{width:min(460px,calc(100vw - 32px))}
+.onb-card{display:grid;gap:10px;font-family:var(--onb-font)}
+.onb-card-sub{margin:0;color:var(--onb-muted);font-size:.86rem}
+.onb-card-list{display:grid;gap:6px}
+.onb-card-row{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid var(--onb-line)}
+.onb-card-row span{color:var(--onb-ink);font-weight:600}
+.onb-card-row b{font-family:var(--onb-title);font-weight:800;color:var(--onb-accent);text-align:right;white-space:normal}
+.onb-card-foot{margin:2px 0 0;color:#d5e3f0;font-size:.88rem;line-height:1.4}
+.onb-card-row b.bad{color:#ff8f80}
+
+/* ---------- small screens (WP-H2: the first day's HUD on phones) ----------
+   A phone held upright (390 px wide): the clock and the money take the top row and the need bars hang down under the
+   money, so the compass and its markers go under the bars, across the width; the objective takes the corner under
+   the clock, and the line being said (and the narrative note) go below the markers */
+@media (max-width:620px){
+  #lifeRoot .lf-compass{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 166px);width:calc(100vw - 2*var(--hud-pad) - 40px);min-width:0}
+  /* the objective in the free corner under the clock, beside the bars; the line being said under the compass's
+     markers (they hang under it in up to three rows), clear of the crosshair */
+  #lifeRoot .onb-goal{left:calc(var(--hud-pad) + env(safe-area-inset-left,0px));top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 74px);
+    max-width:calc(100vw - 2*var(--hud-pad) - 186px);transform:translate(0,-8px);padding:7px 11px;font-size:.88rem}
+  #lifeRoot .onb-goal.on{transform:none}
+  #lifeRoot .onb-say{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 318px);padding:7px 13px 9px}
+  #lifeRoot .onb-say p{font-size:.9rem;line-height:1.34}
+  #lifeRoot .onb-say b{font-size:.74rem}
+  #lifeRoot .lf-note{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 318px)}
+}
+/* A phone on its side (844 x 390): no room for a column down the middle. The compass narrows to the gap between the
+   clock and the need bars; the objective and the line being said take the left side under the clock, the how-to the
+   right side under the bars; the crosshair, the use prompt and the pockets keep the middle */
+@media (max-height:520px) and (min-width:621px){
+  #lifeRoot .lf-compass{width:max(220px,calc(100vw - 2*(var(--hud-pad) + 272px)));min-width:0}
+  #lifeRoot .onb-goal{left:calc(var(--hud-pad) + env(safe-area-inset-left,0px));top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 82px);
+    max-width:min(320px,calc(50vw - 160px));transform:translate(0,-8px);padding:7px 12px;font-size:.9rem}
+  #lifeRoot .onb-goal.on{transform:none}
+  #lifeRoot .onb-say{left:calc(var(--hud-pad) + env(safe-area-inset-left,0px));top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 132px);
+    max-width:min(340px,calc(50vw - 150px));transform:translate(0,-8px);padding:8px 12px 9px}
+  #lifeRoot .onb-say.on{transform:none}
+  #lifeRoot .onb-say p{font-size:.9rem;line-height:1.35}
+  #lifeRoot .onb-say b{font-size:.74rem}
+  #lifeRoot .onb-hint,#lifeRoot .onb-hint.side,#lifeRoot .onb-hint.under{left:auto;right:calc(var(--hud-pad) + env(safe-area-inset-right,0px));
+    top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 172px);bottom:auto;max-width:min(300px,calc(50vw - 160px));
+    transform:translate(0,10px);text-align:left;font-size:.84rem;padding:8px 12px;line-height:1.35}
+  #lifeRoot .onb-hint.on,#lifeRoot .onb-hint.side.on,#lifeRoot .onb-hint.under.on{transform:none}
+  #lifeRoot .lf-note{max-width:min(420px,calc(100vw - 2*(var(--hud-pad) + 300px)))}
+}
+.onb-card-row span{white-space:nowrap}

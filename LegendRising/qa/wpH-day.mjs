@@ -293,7 +293,8 @@ try {
   // (the ride: the fade and its card run on timers and on the world's frames, which the bot steps)
   for (let i = 0; i < 80 && !(await page.evaluate(() => window.__life.LIFE.zone === "ground" && !window.__life.busy)); i++){ await page.waitForTimeout(150); await page.evaluate(() => __bot.idle(.5)); }
   const end = await page.evaluate(() => ({zone: __life.LIFE.zone, step: S.onb.step, flags: Object.assign({}, S.flags), trust: S.trust, min: S.life.min, excused: S.life.att.excused}));
-  check("off the bus at the training centre, the home chapter is over", end.zone === "ground" && end.step === "done" && end.flags.ApartmentTutorialCompleted, end);
+  // (and the training centre's own chapters begin: qa/wpH2-centre.mjs plays them)
+  check("off the bus at the training centre, the home chapter is over and the centre's begins", end.zone === "ground" && end.step === "G1" && end.flags.ApartmentTutorialCompleted, end);
   check("no trust change on day one", end.trust === t0.trust, {before: t0.trust, after: end.trust});
   await snap(page, "wpH-day-H21");
   // every line of DESIGN 3.7.5 the bot's run calls for, word for word, its numbers from the constants
@@ -313,7 +314,7 @@ try {
       [U, "Couriers leave your food on that table. Pick the bag up and carry it to a fridge, and the food goes in."],
       [U, "Better fridges keep more of what food is worth. Same food at the training centre, by the way. One stock, two fridges."],
       [U, "Messages, your stats, and Foodies are all in here. Order some lunch and have it sent to the training centre."],
-      [U, "And get that ball off the floor before you trip over it."], [Y, "There. You can pick it up and move it any time."],
+      [U, "And get that ball off the floor before you trip over it."], [Y, "There. You can pick it up and move it any time. Walk into it and you'll push it along."],
       [Y, "Whatever you buy here goes straight into your fridge."], [Y, "The barber. New cuts cost money, but once you've paid for one it's yours."],
       [U, "See that compass at the top? It'll point you toward places nearby."], [U, "Only places around your current neighbourhood show up."],
       [U, `Line 14 goes to the training centre and to Dumbrava. The ride to training takes ${busMins("home", "ground")} minutes.`],
