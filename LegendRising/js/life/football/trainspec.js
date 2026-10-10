@@ -69,7 +69,8 @@ export function goalsLaw(spec){
 /* ---------- the drill stations (3.6.2) ----------
    Each in the training pitch's frame (x along the length, +x the east goal; z across, +24 the near touchline): the
    marker you stand on to start it (spot), the board beside it, the area it is played in (null: the whole pitch), which
-   way team 0 attacks (dir), who is in it and how the ball comes. The squad's own work keeps clear of them (npc.js). */
+   way team 0 attacks (dir), who is in it, how the ball comes and any orders the others play to (orders 'pass': the
+   opponents only pass it to each other). The squad's own work keeps clear of them (npc.js). */
 export const DRILLS = Object.freeze({
   shoot: {kind: 'shoot', mode: 'drill', title: "Finishing", label: "Finishing against the keeper", sub: "The coach lays it off, you finish past the keeper",
     hint: "Five shots against the keeper · accuracy and shot power · 30 min", mins: 30, reps: 5,
@@ -91,7 +92,7 @@ export const DRILLS = Object.freeze({
     hint: "Six passes to read · interception · 30 min", mins: 30, reps: 6,
     spot: {x: -16, z: -15}, board: {x: -16, z: -5.5}, area: {x0: -28, x1: -4, z0: -22, z1: -8}, dir: 1,
     mates: 0, opps: 2, oppSlots: ['LB', 'RB'], oppAt: [{x: -26, z: -15}, {x: -6, z: -15}], keeper: false,
-    feed: {kind: 'pass', to: 'opp', from: {x: -26, z: -23.5}},
+    feed: {kind: 'pass', to: 'opp', from: {x: -26, z: -23.5}}, orders: 'pass',
     xp: [['interception', 3, 0]]},
   duel: {kind: 'duel', mode: 'drill', title: "One against one", label: "Defending one against one", sub: "Stop him getting past you down the channel",
     hint: "Five duels · tackling · 30 min", mins: 30, reps: 5,
@@ -241,7 +242,7 @@ export function interceptTest(evs, me, team, ctx = {}){
   }
   let n = 0;
   for (const e of evs) if (e.kind === 'kick' && e.team !== team && e.res === 'ok') n++;
-  if (n >= (ctx.passes || 3) || ctx.timeUp || ctx.dead) return {done: true, ok: false, q: 0, why: n >= (ctx.passes || 3) ? 'through' : 'time'};
+  if (n >= (ctx.passes || 3) || ctx.timeUp || ctx.dead) return {done: true, ok: false, q: 0, why: n >= (ctx.passes || 3) ? 'through' : ctx.dead ? 'out' : 'time'};
   return null;
 }
 // one against one: a tackle won, or the attacker forced out over a touchline; he gets past you if he takes it over the

@@ -33,7 +33,7 @@ import {createMatch, simStep, REF, AR1, AR2, TEMPO} from "./sim.js";
 import {createBall, ballKick, BALL} from "./ball.js";
 import {solveStrike, idealPassSpeed} from "./strike.js";
 import {attrsForAI} from "./attrs.js";
-import {refreshPred} from "./actions.js";
+import {refreshPred, startKick} from "./actions.js";
 import {startRestart} from "./rules.js";
 import {AUD} from "./audio.js";
 import * as TS from "./trainspec.js";
@@ -103,6 +103,13 @@ function coachTake(){
   if (!COACH.held){ COACH.h = A.h; COACH.home = {x:A.x, z:A.z, ry:A.ry}; COACH.held = true; if (A.lend) A.lend(); }
   return COACH.h;
 }
+// while you walk over to a drill he heads for where its first ball is played from (to = where it goes, both in the
+// training pitch's frame)
+function coachPrep(from, to){
+  if (!coachTake()) return;
+  const w = TS.toWorld(from.x, from.z), dx = to.x - from.x, dz = to.z - from.z, L = Math.hypot(dx, dz) || 1;
+  COACH.at = {x:w.x - dx/L*.62 - dz/L*.14, z:w.z - dz/L*.62 + dx/L*.14}; COACH.face = Math.atan2(-dx, -dz); COACH.going = false;
+}
 function coachGive(){
   if (!COACH.held) return;
   COACH.at = {x:COACH.home.x, z:COACH.home.z}; COACH.face = COACH.home.ry - Math.PI; COACH.going = true;
@@ -118,7 +125,9 @@ function coachStep(dt){
     if (f.after != null && (f.after -= dt) <= 0){ COACH.feed = null; h.ast = {mode:"idle"}; }
     return;
   }
-  const there = walkBody(h, COACH.at.x, COACH.at.z, dt, TRAIN.WALK, COACH.face);
+  // a long way to go (to the next drill's bag, back to his post) he jogs; the last few metres he walks
+  const far = Math.hypot(h.g.position.x - COACH.at.x, h.g.position.z - COACH.at.z) > 3;
+  const there = walkBody(h, COACH.at.x, COACH.at.z, dt, far ? TRAIN.JOG : TRAIN.WALK, COACH.face);
   if (there && COACH.going){
     COACH.going = false; COACH.held = false; COACH.at = null;
     h.g.rotation.y = COACH.home.ry; h.ast = h.st || {mode:"idle"};
@@ -366,13 +375,15 @@ registerMode("train", {
     HUD.hudInit({home:{short:T.myTeam === 0 ? HOST.clubShort() : "BIB", kit:k.home}, away:{short:T.myTeam === 0 ? "BIB" : HOST.clubShort(), kit:k.away}, us:T.myTeam});
     const root = HUD.hudRoot ? HUD.hudRoot() : null, bug = root && root.querySelector("[data-part=score]");
     if (bug && !T.item.score) bug.style.display = "none";
+    // the life HUD's hand, crosshair and compass step aside (the clock and the needs stay)
+    document.body.classList.add("drillview");
     inputOn();
     T.evFrom = T.ms.events.length; T.evSeen = T.ms.events.length;
-    if (T.item.line) HUD.hudScenario(T.item.line);
   },
   exit(reason){
     const T = RUN.T; RUN.T = null;
     inputOff();
+    document.body.classList.remove("drillview");
     try { CAM.camDispose(); } catch(e){ console.error(e); }
     try { HUD.hudDispose(); } catch(e){ console.error(e); }
     if (T){
@@ -604,11 +615,12 @@ export function startDrill(kind){
   const lent = squadHere ? lend(run, needSquad, !!D.keeper) : [];
   run.lent = lent;
   if (lent.filter(b => b.role !== "keeper").length < needSquad){ runOver(run); HOST.note("Not enough of the lads are free for that one right now."); return false; }
-  const item = Object.assign({}, D, {restarts:kind === "setpiece", line:`${D.title} · ${D.hint.split(" · ")[0]}`, keeper:!!D.keeper && lent.some(b => b.role === "keeper")});
+  const item = Object.assign({}, D, {restarts:kind === "setpiece", keeper:!!D.keeper && lent.some(b => b.role === "keeper")});
   run.item = item;
   RUN.cur = run;
   run.quit = () => { run.stopped = true; if (run.T && mode() === "train") exitMode("quit"); else { runOver(run); HOST.note("Drill called off."); } };
   hudSet({title:D.label, rep:0, reps:D.reps, scores:[]}, {hint:D.sub});
+  if (D.feed.from) coachPrep(D.feed.from, D.spot);
   gather(run, item, r => {
     const T = buildItem(item, whoOf(r.spots), {n:0, ballAt:D.feed.at || D.feed.from, onEnd:t => drillEnd(run, t)});
     T.rate = 0; T.kits = HOST.kits();
@@ -647,6 +659,7 @@ function drillScript(kind, D, run){
   };
   return {
     post(T){
+      if (D.orders === "pass") passersOnly(T);
       if (S.state === "setup"){ if ((S.wait -= H) <= 0) nextGo(T); return; }
       if (S.state === "result"){ if ((S.wait -= H) <= 0){ if (S.rep >= D.reps) finishItem(T); else nextGo(T); } return; }
       if (S.state !== "go" || T.feed) return;
@@ -661,12 +674,33 @@ function drillScript(kind, D, run){
       S.rep++; run.scores.push(v.ok ? Math.max(.45, v.q) : v.q*.4);
       award(T, D.xp, v.ok ? v.q : 0);
       T.results.push(v);
-      hudResult(v.ok ? (v.q >= .9 ? "Perfect" : v.q >= .7 ? "Great" : "Good") : WHY[v.why] || "Not this time", "", v.ok);
+      hudResult(v.ok ? (v.q >= .9 ? "Perfect" : v.q >= .7 ? "Great" : "Good") : (test === "header" && v.why === "none" ? WHY.missed : WHY[v.why]) || "Not this time", "", v.ok);
       card();
       HOST.pass(D.mins/D.reps);
       S.state = "result"; S.wait = TRAIN.RESULT;
     }
   };
+}
+/* the drill's orders to the two passers (reading the lane): they play it to each other and nothing else. Whatever the
+   one on the ball was going to do with it (a shot, a run with it) becomes a pass to the other, led into his stride, and
+   he does not keep it longer than a second and a half. The pass is his own kick (actions.js), struck at his contact */
+function passersOnly(T){
+  const ms = T.ms, c = ms.agents[ms.poss.ctl];
+  const mates = a => ms.agents.find(o => o !== a && o.team === a.team && o.onPitch && o.role === "player" && !o.isGK);
+  const lead = (o, from) => { const d = Math.hypot(o.m.x - from.m.x, o.m.z - from.m.z); return {x:o.m.x + o.m.vx*d/14, y:R, z:o.m.z + o.m.vz*d/14}; };
+  for (const a of ms.agents){
+    if (a.team !== T.oppTeam || !a.act || a.act.kind !== "kick" || a.act.done || a.act.contactStep >= 0) continue;
+    const k = a.act.action;
+    if (k.kind === "pass" && k.recv >= 0) continue;
+    const o = mates(a); if (!o) continue;
+    a.act.action = {kind:"pass", target:lead(o, a), recv:o.id, contact:0};
+  }
+  if (c && c.team === T.oppTeam){
+    if (T.holdBy !== c.id){ T.holdBy = c.id; T.holdT = 0; }
+    T.holdT += H;
+    const o = mates(c);
+    if (o && !c.act && T.holdT > 1.5) startKick(ms, c, {kind:"pass", target:lead(o, c), recv:o.id, contact:0});
+  } else T.holdBy = -1;
 }
 const WHY = {wide:"Wide", blocked:"Blocked", wood:"Off the woodwork", none:"No shot", time:"Out of time", missed:"Missed it", lost:"Didn't find him",
   out:"Out of play", int:"Cut out", off:"Offside", through:"They got it through", beaten:"He got past you", heavy:"Heavy touch", still:"Didn't take it forward",
@@ -743,7 +777,10 @@ function blockScript(B, run){
       }
       if (T.t >= B.real) finishItem(T);
     },
-    frame(T){ hudSet({title:B.title, rep:run.i, reps:run.blocks.length, scores:run.qs}, {hint:`${B.line} · ${Math.max(0, Math.ceil(B.real - T.t))} s`}); }
+    frame(T){
+      const left = Math.max(0, Math.ceil(B.real - T.t));
+      if (left !== T.cardLeft){ T.cardLeft = left; hudSet({title:B.title, rep:run.i, reps:run.blocks.length, scores:run.qs}, {hint:`${B.line} · ${left} s`}); }
+    }
   };
 }
 function blockEnd(run, T){
@@ -923,7 +960,11 @@ function lessonScript(L, run){
         }
       }
     },
-    frame(T){ if (L.kind === "ssg") card(`Two minutes, four against four · ${Math.max(0, Math.ceil((L.real || 120) - T.t))} s`); }
+    frame(T){
+      if (L.kind !== "ssg") return;
+      const left = Math.max(0, Math.ceil((L.real || 120) - T.t));
+      if (left !== T.cardLeft){ T.cardLeft = left; card(`Two minutes, four against four · ${left} s`); }
+    }
   };
 }
 function lessonEnd(run, T){
