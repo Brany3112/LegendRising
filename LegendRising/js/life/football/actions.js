@@ -5,7 +5,8 @@
 // pokes and slides decided by what the sweeping foot meets first, headers off a real jump, throw-ins, blocks, and the
 // steering that turns a target into the mover's intent. Each touch is a real kick of the one ball (ball.js) and an
 // entry in the log (events.js).
-// Owner: WP-E. Contract DESIGN 1.4.14 (Action, actionStep, canStrike); numbers 1.5.3; behaviour 3.1.7.
+// Owner: WP-E, then WP-F2 (addendum A1.7: the player's strike on his plant, its rhythm and its body shape logged with
+// the kick). Contract DESIGN 1.4.14 (Action, actionStep, canStrike); numbers 1.5.3; behaviour 3.1.7.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random.
 
@@ -41,8 +42,10 @@ export const ACT = Object.freeze({
   BLOCK_KEEP: [0.5, 0.85],                     // a leg block keeps this share of the ball's speed
   BLOCK_TURN: [45, 70], BLOCK_LOOP: 4,         // degrees a glance and a square block turn it, at most; a glance loops up to 4 m/s
   SETTLE: [0.12, 0.25, 1.0],                   // the first decision after a reception: pressed, a heavy touch, settled on it
-  AERIAL_FOUL: [1.1, 0.15, 0.25, 0.25]         // an aerial duel with the bodies within 1.1 m: a foul by the loser 15% of the time,
+  AERIAL_FOUL: [1.1, 0.15, 0.25, 0.25],        // an aerial duel with the bodies within 1.1 m: a foul by the loser 15% of the time,
                                                // severity 0.25 to 0.5
+  RHYTHM: [0.12, 0.06]                         // A1.7: a strike released out of the stride's rhythm (rhythm 1) adds this much plant
+                                               // error, a shot and a pass (the player's controls set action.rhythm)
 });
 
 /* ---------- the shared ball path cache (1.5.6) ---------- */
@@ -131,7 +134,9 @@ export function startKick(ms, a, action){
   const dead = ms.ball.state === 'dead' || ms.restart && ms.restart.taker === a.id;
   const air = !!action.style && VOLLEY.STYLES.has(action.style);
   const wait = air ? clamp((+action.tc || 0) + 0.2, ACT.ADJUST, VOLLEY.WAIT) : ACT.ADJUST;
-  a.act = {kind: 'kick', action, t: 0, tc: cs.ok ? cs.tc : ACT.ADJUST + ACT.TC_MAX, adjust: !cs.ok, dur: (cs.ok ? cs.tc : ACT.ADJUST) + ACT.FOLLOW,
+  // (the player's strike lands on his support foot's plant when that comes inside the window: action.tcWant, A1.7)
+  const tc0 = cs.ok && action.tcWant != null && !air ? clamp(+action.tcWant, 0.10, ACT.TC_MAX) : cs.tc;
+  a.act = {kind: 'kick', action, t: 0, tc: cs.ok ? tc0 : ACT.ADJUST + ACT.TC_MAX, adjust: !cs.ok, dur: (cs.ok ? tc0 : ACT.ADJUST) + ACT.FOLLOW,
     foot: cs.foot, side: cs.side, done: false, plan: null, startStep: ms.step, contactStep: -1, adjustMax: dead ? 3.0 : wait, pre: null, devZ: null, air};
   a.state = 'strike'; a.stateT = 0;
   if (a.drib) a.drib = null;
@@ -173,7 +178,10 @@ function kickRequest(ms, a, act, scuff, bp, foot){
     ctxKind = kind === 'clear' || kind === 'goalkick' || kind === 'punt' ? 'clear' : kind; acc = at.passAcc;
   }
   if (scuff) speed *= 0.55;
-  const req = {from: {x: bp.x, y: bp.y, z: bp.z}, target: {x: tx, y: ty, z: tz}, speed, contact, curl: rq.finesse ? (rq.curl != null ? rq.curl : 1) : (rq.curl || 0),
+  // (rq.bend, the player's sweep through the release, A1.7: the way the ball is to bend, + to its right; the curl that
+  // does it depends on the foot that strikes it, the inside of one is the outside of the other)
+  const curl = rq.bend != null ? (foot === 'L' ? 1 : -1)*clamp(+rq.bend, -1, 1) : rq.finesse ? (rq.curl != null ? rq.curl : 1) : (rq.curl || 0);
+  const req = {from: {x: bp.x, y: bp.y, z: bp.z}, target: {x: tx, y: ty, z: tz}, speed, contact, curl,
     foot, kind: ctxKind === 'chip' ? 'chip' : ctxKind, rollDecel: b.rollDecel, curve: at.curve, aero: at.aero};
   return {req, tx, ty, tz, dist, isShot, ctxKind, acc, contact};
 }
@@ -183,7 +191,8 @@ function kickCtx(ms, a, act, K, bp, ahead, weak, scuff){
   const kdir = yawOf(K.tx - bp.x, K.tz - bp.z);
   const bodyAngleDeg = Math.abs(wrapA(kdir - a.m.yaw))/DEG;
   // (a volley's timing from the ring, A1.5: 0 on the moment, 1 at the ring's edge or beyond, widens it as a bad plant)
-  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1);
+  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1) +
+    ACT.RHYTHM[K.isShot ? 0 : 1]*clamp(+rq.rhythm || 0, 0, 1);
   const sp = hypot(b.v.x, b.v.y, b.v.z);
   const air = b.p.y > R + 0.05;
   const ballState = !air ? (sp < 0.4 ? 'still' : 'rolling') : (b.v.y < 0 && b.p.y > 0.35 ? 'volley' : 'bouncing');
@@ -257,6 +266,14 @@ function strikeContact(ms, a, act, scuff){
     if (isShot) ms.stats.shots[a.team]++;
   } else if (kind !== 'clear') ms.stats.passes[a.team]++;
   if (rq.pOK != null) extra.pOK = Math.round(rq.pOK*100)/100;
+  // the player's strike (A1.7): its body shape, how far out of his stride he let it go, and how cleanly it was struck
+  // (1 sweet, 0 a snatch: the plant error, the scuff, the over-hit, the legs), for the line under the reticle and the
+  // contact's sound and hit-stop
+  if (rq.shape){
+    extra.shape = rq.shape; extra.rhythm = rq.rhythm || 0;
+    const over = isShot && rq.power > 0.92 ? 3*(rq.power - 0.92) : 0;
+    extra.strike = Math.round(clamp(1 - 1.8*ctx.plantErr - over - (scuff ? 0.5 : 0) - 0.25*(1 - ctx.bF) - 0.2*(rq.over || 0), 0, 1)*100)/100;
+  }
   if (rq.fk) extra.fk = true;
   if (rq.pen) extra.pen = true;
   // the target in the team frame, and how far forward the kick sends it

@@ -123,8 +123,11 @@ for (const stamina of [50, 99]){
   check(costs.join(",") === "3,6,3,2,0.5" && Math.abs(st.B - 85.5) < 1e-9 && st.recoverDelay === STAM.DELAY, "action costs shot 3, slide 6, jump 3, tackle 2, pass 0.5", costs);
   const e0 = createStam({stamina: 50}); e0.B = 1; stamAction(e0, 'slide');
   check(e0.B === 0, "an action never takes the breath below zero, and is never refused");
-  check(effortOf('sprint', 6.0, 5.6) === 'sprint' && effortOf('sprint', 5.2, 5.6) === 'run' && effortOf('jog', 3, 5.6) === 'jog' &&
-    effortOf('walk', 1.5, 5.6) === 'walk' && effortOf('stand', 0.2, 5.6) === 'stand' && effortOf('run', 5.4, 5.6) === 'run', "effort per step (3.1.6)");
+  // (addendum A1.6: a sprint held under the run speed is told apart, and drains as a sprint once the breath caps it)
+  const held = createStam({stamina: 50}); held.B = 20; stamStep(held, 0.5, effortOf('sprint', 4.6, 5.6), {stamina: 50, eF: 1});
+  const fresh = createStam({stamina: 50}); fresh.B = 80; stamStep(fresh, 0.5, effortOf('sprint', 4.6, 5.6), {stamina: 50, eF: 1});
+  check(effortOf('sprint', 6.0, 5.6) === 'sprint' && effortOf('sprint', 5.2, 5.6) === 'sprint-run' && effortOf('sprint', 4.0, 5.6) === 'sprint-jog' && effortOf('jog', 3, 5.6) === 'jog' &&
+    effortOf('walk', 1.5, 5.6) === 'walk' && effortOf('stand', 0.2, 5.6) === 'stand' && effortOf('run', 5.4, 5.6) === 'run' && held.B < 20 && fresh.B >= 80, "effort per step (3.1.6, A1.6)");
   const typ = energyPerMatchMinute({staminaF: 1.03, meanSpeed: 2.2, sprintFrac: 0.05});
   check(typ >= 0.26 && typ <= 0.30, "a typical match minute costs 0.26 to 0.30 energy", r2(typ));
   check(matchFatigue(90, 0.5) === Math.round(8 + 24*1.0) && matchFatigue(0, 1) === 8 && matchFatigue(45, matchIntensity(0.56)) === Math.round(8 + 12*1.3),

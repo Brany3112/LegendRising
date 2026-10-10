@@ -1,7 +1,8 @@
 /* css/fp.css: the first-person match HUD (#fpHud), every class prefixed fp-.
    Owner: WP-0B creates it with the shared tokens (DESIGN 1.2, 2.2 WP-0B); WP-F builds the HUD on them in fphud.js
-   (DESIGN 1.5.10, 2.4 WP-F; addendum A1.2 to A1.5). Linked once, after style.css. Broadcast style: thin lines, the
-   teams' colours, condensed numerals, springy motion, out of the way. No backdrop blur on Low. */
+   (DESIGN 1.5.10, 2.4 WP-F; addendum A1.2 to A1.5); WP-F2 adds the reticle, its power arc and the strike line
+   (addendum A1.7) and the clearer fatigue vignette (A1.6). Linked once, after style.css. Broadcast style: thin lines,
+   the teams' colours, condensed numerals, springy motion, out of the way. No backdrop blur on Low. */
 :root{
   --fp-ink:#fff;                          /* text over the pitch */
   --fp-muted:#b9c8d8;                     /* secondary text: the clock's added time, hint verbs */
@@ -39,7 +40,7 @@ body.mode-match #lifeRoot > .lf-drill{display:none !important}
 
 /* the speed lines (A1.2) and the fatigue vignette (A1.3): screen edges only */
 .fp-fx{position:absolute;inset:0;overflow:hidden}
-.fp-vig{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 48%,rgba(8,4,6,.55) 78%,rgba(4,0,2,.9) 100%)}
+.fp-vig{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 38%,rgba(10,3,6,.5) 62%,rgba(6,0,3,.86) 84%,rgba(2,0,1,.97) 100%)}
 .fp-lines{position:absolute;inset:-10%;opacity:0;
   background:repeating-conic-gradient(from 0deg at 50% 50%,rgba(255,255,255,0) 0deg 3.1deg,rgba(255,255,255,.22) 3.2deg 3.4deg,rgba(255,255,255,0) 3.5deg 7deg);
   -webkit-mask-image:radial-gradient(ellipse at center,transparent 52%,#000 82%);mask-image:radial-gradient(ellipse at center,transparent 52%,#000 82%)}
@@ -81,30 +82,43 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-k-offside{border-left-color:var(--fp-warn)}.fp-k-card{border-left-color:#ffd400}.fp-k-red{border-left-color:var(--fp-bad)}
 .fp-no-cards .fp-cards{display:none}
 
-/* the crosshair: a dot that never sways; the power arc round its bottom while charging; the timing ring */
+/* the crosshair: a dot where you look; round it the timing ring of a volley and the bench's hold-E ring */
 .fp-cross{position:absolute;left:50%;top:50%;width:0;height:0}
 .fp-dot{position:absolute;left:calc(var(--fp-cross)/-2);top:calc(var(--fp-cross)/-2);width:var(--fp-cross);height:var(--fp-cross);border-radius:50%;
   background:rgba(255,255,255,.92);box-shadow:0 0 2px rgba(0,0,0,.8)}
-.fp-arc{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));opacity:0;overflow:visible}
-.fp-arc path{fill:none;stroke-linecap:round}
-.fp-arc-bg{stroke:rgba(255,255,255,.18);stroke-width:2}
-.fp-arc-sweet{stroke:var(--fp-good);stroke-width:5;opacity:0;stroke-opacity:.55}
-.fp-arc-fill{stroke:var(--fp-charge);stroke-width:2.5;transition:stroke .1s}
-.fp-arc-fill.over{stroke:var(--fp-bad)}
-.fp-arc-tick{stroke:#fff;stroke-width:1.5;opacity:0}
+.fp-hold{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible;opacity:0}
+.fp-hold.on{opacity:1}
 .fp-ring,.fp-ring-win{fill:none;stroke-width:1.6;opacity:0;transform:rotate(-90deg)}
-.fp-ring{stroke:rgba(255,255,255,.85)}.fp-ring.now{stroke:var(--fp-good);stroke-width:2.4}
+.fp-ring{stroke:rgba(255,255,255,.9);filter:drop-shadow(0 0 1.5px rgba(0,0,0,.9))}.fp-ring.now{stroke:var(--fp-good);stroke-width:2.4}
 .fp-ring-win{stroke:var(--fp-good);stroke-opacity:.5;stroke-width:3}
-.fp-contact{position:absolute;left:calc(-34px*var(--s));top:-9px;display:flex;flex-direction:column-reverse;gap:3px;opacity:0;transition:opacity .15s}
-.fp-contact.on{opacity:1}
-.fp-contact i{display:block;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.25)}
-.fp-contact.c1 i:nth-child(1),.fp-contact.c2 i:nth-child(-n+2),.fp-contact.c3 i{background:#fff}
-.fp-curl{position:absolute;left:calc(26px*var(--s));top:-10px;font-size:14px;opacity:0;transition:opacity .15s;text-shadow:0 1px 2px #000}
-.fp-curl.on{opacity:.9}
 .fp-glyph{position:absolute;left:12px;top:10px;font-family:var(--fp-font);font-size:calc(12px*var(--s));letter-spacing:.05em;color:var(--fp-ink);
   opacity:.8;text-shadow:0 1px 2px rgba(0,0,0,.9);white-space:nowrap}
 .fp-glyph:empty{display:none}
 .fp-no-glyph .fp-glyph{display:none}
+
+/* the reticle (A1.7): where a strike goes now (your look and its sway), the thin power arc round it while you wind up,
+   open at the bottom, with the sweet spot and the distance tick; red held past full. Moved by a transform each frame */
+.fp-ret{position:absolute;left:0;top:0;width:0;height:0;opacity:0;will-change:transform}
+.fp-arc{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible}
+.fp-ret-c{fill:none;stroke:rgba(255,255,255,.95);stroke-width:1.8;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.85));transition:stroke .1s}
+.fp-ret-c.over{stroke:var(--fp-bad)}
+.fp-arcg{opacity:0}
+.fp-arcg circle{fill:none;stroke-linecap:round;transform:rotate(120deg)}
+.fp-arc-bg{stroke:rgba(255,255,255,.2);stroke-width:1.5}
+.fp-arc-sweet{stroke:var(--fp-good);stroke-width:4;opacity:0;stroke-opacity:.55}
+.fp-arc-fill{stroke:var(--fp-charge);stroke-width:2;transition:stroke .1s;filter:drop-shadow(0 0 1px rgba(0,0,0,.8))}
+.fp-arc-fill.over{stroke:var(--fp-bad)}
+.fp-arc-tick{stroke:#fff;stroke-width:1.3;opacity:0}
+.fp-contact{position:absolute;left:calc(-31px*var(--s));top:-9px;display:flex;flex-direction:column-reverse;gap:3px;opacity:0;transition:opacity .15s}
+.fp-contact.on{opacity:1}
+.fp-contact i{display:block;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.25)}
+.fp-contact.c1 i:nth-child(1),.fp-contact.c2 i:nth-child(-n+2),.fp-contact.c3 i{background:#fff}
+.fp-curl{position:absolute;left:calc(25px*var(--s));top:-10px;font-size:14px;opacity:0;transition:opacity .15s;text-shadow:0 1px 2px #000}
+.fp-curl.on{opacity:.9}
+/* the line on how you struck it, under the middle of the view */
+.fp-sline{position:absolute;left:50%;top:calc(50% + 46px*var(--s));transform:translate(-50%,4px);opacity:0;white-space:nowrap;
+  font-family:var(--fp-font);font-size:calc(14px*var(--s));letter-spacing:.03em;text-shadow:0 1px 3px rgba(0,0,0,.9);transition:opacity .35s,transform .35s var(--fp-spring)}
+.fp-sline.in{opacity:.92;transform:translate(-50%,0)}
 
 /* the stamina, lower left: the bright breath over the darker cap, the energy line under it */
 .fp-stam{position:absolute;left:var(--fp-pad);bottom:var(--fp-pad);width:calc(150px*var(--s));opacity:.2;transition:filter .3s}

@@ -10,10 +10,23 @@
    Every timing (a charge, a held R, the release) is counted in simulation steps, so an input bot replays exactly.
 
    The keys are plain (no Ctrl, no Alt): a key pressed with a modifier does nothing, and every key of 1.6 has its
-   browser default stopped while a match is on. The settings are this device's (localStorage freyaFootball.ctrl). */
+   browser default stopped while a match is on. The settings are this device's (localStorage freyaFootball.ctrl).
+
+   First-person striking (addendum A1.7, WP-F2; it wins over D10's "the reticle never sways"): everything comes from
+   what you see. The reticle sits on the point you look at (the goal mouth for a shot, the grass for a pass or a
+   cross) and sways with your Finishing (Passing for a pass), Composure under pressure, your breath and the foot you
+   would strike with; the strike goes where the reticle is at the release, then strike.js's deviation on top. Holding
+   the button is the wind-up (the power; matchcam.js draws the leg back and fphud.js the arc round the reticle);
+   held past full it trembles and you lean back (the ball rises). The strike lands on the plant of your support foot:
+   released in your stride's rhythm it is clean, out of it the plant is forced (a wider window with Technique). How
+   you move through the release shapes it: a sweep of the mouse curls it, a flick down dips it (topspin), a lift
+   chips it, a tap is a placed side-foot, a full wind-up is power; looking low at the goal drives it low. Passes and
+   crosses speak the same language. Each choice is a real launch parameter for actions.js and strike.js. */
 import {P} from "../core/state.js";
 import {dirOf, yawOf, wrapA} from "./pitchspec.js";
-import {canStrike, predAt, VOLLEY} from "./actions.js";
+import {canStrike, predAt, VOLLEY, pressureOn, ACT as ACTN} from "./actions.js";
+import {TOUCH} from "./touch.js";
+import {stepLen} from "../gaitcore.js";
 import {passModel, callFor} from "./brain.js";
 import {restartReady, offsidePosition, RULES} from "./rules.js";
 import {rollSpeedFor} from "./ball.js";
@@ -56,6 +69,23 @@ export const CN = Object.freeze({
   SMALL: .55,                 // the small touch: the next dribble touch at this share of its length (A1.1)
   RING: Object.freeze({W0: .07, W1: .16})   // the timing ring of a volley (A1.5): the sweet window in seconds, at volleying 0 and 99
 });
+/* ---------- first-person striking (A1.7) ----------
+   SWAY: the reticle's sway amplitude (radians) is SW0 + SW1 (1 - finishing/100)^1.2, times (1 + PR pressure (1 -
+   composure/120)), times (1 + BR (1 - bF)) for the breath, times WEAK for the weak foot (BOTH for a two-footed player),
+   times CH[0] + CH[1] p while winding up (CH[0] + 0.1 at rest). Held past full (SHOT_FULL) the over-hold grows over
+   OVER seconds: a tremble of TREMBLE radians at 8 to 11 Hz and a lean back of LEAN radians (the ball rises).
+   GEST: a gesture is the look's turn over the last N steps up to the release: past MIN radians it counts, at FULL it
+   is whole (a sweep across curls, a flick down dips, a lift chips); the aim is taken from before it began.
+   RHY: the rhythm (the strike on the support foot's plant). Running above V m/s, a release whose contact can land
+   on the next plant within the reach window (Act TC_MAX), or within LATE s after the last one, is in rhythm; out of
+   it by more than W0 + W1 technique/99 seconds it is a forced plant (rhythm 1, strike.js's plant error).
+   LOW_Y: a shot aimed under this height with Normal contact is driven low (Low contact). PLACED: a tapped shot's
+   power. CHIP: a chip's share of the wind-up's power. LOFT: a pass looked at above the horizon is lofted. */
+export const AIM = Object.freeze({SW0: .0035, SW1: .019, PR: .6, BR: .8, WEAK: 1.35, BOTH: 1.1, CH: Object.freeze([.45, .75]),
+  OVER: .6, TREMBLE: .011, LEAN: .045, GEST_N: 9, GEST_MIN: 3*DEG, GEST_FULL: 11*DEG,
+  RHY_V: 1.2, RHY_LATE: .06, RHY_W0: .07, RHY_W1: .15, LOW_Y: .6, PLACED: .5, CHIP: .72, LOFT: .02});
+// the strike's Technique (A1.7: it widens the rhythm window): the Clean strike skill (aero), Curve and Ball Control
+export const techniqueOf = at => clamp(.4*(at.aero || 0) + .3*(at.curve || 50) + .3*(at.ctrl || at.dribbling || 50), 0, 99);
 // the keys this mode answers (1.6); every one has its default stopped in a match
 export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", " ", "space", "r", "e", "tab", "escape", "h", "1", "2", "3", "q", "v", "g", "b"]);
 
@@ -68,7 +98,13 @@ export const CTRL = {ctx:"free", walk:false, scan:null, charge:null, contact:0, 
   target:{agent:-1, through:false, point:null}, call:{t:-99, kind:null}, uses:{},
   // additions: held keys, the buttons, what was released for the next step, the ring of a volley, the last action
   held:{}, lmb:false, rmb:false, lmbT:0, rmbT:0, rHeld:0, rDone:false, queue:[], ring:null, last:null, jockey:false, small:false,
-  aim:{x:0, y:0, z:0, ok:false}, ground:{x:0, z:0}, resolve:null, ready:false, eHeld:0, enabled:true};
+  aim:{x:0, y:0, z:0, ok:false}, ground:{x:0, z:0}, resolve:null, ready:false, eHeld:0, enabled:true,
+  // first-person striking (A1.7): the reticle where the strike goes (the look plus its sway: on, its point, the sway
+  // in radians, the amplitude, the beat of your support foot's plant), the wind-up (power, over-hold, the striking
+  // side), the look's turns per step (the gestures) and the look at the start of each step, and the last strike's shape
+  ret:{on:false, x:0, y:0, z:0, ok:false, sy:0, sp:0, a:0, beat:0, kind:"shot"},
+  wind:{p:0, over:0, side:"R", kind:null},
+  gx:new Float64Array(16), gy:new Float64Array(16), hy:new Float64Array(16), hp:new Float64Array(16), gi:0, shape:null};
 
 /* ---------- input (router events, and the bots' through __fp.input) ---------- */
 // a key pressed with Ctrl, Alt or Meta held: set by controller.js's capture listener for the same browser event
@@ -115,9 +151,13 @@ export function controlInput(ev){
     case "wheel":
       CTRL.contact = clamp(CTRL.contact + (ev.deltaY > 0 ? -1 : 1), -1, 1); use("contact");
       return true;
-    case "move":
+    case "move": {
+      const y0 = P.yaw, p0 = P.pitch;
       look(ev.dx || 0, ev.dy || 0);
+      // the turn of the look this step, for the gestures through a release (A1.7): + to the right, + up
+      CTRL.gx[CTRL.gi] -= wrapA(P.yaw - y0); CTRL.gy[CTRL.gi] += P.pitch - p0;
       return true;
+    }
   }
   return false;
 }
@@ -133,6 +173,7 @@ export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
   CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false;
   CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null;
+  CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
 }
 const use = k => { CTRL.uses[k] = (CTRL.uses[k] || 0) + 1; };
 // the window lost the keyboard (Alt+Tab, a click outside): the key-ups never come, so everything held is let go here.
@@ -148,11 +189,11 @@ if (typeof addEventListener === "function") addEventListener("blur", () => contr
 /* ---------- where you look ---------- */
 // the eye (matchcam's own numbers: 1.68 x scale, ahead of the neck) and the look direction
 const EYE = {x:0, y:0, z:0}, LD = {x:0, y:0, z:-1};
-function eyeOf(me){
-  const s = me.scale || 1, ahead = (.07 + .15*sstep(.75, 1.35, -P.pitch))*s, f = dirOf(P.yaw);
-  EYE.x = me.m.x + f.x*ahead; EYE.y = 1.68*s + (me.y || 0); EYE.z = me.m.z + f.z*ahead;
-  const c = Math.cos(P.pitch);
-  LD.x = -Math.sin(P.yaw)*c; LD.y = Math.sin(P.pitch); LD.z = -Math.cos(P.yaw)*c;
+function eyeOf(me, yaw = P.yaw, pitch = P.pitch){
+  const s = me.scale || 1, ahead = (.07 + .15*sstep(.75, 1.35, -pitch))*s, sy = Math.sin(yaw), cy = Math.cos(yaw);
+  EYE.x = me.m.x - sy*ahead; EYE.y = 1.68*s + (me.y || 0); EYE.z = me.m.z - cy*ahead;
+  const c = Math.cos(pitch);
+  LD.x = -sy*c; LD.y = Math.sin(pitch); LD.z = -cy*c;
 }
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
 // the point on the grass under the crosshair (60 m at most; looking up, 60 m ahead on the grass)
@@ -174,6 +215,89 @@ function aimPoint(ms, me, out){
   }
   groundPoint(out); out.y = .11; out.ok = false;
   return out;
+}
+
+/* ---------- the reticle, the wind-up, the rhythm and the gestures (A1.7) ---------- */
+// the foot a ball at your feet would be struck with now (actions.js canStrike's rule: the strong foot unless the ball
+// is over 0.25 m to the weak side), without allocating
+function footNow(ms, me){
+  const pf = me.foot || "R", b = ms.ball, sy = Math.sin(me.m.yaw), cy = Math.cos(me.m.yaw);
+  const lat = (b.p.x - me.m.x)*cy - (b.p.z - me.m.z)*sy;
+  if (pf === "B") return lat >= 0 ? "R" : "L";
+  if (pf === "R" && lat < -TOUCH.WEAK_SIDE) return "L";
+  if (pf === "L" && lat > TOUCH.WEAK_SIDE) return "R";
+  return pf;
+}
+// the reticle's sway amplitude (radians) for a shot or a pass now (AIM.SW0 to the wind-up's share)
+export function swayAmp(ms, me, kind, p, charging){
+  const at = me.at, pass = kind === "pass" || kind === "throw";
+  const fin = pass ? (at.passacc != null ? at.passacc : at.passing != null ? at.passing : 50) : at.accuracy != null ? at.accuracy : 50;
+  let a = AIM.SW0 + AIM.SW1*Math.pow(1 - clamp(fin, 0, 100)/100, 1.2);
+  a *= 1 + AIM.PR*pressureOn(ms, me)*(1 - clamp(at.composure != null ? at.composure : 50, 0, 120)/120);
+  a *= 1 + AIM.BR*(1 - (me.fac && me.fac.bF != null ? me.fac.bF : 1));
+  if (me.foot === "B") a *= AIM.BOTH; else if (footNow(ms, me) !== (me.foot || "R")) a *= AIM.WEAK;
+  return a*(charging ? AIM.CH[0] + AIM.CH[1]*clamp(p, 0, 1) : AIM.CH[0] + .1);
+}
+// the rhythm of a strike for the foot it is struck with (A1.7): running, the time to the next plant of the support
+// foot and since the last one (gaitcore.js: the left foot is down at phi 0, the right at 0.5, phi advanced by the
+// distance run); in rhythm when the contact can land on the next plant inside the reach window or just after the last
+// one. Out by more than the window (wider with Technique): a forced plant, rhythm 1. tc: the contact on the plant
+const RH = {on:false, tp:0, ts:0, rhythm:0, tc:null};
+export function rhythmOf(me, foot){
+  const v = me.m.speed, g = me.g;
+  RH.on = false; RH.rhythm = 0; RH.tc = null; RH.tp = RH.ts = 0;
+  if (!g || v < AIM.RHY_V) return RH;
+  const stride = 2*stepLen(v, g.mode, me.scale || 1)/v, d = (((foot === "L" ? .5 : 0) - g.phi)%1 + 1)%1;
+  RH.on = true; RH.tp = d*stride; RH.ts = (1 - d)*stride;
+  const err = Math.min(Math.max(0, RH.tp - ACTN.TC_MAX), Math.max(0, RH.ts - AIM.RHY_LATE));
+  RH.rhythm = clamp(err/(AIM.RHY_W0 + AIM.RHY_W1*techniqueOf(me.at)/99), 0, 1);
+  if (RH.tp >= .1 && RH.tp <= ACTN.TC_MAX) RH.tc = RH.tp;
+  return RH;
+}
+// the gesture through a release (the look's turn over the last AIM.GEST_N steps): a sweep across (x, + to the right),
+// a lift or a flick down (y, + up); the look from before it began (yaw0, pitch0)
+const GS = {x:0, y:0, yaw0:0, pitch0:0, curl:0, lift:false, dip:false, any:false};
+function gesture(){
+  let x = 0, y = 0;
+  for (let i = 0; i < AIM.GEST_N; i++){ const k = (CTRL.gi - i + 16)%16; x += CTRL.gx[k]; y += CTRL.gy[k]; }
+  const k0 = (CTRL.gi - AIM.GEST_N + 1 + 16)%16, ax = Math.abs(x), ay = Math.abs(y);
+  GS.x = x; GS.y = y; GS.yaw0 = CTRL.hy[k0]; GS.pitch0 = CTRL.hp[k0];
+  // (how much of a curl: a third at the threshold, all of it at GEST_FULL; its sign is the way the sweep went)
+  GS.curl = ax >= AIM.GEST_MIN && ax >= .5*ay ? Math.sign(x)*(.35 + .65*clamp((ax - AIM.GEST_MIN)/(AIM.GEST_FULL - AIM.GEST_MIN), 0, 1)) : 0;
+  GS.lift = y >= AIM.GEST_MIN && ay >= .5*ax; GS.dip = y <= -AIM.GEST_MIN && ay >= .5*ax;
+  GS.any = !!GS.curl || GS.lift || GS.dip;
+  return GS;
+}
+// one step of the reticle and the wind-up: the sway (smooth, from the match's own clock: an input bot replays it), the
+// over-hold's tremble and lean, the point the strike would go to now, the beat of the support foot's plant
+const RP = {x:0, y:0, z:0, ok:false};
+function reticleStep(ms, me, ctx){
+  const R = CTRL.ret, W = CTRL.wind, ch = CTRL.charge;
+  const kind = ch ? (ch.kind === "shot" ? "shot" : "pass") : CTRL.aim.ok ? "shot" : "pass";
+  const mine = ms.poss.ctl === me.id, R0 = ms.restart, taker = !!(R0 && !R0.taken && R0.taker === me.id);
+  R.on = ctx !== "defend" && (!!ch || mine || taker || !!(CTRL.resolve && CTRL.resolve.kind !== "ground" && CTRL.resolve.kind !== "header" && CTRL.resolve.kind !== "divingHeader"));
+  const held = ch ? ch.t : 0, full = kind === "shot" ? CN.SHOT_FULL : CN.PASS_FULL;
+  W.over = ch && ch.kind !== "throw" ? clamp((held - full)/AIM.OVER, 0, 1) : 0;
+  W.p = ch ? ch.p : 0; W.kind = ch ? ch.kind : null; W.side = footNow(ms, me);
+  const t = ms.t, A = R.on ? swayAmp(ms, me, kind, W.p, !!ch) : 0;
+  R.a = A; R.kind = kind;
+  R.sy = A*(.62*Math.sin(1.7*t + .3) + .38*Math.sin(3.1*t + 1.9)) + AIM.TREMBLE*W.over*Math.sin(53*t);
+  R.sp = A*.7*(.6*Math.sin(1.3*t + 2.2) + .4*Math.sin(2.7*t + .7)) + AIM.TREMBLE*W.over*Math.sin(67*t + 1) + AIM.LEAN*W.over;
+  if (kind === "shot"){ eyeOf(me, P.yaw + R.sy, P.pitch + R.sp); aimPoint(ms, me, RP); eyeOf(me); R.x = RP.x; R.y = RP.y; R.z = RP.z; R.ok = RP.ok; }
+  else {
+    // a pass: the point it is weighted for (the pass cone's man, the through ball's lead), turned about the ball by the sway
+    const tp = CTRL.target.point && CTRL.rmb ? CTRL.target.point : CTRL.ground, b = ms.ball.p;
+    const dx = tp.x - b.x, dz = tp.z - b.z, c = Math.cos(R.sy), sn = Math.sin(R.sy);
+    R.x = b.x + dx*c + dz*sn; R.z = b.z - dx*sn + dz*c; R.y = .11; R.ok = false;
+  }
+  // the beat: your support foot coming down (the reticle pulses with it, so the rhythm can be read off the screen)
+  const rh = rhythmOf(me, W.side);
+  R.beat = rh.on ? Math.max(0, 1 - rh.ts/.15) : 0;
+}
+// the next step's gesture bucket, and the look it starts from
+function gestureStep(){
+  const i = CTRL.gi = (CTRL.gi + 1)%16;
+  CTRL.gx[i] = 0; CTRL.gy[i] = 0; CTRL.hy[i] = P.yaw; CTRL.hp[i] = P.pitch;
 }
 
 /* ---------- context (3.1.7) ---------- */
@@ -340,7 +464,7 @@ const ACT = {x:0, y:0, z:0}, TGT = {x:0, y:0, z:0};
 const CHG = {kind:"shot", t:0, p:0}, RNG = {kind:"volley", tc:0, w:0};
 // opts = {traits, live: false while play is stopped for you (walk-out, a cut), restart: what the restart allows}
 export function controlStep(ms, me, h, opts = {}){
-  if (!me || !me.onPitch || !CTRL.enabled){ CTRL.queue.length = 0; return; }
+  if (!me || !me.onPitch || !CTRL.enabled){ CTRL.queue.length = 0; CTRL.ret.on = false; CTRL.wind.p = 0; CTRL.wind.kind = null; return; }
   const I = me.intent;
   eyeOf(me);
   aimPoint(ms, me, CTRL.aim); groundPoint(CTRL.ground);
@@ -371,6 +495,8 @@ export function controlStep(ms, me, h, opts = {}){
   if (R && R.kind !== "ground" && R.kind !== "header" && R.kind !== "divingHeader"){
     CTRL.ring = RNG; RNG.kind = R.kind; RNG.tc = R.tc; RNG.w = CN.RING.W0 + (CN.RING.W1 - CN.RING.W0)*(me.at.dribbling || 50)/99;
   } else CTRL.ring = null;
+  // the reticle and the wind-up (A1.7): what a release would strike now
+  reticleStep(ms, me, ctx);
 
   // ---- the presses, in order
   while (CTRL.queue.length){
@@ -442,6 +568,7 @@ export function controlStep(ms, me, h, opts = {}){
     if (len){ p.push = p.push || {x:0, z:0}; p.push.x = I.dx; p.push.z = I.dz; } else p.push = null;
     if (p.first && ms.t - (p.firstT || 0) > 1.2) p.first = null;
   } else if (me.plan && me.plan.kind === "receive") me.plan = null;
+  gestureStep();
 }
 
 // is this a throw-in you are taking, the ball in your hands
@@ -500,18 +627,41 @@ function strike(ms, me, what, held, opts){
     me.intent.action = {kind:"throw", target:tgt, recv:CTRL.target.agent};
     CTRL.last = "throw"; use("throw"); return;
   }
-  const Rz = CTRL.resolve, contact = CTRL.contact, finesse = !!CTRL.held.f;
+  const Rz = CTRL.resolve, contact = CTRL.contact, fKey = !!CTRL.held.f;
+  // the body shape through the release (A1.7): the gesture of the last few steps, and the aim from before it began
+  const G = gesture(), Ret = CTRL.ret;
+  if (G.any) use("shape");
+  CTRL.gest = {x:G.x, y:G.y, curl:G.curl, lift:G.lift, dip:G.dip};
+  if (what === "shot" && held >= CN.TAP) use("release");
   if (what === "shot"){
     // the charge: p = 1 - (1 - t/0.85)^2 (1.5.3); past 0.92 the over-hit is the solver's sigma (power above 0.92)
-    const p = 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2);
-    let tgt = {x:CTRL.aim.x, y:CTRL.aim.y, z:CTRL.aim.z};
+    let p = 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2);
+    const over = clamp((held - CN.SHOT_FULL)/AIM.OVER, 0, 1);
+    // where it goes: the reticle (your look plus its sway); with a gesture, the look from before the sweep
+    let tgt;
+    if (G.any){ eyeOf(me, G.yaw0 + Ret.sy, G.pitch0 + Ret.sp); aimPoint(ms, me, RP); eyeOf(me); tgt = {x:RP.x, y:RP.y, z:RP.z}; }
+    else tgt = {x:Ret.x, y:Ret.y, z:Ret.z};
+    const toGoal = G.any ? RP.ok : Ret.ok;
     if (Rz && Rz.mirrored) tgt = mirrorAim(me, tgt, {x:0, y:0, z:0});
-    const toGoal = CTRL.aim.ok;
     // a lofted ball with contact High at a point on the grass: a cross or a chip, picking a zone in the box (3.1.7)
     let kind = "shot";
-    if (!toGoal && contact > 0) kind = inBoxPoint(ms, me, tgt) ? "cross" : "lob";
-    else if (!toGoal) kind = "shot";
-    const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal};
+    if (!toGoal && (contact > 0 || G.lift)) kind = inBoxPoint(ms, me, tgt) ? "cross" : "lob";
+    // the shape: a tap is a placed side-foot; a lift chips it, a flick down dips it (topspin), a sweep curls it; a
+    // full wind-up is power; looked at low on goal with Normal contact it is driven low
+    let shape = held < CN.TAP ? "placed" : p >= .97 ? "power" : "struck", ctc = contact, finesse = fKey, curl = null, bend = null, style = null, chip = false;
+    if (shape === "placed"){ p = AIM.PLACED; finesse = true; curl = 0; style = "side"; }
+    if (G.lift && kind === "shot"){ shape = "chip"; ctc = 1; chip = true; p *= AIM.CHIP; style = "chip"; }
+    else if (G.dip){ shape = "dip"; ctc = -1; }
+    else if (kind === "shot" && ctc === 0 && toGoal && tgt.y < AIM.LOW_Y && shape !== "placed"){ shape = shape === "power" ? "power low" : "low"; ctc = -1; }
+    if (kind !== "shot"){ ctc = 1; shape = "lofted"; }
+    if (G.curl){ finesse = true; bend = G.curl; shape = shape === "placed" || shape === "struck" || shape === "power" ? "curl" : shape + " curl"; }
+    // held past full: you lean back and it rises (with the over-hit's sigma, strike.js)
+    if (over > 0 && kind === "shot"){ const d = Math.hypot(tgt.x - b.p.x, tgt.z - b.p.z); tgt.y += over*(.6 + .05*d); shape += " over"; }
+    const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact:ctc, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal, shape, over};
+    if (curl != null) rq.curl = curl;
+    if (bend != null) rq.bend = bend;
+    if (chip) rq.chip = true;
+    if (style) rq.style = style;
     if (kind === "cross" || kind === "lob"){ rq.speed = undefined; rq.power = undefined; rq.recv = nearestMate(ms, me, tgt); }
     if (Rz && Rz.kind !== "ground"){
       rq.style = Rz.kind; rq.timing = timingOf(Rz); rq.tc = Rz.tc; rq.meet = {x:Rz.x, y:Rz.y, z:Rz.z};
@@ -519,7 +669,7 @@ function strike(ms, me, what, held, opts){
       if (ACRO.has(Rz.kind)) CTRL.acro = {style:Rz.kind, t:ms.t, tc:Rz.tc, x:Rz.x, y:Rz.y, z:Rz.z};
     }
     queueStrike(ms, me, rq);
-    CTRL.last = kind; use(kind === "shot" ? "shoot" : "cross");
+    CTRL.last = kind; CTRL.shape = shape; use(kind === "shot" ? "shoot" : "cross");
     return;
   }
   // a pass: a tap is weighted for you (arrival 9 m/s), held it is charged with a sweet zone (1.5.3)
@@ -528,6 +678,8 @@ function strike(ms, me, what, held, opts){
   let tp = CTRL.target.point && o ? CTRL.target.point : null;
   if (!tp && o) tp = passPoint(ms, me, o, {x:0, y:0, z:0});
   if (!tp){ tp = {x:CTRL.ground.x, y:.11, z:CTRL.ground.z}; }
+  // the reticle's sway turns the pass about the ball (A1.7): where it was pointing at the release
+  if (Ret.sy){ const b0 = b.p, dx = tp.x - b0.x, dz = tp.z - b0.z, c = Math.cos(Ret.sy), sn = Math.sin(Ret.sy); tp = {x:b0.x + dx*c + dz*sn, y:.11, z:b0.z - dx*sn + dz*c}; }
   const d = Math.hypot(tp.x - b.p.x, tp.z - b.p.z), roll = b.rollDecel || 1.1;
   const vmax = 22 + .06*(at.passing || 50);
   const through = CTRL.target.through && o;
@@ -546,17 +698,21 @@ function strike(ms, me, what, held, opts){
     if (Math.abs(c - cIdeal) <= w/2){ sweet = true; speed = ideal; }
     else speed = CN.PASS_MIN + (vmax - CN.PASS_MIN)*c;
   }
-  // along the grass unless the lane is blocked (pOK under 0.6) or it needs more than you can give; then lofted
-  let kind = through ? "through" : "pass", ctc = contact;
-  if (contact > 0) kind = inBoxPoint(ms, me, tp) ? "cross" : "lob";
+  // along the grass unless the lane is blocked (pOK under 0.6) or it needs more than you can give; then lofted. The
+  // same language as a shot (A1.7): a lift through the release (or a look above the horizon) lofts it, a sweep curls it
+  let kind = through ? "through" : "pass", ctc = contact, shape = charged ? (sweet ? "weighted" : "struck") : "tapped";
+  const lift = G.lift || (ctc === 0 && P.pitch > AIM.LOFT && d > 12);
+  if (ctc > 0 || lift){ kind = inBoxPoint(ms, me, tp) ? "cross" : "lob"; ctc = 1; if (lift) shape = "lofted"; }
   else if (o){
     const pm = passModel(ms, me, {x:tp.x, z:tp.z}, "pass", speed, o);
     if ((pm && pm.pOK < .6 && d > 12) || ideal > vmax){ kind = "lob"; ctc = 1; }
   }
-  const rq = {kind, target:{x:tp.x, y:.11, z:tp.z}, recv:o ? o.id : -1, contact:ctc, finesse, charged, sweet, firstTime:ms.poss.ctl !== me.id};
+  const finesse = fKey || !!G.curl;
+  const rq = {kind, target:{x:tp.x, y:.11, z:tp.z}, recv:o ? o.id : -1, contact:ctc, finesse, charged, sweet, firstTime:ms.poss.ctl !== me.id, shape};
+  if (G.curl){ rq.bend = G.curl; rq.shape = shape + " curl"; }
   if (kind === "pass" || kind === "through"){ rq.speed = clamp(speed, CN.PASS_MIN, vmax); if (!charged) rq.weightSigma = .004; }
   queueStrike(ms, me, rq);
-  CTRL.last = kind; use(kind === "through" ? "through" : "pass");
+  CTRL.last = kind; CTRL.shape = rq.shape; use(kind === "through" ? "through" : "pass");
 }
 const ACRO = new Set(["scissor", "bicycle", "rabona"]);
 // the volley's timing from the ring (A1.5): 0 on the moment, 1 at the ring's edge or beyond; strike.js reads it as
@@ -573,6 +729,13 @@ function queueStrike(ms, me, rq){
     const p = me.plan && me.plan.kind === "receive" ? me.plan : (me.plan = {kind:"receive", push:null, first:null});
     p.first = rq; p.firstT = ms.t;
     return;
+  }
+  // the rhythm (A1.7): the strike lands on your support foot's plant when that comes inside the reach window, and how
+  // far out of your stride the release was is a forced plant (actions.js adds it to the plant error)
+  // (a ball you still have to reach is struck after the stride adjust: the rhythm of the release is still yours)
+  if (!air){
+    const rh = rhythmOf(me, cs.foot);
+    if (rh.on){ rq.rhythm = Math.round(rh.rhythm*1000)/1000; if (rh.tc != null && cs.ok) rq.tcWant = rh.tc; }
   }
   me.intent.action = rq;
 }
@@ -619,7 +782,12 @@ export function hintsFor(ms, me){
     else if (restartReady(ms)){ add("LMB", "shoot or cross", "shoot"); add("RMB", "pass", "pass"); }
     else add("W", "walk to the ball", "walk");
   } else if (ctx === "attack"){
-    if (ms.poss.ctl === me.id){ add("LMB", "shoot", "shoot"); add("RMB", "pass", "pass"); add("3", "lift it", "contact"); }
+    if (ms.poss.ctl === me.id){
+      // (A1.7: the wind-up, the release on your plant, the shape through it)
+      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go as your foot plants", "release"); add("Mouse", "sweep to curl, lift to chip", "shape"); }
+      else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
+      else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Mouse", "sweep through it to curl", "shape"); }
+    }
     else if (CTRL.resolve && CTRL.resolve.kind === "header") add("Space", "head it", "header");
     else if (CTRL.resolve && CTRL.resolve.kind !== "ground") add("LMB", "volley it", "shoot");
     else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); }
