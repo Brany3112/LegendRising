@@ -64,12 +64,27 @@ if (ONLY.includes("bench")) try {
       F.input({type: "keydown", key: k}); F.input({type: "keyup", key: k});
       L.stepN(3);
       const n = []; for (let i = 0; i < 30; i++){ L.stepN(1); n.push(F.FS.stepsLast); }
-      out[rate] = {ff: F.FS.ffRate, mean: n.reduce((a, b) => a + b, 0)/n.length};
+      out[rate] = {ff: F.FS.ffRate, mean: n.reduce((a, b) => a + b, 0)/n.length, achieved: +F.FS.ffAch.toFixed(2)};
     }
     F.input({type: "keydown", key: "1"});
     return out;
   });
   check(rates[1].mean === 1 && rates[2].mean === 2 && rates[4].mean === 4, "watching from the bench at 1x, 2x and 4x (steps a frame)", rates);
+  check([1, 2, 4].every(r => Math.abs(rates[r].achieved - r) < .2), "the achieved rate is measured (match time over real time)", rates);
+  // E on the bench: a tap stands you up (to warm up), a hold let go before the ring fills does nothing but remind you
+  const eKeys = await T.page.evaluate(() => {
+    const F = window.__fp, L = window.__life;
+    F.input({type: "keydown", key: "e"}); L.stepN(6); F.input({type: "keyup", key: "e"}); L.stepN(2);
+    const tap = {seated: F.FS.seated, state: F.state, skipping: !!F.FS.skipping};
+    F.sitDown("home"); L.stepN(2);
+    F.input({type: "keydown", key: "e"}); L.stepN(20);
+    const ring = getComputedStyle(document.querySelector("#fpHud .fp-ring")).opacity;
+    L.stepN(10); F.input({type: "keyup", key: "e"}); L.stepN(2);
+    const cards = [...document.querySelectorAll("#fpHud .fp-cards .fp-card")].map(n => n.textContent).join(" | ");
+    return {tap, dead: {seated: F.FS.seated, skipping: !!F.FS.skipping, ring, cards}};
+  });
+  check(!eKeys.tap.seated && eKeys.tap.state === "bench" && !eKeys.tap.skipping, "a tap of E on the bench stands you up to warm up", eKeys.tap);
+  check(eKeys.dead.seated && !eKeys.dead.skipping && +eKeys.dead.ring > .5 && /Keep holding E until the ring fills/.test(eKeys.dead.cards), "a hold let go before the ring fills: no skip, the ring was shown, the reminder", eKeys.dead);
   // hold E: the skip to the call under a card, at most 13 ms of simulation work a frame
   const sk = await T.page.evaluate(() => {
     const F = window.__fp, L = window.__life, ms = F.ms;
@@ -77,20 +92,23 @@ if (ONLY.includes("bench")) try {
     const ms0 = [], card = [];
     for (let i = 0; i < 20000 && !(F.FS.called && !F.FS.skipping); i++){
       L.stepN(1);
-      if (F.FS.skipping || F.FS.skipMs){ if (F.FS.skipMs) ms0.push([F.FS.skipMs, F.FS.skipWorst || 0, F.FS.skipSteps || 0]); F.FS.skipMs = 0; }
+      if (F.FS.skipping || F.FS.skipMs){ if (F.FS.skipMs) ms0.push([F.FS.skipMs, F.FS.skipWorst || 0, F.FS.skipSteps || 0, F.FS.skipPre || 0, F.FS.skipLast || 0, F.FS.skipBudget || 11]); F.FS.skipMs = 0; }
       if (i % 200 === 0){ const o = document.querySelector(".fp-overlay.on .fp-skip"); if (o) card.push(o.textContent); }
       if (ms.phase === "over") break;
     }
     F.input({type: "keyup", key: "e"});
     const sorted = ms0.map(x => x[0]).sort((a, b) => a - b), p99 = sorted[Math.floor(sorted.length*.99)] || 0;
-    // a frame over the budget is only allowed when one step on its own stalled (over 8 times the frame's mean step and
-    // over 2 ms: the page preempted or a collection; a step's own work is a fraction of a millisecond): the budget
-    // decides how many steps run, not the machine
-    const over = ms0.filter(x => x[0] > 13), unexplained = over.filter(x => x[1] <= Math.max(2, 8*x[0]/Math.max(1, x[2])));
-    return {frames: ms0.length, max: Math.max(...sorted), p99, over: over.length, unexplained: unexplained.length, worstOver: over.slice(0, 4).map(x => x.map(v => +v.toFixed(1))), called: F.FS.called, callUp: ms.callUp, min: Math.floor(((ms.half - 1)*2700 + ms.clock.sec)/60), state: F.state, card: card.slice(0, 2), P: [window.__life.P.x, window.__life.P.z]};
+    // a frame over the budget is only allowed when the loop kept to the budget and one step it could not foresee
+    // pushed it over: the frame's work before its last step was within the budget the loop set itself (at most 11 ms), and that last
+    // step stalled (over 2 ms and over 8 times the run's typical step: a collection, code run for the first time, the
+    // page preempted; a step's own work is a fraction of a millisecond). The typical step is the median over the run's
+    // frames of a frame's mean step, so a stall does not hide inside its own frame's mean
+    const per = ms0.filter(x => x[2] > 0).map(x => x[0]/x[2]).sort((a, b) => a - b), typical = per[Math.floor(per.length/2)] || 0;
+    const over = ms0.filter(x => x[0] > 13), unexplained = over.filter(x => !(x[3] <= Math.min(11, x[5]) + .05 && x[4] > Math.max(2, 8*typical)));
+    return {frames: ms0.length, max: Math.max(...sorted), p99, typical, over: over.length, unexplained: unexplained.length, worstOver: over.slice(0, 4).map(x => x.map(v => +v.toFixed(1))), called: F.FS.called, callUp: ms.callUp, min: Math.floor(((ms.half - 1)*2700 + ms.clock.sec)/60), state: F.state, card: card.slice(0, 2), P: [window.__life.P.x, window.__life.P.z]};
   });
   check(sk.frames > 10 && sk.p99 <= 13 && sk.unexplained === 0, "holding E skips to the call with at most 13 ms of simulation work a frame",
-    {frames: sk.frames, p99: +sk.p99.toFixed(2), maxMs: +sk.max.toFixed(2), overBudget: sk.over, overWithoutAStall: sk.unexplained, examples: sk.worstOver});
+    {frames: sk.frames, p99: +sk.p99.toFixed(2), maxMs: +sk.max.toFixed(2), typicalStep: +sk.typical.toFixed(3), overBudget: sk.over, overWithoutAStall: sk.unexplained, examples: sk.worstOver});
   check(sk.called && sk.card.length > 0 && /\d+'/.test(sk.card[0]), "the skip runs under a card with the live score and minute", sk.card[0]);
   // the change at the next stoppage: on from beside the fourth official
   const on = await T.page.evaluate(() => {

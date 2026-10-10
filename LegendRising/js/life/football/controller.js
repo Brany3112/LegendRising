@@ -30,16 +30,17 @@ import {moveBy, findInside} from "../core/collide.js";
 import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
 import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating} from "./sim.js";
+import {firstReach} from "./ball.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
 import {minuteOf, highlights, onSec, deriveMy} from "./events.js";
 import {makePitch, ROLL, dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {attrsForAI} from "./attrs.js";
-import {restartReady, offsidePosition, startRestart} from "./rules.js";
+import {restartReady, startRestart} from "./rules.js";
 import {startAction} from "./actions.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv} from "./view.js";
-import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, MOD, KEYS, look, CN, RING_T} from "./control.js";
+import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
 import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal} from "./fphud.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
@@ -56,8 +57,8 @@ const DEG = Math.PI/180;
 export const DAY = Object.freeze({
   TRAVEL: {home: 15, away: 45}, LATE: 15, MATCH_LEN: 115, HEAD_OUT: 5,
   WALK_V: 1.4, WALK_MAX: 30, KO_WAIT: 25, KO_HALF_NAG: 15, CIRCLE: 9.15,
-  HT_WALK: 2, HT_CARD: 60, FT_WALK: 2, CK_GAP: 60, SKIP_MS: 10, REPLAY: 6, MAX_STEPS: 4,
-  FF: [1, 2, 4], ENTRY_NEAR: 3, CORRIDOR: {x: 1.1, zFront: -46, zBack: -64, gap: 1.25, mouth: -40.5}
+  HT_WALK: 2, HT_CARD: 60, FT_WALK: 2, CK_GAP: 60, SKIP_MS: 11, SKIP_CAP: 13, SKIP_MIN: 4, STALL0: 2, REPLAY: 6, MAX_STEPS: 4,
+  FF: [1, 2, 4], FF_DRAW: 1/30, E_TAP: .35, E_HOLD: .8, ENTRY_NEAR: 3, CORRIDOR: {x: 1.1, zFront: -46, zBack: -64, gap: 1.25, mouth: -40.5}
 });
 
 /* ---------- the host: the career's side of the day (tunnel.js gives it) ----------
@@ -77,9 +78,10 @@ const FS = {
   walkers: null, koT: 0, ready: false, nagT: 0,
   benchSeat: null, skipping: null, called: false, entering: false,
   ckT: -1e9, ckGoal: false, goalT: -1, replayQ: null, htT: 0, ftT: 0, R: null, done: false,
-  realT: 0, headless: false, pauseShown: false, lastMin: -1, board: "", stepsLast: 0, stepCost: 0,
+  realT: 0, headless: false, pauseShown: false, lastMin: -1, board: -1, stepsLast: 0, stepCost: 0,
   frustum: new THREE.Frustum(), pm: new THREE.Matrix4(), dispScale: 1, eye: {x: 0, y: 1.68, z: 0},
-  hints: [], lastHint: 0, offPip: null, lockLook: false, eHeld: 0, eDown: false, tabHeld: false, lateMin: 0, logT: 0
+  hints: [], lastHint: 0, offPip: null, lockLook: false, eHeld: 0, eDown: false, tabHeld: false, lateMin: 0, logT: 0,
+  viewDt: 0, drawAcc: 0, ffAch: 1, ffSteps: 0, ffReal: 0, stepMean: 0, skipPre: 0, skipLast: 0, recvSeq: -1, recvAt: null
 };
 const isTest = () => !!FS.test;
 
@@ -102,7 +104,10 @@ registerMode("match", {
 // nothing (D9). Captured before world.js sees the event; the right button, the wheel and the context menu too
 const KEYSET = new Set(KEYS.concat([" "]));
 function capture(e){
-  if (mode() !== "match") return;
+  const md = mode();
+  // first-person training has the same plain keys (1.6): a key with a modifier held is nobody's action there either
+  if (md === "train" && (e.type === "keydown" || e.type === "keyup")){ MOD.on = modKey(e); return; }
+  if (md !== "match") return;
   if (e.type === "keydown" || e.type === "keyup"){
     const k = (e.key || "").toLowerCase();
     if (KEYSET.has(k) || k === "tab") e.preventDefault();
@@ -114,7 +119,8 @@ function capture(e){
     return;
   }
   if (e.type === "contextmenu"){ e.preventDefault(); return; }
-  if (e.type === "wheel"){ e.preventDefault(); if (document.pointerLockElement) routeOwn({type: "wheel", deltaY: e.deltaY}); return; }
+  // (the wheel itself reaches the match through world.js's own listener and the router: only its default stops here)
+  if (e.type === "wheel"){ e.preventDefault(); return; }
   // the right button (world.js routes only the left one)
   if ((e.type === "mousedown" || e.type === "mouseup") && e.button === 2){
     e.preventDefault();
@@ -124,6 +130,8 @@ function capture(e){
 if (typeof addEventListener === "function"){
   for (const t of ["keydown", "keyup", "contextmenu", "mousedown", "mouseup"]) addEventListener(t, capture, true);
   addEventListener("wheel", capture, {capture: true, passive: false});
+  // the window lost the keyboard (Alt+Tab): the key-ups never come; control.js lets go of its keys, and here E and Tab
+  addEventListener("blur", () => { MOD.on = false; FS.eDown = false; FS.eHeld = 0; if (FS.tabHeld || FS.state){ FS.tabHeld = false; hudTab(false); } });
 }
 function routeOwn(ev){ if (mode() === "match") input(ev); }
 
@@ -174,7 +182,9 @@ function arrived(){
   // arriving after kick-off: the minutes gone by are played out headless behind the card, then the bench (3.4.1)
   if (FS.lateMin > 0){
     FS.state = "lateRun";
-    const until = Math.min(2700, FS.lateMin*60);
+    // (the minutes of the day since the kick-off as match time: the first half, the 15 minutes of the interval, then
+    // the second half; an away arrival can be most of an hour late)
+    const L = FS.lateMin, until = Math.min(5400 - 60, 60*(L <= 45 ? L : L <= 60 ? 45 : L - 15));
     showSkip(`You're late. The game kicked off ${FS.lateMin} minutes ago.`);
     FS.skipping = {until, kind: "late"};
     return;
@@ -198,7 +208,7 @@ const _vp = new THREE.Vector3();
 function startMatch(cfg, kits){
   FS.cfg = cfg;
   const ms = FS.ms = createMatch(cfg);
-  FS.evq.length = 0; FS.acc = 0; FS.ffRate = 1; FS.timeScale = 1; FS.slow = null; FS.skipResume = null; FS.ckT = -1e9; FS.goalT = -1; FS.replayQ = null;
+  FS.evq.length = 0; FS.acc = 0; FS.ffRate = 1; FS.ffAch = 1; FS.ffSteps = FS.ffReal = 0; FS.recvSeq = -1; FS.drawAcc = FS.viewDt = 0; FS.timeScale = 1; FS.slow = null; FS.skipResume = null; FS.ckT = -1e9; FS.goalT = -1; FS.replayQ = null;
   FS.offs.push(on(ms, "*", ev => FS.evq.push(ev)));
   for (const k of ["bounce", "post", "bar", "net", "board"]) FS.offs.push(on(ms, k, d => ballSound(k, d)));
   if (FS.real) FS.offs.push(attach(ms, on));
@@ -221,7 +231,7 @@ function startMatch(cfg, kits){
   FS.ownSt = createStam({stamina: at.stamina || 50, energy: 100, fatigue: 0});
   FS.own = createMover({x: P.x, z: P.z, yaw: P.yaw});
   if (FS.real){ writeCheckpoint(true); }
-  FS.lastMin = -1; FS.board = "";
+  FS.lastMin = -1; FS.board = -1;
 }
 const meNumber = () => { const ms = FS.ms; if (!ms) return 9; const a = ms.agents.find(x => x.isMe); if (a) return a.number; for (const t of [0, 1]) for (const p of ms.bench[t]) if (p.isMe) return p.number; return 9; };
 function myAttrs(){
@@ -414,12 +424,22 @@ function frame(dt, real){
   acrobatics();
   feel();
   if (playing()) replayStep(real);
+  // watching from the bench above 1x (3.4.2): the steps take the frame, so the picture is drawn at 30 Hz (the frames
+  // between are not drawn: world.js FLAGS.skipDraw) and the bodies are posed only for the frames that are
+  FS.viewDt += dt;
+  if (thinned()){
+    FS.drawAcc += real;
+    if (FS.drawAcc < DAY.FF_DRAW - .004){ FLAGS.skipDraw = true; hud(dt); return; }
+    FS.drawAcc = Math.min(DAY.FF_DRAW, FS.drawAcc - DAY.FF_DRAW);
+  } else FS.drawAcc = 0;
   // the bodies, the ball, the crowd and the board
   const alpha = clamp(FS.acc/H, 0, 1);
-  viewFrame(FS.V, ms, alpha, dt, RT.cam);
+  viewFrame(FS.V, ms, alpha, FS.viewDt, RT.cam);
+  FS.viewDt = 0;
   place();
   hud(dt);
 }
+const thinned = () => FS.ffRate > 1 && !FS.onPitch && !FS.skipping && (FS.state === "bench" || FS.state === "entering") && !playing();
 const liveMe = () => { const ms = FS.ms; return ms && ms.me >= 0 && FS.onPitch ? ms.agents[ms.me] : null; };
 function mySpot(){ const ms = FS.ms, me = ms.agents[ms.me]; return me ? {x: me.m.x, z: me.m.z} : null; }
 
@@ -465,6 +485,9 @@ function live(dt, real){
     }
     if (n >= max && FS.acc > H) FS.acc = H*.999;
     FS.stepsLast = n;
+    // the rate the bench actually watches at (the HUD shows it): match time over real time, over half a second
+    FS.ffSteps += n; FS.ffReal += Math.max(0, real);
+    if (FS.ffReal >= .5){ FS.ffAch = FS.ffSteps*H/FS.ffReal/Math.max(1e-6, FS.timeScale); FS.ffSteps = 0; FS.ffReal = 0; }
   }
   // your eye rides your agent between its last two steps
   mirror();
@@ -606,7 +629,7 @@ function place(){
   const ms = FS.ms;
   const since = FS.goalT >= 0 ? ms.t - FS.goalT : 99, near = Math.max(0, (Math.abs(ms.ball.p.x) - 30)/22);
   STADIUM.excite(Math.min(1, .3 + .25*near + (since < 25 ? .7*Math.exp(-since/12) : 0)));
-  const mm = minuteOf(ms), key = `${ms.score[0]}-${ms.score[1]}-${mm}`;
+  const mm = minuteOf(ms), key = (ms.score[0]*1000 + ms.score[1])*1000 + mm;
   if (key !== FS.board){ FS.board = key; STADIUM.score({hs: ms.score[0], as: ms.score[1], min: mm}); }
 }
 
@@ -640,39 +663,70 @@ function proj(x, y, z){
   const cam = RT.cam, cv = RT.renderer && RT.renderer.domElement;
   _pv.set(x, y, z).project(cam);
   const w = cv ? cv.clientWidth : innerWidth, h = cv ? cv.clientHeight : innerHeight;
-  return {x: (_pv.x + 1)/2*w, y: (1 - _pv.y)/2*h, on: _pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1, front: _pv.z < 1};
+  // (one record, filled in place: the HUD uses each point before it asks for the next)
+  PJ.x = (_pv.x + 1)/2*w; PJ.y = (1 - _pv.y)/2*h; PJ.on = _pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1; PJ.front = _pv.z < 1;
+  return PJ;
 }
+const PJ = {x: 0, y: 0, on: false, front: false}, OFF = {pip: null, x: null};
 const HUDS = {ms: null, me: null, ctrl: CTRL, dt: 0, B: 100, cap: 100, energy: 100, hints: null, proj, w: 0, h: 0, yaw: 0, cam: {x: 0, z: 0}, offPip: null,
-  cards: 0, sweet: null, tick: null, glyph: "", ringAt: RING_T, offX: null};
+  cards: 0, sweet: null, tick: null, glyph: "", ringAt: RING_T, offX: null, hold: null};
 function hud(dt){
   const ms = FS.ms, me = liveMe();
   const cv = RT.renderer && RT.renderer.domElement;
-  HUDS.ms = ms; HUDS.me = me; HUDS.dt = dt; HUDS.w = cv ? cv.clientWidth : innerWidth; HUDS.h = cv ? cv.clientHeight : innerHeight;
+  HUDS.w = cv ? cv.clientWidth : innerWidth; HUDS.h = cv ? cv.clientHeight : innerHeight;
   HUDS.yaw = P.yaw; HUDS.cam.x = RT.cam.position.x; HUDS.cam.z = RT.cam.position.z;
+  const slow = (FS.lastHint -= dt) <= 0;
+  if (slow) FS.lastHint = .1;
   if (me){
     HUDS.B = me.st.B; HUDS.cap = me.st.cap; HUDS.energy = me.energy; HUDS.cards = me.booked || 0; HUDS.red = !!me.sentOff;
-    if ((FS.lastHint -= dt) <= 0){ FS.lastHint = .1; HUDS.hints = hintsFor(ms, me); HUDS.glyph = glyphFor(ms, me); HUDS.offPip = pipFor(ms, me); }
+    if (slow){ HUDS.hints = hintsFor(ms, me); HUDS.glyph = glyphFor(ms, me); offsideHud(ms, me, pipShown(), OFF); HUDS.offPip = OFF.pip; HUDS.offX = OFF.x; }
     sweetFor(ms, me);
+    HUDS.hold = null;
   } else {
-    HUDS.B = FS.ownSt ? FS.ownSt.B : 100; HUDS.cap = FS.ownSt ? FS.ownSt.cap : 100; HUDS.offPip = null; HUDS.sweet = HUDS.tick = null; HUDS.glyph = "";
-    HUDS.hints = offHints();
+    HUDS.B = FS.ownSt ? FS.ownSt.B : 100; HUDS.cap = FS.ownSt ? FS.ownSt.cap : 100; HUDS.offPip = null; HUDS.offX = null; HUDS.sweet = HUDS.tick = null; HUDS.glyph = "";
+    if (slow) HUDS.hints = offHints();
+    // E held on the bench: the ring fills to the skip
+    HUDS.hold = FS.eDown && FS.state === "bench" && FS.seated && !FS.skipping ? clamp(FS.eHeld/DAY.E_HOLD, 0, 1) : null;
   }
   hudShow(!playing() && FS.state !== "travel");
-  hudFrame(HUDS);
+  hudFrame(ms, me, CTRL, dt, HUDS);
   // the receiver ring (1.5.10): under the pass's point while you hold the pass, or where a pass to you will be met
   let ring = null;
   if (me && CTRL.rmb && CTRL.target.point && CTRL.ctx !== "defend") ring = CTRL.target.point;
-  else if (me && ms.kick && ms.kick.ev && ms.kick.ev.recv === me.id && ms.ball.state === "free" && ms.poss.ctl !== me.id && ms.t - ms.kick.t < 4) ring = {x: me.m.x, z: me.m.z};
+  else if (me && ms.kick && ms.kick.ev && ms.kick.ev.recv === me.id && ms.ball.state === "free" && ms.poss.ctl !== me.id && ms.t - ms.kick.t < 4) ring = recvPoint(ms, me);
   if (FS.V) viewRecv(FS.V, ring);
 }
-// the hints off the ball's play: on the bench, walking out, in the dressing room
+// where a pass to you will be met: the first point on the ball's predicted path you can reach (ball.js firstReach, the
+// AI's own reach), worked out once per kick; the pass's target when the prediction has none
+function recvPoint(ms, me){
+  if (FS.recvSeq !== ms.kick.seq){
+    FS.recvSeq = ms.kick.seq;
+    const r = ms.pred && ms.predN > 0 ? firstReach(ms.pred, ms.predN, me) : null, ev = ms.kick.ev;
+    const at = FS.recvAt || (FS.recvAt = {x: 0, z: 0});
+    if (r){ at.x = r.x; at.z = r.z; } else if (ev.tx != null){ at.x = ev.tx; at.z = ev.tz; } else { at.x = me.m.x; at.z = me.m.z; }
+  }
+  return FS.recvAt;
+}
+// the offside pip's setting (1.5.10): Auto shows it in a player's first 5 matches (and the tests), On always, Off never
+const pipShown = () => SET.offsidePip === "on" || (SET.offsidePip === "auto" && (isTest() || !!(HOST && HOST.early && HOST.early())));
+// the hints off the ball's play: on the bench, walking out, in the dressing room (the records kept, the verbs changed
+// in place: written ten times a second at most)
+const OH = {walkout: [{key: "W", verb: "go to your position"}, {key: "E", verb: "ready"}], walkSub: [{key: "W", verb: "walk to the bench"}],
+  seated: [{key: "E", verb: ""}, {key: "1 2 3", verb: ""}], bench: [{key: "E", verb: "sit down"}, {key: "W", verb: "walk"}],
+  entering: [{key: "W", verb: "walk to the fourth official"}], none: []};
 function offHints(){
   const st = FS.state;
-  if (st === "walkout") return onTheTeamSheet() ? [{key: "W", verb: "go to your position"}, {key: "E", verb: "ready"}] : [{key: "W", verb: "walk to the bench"}];
-  if (st === "bench" && FS.seated) return [{key: "E", verb: FS.called ? "stand up" : "hold to skip ahead"}, {key: "1 2 3", verb: `watch at ${FS.ffRate}x`}];
-  if (st === "bench") return [{key: "E", verb: "sit down"}, {key: "W", verb: "walk"}];
-  if (st === "entering") return [{key: "W", verb: "walk to the fourth official"}];
-  return [];
+  if (st === "walkout") return onTheTeamSheet() ? OH.walkout : OH.walkSub;
+  if (st === "bench" && FS.seated){
+    OH.seated[0].verb = FS.called ? "stand up" : `tap to stand, hold to skip to ${FS.called || !callPlanned() ? "the end" : "your call"}`;
+    // the speed asked for, and the one the machine manages when it falls short (3.4.2)
+    const ach = Math.round(FS.ffAch*10)/10;
+    OH.seated[1].verb = FS.ffRate > 1 && ach < FS.ffRate - .15 ? `${FS.ffRate}x speed, running at ${ach}x` : `${FS.ffRate}x speed`;
+    return OH.seated;
+  }
+  if (st === "bench") return OH.bench;
+  if (st === "entering") return OH.entering;
+  return OH.none;
 }
 // the action you can take now, as a tiny glyph by the crosshair (A1.4)
 function glyphFor(ms, me){
@@ -687,16 +741,8 @@ function glyphFor(ms, me){
   if (c && c.team !== me.team && Math.hypot(c.m.x - me.m.x, c.m.z - me.m.z) < CN.TACKLE_D) return "LMB TACKLE";
   return "";
 }
-// the offside pip (1.5.10): relative to the second-last defender now; Auto shows it in the first 5 matches
-function pipFor(ms, me){
-  const s = SET.offsidePip;
-  if (s === "off" || (s === "auto" && !(HOST && HOST.early && HOST.early()) && !isTest())) return null;
-  if (me.isGK) return null;
-  const o = offsidePosition(ms, me, me.team);
-  if (!o) return null;
-  return o.off ? "off" : o.margin > -.5 ? "near" : "onside";
-}
 // the pass sweet zone and the shot's power tick for the target distance (A1.4)
+const SWEET = {lo: 0, hi: 0};
 function sweetFor(ms, me){
   const ch = CTRL.charge;
   HUDS.sweet = null; HUDS.tick = null;
@@ -705,7 +751,7 @@ function sweetFor(ms, me){
     const tp = CTRL.target.point, d = Math.hypot(tp.x - ms.ball.p.x, tp.z - ms.ball.p.z);
     const vmax = 22 + .06*(me.at.passing || 50), roll = ms.ball.rollDecel || 1.1;
     const ideal = Math.sqrt(9*9 + 2*roll*d), c = clamp((ideal - CN.PASS_MIN)/(vmax - CN.PASS_MIN), 0, 1), w = .10 + .25*(me.at.passing || 50)/100;
-    HUDS.sweet = {lo: c - w/2, hi: c + w/2};
+    HUDS.sweet = SWEET; SWEET.lo = c - w/2; SWEET.hi = c + w/2;
   } else if (ch.kind === "shot" && CTRL.aim.ok){
     const d = Math.hypot(CTRL.aim.x - ms.ball.p.x, CTRL.aim.z - ms.ball.p.z);
     // the power that reaches it in a good second (a long shot wants more): 0.55 at 8 m to 0.95 at 30 m
@@ -716,12 +762,10 @@ function sweetFor(ms, me){
 /* ---------- the bench (3.4.2) ---------- */
 function bench(dt, real){
   const ms = FS.ms;
-  // the match goes on (watched at 1x, 2x or 4x, or skipped under a card while E is held)
-  if (FS.skipping){ skipFrame(); }
-  else {
-    live(dt, real);
-    if (FS.ffRate > 1){ /* the render is thinned above 1x (30 Hz) */ }
-  }
+  // the match goes on (watched at 1x, 2x or 4x, the picture thinned to 30 Hz above 1x (frame), or skipped under a
+  // card while E is held)
+  if (FS.skipping) skipFrame();
+  else live(dt, real);
   if (!FS.seated){
     ownWalk(dt, true);
     // the call came: walk to the fourth official
@@ -753,7 +797,8 @@ function sitDown(side){
 }
 function standUp(){
   if (!FS.seated) return;
-  FS.seated = false; benchCam(false);
+  // (on your feet the match is watched in real time again)
+  FS.seated = false; benchCam(false); FS.ffRate = 1;
   placeOwn({x: P.x, z: -36.6, yaw: Math.PI});
 }
 // you came on (the sub event): your agent takes your place where you stand
@@ -769,7 +814,8 @@ function onCameOn(){
   if (FS.V) FS.V.me = ms.me;
   hudNotice("sub", "You're on", "Go and make a difference.");
 }
-// E held on the bench: the simulation runs headless under a card with the live score and minute (at most 10 ms of it a frame)
+// E held on the bench: the simulation runs headless under a card with the live score and minute (3.4.2: at most
+// DAY.SKIP_MS of it a frame, under the 12 ms of the spec)
 function startSkip(kind){
   if (!FS.ms || FS.skipping || FS.onPitch) return;
   FS.skipping = {kind, until: kind === "end" ? 5400 : 5400};
@@ -787,21 +833,31 @@ function skipHTML(){
 function skipFrame(){
   const ms = FS.ms, S0 = FS.skipping; if (!S0) return;
   FS.headless = true;
-  // at most 10 ms of simulation a frame (under the 13 of 3.4.2): the clock is read after every step, and a step is only started when the
-  // dearest step seen lately (FS.stepPeak, easing down 0.5% a step) still fits twice over in what is left of the
-  // budget (a busy machine stretches a step; the spec is a ceiling, 13 ms, not a target)
+  // The clock is read after every step, and the next one is started only while the frame's budget still has room for
+  // two ordinary steps (FS.stepMean: the running mean of a step's cost). A step that stalls (a garbage collection, code
+  // run for the first time, the page preempted) cannot be stopped once begun, so the budget keeps room for the stalls
+  // this machine has shown lately (FS.stallAllow: the largest recent one, fading over a few seconds): the frame's
+  // simulation work stays under DAY.SKIP_CAP with one of them in it, and the budget is never more than DAY.SKIP_MS
+  // (the 12 ms slice of 3.4.2) nor less than DAY.SKIP_MIN
   const t0 = performance.now();
-  let steps = 0, last = t0, worst = 0;
+  let steps = 0, last = t0, worst = 0, pre = 0, dtS = 0;
+  if (!(FS.stepMean > 0)) FS.stepMean = .25;
+  FS.stallAllow = Math.max(DAY.STALL0, (FS.stallAllow || DAY.STALL0)*.99);
+  const budget = clamp(DAY.SKIP_CAP - FS.stallAllow, DAY.SKIP_MIN, DAY.SKIP_MS);
   while (ms.phase !== "over"){
+    pre = last - t0;
     oneStep(); steps++;
     const now = performance.now();
-    const dtS = now - last; FS.stepPeak = Math.max((FS.stepPeak || 0)*.995, dtS); last = now; if (dtS > worst) worst = dtS;
+    dtS = now - last; last = now; if (dtS > worst) worst = dtS;
+    if (dtS > 4*FS.stepMean + 1) FS.stallAllow = Math.max(FS.stallAllow, Math.min(dtS, DAY.SKIP_CAP));
+    else FS.stepMean += (dtS - FS.stepMean)*.02;
     if (S0.kind === "call" && ms.callUp) break;
     if (S0.kind === "late" && matchSec(ms) >= S0.until) break;
     if (ms.phase === "halftime"){ if (S0.kind === "late" || FS.state === "lateRun"){ secondHalf(ms); } else break; }
-    if (now - t0 + Math.max(1, 2*FS.stepPeak) >= DAY.SKIP_MS) break;
+    if (now - t0 + Math.max(.2, 2*FS.stepMean) >= budget) break;
   }
-  FS.skipMs = performance.now() - t0; FS.skipSteps = steps; FS.skipWorst = worst;
+  FS.skipBudget = budget;
+  FS.skipMs = performance.now() - t0; FS.skipSteps = steps; FS.skipWorst = worst; FS.skipPre = pre; FS.skipLast = dtS;
   FS.stepCost = steps ? FS.skipMs/steps : 0;
   FS.headless = false;
   events();
@@ -899,7 +955,12 @@ function startFulltime(){
 function fulltime(dt, real){
   FS.ftT += real;
   const ms = FS.ms;
-  if (ms.phase !== "over"){ FS.acc += real; while (FS.acc >= H && ms.phase !== "over"){ oneStep(); FS.acc -= H; } }
+  if (ms.phase !== "over"){
+    // (the last steps to the final whistle's end, at most DAY.MAX_STEPS a frame as in play: a long frame does not pile up)
+    FS.acc += real; let n = 0;
+    while (FS.acc >= H && ms.phase !== "over" && n < DAY.MAX_STEPS){ oneStep(); FS.acc -= H; n++; }
+    if (n >= DAY.MAX_STEPS && FS.acc > H) FS.acc = H*.999;
+  }
   if (FS.ftT < DAY.FT_WALK || FS.ftCard) return;
   FS.ftCard = true;
   coverScreen();
@@ -1023,34 +1084,46 @@ function input(ev){
   if (!FS.state) return false;
   const st = FS.state;
   if (ev.type === "keydown" || ev.type === "keyup"){
-    const k = ev.key === " " ? "space" : ev.key;
-    if (ev.type === "keydown" && ev.prevent && (KEYSET.has(ev.key) || k === "space")) ev.prevent();
+    const k = ev.key === " " ? "space" : ev.key, down = ev.type === "keydown";
+    // a key with Ctrl, Alt or Meta held is nobody's action (D9); its release still lets go of what it held
+    if (down && ev.prevent && (KEYSET.has(ev.key) || k === "space")) ev.prevent();
+    if (down && modded(ev)) return controlInput(ev);
     // Esc during a replay skips it
     if (k === "escape" && playing()){ skip(); return true; }
-    if (k === "h" && ev.type === "keydown" && !ev.repeat){ hudToggleHints(); return true; }
-    if (k === "tab"){ hudTab(ev.type === "keydown"); return true; }
-    // E: context only (Ready at kick-off, sit or stand on the bench, held to skip); in the dressing room it uses the spot
+    if (k === "h"){ if (down && !ev.repeat) hudToggleHints(); return true; }
+    if (k === "tab"){ FS.tabHeld = down; hudTab(down); return true; }
+    // E: context only (Ready at kick-off, sit or stand on the bench, held to skip); in the dressing room and on your feet
+    // by the dugout it uses the spot (the manager, the door, the seat)
     if (k === "e"){
-      if (st === "dressing" || (st === "bench" && !FS.seated && !FS.called)){ CTRL.held.e = ev.type === "keydown"; return false; }
-      if (ev.type === "keydown" && !ev.repeat){
+      if (st === "dressing" || (st === "bench" && !FS.seated && !FS.called)){ CTRL.held.e = down; return false; }
+      if (down && !ev.repeat){
         if (st === "walkout") FS.ready = true;
-        if (st === "bench" && FS.seated){ if (FS.called) standUp(); else FS.eDown = true, FS.eHeld = 0; }
+        if (st === "bench" && FS.seated){ if (FS.called) standUp(); else { FS.eDown = true; FS.eHeld = 0; } }
       }
-      if (ev.type === "keyup"){ FS.eDown = false; FS.eHeld = 0; }
+      if (!down) benchRelease();
       return true;
     }
     // 1, 2, 3 on the bench: watch at 1x, 2x, 4x (on the pitch they choose the contact)
-    if (st === "bench" && FS.seated && ev.type === "keydown" && (k === "1" || k === "2" || k === "3")){ FS.ffRate = DAY.FF[+k - 1]; return true; }
+    if (st === "bench" && FS.seated && down && (k === "1" || k === "2" || k === "3")){ FS.ffRate = DAY.FF[+k - 1]; FS.ffSteps = 0; FS.ffReal = 0; FS.ffAch = FS.ffRate; return true; }
   }
   if (ev.type === "move" && st === "bench" && FS.seated){ look(ev.dx || 0, ev.dy || 0); benchClamp(Math.PI); return true; }
   if (playing() && (ev.type === "down" || ev.type === "up")) return true;
   return controlInput(ev);
 }
-// E held on the bench (counted per frame by the SCHED task below)
+// E held on the bench (counted per frame by the SCHED task below): the ring fills over DAY.E_HOLD, then the skip.
+// A tap stands you up to warm up along the touchline; let go after DAY.E_TAP but before the ring is full and nothing
+// happens but the reminder (conflict register: the hold-E dead zone)
 function benchHold(dt){
   if (!FS.eDown || FS.state !== "bench" || !FS.seated || FS.skipping) return;
   FS.eHeld += dt;
-  if (FS.eHeld > .5){ FS.eDown = false; startSkip(FS.called || !callPlanned() ? "end" : "call"); }
+  if (FS.eHeld >= DAY.E_HOLD){ FS.eDown = false; FS.eHeld = 0; startSkip(FS.called || !callPlanned() ? "end" : "call"); }
+}
+function benchRelease(){
+  const held = FS.eHeld, was = FS.eDown;
+  FS.eDown = false; FS.eHeld = 0;
+  if (!was || FS.state !== "bench" || !FS.seated || FS.skipping) return;
+  if (held < DAY.E_TAP){ standUp(); note("You're up. Warm up along the touchline, and press E by the dugout to sit back down."); }
+  else hudNotice("info", "Keep holding E until the ring fills.");
 }
 const callPlanned = () => { const rt = FS.cfg && FS.cfg.roleTimes; return !!(rt && rt.subOn) && !(FS.ms && FS.ms.roleDone.on && !FS.ms.callUp); };
 
@@ -1129,7 +1202,7 @@ export function recoverCheck(){
     persistNow();
     const R = out.R ? Object.assign({}, out.R, {around: out.around}) : null;
     const o = hudOverlay(`<div class="fp-box">${R ? HOST.ftCard(M, R) : ""}<div class="row gap8 center"><button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
-    const done = () => { hudOverlay(null); hudDispose(); FS.ms = null; FS.M = null; FS.f = null; FS.real = false; RECOVER.busy = false; RECOVER.done = true; HOST.afterRecover(f); };
+    const done = () => { hudOverlay(null); hudDispose(); FS.ms = null; FS.M = null; FS.f = null; FS.real = false; RECOVER.busy = false; RECOVER.done = true; HOST.afterRecover(f, out.R && out.R.fatigue || 0); };
     if (o) o.onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.ft === "go") done(); };
     RECOVER.finish = done;
   }});

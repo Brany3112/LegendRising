@@ -86,8 +86,8 @@ export function hudInit(cfg){
   for (const p of [D.el.arcFill, D.el.arcSweet]){ p.style.strokeDasharray = `${D.arcLen} ${D.arcLen}`; p.style.strokeDashoffset = String(D.arcLen); }
   D.ringLen = 2*Math.PI*17;
   D.el.ring.style.strokeDasharray = `${D.ringLen} ${D.ringLen}`;
+  D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null;
   applySettings();
-  D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hidden = !SET.hints;
   return r;
 }
 // the settings (scale, opacity, palette, what is hidden): read from control.js SET when they change
@@ -98,6 +98,9 @@ export function applySettings(){
   r.classList.toggle("fp-cb", SET.palette === "cb");
   for (const k of Object.keys(HUD_PARTS)) r.classList.toggle("fp-no-" + k, !!(SET.hide && SET.hide[k]));
   r.classList.toggle("fp-radar-on", !!SET.radar);
+  // the Control hints setting (3.4.7): the starting state; H still shows or hides them for the moment
+  if (D.hintsSet !== SET.hints){ D.hintsSet = SET.hints; D.hidden = !SET.hints; }
+  r.classList.toggle("fp-nohints", D.hidden);
 }
 export function hudDispose(){
   if (D.root && D.root.parentNode) D.root.parentNode.removeChild(D.root);
@@ -143,12 +146,18 @@ export function hudTab(on){ D.tab = !!on; if (D.root) D.root.classList.toggle("f
 export function hudShow(on){ if (D.root) D.root.classList.toggle("fp-off", !on); }
 
 /* ---------- each frame ----------
-   s = {ms, me (agent or null), ctrl (CTRL), dt, B, cap, energy, hints: [{key, verb}], aim: {x, y, z}, target agent,
+   hudFrame(ms, me, ctrl, dt, s) (1.4.17): the match, your agent (or null off the pitch), control.js CTRL and the
+   frame's dt; s, optional, is the caller's view of the rest (kept by the caller, filled in place each frame):
+   s = {B, cap, energy, hints: [{key, verb}], aim: {x, y, z}, target agent,
    proj(x, y, z) -> {x, y, on}, w, h, yaw, offPip: 'onside' | 'near' | 'off' | null, cards, rate (bench fast-forward),
-   cam: {x, z}, sweet: {lo, hi} (pass charge units) | null, tick (shot power units) | null, glyph: '' } */
-export function hudFrame(s){
-  if (!D.root || !s.ms) return;
-  const ms = s.ms, dt = s.dt || 0, E = D.el, now = performance.now();
+   cam: {x, z}, sweet: {lo, hi} (pass charge units) | null, tick (shot power units) | null, glyph: '', offX: the offside
+   line's x for the overview | null, hold: 0 to 1 while E is held on the bench (the ring fills) | null } */
+const S_DEF = {B:null, hints:null, proj:null, w:0, h:0, yaw:0, cam:{x:0, z:0}, offPip:null, offX:null, cards:0, sweet:null, tick:null, glyph:"", hold:null};
+export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
+  if (!D.root || !ms) return;
+  s.ms = ms; s.me = me; s.ctrl = ctrl; s.dt = dt;
+  dt = dt || 0;
+  const E = D.el, now = performance.now();
   D.t += dt;
   const slow = (D.tText -= dt) <= 0;
   if (slow) D.tText = .1;
@@ -194,7 +203,11 @@ export function hudFrame(s){
   if (slow){ E.contact.className = "fp-contact c" + (ct + 2) + (D.chargeA > .05 ? " on" : ""); E.curl.classList.toggle("on", !!(s.ctrl && s.ctrl.finesse && D.chargeA > .05)); }
   // the timing ring (A1.5): it closes on the moment the ball will be met; the window is its width
   const R = s.ctrl && s.ctrl.ring;
-  if (R){
+  if (s.hold != null){
+    // E held on the bench: the ring fills; let go before it is full and nothing happens
+    E.ring.style.strokeDashoffset = String((D.ringLen*(1 - clamp(s.hold, 0, 1))).toFixed(2)); E.ring.style.opacity = "1";
+    E.ringWin.style.opacity = "0"; E.ring.classList.remove("now");
+  } else if (R){
     const k = clamp(R.tc/.9, 0, 1), w = clamp(R.w/.9, 0, 1);
     E.ring.style.strokeDashoffset = String((D.ringLen*(1 - k)).toFixed(2)); E.ring.style.opacity = "1";
     E.ringWin.style.strokeDasharray = `${(D.ringLen*w).toFixed(2)} ${D.ringLen}`; E.ringWin.style.opacity = ".9";

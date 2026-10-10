@@ -59,7 +59,8 @@ export function tunnel(active = modeFlags().tunnel){
   bar.classList.add("on");
   bar.classList.toggle("off", !info.ok);
   bar.querySelector("b").textContent = info.label || (info.ok ? "" : "The tunnel is closed");
-  bar.querySelector("span").textContent = info.ok ? (d < 3 ? "Here we go…" : "Match day · walk into the tunnel") : info.why;
+  // (where the match is and how long the trip takes, before you commit to it: 3.4.1)
+  bar.querySelector("span").textContent = info.ok ? (meHome(info.f) ? "Head to the match · home, 15 minutes" : "Head to the match · away, 45 minutes on the team bus") : info.why;
   const p = info.ok ? Math.max(0, Math.min(1, 1 - (d - .4)/10)) : 0;
   bar.querySelector("i").style.width = (p*100).toFixed(1) + "%";
   if (info.ok){
@@ -127,12 +128,15 @@ fpHost({
   fixture(key){ try { return (typeof weekFixtures === "function" ? weekFixtures() : []).find(f => f.key === key) || fixturesAt(S.week).find(f => f.key === key) || null; } catch(e){ return null; } },
   clearInMatch(){ const s = G(); if (s && s.life){ delete s.life.inMatch; persistNow(); } },
   // a match played out after a load: the mirror let go, what it held back said, and the day moved on to the match's
-  // end (it happened)
-  afterRecover(f){
+  // end (it happened): you are where full time leaves you, outside the ground's tunnel, with a line saying so (3.4.3)
+  afterRecover(f, fatigue = 0){
     try { MT = null; } catch(e){}
+    LIFE.matchEnd = fixtureSlot(f).min + MATCH_LEN;
+    H.stop();
+    if (typeof save === "function") save();
     if (typeof flushHeldToasts === "function") flushHeldToasts();
-    const s = G(), end = fixtureSlot(f).min + MATCH_LEN;
-    if (s && s.life && s.life.min < end){ dailyPass(end - s.life.min, "match"); sync(); }
+    if (typeof renderHub === "function") try { renderHub(); } catch(e){ console.error(e); }
+    window.lifeAfterMatch(fatigue, "Your last match has been played out, and you're back at the training ground.");
     persistNow();
   },
   timeLapse:(mins, label, done, o) => timeLapse(mins, "idle", label, done, o),
@@ -154,7 +158,7 @@ SCHED.task({id:"fp-resume", hz:1, kind:"keep", run:() => {
 window.lifeMatchFatigue = legs => legs ? matchFatigue(legs.mins, matchIntensity(legs.drain)) : 0;
 // back from the final whistle (DESIGN 3.4.3): out of the tunnel, a couple of hours later, with tired legs. fatigue: the
 // number the match adds to S.fatigue (bridge.finish R.fatigue for a 3D match; lifeMatchFatigue above for the 2D one)
-window.lifeAfterMatch = (fatigue) => {
+window.lifeAfterMatch = (fatigue, lead = "Full time. You walk back out of the tunnel.") => {
   const s = G();
   const end = LIFE.matchEnd || 21*60;
   if (s.life.min < end) dailyPass(end - s.life.min, "match");
@@ -164,5 +168,5 @@ window.lifeAfterMatch = (fatigue) => {
   // quiet until you walk off (or back into the mouth); and the line saying where you are waits its turn behind the
   // honour cards and toasts full time brings (ui/main.js holds them until now, then they all land at once)
   TUN.quiet = true;
-  if (window.startLife) window.startLife({zone:"ground", at:"tunnel", msg:"", later:`Full time. You walk back out of the tunnel. It's ${clockText()}, and the bus home is by the gate.`});
+  if (window.startLife) window.startLife({zone:"ground", at:"tunnel", msg:"", later:`${lead} It's ${clockText()}, and the bus home is by the gate.`});
 };

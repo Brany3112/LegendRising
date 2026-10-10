@@ -401,12 +401,15 @@ export const TRAIN_HOST = {
     exert(3*mins/22.5, 2.5*mins/22.5);
   },
   // the whole session done: its rewards, once a day (DESIGN 3.6.2 and 3.8.8: att.sess.done)
-  sessionDone(score){
+  // o.noTrust: the manager's trust is left alone (the first day's lessons on day one: 2.4 WP-H2, no trust change on
+  // day one)
+  sessionDone(score, o = {}){
     const ss = S.life.att.sess;
     const r = sessionRewards(score, S.chem);
     ss.done = true; ss.score = score;
     chemAdd(r.chem); S.life.att.chem = num(S.life.att.chem, 0) + r.chem;
-    trustAdd(r.trust);
+    if (o.noTrust) r.trust = 0;
+    else trustAdd(r.trust);
     S.today.sessions = num(S.today.sessions, 0) + 1;
     persist(true);
     return r;
@@ -414,7 +417,7 @@ export const TRAIN_HOST = {
   // the first day's lessons were the day's session: its rewards once, the rest of its time, the tutorial done
   lessonsDone(score, minsSpent){
     const ss = S.life.att && S.life.att.sess;
-    if (ss && !ss.done){ ss.blocks = 4; ss.mins = Math.max(ss.mins, SESSION_PLAN_MINS); TRAIN_HOST.sessionDone(score); }
+    if (ss && !ss.done){ ss.blocks = 4; ss.mins = Math.max(ss.mins, SESSION_PLAN_MINS); TRAIN_HOST.sessionDone(score, {noTrust:num(S.life.day, 1) <= 1}); }
     const rest = Math.max(0, Math.min(SESSION_PLAN_MINS - minsSpent, SESSION.end - LIFE.min));
     if (rest > 0) pass(rest, "train");
     if (S.flags) S.flags.GameplayTutorialCompleted = true;

@@ -157,7 +157,7 @@ export function privateGym(ctx){
   // every piece: members only
   for (const [kind, lo, hi, label_] of [["squat", [55.3, 0, -28.4], [57.3, 2.2, -21.6], "Squat rack"], ["dumbbell", [57.4, 0, -20], [58.6, 1.1, -18], "Dumbbells"],
     ["plyo", [49.8, 0, -28.8], [53.2, .9, -28.0], "Plyo boxes"], ["ladder", [51.3, 0, -22.6], [53.9, 1.0, -9], "Sprint ladder"], ["treadmill", [56.1, 0, -15], [57.1, 1.7, -10.3], "Treadmill"], ["bike", [55.7, 0, -17.6], [57.1, 1.2, -15.6], "Exercise bike"]])
-    spot({aim:[lo, hi], label:label_, get hint(){ return memberToday() ? `${({squat:"Strength set · power", dumbbell:"Strength set · power", plyo:"Jump set · jumping", ladder:"Speed set · acceleration", treadmill:"Endurance run · stamina", bike:"Intervals · stamina and pace"})[kind]} · tier 4 · 45 min` : "Members only. Join at reception"; }, hold:.2,
+    spot({aim:[lo, hi], label:label_, get hint(){ return memberToday() ? `${({squat:"Strength set · power", dumbbell:"Strength set · power", plyo:"Jump set · jumping", ladder:"Speed set · acceleration", treadmill:"Endurance run · stamina", bike:"Intervals · stamina and sprint speed"})[kind]} · tier 4 · 45 min` : "Members only. Join at reception"; }, hold:.2,
       run:() => memberToday() ? ctx.reps(kind) : ctx.note(`Members only. Reception will sign you up: €${IRON.price} for four weeks.`)});
   W.places.push({name:IRON.name, kind:"gym", x:44.4, z:-18.8, at:`at ${IRON.name}`, b:{x0:b.x0, x1:b.x1, z0:b.z0, z1:b.z1}});
 }

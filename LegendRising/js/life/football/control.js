@@ -15,7 +15,7 @@ import {P} from "../core/state.js";
 import {dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {canStrike, predAt, VOLLEY} from "./actions.js";
 import {passModel, callFor} from "./brain.js";
-import {restartReady} from "./rules.js";
+import {restartReady, offsidePosition, RULES} from "./rules.js";
 import {rollSpeedFor} from "./ball.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -73,12 +73,18 @@ export const CTRL = {ctx:"free", walk:false, scan:null, charge:null, contact:0, 
 /* ---------- input (router events, and the bots' through __fp.input) ---------- */
 // a key pressed with Ctrl, Alt or Meta held: set by controller.js's capture listener for the same browser event
 export const MOD = {on:false};
+// the event itself was pressed with Ctrl, Alt or Meta held (the guard's one test, D9)
+export function modKey(ev){ if (ev.ctrlKey || ev.altKey || ev.metaKey) return true; return false; }
+// a key event that is nobody's action: a modifier on it, or held for the browser event it came from (MOD)
+export const modded = ev => modKey(ev) || ((ev.type === "keydown" || ev.type === "keyup") && MOD.on);
 // ev = {type: 'keydown'|'keyup'|'down'|'up'|'move'|'wheel', key, button, dx, dy, deltaY, repeat, ctrlKey?, altKey?}
 // returns true when the event was the match's
 export function controlInput(ev){
   if (!ev) return false;
-  if (ev.ctrlKey || ev.altKey || ev.metaKey) return true;
-  if ((ev.type === "keydown" || ev.type === "keyup") && MOD.on) return true;
+  // a press with a modifier is nobody's action; a release always lets go (a key let go while Ctrl was down must not
+  // stay held), so the guard stops presses only
+  const md = modded(ev);
+  if (md && ev.type !== "keyup") return true;
   const k = ev.key === " " ? "space" : ev.key;
   switch (ev.type){
     case "keydown":
@@ -94,7 +100,7 @@ export function controlInput(ev){
       return true;
     case "keyup":
       if (ev.prevent) ev.prevent();
-      if (k === "r" && CTRL.held.r && !CTRL.rDone) CTRL.queue.push({k:"rtap"});
+      if (k === "r" && CTRL.held.r && !CTRL.rDone && !md) CTRL.queue.push({k:"rtap"});
       if (k === "c") CTRL.queue.push({k:"unscan"});
       CTRL.held[k] = false;
       return true;
@@ -129,6 +135,15 @@ export function controlReset(){
   CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null;
 }
 const use = k => { CTRL.uses[k] = (CTRL.uses[k] || 0) + 1; };
+// the window lost the keyboard (Alt+Tab, a click outside): the key-ups never come, so everything held is let go here.
+// A charge in progress is dropped without a strike (nobody released it), the shoulder check turns back
+export function controlRelease(){
+  for (const k in CTRL.held) CTRL.held[k] = false;
+  if (CTRL.lmb || CTRL.rmb){ CTRL.lmb = CTRL.rmb = false; CTRL.charge = null; }
+  if (CTRL.scan) CTRL.queue.push({k:"unscan"});
+  CTRL.rHeld = 0; CTRL.rDone = true; CTRL.jockey = false; MOD.on = false;
+}
+if (typeof addEventListener === "function") addEventListener("blur", () => controlRelease());
 
 /* ---------- where you look ---------- */
 // the eye (matchcam's own numbers: 1.68 x scale, ahead of the neck) and the look direction
@@ -263,11 +278,19 @@ function passPoint(ms, me, o, out){
    facing away from goal, the overhead kick; with Flair a ball on the weak side at the feet offers the rabona. Without
    the trait those are never offered. Returns {kind, part, tc, side, h, mirrored} or null when no ball is coming. */
 export const RESOLVE = Object.freeze({VOLLEY: [.35, 1.15], HEAD: [1.45, 2.4], DIVE: [.45, 1.0], SIDE: .45, LOOK: .9, REACH: .9, REACH_HEAD: .5, DIVE_AHEAD: [1.0, 2.6]});
-export function resolveAction(ms, me, traits = {}){
+const RB = {x:0, y:0, z:0};
+// (the records are scalars and the result is written into `out`, by default the one CTRL.resolve holds: nothing is
+// allocated in a step)
+const RES = {kind:"ground", tc:0, side:"R", h:0, x:0, y:0, z:0, mirrored:false, face:0};
+const MP = {ok:false, t:0, x:0, y:0, z:0, ahead:0, lat:0, d:0}, MN = {ok:false, t:0, x:0, y:0, z:0, ahead:0, lat:0, d:0}, MD = {ok:false, t:0, x:0, y:0, z:0, ahead:0, lat:0, d:0};
+const meet = (o, t, B, ahead, lat, d) => { o.ok = true; o.t = t; o.x = B.x; o.y = B.y; o.z = B.z; o.ahead = ahead; o.lat = lat; o.d = d; return o; };
+const resOut = (out, kind, m, mirrored, face) => { out.kind = kind; out.tc = m.t; out.side = m.lat >= 0 ? "R" : "L"; out.h = m.y; out.x = m.x; out.y = m.y; out.z = m.z; out.mirrored = mirrored; out.face = face; return out; };
+export function resolveAction(ms, me, traits = {}, out = RES){
   const b = ms.ball;
   if (b.state !== "free") return null;
-  const B = {x:0, y:0, z:0};
-  let best = null, near = null, dive = null, gap = Infinity;
+  const B = RB;
+  MP.ok = MN.ok = MD.ok = false;
+  let gap = Infinity;
   const f = dirOf(me.m.yaw), v = me.m.speed;
   // the meeting point, measured from where your run takes you by then (your velocity carried on): the first moment the
   // ball is within reach (half a metre more for every second you have to adjust), else, running onto a low ball in
@@ -280,19 +303,18 @@ export function resolveAction(ms, me, traits = {}){
     const reachH = .5*t + (B.y >= RESOLVE.HEAD[0] ? RESOLVE.REACH_HEAD : RESOLVE.REACH);
     if (d > reachH + 1.6) continue;
     const ahead = dx*f.x + dz*f.z, lat = dx*-f.z + dz*f.x;
-    if (!dive && v > 2.5 && B.y >= RESOLVE.DIVE[0] && B.y <= RESOLVE.DIVE[1] && ahead >= RESOLVE.DIVE_AHEAD[0] && ahead <= RESOLVE.DIVE_AHEAD[1] &&
-      Math.abs(lat) <= RESOLVE.SIDE) dive = {t, x:B.x, y:B.y, z:B.z, ahead, lat, d};
-    if (!best && d - reachH < gap){ gap = d - reachH; near = {t, x:B.x, y:B.y, z:B.z, ahead, lat, d}; }
-    if (!best && d <= reachH) best = near;
-    if (best && dive) break;
+    if (!MD.ok && v > 2.5 && B.y >= RESOLVE.DIVE[0] && B.y <= RESOLVE.DIVE[1] && ahead >= RESOLVE.DIVE_AHEAD[0] && ahead <= RESOLVE.DIVE_AHEAD[1] &&
+      Math.abs(lat) <= RESOLVE.SIDE) meet(MD, t, B, ahead, lat, d);
+    if (!MP.ok && d - reachH < gap){ gap = d - reachH; meet(MN, t, B, ahead, lat, d); }
+    if (!MP.ok && d <= reachH) meet(MP, t, B, ahead, lat, d);
+    if (MP.ok && MD.ok) break;
   }
   const gx = ms.dirs[me.team]*ms.spec.hx, toGoal = yawOf(gx - me.m.x, -me.m.z), face = Math.abs(wrapA(toGoal - me.m.yaw))/DEG;
   // a low ball you can only reach by throwing yourself at it, going towards goal: the diving header
-  const diving = () => ({kind:"divingHeader", tc:dive.t, side:dive.lat >= 0 ? "R" : "L", h:dive.y, x:dive.x, y:dive.y, z:dive.z, mirrored:false, face});
-  if (dive && face < 70 && (!best || dive.t < best.t)) return diving();
-  best = best || near;
+  if (MD.ok && face < 70 && (!MP.ok || MD.t < MP.t)) return resOut(out, "divingHeader", MD, false, face);
+  const best = MP.ok ? MP : MN.ok ? MN : null;
   if (!best) return null;
-  const hgt = best.y, side = best.lat >= 0 ? "R" : "L", sideways = Math.abs(best.lat) > RESOLVE.SIDE;
+  const hgt = best.y, sideways = Math.abs(best.lat) > RESOLVE.SIDE;
   const acro = !!(traits && (traits.acrobatic || traits.Acrobatic)), flair = !!(traits && (traits.flair || traits.Flair));
   let kind = "ground";
   if (hgt >= RESOLVE.HEAD[0] && hgt <= RESOLVE.HEAD[1] + (me.at.jumping || 50)*.008) kind = "header";
@@ -302,9 +324,9 @@ export function resolveAction(ms, me, traits = {}){
     else kind = sideways ? "sidevolley" : "volley";
   } else if (hgt < RESOLVE.VOLLEY[0] && flair && ((me.foot === "R" && best.lat < -.2) || (me.foot === "L" && best.lat > .2))) kind = "rabona";
   // (a ball at the chest, nothing to strike, that drops in front of you as you run on: the diving header)
-  if (kind === "ground" && hgt > RESOLVE.VOLLEY[1] && dive && face < 70) return diving();
+  if (kind === "ground" && hgt > RESOLVE.VOLLEY[1] && MD.ok && face < 70) return resOut(out, "divingHeader", MD, false, face);
   // an overhead kick is struck facing away: the aim is mirrored (A1.5), what you see behind you is where it goes
-  return {kind, tc:best.t, side, h:hgt, x:best.x, y:best.y, z:best.z, mirrored:kind === "bicycle", face};
+  return resOut(out, kind, best, kind === "bicycle", face);
 }
 // the overhead kick's aim, mirrored: the crosshair's bearing turned through half a turn about you, the same height
 export function mirrorAim(me, aim, out){
@@ -315,6 +337,7 @@ export function mirrorAim(me, aim, out){
 
 /* ---------- one step (before the AI, 3.2.1) ---------- */
 const ACT = {x:0, y:0, z:0}, TGT = {x:0, y:0, z:0};
+const CHG = {kind:"shot", t:0, p:0}, RNG = {kind:"volley", tc:0, w:0};
 // opts = {traits, live: false while play is stopped for you (walk-out, a cut), restart: what the restart allows}
 export function controlStep(ms, me, h, opts = {}){
   if (!me || !me.onPitch || !CTRL.enabled){ CTRL.queue.length = 0; return; }
@@ -330,8 +353,9 @@ export function controlStep(ms, me, h, opts = {}){
   if (CTRL.held.r && !CTRL.rDone){ CTRL.rHeld += h; if (CTRL.rHeld >= CN.CALL_HOLD){ CTRL.rDone = true; call(ms, me, "behind"); } }
   // the charge on show (the HUD's ring): a shot with LMB held, a pass with RMB held, in attack and at a restart
   const canBall = ctx !== "defend";
-  if (CTRL.lmb && canBall){ const t = CTRL.lmbT; CTRL.charge = {kind:"shot", t, p:1 - Math.pow(1 - Math.min(1, t/CN.SHOT_FULL), 2)}; }
-  else if (CTRL.rmb && canBall){ const t = CTRL.rmbT; CTRL.charge = {kind:isThrow(ms, me) ? "throw" : "pass", t, p:Math.min(1, t/CN.PASS_FULL)}; }
+  // (one record each, filled in place: nothing is allocated in a step)
+  if (CTRL.lmb && canBall){ const t = CTRL.lmbT; CTRL.charge = CHG; CHG.kind = "shot"; CHG.t = t; CHG.p = 1 - Math.pow(1 - Math.min(1, t/CN.SHOT_FULL), 2); }
+  else if (CTRL.rmb && canBall){ const t = CTRL.rmbT; CTRL.charge = CHG; CHG.kind = isThrow(ms, me) ? "throw" : "pass"; CHG.t = t; CHG.p = Math.min(1, t/CN.PASS_FULL); }
   else CTRL.charge = null;
   // the pass target, while the pass button is down (and for the receiver ring)
   if (CTRL.rmb && canBall){
@@ -344,7 +368,9 @@ export function controlStep(ms, me, h, opts = {}){
   } else if (!CTRL.rmb){ CTRL.target.through = false; }
   // the timing ring of a volley or an acrobatic strike (A1.5): it closes on the moment the ball will be met
   const R = CTRL.resolve;
-  CTRL.ring = R && R.kind !== "ground" && R.kind !== "header" && R.kind !== "divingHeader" ? {kind:R.kind, tc:R.tc, w:CN.RING.W0 + (CN.RING.W1 - CN.RING.W0)*(me.at.dribbling || 50)/99} : null;
+  if (R && R.kind !== "ground" && R.kind !== "header" && R.kind !== "divingHeader"){
+    CTRL.ring = RNG; RNG.kind = R.kind; RNG.tc = R.tc; RNG.w = CN.RING.W0 + (CN.RING.W1 - CN.RING.W0)*(me.at.dribbling || 50)/99;
+  } else CTRL.ring = null;
 
   // ---- the presses, in order
   while (CTRL.queue.length){
@@ -440,11 +466,12 @@ function tackle(ms, me){
   CTRL.last = "tackle"; use("tackle");
 }
 
+const RES_SPACE = {kind:"ground", tc:0, side:"R", h:0, x:0, y:0, z:0, mirrored:false, face:0};
 // Space: a header when the ball comes into head reach (LMB held: at goal; RMB held: to the cone's man; neither: clear
 // it), else a jump; a low ball in front at a stretch, a diving header (A1.5)
 function space(ms, me){
   if (me.act) return;
-  const R = resolveAction(ms, me, null), b = ms.ball;
+  const R = resolveAction(ms, me, null, RES_SPACE), b = ms.ball;
   const H = R && (R.kind === "header" || R.kind === "divingHeader") ? R : null;
   const intent = CTRL.lmb ? "attack" : CTRL.rmb ? "pass" : "clear";
   let target = null;
@@ -567,6 +594,19 @@ export function scanStep(dt){
   const k = clamp(S.t/CN.SCAN_BACK, 0, 1), e = k*k*(3 - 2*k);
   P.yaw = wrapA(S.from + wrapA(S.to - S.from)*e);
   if (k >= 1) CTRL.scanBack = null;
+}
+// the offside pip and line (1.5.10), for the match and the training pitch alike: relative to the second-last defender
+// now. out.pip 'onside' | 'near' (within 0.5 m) | 'off' | null (not shown: the setting, a keeper, no offside in play);
+// out.x the line across the pitch where it stands (null when there is no offside), for the Tab overview
+export function offsideHud(ms, me, show, out){
+  out.pip = null; out.x = null;
+  if (!me || !me.onPitch || me.isGK || (ms.rules && !ms.rules.offside)) return out;
+  const o = offsidePosition(ms, me, me.team), dir = ms.dirs[me.team], half = ms.spec.L/2;
+  // (o.line is in the attacking frame with the defenders' body margin added; the ball's own line has none)
+  const bu = dir*ms.ball.p.x + half;
+  out.x = dir*(o.line - half - (o.line > bu + 1e-9 ? RULES.OFF.body : 0));
+  if (show) out.pip = o.off ? "off" : o.margin > -.5 ? "near" : "onside";
+  return out;
 }
 // the hints for this moment (1.5.10): up to three [key, verb], shortened to the key after 5 uses
 export function hintsFor(ms, me){

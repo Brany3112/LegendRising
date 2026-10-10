@@ -10,12 +10,13 @@
    rides your body's own pelvis and footfalls (me.js), not a clock of its own.
    ?loco=old (a development flag, removed before release by WP-L) puts back the movement this replaced. */
 import {W} from "../build.js";
-import {G, P, B, E, FLAGS, keys, spring} from "./state.js";
+import {G, P, B, E, FLAGS, LIFE, keys, spring} from "./state.js";
 import {moveBy, touching} from "./collide.js";
 import {hud} from "./hud.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {speedFx} from "../football/matchcam.js";
 import {createStam, stamStep, stamFactors, stamSetCap, effortOf, effF} from "../stamina.js";
+import {onPitch} from "../football/trainspec.js";
 
 // the old controller's numbers (?loco=old); drill: how fast you move in a drill that lets you (the interception
 // lane): a quick shuffle, as the drills were timed for
@@ -111,8 +112,12 @@ export function body(dt, f, r, len, run){
   // the profile for your skills; your breath and its cap from today's energy and fatigue (looked at once a second)
   // (the speed skills of addendum A1.1: sprint speed sets the top speeds, acceleration how steeply you get there)
   const spd = skillOf("sprintSpeed"), acc = skillOf("acceleration"), stamina = skillOf("stamina"), energy = s ? +s.energy || 0 : 100, fatigue = s ? +s.fatigue || 0 : 0;
-  if (!LOCO.prm || LOCO.prm.pace !== Math.max(1, Math.min(99, spd)) || LOCO.prm.acceleration !== Math.max(1, Math.min(99, acc)))
-    LOCO.prm = moverParams({sprintSpeed:spd, acceleration:acc, dribbling:skillOf("dribbling")}, "life");
+  // on the training pitch's grass (and a stride round it) you move as you do in a match, the FOOTBALL profile (3.6.2):
+  // what you learn walking about out there is what your legs do on match day; everywhere else the LIFE profile
+  const prof = LIFE.zone === "ground" && onPitch(P.x, P.z, 2) ? "football" : "life";
+  if (!LOCO.prm || LOCO.prof !== prof || LOCO.prm.pace !== Math.max(1, Math.min(99, spd)) || LOCO.prm.acceleration !== Math.max(1, Math.min(99, acc))){
+    LOCO.prm = moverParams({sprintSpeed:spd, acceleration:acc, dribbling:skillOf("dribbling")}, prof); LOCO.prof = prof;
+  }
   if (!LOCO.st) LOCO.st = createStam({stamina, energy, fatigue});
   if ((LOCO.capT -= dt) <= 0){ LOCO.capT = 1; stamSetCap(LOCO.st, energy, fatigue); }
   const eF = effF(energy), fac = stamFactors(LOCO.st, eF, LOCO.fac);

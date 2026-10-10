@@ -246,7 +246,15 @@ function effSkill(k){
 }
 function effSkills(){ const out = {}; for (const [k] of SKILLS) out[k] = effSkill(k); return out; }
 const blankMy = () => ({apps:0, goals:0, assists:0, longGoals:0, fkGoals:0, curlGoals:0, penGoals:0, dribbles:0, spass:0, lpass:0, passAtt:0, shots:0, onTarget:0, lost:0, motm:0, ratingSum:0, wins:0});
-function overall(){ return Math.round(SKILLS.reduce((a,[k]) => a + S.skills[k], 0)/SKILLS.length); }
+// the rating: the mean of the skills, with acceleration and sprint speed counted as one (the old Pace they were split
+// from, addendum A1.1), so an old save's overall is the same after the split and pace is not weighed twice
+const PACE_PAIR = ["acceleration", "sprintSpeed"];
+function overall(){
+  let sum = 0, n = 0;
+  for (const [k] of SKILLS){ if (!PACE_PAIR.includes(k)){ sum += num(S.skills[k], 0); n++; } }
+  sum += (num(S.skills.acceleration, 0) + num(S.skills.sprintSpeed, 0))/2; n++;
+  return Math.round(sum/n);
+}
 function xpNeed(){ return 90 + S.level*35; }
 
 /* ---------- moving a career between devices ----------

@@ -449,7 +449,7 @@ function fixedItem(T){
 }
 
 // the HUD's frame (fphud.js hudFrame): what it shows of you and the item; screen points from the item's frame
-const _pv = new THREE.Vector3();
+const _pv = new THREE.Vector3(), PJ = {x:0, y:0, on:false, front:false}, OFF = {pip:null, x:null};
 const HS = {ms:null, me:null, ctrl:CTRL, dt:0, B:100, cap:100, energy:100, hints:null, proj:null, w:0, h:0, yaw:0, cam:{x:0, z:0}, offPip:null,
   cards:0, sweet:null, tick:null, glyph:"", ringAt:.2, offX:null};
 function hudOf(T, dt){
@@ -461,10 +461,16 @@ function hudOf(T, dt){
   HS.proj = HS.proj || ((x, y, z) => {
     const cam = RT.cam, F = RUN.T ? RUN.T.F : {cx:0, cz:0};
     _pv.set(x + F.cx, y, z + F.cz).project(cam);
-    return {x:(_pv.x + 1)/2*HS.w, y:(1 - _pv.y)/2*HS.h, on:_pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1};
+    // (one record, filled in place: the HUD uses each point before it asks for the next)
+    PJ.x = (_pv.x + 1)/2*HS.w; PJ.y = (1 - _pv.y)/2*HS.h; PJ.on = _pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1; PJ.front = _pv.z < 1;
+    return PJ;
   });
-  if ((T.hintT = (T.hintT || 0) - dt) <= 0){ T.hintT = .1; HS.hints = CT.hintsFor ? CT.hintsFor(ms, me) : null; }
-  HUD.hudFrame(HS);
+  if ((T.hintT = (T.hintT || 0) - dt) <= 0){
+    T.hintT = .1; HS.hints = CT.hintsFor ? CT.hintsFor(ms, me) : null;
+    // the offside pip (1.5.10: Auto shows it in training) and the line for the overview, where offside is in play
+    CT.offsideHud(ms, me, CT.SET.offsidePip !== "off", OFF); HS.offPip = OFF.pip; HS.offX = OFF.x;
+  }
+  HUD.hudFrame(ms, me, CTRL, dt, HS);
 }
 
 // once a frame: you where your agent is (for the camera, your body, everyone round you), the HUD, the clock
@@ -842,7 +848,7 @@ function sessionEnd(run){
 export function startFirstTraining(){
   if (RUN.cur) return Promise.resolve(false);
   return new Promise(res => {
-    const run = {kind:"lessons", i:0, tries:0, ok:[], lent:[], qs:[], mins:0, res, xp:0};
+    const run = {kind:"lessons", i:0, tries:0, ok:[], lent:[], qs:[], mins:0, res, xp:0, bag:{}, xpRaw:0};
     RUN.cur = run;
     // (the lessons are not left half-way with Esc: it lets the pointer go, which pauses them)
     run.quit = () => {};
@@ -985,7 +991,9 @@ function lessonEnd(run, T){
   markAt(null);
   const inv = TS.involvements(T.ms.events, T.me.id);
   for (const v of inv){ if (v.key) award(T, TS.ACTION_XP[v.key], v.q); run.qs.push(v.q); }
-  run.xp += payXP(T);
+  // (the lessons are the day's session: what each one earned is kept, and paid once at the end in the session's band)
+  for (const k in T.xp){ run.bag[k] = (run.bag[k] || 0) + T.xp[k]; } run.xpRaw += T.xpRaw;
+  T.xp = {}; T.xpRaw = 0;
   run.mins += T.t*T.rate;
   if (T.quit && !T.lessonOk) return;            // (left with the place: the run is let go when the next one is built)
   run.tries++;
@@ -999,11 +1007,18 @@ function lessonEnd(run, T){
 }
 function lessonsEnd(run){
   runOver(run);
+  // the XP of the lessons, brought into the session's 60 to 90 (3.6.2, 3.6.3: the lessons are the day's session)
+  const lo = TS.SESSION_XP.min, hi = TS.SESSION_XP.max;
+  if (run.xpRaw < lo){
+    const ks = HOST.me().sessionSkills || ["passing", "stamina"], each = (lo - run.xpRaw)/ks.length;
+    for (const k of ks){ run.bag[k] = (run.bag[k] || 0) + each; } run.xpRaw = lo;
+  }
+  run.xp = payXP({xp:run.bag}, run.xpRaw > hi ? hi/run.xpRaw : 1);
   const score = TS.sessionScore(run.qs);
   HOST.lessonsDone(score, run.mins);
   HOST.say("Coach", TS.LESSON_DONE_LINE);
   HOST.onb("trainingDone", {xp:run.xp});
-  RUN.last = {kind:"lessons", ok:run.ok.slice(), xp:run.xp, score};
+  RUN.last = {kind:"lessons", ok:run.ok.slice(), xp:run.xp, xpRaw:Math.min(run.xpRaw, hi), score};
   HOST.persist();
   run.res(true);
 }

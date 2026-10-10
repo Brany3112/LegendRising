@@ -230,13 +230,15 @@ function tick(real, t0, draw){
   if (fl.compass) compassStep(r10, P);
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; RT.renderer.shadowMap.needsUpdate = true; }
-  if (draw){ gpuBegin(); RT.renderer.render(RT.scene, RT.cam); gpuEnd(); presented++; framePresented(camTop()); }
+  // a mode may leave a frame undrawn (the bench watched above 1x is drawn at 30 Hz, controller.js): once, this frame
+  const thin = FLAGS.skipDraw; FLAGS.skipDraw = false;
+  if (draw && !thin){ gpuBegin(); RT.renderer.render(RT.scene, RT.cam); gpuEnd(); presented++; framePresented(camTop()); }
   // people step out of YOUR way, wherever the camera is: drawing set VIEW to the camera (and the way it looks, fx/fz);
   // in third person that is 2.6 m behind you, so the position goes back to your own head. The camera's own position
   // stays readable as VIEW.cx/cy/cz for anyone who needs what the camera can see rather than where you are
   VIEW.cx = VIEW.x; VIEW.cy = VIEW.y; VIEW.cz = VIEW.z;
   VIEW.x = P.x; VIEW.y = P.eye; VIEW.z = P.z; VIEW.feet = P.feet;
-  if (draw && real > 0 && real < .5) quality(real, performance.now() - t0);
+  if (draw && !thin && real > 0 && real < .5) quality(real, performance.now() - t0);
   // a save every 45 s or so, but only at a quiet moment (modes.js persist); after two minutes of never stopping, anyway.
   // A mode that defers saves gets none of these: it saves at its own safe moments (persistNow)
   if ((SAVE.t += real) > 45){ SAVE.due = true; SAVE.t = 0; }

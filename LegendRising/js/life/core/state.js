@@ -47,7 +47,7 @@ export const RT = {scene:null, cam:null, renderer:null, SKY:null};
    moving    you are on the move (P.speed above half a metre a second): the passive clock runs a little faster
    forceSky  the sky and its lights are recomputed in full next frame
    held   what you are aiming at this frame (a spot), grab: a door being dragged */
-export const FLAGS = {modal:false, busy:null, drill:null, lockLost:false, moving:false, forceSky:true, held:null, grab:null};
+export const FLAGS = {modal:false, busy:null, drill:null, lockLost:false, moving:false, forceSky:true, held:null, grab:null, skipDraw:false};
 // the black cover over the world (#lifeFade): v, its opacity as the fade helpers last set it; boot, true while it is
 // the cover startLife put up before the first frames (modes.js revealAfterFrames)
 export const FADE = {v:0, boot:false};
