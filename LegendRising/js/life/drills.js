@@ -12,6 +12,9 @@ import {ballMesh} from "./football/pitchmesh.js";
 const G = () => (typeof S !== "undefined" ? S : null);
 /* ---------- the overlay every drill shares ---------- */
 function hudEl(){ return document.getElementById("lifeDrill"); }
+// one gym set takes this much of the clock (the gym hints and the first day's G4 line read it)
+export const SET_MINS = 45;
+
 export function hudSet(d, o = {}){
   const el = hudEl(); if (!el) return;
   clearTimeout(hudClose._t);
@@ -223,7 +226,7 @@ export function startReps(kind, H){
   const finish = () => {
     D.phase = "done"; hudTiming(false);
     const avg = D.scores.reduce((a, b) => a + b, 0)/Math.max(1, D.scores.length);
-    exert(8, 7); s.today.trainMin += 45; H.pass(45, "train");
+    exert(8, 7); s.today.trainMin += SET_MINS; H.pass(SET_MINS, "train");
     cleanup(); hudClose(); H.bob(0); H.endDrill();
     if (typeof FEED === "object") FEED.center(`${set.title} · set done`, `${Math.round(avg*100)}% · +${D.xp} XP`, {kind:"drill", icon:"✓", ms:2200});
     if (typeof save === "function") save();

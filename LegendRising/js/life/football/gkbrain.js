@@ -32,7 +32,7 @@ export const GK = Object.freeze({
   REACT: [0.12, 0.30, 0.0015, 0.03], UNSET: 0.12, SCREEN: 0.08,
   SPIN: [0.4, 0.004], LAT: [0.2, 0.012, 18, 1.3], REREAD: 0.55, STEER: 0.35,
   CATCH_D: 0.22, CATCH_V: [13, 0.14], CATCH_EXT: 0.92,
-  PARRY_E: 0.35, PARRY_V: [4, 7], PARRY_ERR: 25, PARRY_POST: [0.6, 0.8],
+  PARRY_E: 0.35, PARRY_V: [4, 7], PARRY_ERR: 25, PARRY_POST: [0.6, 0.8],   // a parry within 0.6 m of a post goes round it 80% of the time
   TIP_Y: 2.0, TIP_UP: 5, PUNCH_V: [12, 16], PUNCH_N: 3, PUNCH_R: 2.5,
   GROUND: 0.45, GETUP: [0.9, 0.004], SCRAMBLE: 1.2,
   CLAIM_BOX: 2, CLAIM_V: 6, CLAIM_JUMP: 2.8, CLAIM_MARGIN: 0.1,
@@ -320,10 +320,12 @@ export function gkOnHand(ms, a, d){
     fromContact(ms, b, d);
     clearCtl(ms);
   } else {
-    // parry: restitution 0.35 plus 4 to 7 m/s away from the goal centre, aimed with an error; a shot toward a post is
-    // as often pushed round it (toward the goal line outside the post) as back out
+    // parry: restitution 0.35 plus 4 to 7 m/s away from the goal centre, aimed with an error; a shot toward a post (met
+    // within PARRY_POST[0] m of it) is as often pushed round it (toward the goal line outside the post) as back out.
+    // (P2b: the test was |z| > PARRY_POST[0], so a shot met anywhere but the middle 1.2 m of the goal was pushed
+    // sideways and a little back, and about a third of all parries ran on into the net)
     let vx = b.p.x - gx, vz = b.p.z;
-    if (Math.abs(b.p.z) > GK.PARRY_POST[0] && ms.r() < GK.PARRY_POST[1]){ vx = -dir*0.35*Math.abs(vz); vz = Math.sign(vz)*Math.max(1, Math.abs(vz)); }
+    if (Math.abs(b.p.z) > 3.66 - GK.PARRY_POST[0] && ms.r() < GK.PARRY_POST[1]){ vx = -dir*0.35*Math.abs(vz); vz = Math.sign(vz)*Math.max(1, Math.abs(vz)); }
     const vl = hypot(vx, vz) || 1;
     const err = gauss(ms.r)*GK.PARRY_ERR*(1 - KA.handling/120)*DEG, c = cos(err), s = sin(err);
     const ux = (vx*c - vz*s)/vl, uz = (vx*s + vz*c)/vl;

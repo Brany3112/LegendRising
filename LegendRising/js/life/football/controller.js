@@ -47,7 +47,7 @@ import {startAction} from "./actions.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv} from "./view.js";
-import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf} from "./control.js";
+import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
 import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal} from "./fphud.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
@@ -68,7 +68,7 @@ export const DAY = Object.freeze({
   FF: [1, 2, 4], FF_DRAW: 1/30, E_TAP: .35, E_HOLD: .8, ENTRY_NEAR: 3, CORRIDOR: {x: 1.1, zFront: -46, zBack: -64, gap: 1.25, mouth: -40.5},
   // A1.7: a shot wound up with at least BIG_XG of a chance eases the world to BIG_SCALE (released, it comes back over
   // BIG_OUT s); your clean contact holds the world for a blink (HIT: [strike quality from, time-scale, seconds])
-  BIG_XG: .25, BIG_SCALE: .8, BIG_OUT: .15, HIT: [[.75, .15, .07], [.45, .4, .05]]
+  BIG_XG: FEEL.BIG_XG, BIG_SCALE: FEEL.BIG_SCALE, BIG_OUT: FEEL.BIG_OUT, HIT: FEEL.HIT
 });
 
 /* ---------- the host: the career's side of the day (tunnel.js gives it) ----------
@@ -519,18 +519,16 @@ function live(dt, real){
 // DAY.BIG_SCALE (the same fixed steps, fewer of them a real second: never a pause); let go, it comes back at once.
 // A slow motion of something else (an acrobatic strike, a hit-stop) is left alone
 function bigChance(ms){
-  const me = liveMe(), ch = CTRL.charge;
-  if (!me || !ch || ch.kind !== "shot" || ms.poss.ctl !== me.id || ms.phase !== "live" || (FS.slow && !FS.slow.big)) return;
+  const me = liveMe();
+  if (!windingShot(ms, me) || (FS.slow && !FS.slow.big)) return;
   if (xgAt(ms, me.team, ms.ball.p.x, ms.ball.p.z) < DAY.BIG_XG) return;
   FS.slow = {scale: DAY.BIG_SCALE, t: DAY.BIG_OUT, big: true}; FS.timeScale = DAY.BIG_SCALE;
 }
 // your contact (A1.7): the kick heard by how cleanly it was struck, and a moment of hit-stop for a clean strike at goal
 // or into the box
 function contactFeel(ev){
-  const q = ev.strike != null ? +ev.strike : null;
-  if (q == null || ev.scuff || ev.whiff) return;
-  if (!(ev.intent === "shot" || ev.intent === "cross" || ev.intent === "lob")) return;
-  for (const [from, scale, secs] of DAY.HIT) if (q >= from){ FP.slowMo(scale, secs); break; }
+  const h = hitStopOf(ev);
+  if (h) FP.slowMo(h[1], h[2]);
 }
 // one fixed step: your input first (before the AI, 3.2.1), then the simulation, the record for the replays
 function oneStep(){

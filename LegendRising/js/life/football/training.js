@@ -33,6 +33,7 @@ import {createMatch, simStep, REF, AR1, AR2, TEMPO} from "./sim.js";
 import {createBall, ballKick, BALL} from "./ball.js";
 import {solveStrike, idealPassSpeed} from "./strike.js";
 import {attrsForAI} from "./attrs.js";
+import {xgAt} from "./judge.js";
 import {refreshPred, startKick} from "./actions.js";
 import {startRestart} from "./rules.js";
 import {AUD} from "./audio.js";
@@ -391,11 +392,14 @@ registerMode("train", {
     if (bug && !T.item.score) bug.style.display = "none";
     // the life HUD's hand, crosshair and compass step aside (the clock and the needs stay)
     document.body.classList.add("drillview");
+    // a HUD setting changed in the pause menu applies at once, as in a match
+    if (HUD.applySettings && CT.onSet) T.offSet = CT.onSet(() => HUD.applySettings());
     inputOn();
     T.evFrom = T.ms.events.length; T.evSeen = T.ms.events.length;
   },
   exit(reason){
     const T = RUN.T; RUN.T = null;
+    if (T && T.offSet){ T.offSet(); T.offSet = null; }
     inputOff();
     document.body.classList.remove("drillview");
     // (ordinary life does not pause when the pointer goes: a pause this mode was in ends with it)
@@ -431,7 +435,8 @@ function handBack(T){
 /* the fixed steps (in the world's sub-steps, before the bodies are posed, so they are drawn at the step shown: the
    view takes its positions after the last step of the frame) */
 function sliceItem(T, h){
-  T.acc += h;
+  // the feel of a strike (A1.7, control.js FEEL): the same fixed steps, fewer of them a real second, never a pause
+  T.acc += h*(T.slow ? T.slow.scale : 1);
   let n = 0;
   while (T.acc >= H - 1e-9 && n < TRAIN.MAX_STEPS){
     fixedItem(T);
@@ -496,11 +501,21 @@ function frameItem(T, dt, real){
   if (CT.scanStep) CT.scanStep(dt);
   try { hudOf(T, dt); } catch(e){ console.error(e); }
   if (T.script && T.script.frame) T.script.frame(T, real);
+  feelStep(T, real);
   if (T.rate > 0) HOST.pass(real*T.rate);
   // the distance you sprint (pace and stamina XP: one a 60 m)
   if (a.m.gait === "sprint" && a.m.speed > (a.prm.run || 6)) T.sprintD += a.m.speed*real;
   if (AUD && AUD.listener && RT.cam) AUD.listener(RT.cam.position, P.yaw);
   events(T);
+}
+// the world's time-scale as the match has it (controller.js bigChance and contactFeel): a shot wound up from a big
+// chance eases it to FEEL.BIG_SCALE, a clean contact of yours holds it for a blink; each runs out in real time
+function feelStep(T, real){
+  if (T.slow && (T.slow.t -= real) <= 0) T.slow = null;
+  const ms = T.ms, me = T.me;
+  if (!CT.windingShot(ms, me) || (T.slow && !T.slow.big)) return;
+  if (xgAt(ms, me.team, ms.ball.p.x, ms.ball.p.z) < CT.FEEL.BIG_XG) return;
+  T.slow = {scale: CT.FEEL.BIG_SCALE, t: CT.FEEL.BIG_OUT, big: true};
 }
 // what happened since the last frame, for the ears, the eyes and the HUD
 function events(T){
@@ -516,7 +531,10 @@ function events(T){
       }
     } else if (e.kind === "kick"){
       const sp = +e.speed || 0;
-      if (AUD && AUD.cue) AUD.cue("kick", worldPt(T, {x:e.x, y:.2, z:e.z}), clamp(.3 + sp/30, .2, 1.2));
+      // (your own: a clean strike rings out, a scuff is dull, as in a match)
+      const qk = e.agent === me && e.strike != null ? (e.scuff ? .5 : .75 + .45*e.strike) : 1;
+      if (AUD && AUD.cue) AUD.cue("kick", worldPt(T, {x:e.x, y:.2, z:e.z}), clamp((.3 + sp/30)*qk, .15, 1.3));
+      if (e.agent === me){ const hs = CT.hitStopOf(e); if (hs) T.slow = {scale: hs[1], t: hs[2]}; }
       if (e.agent === me && !e.whiff){
         const shot = e.intent === "shot" || e.intent === "header" && e.atGoal;
         if (CAM.camAction) CAM.camAction(e.intent === "header" ? "header" : shot || sp > 18 ? "strike" : "pass");

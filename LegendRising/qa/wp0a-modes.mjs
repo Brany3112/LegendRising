@@ -7,8 +7,8 @@
 //            moves it), save() returns without writing (deferred) and persistNow() writes once
 //   input    a pushed handler that consumes keydown blocks the life handler, popping restores it; a mode's own input
 //            comes before life's
-//   gating   the drill, cine and build modes: their flags, no aiming, the key-hint timer paused in a cinematic, Escape
-//            gives a drill up, a zone change ends a drill
+//   gating   the drill (a gym set), cine and build modes: their flags, no aiming, the key-hint timer paused in a
+//            cinematic, Escape gives a drill up, a zone change ends a drill
 //   clock    setClockScale slows the passive clock; running charges the clock's run rate when the day has one
 //   events   onbEmit 'zone' on a zone change and 'aim' when what you aim at changes
 //   hud      the multi-line prompt (spot.lines), the breath arc shown short of breath and hidden at full
@@ -132,18 +132,19 @@ try {
   check("cine: the key-hint timer is paused", !cn.fadedInCine && Math.abs(cn.keysT - 15) < 1e-9, `keysT ${cn.keysT}`);
   check("after cineEnd: life, life-fp owns the camera, the hint timer runs again", cn.modeAfter === "life" && cn.topAfter === "life-fp" && cn.fadedAfter, cn);
 
-  // the drill mode at the training ground
+  // the drill mode at the training ground: a gym set (drills.js through the DRILL host). The football drills left
+  // this mode with WP-I (DESIGN 3.6: they are training.js items in the mode 'train', checked by qa/wpI-drills.mjs)
   const dr = await page.evaluate(() => {
     const L = __life, out = {};
     S.energy = 90; S.fatigue = 10;
     L.enterZone("ground", "bus");
-    L.ctx.drill("shoot");
+    L.ctx.reps("squat");
     out.mode = L.modes.mode(); out.flags = Object.assign({}, L.modes.flags()); out.drill = !!L.drill;
     L.stepN(3);
     out.held = L.held; out.top = L.cam.top();
     L.keysDown(["Escape"]); L.keysUp(["Escape"]);
     out.after = {mode:L.modes.mode(), drill:!!L.drill};
-    L.ctx.drill("shoot"); L.stepN(2);
+    L.ctx.reps("squat"); L.stepN(2);
     out.again = L.modes.mode();
     L.enterZone("ground", "bus");                               // a zone change gives it up
     out.afterZone = {mode:L.modes.mode(), drill:!!L.drill, drillY:L.P.drillY};
@@ -189,7 +190,8 @@ try {
     const L = __life, seen = [], prev = window.lifeOnb;
     window.lifeOnb = (e, d) => { seen.push([e, d && (d.zone || d.label || null)]); if (prev) prev(e, d); };
     try {
-      L.enterZone("ground", {x:-8.4, z:-15.2, y:0, yaw:Math.PI/2});
+      // (in front of the bus stop at the gate, looking at it: WP-I's 72 x 48 layout kept the stop where it was)
+      L.enterZone("ground", {x:-14, z:21.6, y:0, yaw:Math.PI});
       L.stepN(2);
     } finally { window.lifeOnb = prev; }
     return {seen, held:L.held && L.held.label};

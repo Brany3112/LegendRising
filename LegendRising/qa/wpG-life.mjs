@@ -11,8 +11,8 @@
 //             mirror offers only owned cuts and refuses an unowned one
 //   compass   DELIVERIES only while a bag waits, FRIDGE only while you carry one
 //   foodies   "Deliver to" on the app, and the order goes where you chose
-//   session   once a day: a second one is refused; Esc and rejoin carries on from the next block; a 15:30 start is
-//             clamped to the end of the session
+//   session   training.js's session: it starts, a second one the same day is refused, a 15:30 start plans only the
+//             blocks that fit, 15:45 is too late (Esc, rejoin and rewards are played out in qa/wpI-session.mjs)
 //   onb       the lifeOnb events of 3.7.4 that WP-G sends: take, swap, release, throw, eat, openBus, parcelPut,
 //             foodiesOrder, nap
 //
@@ -205,38 +205,43 @@ try {
   const onb = await page.evaluate(() => [...new Set(__onb)]);
   for (const e of ["take", "swap", "release", "throw", "eat", "openBus", "parcelPut", "foodiesOrder", "nap"]) check(`lifeOnb "${e}" is sent`, onb.includes(e), onb);
 
-  /* ---------- the team session, once a day (3.8.8, 3.6.2) ---------- */
-  const ss = await page.evaluate(() => {
+  /* ---------- the team session, once a day (3.8.8, 3.6.2) ----------
+     The session is training.js's since WP-I (3.6.2: four blocks played on the simulation, asynchronously, after a
+     walk over), so the checks that need it played out (Esc keeps the blocks done, a rejoin carries on from the next
+     block, the rewards once) live in qa/wpI-session.mjs, which plays it with an input bot. Here: what the coach says
+     and plans without anything being played. */
+  const ss = await page.evaluate(async () => {
     const L = __life, out = {};
-    // a training day at the training centre
     let wd = 0; while (wd < 5 && !trainingDay(wd)) wd++;
     S.life.wd = wd; S.life.att = freshAtt(); S.energy = 90; S.fatigue = 10;
     L.enterZone("ground", "bus"); L.stepN(2);
     const at = m => { S.life.min = m; L.LIFE.min = m; };
-    const runUntilLife = n => { let i = 0; while (L.modes.mode() === "drill" && i++ < n) L.stepN(1); return i; };
+    const startNow = async () => {
+      document.getElementById("lifeNote") && (document.getElementById("lifeNote").textContent = "");
+      await L.ctx.session();
+      for (let i = 0; i < 400 && !(window.__train && window.__train.RUN.cur) && !__note(); i++){ await new Promise(r => setTimeout(r, 25)); L.stepN(1); }
+      const run = window.__train && window.__train.RUN.cur;
+      return {on:!!run, kind:run ? run.kind : null, blocks:run ? run.blocks.slice() : null, note:__note()};
+    };
+    const stop = () => { const r = window.__train && window.__train.RUN.cur; if (r && r.quit) r.quit(); L.stepN(2); };
     at(10*60 + 30);
-    L.ctx.session(); out.start = L.modes.mode();
-    L.stepN(150);                                         // two blocks and a bit
-    L.drillInput("down", "escape"); L.stepN(2);
-    out.afterEsc = {mode:L.modes.mode(), blocks:S.life.att.sess.blocks, done:S.life.att.sess.done};
-    const m0 = S.life.min;
-    L.ctx.session(); out.rejoin = L.modes.mode(); runUntilLife(2000);
-    out.resumed = {blocks:S.life.att.sess.blocks, done:S.life.att.sess.done, mins:S.life.min - m0};
-    L.ctx.session(); out.second = {mode:L.modes.mode(), note:__note()};
-    // the next day, a 15:30 start: only the blocks before four o'clock
+    out.start = await startNow(); stop();
+    // the session already done today
+    S.life.att = freshAtt(); S.life.att.sess = {blocks:4, mins:90, done:true, score:.5}; at(11*60);
+    out.second = await startNow(); stop();
+    // the next day, a 15:30 start: only the blocks that fit before four o'clock
     S.life.att = freshAtt(); at(15*60 + 30);
-    L.ctx.session(); runUntilLife(2000);
-    out.late = {done:S.life.att.sess.done, blocks:S.life.att.sess.blocks, min:S.life.min};
+    out.late = await startNow();
+    out.late.fit = out.late.blocks ? out.late.blocks.reduce((m, i) => m + window.__train.TS.BLOCKS[i].mins, 0) : null;
+    stop();
     S.life.att = freshAtt(); at(15*60 + 45);
-    L.ctx.session(); out.tooLate = {mode:L.modes.mode(), note:__note()};
+    out.tooLate = await startNow(); stop();
     return out;
   });
-  check("session: it starts", ss.start === "drill", ss);
-  check("session: Esc keeps the blocks done", ss.afterEsc.mode === "life" && ss.afterEsc.blocks === 2 && !ss.afterEsc.done, ss.afterEsc);
-  check("session: rejoining carries on from the next block", ss.rejoin === "drill" && ss.resumed.done && ss.resumed.blocks === 6 && Math.abs(ss.resumed.mins - 60) < 1, ss.resumed);
-  check("session: a second session the same day is refused", ss.second.mode === "life" && ss.second.note === "You've done today's session. The coach wants you fresh tomorrow.", ss.second);
-  check("session: a 15:30 start is clamped to four o'clock", ss.late.done && ss.late.blocks === 2 && Math.abs(ss.late.min - 16*60) < 1, ss.late);
-  check("session: with less than 20 minutes left, not today", ss.tooLate.mode === "life" && ss.tooLate.note === "The session's nearly over. Join them tomorrow at 10:00 AM.", ss.tooLate);
+  check("session: it starts on training.js", ss.start.on && ss.start.kind === "session" && ss.start.blocks.length === 4, ss.start);
+  check("session: a second session the same day is refused", !ss.second.on && ss.second.note === "You've done today's session. The coach wants you fresh tomorrow.", ss.second);
+  check("session: a 15:30 start only plans the blocks that fit before four o'clock", ss.late.on && ss.late.blocks.length >= 1 && ss.late.fit <= 30, ss.late);
+  check("session: with less than 20 minutes left, not today", !ss.tooLate.on && ss.tooLate.note === "The session's nearly over. Join them tomorrow at 10:00 AM.", ss.tooLate);
 
   check("no console or page errors", page.errors.length === 0, page.errors.slice(0, 5));
 } catch(e){

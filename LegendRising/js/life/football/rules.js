@@ -414,8 +414,16 @@ function chooseSource(ms, R0){
 }
 // a dead ball still in the air and fast (struck as the whistle went)
 const flyingAway = b => b.p.y > R + 0.2 && hypot(b.v.x, b.v.z) > RULES.FLYING;
-// the time to carry a ball d metres in the hands (a jog near the spot, a run further out)
-const carryT = d => d <= 6 ? d/RULES.CARRY : 6/RULES.CARRY + (d - 6)/RULES.CARRY_FAR;
+// the time to carry a ball d metres in the hands (a jog near the spot, a run further out): further out at CARRY_FAR,
+// or at what the carrier a can run now when that is less (his gait's top speed with his breath and energy, 1.5.2: a
+// tired man late in a match does not carry it 40 m at 7 m/s, and a plan that counts on it runs past the limit)
+const carryV = a => {
+  if (!a || !a.prm) return RULES.CARRY_FAR;
+  const f = a.fac || null, jog = a.prm.jog || 0.7*a.prm.run;
+  const top = (jog + (a.prm.sprint - jog)*(f && f.speed != null ? f.speed : 1))*(f && f.eSpeed != null ? f.eSpeed : 1);
+  return clamp(0.92*top, RULES.CARRY, RULES.CARRY_FAR);
+};
+const carryT = (d, a = null) => d <= 6 ? d/RULES.CARRY : 6/RULES.CARRY + (d - 6)/carryV(a);
 // can a player get to a ball there: inside the boards (a ball resting against them included), not over them
 const reachable = (ms, x, z) => Math.abs(x) <= ms.spec.runoff.hx + 0.05 && Math.abs(z) <= ms.spec.runoff.hz + 0.05;
 // a restart whose taker is a specialist (or the keeper, or the centre forward): he goes to the spot and the ball is
@@ -452,12 +460,12 @@ function sourceCost(ms, R0, x, z){
     if (a.isGK && !isTk && !(R0.kind === 'kickoff' && hypot(a.m.x - x, a.m.z - z) < 12)) continue;
     const tf = hypot(a.m.x - x, a.m.z - z)/Math.max(3, a.prm.run);
     let t;
-    if (far <= RULES.SERVE && (isTk || !fixed)) t = tf + carryT(far);              // he brings it in himself
+    if (far <= RULES.SERVE && (isTk || !fixed)) t = tf + carryT(far, a);              // he brings it in himself
     else if (isTk && fixed) continue;                                              // a specialist waits at the spot for it
     else {
       // served to the taker (and caught: 0.8 s more), or for a specialist on his way, put on the spot for him
       // (a served ball still has to be met where it comes down and carried in: SERVE_MEET more)
-      const ball = tf + Math.min(serveT(far) + 0.8 + RULES.SERVE_MEET, fixed && !a.isGK && far <= RULES.PLACE_MAX ? carryT(far) + 0.6 : Infinity);
+      const ball = tf + Math.min(serveT(far) + 0.8 + RULES.SERVE_MEET, fixed && !a.isGK && far <= RULES.PLACE_MAX ? carryT(far, a) + 0.6 : Infinity);
       t = fixed ? Math.max(ball, tkRun) + 0.1*ball : ball;
     }
     if (isTk) t -= 0.3;
@@ -615,19 +623,19 @@ export function restartStep(ms, h){
           // whoever has it takes it when he is near the spot, or when carrying it there is no slower than serving it
           // to the taker (who may still be a long way off); otherwise he serves it to the taker
           const tkD = hypot(tk.m.x - sp.x, tk.m.z - sp.z), viaServe = Math.max(serveT(far) + 0.8, wayT(tk, tkD, tkD));
-          if ((far <= RULES.SERVE || carryT(far) <= viaServe + 0.5) && !(tk.isMe && !ms.meAI)) R0.taker = f.id;
+          if ((far <= RULES.SERVE || carryT(far, f) <= viaServe + 0.5) && !(tk.isMe && !ms.meAI)) R0.taker = f.id;
         } else if (!fixedTaker(R0) && far > RULES.SERVE){
           // the taker himself went a long way for it: the nearest man to the spot takes it, served to him, when that
           // is clearly quicker than carrying it back
           const t2 = spotTaker(ms, R0, f.id);
           if (t2){
             const d2 = hypot(t2.m.x - sp.x, t2.m.z - sp.z);
-            if (Math.max(serveT(far) + 0.8, wayT(t2, d2, d2)) + 1 < carryT(far)){ R0.taker = t2.id; R0.fetcher = f.id; }
+            if (Math.max(serveT(far) + 0.8, wayT(t2, d2, d2)) + 1 < carryT(far, f)){ R0.taker = t2.id; R0.fetcher = f.id; }
           }
         } else if (fixedTaker(R0) && f !== tk && !f.isGK && !(tk.isMe && !ms.meAI)){
           // the specialist is on his way: the team-mate with the ball puts it on the spot for him when that is no
           // slower than serving it to him (he would arrive before it anyway)
-          const cT = carryT(far) + 0.6, tkT = hypot(tk.m.x - sp.x, tk.m.z - sp.z)/Math.max(3, 0.9*tk.prm.sprint);
+          const cT = carryT(far, f) + 0.6, tkT = hypot(tk.m.x - sp.x, tk.m.z - sp.z)/Math.max(3, 0.9*tk.prm.sprint);
           if (far <= RULES.SERVE || far <= RULES.PLACE_MAX && tkT >= cT - 1.0) R0.carrier = f.id;
         }
         R0.stage = R0.taker === f.id || R0.carrier >= 0 ? 'carry' : 'serve';
@@ -660,7 +668,7 @@ export function restartStep(ms, h){
         const tBall = Math.max(0, 0.6 - (ms.t - (R0.serveT || 0))) + (dS <= RULES.SERVE_ROLL ? serveT(dS) - 1.0 : serveFlight(dS)) + more;
         const tTk = wayT(tk, td, td) + 0.7;
         if (tTk > tBall){
-          if (carryT(d) + 0.6 <= tTk + 0.8){
+          if (carryT(d, f) + 0.6 <= tTk + 0.8){
             if (fixedTaker(R0)) R0.carrier = f.id; else R0.taker = f.id;
             R0.stage = 'carry';
             break;

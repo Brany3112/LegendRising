@@ -305,8 +305,7 @@ function screenTitle(){
         <button class="btn lg ghost" onclick="A.fullscreen()">⛶ Full screen</button>
         <button class="btn lg ghost" onclick="openSheet('settings0')">⚙ Settings</button>
       </div>
-      <div class="build">Build ${esc(window.FF_BUILD || "dev")}</div>
-    </div>${cloudCorner()}</section>`, "title");
+      </div>${cloudCorner()}<div class="build build-corner">Version ${esc(window.FF_BUILD || "dev")}</div></section>`, "title");
   if (typeof fbInit === "function" && fbConfigured()) fbInit().then(() => { if (LAST_SCREEN === "title") { const c = $("#cloudCorner"); if (c) c.outerHTML = cloudCorner(); } }).catch(() => {});
 }
 let CR = null;

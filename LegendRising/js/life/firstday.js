@@ -857,7 +857,7 @@ export function onEvent(ev, d = {}){
     case "plateFixed": if (seen("slam")) mark("plateFixed"); break;
     case "mail": mark("mail"); break;
     case "board": mark("board"); break;
-    case "fridge": if (d.zone !== "ground") mark("fridgeOpen"); break;
+    case "fridge": if (d.zone !== "ground") mark("fridgeOpen"); else if (seen("gymPut")) mark("gymFridgeOpen"); break;
     case "eat": if (seen("fridgeOpen") && (d.ok || d.full)) mark("ate"); break;
     case "nap": mark("nap"); break;
     case "foodiesOrder": if (d.ok) mark("ordered"); break;

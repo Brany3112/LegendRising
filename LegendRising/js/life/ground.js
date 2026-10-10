@@ -13,6 +13,7 @@ import {teamSession, staffer} from "./npc.js";
 import {cabinet} from "./props.js";
 import {fillFridge, FRIDGE_OPEN} from "./fridge.js";
 import {rack, dumbbellRack, plyoBoxes, ladderLane, treadmill, spinBike, barbell, dumbbell} from "./gymclub.js";
+import {SET_MINS} from "./drills.js";
 export {barbell, dumbbell};
 import {deliveryPoint, POINT_NAME} from "./parcels.js";
 import {departures, EXIT} from "./leave.js";
@@ -86,21 +87,21 @@ function gym(){
   rack(-9.6, 6.8, t);
   dumbbellRack(-12.25, 10.2, Math.PI/2, t);
   plyoBoxes(-7.5, 13.6, t, 1);
-  spot({aim:[[-10.5, 0, 6.1], [-8.7, 2.2, 8.6]], x:-9.6, z:7.6, label:"Squat rack", hint:"Strength set · power · 45 min", run:() => ctx.reps("squat")});
-  spot({aim:[[-12.6, 0, 9.2], [-11.7, 1.1, 11.2]], x:-12, z:10.2, label:"Dumbbells", hint:"Strength set · power · 45 min", run:() => ctx.reps("dumbbell")});
-  spot({aim:[[-9.1, 0, 13.2], [-5.9, .9, 14.0]], x:-7.5, z:13.6, label:"Plyo boxes", hint:"Jump set · jumping · 45 min", run:() => ctx.reps("plyo")});
+  spot({aim:[[-10.5, 0, 6.1], [-8.7, 2.2, 8.6]], x:-9.6, z:7.6, label:"Squat rack", hint:"Strength set · power · " + SET_MINS + " min", run:() => ctx.reps("squat")});
+  spot({aim:[[-12.6, 0, 9.2], [-11.7, 1.1, 11.2]], x:-12, z:10.2, label:"Dumbbells", hint:"Strength set · power · " + SET_MINS + " min", run:() => ctx.reps("dumbbell")});
+  spot({aim:[[-9.1, 0, 13.2], [-5.9, .9, 14.0]], x:-7.5, z:13.6, label:"Plyo boxes", hint:"Jump set · jumping · " + SET_MINS + " min", run:() => ctx.reps("plyo")});
   // pace: the sprint lane
   ladderLane(0, 4.6, 15.2, t);
-  spot({aim:[[-1.3, 0, 4.6], [1.3, 1.0, 12.6]], x:0, z:8, label:"Sprint ladder", hint:"Speed set · acceleration · 45 min", run:() => ctx.reps("ladder")});
+  spot({aim:[[-1.3, 0, 4.6], [1.3, 1.0, 12.6]], x:0, z:8, label:"Sprint ladder", hint:"Speed set · acceleration · " + SET_MINS + " min", run:() => ctx.reps("ladder")});
   // stamina: treadmills facing the window, a bike
   for (const x of [5.4, 7.6, 9.8]){
     // at the bottom tier one of them has given up
     const broken = t <= 2 && x === 9.8;
     treadmill(x, 6.9, t, {broken});
-    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order. It has been for months" : "Endurance run · stamina · 45 min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
+    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order. It has been for months" : "Endurance run · stamina · " + SET_MINS + " min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
   }
   spinBike(5.6, 10.8, 0, t); spinBike(7.6, 10.8, 0, t);
-  spot({aim:[[4.9, 0, 10.4], [8.4, 1.2, 11.2]], x:6.6, z:10.8, label:"Exercise bike", hint:"Intervals · stamina and sprint speed · 45 min", run:() => ctx.reps("bike")});
+  spot({aim:[[4.9, 0, 10.4], [8.4, 1.2, 11.2]], x:6.6, z:10.8, label:"Exercise bike", hint:"Intervals · stamina and sprint speed · " + SET_MINS + " min", run:() => ctx.reps("bike")});
   // the refreshment corner: the fridge for your food, a vending machine, water, and a bench to wait on
   gymFridge(12.25, 14.6);
   vending(12.25, 12.75, -Math.PI/2, vendTex());
@@ -138,6 +139,10 @@ function gymFridge(x, z){
     if (Math.abs(D.target - D.a) > 1e-4) turnTo(D.a + (D.target - D.a)*(1 - Math.exp(-7*dt)));
     g.rotation.y = f.ry - D.a;
     const [ux, uz] = dirOf(D.a); guard.set(ux, uz, D.a > .06, dt);
+    // the moment it swings open far enough to see in, as the fridge at home says it (the first day's G6 listens)
+    const open = D.a > FRIDGE_OPEN;
+    if (open && !D.open && typeof window.lifeOnb === "function") window.lifeOnb("fridge", {open:true, zone:"ground"});
+    D.open = open;
   });
   const box3 = new THREE.Box3();
   spot({kind:"drag", label:"Fridge", get hint(){ return D.a > FRIDGE_OPEN ? "Close it" : "Open it · your food lives here and at home"; }, y:1,

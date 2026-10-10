@@ -395,6 +395,7 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 .tut-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
 
 .build{margin-top:18px;font-size:.78rem;color:rgba(200,215,230,.55);letter-spacing:.04em}
+.build-corner{position:absolute;left:calc(14px + env(safe-area-inset-left));bottom:calc(12px + env(safe-area-inset-bottom));margin:0;font-variant-numeric:tabular-nums;pointer-events:none;z-index:2}
 
 /* ---------- performance ---------- */
 body.in-match #bg{display:none}                       /* nothing animates behind a match */

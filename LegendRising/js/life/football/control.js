@@ -60,6 +60,21 @@ export function saveSet(patch = {}){
 const SET_SUBS = new Set();
 export const onSet = fn => { SET_SUBS.add(fn); return () => SET_SUBS.delete(fn); };
 
+/* ---------- the feel of a strike (A1.7), the match's and training's alike ---------- */
+// a shot wound up with at least BIG_XG of a chance eases the world to BIG_SCALE (released, it comes back over BIG_OUT s);
+// your clean contact holds the world for a blink (HIT: [strike quality from, time-scale, seconds])
+export const FEEL = Object.freeze({BIG_XG: .25, BIG_SCALE: .8, BIG_OUT: .15, HIT: Object.freeze([[.75, .15, .07], [.45, .4, .05]])});
+// the hit-stop a kick event of yours earns, [from, time-scale, seconds], or null: a clean shot, cross or lob only
+export function hitStopOf(ev){
+  const q = ev.strike != null ? +ev.strike : null;
+  if (q == null || ev.scuff || ev.whiff) return null;
+  if (!(ev.intent === "shot" || ev.intent === "cross" || ev.intent === "lob")) return null;
+  for (const h of FEEL.HIT) if (q >= h[0]) return h;
+  return null;
+}
+// you winding up a shot with the ball yours in live play (the big chance's first test; the chance itself is the caller's)
+export const windingShot = (ms, me) => { const ch = CTRL.charge; return !!(me && ch && ch.kind === "shot" && ms.poss.ctl === me.id && ms.phase === "live"); };
+
 /* ---------- numbers (1.5.3) ---------- */
 export const CN = Object.freeze({
   SHOT_FULL: .85, OVERHIT: .92, TAP: .18, PASS_FULL: .8, PASS_MIN: 4,

@@ -88,6 +88,11 @@ export function attrsForAI(p){
   if (arch === 'GK'){
     for (const k of SKILL_KEYS) a[k] = clamp(Math.round(ovr - 10 + 6*hashNoise(id, k)), 20, 99);
     a.passing = clamp(Math.round(ovr - 4 + 6*hashNoise(id, 'passing')), 20, 99);
+    // his first steps are keeping, not outfield running: set, shuffle and the step across before a dive come from his
+    // acceleration (and his agility from it), so it is at his overall like his keeping numbers. Since the speed split
+    // (A1.1) steepened the mover below acceleration 50, a keeper at ovr - 10 set himself late (P2b: close-range saves
+    // and the harness goals per match)
+    a.acceleration = clamp(Math.round(ovr + 6*hashNoise(id, "gkacc")), 20, 99);
     derive(a);
     a.gk = {};
     for (const k of ["reflex", "dive", "handling", "posit", "distrib"]) a.gk[k] = clamp(Math.round(ovr + 6*hashNoise(id, "gk" + k)), 20, 99);

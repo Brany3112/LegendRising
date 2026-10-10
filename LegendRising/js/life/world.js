@@ -213,7 +213,9 @@ function loop(t){
 // with nothing drawn, so the resolution governor, which times real frames, is left out too
 function tick(real, t0, draw){
   frames++;
-  const dt = Math.min(.1, real), r10 = Math.min(real, .1);
+  // a frame counts for at most a quarter of a second: step() lives it in slices of 1/20 s, so down to 4 fps the world,
+  // your walk and the clock keep real time instead of running in slow motion
+  const dt = Math.min(.25, real), r10 = Math.min(real, .25);
   if (real > 0 && real < .5) MA.frame += (real*1000 - MA.frame)*.2;
   if (Q.pending) resize();
   step(dt, Math.min(real, .5));

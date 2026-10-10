@@ -71,8 +71,16 @@ export function predAt(ms, t, out){
 
 // Turn a target into the mover's intent: run (at a gait) toward (tx, tz), slowing so that the brakes stop him at it
 // (within `stop` metres he stands), facing `face` ({x, z} direction) when given. cap: a speed cap. Returns the distance.
+// An AI body paces itself: with its breath spent (under PACE[0]) it runs where it was asked to sprint, until it has
+// PACE[1] of it back. A sprint held on empty lungs keeps draining (addendum A1.6, stamina.js effortOf) and is slower
+// than a run, so a man who never let up would cross the pitch at a blown sprint and never get his breath back.
+export const PACE = Object.freeze([8, 25]);
 export function steer(a, tx, tz, gait = 'jog', stop = 0.3, face = null, cap = Infinity, strafe = false){
   const m = a.m, I = a.intent, dx = tx - m.x, dz = tz - m.z, d = hypot(dx, dz);
+  if (gait === 'sprint' && a.st){
+    if (a.st.B < PACE[0]) a.blown = true; else if (a.st.B >= PACE[1]) a.blown = false;
+    if (a.blown) gait = 'run';
+  }
   I.face = face; I.strafe = strafe; I.gait = gait;
   if (d <= stop){ I.dx = 0; I.dz = 0; I.speedCap = cap; return d; }
   I.dx = dx/d; I.dz = dz/d;
