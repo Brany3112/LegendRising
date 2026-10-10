@@ -14,7 +14,7 @@ import {SCHED} from "./sched.js";
 import {timeLapse} from "./acts.js";
 import {matchFatigue, matchIntensity} from "../stamina.js";
 import {bodyLook} from "../look.js";
-import {FP, fpHost, recoverCheck} from "../football/controller.js";
+import {FP, fpHost, recoverCheck, DAY} from "../football/controller.js";
 import {GROUND} from "../ground.js";
 
 // info: today's match as matchToday() last said; go: you have walked in and the match is starting; quiet: just back
@@ -60,7 +60,7 @@ export function tunnel(active = modeFlags().tunnel){
   bar.classList.toggle("off", !info.ok);
   bar.querySelector("b").textContent = info.label || (info.ok ? "" : "The tunnel is closed");
   // (where the match is and how long the trip takes, before you commit to it: 3.4.1)
-  bar.querySelector("span").textContent = info.ok ? (meHome(info.f) ? "Head to the match · home, 15 minutes" : "Head to the match · away, 45 minutes on the team bus") : info.why;
+  bar.querySelector("span").textContent = info.ok ? (meHome(info.f) ? `Head to the match · home, ${travelMins(info.f)} minutes` : `Head to the match · away, ${travelMins(info.f)} minutes on the team bus`) : info.why;
   const p = info.ok ? Math.max(0, Math.min(1, 1 - (d - .4)/10)) : 0;
   bar.querySelector("i").style.width = (p*100).toFixed(1) + "%";
   if (info.ok){
@@ -92,13 +92,15 @@ export function toMatch(){
 
 /* ---------- the career's side of the match day (football/controller.js fpHost) ---------- */
 const meHome = f => { const me = meP(); return f.kind === "N" ? f.h === me.nat : f.h === me.club; };
+// the trip to the match (controller.js DAY.TRAVEL): what the bar says and what the travel card passes are one number
+const travelMins = f => meHome(f) ? DAY.TRAVEL.home : DAY.TRAVEL.away;
 // the drinks you may have with you for half time (S.inv, the one food store)
 const DRINKS = ["water", "iso", "drink", "max", "shake"];
 fpHost({
   setup(f, o = {}){ return matchSetup(f, {late:!!o.late && !o.resume}); },
   kickoff:f => fixtureSlot(f).min,
   now(){ const s = G(); return s && s.life ? s.life.min : LIFE.min; },
-  travel:f => meHome(f) ? 15 : 45,
+  travel:f => travelMins(f),
   place:f => ({from:"Training ground", to:meHome(f) ? "Home ground" : sideName(f, "h")}),
   look(kit, number){ const s = G(); try { return bodyLook(s.player.look, "kit", {kit:kit || (MT && MT.myKit), number}); } catch(e){ console.error(e); return null; } },
   drinks(){ const s = G(); return DRINKS.filter(id => typeof FOOD === "object" && FOOD[id]).map(id => ({id, name:FOOD[id].name, n:(s.inv && s.inv[id]) || 0})); },

@@ -81,7 +81,9 @@ export function moveInput(lk){
    LOCO.m: your mover (mirrors P; anything else that puts you somewhere, a placement, a cut, a drill, is taken over at
    the start of the next step), LOCO.st: your breath (never saved), LOCO.fac: what tiredness does this step (the
    mover and your body's lean read it), LOCO.want: the speed the keys ask for (your body's stop starts from it) */
-export const LOCO = {m:null, prm:null, st:null, fac:{}, want:0, px:NaN, pz:NaN, capT:0, old:OLD,
+// how fast a sprint left over from the other profile eases off (m/s per second; body() LOCO.ease)
+const EASE = 1.5;
+export const LOCO = {m:null, prm:null, prof:null, spd:NaN, acc:NaN, drb:NaN, ease:false, st:null, fac:{}, want:0, px:NaN, pz:NaN, capT:0, old:OLD,
   intent:{dx:0, dz:0, gait:"walk", face:{x:0, z:-1}, strafe:false, speedCap:Infinity}};
 const skillOf = k => {
   const s = G();
@@ -115,8 +117,15 @@ export function body(dt, f, r, len, run){
   // on the training pitch's grass (and a stride round it) you move as you do in a match, the FOOTBALL profile (3.6.2):
   // what you learn walking about out there is what your legs do on match day; everywhere else the LIFE profile
   const prof = LIFE.zone === "ground" && onPitch(P.x, P.z, 2) ? "football" : "life";
-  if (!LOCO.prm || LOCO.prof !== prof || LOCO.prm.pace !== Math.max(1, Math.min(99, spd)) || LOCO.prm.acceleration !== Math.max(1, Math.min(99, acc))){
-    LOCO.prm = moverParams({sprintSpeed:spd, acceleration:acc, dribbling:skillOf("dribbling")}, prof); LOCO.prof = prof;
+  // (the cache key is kept here: the LIFE profile has no acceleration field to read back, so comparing against it
+  // would rebuild the profile on every slice)
+  const drb = skillOf("dribbling");
+  if (!LOCO.prm || LOCO.prof !== prof || LOCO.spd !== spd || LOCO.acc !== acc || LOCO.drb !== drb){
+    // stepping onto the grass mid-sprint: the LIFE sprint can be quicker than the FOOTBALL one for a low sprint
+    // speed, and the difference eases off over a second or so instead of braking you hard on the line
+    LOCO.ease = !!LOCO.prm && LOCO.prof !== prof && m.speed > .5;
+    LOCO.prm = moverParams({sprintSpeed:spd, acceleration:acc, dribbling:drb}, prof);
+    LOCO.prof = prof; LOCO.spd = spd; LOCO.acc = acc; LOCO.drb = drb;
   }
   if (!LOCO.st) LOCO.st = createStam({stamina, energy, fatigue});
   if ((LOCO.capT -= dt) <= 0){ LOCO.capT = 1; stamSetCap(LOCO.st, energy, fatigue); }
@@ -128,7 +137,14 @@ export function body(dt, f, r, len, run){
   it.speedCap = drill ? GAIT.drill : Infinity;
   it.face.x = -sin; it.face.z = -cos;
   const ox = P.x, oz = P.z;
+  const v0 = m.speed;
   moverStep(m, it, LOCO.prm, fac, dt, collide);
+  if (LOCO.ease){
+    // only the plain brake down to the new profile's target is softened (not a stop, a cut, a wall or a stagger)
+    const floor = v0 - EASE*dt;
+    if (!len || m.cut || m.stagger > 0 || m.speed >= v0 || m.speed < v0 - LOCO.prm.brake*dt - 1e-6 || m.speed <= m.target + .01) LOCO.ease = false;
+    else if (m.speed < floor){ const k = floor/m.speed; m.vx *= k; m.vz *= k; m.speed = floor; }
+  }
   P.x = m.x; P.z = m.z; LOCO.px = P.x; LOCO.pz = P.z;
   P.vx = m.vx; P.vz = m.vz; P.speed = m.speed; P.sprint = m.sprintB;
   LOCO.want = len ? m.target : 0;

@@ -1098,9 +1098,9 @@ function input(ev){
       if (st === "dressing" || (st === "bench" && !FS.seated && !FS.called)){ CTRL.held.e = down; return false; }
       if (down && !ev.repeat){
         if (st === "walkout") FS.ready = true;
-        if (st === "bench" && FS.seated){ if (FS.called) standUp(); else { FS.eDown = true; FS.eHeld = 0; } }
+        if (st === "bench" && FS.seated){ if (FS.called) standUp(); else { FS.eDown = true; FS.eHeld = 0; FS.eLast = performance.now(); FS.eT0 = ev.t > 0 ? ev.t : null; } }
       }
-      if (!down) benchRelease();
+      if (!down) benchRelease(ev);
       return true;
     }
     // 1, 2, 3 on the bench: watch at 1x, 2x, 4x (on the pitch they choose the contact)
@@ -1112,14 +1112,24 @@ function input(ev){
 }
 // E held on the bench (counted per frame by the SCHED task below): the ring fills over DAY.E_HOLD, then the skip.
 // A tap stands you up to warm up along the touchline; let go after DAY.E_TAP but before the ring is full and nothing
-// happens but the reminder (conflict register: the hold-E dead zone)
+// happens but the reminder (conflict register: the hold-E dead zone). What counts is the time since the key went down,
+// not a whole frame's dt: on a slow machine the first frame after the press also holds the time before it, and a quick
+// tap would otherwise land in the dead zone. A frame is credited at most the real time since the last one counted, but
+// never less than a 60 Hz frame (the clock-stepped QA frames run faster than real time)
 function benchHold(dt){
   if (!FS.eDown || FS.state !== "bench" || !FS.seated || FS.skipping) return;
-  FS.eHeld += dt;
+  const now = performance.now(), since = (now - (FS.eLast || now))/1000;
+  FS.eLast = now;
+  FS.eHeld += Math.min(dt, Math.max(since, 1/60));
   if (FS.eHeld >= DAY.E_HOLD){ FS.eDown = false; FS.eHeld = 0; startSkip(FS.called || !callPlanned() ? "end" : "call"); }
 }
-function benchRelease(){
-  const held = FS.eHeld, was = FS.eDown;
+function benchRelease(ev){
+  // how long the key was down: from the browser's own time stamps when both events carry one (a key event waits behind a
+  // long frame, the stamp says when it happened); else what the frames counted plus the real time since the last of
+  // them, so a hold let go between two slow frames is not cut short
+  const real = FS.eT0 != null && ev && ev.t > 0 ? Math.max(0, ev.t - FS.eT0)/1000 : null;
+  const held = real != null ? real : FS.eHeld + (FS.eDown && FS.eLast ? Math.max(0, performance.now() - FS.eLast)/1000 : 0), was = FS.eDown;
+  FS.eT0 = null;
   FS.eDown = false; FS.eHeld = 0;
   if (!was || FS.state !== "bench" || !FS.seated || FS.skipping) return;
   if (held < DAY.E_TAP){ standUp(); note("You're up. Warm up along the touchline, and press E by the dugout to sit back down."); }

@@ -50,7 +50,9 @@ const NOISY_SLEEP = .8;
 const ROADWORKS_DELAY = 20;
 function centreOpen(m){
   m = m == null ? S.life.min : m; const d = ((m % 1440) + 1440) % 1440;
-  if (typeof todaysFixture === "function" && todaysFixture() && m < 24*60) return d >= CENTRE.open;
+  // a match day keeps it open into the night, before the game and after it (you come back out of the tunnel after
+  // dark and walk to the bus yourself: 3.4.3)
+  if (typeof todaysFixture === "function" && todaysFixture(true) && m < 24*60) return d >= CENTRE.open;
   return d >= CENTRE.open && d < CENTRE.close;
 }
 // the hours as the game says them (DESIGN 1.8): nobody types a time into a sentence

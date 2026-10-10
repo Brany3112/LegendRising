@@ -459,12 +459,12 @@ function bindInput(cv){
     if (window.lifeMode && window.lifeMode() === "hub") return;
     const k = e.key.toLowerCase();
     if (MINI.on){ e.preventDefault(); if (!e.repeat) miniInput("key", k, true); return; }
-    routeInput({type:"keydown", key:k, code:e.code, repeat:e.repeat, locked:lockedHere(), prevent:() => e.preventDefault()}, lifeInput);
+    routeInput({type:"keydown", key:k, code:e.code, repeat:e.repeat, locked:lockedHere(), t:e.timeStamp, prevent:() => e.preventDefault()}, lifeInput);
   });
   addEventListener("keyup", e => {
     const k = e.key.toLowerCase(); keys[k === " " ? "space" : k] = false;
     if (MINI.on){ miniInput("key", k, false); return; }
-    routeInput({type:"keyup", key:k, code:e.code, locked:lockedHere()}, lifeInput);
+    routeInput({type:"keyup", key:k, code:e.code, locked:lockedHere(), t:e.timeStamp}, lifeInput);
   });
   addEventListener("blur", () => { for (const k in keys) keys[k] = false; FLAGS.grab = null; HOLD.sp = null; });
 }

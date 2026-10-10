@@ -327,11 +327,18 @@ const worldPt = (T, p) => ({x:p.x + T.F.cx, y:p.y, z:p.z + T.F.cz});
    the power arc, the hints, the calls), the controls (control.js). The life HUD stays up (the clock and the needs). */
 let INP = null;
 const RMB = {down:null, up:null, menu:null};
+// (the window losing focus lets go of Tab: its keyup never comes)
+if (typeof addEventListener === "function") addEventListener("blur", () => { if (INP) HUD.hudTab(false); });
 function inputOn(){
   INP = ev => {
     if (!RUN.T) return false;
     if (ev.type === "keydown" && ev.key === "escape"){ if (ev.prevent) ev.prevent(); if (!ev.repeat) quit(); return true; }
-    if (ev.type === "keydown" && ev.key === "h" && !ev.repeat){ if (ev.prevent) ev.prevent(); if (HUD.hudToggleHints) HUD.hudToggleHints(); return true; }
+    // (a key with a modifier held is nobody's action here, as in a match: D9, control.js modded)
+    if (ev.type === "keyup" && ev.key === "tab"){ HUD.hudTab(false); return true; }
+    if ((ev.type === "keydown" || ev.type === "keyup") && CT.modded(ev)) return controlInput(ev);
+    if (ev.type === "keydown" && ev.key === "h"){ if (ev.prevent) ev.prevent(); if (!ev.repeat && HUD.hudToggleHints) HUD.hudToggleHints(); return true; }
+    // Tab held: the overview, with the offside line (1.6), as in a match
+    if (ev.type === "keydown" && ev.key === "tab"){ if (ev.prevent) ev.prevent(); HUD.hudTab(true); return true; }
     // Esc with the pointer held lets the pointer go (the browser keeps that key): letting it go steps out of a drill or
     // the session as Esc does (the lessons only pause, flags.pauseOnUnlock)
     if (ev.type === "lock"){ if (!ev.locked && RUN.cur && RUN.cur.kind !== "lessons") quit(); return false; }
@@ -348,6 +355,7 @@ function inputOn(){
 }
 function inputOff(){
   if (INP) popInput(INP); INP = null;
+  HUD.hudTab(false);
   if (RMB.down){ removeEventListener("mousedown", RMB.down); removeEventListener("mouseup", RMB.up); removeEventListener("contextmenu", RMB.menu); }
   RMB.down = RMB.up = RMB.menu = null;
 }

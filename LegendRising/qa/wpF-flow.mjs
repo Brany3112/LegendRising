@@ -76,6 +76,8 @@ try {
   check(R.liveFrames > 100 && R.liveTop.length === 1 && R.liveTop[0] === "match-fp", "the camera owner during live play is match-fp", R.liveTop);
   check(!R.tp && !R.inMatch && !R.dom2d, "no life-tp view and no 2D match DOM", {tp: R.tp, inMatch: R.inMatch, dom2d: R.dom2d});
   // the rest of the match, headless, then back out of the tunnel
+  // (every note shown from here on, to see the full-time line land: it waits behind the cards full time brings)
+  await page.evaluate(() => { window.__ftNotes = []; const seen = new Set(); new MutationObserver(() => { const e = document.getElementById("lifeNote"); const t = e && e.textContent.trim(); if (t && !seen.has(t)){ seen.add(t); window.__ftNotes.push(t); } }).observe(document.body, {subtree: true, childList: true, characterData: true}); });
   const h = await page.evaluate(() => window.__fp.headless(5400));
   await page.waitForTimeout(300);
   await T.step(4);
@@ -91,6 +93,17 @@ try {
   check(after.min === T.info.ko + 115, "the life clock at kick-off + 115 minutes", {min: after.min, want: T.info.ko + 115});
   check(after.zone === "ground" && after.mode === "life" && !after.state && Math.hypot(after.P[0] - after.tun[0], after.P[1] - after.tun[1]) < 8 && after.top === "life-fp", "control back at the ground tunnel", after);
   check(!after.inMatch && !!after.last, "S.life.inMatch cleared, the match on the record", {inMatch: after.inMatch, last: after.last});
+  // an evening match ends after the centre's usual closing time: you are left to walk to the bus yourself, and the
+  // full-time line is the one you get (3.4.3), not the closing-time one with a bus that leaves on its own
+  const later = [];
+  // (the cards full time brings, a debut milestone, are closed with their OK as a player would; the line waits for them)
+  for (let i = 0; i < 12; i++){
+    await page.waitForTimeout(500); await T.step(10);
+    later.push(await page.evaluate(() => { const b = document.querySelector("#tutRoot.on button"); if (b) b.click(); return window.__life.LIFE.zone; }));
+  }
+  const ftNotes = await page.evaluate(() => window.__ftNotes);
+  check(later.every(z => z === "ground"), "still at the ground 6 s after full time, with no input", later);
+  check(ftNotes.some(t => /Full time\. You walk back out of the tunnel\. It's .+, and the bus home is by the gate\./.test(t)) && !ftNotes.some(t => /locked up|locking up/.test(t)), "the full-time line, and no closing-time line", ftNotes);
   check(page.errors.length === 0, "zero console and page errors", page.errors.slice(0, 5));
   ok = true;
 } catch (e){ console.log("FAILED", e.stack || e.message); check(false, "the run finished", String(e.message)); }
