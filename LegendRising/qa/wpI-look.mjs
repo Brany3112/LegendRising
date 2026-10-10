@@ -23,7 +23,7 @@ const V = [
   {name:"duel", at:{x:22, z:-43, yaw:-Math.PI/2}, pitch:-.08},
   {name:"setpiece", at:{x:13, z:-32, yaw:-Math.PI/2}, pitch:-.02},
   {name:"tunnel", at:{x:0, z:-50, yaw:0}, pitch:.02},
-  {name:"counter", at:{x:20.6, z:8.5, yaw:Math.PI*.62}, pitch:-.25},
+  {name:"counter", at:{x:20.6, z:8.5, yaw:.69}, pitch:-.3},
   {name:"night", at:{x:-30, z:-6, yaw:-Math.PI*.8}, pitch:0, min:21*60 + 30}
 ].filter(v => !only.length || only.includes(v.name));
 
@@ -35,7 +35,7 @@ try {
   for (const v of V){
     await page.evaluate(v => {
       const L = window.__life;
-      if (v.min){ S.life.min = v.min; L.FLAGS.forceSky = true; }
+      if (v.min){ S.life.min = v.min; L.LIFE.min = v.min; }
       L.place({x:v.at.x, z:v.at.z, y:0, yaw:v.at.yaw}); L.P.pitch = v.pitch || 0;
       if (L.FADE){ L.FADE.v = 0; L.FADE.boot = false; }
       const f = document.getElementById("lifeFade"); if (f){ f.style.transition = "none"; f.style.opacity = "0"; }

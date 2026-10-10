@@ -34,8 +34,9 @@ const PLAY = (opts) => {
     const g = h.g, id = g.uuid, p = Q.last[id];
     if (ac.away){ Q.lent[id] = true; Q.last[id] = null; continue; }
     if (!Q.lent[id] || !g.visible){ Q.last[id] = null; continue; }
-    if (p){ const v = Math.hypot(g.position.x - p.x, g.position.z - p.z)/(30/60); if (v > Q.vmax){ Q.vmax = v; Q.who = ac.kind; } }
-    Q.last[id] = {x:g.position.x, z:g.position.z};
+    // (over the world's own frames since the last look: other steps, a rejoin's, may have come between)
+    if (p && L.frames > p.f){ const v = Math.hypot(g.position.x - p.x, g.position.z - p.z)/((L.frames - p.f)/60); if (v > Q.vmax){ Q.vmax = v; Q.who = {kind:ac.kind, homing:!!ac.homing, from:p, to:{x:g.position.x, z:g.position.z}, run:TR && TR.RUN.cur ? TR.RUN.cur.state : "none", min:window.__life.LIFE.min}; } }
+    Q.last[id] = {x:g.position.x, z:g.position.z, f:L.frames};
   }
   if (!TR || !TR.RUN.cur){ L.stepN(30); return {over:true}; }
   const run = TR.RUN.cur, T = TR.T;
