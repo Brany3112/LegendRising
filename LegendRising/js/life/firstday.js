@@ -420,10 +420,8 @@ const STEPS = [
       else tip(`<span class="oh-mouse click"></span><span>The ball takes both hands, so it won't fit in a pocket. Left click to pick it up.</span>`);
     },
     done:() => { const d = ballDrop(), b0 = OB().seen.ball0; return !!(d && b0 && !onYou("ball") && (b0.held || Math.hypot(d.x - b0.x, d.z - b0.z) >= 1)); },
-    // (the spec's second sentence, "Walk into it and you'll push it along.", waits for the ball you can push, which
-    // WP-H2 builds on ball.js (DESIGN 3.8.1) and then adds here, as its entry in DESIGN 2.4 says; said before that, it
-    // would tell you something the ball does not do)
-    end(){ hint(null); speak("You", "There. You can pick it up and move it any time."); }},
+    // (the ball is a live ball of ball.js, core/hand.js: walking into it really does push it along, DESIGN 3.8.1)
+    end(){ hint(null); speak("You", "There. You can pick it up and move it any time. Walk into it and you'll push it along."); }},
 
   {id:"H18", zone:"home", objective:() => "Have a look around your street",
     tick(){

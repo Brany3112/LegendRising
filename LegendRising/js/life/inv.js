@@ -9,7 +9,7 @@
    S.carry = {hand, slots:[a, b]}, each null or an item {id, ...data}
    S.drops = [{zone, x, y, z, ry, item}]: things lying about in the world
 
-   Owner: WP-G (Stage 1). Contracts: DESIGN 3.8.1 (the football as an item: data and the pocket rule), 3.8.5
+   Owner: WP-G (Stage 1); WP-H2 (Stage 2: the football's look and shadow for its life as a live ball). Contracts: DESIGN 3.8.1 (the football as an item: data and the pocket rule), 3.8.5
    (pockets), 3.7.4 (lifeOnb events "take", "swap", "release"; hand.js sends "throw").
    The world (core/hand.js) draws what is in your hand and throws things; this module is the state, the items' looks
    and the bar along the bottom of the screen. */
@@ -22,8 +22,9 @@ const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">
 /* ---------- the things there are ----------
    name, a small icon for the bar, how it is held (pos: in front of the eye, metres right/up/forward; rot: a tilt),
    and its model. big: carried in both arms, in front of you (a furniture box). pocket:false: hands only. twoHands:
-   held in both hands in front of you (the ball). physics: it rolls and bounces as a ball does once it is down
-   (core/hand.js; the ball's own integrator arrives with WP-H2). r: the radius it rests on */
+   held in both hands in front of you (the ball). physics: once it is down it is a live ball of football/ball.js, the
+   game's one ball integrator, rolling and bouncing round the room it is in (core/hand.js, DESIGN 3.8.1). r: the
+   radius it rests on */
 const canvasTex = (w, h, draw) => { const c = document.createElement("canvas"); c.width = w; c.height = h; draw(c.getContext("2d"), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
 export const ITEMS = {
   plate:{name:"Room number", icon:"🔢", hold:{pos:[.19, -.19, -.46], rot:[-.25, -.3, 0]}, mesh:it => plateMesh(it.text || "")},
@@ -33,7 +34,7 @@ export const ITEMS = {
   bag:{name:"Foodies bag", icon:"🛍", pocket:false, hold:{pos:[.2, -.3, -.5], rot:[0, -.2, 0]}, mesh:() => bagMesh()},
   box:{name:"Furniture box", icon:"📦", big:true, pocket:false, hold:{pos:[0, -.42, -.62], rot:[0, 0, 0]}, mesh:it => boxMesh(it.dims || [.7, .45, .5], it.label || "")},
   tool:{name:"Screwdriver", icon:"🪛", hold:{pos:[.2, -.18, -.42], rot:[.3, 0, .8]}, mesh:() => toolMesh()},
-  ball:{name:"Football", icon:"⚽", pocket:false, twoHands:true, physics:true, r:.11, hold:{pos:[0, -.36, -.5], rot:[0, 0, 0]}, mesh:() => ballMesh().mesh}
+  ball:{name:"Football", icon:"⚽", pocket:false, twoHands:true, physics:true, r:.11, hold:{pos:[0, -.36, -.5], rot:[0, 0, 0]}, mesh:() => lifeBallMesh()}
 };
 export function itemName(it){ if (!it) return ""; const d = ITEMS[it.id]; return it.name || (d ? d.name : it.id); }
 // will it go in a pocket? (bags, boxes and the ball travel in your hands)
@@ -97,9 +98,23 @@ function toolMesh(){
   g.add(part(new THREE.CylinderGeometry(.004, .004, .1, 6).translate(0, .14, 0), 0xb9bec2, {mat:{metalness:.85}}));
   return g;
 }
+/* the one ball look (pitchmesh.js ballMesh), with its soft shadow on the floor it is over rather than at ground level:
+   a ball in a flat upstairs has its shadow on that flat's floor. userData.floorY is that floor (core/hand.js keeps it
+   for a ball lying about and for the one in your hands); with none known the shadow is not drawn */
+function lifeBallMesh(){
+  const {mesh, shadow} = ballMesh();
+  if (shadow) shadow.onBeforeRender = () => {
+    const e = mesh.matrixWorld.elements, f = mesh.userData.floorY;
+    if (f == null || !Number.isFinite(f)){ shadow.matrixWorld.makeScale(1e-6, 1e-6, 1e-6); return; }
+    const h = Math.max(0, e[13] - f - .11), k = 1/(1 + h*1.6), sc = .34*k + .1;
+    shadow.matrixWorld.makeScale(sc, 1, sc).setPosition(e[12], f + .02, e[14]);
+  };
+  return mesh;
+}
 export function itemMesh(it){
   const d = ITEMS[it.id], m = d ? d.mesh(it) : new THREE.Mesh(new THREE.BoxGeometry(.1, .1, .1), lmat(0x888888));
-  m.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+  // (a ball's shadow is a flat blob drawn on the floor: it neither throws nor takes one)
+  m.traverse(o => { if (o.isMesh && o.name !== "ball-blob"){ o.castShadow = true; o.receiveShadow = true; } });
   m.userData.item = it.id;
   return m;
 }

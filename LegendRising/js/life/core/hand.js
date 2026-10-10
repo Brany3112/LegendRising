@@ -1,21 +1,29 @@
 /* ============ LIFE core: what you aim at, and what you carry ============
    Owner: WP-0A moves it here; WP-G owns it in Stage 1, WP-H2 in Stage 2. Contract: DESIGN 1.2 (hand.js), 1.4.1 (the
    targeting flag, the held item, throwing), 2.2 WP-0A (HOLD, HOLD_GRACE), 3.8.5 (hands-only things are carried in
-   both arms), 3.7.4 (lifeOnb "throw").
+   both arms), 3.7.4 (lifeOnb "throw"); WP-H2: 3.8.1 (the football is a real ball: ball.js through the life adapter).
    What you carry (inv.js): your hand and two pockets. A left click on something you can pick up (a spot of kind "pick":
    its pick() hands over the item) puts it in your hand, if your hand is free. With something in your hand, a left click
    on where it goes (a spot of kind "place" that takes it) puts it there. 1 / 2 pocket it, G throws it. What is in your
    hand is drawn in front of you, low and to the right (a big box: in both arms, in front), or in your right hand in
-   third person. */
+   third person.
+   A thing that rolls (inv.js physics: the football) is not tossed and landed like the rest: once it is down it is a
+   live ball of football/ball.js, the one ball integrator of the game, stepped in every slice of the world's frame
+   against the walls, floors, stairs, furniture and door leaves around it (the life adapter: camCast with its surface
+   normal, surfaceUnder). Walk into it and it rolls away from your feet; E kicks it; when it settles its place is
+   written into its drop (S.drops), and only then saved, so a ball is never saved in the air. */
 import {THREE, W} from "../build.js";
 import * as INV from "../inv.js";
 import {parcelStep} from "../parcels.js";
 import {LIFE, P, B, ME, RT, FLAGS, keys} from "./state.js";
 import {camCast, surfaceUnder} from "./collide.js";
-import {locked, mode} from "./modes.js";
+import {locked, mode, persist} from "./modes.js";
 import {camTop} from "./camera.js";
 import {note} from "./hud.js";
 import {parcelPut} from "./acts.js";
+import {SCHED} from "./sched.js";
+import {createBall, createBallWorld, ballStep, ballKick, BALL} from "../football/ball.js";
+import {AUD} from "../football/audio.js";
 
 const REACH = 2.5;
 const _o = new THREE.Vector3(), _d = new THREE.Vector3();
@@ -124,6 +132,8 @@ function handStep(){
   // drawn only while the view is your own (not a cinematic, a gym set's shot, build mode or a match)
   const top = camTop();
   m.visible = top === "life-fp" || top === "life-tp";
+  // (a ball's shadow, under your hands, on the floor you stand on)
+  m.userData.floorY = P.feet;
   if (ME.tpShown && ME.tp && ME.tp.g.visible){
     // third person: in the right hand, or held out in front for a box
     const h = ME.tp;
@@ -171,6 +181,14 @@ export function throwHand(){
   m.position.copy(from);
   const sp = d.big ? 1.6 : 3.4, h = Math.hypot(_d.x, _d.z) || 1;
   const v = new THREE.Vector3(_d.x/h*sp*Math.max(.35, h) + P.vx*.5, (d.big ? 1.2 : 2.0) + _d.y*2, _d.z/h*sp*Math.max(.35, h) + P.vz*.5);
+  if (d.physics){
+    // a ball: down at once as a live ball leaving your hands with the same toss. Its drop is written where you stand
+    // until it settles (and then where it settled), so a save while it is in the air never keeps it there
+    const dd = {zone:LIFE.zone, x:+from.x.toFixed(3), y:+(P.feet + BALL.R).toFixed(3), z:+from.z.toFixed(3), ry:0, item:it};
+    INV.addDrop(dd);
+    const live = dropSpot(dd, m, from);
+    if (live) ballKick(live.b, v, null, {kind:"throw"});
+  } else
   FLY.push({it, m, v, spin:new THREE.Vector3((Math.random() - .5)*8, (Math.random() - .5)*6, (Math.random() - .5)*8), r:d.r || (d.big ? .3 : .06), zone:LIFE.zone, t:0, still:0});
   note(`${INV.itemName(it)} put down. Left click it to pick it back up.`);
   if (typeof window.lifeOnb === "function") window.lifeOnb("throw", {id:it.id, item:it});
@@ -224,15 +242,128 @@ function flyLand(f){
   INV.addDrop(d);
   dropSpot(d, f.m);
 }
-// a zone left while something is still in the air: it lands where it is
-export function flyEnd(){ for (const f of FLY.slice()){ f.m.position.y = Math.max(0, f.m.position.y); flyLand(f); } }
-export function dropSpot(d, m){
+// a zone left while something is still in the air: it lands where it is (and a ball still rolling stops where it is)
+export function flyEnd(){ for (const f of FLY.slice()){ f.m.position.y = Math.max(0, f.m.position.y); flyLand(f); } ballsEnd(); }
+/* something lying in this zone, to be picked up: d its drop (S.drops), m its mesh. A thing that rolls (the football)
+   is a live ball from here on, starting at `at` (a point, where it leaves your hands or comes in through the window)
+   or where its drop says; returns that live ball ({d, m, b}) */
+export function dropSpot(d, m, at = null){
   m.position.set(d.x, d.y, d.z); m.rotation.set(d.rx || 0, d.ry || 0, 0);
   if (!m.parent) RT.scene.add(m);
-  const bb = new THREE.Box3();
-  W.spots.push({kind:"pick", drop:d, label:INV.itemName(d.item), get hint(){ return d.item.unpaid ? "Not paid for · left click to pick it up" : "Left click to pick it up"; },
-    aim:() => { bb.setFromObject(m); bb.expandByScalar(.06); return [bb.min.toArray(), bb.max.toArray()]; },
-    pick(){ W.spots = W.spots.filter(x => x.drop !== d); INV.removeDrop(d); if (m.parent) m.parent.remove(m); return d.item; }});
+  const def = INV.ITEMS[d.item.id] || {}, live = def.physics ? ballLive(d, m, at) : null;
+  const bb = new THREE.Box3(), box = [[0, 0, 0], [0, 0, 0]];
+  W.spots.push({kind:"pick", drop:d, label:INV.itemName(d.item),
+    get hint(){ return d.item.unpaid ? "Not paid for · left click to pick it up" : live ? "Left click to pick it up · E to kick it" : "Left click to pick it up"; },
+    // (a ball's box is the ball where it is now: its mesh carries a shadow drawn on the floor, not a part of it)
+    aim:live ? () => { const p = live.b.p, r = BALL.R + .06; box[0][0] = p.x - r; box[0][1] = p.y - r; box[0][2] = p.z - r; box[1][0] = p.x + r; box[1][1] = p.y + r; box[1][2] = p.z + r; return box; }
+      : () => { bb.setFromObject(m); bb.expandByScalar(.06); return [bb.min.toArray(), bb.max.toArray()]; },
+    run:live ? () => ballKickFoot(live) : undefined,
+    pick(){ W.spots = W.spots.filter(x => x.drop !== d); INV.removeDrop(d); if (m.parent) m.parent.remove(m); if (live) ballGone(live); return d.item; }});
+  return live;
 }
 // the things lying about in this zone, put back where they were
 export function spawnDrops(){ for (const d of INV.dropsOf(LIFE.zone)) dropSpot(d, INV.itemMesh(d.item)); }
+
+/* ---------- the football: a live ball (DESIGN 3.8.1) ----------
+   One ball world for life (no pitch: the walls, floors and furniture of wherever you are, through the life adapter),
+   and a live ball for each football lying in this zone: BALLS = [{d: its drop, m: its mesh, b: its Ball}] */
+export const LIFE_BALL = Object.freeze({
+  PUSH_R:.26 + .11 + .04,     // walk-dribble: within this of you, flat (your half-width, the ball's radius and a little)
+  PUSH_UP:.35,                // and its underside less than this above your feet
+  PUSH_K:1.15, PUSH_ADD:.25,  // its speed along the contact at least PUSH_K times yours plus PUSH_ADD
+  KICK_V:4.5, KICK_VY:1.2,    // E: struck along the way you face, where it lies
+  KICK_REACH:1.1              // no further than this from your feet
+});
+const BALLS = [];
+export const balls = () => BALLS;
+const SOLIDS = {
+  cast:(ox, oy, oz, dx, dy, dz, len, out) => camCast(ox, oy, oz, dx, dy, dz, len, null, out),
+  floor:(x, y, z) => surfaceUnder(x, y, z)
+};
+let BW = null;
+const ballWorld = () => BW || (BW = createBallWorld({solids:SOLIDS, onEvent:ballEvent}));
+function ballLive(d, m, at){
+  const p = at || d, b = createBall({x:+p.x, y:Math.max(+p.y, BALL.R), z:+p.z});
+  // (resting where its drop says, on the floor under it: asleep until something reaches it; let go from somewhere: awake)
+  if (!at){
+    const f = surfaceUnder(b.p.x, b.p.y - BALL.R, b.p.z);
+    if (f != null){ b.p.y = f + BALL.R; b.floor = f; }
+    b.sleep = true; b.still = 1;
+  }
+  const e = {d, m, b};
+  m.position.set(b.p.x, b.p.y, b.p.z);
+  BALLS.push(e);
+  return e;
+}
+function ballGone(e){ const i = BALLS.indexOf(e); if (i >= 0) BALLS.splice(i, 1); }
+// its sounds: a thud off the floor or a wall, louder the harder it hits and the nearer you are
+function ballEvent(type, ev){
+  if (type !== "bounce" && type !== "wall") return;
+  const sp = type === "bounce" ? ev.vy : ev.speed;
+  if (!(sp > 1.2)) return;
+  const near = 1/(1 + .25*Math.hypot(ev.x - P.x, ev.y - P.eye, ev.z - P.z));
+  try { AUD.cue("bounce", null, Math.min(1, .12*sp)*near); } catch(e){}
+}
+// E on a ball lying near you: a kick along the way you face
+function ballKickFoot(e){
+  const b = e.b, d = Math.hypot(b.p.x - P.x, b.p.z - P.z, Math.max(0, b.p.y - BALL.R - P.feet));
+  if (d > LIFE_BALL.KICK_REACH){ note("Get closer to kick it."); return; }
+  const dx = -Math.sin(P.yaw), dz = -Math.cos(P.yaw);
+  ballKick(b, {x:dx*LIFE_BALL.KICK_V, y:LIFE_BALL.KICK_VY, z:dz*LIFE_BALL.KICK_V}, null, {kind:"kick"});
+  try { AUD.init(); AUD.cue("kick", null, .5); } catch(err){}
+  if (typeof window.lifeOnb === "function") window.lifeOnb("ballKick", {zone:e.d.zone});
+}
+// walking into it: it is pushed off your feet along the line between you, a little faster than you were going
+function ballPush(b){
+  const dx = b.p.x - P.x, dz = b.p.z - P.z, dd = dx*dx + dz*dz, R2 = LIFE_BALL.PUSH_R*LIFE_BALL.PUSH_R;
+  if (dd > R2 || dd < 1e-8) return;
+  const up = b.p.y - BALL.R - P.feet;
+  if (up > LIFE_BALL.PUSH_UP || up < -.3) return;
+  const d = Math.sqrt(dd), nx = dx/d, nz = dz/d, vn = P.vx*nx + P.vz*nz;
+  if (vn <= .05) return;
+  const want = LIFE_BALL.PUSH_K*vn + LIFE_BALL.PUSH_ADD, bn = b.v.x*nx + b.v.z*nz;
+  if (bn >= want) return;
+  const add = want - bn;
+  ballKick(b, {x:b.v.x + nx*add, y:b.v.y, z:b.v.z + nz*add}, b.w, {kind:"push"});
+}
+const _ax = new THREE.Vector3(), _bq = new THREE.Quaternion();
+// every slice of the world's frame, after your own movement (world.js step: SCHED.slice)
+function ballsStep(h){
+  if (!BALLS.length || !(h > 0)) return;
+  const bw = ballWorld(), you = mode() === "life" && !locked();
+  for (let i = 0; i < BALLS.length; i++){
+    const e = BALLS[i], b = e.b;
+    if (e.d.zone !== LIFE.zone) continue;
+    if (you) ballPush(b);
+    const slept = b.sleep;
+    ballStep(b, bw, h);
+    e.m.position.set(b.p.x, b.p.y, b.p.z);
+    // rolling: the spin it really has, turned through this slice
+    const w = Math.hypot(b.w.x, b.w.y, b.w.z);
+    if (w > 1e-4){ _ax.set(b.w.x/w, b.w.y/w, b.w.z/w); _bq.setFromAxisAngle(_ax, w*h); e.m.quaternion.premultiply(_bq); }
+    e.m.userData.floorY = b.floor != null ? b.floor : (surfaceUnder(b.p.x, b.p.y - BALL.R, b.p.z) ?? P.feet);
+    if (b.sleep && !slept) ballRest(e);
+  }
+}
+// at rest: where it lies is written into its drop, and saved at the next quiet moment
+function ballRest(e){
+  const b = e.b, d = e.d;
+  if (!(G_().drops || []).includes(d)) return;
+  d.x = +b.p.x.toFixed(3); d.y = +b.p.y.toFixed(3); d.z = +b.p.z.toFixed(3);
+  persist();
+  if (typeof window.lifeOnb === "function") window.lifeOnb("ballRest", {zone:d.zone, x:d.x, z:d.z});
+}
+const G_ = () => (typeof S !== "undefined" && S ? S : {});
+// leaving the zone: a ball still rolling stops where it is, on the floor under it
+function ballsEnd(){
+  for (const e of BALLS){
+    const b = e.b, f = b.floor != null ? b.floor : surfaceUnder(b.p.x, b.p.y - BALL.R, b.p.z);
+    b.p.y = (f != null ? f : Math.max(0, b.p.y - BALL.R)) + BALL.R;
+    b.v.x = b.v.y = b.v.z = 0; b.sleep = true;
+    ballRest(e);
+  }
+  BALLS.length = 0;
+}
+SCHED.task({id:"balls", kind:"keep", slice:true, run:ballsStep});
+// tests (DESIGN 1.4.20 style): the live balls and their world
+if (typeof window !== "undefined") window.__balls = {list:BALLS, LIFE_BALL, kick:e => ballKickFoot(e), get world(){ return ballWorld(); }};

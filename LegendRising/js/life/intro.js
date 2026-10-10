@@ -23,6 +23,7 @@ import {pieceOf} from "./furniture.js";
 import {human, animateHuman, lookFor} from "./human.js";
 import * as INV from "./inv.js";
 import {dropSpot} from "./core/hand.js";
+import {ballKick} from "./football/ball.js";
 import {FADE} from "./core/state.js";
 import {bootPlan, revealAfterFrames} from "./core/modes.js";
 import {fdInit, fdStart, fdZone, fdTick, goal, hint, OB} from "./firstday.js";
@@ -223,9 +224,12 @@ function smash(fx = true){
       if (b.t > 2.2 || b.m.position.y < 0){ sc.remove(b.m); b.m.geometry.dispose(); } }
   });
 }
-// the football from a kid's boot in the street: a long arc into the pane, and in onto the floor of your flat, where
-// it is a real thing from then on (inv.js ballDrop: lying in your flat, to be picked up and moved)
+// the football from a kid's boot in the street: a long arc into the pane, and through it into your flat, where it is
+// a real ball from then on (inv.js ballDrop and core/hand.js dropSpot: a live ball of football/ball.js, bouncing in
+// off the floor and rolling to rest wherever the room lets it, to be picked up, carried, put down and kicked)
 const KICK = {on:null};
+// (into the flat: from just inside the glass, toward where the old film had it stop, DESIGN 3.8.1 "Seeding")
+const KICK_IN = {inside:.15, t:.55, vy:1.5};
 function kick(){
   const w = myWindow(), b = INV.itemMesh({id:"ball"}); H.scene().add(b);
   const p0 = V(15, .3, 12.4), p1 = V(w.x - .12, w.y - .1, w.z - w.out*.05), r = ballRestAt(), p2 = V(r.x, r.y, r.z);
@@ -239,13 +243,24 @@ function kickStep(d){
     const u = Math.min(1, k.t/1.05);
     k.b.position.lerpVectors(k.p0, k.p1, u); k.b.position.y += Math.sin(u*Math.PI)*3.2;
     k.b.rotation.x -= d*14; k.b.rotation.y += d*6;
-    if (u >= 1){ k.hit = true; k.t = 0; smash(true); H.shake(.05, .3); k.res(); if (k.given){ H.scene().remove(k.b); KICK.on = null; } }
-  } else {
-    const u = Math.min(1, k.t/.55);
-    k.b.position.lerpVectors(k.p1, k.p2, u); k.b.position.y += Math.sin(u*Math.PI)*.35*(1 - u);
-    k.b.rotation.x -= d*8*(1 - u);
-    if (u >= 1){ KICK.on = null; ballRest(k.b); }
+    if (u >= 1){
+      k.hit = true; k.t = 0; smash(true); H.shake(.05, .3); k.res();
+      KICK.on = null;
+      if (k.given) H.scene().remove(k.b);
+      else ballIn(k);
+    }
   }
+}
+// through the glass: the drop is written where the ball will come to rest (so a save in the meantime never keeps it in
+// the air), and the ball itself carries on from just inside the window, on the one ball integrator
+function ballIn(k){
+  const h = G().home, w = myWindow();
+  if (h.ballGiven){ if (k.b.parent) k.b.parent.remove(k.b); return; }
+  const r = ballRestAt(), d = INV.ballDrop("home", r.x, r.y, r.z);
+  if (!d || H.zone() !== "home"){ if (k.b.parent) k.b.parent.remove(k.b); return; }
+  const at = {x:k.p1.x, y:k.p1.y, z:k.p1.z - w.out*KICK_IN.inside};
+  const live = dropSpot(d, k.b, at);
+  if (live) ballKick(live.b, {x:(k.p2.x - k.p1.x)/KICK_IN.t, y:KICK_IN.vy, z:(k.p2.z - k.p1.z)/KICK_IN.t}, null, {kind:"intro"});
 }
 // the ball lies where it stopped: a drop in your flat (once: a career that has its ball keeps that one)
 function ballRest(mesh = null){
@@ -470,5 +485,8 @@ window.lifeOnboard = {
   abort:() => abort(),
   // for tests: play the film again, skip it, and what state the first day is in
   intro:() => intro(), skip:() => skipNow(), playing:() => INTRO.on,
+  // the ball through the window exactly as the film's third shot lets it in (from the moment the glass goes), with the
+  // world stepped by hand: the live ball it leaves in your flat (qa/wpH2-ball.mjs: it rolls to rest without a pop)
+  ballThrough:() => { const w = myWindow(), r = ballRestAt(); ballIn({b:INV.itemMesh({id:"ball"}), p1:V(w.x - .12, w.y - .1, w.z - w.out*.05), p2:V(r.x, r.y, r.z)}); },
   state:() => ({flags:Object.assign({}, (G() && G().flags) || {}), onb:JSON.parse(JSON.stringify((G() && G().onb) || {})), clock:CLK.t})
 };
