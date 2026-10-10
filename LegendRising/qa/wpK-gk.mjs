@@ -200,7 +200,7 @@ try {
       let k2 = 0;
       while (ended == null && k2++ < 120){ const ev = H.animateHuman(h, 1/60, {mode: "gkdive", plan, at: (at += 1/60), outcome: "catch"}); if (ev.mask & 64) ended = ev.t; const j = K.boneJump(h, prevQ); if (j.m > maxJ){ maxJ = j.m; jAt = [+at.toFixed(3), j.at]; } prevQ = K.boneQ(h); }
       res.getUp.push(TT.up);
-      if (ended != null) res.getUpMeasured = (res.getUpMeasured || []).concat([+(ended - TT.upAt).toFixed(3)]);
+      if (ended != null) res.getUpMeasured = (res.getUpMeasured || []).concat([+(ended - TT.upAt).toFixed(6)]);   // (rounded only for the report: the check is on the frame-exact value)
       let bj = 0;
       for (let k = 0; k < 24; k++){ H.animateHuman(h, 1/60, {mode: "gkready"}); const j = K.boneJump(h, prevQ); bj = Math.max(bj, j.m); prevQ = K.boneQ(h); }
       res.blendJump = Math.max(res.blendJump, bj);

@@ -130,10 +130,10 @@ async function flowInPage(){
   const rec = B.checkpoint(ms);
   out.checkpoint = rec ? Object.keys(rec) : null;
   out.persist = !!(S.life && S.life.inMatch && S.life.inMatch.fkey === f.key);
-  // a level-up during the match: the career's own skill XP
-  const pace0 = S.skills.pace;
-  skillXP("pace", skillNeed("pace") + 1);
-  out.levelled = S.skills.pace === pace0 + 1;
+  // a level-up during the match: the career's own skill XP (Acceleration: pace was split in two by addendum A1.1)
+  const acc0 = S.skills.acceleration;
+  skillXP("acceleration", skillNeed("acceleration") + 1);
+  out.levelled = S.skills.acceleration === acc0 + 1;
   Sim.runHeadless(ms);
   // an own goal is credited s = -1 (1.4.16 goalLists): career.js newsFromMatch skips it (the P1a hook), so full time
   // goes through whatever the score
@@ -145,7 +145,7 @@ async function flowInPage(){
   try { const n0 = (S.news || []).length; newsFromMatch({f: Object.assign({}, f, {kind: "E"}), hg: 1, ag: 0, hG: [{s: -1, a: -1}], aG: [], rt: {}, motm: -1}); out.ogNews = {ok: true, added: (S.news || []).length - n0}; }
   catch(e){ out.ogNews = {ok: false, err: String(e)}; }
   off();
-  out.afterFinish = {pace: S.skills.pace, want: pace0 + 1};
+  out.afterFinish = {acceleration: S.skills.acceleration, want: acc0 + 1};
   out.done = !!W.done[f.key];
   out.inMatchCleared = !(S.life && "inMatch" in S.life);
   out.rating = fin.rating; out.R = fin.R ? {xp: fin.R.xp, trustD: fin.R.trustD, mins: fin.R.mins, fatigue: fin.R.fatigue} : null;
@@ -198,7 +198,7 @@ async function hashInPage(cfgJSON){
   check(flow.cfg && flow.cfg.sides.every(n => n === 11), "the configuration from a real fixture: two sides of eleven", flow.cfg);
   check(flow.mirror.minute >= 19 && flow.mirror.score.join() === (flow.mirror.home ? flow.mirror.simScore : flow.mirror.simScore.slice().reverse()).join(), "liveMirror keeps MT's minute and score with the simulation", flow.mirror);
   check(flow.checkpoint && flow.persist, "bridge.checkpoint writes S.life.inMatch for the fixture", flow.checkpoint);
-  check(flow.levelled && flow.afterFinish.pace === flow.afterFinish.want, "a level-up during the match (skillXP) is still there after bridge.finish", flow.afterFinish);
+  check(flow.levelled && flow.afterFinish.acceleration === flow.afterFinish.want, "a level-up during the match (skillXP) is still there after bridge.finish", flow.afterFinish);
   check(flow.done && flow.inMatchCleared && flow.mt.label === "FT" && flow.R && flow.R.xp > 0, "full time: the world has the result, the checkpoint is cleared, MT is at full time, matchRewards gave XP", {done: flow.done, cleared: flow.inMatchCleared, R: flow.R});
   // (a starter: on from 0', and 90 minutes unless he was sent off or went off injured, when MT.on ends where he left)
   const onMins = flow.mt.on ? Math.min(90, flow.mt.on.reduce((m, iv) => m + iv[1] - iv[0], 0)) : -1;

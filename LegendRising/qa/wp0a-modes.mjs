@@ -151,7 +151,8 @@ try {
     return out;
   });
   check("drill: mode drill with the clock its own, saves deferred, no third person, paused on unlock", dr.mode === "drill" && dr.drill && dr.flags.clock === "own" && dr.flags.saves === "defer" && dr.flags.tp === false && dr.flags.pauseOnUnlock === true, {mode: dr.mode, flags: dr.flags});
-  check("drill: nothing is aimed at, your eyes own the camera (no shot of its own)", dr.held === null && dr.top === "life-fp", {held: dr.held, top: dr.top});
+  // (a gym set has its own shot, so the mode pushes drill-view over your eyes: acts.js registerMode("drill"))
+  check("drill: nothing is aimed at, the set's own shot owns the camera", dr.held === null && dr.top === "drill-view", {held: dr.held, top: dr.top});
   check("drill: Escape gives it up and you are back in life", dr.after.mode === "life" && !dr.after.drill, dr.after);
   check("drill: a zone change ends it", dr.again === "drill" && dr.afterZone.mode === "life" && !dr.afterZone.drill && dr.afterZone.drillY === 0, dr.afterZone);
 
