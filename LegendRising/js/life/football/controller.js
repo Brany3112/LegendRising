@@ -105,8 +105,10 @@ function capture(e){
   if (mode() !== "match") return;
   if (e.type === "keydown" || e.type === "keyup"){
     const k = (e.key || "").toLowerCase();
-    MOD.on = !!(e.ctrlKey || e.altKey || e.metaKey);
     if (KEYSET.has(k) || k === "tab") e.preventDefault();
+    // (a key with a modifier held: only its default is stopped; control.js ignores it while MOD.on)
+    MOD.on = false;
+    if (e.ctrlKey || e.altKey || e.metaKey) return void (MOD.on = true);
     if (e.type === "keydown" && k === "tab" && !e.repeat){ FS.tabHeld = true; hudTab(true); }
     if (e.type === "keyup" && k === "tab"){ FS.tabHeld = false; hudTab(false); }
     return;
@@ -484,7 +486,8 @@ function oneStep(){
   if (me) controlStep(ms, me, H, {traits: FS.cfg.me ? FS.cfg.me.traits : {}});
   else CTRL.queue.length = 0;
   simStep(ms, H);
-  rec(ms);
+  // (nothing is recorded for the replays while the match is played headless: nobody is watching it)
+  if (!FS.headless) rec(ms);
   if (FS.testDriver) FS.testDriver();
 }
 const _mv = {x: 0, z: 0};
@@ -637,7 +640,7 @@ function proj(x, y, z){
   const cam = RT.cam, cv = RT.renderer && RT.renderer.domElement;
   _pv.set(x, y, z).project(cam);
   const w = cv ? cv.clientWidth : innerWidth, h = cv ? cv.clientHeight : innerHeight;
-  return {x: (_pv.x + 1)/2*w, y: (1 - _pv.y)/2*h, on: _pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1};
+  return {x: (_pv.x + 1)/2*w, y: (1 - _pv.y)/2*h, on: _pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1, front: _pv.z < 1};
 }
 const HUDS = {ms: null, me: null, ctrl: CTRL, dt: 0, B: 100, cap: 100, energy: 100, hints: null, proj, w: 0, h: 0, yaw: 0, cam: {x: 0, z: 0}, offPip: null,
   cards: 0, sweet: null, tick: null, glyph: "", ringAt: RING_T, offX: null};
@@ -784,15 +787,18 @@ function skipHTML(){
 function skipFrame(){
   const ms = FS.ms, S0 = FS.skipping; if (!S0) return;
   FS.headless = true;
-  // at most 12 ms of simulation a frame (the clock read after every step: the last one can only run over by itself)
+  // at most 12 ms of simulation a frame: the clock is read after every step, and a step is only started when the
+  // dearest step seen lately (FS.stepPeak, easing down 0.5% a step) still fits in what is left of the budget
   const t0 = performance.now();
-  let steps = 0;
+  let steps = 0, last = t0;
   while (ms.phase !== "over"){
     oneStep(); steps++;
+    const now = performance.now();
+    const dtS = now - last; FS.stepPeak = Math.max((FS.stepPeak || 0)*.995, dtS); last = now;
     if (S0.kind === "call" && ms.callUp) break;
     if (S0.kind === "late" && matchSec(ms) >= S0.until) break;
     if (ms.phase === "halftime"){ if (S0.kind === "late" || FS.state === "lateRun"){ secondHalf(ms); } else break; }
-    if (performance.now() - t0 >= DAY.SKIP_MS) break;
+    if (now - t0 + FS.stepPeak >= DAY.SKIP_MS) break;
   }
   FS.skipMs = performance.now() - t0; FS.skipSteps = steps;
   FS.stepCost = steps ? FS.skipMs/steps : 0;

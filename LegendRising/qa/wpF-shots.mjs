@@ -28,7 +28,8 @@ let ok = false;
 try {
   const s0 = await T.toKickoff();
   console.log("state", s0.state);
-  await T.page.evaluate(() => { const F = window.__fp; for (const k of ["w", "shift"]) F.input({type: "keyup", key: k}); });
+  // (you look up the pitch, towards the goal you attack, as you would before the whistle)
+  await T.page.evaluate(() => { const F = window.__fp, L = window.__life, ms = F.ms, me = F.me(); for (const k of ["w", "shift"]) F.input({type: "keyup", key: k}); if (me){ L.P.yaw = ms.dirs[me.team] > 0 ? -Math.PI/2 : Math.PI/2; L.P.pitch = -.06; } L.stepN(2); });
   await snap("kickoff");
 
   // the ball at your feet in your own half, running at the defence

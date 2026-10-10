@@ -16,7 +16,7 @@ import {dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {canStrike, predAt, VOLLEY} from "./actions.js";
 import {passModel, callFor} from "./brain.js";
 import {restartReady} from "./rules.js";
-import {idealPassSpeed} from "./strike.js";
+import {rollSpeedFor} from "./ball.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const DEG = Math.PI/180;
@@ -229,7 +229,7 @@ function leadPoint(ms, me, o, aimx, aimz, out){
   const ux = o.m.vx/v, uz = o.m.vz/v, sp = Math.max(v, o.prm.run);
   let tx = aimx, tz = aimz;
   for (let i = 0; i < 5; i++){
-    const d = Math.hypot(tx - b.p.x, tz - b.p.z), v0 = idealPassSpeed(Math.max(1, d), 8, roll), tb = Math.min(3, (v0 - 8)/roll + .25);
+    const d = Math.hypot(tx - b.p.x, tz - b.p.z), v0 = rollSpeedFor(Math.max(1, d), 8, roll, 1 - .0045*clamp(me.at.aero || 0, 0, 99)), tb = Math.min(3, (v0 - 8)/roll + .25);
     // (damped: a runner as quick as the ball would chase the point off the pitch)
     tx = .5*tx + .5*(o.m.x + ux*sp*tb); tz = .5*tz + .5*(o.m.z + uz*sp*tb);
   }
@@ -504,12 +504,15 @@ function strike(ms, me, what, held, opts){
   const d = Math.hypot(tp.x - b.p.x, tp.z - b.p.z), roll = b.rollDecel || 1.1;
   const vmax = 22 + .06*(at.passing || 50);
   const through = CTRL.target.through && o;
-  const ideal = idealPassSpeed(Math.max(1, d), through ? 8 : 9, roll);
+  // (the ball you strike carries your Clean strike: ball.js ballKick sets its drag to 1 - 0.0045 aero, so it rolls
+  // further than a default ball, and the weight is worked out for that ball)
+  const dm = 1 - .0045*clamp(at.aero || 0, 0, 99);
+  const ideal = rollSpeedFor(Math.max(1, d), through ? 8 : 9, roll, dm);
   // a tap is weighted for you: its error is in what it arrives at, 9 m/s give or take with your Passing, held within 8
   // to 10 (1.5.3), not a share of the launch, which over 40 m would arrive anywhere
   const zA = Math.sqrt(-2*Math.log(Math.max(1e-9, ms.r())))*Math.cos(2*Math.PI*ms.r());
   const arrive = clamp((through ? 8 : 9) + zA*.6*(1 - (at.passing || 50)/120), through ? 7.5 : 8, through ? 9.5 : 10);
-  let speed = idealPassSpeed(Math.max(1, d), arrive, roll), charged = false, sweet = false;
+  let speed = rollSpeedFor(Math.max(1, d), arrive, roll, dm), charged = false, sweet = false;
   if (held >= CN.TAP){
     const c = Math.min(1, held/CN.PASS_FULL), cIdeal = clamp((ideal - CN.PASS_MIN)/(vmax - CN.PASS_MIN), 0, 1), w = .10 + .25*(at.passing || 50)/100;
     charged = true;

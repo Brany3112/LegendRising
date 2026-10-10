@@ -45,7 +45,7 @@ export function createMover({x = 0, z = 0, yaw = 0} = {}){
 // at 0.8 of the target, a0 9, brake and plant 12, aLat 14, turn rate at most 12, sprint with forward input over 0.5.
 // LIFE has no jog: a jog intent runs.
 // Stats you can feel (addendum A1.1, WP-F): pace is two skills. sprintSpeed (else pace) sets the top speeds as pace did
-// (about 7.7 m/s at 40 to 9.4 at 99); acceleration (else pace) sets how steep the approach to them is, a0 times
+// (about 7.2 m/s at 40, the old line from 50 up, 9.4 at 99); acceleration (else pace) sets how steep the approach is, a0 times
 // accelMul: 1 at 50 (so the WP-0D bands for one pace value hold: pace 50 reaches 95% in 2.3 to 2.7 s), 1.18 at 99 (90%
 // of top speed in about 1.7 s; pace 99 still runs 30 m in 3.95 to 4.3 s), 0.8 at 40 and 0.62 at 30 (about 3 s), never
 // under 0.55. agility (else (acceleration + dribbling)/2) sets the turn: aLat 7.5 + 0.05 (agility - 50) and the plant

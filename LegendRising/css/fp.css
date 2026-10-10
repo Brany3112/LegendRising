@@ -165,4 +165,7 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 
 @keyframes fpIn{from{opacity:0;transform:translateY(-8px) scale(.94)}to{opacity:1;transform:none}}
 @keyframes fpBeat{0%,100%{transform:scaleY(1)}12%{transform:scaleY(1.7)}24%{transform:scaleY(1)}36%{transform:scaleY(1.45)}}
+/* the full-time card's scorers: the home side's on the left, the away side's on the right (match.js ftCardHTML) */
+.fp-overlay .ft-scorers{display:flex;justify-content:space-between;gap:16px}
+.fp-overlay .ft-scorers span:last-child{text-align:right}
 @media (prefers-reduced-motion:reduce){.fp-bug,.fp-card,.fp-box{animation:none !important;transition:none !important}}

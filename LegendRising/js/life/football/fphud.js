@@ -116,7 +116,7 @@ export function hudNotice(kind, text, sub = ""){
   n.className = `fp-card fp-k-${kind}`;
   n.innerHTML = `<b>${esc(text)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}`;
   D.el.cards.appendChild(n);
-  requestAnimationFrame(() => n.classList.add("in"));
+  void n.offsetWidth; n.classList.add("in");        // (a reflow, then the class: the transition runs without waiting a frame)
   D.cards.push({n, until:performance.now() + (kind === "goal" ? 5000 : 3500)});
   while (D.cards.length > 2){ const o = D.cards.shift(); o.n.remove(); }
 }
@@ -239,14 +239,17 @@ function callsFrame(s, now){
     if (!c.el){ c.el = document.createElement("div"); c.el.className = "fp-call"; c.el.innerHTML = `<b>${esc(c.name)}</b><i></i>`; E.calls.appendChild(c.el); }
     const p = s.proj ? s.proj(a.m.x, 2.15*(a.scale || 1), a.m.z) : null;
     if (p && p.on){ c.el.classList.remove("edge"); c.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`; }
-    else edgePlace(c.el, s, a.m.x, a.m.z, "edge");
+    else edgePlace(c.el, s, a.m.x, a.m.z, "edge", p);
     c.el.style.opacity = Math.min(.6, (c.until - now)/400).toFixed(2);
   }
 }
-// an element at the screen's edge on the bearing of a point (x, z), rotated to point at it
-function edgePlace(el, s, x, z, cls){
-  const b = wrapA(yawOf(x - s.cam.x, z - s.cam.z) - s.yaw);       // 0 ahead, + to the left
-  const w = s.w, h = s.h, cx = w/2, cy = h/2, dx = -Math.sin(b), dy = -Math.cos(b);
+// an element at the screen's edge on the bearing of a point (x, z), rotated to point at it; a point in front of you but
+// out of the view (the ball at your feet under a raised look) goes where its projection is, at the bottom or the top
+function edgePlace(el, s, x, z, cls, p = null){
+  let b = wrapA(yawOf(x - s.cam.x, z - s.cam.z) - s.yaw);         // 0 ahead, + to the left
+  const w = s.w, h = s.h, cx = w/2, cy = h/2;
+  if (p && p.front){ const qx = p.x - cx, qy = p.y - cy; if (Math.abs(qx) + Math.abs(qy) > 1) b = Math.atan2(-qx, -qy); }
+  const dx = -Math.sin(b), dy = -Math.cos(b);
   const k = Math.min(Math.abs((cx - 28)/(dx || 1e-6)), Math.abs((cy - 28)/(dy || 1e-6)));
   el.classList.add(cls);
   el.style.transform = `translate(${(cx + dx*k).toFixed(1)}px, ${(cy + dy*k).toFixed(1)}px) rotate(${(-b).toFixed(3)}rad)`;
@@ -257,7 +260,7 @@ function ballMark(s){
   const p = s.proj ? s.proj(b.x, b.y, b.z) : null;
   if (!s.me || !p || p.on || d > 30 || s.ms.ball.state === "held"){ if (D.txt.ball !== 0){ D.txt.ball = 0; E.ball.style.opacity = "0"; } return; }
   D.txt.ball = 1;
-  edgePlace(E.ball, s, b.x, b.z, "edge");
+  edgePlace(E.ball, s, b.x, b.z, "edge", p);
   E.ball.style.opacity = (.35 + .55*(1 - d/30)).toFixed(2);
 }
 // the top-down radar: dots, the ball and the offside line, a small corner one or the 40% overview
