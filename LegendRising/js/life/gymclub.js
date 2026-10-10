@@ -1,5 +1,5 @@
 /* ============ LIFE: gyms ============
-   Gym equipment comes in six tiers (game: GYM_XP — a set on tier-1 kit is worth 60% of what it is on tier-4 kit, on
+   Gym equipment comes in six tiers (game: GYM_XP; a set on tier-1 kit is worth 60% of what it is on tier-4 kit, on
    elite kit 130%): from a rusting rack with a taped-up bench and a treadmill with a cracked screen, through plain
    honest kit, to chrome, leather and a wooden lifting platform. The look is the tier: rust and tape and worn rubber
    at the bottom, polish at the top.

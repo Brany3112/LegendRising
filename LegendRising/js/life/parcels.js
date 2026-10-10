@@ -7,16 +7,19 @@
 
    Owner: WP-G (Stage 1), WP-I (Stage 2). Contracts: DESIGN 3.8.5 (bags travel in your hands; any bag on you, a
    pocketed one from an older save too, goes in at a fridge), 3.8.7 (the delivery point is on the compass while a bag
-   waits there: a W.places entry of kind "deliv" with a when()), 1.3 (S.inv changes here only in parcelStep). */
+   waits there: a W.places entry of kind "deliv" with a when(); at the training centre the point is the staff counter
+   in the clubhouse lobby; a bag never appears in front of you: parcelArrived waits until the point is out of view),
+   1.3 (S.inv changes here only in parcelStep). */
 import {THREE, W, spot} from "./build.js";
 import {itemMesh, bagsOnYou, removeItem} from "./inv.js";
+import {VIEW} from "./human.js";
 
 const G = () => (typeof S !== "undefined" ? S : null);
 let POINT = null;              // this zone's delivery point: {zone, name, slots:[[x, y, z, ry]], shown:[]}
 const what = items => Object.entries(items || {}).filter(([k, n]) => n > 0).map(([k, n]) => `${n}× ${typeof FOOD === "object" && FOOD[k] ? FOOD[k].name : k}`).join(", ");
 export const parcelText = what;
 // what each delivery point is called, everywhere it is mentioned (the chips, the Foodies app, the first day)
-export const POINT_NAME = {home:"the delivery table in your lobby", ground:"the delivery shelf inside the gym door"};
+export const POINT_NAME = {home:"the delivery table in your lobby", ground:"the staff delivery counter in the clubhouse"};
 export function pointName(at){ return POINT_NAME[at === "ground" ? "ground" : "home"]; }
 window.lifePointName = pointName;
 const waitingAt = zone => { const s = G(); return !!s && (s.parcels || []).some(p => p.at === zone); };
@@ -31,7 +34,31 @@ export function deliveryPoint(zone, name, slots){
   }
   refreshParcels();
 }
-export function resetParcels(){ POINT = null; }
+export function resetParcels(){ POINT = null; if (WAIT.t){ clearInterval(WAIT.t); WAIT.t = null; } }
+/* a bag delivered to the place you are in (acts.js onDaily). The courier comes while you are not looking: when the
+   point is within 10 m of you and in front of you, the bag is put there only once it is out of your view (looked at
+   again every half second), so it never pops into being in front of you (DESIGN 3.8.7) */
+const WAIT = {t:null};
+const POP_NEAR = 10, POP_COS = .45;
+function pointSeen(){
+  if (!POINT || !POINT.slots || !POINT.slots.length) return false;
+  const n = POINT.slots.length, x = POINT.slots.reduce((a, q) => a + q[0], 0)/n, z = POINT.slots.reduce((a, q) => a + q[2], 0)/n;
+  const vx = VIEW.cx ?? VIEW.x, vz = VIEW.cz ?? VIEW.z;
+  if (vx == null || vz == null) return false;
+  const dx = x - vx, dz = z - vz, d = Math.hypot(dx, dz);
+  if (d > POP_NEAR) return false;
+  if (d < 1.2) return true;
+  return (dx*(VIEW.fx || 0) + dz*(VIEW.fz || 0))/d > POP_COS;
+}
+export function parcelArrived(){
+  if (!POINT) return;
+  if (WAIT.t) return;                                   // (already waiting: the refresh will put every bag there)
+  if (!pointSeen()) return refreshParcels();
+  WAIT.t = setInterval(() => {
+    if (!POINT){ clearInterval(WAIT.t); WAIT.t = null; return; }
+    if (!pointSeen()){ clearInterval(WAIT.t); WAIT.t = null; refreshParcels(); }
+  }, 500);
+}
 // put the bags waiting here on their table: one bag per order, side by side
 export function refreshParcels(){
   const s = G(); if (!POINT || !s) return;

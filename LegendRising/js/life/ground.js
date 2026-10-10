@@ -3,36 +3,44 @@
    staff office and the computer that knows everything about you; beyond them the training pitch,
    the stand and the tunnel you walk out of on match day. From ten to five on a training day the
    squad is out there working, and being among them is how a dressing room comes to trust you. */
-import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, labels, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam} from "./build.js";
+import {THREE, W, box, rbox, cyl, solid, floor, ramp, spot, wall, textTex, label, labels, addGeo, reseed, pick, rnd, finishBatches, lightSrc, mat, part, doorway, extrude, beam, onBegin} from "./build.js";
+import {RT} from "./core/state.js";
 import {facer, decoWin, pilasters, roofTop, busStop, hingedDoor, leafGuard} from "./home.js";
-import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, mannequin, bench, goal, cornerFlag, dugout, floodlight,
+import {frame, rb, cy, sph, fsolid, worldPt, PC, cone, marker, ball, ballBag, bench, dugout, floodlight,
   waterCooler, bottle, kitBag, bibs, kitHamper, lockers, shelfUnit, tacticsBoard, noticeBoard, desk, monitor, chair, vending, vendTex, plyoBox, bike,
   tree, bush, hedge, streetLamp, bin, sign, wireFence, parkingBays, planter} from "./props.js";
 import {teamSession, staffer} from "./npc.js";
 import {cabinet} from "./props.js";
-import {fillFridge} from "./fridge.js";
+import {fillFridge, FRIDGE_OPEN} from "./fridge.js";
 import {rack, dumbbellRack, plyoBoxes, ladderLane, treadmill, spinBike, barbell, dumbbell} from "./gymclub.js";
 export {barbell, dumbbell};
-import {deliveryPoint} from "./parcels.js";
+import {deliveryPoint, POINT_NAME} from "./parcels.js";
 import {departures, EXIT} from "./leave.js";
 import {bakeCar, CAR_KINDS} from "./cars.js";
+import {buildPitchMesh, ballMesh as ballLook} from "./football/pitchmesh.js";
+import {GP, groundPitch, meshTierFor, wornFor, DRILLS, toWorld, SESSION_PLAN_MINS} from "./football/trainspec.js";
 
 let ctx = null;
 const G = () => (typeof S !== "undefined" ? S : null);
-export const GROUND = {fridge:null, session:null, tier:3};
-// the pitch, and where each drill happens on it
-export const PITCH = {x0:-21.5, x1:21.5, z0:-26, z1:-4, cz:-15, goalW:6, goalH:2.2};
-export const DRILLS = {
-  shoot:{x:-9.5, z:-15, yaw:Math.PI/2, label:"Shooting accuracy", sub:"Five shots at a target in the goal"},
-  pass:{x:0, z:-15, yaw:0, label:"Passing accuracy", sub:"Hit the rings around the centre circle"},
-  head:{x:15, z:-13.5, yaw:-Math.PI/2, label:"Heading drill", sub:"Time the jump, head it at the target"},
-  intercept:{x:5.5, z:-7.6, yaw:-Math.PI/2, label:"Interception drill", sub:"Read the ball machine and cut the pass out"}
-};
-export const RINGS = [[-9, -8.5], [9.5, -21.5], [-11, -22], [10, -9.2], [-3.5, -23.5], [4, -6.8]];
+export const GROUND = {fridge:null, session:null, tier:3, pitch:null, spec:null, tunnel:null};
+/* the training pitch (DESIGN 3.6.1): 72 x 48 with full-size goals and markings, its frame at (0, -28) so the near
+   touchline stays at z = -4 and the pitch grows north. Its numbers come from pitchspec.js through trainspec.js (GP);
+   the spec itself (with the grass's rolling deceleration for the club's tier) is made in buildGround: GROUND.spec */
+export const PITCH = {L:GP.L, Wd:GP.Wd, cx:GP.cx, cz:GP.cz, x0:GP.cx - GP.L/2, x1:GP.cx + GP.L/2, z0:GP.cz - GP.Wd/2, z1:GP.cz + GP.Wd/2, goalW:7.32, goalH:2.44};
+// the assistant coach's post: on the near touchline, between the dugouts' east end and the drill stations
+const trainAssist = {x:14.5, z:-2.9, ry:Math.PI};
+// where the stand's front wall is (it was 1.6 m behind the old far touchline; now 4 m behind the new one) and the tunnel
+const STAND_Z = PITCH.z0 - 4, TUNNEL = {x:0, z:STAND_Z + 1.8};
+
+// what the coach's spot says: the session's length from the plan it runs (trainspec.js), or that today's is done
+export function sessionHint(){
+  const s = G(), ss = s && s.life && s.life.att && s.life.att.sess;
+  return ss && ss.done ? "Done for today" : `Join the team session · ${SESSION_PLAN_MINS} min · once a day`;
+}
 
 /* ---------- the gym ---------- */
 const GY = {wall:0xe1dbcf, dark:0x2b2f34, grey:0xa5aba7, teal:0x2f8f86};
-// (the equipment itself — racks, dumbbells, plyo boxes, the sprint lane, treadmills, bikes — is gymclub.js, in six tiers)
+// (the equipment itself, the racks, dumbbells, plyo boxes, sprint lane, treadmills and bikes, is gymclub.js, in six tiers)
 function gym(){
   const x0 = -13, x1 = 13, z0 = 4, z1 = 16, H = 4.2;
   box(x0, 0, z0, x1, .03, z1, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
@@ -55,7 +63,7 @@ function gym(){
     for (const y of [.8, 3.34]) rbox((a0 + a1)/2, y, zz, a1 - a0, .07, .18, .02, 0x3d434a, {key:"metal"});
     rbox((a0 + a1)/2, .74, zz + (zz > 10 ? .1 : -.1), a1 - a0 + .2, .06, .2, .02, 0xc7c2b8);         // the sill outside
   }
-  // a dark stripe along the walls (broken at the door), and a lime one at eye level — the club's colours inside
+  // a dark stripe along the walls (broken at the door), and a lime one at eye level: the club's colours inside
   box(x0 + .25, .03, z0 + .26, x1 - .25, .5, z0 + .28, 0x2b2f34, {ao:false, jit:0});
   box(x0 + .25, .03, z1 - .28, -.9, .5, z1 - .26, 0x2b2f34, {ao:false, jit:0}); box(.9, .03, z1 - .28, x1 - .25, .5, z1 - .26, 0x2b2f34, {ao:false, jit:0});
   box(x0 + .26, .03, z0 + .25, x0 + .28, .5, z1 - .25, 0x2b2f34, {ao:false, jit:0}); box(x1 - .28, .03, z0 + .25, x1 - .26, .5, z1 - .25, 0x2b2f34, {ao:false, jit:0});
@@ -89,7 +97,7 @@ function gym(){
     // at the bottom tier one of them has given up
     const broken = t <= 2 && x === 9.8;
     treadmill(x, 6.9, t, {broken});
-    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order — has been for months" : "Endurance run · stamina · 45 min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
+    spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order. It has been for months" : "Endurance run · stamina · 45 min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
   }
   spinBike(5.6, 10.8, 0, t); spinBike(7.6, 10.8, 0, t);
   spot({aim:[[4.9, 0, 10.4], [8.4, 1.2, 11.2]], x:6.6, z:10.8, label:"Exercise bike", hint:"Intervals · stamina and pace · 45 min", run:() => ctx.reps("bike")});
@@ -99,13 +107,6 @@ function gym(){
   spot({aim:[[11.7, 0, 12.3], [12.8, 1.9, 13.2]], label:"Vending machine", hint:"Drinks and snacks · pay by card", hold:.2, run:() => ctx.vend()});
   waterCooler(12.4, 11.3, -Math.PI/2);
   spot({aim:[[12.1, 0, 11.0], [12.7, 1.4, 11.6]], label:"Water cooler", hint:"A cup of water · −2 fatigue", hold:.2, run:() => ctx.water()});
-  // the delivery shelf: just inside the door, on your right as you come in — where Foodies couriers leave your bag
-  rbox(1.8, .76, 15.46, 1.1, .04, .46, .015, 0x8f979e, {key:"metal"});
-  rbox(1.8, .3, 15.46, 1.0, .03, .4, .01, 0x8f979e, {key:"metal"});
-  for (const [x, z] of [[1.3, 15.27], [2.3, 15.27], [1.3, 15.65], [2.3, 15.65]]) rbox(x, 0, z, .04, .78, .04, .01, 0x3b4249, {key:"metal"});
-  solid(1.25, 2.35, 15.23, 15.69, 0, .8);
-  sign("DELIVERIES", 1.8, 1.75, 15.72, Math.PI, 1.1);
-  deliveryPoint("ground", "the delivery shelf inside the gym door", [[1.5, .802, 15.46, .3], [2.1, .802, 15.46, -.2]]);
   bench(9.3, 15.35, 0, 2.6);
   spot({x:9.3, y:.8, z:15, r:1.8, aim:[[8, 0, 14.9], [10.6, 1, 15.7]], near:true, label:"Bench", hint:"Sit down and let time pass", run:() => ctx.wait("gym")});
   kitBag(4.2, 15.2, .2, 0x1f2e4a); bottle(10.4, .45, 15.3);
@@ -139,7 +140,7 @@ function gymFridge(x, z){
     const [ux, uz] = dirOf(D.a); guard.set(ux, uz, D.a > .06, dt);
   });
   const box3 = new THREE.Box3();
-  spot({kind:"drag", label:"Fridge", get hint(){ return D.a > .5 ? "Close it" : "Open it · your food lives here and at home"; }, y:1,
+  spot({kind:"drag", label:"Fridge", get hint(){ return D.a > FRIDGE_OPEN ? "Close it" : "Open it · your food lives here and at home"; }, y:1,
     aim:() => { g.updateMatrixWorld(); box3.setFromObject(g); box3.expandByScalar(.03); return [box3.min.toArray(), box3.max.toArray()]; },
     spin:-1, get angle(){ return D.a; }, toggle(){ D.target = D.a > .5 ? 0 : 1.7; },
     drag(da){ turnTo(Math.max(0, Math.min(1.9, D.a - da))); D.target = D.a; },
@@ -151,47 +152,27 @@ function gymFridge(x, z){
   // the club's own fridge keeps what the club's facilities can (the training centre's tier); you put food in from in front of it
   const [fx, fz] = worldPt(f, 0, .8);
   (W.fridges || (W.fridges = [])).push({x:fx, z:fz, y:0, name:"the gym fridge", mult:() => clubFridgeMult()});
-  GROUND.fridge = {group:items, ctx, open:() => D.a > 1.0, ry:f.ry, mult:() => clubFridgeMult(),
+  // its food is worth what the club's fridge keeps of it (the training centre is never in a power cut: its own supply)
+  GROUND.fridge = {group:items, ctx, open:() => D.a > FRIDGE_OPEN, ry:f.ry, src:() => ({keep:clubFridgeMult(), powerCut:false}),
     shelves:[{y:.24, kind:"food", slots:slots()}, {y:.66, kind:"food", slots:slots()}, {y:1.08, kind:"drink", slots:slots()}, {y:1.5, kind:"drink", slots:slots()}],
     across:[-.045, 0], emptyAim:[[Math.min(ex0, ex1), .1, Math.min(ez0, ez1)], [Math.max(ex0, ex1), 1.8, Math.max(ez0, ez1)]]};
   fillFridge(GROUND.fridge);
 }
 export function refreshGymFridge(){ if (GROUND.fridge) fillFridge(GROUND.fridge); }
 
-/* ---------- the pitch ---------- */
-function pitchLines(lc = 0xf4f6f0){
-  const L = (x0, z0, x1, z1) => box(Math.min(x0, x1), .012, Math.min(z0, z1), Math.max(x0, x1), .016, Math.max(z0, z1), lc, {ao:false, jit:0});
-  const {x0, x1, z0, z1} = PITCH, t = .1;
-  L(x0, z0, x1, z0 + t); L(x0, z1 - t, x1, z1); L(x0, z0, x0 + t, z1); L(x1 - t, z0, x1, z1); L(-t/2, z0, t/2, z1);
-  const ring = (r, cx, cz, a0 = 0, a1 = Math.PI*2) => { const g = new THREE.RingGeometry(r - .05, r + .05, 56, 1, a0, a1 - a0); g.rotateX(-Math.PI/2); g.translate(cx, .014, cz); addGeo(g, lc, {ao:false, jit:0}); };
-  ring(4.2, 0, PITCH.cz);
-  for (const s of [-1, 1]){
-    const gx = s > 0 ? x1 : x0, bx = gx - s*8, sx = gx - s*3;
-    L(gx, -23, bx, -22.9); L(gx, -7.1, bx, -7); L(bx - t/2, -23, bx + t/2, -7);         // the penalty area
-    L(gx, -19, sx, -18.9); L(gx, -11.1, sx, -11); L(sx - t/2, -19, sx + t/2, -11);      // the six-yard box
-    const pg = new THREE.CircleGeometry(.14, 12); pg.rotateX(-Math.PI/2); pg.translate(gx - s*6, .015, PITCH.cz); addGeo(pg, lc, {ao:false, jit:0});
-    ring(3.4, gx - s*6, PITCH.cz, s > 0 ? Math.PI*.5 + .95 : -Math.PI*.5 + .95, s > 0 ? Math.PI*1.5 - .95 : Math.PI*.5 - .95);
-  }
-  const cs = new THREE.CircleGeometry(.14, 12); cs.rotateX(-Math.PI/2); cs.translate(0, .015, PITCH.cz); addGeo(cs, lc, {ao:false, jit:0});
-  for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) cornerFlag(cx, cz);
+/* ---------- the pitch ----------
+   The grass, the markings, the goals and their nets are pitchmesh.js's, from the one spec the ball plays on (DESIGN
+   3.6.1): what you see is what the ball hits. The club's tier says how the grass looks (meshTierFor) and how worn the
+   goalmouths are (wornFor), and how fast the ball rolls on it (trainspec.js rollFor). */
+function pitch(tier){
+  const spec = GROUND.spec = groundPitch(tier);
+  // the grass reaches the near walkway (z -0.4) and the stand's front wall (STAND_Z + .4) and 5 m past each goal line
+  const near = -.4 - PITCH.cz, far = PITCH.cz - (STAND_Z + .4), hz = Math.min(near, far);
+  GROUND.pitch = buildPitchMesh(spec, {tier:meshTierFor(tier), worn:wornFor(tier), stripes:tier >= 5 ? 12 : tier >= 3 ? 10 : 0, cones:false,
+    grass:{hx:PITCH.L/2 + 5, hz}});
+  return spec;
 }
-// the targets for the passing drill, painted rings with a disc in the middle
-function rings(){
-  for (const [x, z] of RINGS){
-    for (const [r, c] of [[1.3, 0xffffff], [.8, 0xd8ff3a]]){ const g = new THREE.RingGeometry(r - .06, r, 40); g.rotateX(-Math.PI/2); g.translate(x, .017, z); addGeo(g, c, {ao:false, jit:0}); }
-    const d = new THREE.CircleGeometry(.3, 24); d.rotateX(-Math.PI/2); d.translate(x, .018, z); addGeo(d, 0xd8ff3a, {ao:false, jit:0});
-  }
-}
-function ballMachine(x, z, ry){
-  const f = frame(x, z, ry);
-  rb(f, 0, 0, 0, .9, .5, .7, .08, 0x2b2f34, {seg:2});
-  for (const s of [-1, 1]) cy(f, s*.36, .14, -.25, .14, .14, .08, 0x1b1d20, {seg:14, rz:Math.PI/2});
-  rb(f, 0, .5, 0, .6, .4, .5, .1, 0xc8463a, {seg:2, key:"paint"});
-  cy(f, 0, .8, .15, .12, .12, .4, 0x3b4249, {seg:14, rx:Math.PI/2 - .3, key:"metal"});
-  cy(f, 0, .9, -.15, .22, .16, .3, 0x3b4249, {seg:12, open:false});
-  for (let i = 0; i < 4; i++){ const [bx, bz] = worldPt(f, (i % 2 - .5)*.14, -.15 + (i > 1 ? .1 : -.05)); ball(bx, 1.2, bz); }
-  fsolid(f, 0, 0, .95, .75, 0, 1.2);
-}
+// the board by each drill's marker: what it is, and how you start it
 function drillBoard(x, z, ry, title, sub){
   const f = frame(x, z, ry);
   for (const s of [-1, 1]) rb(f, s*.42, 0, 0, .05, 1.0, .05, .02, PC.darkSteel, {rx:s*0});
@@ -220,35 +201,22 @@ function drillBoard(x, z, ry, title, sub){
   label(t, wx, .8, wz, .96, .48, ry, {rough:.5});
   fsolid(f, 0, 0, 1, .2, 0, 1.1);
 }
+/* the drill stations (trainspec.js DRILLS): a marker on the grass where you start, a board beside it, a ball bag by
+   the coach's feeding spot. The drills are played on the match simulation (training.js), so everything they need (the
+   keeper, the team-mates, the ball) comes with the drill; here is only what stays out on the pitch */
+export const STATION_AT = {};
 function drillStations(){
-  const D = DRILLS;
-  // shooting: mannequins as a wall, a ball bag, a keeper dummy in the goal
-  for (const k of [-1, 0, 1]) mannequin(-15.5, -17.6 + k*.62, Math.PI/2, PC.yellow);
-  ballBag(-8.2, -12.6, .4);
-  for (let i = 0; i < 5; i++){ const a = i/5*Math.PI*2; ball(-9.5 + Math.cos(a)*.6, .11, -16.6 + Math.sin(a)*.3); }
-  drillBoard(-8.6, -11.4, Math.PI*.15, D.shoot.label, D.shoot.sub);
-  marker(D.shoot.x, D.shoot.z, PC.lime);
-  spot({x:D.shoot.x, z:D.shoot.z, y:.6, r:1.6, near:true, label:D.shoot.label, hint:"Five shots · accuracy and shot power · 30 min", run:() => ctx.drill("shoot")});
-  // passing: the rings round the centre circle
-  rings();
-  ballBag(1.2, -13.6, -.3);
-  drillBoard(2.4, -11.6, -Math.PI*.1, D.pass.label, D.pass.sub);
-  marker(D.pass.x, D.pass.z, PC.lime);
-  spot({x:D.pass.x, z:D.pass.z, y:.6, r:1.6, near:true, label:D.pass.label, hint:"Six passes · pass accuracy and passing · 30 min", run:() => ctx.drill("pass")});
-  // heading: a ball machine lobbing them in from the corner
-  ballMachine(19.4, -24.2, -Math.PI*.75);
-  drillBoard(13.6, -10.4, -Math.PI*.2, D.head.label, D.head.sub);
-  marker(D.head.x, D.head.z, PC.lime);
-  spot({x:D.head.x, z:D.head.z, y:.6, r:1.6, near:true, label:D.head.label, hint:"Five headers · heading and jumping · 30 min", run:() => ctx.drill("head")});
-  // interception: the passing machine along the near touchline, cone gates behind you
-  ballMachine(12.5, -7.6, -Math.PI/2);
-  for (const z of [-5.6, -7.6, -9.6]){ cone(-1.5, z - .55, PC.orange, .8); cone(-1.5, z + .55, PC.orange, .8); }
-  drillBoard(7.4, -4.9, 0, D.intercept.label, D.intercept.sub);
-  marker(D.intercept.x, D.intercept.z, PC.lime);
-  spot({x:D.intercept.x, z:D.intercept.z, y:.6, r:1.6, near:true, label:D.intercept.label, hint:"Six passes to read · interception · 30 min", run:() => ctx.drill("intercept")});
-  // the odd cone and ball left lying about after the morning
-  for (const [x, z] of [[-17, -9], [-17, -11], [-15, -9], [-15, -11], [18, -8.5]]) cone(x, z, PC.orange, .8);
-  ball(-6.4, .11, -20.4); ball(6.8, .11, -18.7);
+  for (const k of Object.keys(DRILLS)){
+    const D = DRILLS[k], p = toWorld(D.spot.x, D.spot.z), b = toWorld(D.board.x, D.board.z);
+    drillBoard(b.x, b.z, Math.atan2(p.x - b.x, p.z - b.z), D.label, D.sub);              // (facing its marker)
+    marker(p.x, p.z, PC.lime);
+    STATION_AT[k] = {x:p.x, z:p.z};
+    if (D.feed && D.feed.from){ const q = toWorld(D.feed.from.x, D.feed.from.z); ballBag(q.x + .9, q.z + .4, .4); }
+    spot({x:p.x, z:p.z, y:.6, r:1.6, near:true, label:D.label, hint:D.hint, run:() => ctx.drill(k)});
+  }
+  // the odd cone and ball left lying about after the morning, off the drills' ground
+  for (const [x, z] of [[-33, -6], [-33, -8], [-31, -6], [-31, -8], [33, -50]]) cone(x, z, PC.orange, .8);
+  ball(-2.4, .11, -45.4); ball(30.8, .11, -6.7);
 }
 // one moulded stadium seat, side on: a pan with a lip and a raked back (twenty triangles, shared by every seat)
 let SEAT = null;
@@ -262,7 +230,7 @@ function seat(x, y, z, c){
 function stand(clubName){
   // stepped terraces with moulded seats, a roof on steel posts and the club's name along the fascia
   for (let r = 0; r < 6; r++){
-    const z0 = -29 - r*.8, y = .1 + r*.45;
+    const z0 = -56.4 - r*.8, y = .1 + r*.45;
     box(-26, 0, z0 - .8, 26, y + .45, z0, 0x9a978f, {ao:false, tex:"concrete", jit:.02});
     for (let x = -25.6; x < 25.6; x += .55){
       if (Math.abs(x + .21) < 3.8) continue;                      // the tunnel mouth
@@ -272,9 +240,9 @@ function stand(clubName){
   }
   // the ends: a concrete wall that follows the rake, with a glass wind screen above it
   for (const [a, b_] of [[-26.3, -26], [26, 26.3]]){
-    extrude("z", [[-28.6, 0], [-28.6, 1.15], [-33.8, 3.5], [-33.8, 0]], a, b_, 0x8f8c85, {tex:"concrete", jit:0});
-    extrude("z", [[-28.6, 1.15], [-28.6, 2.2], [-33.8, 6.4], [-33.8, 3.5]], a + .13, b_ - .13, 0x9fb7c6, {key:"glass", jit:0});
-    solid(a, b_, -34.8, -28.6, 0, 7);
+    extrude("z", [[-56, 0], [-56, 1.15], [-61.2, 3.5], [-61.2, 0]], a, b_, 0x8f8c85, {tex:"concrete", jit:0});
+    extrude("z", [[-56, 1.15], [-56, 2.2], [-61.2, 6.4], [-61.2, 3.5]], a + .13, b_ - .13, 0x9fb7c6, {key:"glass", jit:0});
+    solid(a, b_, -62.2, -56, 0, 7);
   }
   // the front wall along the pitch, with advertising boards: four designs printed on one sheet, one mesh for them all
   const club = clubName.split(" ")[0].toUpperCase();
@@ -289,18 +257,18 @@ function stand(clubName){
   }));
   const ads = [];
   for (const [a, b_] of [[-26, -3.6], [3.6, 26]]){
-    box(a, 0, -28.95, b_, 1.0, -28.6, 0x8f8c85, {tex:"concrete", ao:false, jit:0});
+    box(a, 0, -56.35, b_, 1.0, -56, 0x8f8c85, {tex:"concrete", ao:false, jit:0});
     for (let x = a + .2; x < b_ - 3; x += 3.3){
       const k = Math.floor((x + 26)/3.3) % 4;
-      box(x - .03, .17, -28.6, x + 3.13, .93, -28.57, 0x23292f, {key:"metal", ao:false, jit:0});
-      ads.push({x:x + 1.55, y:.55, z:-28.565, w:3.1, h:.7, uv:[0, k/4, 1, (k + 1)/4]});
+      box(x - .03, .17, -56, x + 3.13, .93, -55.97, 0x23292f, {key:"metal", ao:false, jit:0});
+      ads.push({x:x + 1.55, y:.55, z:-55.965, w:3.1, h:.7, uv:[0, k/4, 1, (k + 1)/4]});
     }
   }
   labels(adT, ads, {glow:.35, rough:.5});
-  box(-26, 0, -34.8, 26, 6.4, -33.8, 0x5d636a, {tex:"concrete", ao:false});
-  for (const x of [-25, -12.5, 0, 12.5, 25]) cyl(x, 0, -33.6, .12, 6.8, 0x8a9198, {seg:10, key:"metal"});
-  rbox(0, 6.75, -31.75, 53, .25, 6.6, .08, 0x2f363d, {key:"metal"});
-  box(-26.5, 6.3, -28.6, 26.5, 6.8, -28.4, 0x14202c, {ao:false});
+  box(-26, 0, -62.2, 26, 6.4, -61.2, 0x5d636a, {tex:"concrete", ao:false});
+  for (const x of [-25, -12.5, 0, 12.5, 25]) cyl(x, 0, -61, .12, 6.8, 0x8a9198, {seg:10, key:"metal"});
+  rbox(0, 6.75, -59.15, 53, .25, 6.6, .08, 0x2f363d, {key:"metal"});
+  box(-26.5, 6.3, -56, 26.5, 6.8, -55.8, 0x14202c, {ao:false});
   // the name along the fascia, shrunk to fit however long the club's name is
   const t = textTex(2048, 86, g => {
     const s = clubName.toUpperCase() + "  ·  TRAINING CENTRE"; let fs = 58;
@@ -309,30 +277,43 @@ function stand(clubName){
     if (tw > 1940){ fs = Math.floor(fs*1940/tw); g.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; }
     g.fillText(s, 1024, 46);
   });
-  label(t, 0, 6.55, -28.35, 24, 1.0, 0, {glow:.4});
-  solid(-26, 26, -35, -28.6, 0, 7);
+  label(t, 0, 6.55, -55.75, 24, 1.0, 0, {glow:.4});
+  solid(-26, 26, -62.4, -56, 0, 7);
   // the tunnel comes out of the middle of the stand: two cheeks and a lintel round a lit recess, double doors at the back
   const TN = 0x6e747a, TC = {tex:"concrete", ao:false, jit:0};
-  box(-3.6, 0, -31.5, -2.4, 3.9, -27.4, TN, TC); box(2.4, 0, -31.5, 3.6, 3.9, -27.4, TN, TC);
+  box(-3.6, 0, -58.9, -2.4, 3.9, -54.8, TN, TC); box(2.4, 0, -58.9, 3.6, 3.9, -54.8, TN, TC);
   // (each cheek solid in two pieces, so the front one is small enough for the squad's lap to see it and run round it)
-  for (const [a, b_] of [[-3.6, -2.4], [2.4, 3.6]]){ solid(a, b_, -31.5, -28.6, 0, 3.9); solid(a, b_, -28.6, -27.4, 0, 3.9); }
-  box(-2.4, 2.8, -31.5, 2.4, 3.9, -27.4, TN, TC);
-  box(-2.4, 0, -31.5, 2.4, 2.8, -28.6, 0x5c6268, Object.assign({solid:true}, TC));
-  box(-2.4, 0, -28.6, 2.4, .02, -27.4, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
-  box(-1.5, .02, -28.6, 1.5, 2.4, -28.56, 0x1b1f23, {ao:false, jit:0});
+  for (const [a, b_] of [[-3.6, -2.4], [2.4, 3.6]]){ solid(a, b_, -58.9, -56, 0, 3.9); solid(a, b_, -56, -54.8, 0, 3.9); }
+  box(-2.4, 2.8, -58.9, 2.4, 3.9, -54.8, TN, TC);
+  box(-2.4, 0, -58.9, 2.4, 2.8, -56, 0x5c6268, Object.assign({solid:true}, TC));
+  box(-2.4, 0, -56, 2.4, .02, -54.8, 0xffffff, {tex:"rubberFloor", ao:false, jit:0});
+  box(-1.5, .02, -56, 1.5, 2.4, -55.96, 0x1b1f23, {ao:false, jit:0});
   for (const s_ of [-1, 1]){
-    box(s_ > 0 ? .03 : -1.45, .04, -28.56, s_ > 0 ? 1.45 : -.03, 2.36, -28.54, 0x4b5258, {key:"metal", ao:false, jit:0});
-    box(s_ > 0 ? .25 : -1.25, 1.0, -28.54, s_ > 0 ? 1.25 : -.25, 1.06, -28.5, 0xc9cdd1, {key:"metal", ao:false, jit:0});
-    box(s_ > 0 ? .2 : -1.3, 1.5, -28.54, s_ > 0 ? 1.3 : -.2, 2.2, -28.535, 0x9fb7c6, {key:"glass", ao:false, jit:0});
+    box(s_ > 0 ? .03 : -1.45, .04, -55.96, s_ > 0 ? 1.45 : -.03, 2.36, -55.94, 0x4b5258, {key:"metal", ao:false, jit:0});
+    box(s_ > 0 ? .25 : -1.25, 1.0, -55.94, s_ > 0 ? 1.25 : -.25, 1.06, -55.9, 0xc9cdd1, {key:"metal", ao:false, jit:0});
+    box(s_ > 0 ? .2 : -1.3, 1.5, -55.94, s_ > 0 ? 1.3 : -.2, 2.2, -55.935, 0x9fb7c6, {key:"glass", ao:false, jit:0});
   }
-  rbox(0, 2.74, -28.0, 3.6, .05, .14, .02, 0xfff1c8, {key:"lamp"});
-  lightSrc({x:0, y:2.3, z:-27.8, color:0xfff1c8, intensity:7, distance:6, indoor:true});            // the strip really lights the recess
-  rbox(0, 3.9, -29.35, 7.6, .25, 4.5, .08, 0x1c2126);
-  rbox(0, 2.9, -27.36, 4.0, .05, .06, .02, 0xfff1c8, {key:"lamp"});
-  sign("PLAYERS' TUNNEL", 0, 3.4, -27.33, 0, 3.4);
-  for (const dx of [-2.6, 2.6]) rbox(dx, 0, -27.33, .16, 2.9, .06, .03, 0xc8f060, {key:"neon", solid:true});
-  solid(-1.5, 1.5, -28.6, -28.5, 0, 2.4);                   // the doors and their push bars
-  lightSrc({x:0, y:2.6, z:-26.6, color:0xfff1c8, intensity:6, distance:8, indoor:true});
+  rbox(0, 2.74, -55.4, 3.6, .05, .14, .02, 0xfff1c8, {key:"lamp"});
+  lightSrc({x:0, y:2.3, z:-55.2, color:0xfff1c8, intensity:7, distance:6, indoor:true});            // the strip really lights the recess
+  rbox(0, 3.9, -56.75, 7.6, .25, 4.5, .08, 0x1c2126);
+  rbox(0, 2.9, -54.76, 4.0, .05, .06, .02, 0xfff1c8, {key:"lamp"});
+  sign("PLAYERS' TUNNEL", 0, 3.4, -54.73, 0, 3.4);
+  for (const dx of [-2.6, 2.6]) rbox(dx, 0, -54.73, .16, 2.9, .06, .03, 0xc8f060, {key:"neon", solid:true});
+  solid(-1.5, 1.5, -56, -55.9, 0, 2.4);                   // the doors and their push bars
+  lightSrc({x:0, y:2.6, z:-54, color:0xfff1c8, intensity:6, distance:8, indoor:true});
+}
+
+/* the floodlights at night (DESIGN 3.9.3): no point lights over the pitch, the sky's flood key light in the sun's place
+   instead, the way the stadium does it. It stands for the four masts' banks at once, from the stand's side and high up,
+   so a spot one bank cannot see is still lit by the others (shadow), and the stand's roof, which the lamps look over,
+   throws no shadow across the grass (top). A poor club runs half its lamps, and those not so bright. The light goes
+   off again as the next place is built (onBegin), before that place can turn its own on */
+let KEYED = false;
+onBegin(() => { if (KEYED){ KEYED = false; if (RT.SKY && RT.SKY.setNightKey) RT.SKY.setNightKey(false); } });
+function floodKey(tier){
+  if (!RT.SKY || !RT.SKY.setNightKey) return;
+  RT.SKY.setNightKey(true, {dir:[.16, 1, -.42], intensity:[.85, 1.0, 1.2, 1.35, 1.5, 1.65][Math.max(1, Math.min(6, tier)) - 1], color:0xf2f5ff, shadow:.5, top:6.6});
+  KEYED = true;
 }
 
 /* ---------- the clubhouse: dressing room, staff office and the stats computer ---------- */
@@ -420,6 +401,7 @@ function clubhouse(clubName){
   waterCooler(18.7, 16.3, Math.PI);
   bench(18.75, 12.1, -Math.PI/2, 2.0);
   planter(19.2, 3.9, 1.0);
+  deliveryCounter();
   // the dressing room: lockers round the walls, benches down the middle, an ice bath in the corner
   lockers(26.2, 3.5, 0, 7, 0x2c66b8);
   lockers(29.45, 6.6, -Math.PI/2, 5, 0x2c66b8);
@@ -473,40 +455,26 @@ function clubhouse(clubName){
   for (const z of [6, 10, 14]) rbox(20.4, g0 - .3, z, .5, .05, 1.6, .02, 0xfff6e0, {key:"lamp"});
 }
 
+/* the staff delivery counter (DESIGN 3.8.7): in the clubhouse lobby under the south window, between the planter and
+   the west door, where the couriers leave Foodies bags for the players. A counter-high top (0.79 m) on metal legs
+   with a shelf under it, the sign over it, three places for bags facing the way in. The door's approach (z 9.3 to 10.9)
+   stays clear, and nothing of the session ever comes in here */
+function deliveryCounter(){
+  const x = 18.55, z = 6.0, L = 1.5, D = .52;
+  rbox(x, .75, z, D, .04, L, .015, 0xb5895a);                                                  // the top
+  rbox(x, .25, z, D - .06, .03, L - .08, .01, 0x8f979e, {key:"metal"});                       // the shelf under it
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) rbox(x + dx*(D/2 - .04), 0, z + dz*(L/2 - .04), .04, .75, .04, .01, 0x3b4249, {key:"metal"});
+  rbox(x - D/2 + .03, .3, z, .02, .42, L - .1, .01, 0x2b3036);                                 // a modesty panel at the back
+  solid(18.29, 18.81, 5.25, 6.75, 0, .8);
+  sign("STAFF · DELIVERIES", 18.3, 2.66, z, Math.PI/2, 1.5);
+  deliveryPoint("ground", POINT_NAME.ground, [[x, .79, 5.55, Math.PI/2], [x, .79, 6.0, Math.PI/2], [x, .79, 6.45, Math.PI/2]]);
+}
+
 /* ---------- what the club can afford, on show (GROUND.tier, clubFacTier 1–6) ----------
-   A poor club's pitch is worn bare in the goalmouths, down the middle and along the touchline everyone walks, its
-   lines gone grey; a rich one's is mown in stripes, its lines like chalk. The clubhouse goes from damp-stained render,
+   A poor club's pitch is worn bare in the goalmouths and down the middle; a rich one's is mown in stripes (both drawn
+   by pitchmesh.js, see pitch()). The clubhouse goes from damp-stained render,
    a boarded-up window, a tag on the wall and weeds at its foot (1–2) to a glass porch, the club's banner down the front,
    flowers by the door and its name lit (5–6). */
-function overlay(tex, x0, z0, x1, z1, y){
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI/2),
-    mat({map:tex, transparent:true, depthWrite:false, roughness:.95, polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1}));
-  m.position.set((x0 + x1)/2, y, (z0 + z1)/2); m.receiveShadow = true; W.scene.add(m); return m;
-}
-function pitchLook(t){
-  const X0 = -23, X1 = 23, Z0 = -27.2, Z1 = -2.8, cw = 1024, ch = 544;
-  const px = x => (x - X0)/(X1 - X0)*cw, pz = z => (z - Z0)/(Z1 - Z0)*ch;
-  if (t <= 2){
-    reseed(4040 + t);
-    const tex = textTex(cw, ch, g => {
-      const blob = (x, z, r, a, col = "120,92,58") => { const gr = g.createRadialGradient(px(x), pz(z), 0, px(x), pz(z), r); gr.addColorStop(0, `rgba(${col},${a})`); gr.addColorStop(.6, `rgba(${col},${a*.55})`); gr.addColorStop(1, `rgba(${col},0)`); g.fillStyle = gr; g.beginPath(); g.arc(px(x), pz(z), r, 0, 7); g.fill(); };
-      const k = t === 1 ? 1 : .7;
-      // bare goalmouths and penalty spots, the centre circle, the touchline everyone walks along, scattered thin patches
-      for (const s of [-1, 1]){ for (let i = 0; i < 26; i++) blob(s*(21.5 - rnd()*6), -15 + (rnd() - .5)*7, 14 + rnd()*26, .45*k); blob(s*15.5, -15, 26, .5*k); }
-      for (let i = 0; i < 18; i++) blob((rnd() - .5)*9, -15 + (rnd() - .5)*8, 14 + rnd()*22, .35*k);
-      for (let x = -20; x <= 20; x += 1.4) blob(x + rnd(), -4.7 + rnd()*.6, 10 + rnd()*12, .4*k, "134,110,70");
-      for (let i = 0; i < 70; i++) blob(X0 + 2 + rnd()*42, Z0 + 2 + rnd()*20, 6 + rnd()*14, (.12 + rnd()*.18)*k, rnd() < .5 ? "150,140,70" : "120,92,58");
-    });
-    tex.userData.per = 1;
-    overlay(tex, X0, Z0, X1, Z1, .0112);
-  } else if (t >= 5){
-    // mown in stripes across the pitch, two tones of the same green
-    const tex = textTex(cw, 64, g => { const n = 12; for (let i = 0; i < n; i++){ g.fillStyle = i % 2 ? "rgba(0,0,0,.09)" : "rgba(255,255,255,.04)"; g.fillRect(i*cw/n, 0, cw/n + 1, 64); } });
-    tex.userData.per = 1;
-    overlay(tex, X0, Z0, X1, Z1, .0112);
-  }
-  return t <= 1 ? 0xc0c7b4 : t === 2 ? 0xd9dfcf : t >= 5 ? 0xffffff : 0xf4f6f0;
-}
 // stains running down from the top of a wall and creeping up from its foot, a little uneven: for the poorer clubs
 let GRIME = null, TAG = null;
 function grimeTex(){
@@ -592,23 +560,22 @@ export function buildGround(c){
   // what the club can afford sets the kit, the pitch and the buildings (clubFacTier: a rusting shed to an elite academy)
   const tier = GROUND.tier = typeof clubFacTier === "function" ? clubFacTier() : 3;
   reseed(77);
-  W.bounds = {x0:-31.3, x1:31.3, z0:-28.6, z1:29.3};
-  box(-90, -.2, -90, 90, 0, 90, 0xffffff, {tex:"grass", ao:false, jit:0});
+  // the training centre's fences (DESIGN 3.6.1): the pitch grew north, the yard, gym, clubhouse and car park did not
+  W.bounds = {x0:-42, x1:42, z0:-64, z1:29.3};
+  // the grass all round, cut away where the pitch's own grass lies (pitchmesh.js), so the two never fight
+  const gx = PITCH.L/2 + 5, gz0 = STAND_Z + .4, gz1 = -.4;
+  for (const [x0, z0, x1, z1] of [[-90, -90, 90, gz0], [-90, gz1, 90, 90], [-90, gz0, -gx, gz1], [gx, gz0, 90, gz1]]) box(x0, -.2, z0, x1, 0, z1, 0xffffff, {tex:"grass", ao:false, jit:0});
   // paths: the yard, a walk to the clubhouse, the car park, and a strip by the pitch
   box(-17, 0, 16, 17, .02, 29.4, 0xffffff, {tex:"path", ao:false, jit:0});
   box(13, 0, 3, 18, .021, 29.4, 0xffffff, {tex:"path", ao:false, jit:0});
-  box(-22, 0, -3.6, 22, .019, 4, 0xffffff, {tex:"concrete", ao:false, jit:0});
+  box(-22, 0, -.4, 22, .019, 4, 0xffffff, {tex:"concrete", ao:false, jit:0});
   box(18.5, 0, 18.5, 31.4, .02, 29.4, 0xffffff, {tex:"asphalt", ao:false, jit:0});
-  box(-23, 0, -27.2, 23, .01, -2.8, 0xffffff, {tex:"pitch", ao:false, jit:0});
   parkingBays(19.2, 19, 4, 2.7, 5, 1);
-  pitchLines(pitchLook(tier));
-  goal(PITCH.x0, PITCH.cz, -1, PITCH.goalW, PITCH.goalH);
-  goal(PITCH.x1, PITCH.cz, 1, PITCH.goalW, PITCH.goalH);
+  pitch(tier);
   dugout(-8, -2.1, 0, 5, 0x1f5fb0); dugout(8, -2.1, 0, 5, 0x6d737a);
-  for (const [x, z] of [[-24.5, -28.4], [24.5, -28.4], [-24.5, -.5], [24.5, -.5]]) floodlight(x, z, 0, PITCH.cz);
-  // the floodlights light the pitch once it gets dark
-  // (a poor club runs half of them, and those not so bright)
-  for (const [x, z] of tier <= 2 ? [[-12, -15], [12, -15]] : [[-12, -12], [12, -18], [-12, -20], [12, -9]]) lightSrc({x, y:11, z, color:0xf4f6ff, intensity:tier <= 2 ? 34 : tier >= 5 ? 54 : 46, distance:34, decay:1.2});
+  // the floodlight masts at the four corners, just outside the fences, aimed at the middle
+  for (const [x, z] of [[-43.6, STAND_Z + 1.2], [43.6, STAND_Z + 1.2], [-43.6, -1.2], [43.6, -1.2]]) floodlight(x, z, 0, PITCH.cz, 16);
+  floodKey(tier);
   gym(); gymLook(tier);
   drillStations();
   // the bench in the yard, for waiting out the morning
@@ -624,14 +591,14 @@ export function buildGround(c){
   stand(clubName);
   clubhouse(clubName); clubhouseLook(tier, clubName);
   // fences, the gate by the bus stop and the vehicle gate out of the car park, hedges along them; the road beyond
-  wireFence(-31.6, 29.6, -18, 29.6); wireFence(-10, 29.6, 21.1, 29.6); wireFence(26.9, 29.6, 31.6, 29.6);
+  wireFence(-42.3, 29.6, -18, 29.6); wireFence(-10, 29.6, 21.1, 29.6); wireFence(26.9, 29.6, 42.3, 29.6);
   roadOut();
-  wireFence(-31.6, -28.8, -31.6, 29.6); wireFence(31.6, -28.8, 31.6, 29.6);
+  wireFence(-42.3, -64.3, -42.3, 29.6); wireFence(42.3, -64.3, 42.3, 29.6); wireFence(-42.3, -64.3, 42.3, -64.3);
   for (const s of [-1, 1]){ rbox(s > 0 ? -10 : -18, 0, 29.6, .5, 2.8, .5, .08, 0x3b4249, {solid:true}); }
   sign(`${clubName.toUpperCase()} · TRAINING CENTRE`, -14, 3.1, 29.75, Math.PI, 7.6);
   rbox(-14, 2.6, 29.6, 8.6, .14, .3, .05, 0x2a3036);
   hedge(-29.5, 27.8, -20, 27.8); hedge(-6, 27.8, 11, 27.8);
-  for (const [x, z] of [[-26, 22], [-27.5, 12], [-27, 2], [27, 1.5], [-36, -16], [36, -18], [-38, 10], [38, 12], [-20, 44], [4, 46], [24, 44]]) tree(x, z, .9 + ((x*z) % 3 + 3) % 3*.12);
+  for (const [x, z] of [[-26, 22], [-27.5, 12], [-27, 2], [27, 1.5], [-47, -16], [47, -20], [-47, 10], [47, 12], [-20, 44], [4, 46], [24, 44], [-46, -48], [46, -46], [-30, -70], [10, -71]]) tree(x, z, .9 + ((x*z) % 3 + 3) % 3*.12);
   for (const [x, z] of [[-29, 18], [-29.4, 7.5], [14.6, 26.8], [-16.5, 26.6]]) bush(x, z, 1);
   for (const [x, z, d] of [[-16, 6, -1], [16, 6, -1], [-18.2, 26.4, 1], [9, 26, 1], [17.4, 18, 1], [-24.5, 10, 1]]) streetLamp(x, z, d);
   // the car park: the squad's cars (leave.js: they go home through the vehicle gate after training), and yours, if
@@ -642,61 +609,37 @@ export function buildGround(c){
   if (ct){ const bx = EXIT.bays[3], sz = bakeCar(["hatch", "hatch", "sport", "muscle"][ct], [0, 0x5a6a7a, 0x22303d, 0xc8202a][ct], bx, EXIT.bayZ, -Math.PI/2); solid(bx - sz[2]/2, bx + sz[2]/2, EXIT.bayZ - sz[0]/2, EXIT.bayZ + sz[0]/2, 0, 1.4); }
   // low warehouses and houses beyond the road, so the world goes on past the gate
   for (const [x, z, w, d, h, c] of [[-44, 44, 16, 10, 6, 0x8b8f94], [-22, 48, 14, 9, 8, 0xa3593f], [6, 49, 18, 9, 7, 0x9a8e7e], [30, 46, 14, 10, 9, 0x7b8691],
-    [-46, -6, 10, 18, 7, 0x8b5a4a], [46, -4, 10, 20, 6, 0x9a8e7e], [-30, -48, 30, 10, 10, 0x7b8691], [24, -48, 24, 10, 12, 0x8b8f94]])
+    [-52, -6, 10, 18, 7, 0x8b5a4a], [52, -4, 10, 20, 6, 0x9a8e7e], [-30, -76, 30, 10, 10, 0x7b8691], [24, -76, 24, 10, 12, 0x8b8f94]])
     rbox(x, 0, z, w, h, d, .2, c);
   busStop(-14, 24.6, {y:.02});
   spot({x:-14, y:1.2, z:24.8, r:2.6, aim:[[-16, 0, 23.9], [-12, 2.7, 26.1]], near:true, label:"Bus stop · Training Centre", hint:"Line 14 · home, Dumbrava", hold:.4, run:() => ctx.busMenu()});
   // the places the compass knows here
-  W.places.push({name:"Training pitch", kind:"train", x:0, z:-12}, {name:"Gym", kind:"gym", x:0, z:16.9}, {name:"Clubhouse", kind:"club", x:17.6, z:10.1},
+  W.places.push({name:"Training pitch", kind:"train", x:PITCH.cx, z:PITCH.z1 - 6}, {name:"Gym", kind:"gym", x:0, z:16.9}, {name:"Clubhouse", kind:"club", x:17.6, z:10.1},
     {name:"Bus stop", kind:"bus", x:-14, z:24.6});
   // the squad, out on the pitch during the session
   const kit = typeof kitOf === "function" && myClub && myClub() ? kitOf(myClub().nm) : ["#2c66b8", "#ffffff"];
   GROUND.session = teamSession({kit, when:() => typeof sessionOn === "function" && G() && sessionOn(),
-    centre:{x:-11, z:-14}, coach:{x:-6, z:-5.4, ry:Math.PI}, ballMesh:ballMesh,
-    // the lap goes round the outside of the pitch, on the grass: behind both goals (every way across the pitch's ends
-    // is somebody's drill, the shots at one goal and the headers at the other, and a lap down the goal lines would run
-    // through the goal mouths), its ends 4.1 m back where the nets end 1.6 m back, so the runners stay 3.5 m or more
-    // clear of the goal mouths and the six-yard boxes; and along the stand outside the far touchline, behind the heading
-    // drill's ball machine and the corner flags (it swings in round the tunnel's cheeks)
-    lap:[{x:-25.6, z:-5}, {x:25.6, z:-5}, {x:25.6, z:-27.2}, {x:-25.6, z:-27.2}]});
+    centre:{x:37.5, z:-8}, coach:{x:-6, z:-5.4, ry:Math.PI}, ballMesh:() => ballLook().mesh,
+    // the passing pairs, in the middle of the pitch off every drill's ground (npc.js keeps their lanes clear of them)
+    pairs:[[toWorld(0, -10), toWorld(5, -6), false], [toWorld(-12, -2), toWorld(-7, 1), "#d8ff3a"]],
+    // the lap goes round the outside of the pitch, on the grass: behind both goals, its ends 3.8 m behind the goal
+    // lines (the nets end 2 m back), so the runners stay well clear of the goal mouths; along the stand just outside
+    // the far touchline (it swings in round the tunnel's cheeks), and back down the near side
+    lap:[{x:PITCH.x0 - 3.8, z:PITCH.z1 - 1}, {x:PITCH.x1 + 3.8, z:PITCH.z1 - 1}, {x:PITCH.x1 + 3.8, z:PITCH.z0 - 1.2}, {x:PITCH.x0 - 3.8, z:PITCH.z0 - 1.2}]});
   // and at four, home: walking off to their cars or the bus (leave.js)
   GROUND.leave = departures({minute:ctx.minute, session:GROUND.session, mine:!!ct});
-  spot({x:-6, y:1.2, z:-5.4, r:2.2, near:true, when:() => typeof sessionOn === "function" && sessionOn(), label:"Coach", hint:"Join the team session · 90 min", run:() => ctx.session()});
+  /* the assistant coach: at his post on the near touchline, between the drills, while the centre is open. He plays the
+     balls in for the drills and the lessons (football/training.js lends him: he walks to his spot, plays them with a
+     real strike, and walks back when it is over) */
+  const AC = trainAssist, ah = staffer(AC.x, AC.z, AC.ry, {role:"coach", seed:21, kit, noSolid:false,
+    when:m => m >= (typeof CENTRE === "object" ? CENTRE.open : 6*60) + 45 && m < (typeof CENTRE === "object" ? CENTRE.close : 17*60) - 10, minute:ctx.minute});
+  GROUND.assist = {h:ah, x:AC.x, z:AC.z, ry:AC.ry, lend:() => ah.lend(), giveBack:() => ah.giveBack()};
+  // the coach: the team session, once a day (3.6.2): "Done for today" once it is
+  spot({x:-6, y:1.2, z:-5.4, r:2.2, near:true, when:() => typeof sessionOn === "function" && sessionOn(), label:"Coach",
+    get hint(){ return sessionHint(); }, run:() => ctx.session()});
   finishBatches();
-  return {bus:{x:-14, z:23.2, y:0, yaw:0}, tunnel:{x:0, z:-25.2, y:0, yaw:Math.PI}};
-}
-// a match ball as a moving mesh, for drills and the squad
-let BALLTEX = null, BLOBG = null, BLOBM = null;
-const blobGeo = () => BLOBG || (BLOBG = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI/2));
-function blobMat(){
-  if (BLOBM) return BLOBM;
-  const t = textTex(64, 64, g => { const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31); gr.addColorStop(0, "rgba(0,0,0,.6)"); gr.addColorStop(.6, "rgba(0,0,0,.3)"); gr.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
-  t.userData.per = 1;
-  BLOBM = new THREE.MeshBasicMaterial({map:t, transparent:true, depthWrite:false, opacity:.5, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
-  BLOBM.userData.keep = true;
-  return BLOBM;
-}
-export function ballMesh(){
-  if (!BALLTEX){
-    BALLTEX = textTex(256, 128, g => {
-      g.fillStyle = "#f4f4f0"; g.fillRect(0, 0, 256, 128);
-      g.fillStyle = "#1e2228";
-      for (let i = 0; i < 12; i++){ const x = (i % 6)*44 + (i > 5 ? 22 : 0), y = i > 5 ? 86 : 38; g.beginPath();
-        for (let k = 0; k < 5; k++){ const a = k/5*Math.PI*2 - Math.PI/2; const px = x + Math.cos(a)*13, py = y + Math.sin(a)*13*(i > 5 ? .9 : 1); k ? g.lineTo(px, py) : g.moveTo(px, py); } g.closePath(); g.fill(); }
-    });
-    BALLTEX.userData.per = 1;
-  }
-  // a moving ball throws no sun shadow (the shadow map is not redrawn every frame, so it would leave its old one behind):
-  // a soft blob on the grass under it instead, which shrinks and fades as the ball goes up
-  const m = new THREE.Mesh(new THREE.SphereGeometry(.11, 18, 12), mat({map:BALLTEX, roughness:.45}));
-  m.castShadow = false; m.material.userData.keep = false;
-  const b = new THREE.Mesh(blobGeo(), blobMat());
-  b.matrixAutoUpdate = false; b.matrixWorldAutoUpdate = false; b.frustumCulled = false; b.renderOrder = 1; b.castShadow = false; b.receiveShadow = false;
-  b.userData.keep = true;                                    // shared geometry and material: never disposed with the place
-  b.onBeforeRender = () => {
-    const e = m.matrixWorld.elements, h = Math.max(0, e[13] - .11), k = 1/(1 + h*1.6), s = .34*k + .1;
-    b.matrixWorld.makeScale(s, 1, s).setPosition(e[12], .02, e[14]);
-  };
-  m.add(b);
-  return m;
+  // the players' tunnel: where you come out on a match day, and how far into it the match begins (tunnel.js reads it:
+  // within 1.6 m of its line and 1.55 m past this spot)
+  GROUND.tunnel = {x:TUNNEL.x, z:TUNNEL.z, spawnZ:TUNNEL.z, trigger:TUNNEL.z - 1.55, half:1.6, mouth:{x:TUNNEL.x, z:STAND_Z}};
+  return {bus:{x:-14, z:23.2, y:0, yaw:0}, tunnel:{x:TUNNEL.x, z:TUNNEL.z, y:0, yaw:Math.PI}};
 }

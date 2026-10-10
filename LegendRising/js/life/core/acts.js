@@ -10,8 +10,14 @@ import {W} from "../build.js";
 import {homeRefresh, drawMail, refreshFridge, bedTier, drawNotices} from "../home.js";
 import {refreshGymFridge} from "../ground.js";
 import {checkMail, openMail} from "../rent.js";
-import {refreshParcels, pointName, parcelText} from "../parcels.js";
-import {startDrill, startReps, startSession} from "../drills.js";
+import {parcelArrived, pointName, parcelText} from "../parcels.js";
+import {startReps} from "../drills.js";
+import {effSkills} from "../football/bridge.js";
+import {attrsForPlayer} from "../football/attrs.js";
+import {hashStr} from "../football/rng.js";
+import {sessionRewards, SESSION_PLAN_MINS, SESSION_LAST} from "../football/trainspec.js";
+import {speak, active as fdActive} from "../firstday.js";
+import {bodyLook} from "../look.js";
 import {runShift} from "../jobs.js";
 import {MINI} from "../mini.js";
 import {G, LIFE, P, ME, FLAGS, FADE, keys, sync} from "./state.js";
@@ -50,7 +56,7 @@ function onDaily(type, d){
   if (!LIFE.running && type !== "season") return;
   if (type === "delivered"){
     // the bag is on its delivery point: on it now if you are in that place, waiting there if you are not
-    if (LIFE.zone === d.where) refreshParcels();
+    if (LIFE.zone === d.where) parcelArrived();
     FEED.center("Foodies delivered", `${parcelText(d.items) || "Your order"} · waiting on ${pointName(d.where)} · carry it to a fridge`, {kind:"food", icon:"🍔"});
   } else if (type === "late") FEED.chip(`Late for training · Manager trust ${delta(d.d)}`, "bad");
   else if (type === "settled") settledChip(d);
@@ -331,7 +337,11 @@ export function work(){
   openShift();
 }
 
-/* ---------- training on your own, and the team session ---------- */
+/* ---------- training on your own, and the team session ----------
+   The football (the drills on the pitch, the team session, the first day's lessons) is played on the match simulation
+   in first person (football/training.js, DESIGN 3.6.2, 3.6.3): the same controls, ball and bodies as a match. It is
+   loaded the first time it is needed, and it reaches the career only through the host below (DESIGN D5: no football
+   file but bridge.js reads S). The gym's sets stay drills.js's (the mode drill). */
 export function trainCheck(){
   if (S.energy < 8){ note("You're running on empty. Eat something before you train."); return false; }
   if (!centreOpen()){ note(`The training centre is closed. It is open from ${centreHours()}.`); return false; }
@@ -339,41 +349,114 @@ export function trainCheck(){
   return true;
 }
 const begin = D => { if (D) enterMode("drill", D); };
-export function drill(kind){ if (!trainCheck() || mode() === "drill") return; begin(startDrill(kind, H.host)); }
-export function reps(kind){ if (!trainCheck() || mode() === "drill") return; begin(startReps(kind, H.host)); }
-/* the team session, once a day (DESIGN 3.8.8, 3.6.2: S.life.att.sess = {blocks, mins, done, score}). It is run in
-   blocks of a quarter of an hour (drills.js startSession); Esc keeps the blocks you finished and joining again carries on
-   from the next one; a late start only runs the blocks that fit before SESSION.end, and with less than SESSION_LAST
-   minutes left they are packing up. Its rewards come once, with the last block. */
-const SESSION_PLAN_MINS = 90, SESSION_LAST = 20, TICK = 1.1;
+export function reps(kind){ if (!trainCheck() || mode() !== "life") return; begin(startReps(kind, H.host)); }
+// what each position works on when the session has little to measure (being out there with the lads)
+const SESSION_SKILLS = {ST:["accuracy", "power", "heading", "pace"], LW:["dribbling", "pace", "passacc", "accuracy"], RW:["dribbling", "pace", "passacc", "accuracy"],
+  CAM:["passing", "passacc", "curve", "dribbling"], CM:["passing", "stamina", "interception", "tackling"], DF:["tackling", "interception", "heading", "passacc"],
+  GK:["jumping", "passacc", "composure", "stamina"]};
+const slotOf = () => (S.player && (S.player.teamPos || S.player.pref)) || "CM";
+export const TRAIN_HOST = {
+  // you, as the simulation needs you: your skills on the day (bridge.effSkills), boots, traits, foot, height
+  me(){
+    const p = S.player || {}, sk = effSkills();
+    return {pid:S.meId != null ? S.meId : 0, name:p.name || "You", number:p.number || 9, slot:slotOf(), pos:p.pos || "CM",
+      prefFoot:p.foot === "Left" || p.foot === "L" ? "Left" : p.foot === "Both" || p.foot === "B" ? "Both" : "Right", scale:ME.scale || 1,
+      at:attrsForPlayer(sk, S.items || {}, S.traits || {}), energy:clamp(num(S.energy, 80), 0, 100), fatigue:clamp(num(S.fatigue, 0), 0, 100),
+      items:S.items || null, traits:Object.assign({}, S.traits || {}), chem:num(S.chem, 0), trust:num(S.trust, 0),
+      staminaF:typeof staminaF === "function" ? staminaF() : null, sessionSkills:SESSION_SKILLS[p.pos] || SESSION_SKILLS.CM};
+  },
+  // your club's squad (not you): who the borrowed bodies are, how good they are
+  squad(){
+    const c = typeof myClub === "function" ? myClub() : null;
+    const list = c && typeof squadOf === "function" ? squadOf(c.id).filter(q => q && !q.me) : [];
+    return list.map(q => ({pid:q.id, name:typeof pname === "function" ? pname(q) : "", number:q.no || 0, ovr:q.ovr || 55, pos:q.pos || "CM"}));
+  },
+  // you in your training kit (the match's own bodies: your whole body and the one in your eyes)
+  look(){ const s = G(); try { return bodyLook(s.player.look, "training"); } catch(e){ console.error(e); return null; } },
+  clubShort(){ const c = typeof myClub === "function" ? myClub() : null; return c && c.nm ? c.nm.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "YOU" : "YOU"; },
+  // the training kit, and the bibs the other half wear
+  kits(){
+    const c = typeof myClub === "function" ? myClub() : null, k = c && typeof kitOf === "function" ? kitOf(c.nm) : ["#2c66b8", "#ffffff"];
+    return {home:[k[0], k[1]], away:["#d8ff3a", k[1]]};
+  },
+  seed:key => hashStr(`train|${S.cid != null ? S.cid : ""}|${S.life ? S.life.day : 0}|${LIFE.min}|${key}`),
+  minute:() => LIFE.min,
+  sessionEnd:() => SESSION.end,
+  sessionOn:() => sessionOn(),
+  sessionStartText:() => clockText(SESSION.start),
+  xp:(k, amt) => trainXP(k, amt),
+  exert:(f, e) => exert(f, e),
+  trainMin(m){ S.today.trainMin = num(S.today.trainMin, 0) + m; },
+  pass:mins => { if (mins > 0) pass(mins, "train"); },
+  note:t => note(t),
+  say(who, text){ if (firstDaySay(who, text)) return; note(`${who}: "${text}"`); },
+  center:(title, sub) => FEED.center(title, sub, {kind:"drill", icon:"✓", ms:2600}),
+  persist:() => persist(),
+  attSess(){ const a = S.life.att; return a ? a.sess : null; },
+  // a block of the team session played out (ok) or walked out of: the minutes count for attendance either way
+  blockDone(mins, ok){
+    const ss = S.life.att && S.life.att.sess; if (!ss) return;
+    if (ok){ ss.blocks = Math.min(4, ss.blocks + 1); ss.mins += mins; }
+    S.today.trainMin = num(S.today.trainMin, 0) + mins;
+    exert(3*mins/22.5, 2.5*mins/22.5);
+  },
+  // the whole session done: its rewards, once a day (DESIGN 3.6.2 and 3.8.8: att.sess.done)
+  sessionDone(score){
+    const ss = S.life.att.sess;
+    const r = sessionRewards(score, S.chem);
+    ss.done = true; ss.score = score;
+    chemAdd(r.chem); S.life.att.chem = num(S.life.att.chem, 0) + r.chem;
+    trustAdd(r.trust);
+    S.today.sessions = num(S.today.sessions, 0) + 1;
+    persist(true);
+    return r;
+  },
+  // the first day's lessons were the day's session: its rewards once, the rest of its time, the tutorial done
+  lessonsDone(score, minsSpent){
+    const ss = S.life.att && S.life.att.sess;
+    if (ss && !ss.done){ ss.blocks = 4; ss.mins = Math.max(ss.mins, SESSION_PLAN_MINS); TRAIN_HOST.sessionDone(score); }
+    const rest = Math.max(0, Math.min(SESSION_PLAN_MINS - minsSpent, SESSION.end - LIFE.min));
+    if (rest > 0) pass(rest, "train");
+    if (S.flags) S.flags.GameplayTutorialCompleted = true;
+    if (S.onb && typeof S.onb === "object") S.onb.step = "done";
+    persist(true);
+  },
+  onb:(ev, data) => onb(ev, data)
+};
+// the first day's dialogue box while the first day runs (firstday.js speak), else a line of note
+function firstDaySay(who, text){ if (!fdActive()) return false; speak(who, text); return true; }
+let TRAINING = null, RUN_MOD = null;
+const RUNNING = () => !!(RUN_MOD && RUN_MOD.RUN.cur);
+// football/training.js, loaded once (it brings the match's controls, bodies and HUD with it)
+export function training(){
+  if (!TRAINING) TRAINING = import("../football/training.js").then(T => { T.trainHost(TRAIN_HOST); RUN_MOD = T; return T; }).catch(e => { TRAINING = null; throw e; });
+  return TRAINING;
+}
+export function drill(kind){
+  if (!trainCheck() || mode() !== "life") return;
+  training().then(T => { if (T.RUN.cur) return note("You're in the middle of something already."); T.startDrill(kind); }).catch(e => console.error(e));
+}
+/* the team session, once a day (DESIGN 3.8.8, 3.6.2: S.life.att.sess = {blocks, mins, done, score}): four blocks played
+   on the simulation (training.js startSession); Esc keeps the blocks you finished and joining again carries on from
+   the next one; a late start only runs the blocks that fit before SESSION.end, and with fewer than SESSION_LAST minutes
+   left they are packing up. Its rewards come once, with the last block. Talking to the coach while it runs steps you
+   out of it. */
 export function session(){
   const a = S.life.att, ss = a && a.sess;
+  if (TRAINING && RUNNING()) return training().then(T => { if (T.RUN.cur && T.RUN.cur.kind === "session" && T.RUN.cur.quit) T.RUN.cur.quit(); });
   if (ss && ss.done) return note("You've done today's session. The coach wants you fresh tomorrow.");
   if (!sessionOn()) return note("The session has finished for today.");
   const left = SESSION.end - LIFE.min;
   if (left < SESSION_LAST) return note(`The session's nearly over. Join them tomorrow at ${clockText(SESSION.start)}.`);
   if (S.energy < 10) return note("You're too hungry to keep up. Eat something first. There's food in the gym fridge.");
-  if (mode() === "drill") return;
-  const D = startSession(H.host); if (!D) return;
-  if (!ss) return begin(D);
-  const N = D.reps || 6, block = SESSION_PLAN_MINS/N;
-  const todo = Math.max(1, Math.min(N - ss.blocks, Math.floor(left/block)));
-  // the blocks already done (or that there is no time left for) count as behind you: the session starts at the next
-  D.ticks = D.rep = N - todo; D.t = D.ticks*TICK;
-  let seen = D.ticks;
-  const keep = () => {
-    if (D.ticks > seen){ const n = D.ticks - seen; ss.blocks = Math.min(N, ss.blocks + n); ss.mins += n*block; seen = D.ticks; }
-    if (D.phase === "done" && D.ticks >= N && !ss.done){
-      ss.done = true;
-      ss.score = D.scores && D.scores.length ? D.scores.reduce((x, y) => x + y, 0)/D.scores.length : 0;
-    }
-  };
-  const up = D.update, inp = D.input;
-  D.update = dt => { up(dt); keep(); };
-  D.input = (type, k) => { inp(type, k); keep(); };
-  begin(D);
+  if (mode() !== "life") return;
+  training().then(T => T.startSession()).catch(e => console.error(e));
 }
-/* the mode drill: a drill, a gym set or the team session (drills.js), driven through the host world.js gives it (the
+// the first day's lessons (WP-H2's G9 calls it): resolves true when they are done
+export function startFirstTraining(){ return training().then(T => T.startFirstTraining()); }
+window.lifeFirstTraining = startFirstTraining;
+
+/* the mode drill: a gym set (drills.js), driven through the host world.js gives it (the
    DRILL host contract) and kept as FLAGS.drill while it runs. Its update runs in every sub-step after your movement;
    its keys and the left button go to it; a set with its own shot (view) owns the camera as drill-view. Leaving it any
    other way than its own ending (a zone change, another mode) gives it up as Esc would */
@@ -421,7 +504,7 @@ window.lifeModalSet = on => {
 // back from the hub or a panel: what may have changed meanwhile
 export function lifeRefresh(){
   if (LIFE.zone === "home") homeRefresh(); else refreshGymFridge();
-  refreshParcels();                                  // (a bag may have arrived while the hub was up)
+  parcelArrived();                                   // (a bag may have arrived while the hub was up: put there unseen)
 }
 
 /* ---------- five o'clock at the training centre ----------
