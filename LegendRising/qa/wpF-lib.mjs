@@ -59,6 +59,31 @@ export async function openDay({gfx = "low", seed = 7, role = "starter", before =
     }
     return T.st();
   };
+  // from the tunnel to the kick-off: into the tunnel, the travel card, the manager and the door, then the bot walks out
+  // and to its place and says it is ready. Resolves the state it got to ('live' for a starter, 'bench' for a sub)
+  T.toKickoff = async ({sit = true} = {}) => {
+    await installBot(page);
+    await T.toMatch();
+    await page.waitForTimeout(1300);
+    await T.untilState("dressing", 6000);
+    await page.evaluate(() => { window.__fp.manager(); window.__fp.headOut(); });
+    for (let i = 0; i < 2400; i++){
+      const r = await page.evaluate(() => {
+        const F = window.__fp, sp = F.spot(), P = window.__life.P, st = F.state;
+        if (st !== "walkout"){ window.__bot.toward(P.x, P.z); return st; }
+        let tx = sp ? sp.x : -10, tz = sp ? sp.z : -36.8;
+        if (P.z < -40){ tx = P.x; tz = -38; }
+        const d = window.__bot.toward(tx, tz, .35);
+        if (sp && d < 1.2){ F.input({type: "keydown", key: "e"}); F.input({type: "keyup", key: "e"}); F.ready(); }
+        window.__bot.frame(1);
+        return F.state;
+      });
+      if (r !== "walkout") break;
+    }
+    const s = await T.st();
+    if (s.state === "bench" && sit){ await page.evaluate(() => window.__fp.sitDown("home")); }
+    return T.st();
+  };
   return T;
 }
 

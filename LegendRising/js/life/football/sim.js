@@ -25,7 +25,7 @@ import {createBall, createBallWorld, ballStep, BALL} from "./ball.js";
 import {makePitch, inBox} from "./pitchspec.js";
 import {mulberry32, hashStr} from "./rng.js";
 import {moverStep} from "../mover.js";
-import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute} from "../stamina.js";
+import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute, STAM} from "../stamina.js";
 import {phaseAdvanceQ, GQ, gaitModeStep} from "../gaitcore.js";
 import {createAgent, separate, bodyRec} from "./agent.js";
 import {levelled} from "./attrs.js";
@@ -418,7 +418,8 @@ function agentStep(ms, a, h){
   if (!a.diveMoved && !a.slideMoved) moverStep(m, a.intent, a.prm, a.fac, h, null);
   if (a.role === 'player'){
     EFF.stamina = a.at.stamina != null ? a.at.stamina : 50; EFF.eF = a.eF;
-    stamStep(a.st, h, effortOf(m.gait, m.speed, a.prm.run), EFF);
+    // (braking is not running: a body slowing from a sprint costs no run drain on the way down, WP-F)
+    stamStep(a.st, h, effortOf(m.gait, m.acc < -1 ? Math.min(m.speed, STAM.RUN_V - 0.01) : m.speed, a.prm.run), EFF);
     const ddx = m.x - px, ddz = m.z - pz, dist = Math.sqrt(ddx*ddx + ddz*ddz);
     a.acc.dist += dist;
     const spr = m.gait === 'sprint' && m.speed > a.prm.run;

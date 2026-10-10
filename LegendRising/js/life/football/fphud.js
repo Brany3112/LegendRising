@@ -281,3 +281,39 @@ function radar(s, big){
   g.fillStyle = "#fff59a"; g.beginPath(); g.arc(ox + ms.ball.p.x*sx, oz + ms.ball.p.z*sz, 2, 0, Math.PI*2); g.fill();
   cv.classList.toggle("big", !!big);
 }
+
+/* ---------- the match settings (3.4.7; addendum A1.2 and A1.4) ----------
+   This device's settings (control.js SET, localStorage freyaFootball.ctrl), as rows for the pause card and the
+   Settings sheet (window.fpSettingsHTML): match length (the calibrated lengths only), mouse sensitivity, invert mouse,
+   field of view, camera motion and effects, control hints, offside marker, spoken team-mates' calls, volume, HUD size,
+   opacity, the colour-blind palette, the radar, each HUD element on or off. Every control calls window.fpSet(key,
+   value). o = {speed: S.speed, lengths: [[speed, label], ...] (the calibrated ones)} */
+export function settingsHTML(o = {}){
+  const q = v => JSON.stringify(v).replace(/"/g, "&quot;");
+  const seg = (k, opts, cur) => `<div class="seg">${opts.map(([v, l]) => `<button type="button" aria-pressed="${String(cur) === String(v)}" onclick="fpSet('${k}', ${q(v)})">${esc(l)}</button>`).join("")}</div>`;
+  const range = (k, lo, hi, st, v) => `<input type="range" min="${lo}" max="${hi}" step="${st}" value="${v}" aria-label="${esc(k)}" oninput="fpSet('${k}', +this.value)"><span class="fp-set-v" data-k="${k}">${esc(fmtVal(k, v))}</span>`;
+  const lengths = o.lengths || [];
+  const rows = [];
+  if (lengths.length > 1) rows.push(["Match length", seg("speed", lengths, o.speed)]);
+  else if (lengths.length === 1) rows.push(["Match length", `<span>${esc(lengths[0][1])}</span>`]);
+  rows.push(["Mouse sensitivity", range("sens", .4, 2.5, .05, SET.sens)]);
+  rows.push(["Invert mouse", seg("invertY", [[false, "Off"], [true, "On"]], SET.invertY)]);
+  rows.push(["Field of view", range("fov", 70, 90, 1, SET.fov)]);
+  rows.push(["Camera motion and effects", range("motion", 0, 1, .05, SET.motion)]);
+  rows.push(["Control hints", seg("hints", [[true, "On"], [false, "Off"]], SET.hints)]);
+  rows.push(["Offside marker", seg("offsidePip", [["auto", "Auto"], ["on", "On"], ["off", "Off"]], SET.offsidePip)]);
+  rows.push(["Spoken team-mates' calls", seg("speech", [[true, "On"], [false, "Off"]], SET.speech)]);
+  rows.push(["Volume", range("volume", 0, 1, .05, SET.volume)]);
+  rows.push(["HUD size", range("hudScale", .75, 1.4, .05, SET.hudScale)]);
+  rows.push(["HUD opacity", range("hudOpacity", .35, 1, .05, SET.hudOpacity)]);
+  rows.push(["Colours", seg("palette", [["normal", "Standard"], ["cb", "Colour-blind"]], SET.palette)]);
+  rows.push(["Radar", seg("radar", [[false, "Off"], [true, "On"]], SET.radar)]);
+  const hide = SET.hide || {};
+  rows.push(["Show on the HUD", `<div class="seg wrap">${Object.entries(HUD_PARTS).map(([k, l]) => `<button type="button" aria-pressed="${!hide[k]}" onclick="fpSet('hide', '${k}')">${esc(l)}</button>`).join("")}</div>`]);
+  return `<div class="fp-set">${rows.map(([l, c]) => `<label>${esc(l)}</label><div class="fp-set-c">${c}</div>`).join("")}</div>`;
+}
+export function fmtVal(k, v){
+  if (k === "sens") return (+v).toFixed(2) + "x";
+  if (k === "fov") return Math.round(v) + " degrees";
+  return Math.round(v*100) + "%";
+}

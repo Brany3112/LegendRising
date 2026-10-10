@@ -29,18 +29,19 @@ import {SCHED} from "../core/sched.js";
 import {moveBy, findInside} from "../core/collide.js";
 import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
-import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, liveRating} from "./sim.js";
+import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, liveRating} from "./sim.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
 import {minuteOf, highlights, onSec, deriveMy} from "./events.js";
 import {makePitch, ROLL, dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {attrsForAI} from "./attrs.js";
-import {restartReady, offsidePosition} from "./rules.js";
+import {restartReady, offsidePosition, startRestart} from "./rules.js";
+import {startAction} from "./actions.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
-import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing} from "./view.js";
-import {CTRL, SET, onSet, controlInput, controlStep, controlReset, scanStep, hintsFor, MOD, KEYS, look, CN, RING_T} from "./control.js";
+import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv} from "./view.js";
+import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, MOD, KEYS, look, CN, RING_T} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
-import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings} from "./fphud.js";
+import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal} from "./fphud.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
 import {STADIUM, SPAWNS} from "./stadium.js";
 import {AUD} from "./audio.js";
@@ -408,6 +409,8 @@ function frame(dt, real){
   }
   if (FS.state === "leaving" || !FS.ms) return;
   events();
+  acrobatics();
+  feel();
   if (playing()) replayStep(real);
   // the bodies, the ball, the crowd and the board
   const alpha = clamp(FS.acc/H, 0, 1);
@@ -482,6 +485,7 @@ function oneStep(){
   else CTRL.queue.length = 0;
   simStep(ms, H);
   rec(ms);
+  if (FS.testDriver) FS.testDriver();
 }
 const _mv = {x: 0, z: 0};
 function mirror(){
@@ -603,6 +607,30 @@ function place(){
   if (key !== FS.board){ FS.board = key; STADIUM.score({hs: ms.score[0], as: ms.score[1], min: mm}); }
 }
 
+/* ---------- acrobatics (A1.5): the world in slow motion and a third-person shot of it ----------
+   An acrobatic strike the action resolver offered (a scissor kick, an overhead kick, a rabona: only with the trait)
+   slows the world to a third of real time for a moment (FP.slowMo: the same fixed steps, fewer of them a real second,
+   so the match stays the same match) and the cinematic owner frames it from the side, then hands back to your eyes */
+function acrobatics(){
+  const A0 = CTRL.acro, ms = FS.ms, me = liveMe();
+  if (!A0 || !me || A0.shown) return;
+  A0.shown = true;
+  FP.slowMo(.33, 1.4);
+  const side = dirOf(me.m.yaw), px = -side.z, pz = side.x;
+  cineShot({dur: 1.4, frame: (dt, cam, k) => {
+    const b = ms.ball.p, a = me.m, r = 4.2 - 1.2*k;
+    cam.position.set(a.x + px*r - side.x*1.2, 1.3 + .4*k, a.z + pz*r - side.z*1.2);
+    cam.lookAt((a.x + b.x)/2, Math.max(.6, (1.0 + b.y)/2), (a.z + b.z)/2);
+  }, done: () => { if (FS.V) FS.V.fpOn = true; }});
+  if (FS.V) FS.V.fpOn = false;
+}
+// what you hear of your own running (A1.2) and breathing (A1.3): the audio's feel channel when it has one
+function feel(){
+  if (!AUD.feel) return;
+  const me = liveMe(), B = me ? me.st.B : 100;
+  AUD.feel({wind: FX.wind, breath: clamp(1 - B/60, 0, 1), pulse: FX.topT > 0 ? FX.topT/.35 : 0, motion: SET.motion});
+}
+
 /* ---------- the HUD's frame ---------- */
 const _pv = new THREE.Vector3();
 function proj(x, y, z){
@@ -628,6 +656,11 @@ function hud(dt){
   }
   hudShow(!playing() && FS.state !== "travel");
   hudFrame(HUDS);
+  // the receiver ring (1.5.10): under the pass's point while you hold the pass, or where a pass to you will be met
+  let ring = null;
+  if (me && CTRL.rmb && CTRL.target.point && CTRL.ctx !== "defend") ring = CTRL.target.point;
+  else if (me && ms.kick && ms.kick.ev && ms.kick.ev.recv === me.id && ms.ball.state === "free" && ms.poss.ctl !== me.id && ms.t - ms.kick.t < 4) ring = {x: me.m.x, z: me.m.z};
+  if (FS.V) viewRecv(FS.V, ring);
 }
 // the hints off the ball's play: on the bench, walking out, in the dressing room
 function offHints(){
@@ -751,15 +784,18 @@ function skipHTML(){
 function skipFrame(){
   const ms = FS.ms, S0 = FS.skipping; if (!S0) return;
   FS.headless = true;
+  // at most 12 ms of simulation a frame (the clock read after every step: the last one can only run over by itself)
   const t0 = performance.now();
   let steps = 0;
-  while (performance.now() - t0 < DAY.SKIP_MS && ms.phase !== "over"){
-    for (let k = 0; k < 16 && ms.phase !== "over"; k++){ oneStep(); steps++; }
+  while (ms.phase !== "over"){
+    oneStep(); steps++;
     if (S0.kind === "call" && ms.callUp) break;
     if (S0.kind === "late" && matchSec(ms) >= S0.until) break;
     if (ms.phase === "halftime"){ if (S0.kind === "late" || FS.state === "lateRun"){ secondHalf(ms); } else break; }
+    if (performance.now() - t0 >= DAY.SKIP_MS) break;
   }
-  FS.stepCost = steps ? (performance.now() - t0)/steps : 0;
+  FS.skipMs = performance.now() - t0; FS.skipSteps = steps;
+  FS.stepCost = steps ? FS.skipMs/steps : 0;
   FS.headless = false;
   events();
   hudOverlay(skipHTML(), "card dim");
@@ -917,7 +953,7 @@ function teardown(){
   controlReset();
   CTRL.enabled = true;
   FS.ms = null; FS.state = null; FS.walkers = null; FS.skipping = null; FS.seated = false; FS.called = false; FS.onPitch = false;
-  FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false;
+  FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null;
   document.body.classList.remove("fp-match");
 }
 // FP.exit (tests, or a match that has to stop): no result, the mode left
@@ -1021,8 +1057,29 @@ SCHED.task({id: "fp-match", kind: "keep", run: dt => {
   benchHold(dt);
   // paused (the pointer let go): the card; the simulation is not stepped (world.js skips the mode's step)
   const paused = !!FLAGS.lockLost && (FS.state === "live" || FS.state === "bench" || FS.state === "entering") && !FS.skipping;
-  if (paused !== FS.pauseShown){ FS.pauseShown = paused; hudOverlay(paused ? `<div class="fp-pause">Paused. Click to carry on.</div>` : null, paused ? "dim" : ""); }
+  if (paused !== FS.pauseShown){ FS.pauseShown = paused; hudOverlay(paused ? `<div class="fp-pausebox"><div class="fp-pause">Paused. Click to carry on.</div><div class="fp-box">${fpSettingsHTML()}</div></div>` : null, paused ? "dim pause" : ""); }
 }});
+
+/* ---------- the match settings (3.4.7): the pause card and the Settings sheet (window.fpSettingsHTML) ---------- */
+const LENGTHS = {4: "Short (6 minute halves)", 2: "Standard (10 minute halves)", 1: "Long (15 minute halves)"};
+export function fpSettingsHTML(){
+  const lengths = [4, 2, 1].filter(k => CALIBRATED[k]).map(k => [k, LENGTHS[k]]);
+  return settingsHTML({speed: HOST && HOST.speed ? HOST.speed() : 2, lengths});
+}
+export function fpSet(k, v){
+  if (k === "speed"){ if (HOST && HOST.setSpeed && CALIBRATED[v]) HOST.setSpeed(v); }
+  else if (k === "hide"){ const h = Object.assign({}, SET.hide || {}); h[v] = !h[v]; saveSet({hide: h}); }
+  else saveSet({[k]: v});
+  if (k === "volume") AUD.volume(SET.volume);
+  // the setting cards open: a slider's value written beside it; anything else drawn again
+  if (typeof document === "undefined") return;
+  const range = ["sens", "fov", "motion", "volume", "hudScale", "hudOpacity"].includes(k);
+  for (const box of document.querySelectorAll(".fp-set")){
+    if (range){ const sp = box.querySelector(`.fp-set-v[data-k="${k}"]`); if (sp) sp.textContent = fmtVal(k, SET[k]); }
+    else box.outerHTML = fpSettingsHTML();
+  }
+}
+window.fpSettingsHTML = fpSettingsHTML; window.fpSet = fpSet;
 
 /* ---------- crash recovery (3.4.4) ----------
    On the first life frames after a load: a match left half played (S.life.inMatch, its fixture not done) is rebuilt
@@ -1055,10 +1112,11 @@ export function recoverCheck(){
     FS.ms = ms; FS.M = M; FS.f = f; FS.real = true;
     const out = finish(ms);
     out.around = HOST.around(f);
+    RECOVER.out = {rating: out.rating, mins: out.R ? out.R.mins : null, score: ms.score.slice(), fkey: f.key, checkpointMin: min};
     persistNow();
     const R = out.R ? Object.assign({}, out.R, {around: out.around}) : null;
     const o = hudOverlay(`<div class="fp-box">${R ? HOST.ftCard(M, R) : ""}<div class="row gap8 center"><button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
-    const done = () => { hudOverlay(null); hudDispose(); FS.ms = null; FS.M = null; FS.f = null; FS.real = false; RECOVER.busy = false; RECOVER.done = true; HOST.afterRecover(); };
+    const done = () => { hudOverlay(null); hudDispose(); FS.ms = null; FS.M = null; FS.f = null; FS.real = false; RECOVER.busy = false; RECOVER.done = true; HOST.afterRecover(f); };
     if (o) o.onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.ft === "go") done(); };
     RECOVER.finish = done;
   }});
@@ -1131,21 +1189,58 @@ function scenario(name, o){
     const dir = ms.dirs[me.team], defs = ms.agents.filter(a => a.team !== me.team && a.role === "player" && !a.isGK);
     defs.forEach((a, i) => put(a, dir*(18 - (i % 4)*.0) - dir*(i >= 4 ? 8 : 0), -14 + (i % 4)*9.3, dir > 0 ? Math.PI/2 : -Math.PI/2));
     const line = dir*18, mate = ms.agents.find(a => a.team === me.team && a.slot === "CM");
-    put(me, line + dir*(margin + .0), 4, -Math.PI/2*dir);
+    put(me, line + dir*margin, 0, -Math.PI/2*dir);
     put(mate, dir*-5, 0, -Math.PI/2*dir);
     for (const a of ms.agents) if (a.team === me.team && a !== me && a !== mate && a.role === "player" && !a.isGK) put(a, dir*-25, a.m.z);
     ball(mate.m.x + dir*.6, mate.m.z);
     ms.poss.ctl = mate.id; ms.poss.team = mate.team;
-    const tgt = {x: me.m.x + dir*8, y: .11, z: 4};
-    mate.intent.action = {kind: "through", target: tgt, recv: me.id, contact: 0};
+    // the team-mate plays it to your feet at once (the same Action record his brain would make)
+    mate.m.yaw = mate.m.heading = Math.atan2(-(me.m.x - mate.m.x), -(me.m.z - mate.m.z));
+    ball(mate.m.x + Math.sin(-mate.m.yaw)*.62, mate.m.z - Math.cos(mate.m.yaw)*.62);
+    startAction(ms, mate, {kind: "pass", target: {x: me.m.x, y: .11, z: me.m.z}, recv: me.id, contact: 0});
     FS.testInfo = {margin, mate: mate.id, line};
-  } else if (name === "penalty"){
+  } else if (name === "penalty" || name === "corner"){
+    // a penalty or a corner for your side, you the taker: the real restart (rules.js), its wall, its keeper, its runners
     const dir = ms.dirs[me.team];
-    FS.testPen = true;
-    ms.ball.p.x = dir*41.5; ms.ball.p.z = 0;
-    put(me, dir*39.5, 0, dir > 0 ? -Math.PI/2 : Math.PI/2);
+    ms.phase = "live"; ms.clock.running = true;
+    const spot = name === "penalty" ? {x: dir*(ms.spec.hx - 11), z: 0} : {x: dir*(ms.spec.hx - .3), z: ms.spec.hz - .3};
+    startRestart(ms, name, me.team, spot);
+    ms.restart.taker = me.id;
+    put(me, spot.x - dir*2.2, spot.z*.95, dir > 0 ? -Math.PI/2 : Math.PI/2);
+    ms.cutStep = ms.step;
+  } else if (name === "gk-shots"){
+    // your keeper faces a shot every few seconds: an opponent from 14 to 24 m, a seeded point in the frame (the test
+    // driver below lines them up; the simulation does the rest)
+    live();
+    for (const a of ms.agents) if (a.role === "player" && !a.isGK && a !== me) a.onPitch = false;
+    put(me, 0, -20, 0);
+    FS.testDriver = gkShotsDriver;
+    FS.testShot = {n: 0, t: -9};
   }
   void o;
+}
+
+// test:gk-shots: every 4 s (or once the ball is dead or in the keeper's hands) the next shooter is set up and shoots
+function gkShotsDriver(){
+  const ms = FS.ms, T0 = FS.testShot, gk = ms.agents[ms.gks[FS.cfg.me.team]];
+  if (!gk) return;
+  const ball = ms.ball, idle = ball.state !== "free" || Math.hypot(ball.v.x, ball.v.z) < .3 || ms.t - T0.t > 4;
+  if (!idle || ms.t - T0.t < 1.2) return;
+  const shooter = ms.agents.find(a => a.team !== gk.team && a.role === "player" && a.slot === "ST");
+  if (!shooter) return;
+  const r = ms.r, end = -ms.dirs[gk.team];            // the goal the keeper keeps
+  const d = 14 + 10*r(), ang = (r() - .5)*1.1;
+  const x = end*(ms.spec.hx - d*Math.cos(ang)), z = d*Math.sin(ang);
+  shooter.onPitch = true;
+  shooter.m.x = shooter.x0 = x; shooter.m.z = shooter.z0 = z; shooter.m.vx = shooter.m.vz = shooter.m.speed = 0;
+  const tx = end*ms.spec.hx, tz = (r() - .5)*6.4, ty = .2 + 2*r();
+  shooter.m.yaw = shooter.m.heading = Math.atan2(-(tx - x), -(tz - z));
+  ball.p.x = x - Math.sin(shooter.m.yaw)*.62; ball.p.y = .11; ball.p.z = z - Math.cos(shooter.m.yaw)*.62;
+  ball.v.x = ball.v.y = ball.v.z = 0; ball.w.x = ball.w.y = ball.w.z = 0; ball.state = "free"; ball.holder = -1;
+  if (gk.gk){ gk.gk.state = "ready"; gk.gk.plan = null; }
+  gk.act = null; ms.restart = null; ms.phase = "live"; ms.poss.ctl = -1; ms.cutStep = ms.step;
+  startAction(ms, shooter, {kind: "shot", target: {x: tx, y: ty, z: tz}, power: .7 + .3*r(), contact: 0, recv: -1});
+  T0.n++; T0.t = ms.t;
 }
 
 /* ---------- test hooks (1.4.20) ---------- */

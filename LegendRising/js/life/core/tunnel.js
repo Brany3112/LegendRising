@@ -119,10 +119,21 @@ fpHost({
   early(){ const s = G(); return !!(s && s.careerMy && s.careerMy.apps < 5); },
   fixture(key){ try { return (typeof weekFixtures === "function" ? weekFixtures() : []).find(f => f.key === key) || fixturesAt(S.week).find(f => f.key === key) || null; } catch(e){ return null; } },
   clearInMatch(){ const s = G(); if (s && s.life){ delete s.life.inMatch; persistNow(); } },
-  afterRecover(){ try { MT = null; } catch(e){} if (typeof flushHeldToasts === "function") flushHeldToasts(); },
+  // a match played out after a load: the mirror let go, what it held back said, and the day moved on to the match's
+  // end (it happened)
+  afterRecover(f){
+    try { MT = null; } catch(e){}
+    if (typeof flushHeldToasts === "function") flushHeldToasts();
+    const s = G(), end = fixtureSlot(f).min + MATCH_LEN;
+    if (s && s.life && s.life.min < end){ dailyPass(end - s.life.min, "match"); sync(); }
+    persistNow();
+  },
   timeLapse:(mins, label, done, o) => timeLapse(mins, "idle", label, done, o),
   note:t => note(t),
-  relock:() => { if (window.lifeRelock) window.lifeRelock(); }
+  relock:() => { if (window.lifeRelock) window.lifeRelock(); },
+  // the match length (S.speed: 2 Standard, 1 Long, 4 Short; DESIGN D3)
+  speed(){ const s = G(); return s && s.speed ? s.speed : 2; },
+  setSpeed(v){ const s = G(); if (!s) return; s.speed = v; if (typeof save === "function") save(); }
 });
 // an interrupted match is played out on the first quiet second after a load (3.4.4)
 SCHED.task({id:"fp-resume", hz:1, kind:"keep", run:() => {

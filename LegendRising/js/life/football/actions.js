@@ -430,13 +430,19 @@ export function dribbleFoot(ms, a, side){
   const v = a.m.speed;
   if (side === touchSideOf(a)) a.strides++;
   const every = dribbleCadence(v);
-  if (a.strides < every && v > 0.6) return false;
-  const r = relBall(a, b, {ahead: 0, lat: 0, dist: 0});
+  const r = relBall(a, b, RB3);
+  // (the cadence waits only while the ball is still well ahead: one he is about to run over is played now, WP-F)
+  if (a.strides < every && v > 0.6 && r.ahead > DRIB_CLOSE) return false;
   if (r.dist > TOUCH.DRIB_REACH || r.ahead < r.dist*cos(TOUCH.DRIB_CONE) || b.p.y > 0.5) return false;
   a.strides = 0;
-  const d = a.drib, fac = a.fac || {};
-  const dt = dribbleTouch(a, b, {x: d.dx, z: d.dz}, Math.max(v, d.speed || v), {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
-    walk: v < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small}, ms.r);
+  return dribbleKick(ms, a);
+}
+// a dribble touch now: the ball played on along a.drib's way (a footfall's, or the first stride's from standing)
+function dribbleKick(ms, a){
+  const b = ms.ball, v = a.m.speed;
+  const d = a.drib, fac = a.fac || {}, vv = Math.max(v, d.speed || v);
+  const dt = dribbleTouch(a, b, {x: d.dx, z: d.dz}, vv, {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
+    walk: vv < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small}, ms.r);
   ballKick(b, dt.v, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
   const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: dt.heavy ? 0.5 : 1, heavy: !!dt.heavy});
   chainKeep(ms, a);
@@ -445,6 +451,8 @@ export function dribbleFoot(ms, a, side){
   return true;
 }
 function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
+const RB2 = {ahead: 0, lat: 0, dist: 0}, RB3 = {ahead: 0, lat: 0, dist: 0};
+const DRIB_CLOSE = 0.6;
 
 // a stationary or slow controller with the ball at his feet but not ahead keeps it there: a small touch back under
 // him on a footfall (the sole), so a turn with the ball is a real turn of the ball
@@ -674,6 +682,13 @@ function throwRelease(ms, a, act){
 export function actionStep(ms, a, h){
   const I = a.intent;
   if (I.action && !a.act){ startAction(ms, a, I.action); I.action = null; }
+  // setting off with the ball from standing (a.drib.start, the player's controls): the first stride plays it on, before
+  // the body can run over it (the footfalls come half a stride later)
+  if (!a.act && a.drib && a.drib.start && ms.poss.ctl === a.id && ms.phase === 'live' && ms.ball.state === 'free'){
+    const r = relBall(a, ms.ball, RB2);
+    if (r.dist <= TOUCH.DRIB_REACH && r.ahead > 0.15 && ms.ball.p.y < 0.5){ a.drib.start = false; a.strides = 0; dribbleKick(ms, a); }
+    else if (r.ahead <= 0.15) a.drib.start = false;
+  }
   const act = a.act;
   if (!act){ if (a.state !== 'idle' && a.state !== 'run' && a.state !== 'jockey' && a.state !== 'shield') a.state = a.m.speed > 0.3 ? 'run' : 'idle'; return; }
   act.t += h;

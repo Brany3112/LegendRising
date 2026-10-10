@@ -126,7 +126,7 @@ export function look(dx, dy){
 export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
   CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false;
-  CTRL.ring = null; CTRL.eHeld = 0;
+  CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null;
 }
 const use = k => { CTRL.uses[k] = (CTRL.uses[k] || 0) + 1; };
 
@@ -209,7 +209,12 @@ function throughTarget(ms, me){
       const ex = o.m.x + vx*3, ez = o.m.z + vz*3, sx = ex - o.m.x, sz = ez - o.m.z, L2 = sx*sx + sz*sz;
       const u = clamp(((GP.x - o.m.x)*sx + (GP.z - o.m.z)*sz)/(L2 || 1), 0, 1.6);
       d = Math.hypot(o.m.x + sx*u - GP.x, o.m.z + sz*u - GP.z);
-    } else d = Math.max(0, Math.hypot(GP.x - o.m.x, GP.z - o.m.z) - 6);
+    } else {
+      // standing: the point must be clearly ahead of him (3 m or more toward the goal), within 8 m across his way there;
+      // a crosshair on his feet is a pass to his feet
+      const ahead = (GP.x - o.m.x)*dir;
+      d = ahead < 3 ? Infinity : Math.abs(GP.z - o.m.z) > 8 ? Infinity : Math.max(0, Math.hypot(GP.x - o.m.x, GP.z - o.m.z) - 12);
+    }
     if (d < bd){ bd = d; best = o.id; }
   }
   return best;
@@ -219,15 +224,23 @@ function throughTarget(ms, me){
 function leadPoint(ms, me, o, aimx, aimz, out){
   const b = ms.ball, roll = b.rollDecel || 1.1;
   const v = Math.hypot(o.m.vx, o.m.vz);
-  let ux, uz, sp;
-  if (v > 1.5){ ux = o.m.vx/v; uz = o.m.vz/v; sp = Math.max(v, o.prm.run); }
-  else { const dx = aimx - o.m.x, dz = aimz - o.m.z, d = Math.hypot(dx, dz) || 1; ux = dx/d; uz = dz/d; sp = o.prm.run; }
+  // a team-mate standing still: the ball goes into the space under the crosshair, his to run onto
+  if (v <= 1.5){ out.x = aimx; out.y = .11; out.z = aimz; return clampLead(b, out); }
+  const ux = o.m.vx/v, uz = o.m.vz/v, sp = Math.max(v, o.prm.run);
   let tx = aimx, tz = aimz;
   for (let i = 0; i < 5; i++){
-    const d = Math.hypot(tx - b.p.x, tz - b.p.z), v0 = idealPassSpeed(Math.max(1, d), 8, roll), tb = (v0 - 8)/roll + .25;
-    tx = o.m.x + ux*sp*tb; tz = o.m.z + uz*sp*tb;
+    const d = Math.hypot(tx - b.p.x, tz - b.p.z), v0 = idealPassSpeed(Math.max(1, d), 8, roll), tb = Math.min(3, (v0 - 8)/roll + .25);
+    // (damped: a runner as quick as the ball would chase the point off the pitch)
+    tx = .5*tx + .5*(o.m.x + ux*sp*tb); tz = .5*tz + .5*(o.m.z + uz*sp*tb);
   }
   out.x = tx; out.y = .11; out.z = tz;
+  return clampLead(b, out);
+}
+// a through ball's point is on the pitch and at most 45 m from the ball
+function clampLead(b, out){
+  const dx = out.x - b.p.x, dz = out.z - b.p.z, d = Math.hypot(dx, dz);
+  if (d > 45){ out.x = b.p.x + dx/d*45; out.z = b.p.z + dz/d*45; }
+  out.x = clamp(out.x, -52, 52); out.z = clamp(out.z, -33.5, 33.5);
   return out;
 }
 // where a pass to a team-mate is aimed: his feet where he will be when it gets there (3 rounds)
@@ -360,8 +373,12 @@ export function controlStep(ms, me, h, opts = {}){
   CTRL.small = !!CTRL.held.f && !CTRL.charge && ctx === "attack";
   if (ms.poss.ctl === me.id){
     if (len){
-      const d = me.drib || (me.drib = {dx:0, dz:0, gait:"jog", speed:0, t:ms.t, commit:0, small:false});
-      d.dx = I.dx; d.dz = I.dz; d.gait = I.gait; d.speed = 0; d.small = CTRL.small;
+      // setting off with it from (nearly) standing, the first stride plays it on (actions.js dribbleStep: start)
+      const d = me.drib || (me.drib = {dx:0, dz:0, gait:"jog", speed:0, t:ms.t, commit:0, small:false, start:me.m.speed < 1.5});
+      // (the speed the touch is weighed for: the gait you go at, so a touch from standing is not left under your feet)
+      d.dx = I.dx; d.dz = I.dz; d.gait = I.gait; d.small = CTRL.small;
+      // (setting off from standing, the first touch is weighed for the first strides: 2 m/s)
+      d.speed = d.start ? 2 : I.gait === "walk" ? me.prm.walk : I.gait === "sprint" ? .8*me.prm.sprint : me.prm.jog;
     } else if (me.drib) me.drib = null;
   }
   // a ball on its way to you: you take it (the first touch pushes it the way you are going), or a first-time strike
@@ -439,7 +456,11 @@ function strike(ms, me, what, held, opts){
     else if (!toGoal) kind = "shot";
     const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal};
     if (kind === "cross" || kind === "lob"){ rq.speed = undefined; rq.power = undefined; rq.recv = nearestMate(ms, me, tgt); }
-    if (Rz && Rz.kind !== "ground"){ rq.style = Rz.kind; rq.timing = timingOf(Rz); }
+    if (Rz && Rz.kind !== "ground"){
+      rq.style = Rz.kind; rq.timing = timingOf(Rz);
+      // an acrobatic strike (the traits' scissor, overhead and rabona): the controller's slow motion and its shot (A1.5)
+      if (ACRO.has(Rz.kind)) CTRL.acro = {style:Rz.kind, t:ms.t, tc:Rz.tc, x:Rz.x, y:Rz.y, z:Rz.z};
+    }
     queueStrike(ms, me, rq);
     CTRL.last = kind; use(kind === "shot" ? "shoot" : "cross");
     return;
@@ -473,6 +494,7 @@ function strike(ms, me, what, held, opts){
   queueStrike(ms, me, rq);
   CTRL.last = kind; use(kind === "through" ? "through" : "pass");
 }
+const ACRO = new Set(["scissor", "bicycle", "rabona"]);
 // the volley's timing from the ring (A1.5): 0 on the moment, 1 at the ring's edge or beyond; strike.js reads it as
 // the plant error that widens the deviation
 export const RING_T = .2;          // the moment the ring closes: this long before the ball is met (a volley's swing to contact)
