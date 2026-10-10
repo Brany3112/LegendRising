@@ -56,7 +56,7 @@ const DEG = Math.PI/180;
 export const DAY = Object.freeze({
   TRAVEL: {home: 15, away: 45}, LATE: 15, MATCH_LEN: 115, HEAD_OUT: 5,
   WALK_V: 1.4, WALK_MAX: 30, KO_WAIT: 25, KO_HALF_NAG: 15, CIRCLE: 9.15,
-  HT_WALK: 2, HT_CARD: 60, FT_WALK: 2, CK_GAP: 60, SKIP_MS: 12, REPLAY: 6, MAX_STEPS: 4,
+  HT_WALK: 2, HT_CARD: 60, FT_WALK: 2, CK_GAP: 60, SKIP_MS: 10, REPLAY: 6, MAX_STEPS: 4,
   FF: [1, 2, 4], ENTRY_NEAR: 3, CORRIDOR: {x: 1.1, zFront: -46, zBack: -64, gap: 1.25, mouth: -40.5}
 });
 
@@ -769,7 +769,7 @@ function onCameOn(){
   if (FS.V) FS.V.me = ms.me;
   hudNotice("sub", "You're on", "Go and make a difference.");
 }
-// E held on the bench: the simulation runs headless under a card with the live score and minute (12 ms a frame)
+// E held on the bench: the simulation runs headless under a card with the live score and minute (at most 10 ms of it a frame)
 function startSkip(kind){
   if (!FS.ms || FS.skipping || FS.onPitch) return;
   FS.skipping = {kind, until: kind === "end" ? 5400 : 5400};
@@ -787,20 +787,21 @@ function skipHTML(){
 function skipFrame(){
   const ms = FS.ms, S0 = FS.skipping; if (!S0) return;
   FS.headless = true;
-  // at most 12 ms of simulation a frame: the clock is read after every step, and a step is only started when the
-  // dearest step seen lately (FS.stepPeak, easing down 0.5% a step) still fits in what is left of the budget
+  // at most 10 ms of simulation a frame (under the 13 of 3.4.2): the clock is read after every step, and a step is only started when the
+  // dearest step seen lately (FS.stepPeak, easing down 0.5% a step) still fits twice over in what is left of the
+  // budget (a busy machine stretches a step; the spec is a ceiling, 13 ms, not a target)
   const t0 = performance.now();
-  let steps = 0, last = t0;
+  let steps = 0, last = t0, worst = 0;
   while (ms.phase !== "over"){
     oneStep(); steps++;
     const now = performance.now();
-    const dtS = now - last; FS.stepPeak = Math.max((FS.stepPeak || 0)*.995, dtS); last = now;
+    const dtS = now - last; FS.stepPeak = Math.max((FS.stepPeak || 0)*.995, dtS); last = now; if (dtS > worst) worst = dtS;
     if (S0.kind === "call" && ms.callUp) break;
     if (S0.kind === "late" && matchSec(ms) >= S0.until) break;
     if (ms.phase === "halftime"){ if (S0.kind === "late" || FS.state === "lateRun"){ secondHalf(ms); } else break; }
-    if (now - t0 + FS.stepPeak >= DAY.SKIP_MS) break;
+    if (now - t0 + Math.max(1, 2*FS.stepPeak) >= DAY.SKIP_MS) break;
   }
-  FS.skipMs = performance.now() - t0; FS.skipSteps = steps;
+  FS.skipMs = performance.now() - t0; FS.skipSteps = steps; FS.skipWorst = worst;
   FS.stepCost = steps ? FS.skipMs/steps : 0;
   FS.headless = false;
   events();

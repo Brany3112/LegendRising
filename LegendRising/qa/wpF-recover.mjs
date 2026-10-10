@@ -43,7 +43,7 @@ try {
   await freeze(page2);
   const pre = await page2.evaluate(() => ({inMatch: !!S.life.inMatch, sec: S.life.inMatch ? S.life.inMatch.sec : null}));
   check(pre.inMatch, "the save holds the match in progress", pre);
-  // the first quiet second: the card, the rest played out headless, 12 ms a frame
+  // the first quiet second: the card, the rest played out headless, 10 ms a frame
   let res = null;
   for (let i = 0; i < 4000 && !res; i++){
     res = await page2.evaluate(() => {
