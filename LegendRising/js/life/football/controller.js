@@ -21,7 +21,13 @@
    Checkpoints (3.4.4) are written at the entry, at dead balls (at most one a minute of real time), at half time, at
    the kick-off after a goal and at substitutions; a page closed mid-match plays the rest out headless on the next
    load. This module touches no classic global: the career's side (the fixture, matchSetup, the cards, the clock, the
-   way back) comes through the host tunnel.js gives it (fpHost), and the simulation's through bridge.js. */
+   way back) comes through the host tunnel.js gives it (fpHost), and the simulation's through bridge.js.
+
+   WP-F2 (addendum A1.6, A1.7): seated on the bench nothing else is offered under your eye (the bench spot's prompt
+   goes), a tap of E stands you up to warm up along the touchline; watching at 2x and 4x the picture is drawn at 30 Hz
+   and the hints say the rate it really runs at. Your strikes: a big chance eases time a little while you wind up (the
+   world's time-scale, never a pause); your contact is heard and felt by how cleanly you struck it (the kick's gain
+   and a moment of hit-stop for a clean one). */
 import {P, RT, FLAGS, FADE, ME, LIFE} from "../core/state.js";
 import {registerMode, enterMode, exitMode, mode, revealAfterFrames, persistNow, coverScreen} from "../core/modes.js";
 import {camKick} from "../core/camera.js";
@@ -30,6 +36,7 @@ import {moveBy, findInside} from "../core/collide.js";
 import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
 import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating} from "./sim.js";
+import {xgAt} from "./judge.js";
 import {firstReach} from "./ball.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
 import {minuteOf, highlights, onSec, deriveMy} from "./events.js";
@@ -40,7 +47,7 @@ import {startAction} from "./actions.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv} from "./view.js";
-import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T} from "./control.js";
+import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
 import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal} from "./fphud.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
@@ -58,7 +65,10 @@ export const DAY = Object.freeze({
   TRAVEL: {home: 15, away: 45}, LATE: 15, MATCH_LEN: 115, HEAD_OUT: 5,
   WALK_V: 1.4, WALK_MAX: 30, KO_WAIT: 25, KO_HALF_NAG: 15, CIRCLE: 9.15,
   HT_WALK: 2, HT_CARD: 60, FT_WALK: 2, CK_GAP: 60, SKIP_MS: 11, SKIP_CAP: 13, SKIP_MIN: 4, STALL0: 2, REPLAY: 6, MAX_STEPS: 4,
-  FF: [1, 2, 4], FF_DRAW: 1/30, E_TAP: .35, E_HOLD: .8, ENTRY_NEAR: 3, CORRIDOR: {x: 1.1, zFront: -46, zBack: -64, gap: 1.25, mouth: -40.5}
+  FF: [1, 2, 4], FF_DRAW: 1/30, E_TAP: .35, E_HOLD: .8, ENTRY_NEAR: 3, CORRIDOR: {x: 1.1, zFront: -46, zBack: -64, gap: 1.25, mouth: -40.5},
+  // A1.7: a shot wound up with at least BIG_XG of a chance eases the world to BIG_SCALE (released, it comes back over
+  // BIG_OUT s); your clean contact holds the world for a blink (HIT: [strike quality from, time-scale, seconds])
+  BIG_XG: .25, BIG_SCALE: .8, BIG_OUT: .15, HIT: [[.75, .15, .07], [.45, .4, .05]]
 });
 
 /* ---------- the host: the career's side of the day (tunnel.js gives it) ----------
@@ -89,7 +99,8 @@ const isTest = () => !!FS.test;
    clock 'own' (the travel card and the dressing room pass time; nothing passes from the walk-out to full time),
    movement 'own' (your own walk before and after, your agent in play), targeting only the stadium's own spots,
    saves deferred to the checkpoints, no third person, no life HUD, the pointer let go pauses it */
-const FLAGS_MATCH = {clock: "own", movement: "own", targeting: s => !!(s && s.stadium), tunnel: false, closing: false,
+// (seated on the bench nothing is offered under your eye: the bench's own spot would keep saying "Sit down", A1.6)
+const FLAGS_MATCH = {clock: "own", movement: "own", targeting: s => !!(s && s.stadium) && !(FS.state === "bench" && FS.seated), tunnel: false, closing: false,
   homeTick: false, compass: false, saves: "defer", tp: false, hud: "none", pauseOnUnlock: true, leaveOnZone: false};
 registerMode("match", {
   flags: FLAGS_MATCH,
@@ -212,7 +223,9 @@ function startMatch(cfg, kits){
   FS.offs.push(on(ms, "*", ev => FS.evq.push(ev)));
   for (const k of ["bounce", "post", "bar", "net", "board"]) FS.offs.push(on(ms, k, d => ballSound(k, d)));
   if (FS.real) FS.offs.push(attach(ms, on));
-  const meLook = HOST && FS.real ? HOST.look(kits && FS.M && (FS.M.home ? kits.home : kits.away), meNumber()) : null;
+  // (your own look on your own body; a test fixture of a career wears it too, in the home kit its side plays in, so what
+  // a test sees through your eyes is what a match shows: your first-person body under the eye)
+  const meLook = HOST ? HOST.look(kits && (FS.real && FS.M ? (FS.M.home ? kits.home : kits.away) : kits.home), meNumber()) : null;
   const V = FS.V = viewInit(ms, RT.scene, kits, {meLook, meFPLook: meLook});
   V.me = ms.me;
   recInit(ms, 20, 12, V);
@@ -429,7 +442,7 @@ function frame(dt, real){
   FS.viewDt += dt;
   if (thinned()){
     FS.drawAcc += real;
-    if (FS.drawAcc < DAY.FF_DRAW - .004){ FLAGS.skipDraw = true; hud(dt); return; }
+    if (FS.drawAcc < DAY.FF_DRAW - .004){ FLAGS.skipDraw = true; FS.thinN = (FS.thinN || 0) + 1; hud(dt); return; }
     FS.drawAcc = Math.min(DAY.FF_DRAW, FS.drawAcc - DAY.FF_DRAW);
   } else FS.drawAcc = 0;
   // the bodies, the ball, the crowd and the board
@@ -473,6 +486,7 @@ function live(dt, real){
   const ms = FS.ms;
   // the world's time-scale (A1.5 slow motion) and the bench's fast-forward: the same 60 Hz steps, more or fewer of
   // them a real second; at most 4 a frame (the world slows rather than spirals)
+  bigChance(ms);
   const scale = FS.timeScale*(FS.onPitch ? 1 : FS.ffRate);
   if (!playing() && !FS.replayQ){
     FS.acc += Math.max(0, real)*scale;
@@ -500,6 +514,23 @@ function live(dt, real){
   if (FS.onPitch && me && !me.onPitch){ FS.onPitch = false; FS.state = "bench"; FS.seated = false; note(me.sentOff ? "You've been sent off. Walk to the tunnel." : "Your match is over. Take a seat on the bench."); placeOwn({x: P.x, z: P.z, yaw: P.yaw}); }
   maybeCheckpoint();
   replayDue();
+}
+// a big chance (A1.7): while you wind up a shot from where the chance is at least DAY.BIG_XG, the world eases to
+// DAY.BIG_SCALE (the same fixed steps, fewer of them a real second: never a pause); let go, it comes back at once.
+// A slow motion of something else (an acrobatic strike, a hit-stop) is left alone
+function bigChance(ms){
+  const me = liveMe(), ch = CTRL.charge;
+  if (!me || !ch || ch.kind !== "shot" || ms.poss.ctl !== me.id || ms.phase !== "live" || (FS.slow && !FS.slow.big)) return;
+  if (xgAt(ms, me.team, ms.ball.p.x, ms.ball.p.z) < DAY.BIG_XG) return;
+  FS.slow = {scale: DAY.BIG_SCALE, t: DAY.BIG_OUT, big: true}; FS.timeScale = DAY.BIG_SCALE;
+}
+// your contact (A1.7): the kick heard by how cleanly it was struck, and a moment of hit-stop for a clean strike at goal
+// or into the box
+function contactFeel(ev){
+  const q = ev.strike != null ? +ev.strike : null;
+  if (q == null || ev.scuff || ev.whiff) return;
+  if (!(ev.intent === "shot" || ev.intent === "cross" || ev.intent === "lob")) return;
+  for (const [from, scale, secs] of DAY.HIT) if (q >= from){ FP.slowMo(scale, secs); break; }
 }
 // one fixed step: your input first (before the AI, 3.2.1), then the simulation, the record for the replays
 function oneStep(){
@@ -597,7 +628,10 @@ function events(){
       case "situation": hudScenario(ev.line); break;
       case "kick": {
         const sp = +ev.speed || 0;
-        AUD.cue("kick", at, clamp(.3 + sp/30, .2, 1.2));
+        // (your own: a clean strike rings out, a scuff is dull, A1.7)
+        const qk = ev.agent === me && ev.strike != null ? (ev.scuff ? .5 : .75 + .45*ev.strike) : 1;
+        AUD.cue("kick", at, clamp((.3 + sp/30)*qk, .15, 1.3));
+        if (ev.agent === me && me >= 0) contactFeel(ev);
         if (ev.agent === me && me >= 0){
           const shot = ev.intent === "shot" || ev.intent === "header" && ev.atGoal;
           camAction(ev.intent === "header" ? "header" : shot || sp > 18 ? "strike" : "pass");
@@ -721,7 +755,8 @@ function offHints(){
     OH.seated[0].verb = FS.called ? "stand up" : `tap to stand, hold to skip to ${FS.called || !callPlanned() ? "the end" : "your call"}`;
     // the speed asked for, and the one the machine manages when it falls short (3.4.2)
     const ach = Math.round(FS.ffAch*10)/10;
-    OH.seated[1].verb = FS.ffRate > 1 && ach < FS.ffRate - .15 ? `${FS.ffRate}x speed, running at ${ach}x` : `${FS.ffRate}x speed`;
+    // (above 1x the rate it really runs at is always said: the picture is drawn at 30 Hz there, 3.4.2)
+    OH.seated[1].verb = FS.ffRate > 1 ? `${FS.ffRate}x speed, running at ${ach.toFixed(1)}x` : "1x speed";
     return OH.seated;
   }
   if (st === "bench") return OH.bench;
@@ -1374,6 +1409,8 @@ window.__fp = {
   events: kind => FS.ms ? FS.ms.events.filter(e => !kind || e.kind === kind) : [],
   ready(){ FS.ready = true; }, manager: () => manager(), headOut: () => headOut(), spot: () => FS.ms && FS.ms.me >= 0 ? mySpot() : null, skipToCall: () => startSkip("call"), skipFrame: () => skipFrame(), recover: () => recoverCheck(), RECOVER,
   harness: {runOne}, testInfo: () => FS.testInfo || null, sitDown: s => sitDown(s || "home"), leave: () => leave(),
-  halftimeGo: () => secondHalfGo()
+  halftimeGo: () => secondHalfGo(),
+  // your stride's rhythm for a strike with this foot now (A1.7: control.js rhythmOf, a copy of its record)
+  rhythm: (foot = "R") => { const me = liveMe(); return me ? Object.assign({}, rhythmOf(me, foot)) : null; }
 };
 void DEG; void sprintSpeed; void wrapA; void yawOf; void onSec;

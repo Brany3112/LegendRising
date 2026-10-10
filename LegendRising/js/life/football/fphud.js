@@ -6,9 +6,13 @@
    Broadcast style, out of the way: thin lines, the teams' colours, condensed numerals, springy motion.
      top left      the scorebug: the two sides' short names in their colours, the score, the clock in whole minutes
                    with +N in added time, a card pip per booking of yours, the offside pip (Auto, On, Off)
-     centre        the crosshair (4 px, always where you aim: it never sways); while you charge a shot or a pass the
-                   power arc round its bottom with the sweet spot for the distance; the contact pips and the curl
-                   glyph; the closing timing ring of a volley; a tiny glyph of what you can do now
+     centre        the crosshair (4 px, where you look); the closing timing ring of a volley and the bench's hold-E
+                   ring round it; a tiny glyph of what you can do now
+     reticle       (A1.7, WP-F2) where a strike would go now: your look plus its sway (Finishing, Composure under
+                   pressure, breath, the weak foot), on the goal mouth or the grass; it pulses as your support foot
+                   plants (the rhythm to release on). While you wind up a thin power arc runs round it with the sweet
+                   spot for the distance (a pass's sweet zone), the contact pips and the curl glyph; it turns red held
+                   past full. After your strike a short line under it says how you struck it
      lower left    the stamina: a bright breath fill over the darker cap (the late match), faint while full, brighter
                    while it drains, a heartbeat when low; the energy line under it
      bottom right  the hints (a key and a verb, three at most; a key alone after five uses; H hides them)
@@ -20,6 +24,7 @@
    offsets updated per frame. Settings (this device's, control.js SET): HUD scale, opacity, a colour-blind palette,
    each element hidden on its own. */
 import {SET} from "./control.js";
+import {RT} from "../core/state.js";
 import {FX} from "./matchcam.js";
 import {minuteOf} from "./events.js";
 import {wrapA, yawOf} from "./pitchspec.js";
@@ -32,7 +37,8 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp
 export const HUD_PARTS = Object.freeze({score:"Scorebug", stamina:"Stamina", hints:"Control hints", calls:"Team-mates' calls", cards:"Event cards", scenario:"Scenario line", glyph:"Action glyph", fx:"Speed lines and vignette"});
 
 const D = {root:null, el:{}, cfg:null, txt:{}, t:0, tText:0, calls:[], cards:[], scen:null, scenT:-99, lastScen:-99, notice:null,
-  tab:false, hidden:false, arcShown:0, staminaShown:0, drainT:0, lastB:100, chargeA:0, lastCharge:null, lastP:0, ring:0};
+  tab:false, hidden:false, arcShown:0, staminaShown:0, drainT:0, lastB:100, chargeA:0, lastCharge:null, lastP:0, ring:0,
+  retA:0, kickSeq:-1, slineT:0, desat:0};
 
 // cfg = {home:{short, kit:[shirt, shorts]}, away:{...}, us: 0 | 1, pip: 'auto' | 'on' | 'off' (the setting resolved),
 // project(x, y, z) -> {x, y, on} (screen px), cards: number (the player's bookings)}
@@ -55,17 +61,25 @@ export function hudInit(cfg){
     <div class="fp-cards" data-part="cards"></div>
     <div class="fp-cross">
       <i class="fp-dot"></i>
-      <svg class="fp-arc" viewBox="-40 -40 80 80" aria-hidden="true">
-        <path class="fp-arc-bg" d="M -26 6 A 26 26 0 0 0 26 6"/>
-        <path class="fp-arc-sweet" d="M -26 6 A 26 26 0 0 0 26 6"/>
-        <path class="fp-arc-fill" d="M -26 6 A 26 26 0 0 0 26 6"/>
-        <line class="fp-arc-tick" x1="0" y1="22" x2="0" y2="31"/>
+      <svg class="fp-hold" viewBox="-40 -40 80 80" aria-hidden="true">
         <circle class="fp-ring" r="17"/>
         <circle class="fp-ring-win" r="17"/>
       </svg>
-      <div class="fp-contact"><i></i><i></i><i></i></div><span class="fp-curl">&#x293A;</span>
       <span class="fp-glyph" data-part="glyph"></span>
     </div>
+    <div class="fp-ret" data-part="reticle">
+      <svg class="fp-arc" viewBox="-40 -40 80 80" aria-hidden="true">
+        <circle class="fp-ret-c" r="5.5"/>
+        <g class="fp-arcg">
+          <circle class="fp-arc-bg" r="${ARC_R}"/>
+          <circle class="fp-arc-sweet" r="${ARC_R}"/>
+          <circle class="fp-arc-fill" r="${ARC_R}"/>
+          <line class="fp-arc-tick" x1="${ARC_R - 4}" y1="0" x2="${ARC_R + 4}" y2="0"/>
+        </g>
+      </svg>
+      <div class="fp-contact"><i></i><i></i><i></i></div><span class="fp-curl">&#x293A;</span>
+    </div>
+    <div class="fp-sline"></div>
     <div class="fp-stam" data-part="stamina"><div class="fp-stam-bar"><i class="fp-cap"></i><i class="fp-breath"></i></div><div class="fp-energy"><i></i></div></div>
     <div class="fp-hints" data-part="hints"></div>
     <div class="fp-calls" data-part="calls"></div>
@@ -77,16 +91,19 @@ export function hudInit(cfg){
   Object.assign(D.el, {vig:q(".fp-vig"), lines:q(".fp-lines"), bug:q(".fp-bug"), hs:q(".fp-hs"), as:q(".fp-as"), sh:q(".fp-sh"), sa:q(".fp-sa"),
     min:q(".fp-min"), add:q(".fp-add"), off:q(".fp-off"), bk:q(".fp-bk"), scen:q(".fp-scen"), cards:q(".fp-cards"), cross:q(".fp-cross"),
     arc:q(".fp-arc"), arcFill:q(".fp-arc-fill"), arcSweet:q(".fp-arc-sweet"), arcTick:q(".fp-arc-tick"), ring:q(".fp-ring"), ringWin:q(".fp-ring-win"),
+    hold:q(".fp-hold"), ret:q(".fp-ret"), retC:q(".fp-ret-c"), arcBg:q(".fp-arc-bg"), arcG:q(".fp-arcg"), sline:q(".fp-sline"),
     contact:q(".fp-contact"), curl:q(".fp-curl"), glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
     energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:q(".fp-overlay")});
   const sides = [q(".fp-home i"), q(".fp-away i")];
   sides[0].style.background = cfg.home.kit[0]; sides[1].style.background = cfg.away.kit[0];
   D.el.hs.textContent = cfg.home.short; D.el.as.textContent = cfg.away.short;
-  D.arcLen = D.el.arcFill.getTotalLength ? D.el.arcFill.getTotalLength() : 81.7;
-  for (const p of [D.el.arcFill, D.el.arcSweet]){ p.style.strokeDasharray = `${D.arcLen} ${D.arcLen}`; p.style.strokeDashoffset = String(D.arcLen); }
+  // the power arc: 300 degrees of a circle round the reticle, open at the bottom, filling clockwise from the lower left
+  D.arcC = 2*Math.PI*ARC_R; D.arcLen = D.arcC*ARC_SPAN/360;
+  D.el.arcBg.style.strokeDasharray = `${D.arcLen.toFixed(2)} ${D.arcC.toFixed(2)}`;
+  for (const p of [D.el.arcFill, D.el.arcSweet]){ p.style.strokeDasharray = `0 ${D.arcC.toFixed(2)}`; }
   D.ringLen = 2*Math.PI*17;
   D.el.ring.style.strokeDasharray = `${D.ringLen} ${D.ringLen}`;
-  D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null;
+  D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null; D.retA = 0; D.kickSeq = -1; D.slineT = 0; D.desat = 0;
   applySettings();
   return r;
 }
@@ -104,6 +121,7 @@ export function applySettings(){
 }
 export function hudDispose(){
   if (D.root && D.root.parentNode) D.root.parentNode.removeChild(D.root);
+  if (D.desat){ D.desat = 0; const cv = RT.renderer && RT.renderer.domElement; if (cv) cv.style.filter = ""; }
   D.root = null; D.el = {}; D.txt = {}; D.cfg = null;
 }
 export const hudRoot = () => D.root;
@@ -174,45 +192,59 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
     const pip = s.offPip;
     E.off.className = "fp-off" + (pip ? " on fp-pip-" + pip : "");
   }
-  // the fx: speed lines and the fatigue vignette (A1.2, A1.3)
+  // the fx: speed lines and the fatigue vignette (A1.2, A1.3), and the grey of an empty tank on the picture itself
   E.lines.style.opacity = (FX.lines*.8 + (FX.topT > 0 ? .25*FX.topT/.35 : 0)).toFixed(3);
-  const vig = FX.vig*(.75 + .25*FX.pulse);
+  const vig = FX.vig*(.78 + .22*FX.pulse);
   E.vig.style.opacity = vig.toFixed(3);
-  // the crosshair's power arc (A1.4): only while charging a shot or a pass; the sweet spot from the target distance
-  const ch = s.ctrl && s.ctrl.charge;
+  desaturate(SET.hide && SET.hide.fx ? 0 : FX.desat);
+  // the reticle (A1.7): where a strike would go now, on screen
+  const ret = s.ctrl && s.ctrl.ret, ch = s.ctrl && s.ctrl.charge;
+  const rp = ret && ret.on && s.proj ? s.proj(ret.x, ret.y, ret.z) : null, retOn = !!(rp && rp.front);
+  D.retA = retOn ? Math.min(1, D.retA + dt/.15) : Math.max(0, D.retA - dt/.3);
+  if (retOn){
+    const x = clamp(rp.x, 12, (s.w || innerWidth) - 12), y = clamp(rp.y, 12, (s.h || innerHeight) - 12);
+    E.ret.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+  }
+  E.ret.style.opacity = (D.retA*(ch ? 1 : .55)).toFixed(3);
+  // its pulse on your support foot's plant (the rhythm to release on), red when held past full
+  const over = s.ctrl && s.ctrl.wind ? s.ctrl.wind.over : 0;
+  E.retC.setAttribute("r", (5.5 + 2.2*(ret ? ret.beat : 0)).toFixed(2));
+  E.retC.classList.toggle("over", over > .05);
+  // the power arc round the reticle: only while charging a shot or a pass; the sweet spot from the target distance
   if (ch && (ch.kind === "shot" || ch.kind === "pass" || ch.kind === "throw")){
     D.chargeA = Math.min(1, D.chargeA + dt/.12); D.lastCharge = ch.kind; D.lastP = ch.p;
   } else D.chargeA = Math.max(0, D.chargeA - dt/.45);
-  E.arc.style.opacity = D.chargeA.toFixed(3);
+  E.arcG.style.opacity = D.chargeA.toFixed(3);
   const p = ch ? ch.p : D.lastP;
-  E.arcFill.style.strokeDashoffset = String((D.arcLen*(1 - clamp(p, 0, 1))).toFixed(2));
-  E.arcFill.classList.toggle("over", !!ch && ch.kind === "shot" && p > .92);
+  E.arcFill.style.strokeDasharray = `${(D.arcLen*clamp(p, 0, 1)).toFixed(2)} ${D.arcC.toFixed(2)}`;
+  E.arcFill.classList.toggle("over", !!ch && (over > .05 || ch.kind === "shot" && p > .92));
   if (s.sweet && ch){
     const a = clamp(s.sweet.lo, 0, 1), b = clamp(s.sweet.hi, 0, 1);
-    E.arcSweet.style.strokeDasharray = `0 ${(a*D.arcLen).toFixed(2)} ${((b - a)*D.arcLen).toFixed(2)} ${D.arcLen*2}`;
-    E.arcSweet.style.strokeDashoffset = "0"; E.arcSweet.style.opacity = "1";
+    E.arcSweet.style.strokeDasharray = `0 ${(a*D.arcLen).toFixed(2)} ${((b - a)*D.arcLen).toFixed(2)} ${D.arcC.toFixed(2)}`;
+    E.arcSweet.style.opacity = "1";
   } else E.arcSweet.style.opacity = "0";
   if (s.tick != null && ch){
-    // the tick on the arc at the power that carries it the distance (the arc runs from the left, round the bottom)
-    const ang = Math.PI*(1 - clamp(s.tick, 0, 1)), x = 26*Math.cos(ang), y = 6 + 20*Math.sin(ang);
-    E.arcTick.setAttribute("transform", `translate(${x.toFixed(2)} ${(y - 26).toFixed(2)})`);
+    // the tick on the arc at the power that carries it the distance
+    E.arcTick.setAttribute("transform", `rotate(${(ARC_START + ARC_SPAN*clamp(s.tick, 0, 1)).toFixed(1)})`);
     E.arcTick.style.opacity = "1";
   } else E.arcTick.style.opacity = "0";
   // the contact pips and the curl glyph while charging
   const ct = s.ctrl ? s.ctrl.contact : 0;
   if (slow){ E.contact.className = "fp-contact c" + (ct + 2) + (D.chargeA > .05 ? " on" : ""); E.curl.classList.toggle("on", !!(s.ctrl && s.ctrl.finesse && D.chargeA > .05)); }
-  // the timing ring (A1.5): it closes on the moment the ball will be met; the window is its width
+  // the line on how you struck it (A1.7): your own kick, the moment it is logged
+  strikeLine(s.ms, s.me, dt);
+  // the timing ring (A1.5) and the bench's hold-E ring, round the crosshair: the timing ring closes on the moment the
+  // ball will be met (the window is its width); E held on the bench fills it
   const R = s.ctrl && s.ctrl.ring;
   if (s.hold != null){
-    // E held on the bench: the ring fills; let go before it is full and nothing happens
     E.ring.style.strokeDashoffset = String((D.ringLen*(1 - clamp(s.hold, 0, 1))).toFixed(2)); E.ring.style.opacity = "1";
-    E.ringWin.style.opacity = "0"; E.ring.classList.remove("now");
+    E.ringWin.style.opacity = "0"; E.ring.classList.remove("now"); E.hold.classList.add("on");
   } else if (R){
     const k = clamp(R.tc/.9, 0, 1), w = clamp(R.w/.9, 0, 1);
     E.ring.style.strokeDashoffset = String((D.ringLen*(1 - k)).toFixed(2)); E.ring.style.opacity = "1";
     E.ringWin.style.strokeDasharray = `${(D.ringLen*w).toFixed(2)} ${D.ringLen}`; E.ringWin.style.opacity = ".9";
-    E.ring.classList.toggle("now", Math.abs(R.tc - (s.ringAt || .2)) < R.w/2);
-  } else { E.ring.style.opacity = "0"; E.ringWin.style.opacity = "0"; }
+    E.ring.classList.toggle("now", Math.abs(R.tc - (s.ringAt || .2)) < R.w/2); E.hold.classList.add("on");
+  } else { E.ring.style.opacity = "0"; E.ringWin.style.opacity = "0"; E.hold.classList.remove("on"); }
   if (slow) put("glyph", E.glyph, s.glyph || "");
   // the stamina (A1.4): bright breath over the darker cap; faint while full, brighter while draining, a heartbeat low
   if (s.B != null){
@@ -228,7 +260,9 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
     if (slow){ E.stam.classList.toggle("low", B < 25); E.stam.classList.toggle("beat", B < 15); }
     if (s.energy != null) E.energy.style.transform = `scaleX(${(clamp(s.energy, 0, 100)/100).toFixed(4)})`;
   }
-  // the hints (bottom right): three at most, the key alone after five uses
+  // the hints (bottom right): three at most, the key alone after five uses (the Control hints setting looked at
+  // here too, so a change made from any pause card applies wherever the HUD is: a match or first-person training)
+  if (slow && D.hintsSet !== SET.hints) applySettings();
   if (slow){
     const hs = (s.hints || []).slice(0, 3).map(h => `<div><kbd>${esc(h.key)}</kbd>${h.verb ? `<span>${esc(h.verb)}</span>` : ""}</div>`).join("");
     putH("hints", E.hints, hs);
@@ -243,6 +277,47 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   ballMark(s);
   // the overview (Tab held) or the small radar (the setting)
   if (D.tab || SET.radar) radar(s, D.tab);
+}
+// the power arc's circle (A1.7): its radius, the angle it starts at (SVG degrees, clockwise from three o'clock) and its span
+const ARC_R = 15, ARC_START = 120, ARC_SPAN = 300;
+// the picture greyed a little near an empty tank (A1.3, A1.6): a CSS filter on the canvas, set only when it changes
+function desaturate(v){
+  const k = Math.round(clamp(v || 0, 0, 1)*50)/50;
+  if (k === D.desat) return;
+  D.desat = k;
+  const cv = RT.renderer && RT.renderer.domElement;
+  if (cv) cv.style.filter = k > 0 ? `saturate(${(1 - k).toFixed(2)})` : "";
+}
+// the short line on how you struck it (A1.7), from your own kick event: how clean, then what you did with it
+const Q_LINE = [[.8, "Sweet contact."], [.55, "Decent contact."], [.3, "Not clean."], [0, "Snatched at it."]];
+export function strikeText(ev){
+  if (!ev) return "";
+  if (ev.whiff) return "Air kick. The ball wasn't there.";
+  if (ev.scuff) return "Scuffed it.";
+  const sh = String(ev.shape || ""), q = ev.strike != null ? +ev.strike : 1, shot = ev.intent === "shot";
+  const first = (Q_LINE.find(r => q >= r[0]) || Q_LINE[3])[1];
+  let then = "";
+  if (/over/.test(sh)) then = "Leaned back on it.";
+  else if (/chip/.test(sh)) then = "Chipped.";
+  else if (/dip/.test(sh)) then = "Topspin on it, it'll dip.";
+  else if (/curl/.test(sh)) then = shot ? "Curled." : "Bent round.";
+  else if (/placed/.test(sh)) then = "Side-footed, placed.";
+  else if (/low/.test(sh)) then = "Kept it low.";
+  else if (/power/.test(sh)) then = "Hit with everything.";
+  else if (/lofted/.test(sh)) then = "Lofted.";
+  else if ((ev.rhythm || 0) > .5) then = "Off your stride.";
+  // (an ordinary pass says nothing unless something went wrong with it)
+  if (!shot && !then && q >= .55) return "";
+  return then ? first + " " + then : first;
+}
+function strikeLine(ms, me, dt){
+  const E = D.el;
+  if (ms && ms.kick && ms.kick.seq !== D.kickSeq){
+    D.kickSeq = ms.kick.seq;
+    const t = me && ms.kick.agent === me.id && ms.kick.ev && ms.kick.ev.shape ? strikeText(ms.kick.ev) : "";
+    if (t){ put("sline", E.sline, t); E.sline.classList.add("in"); D.slineT = 2.4; }
+  }
+  if (D.slineT > 0 && (D.slineT -= dt) <= 0) E.sline.classList.remove("in");
 }
 function callsFrame(s, now){
   const E = D.el, ms = s.ms;

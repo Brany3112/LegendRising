@@ -1,6 +1,7 @@
 // js/life/stamina.js: short-term stamina (breath, B) for any body: sprint drain, recovery, action costs, the factors
 // that make a tired player slower, heavier and less precise, and the career energy and fatigue a match costs.
-// Owner: WP-0D (pure foundations), then WP-B. Contract DESIGN 1.4.7; numbers 1.5.2; use 3.1.6.
+// Owner: WP-0D (pure foundations), then WP-B, then WP-F2 (addendum A1.6: the late-match cap, the capped sprint).
+// Contract DESIGN 1.4.7; numbers 1.5.2; use 3.1.6.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no randomness. The pool is never saved; the long-term
 // numbers (S.energy, S.fatigue, the stamina skill) come in through arguments.
@@ -33,10 +34,17 @@ export const ksOf = stamina => 1.25 - 0.5*clamp(stamina == null ? 50 : stamina, 
 // eF: the long-term energy factor, 0.6 when empty to 1 from energy 60
 export const effF = energy => 0.6 + 0.4*sstep(0, 60, energy == null ? 100 : energy);
 
-// the most breath you can have today: low energy and high fatigue shrink the pool (energy 40: 86, 20: 64; fatigue 80: 81)
+// the most breath you can have today: low energy and high fatigue shrink the pool (energy 40: 86, 20: 64; fatigue 80: 81).
+// Above energy 40 the cap follows the energy all the way up (addendum A1.6): a match spends energy every minute on the
+// pitch (energyPerMatchMinute, scaled by the Stamina stat through staminaF and by how hard you run), so over 90 minutes
+// the cap comes down gradually, to about 91 for a player of stamina 50 who started fresh, 89 at stamina 30 and 96 at
+// 99. It used to move only under energy 60, which a normal match never reaches, so the late-match cap never showed.
+export const CAP = Object.freeze({LATE0: 0.86, LATE_FROM: 40});
 export function stamCap(energy, fatigue){
   const e = energy == null ? 100 : energy, f = fatigue == null ? 0 : fatigue;
-  return 100*(0.6 + 0.4*sstep(10, 60, e))*(1 - 0.3*sstep(50, 100, f));
+  const t = clamp((e - CAP.LATE_FROM)/(100 - CAP.LATE_FROM), 0, 1);
+  const late = CAP.LATE0 + (1 - CAP.LATE0)*t*Math.sqrt(t);
+  return 100*Math.min(0.6 + 0.4*sstep(10, 60, e), late)*(1 - 0.3*sstep(50, 100, f));
 }
 
 // a fresh pool, full to its cap. stamina is kept for reference; stamStep takes it from ctx each step.
@@ -52,10 +60,14 @@ export function stamSetCap(st, energy, fatigue){
   return st.cap;
 }
 
-// the effort of a body this step (3.1.6): sprint when the gait is sprint and the speed is above the run speed;
-// run above 5 m/s; jog above 2.3; walk above 0.3; stand otherwise
+// the effort of a body this step (3.1.6): sprint when the gait is sprint and the speed is above the run speed; run
+// above 5 m/s; jog above 2.3; walk above 0.3; stand otherwise. Addendum A1.6: a sprint held under the run speed (above
+// a jog) is 'sprint-run' or 'sprint-jog': stamStep counts it as the sprint it is once the breath is low enough to cap
+// the speed (under STAM.BF_FULL: a tired body holding Shift keeps draining instead of getting its breath back as if it
+// jogged), and as the run or jog its speed says while it is fresh (the run-up of a sprint, as before)
 export function effortOf(gait, v, runSpeed = STAM.RUN_V){
   if (gait === 'sprint' && v > runSpeed) return 'sprint';
+  if (gait === 'sprint' && v > STAM.JOG_V) return v > STAM.RUN_V ? 'sprint-run' : 'sprint-jog';
   if (v > STAM.RUN_V) return 'run';
   if (v > STAM.JOG_V) return 'jog';
   if (v > STAM.WALK_V) return 'walk';
@@ -68,6 +80,8 @@ export function stamStep(st, h, effort, ctx = {}){
   if (!(h > 0)) return st;
   const s = ctx.stamina == null ? (st.stamina == null ? 50 : st.stamina) : ctx.stamina, eF = ctx.eF == null ? 1 : ctx.eF;
   const ks = ksOf(s);
+  // (a sprint held under the run speed: a sprint once the breath is what caps it, A1.6)
+  if (effort === 'sprint-run' || effort === 'sprint-jog') effort = st.B < STAM.BF_FULL ? 'sprint' : effort.slice(7);
   const drain = effort === 'sprint' ? STAM.SPRINT*ks : effort === 'run' ? STAM.RUN*ks : 0;
   if (drain > 0){
     const before = st.B;

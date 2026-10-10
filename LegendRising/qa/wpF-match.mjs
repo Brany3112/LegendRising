@@ -2,14 +2,19 @@
 // Owner: WP-F (Stage P2).
 //   - test:offside-0.5: the flag goes up after 0.35 to 0.75 s, the whistle 0.25 s later, the notice names the margin
 //     and the passer, and play restarts with an indirect free kick at the offender's position at involvement;
-//   - bench: as a substitute, live watch at 1x, 2x and 4x; holding E skips to the call with at most 13 ms of simulation
-//     work per frame; the player enters at the planned minute from the fourth official's position;
+//   - bench: as a substitute, live watch at 1x, 2x and 4x (above 1x the picture drawn every other frame, 30 Hz, and the
+//     hints saying the rate it really runs at); seated, nothing is offered under your eye (no "Bench, Sit down"
+//     prompt) and your own legs are not drawn (addendum A1.6, with a screenshot of the seated view); a tap of E stands
+//     you up to warm up; the hold-E ring is really on screen (every ancestor's opacity counted, A1.6: it used to sit
+//     inside the power arc, which is hidden unless you charge); holding E skips to the call with at most 13 ms of
+//     simulation work per frame; the player enters at the planned minute from the fourth official's position;
 //   - half time: choosing water decrements S.inv.water by 1 through consume(); nothing is gained without an item;
 //   - late arrival at kick-off minus 10: trustAdd(-3) once, role demoted to substitute; arrival after kick-off: the
 //     elapsed minutes simulated headless behind the travel card.
 //
 //   QA_PORT=8770 node qa/wpF-match.mjs [--only offside,bench,halftime,late]    writes qa/out/wpF-match.json
-import {launch, career, freeze} from "./lib.mjs";
+import path from "node:path";
+import {launch, career, freeze, OUT} from "./lib.mjs";
 import {openDay, checker} from "./wpF-lib.mjs";
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -57,33 +62,51 @@ if (ONLY.includes("bench")) try {
   const s = await T.toKickoff({sit: true});
   const plan = await T.page.evaluate(() => ({role: MT.role, subOn: MT.subOn, state: window.__fp.state, seated: window.__fp.FS.seated}));
   check(s.state === "bench" && plan.seated && (plan.role === "sub" || plan.role === "cameo"), "a substitute walks out to the dugout and sits on the bench", plan);
-  // live watch at 1x, 2x and 4x: steps a frame
+  // seated (A1.6): no prompt under your eye, your own legs not drawn; a screenshot of the view from the dugout
+  const seat = await T.page.evaluate(() => {
+    const F = window.__fp, L = window.__life; L.stepN(4);
+    const pr = document.getElementById("lifePrompt"), V = F.FS.V;
+    return {seated: F.FS.seated, prompt: !!(pr && pr.classList.contains("on")), label: pr ? pr.textContent.trim().slice(0, 40) : "", fp: !!(V && V.fp && V.fp.g.visible)};
+  });
+  check(seat.seated && !seat.prompt && !seat.fp, "seated on the bench: no prompt under your eye, your own legs not drawn", seat);
+  await T.uncover(); await T.draw(2);
+  await T.page.screenshot({path: path.join(OUT, "wpF-match-bench-seated.png"), timeout: 180000});
+  // live watch at 1x, 2x and 4x: steps a frame; above 1x every other frame left undrawn (30 Hz) and the rate it runs at said
   const rates = await T.page.evaluate(() => {
     const F = window.__fp, L = window.__life, out = {};
     for (const [k, rate] of [["1", 1], ["2", 2], ["3", 4]]){
       F.input({type: "keydown", key: k}); F.input({type: "keyup", key: k});
       L.stepN(3);
-      const n = []; for (let i = 0; i < 30; i++){ L.stepN(1); n.push(F.FS.stepsLast); }
-      out[rate] = {ff: F.FS.ffRate, mean: n.reduce((a, b) => a + b, 0)/n.length, achieved: +F.FS.ffAch.toFixed(2)};
+      const n = [], thin0 = F.FS.thinN || 0; for (let i = 0; i < 30; i++){ L.stepN(1); n.push(F.FS.stepsLast); }
+      L.stepN(8);
+      const hint = [...document.querySelectorAll("#fpHud .fp-hints div")].map(d => d.textContent).join(" | ");
+      out[rate] = {ff: F.FS.ffRate, mean: n.reduce((a, b) => a + b, 0)/n.length, achieved: +F.FS.ffAch.toFixed(2), undrawn: (F.FS.thinN || 0) - thin0, hint};
     }
     F.input({type: "keydown", key: "1"});
     return out;
   });
   check(rates[1].mean === 1 && rates[2].mean === 2 && rates[4].mean === 4, "watching from the bench at 1x, 2x and 4x (steps a frame)", rates);
   check([1, 2, 4].every(r => Math.abs(rates[r].achieved - r) < .2), "the achieved rate is measured (match time over real time)", rates);
+  check(rates[1].undrawn === 0 && rates[2].undrawn >= 14 && rates[2].undrawn <= 16 && rates[4].undrawn >= 14 && rates[4].undrawn <= 16,
+    "above 1x the picture is drawn at 30 Hz (every other 60 Hz frame left undrawn)", {x1: rates[1].undrawn, x2: rates[2].undrawn, x4: rates[4].undrawn});
+  check(/2x speed, running at \d\.\dx/.test(rates[2].hint) && /4x speed, running at \d\.\dx/.test(rates[4].hint), "the hints show the rate it really runs at", {x2: rates[2].hint, x4: rates[4].hint});
   // E on the bench: a tap stands you up (to warm up), a hold let go before the ring fills does nothing but remind you
   const eKeys = await T.page.evaluate(() => {
     const F = window.__fp, L = window.__life;
     F.input({type: "keydown", key: "e"}); L.stepN(6); F.input({type: "keyup", key: "e"}); L.stepN(2);
-    const tap = {seated: F.FS.seated, state: F.state, skipping: !!F.FS.skipping};
+    // on your feet: a jog along the touchline (W with the look along it)
+    const P = L.P, x0 = P.x, yaw0 = P.yaw; P.yaw = Math.PI/2; F.input({type: "keydown", key: "w"}); L.stepN(90); F.input({type: "keyup", key: "w"}); L.stepN(30);
+    const tap = {seated: F.FS.seated, state: F.state, skipping: !!F.FS.skipping, walk: Math.abs(P.x - x0), z: P.z};
+    P.yaw = yaw0;
     F.sitDown("home"); L.stepN(2);
     F.input({type: "keydown", key: "e"}); L.stepN(20);
-    const ring = getComputedStyle(document.querySelector("#fpHud .fp-ring")).opacity;
+    // (what is really on screen: the ring's own opacity times every ancestor's, A1.6)
+    let ring = 1; for (let n = document.querySelector("#fpHud .fp-ring"); n && n.nodeType === 1; n = n.parentNode) ring *= +getComputedStyle(n).opacity;
     L.stepN(10); F.input({type: "keyup", key: "e"}); L.stepN(2);
     const cards = [...document.querySelectorAll("#fpHud .fp-cards .fp-card")].map(n => n.textContent).join(" | ");
     return {tap, dead: {seated: F.FS.seated, skipping: !!F.FS.skipping, ring, cards}};
   });
-  check(!eKeys.tap.seated && eKeys.tap.state === "bench" && !eKeys.tap.skipping, "a tap of E on the bench stands you up to warm up", eKeys.tap);
+  check(!eKeys.tap.seated && eKeys.tap.state === "bench" && !eKeys.tap.skipping && eKeys.tap.walk > 1, "a tap of E on the bench stands you up to warm up along the touchline", eKeys.tap);
   check(eKeys.dead.seated && !eKeys.dead.skipping && +eKeys.dead.ring > .5 && /Keep holding E until the ring fills/.test(eKeys.dead.cards), "a hold let go before the ring fills: no skip, the ring was shown, the reminder", eKeys.dead);
   // hold E: the skip to the call under a card, at most 13 ms of simulation work a frame
   const sk = await T.page.evaluate(() => {
