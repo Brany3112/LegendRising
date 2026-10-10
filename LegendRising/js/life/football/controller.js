@@ -196,7 +196,7 @@ const _vp = new THREE.Vector3();
 function startMatch(cfg, kits){
   FS.cfg = cfg;
   const ms = FS.ms = createMatch(cfg);
-  FS.evq.length = 0; FS.acc = 0; FS.ffRate = 1; FS.timeScale = 1; FS.slow = null; FS.ckT = -1e9; FS.goalT = -1; FS.replayQ = null;
+  FS.evq.length = 0; FS.acc = 0; FS.ffRate = 1; FS.timeScale = 1; FS.slow = null; FS.skipResume = null; FS.ckT = -1e9; FS.goalT = -1; FS.replayQ = null;
   FS.offs.push(on(ms, "*", ev => FS.evq.push(ev)));
   for (const k of ["bounce", "post", "bar", "net", "board"]) FS.offs.push(on(ms, k, d => ballSound(k, d)));
   if (FS.real) FS.offs.push(attach(ms, on));
@@ -802,6 +802,8 @@ function skipFrame(){
   const done = S0.kind === "call" ? !!ms.callUp : S0.kind === "late" ? matchSec(ms) >= S0.until : false;
   if (done || ms.phase === "halftime" || ms.phase === "fulltime" || ms.phase === "over"){
     FS.skipping = null;
+    // (half time stops the skip for the dressing room; it carries on with the second half)
+    FS.skipResume = !done && ms.phase === "halftime" && S0.kind !== "late" ? S0.kind : null;
     hudOverlay(null);
     if (S0.kind === "late"){
       // arriving late: on the bench (watching) with the match already going
@@ -875,6 +877,8 @@ function secondHalfGo(){
   FS.acc = 0;
   FS.state = FS.onPitch ? "live" : "bench";
   if (FS.state === "bench" && FS.seated){ P.yaw = Math.PI; }
+  if (FS.state === "bench" && FS.skipResume){ const k = FS.skipResume; FS.skipResume = null; startSkip(k); }
+  else FS.skipResume = null;
   if (HOST && FS.relock !== false) HOST.relock();
   revealAfterFrames(2).then(() => liftCover());
 }
@@ -1100,7 +1104,8 @@ export function recoverCheck(){
   const ms = RECOVER.ms = createMatch(cfg);
   const offs = [attach(ms, on)];
   hudInit({home: {short: cfg.teams[0].short, kit: ["#2c66b8", "#fff"]}, away: {short: cfg.teams[1].short, kit: ["#c8463a", "#fff"]}, us: cfg.me ? cfg.me.team : 0});
-  const min = Math.floor(onSec(ms)/60);
+  // (the minute as the player's minutes count it, events.js minsOn: the seconds played, rounded)
+  const min = Math.round(onSec(ms)/60);
   const card = () => hudOverlay(`<div class="fp-box"><div class="eyebrow">Match interrupted</div><h2>Your last match was interrupted at ${min}'.</h2><p>The rest is played out.</p><b>${esc(cfg.teams[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(cfg.teams[1].name)}</b><div class="muted small">${minuteOf(ms)}'</div></div>`, "card");
   card();
   const t = SCHED.task({id: "fp-recover", kind: "keep", run: () => {
@@ -1187,7 +1192,8 @@ function scenario(name, o){
     const margin = parseFloat(name.split("-")[1] || "0.5") || .5;
     live();
     const dir = ms.dirs[me.team], defs = ms.agents.filter(a => a.team !== me.team && a.role === "player" && !a.isGK);
-    defs.forEach((a, i) => put(a, dir*(18 - (i % 4)*.0) - dir*(i >= 4 ? 8 : 0), -14 + (i % 4)*9.3, dir > 0 ? Math.PI/2 : -Math.PI/2));
+    // the back four on the line, wide of the pass's lane; the rest back towards the half-way line, out by the touchlines
+    defs.forEach((a, i) => put(a, i < 4 ? dir*18 : dir*2, i < 4 ? [-20, -12, 12, 20][i] : (i % 2 ? 1 : -1)*(24 + i*.8), dir > 0 ? Math.PI/2 : -Math.PI/2));
     const line = dir*18, mate = ms.agents.find(a => a.team === me.team && a.slot === "CM");
     put(me, line + dir*margin, 0, -Math.PI/2*dir);
     put(mate, dir*-5, 0, -Math.PI/2*dir);

@@ -72,7 +72,8 @@ export function moverParams(skills = {}, profile = "football", items = {}){
       cutAngle: 35*DEG, cutMin: 3.0, cutFloor: 0.3,
       faceRate: 12, staggerCap: 2.0, staggerT: 0.35, bounds: null};
   }
-  const sprint = (6.6 + 0.028*pace)*(grip ? 1.03 : 1);
+  // (Sprint Speed, A1.1: 7.2 m/s at 40 to 9.4 at 99; under 50 it falls away faster than the old line, which it keeps from 50 up)
+  const sprint = Math.max(5.8 + 0.012*pace, 6.6 + 0.028*pace - 0.052*Math.max(0, 50 - pace))*(grip ? 1.03 : 1);
   return {profile: "football", pace, agility, acceleration: acc,
     walk: 1.5, jog: 3.4 + 0.008*pace, run: 5.0 + 0.012*pace, sprint, vmax: sprint,
     back: 3.2, strafe: 4.0, backMul: 1, strafeMul: 1,

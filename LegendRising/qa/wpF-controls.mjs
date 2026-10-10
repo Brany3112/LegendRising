@@ -111,16 +111,17 @@ try {
       // (the pass measured at the point it was weighted for: once it is struck the receiver steps away)
 
       T.btn(2, true); T.steps(5); T.btn(2, false);
+      // (the point the pass was weighted for: the kick event's target, the crosshair's pass point until then)
       const tp = F.ctrl.target.point ? {x: F.ctrl.target.point.x, z: F.ctrl.target.point.z} : {x: mate.m.x, z: mate.m.z};
       const b = ms.ball, from = {x: b.p.x, z: b.p.z}, D = Math.hypot(tp.x - from.x, tp.z - from.z);
       let arr = null, kick = null;
       for (let i = 0; i < 600 && arr == null; i++){
         T.steps(1);
-        if (!kick){ kick = ms.events.find(e => e.kind === "kick" && e.agent === me.id) || null; if (kick){ from.x = kick.x; from.z = kick.z; mate.onPitch = false; } continue; }
+        if (!kick){ kick = ms.events.find(e => e.kind === "kick" && e.agent === me.id) || null; if (kick){ from.x = kick.x; from.z = kick.z; if (kick.tx != null){ tp.x = kick.tx; tp.z = kick.tz; } mate.onPitch = false; } continue; }
         if (Math.hypot(b.p.x - from.x, b.p.z - from.z) >= Math.hypot(tp.x - from.x, tp.z - from.z)) arr = Math.hypot(b.v.x, b.v.z);
         if (Math.hypot(b.v.x, b.v.z) < .05) break;
       }
-      out.push({d, D: +D.toFixed(1), intent: kick && kick.intent, arr: arr == null ? null : +arr.toFixed(2)});
+      out.push({d, D: +Math.hypot(tp.x - from.x, tp.z - from.z).toFixed(1), intent: kick && kick.intent, arr: arr == null ? null : +arr.toFixed(2)});
     }
     return out;
   });

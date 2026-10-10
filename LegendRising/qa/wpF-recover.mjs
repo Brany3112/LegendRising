@@ -22,12 +22,13 @@ try {
     ck = await T.page.evaluate(() => {
       const L = window.__life, ms = window.__fp.ms;
       L.stepN(10);
-      if (ms.phase === "restart" || ms.phase === "kickoff"){ const r = window.__fp.checkpoint(); return r ? {min: Math.floor(((r.half - 1)*2700 + r.sec)/60), score: r.score.slice(), saved: !!localStorage.getItem("freyaFootball.slot1") || Object.keys(localStorage).some(k => /slot/.test(k)), key: r.fkey} : null; }
+      if (ms.phase === "restart" || ms.phase === "kickoff"){ const r = window.__fp.checkpoint(); return r ? {min: Math.round(((r.half - 1)*2700 + Math.min(r.sec, 2700))/60), score: r.score.slice(), saved: !!localStorage.getItem("freyaFootball.slot1") || Object.keys(localStorage).some(k => /slot/.test(k)), key: r.fkey} : null; }
       return null;
     });
   }
   check(!!ck && ck.min >= 30, "a dead-ball checkpoint after minute 30, saved", ck);
-  const before = await T.page.evaluate(() => ({news: (S.news || []).length, inMatch: !!S.life.inMatch}));
+  // (the days slept through to reach a league match day may have missed a cup tie: those notes were there before)
+  const before = await T.page.evaluate(() => ({news: (S.news || []).length, inMatch: !!S.life.inMatch, miss: (S.news || []).filter(n => /misses the match/.test(n.title || "")).length}));
   // the page closes; the same browser opens the game again and continues the career
   const ctx = T.page.context();
   page2 = await ctx.newPage();
@@ -58,7 +59,7 @@ try {
   check(!!res, "the remainder runs headless to full time", res);
   check(!!res && res.score[0] >= ck.score[0] && res.score[1] >= ck.score[1], "the final score is at least the checkpoint score for both sides", {checkpoint: ck && ck.score, final: res && res.score});
   check(!!res && res.mins === ck.min, "the player's minutes equal the checkpoint minute", {mins: res && res.mins, checkpoint: ck && ck.min});
-  check(after.news === 0, "no missed-match penalty", after.news);
+  check(after.news === before.miss, "no missed-match penalty", {before: before.miss, after: after.news});
   check(!after.inMatch && after.done, "S.life.inMatch cleared and the fixture done", after);
   check(page2.errors.length === 0 && T.page.errors.length === 0, "zero console and page errors", page2.errors.concat(T.page.errors).slice(0, 5));
   ok = true;

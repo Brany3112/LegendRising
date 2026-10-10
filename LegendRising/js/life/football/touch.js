@@ -31,7 +31,7 @@ export const TOUCH = Object.freeze({
   PUSH: [1, 3],                                   // a first touch pushes 1 to 3 m/s along WASD
   HEAVY: 1.5,                                     // metres: a touch that leaves the ball further than this is heavy
   DRIB_REACH: 0.9, DRIB_CONE: 50*DEG, WEAK_SIDE: 0.25,
-  SMALL: 0.55, HEAVY_K: 1.12,               // the small touch's share of the lead; a touch this much longer than the norm (poor Ball
+  SMALL: 0.55, HEAVY_K: 1.12, TOUCH_AT: 0.45, // the small touch's share of the lead; a touch this much longer than the norm (poor Ball
                                             // Control, at a run) pops off the grass (A1.1)
   CADENCE: [[3, 1], [6, 2], [Infinity, 3]],       // every stride under 3 m/s, every 2nd to 6, every 3rd above
   HEADER_R: 0.17, HEADER_RK: 0.0015,
@@ -181,10 +181,14 @@ export function dribbleTouch(agent, ball, dir, speed, ctx, r){
   const lead0 = (0.6 + 0.22*v)*(ctx.walk ? 0.5 : 1)*ctrlLead(ctrl)*(ctx.small ? T.SMALL : 1);
   const angErr = truncNormal(r, (1 - drib/110)*(0.06 + 0.10*v/8)*tired, 2.5);
   const lead = Math.max(0.1, lead0*(1 + truncNormal(r, 0.15*(1 - drib/100)*tired, 2.5)));
-  // the kick speed whose lead peaks at `lead` (bisection on the monotonic gap)
-  let lo = v, hi = v + 2 + Math.sqrt(2*(rd + KD*(v + 6)*(v + 6))*lead)*2;
-  while (maxGap(hi, v, rd) < lead && hi < 40) hi *= 1.5;
-  for (let i = 0; i < 40; i++){ const mid = (lo + hi)/2; if (maxGap(mid, v, rd) < lead) lo = mid; else hi = mid; }
+  // the kick speed whose lead peaks at `lead` (bisection on the monotonic gap); a ball touched from further ahead than
+  // the usual touch spot (TOUCH_AT: an early touch on a ball he is closing on, WP-F) needs that much less gap, so the
+  // ball never runs further ahead than the lead from the spot
+  const f0 = dirOf(yawOfAgent(agent)), ahead0 = (P.x - m.x)*f0.x + (P.z - m.z)*f0.z;
+  const gap = Math.max(0.1, lead - Math.max(0, ahead0 - T.TOUCH_AT));
+  let lo = v, hi = v + 2 + Math.sqrt(2*(rd + KD*(v + 6)*(v + 6))*gap)*2;
+  while (maxGap(hi, v, rd) < gap && hi < 40) hi *= 1.5;
+  for (let i = 0; i < 40; i++){ const mid = (lo + hi)/2; if (maxGap(mid, v, rd) < gap) lo = mid; else hi = mid; }
   const u0 = Math.min(BALL.VMAX, (lo + hi)/2);
   const c = cos(angErr), s = sin(angErr), kx = dx*c - dz*s, kz = dx*s + dz*c;
   // which foot: strong unless the ball sits more than 0.25 m to the weak side

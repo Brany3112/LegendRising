@@ -117,10 +117,12 @@ if (ONLY.includes("halftime")) try {
     if (btn) btn.click();
     const w1 = S.inv.water, e1 = S.energy;
     S.inv.water = 0;
-    // (the card is drawn again after a drink: the button for an empty stock is disabled)
+    // with none left: the button pressed again gives nothing (consume refuses), and the card drawn again has it disabled
+    const e2 = S.energy, h2 = S.hyd;
+    const b1 = document.querySelector('.fp-overlay.ht [data-drink="water"]');
+    if (b1) b1.click();
     const card2 = document.querySelector(".fp-overlay.ht"), b2 = card2 && card2.querySelector('[data-drink="water"]');
     const disabled = !!(b2 && b2.disabled);
-    const e2 = S.energy, h2 = S.hyd;
     const rr = consume("water");
     return {state: F.state, card: !!card, btn: !!btn, w0, w1, e0, e1, disabled, refused: rr && rr.ok === false, e3: S.energy, e2, h3: S.hyd, h2};
   });

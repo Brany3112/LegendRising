@@ -13,7 +13,7 @@
    browser default stopped while a match is on. The settings are this device's (localStorage freyaFootball.ctrl). */
 import {P} from "../core/state.js";
 import {dirOf, yawOf, wrapA} from "./pitchspec.js";
-import {canStrike, predAt} from "./actions.js";
+import {canStrike, predAt, VOLLEY} from "./actions.js";
 import {passModel, callFor} from "./brain.js";
 import {restartReady} from "./rules.js";
 import {idealPassSpeed} from "./strike.js";
@@ -51,7 +51,7 @@ export const onSet = fn => { SET_SUBS.add(fn); return () => SET_SUBS.delete(fn);
 export const CN = Object.freeze({
   SHOT_FULL: .85, OVERHIT: .92, TAP: .18, PASS_FULL: .8, PASS_MIN: 4,
   CONE: 25*DEG, CONE_NEAR: 35*DEG, CONE_NEAR_D: 15, HYST: 6*DEG, THROUGH_D: 8,
-  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, CALL_HOLD: .4, CALL_COOL: 4,
+  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, CALL_HOLD: .4, CALL_COOL: 4, DRIB_BEND: 12*DEG,
   SCAN_MAX: 110*DEG, SCAN_BACK: .15, HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5,
   SMALL: .55,                 // the small touch: the next dribble touch at this share of its length (A1.1)
   RING: Object.freeze({W0: .07, W1: .16})   // the timing ring of a volley (A1.5): the sweet window in seconds, at volleying 0 and 99
@@ -262,35 +262,47 @@ function passPoint(ms, me, o, out){
    at a stretch). With the Acrobatic trait a ball over the hip with your back half to goal offers the scissor kick and,
    facing away from goal, the overhead kick; with Flair a ball on the weak side at the feet offers the rabona. Without
    the trait those are never offered. Returns {kind, part, tc, side, h, mirrored} or null when no ball is coming. */
-export const RESOLVE = Object.freeze({VOLLEY: [.35, 1.15], HEAD: [1.45, 2.4], DIVE: [.45, 1.0], SIDE: .45, LOOK: .9});
+export const RESOLVE = Object.freeze({VOLLEY: [.35, 1.15], HEAD: [1.45, 2.4], DIVE: [.45, 1.0], SIDE: .45, LOOK: .9, REACH: .9, REACH_HEAD: .5, DIVE_AHEAD: [1.0, 2.6]});
 export function resolveAction(ms, me, traits = {}){
   const b = ms.ball;
   if (b.state !== "free") return null;
   const B = {x:0, y:0, z:0};
-  let best = null;
-  const f = dirOf(me.m.yaw);
+  let best = null, near = null, dive = null, gap = Infinity;
+  const f = dirOf(me.m.yaw), v = me.m.speed;
+  // the meeting point, measured from where your run takes you by then (your velocity carried on): the first moment the
+  // ball is within reach (half a metre more for every second you have to adjust), else, running onto a low ball in
+  // front, the stretch of a diving header, else the moment it passes closest
   for (let i = 1; i <= Math.round(RESOLVE.LOOK*30); i++){
     const t = i/30;
     predAt(ms, t, B);
-    const dx = B.x - me.m.x, dz = B.z - me.m.z, d = Math.hypot(dx, dz);
-    const reachH = me.m.speed*t*.6 + .9;
-    if (d > reachH + 1.2) continue;
-    const ahead = dx*f.x + dz*f.z, lat = dx*-f.z + dz*f.x, hgt = B.y;
-    best = {t, x:B.x, y:B.y, z:B.z, ahead, lat, d};
-    if (d < reachH) break;
+    const px = me.m.x + me.m.vx*t, pz = me.m.z + me.m.vz*t;
+    const dx = B.x - px, dz = B.z - pz, d = Math.hypot(dx, dz);
+    const reachH = .5*t + (B.y >= RESOLVE.HEAD[0] ? RESOLVE.REACH_HEAD : RESOLVE.REACH);
+    if (d > reachH + 1.6) continue;
+    const ahead = dx*f.x + dz*f.z, lat = dx*-f.z + dz*f.x;
+    if (!dive && v > 2.5 && B.y >= RESOLVE.DIVE[0] && B.y <= RESOLVE.DIVE[1] && ahead >= RESOLVE.DIVE_AHEAD[0] && ahead <= RESOLVE.DIVE_AHEAD[1] &&
+      Math.abs(lat) <= RESOLVE.SIDE) dive = {t, x:B.x, y:B.y, z:B.z, ahead, lat, d};
+    if (!best && d - reachH < gap){ gap = d - reachH; near = {t, x:B.x, y:B.y, z:B.z, ahead, lat, d}; }
+    if (!best && d <= reachH) best = near;
+    if (best && dive) break;
   }
-  if (!best) return null;
   const gx = ms.dirs[me.team]*ms.spec.hx, toGoal = yawOf(gx - me.m.x, -me.m.z), face = Math.abs(wrapA(toGoal - me.m.yaw))/DEG;
+  // a low ball you can only reach by throwing yourself at it, going towards goal: the diving header
+  const diving = () => ({kind:"divingHeader", tc:dive.t, side:dive.lat >= 0 ? "R" : "L", h:dive.y, x:dive.x, y:dive.y, z:dive.z, mirrored:false, face});
+  if (dive && face < 70 && (!best || dive.t < best.t)) return diving();
+  best = best || near;
+  if (!best) return null;
   const hgt = best.y, side = best.lat >= 0 ? "R" : "L", sideways = Math.abs(best.lat) > RESOLVE.SIDE;
   const acro = !!(traits && (traits.acrobatic || traits.Acrobatic)), flair = !!(traits && (traits.flair || traits.Flair));
   let kind = "ground";
   if (hgt >= RESOLVE.HEAD[0] && hgt <= RESOLVE.HEAD[1] + (me.at.jumping || 50)*.008) kind = "header";
-  else if (hgt >= RESOLVE.DIVE[0] && hgt <= RESOLVE.DIVE[1] && best.ahead > 1.4 && !sideways && me.m.speed > 2.5 && face < 70) kind = "divingHeader";
   else if (hgt >= RESOLVE.VOLLEY[0] && hgt <= RESOLVE.VOLLEY[1]){
     if (acro && face > 120 && hgt > .7) kind = "bicycle";
     else if (acro && face > 60 && sideways && hgt > .75) kind = "scissor";
     else kind = sideways ? "sidevolley" : "volley";
   } else if (hgt < RESOLVE.VOLLEY[0] && flair && ((me.foot === "R" && best.lat < -.2) || (me.foot === "L" && best.lat > .2))) kind = "rabona";
+  // (a ball at the chest, nothing to strike, that drops in front of you as you run on: the diving header)
+  if (kind === "ground" && hgt > RESOLVE.VOLLEY[1] && dive && face < 70) return diving();
   // an overhead kick is struck facing away: the aim is mirrored (A1.5), what you see behind you is where it goes
   return {kind, tc:best.t, side, h:hgt, x:best.x, y:best.y, z:best.z, mirrored:kind === "bicycle", face};
 }
@@ -369,6 +381,14 @@ export function controlStep(ms, me, h, opts = {}){
     I.speedCap = CN.JOCKEY_V; I.strafe = true; if (I.gait === "sprint") I.gait = "run";
     use("jockey");
   }
+  // a header on its way (A1.5): the last steps to the meeting point are taken for you, so the brow is under the ball
+  // when it comes (the resolver's point: the head is over the body); your keys take over again after
+  const hd = me.act && me.act.kind === "header" && !me.act.dive && !me.act.done && !me.act.air ? CTRL.headMeet : null;
+  if (hd){
+    const dx = hd.x - me.m.x, dz = hd.z - me.m.z, d = Math.hypot(dx, dz), left = Math.max(.05, me.act.tc - me.act.t);
+    if (d > .06){ I.dx = dx/d; I.dz = dz/d; I.gait = "run"; I.speedCap = Math.min(I.speedCap, d/left + .5); }
+    else { I.dx = I.dz = 0; }
+  }
   // the ball at your feet: the dribble's way and length (a small touch with F held and nothing charging, A1.1)
   CTRL.small = !!CTRL.held.f && !CTRL.charge && ctx === "attack";
   if (ms.poss.ctl === me.id){
@@ -377,6 +397,14 @@ export function controlStep(ms, me, h, opts = {}){
       const d = me.drib || (me.drib = {dx:0, dz:0, gait:"jog", speed:0, t:ms.t, commit:0, small:false, start:me.m.speed < 1.5});
       // (the speed the touch is weighed for: the gait you go at, so a touch from standing is not left under your feet)
       d.dx = I.dx; d.dz = I.dz; d.gait = I.gait; d.small = CTRL.small;
+      // the run bends a little towards the ball (at most 12 degrees off the keys' way, only while it is in front), so a
+      // touch that went a little wide is followed rather than run past: the ball stays yours until you choose otherwise
+      const b = ms.ball, bx = b.p.x + b.v.x*.25 - me.m.x, bz = b.p.z + b.v.z*.25 - me.m.z, bl = Math.hypot(bx, bz);
+      if (bl > .2 && (bx*I.dx + bz*I.dz)/bl > Math.cos(40*DEG)){
+        const cross = I.dx*bz - I.dz*bx, ang = clamp(Math.asin(clamp(cross/bl, -1, 1)), -CN.DRIB_BEND, CN.DRIB_BEND);
+        const c = Math.cos(ang), s = Math.sin(ang), nx = I.dx*c - I.dz*s, nz = I.dx*s + I.dz*c;
+        I.dx = nx; I.dz = nz;
+      }
       // (setting off from standing, the first touch is weighed for the first strides: 2 m/s)
       d.speed = d.start ? 2 : I.gait === "walk" ? me.prm.walk : I.gait === "sprint" ? .8*me.prm.sprint : me.prm.jog;
     } else if (me.drib) me.drib = null;
@@ -423,7 +451,9 @@ function space(ms, me){
   if (intent === "attack") target = {x:CTRL.aim.x, y:CTRL.aim.ok ? CTRL.aim.y : 1.2, z:CTRL.aim.z};
   else if (intent === "pass"){ const o = ms.agents[coneTarget(ms, me)]; if (o) target = passPoint(ms, me, o, {x:0, y:0, z:0}); }
   const tc = H ? clamp(H.tc, .12, .9) : .3;
-  me.intent.action = {kind:"header", tc, intent, target, power:1, dive:!!(H && H.kind === "divingHeader")};
+  // (the jump sized to the ball: none for one at your head, a full leap for one above it)
+  me.intent.action = {kind:"header", tc, intent, target, power:1, dive:!!(H && H.kind === "divingHeader"), ballY:H ? H.y : null};
+  CTRL.headMeet = H && H.kind === "header" ? {x:H.x, z:H.z} : null;
   CTRL.last = H ? (H.kind === "divingHeader" ? "divingHeader" : "header") : "jump"; use("header");
   void b;
 }
@@ -457,7 +487,7 @@ function strike(ms, me, what, held, opts){
     const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal};
     if (kind === "cross" || kind === "lob"){ rq.speed = undefined; rq.power = undefined; rq.recv = nearestMate(ms, me, tgt); }
     if (Rz && Rz.kind !== "ground"){
-      rq.style = Rz.kind; rq.timing = timingOf(Rz);
+      rq.style = Rz.kind; rq.timing = timingOf(Rz); rq.tc = Rz.tc; rq.meet = {x:Rz.x, y:Rz.y, z:Rz.z};
       // an acrobatic strike (the traits' scissor, overhead and rabona): the controller's slow motion and its shot (A1.5)
       if (ACRO.has(Rz.kind)) CTRL.acro = {style:Rz.kind, t:ms.t, tc:Rz.tc, x:Rz.x, y:Rz.y, z:Rz.z};
     }
@@ -475,7 +505,11 @@ function strike(ms, me, what, held, opts){
   const vmax = 22 + .06*(at.passing || 50);
   const through = CTRL.target.through && o;
   const ideal = idealPassSpeed(Math.max(1, d), through ? 8 : 9, roll);
-  let speed = ideal, charged = false, sweet = false;
+  // a tap is weighted for you: its error is in what it arrives at, 9 m/s give or take with your Passing, held within 8
+  // to 10 (1.5.3), not a share of the launch, which over 40 m would arrive anywhere
+  const zA = Math.sqrt(-2*Math.log(Math.max(1e-9, ms.r())))*Math.cos(2*Math.PI*ms.r());
+  const arrive = clamp((through ? 8 : 9) + zA*.6*(1 - (at.passing || 50)/120), through ? 7.5 : 8, through ? 9.5 : 10);
+  let speed = idealPassSpeed(Math.max(1, d), arrive, roll), charged = false, sweet = false;
   if (held >= CN.TAP){
     const c = Math.min(1, held/CN.PASS_FULL), cIdeal = clamp((ideal - CN.PASS_MIN)/(vmax - CN.PASS_MIN), 0, 1), w = .10 + .25*(at.passing || 50)/100;
     charged = true;
@@ -490,7 +524,7 @@ function strike(ms, me, what, held, opts){
     if ((pm && pm.pOK < .6 && d > 12) || ideal > vmax){ kind = "lob"; ctc = 1; }
   }
   const rq = {kind, target:{x:tp.x, y:.11, z:tp.z}, recv:o ? o.id : -1, contact:ctc, finesse, charged, sweet, firstTime:ms.poss.ctl !== me.id};
-  if (kind === "pass" || kind === "through") rq.speed = clamp(speed, CN.PASS_MIN, vmax);
+  if (kind === "pass" || kind === "through"){ rq.speed = clamp(speed, CN.PASS_MIN, vmax); if (!charged) rq.weightSigma = .004; }
   queueStrike(ms, me, rq);
   CTRL.last = kind; use(kind === "through" ? "through" : "pass");
 }
@@ -501,8 +535,10 @@ export const RING_T = .2;          // the moment the ring closes: this long befo
 function timingOf(R){ const w = CTRL.ring ? CTRL.ring.w : CN.RING.W1; return clamp(Math.max(0, Math.abs(R.tc - RING_T) - w/2)/w, 0, 1); }
 // in front of you, in reach: now; on its way to you: a first-time strike when it arrives (touchCheck starts it)
 function queueStrike(ms, me, rq){
-  const b = ms.ball, cs = canStrike(me, b);
-  const incoming = b.state === "free" && ms.poss.ctl !== me.id && !cs.ok && Math.hypot(b.v.x, b.v.z) > 2 && approaching(ms, me);
+  const b = ms.ball, cs = canStrike(me, b, rq.style);
+  // (a strike in the air, the resolver's volley, starts now and waits for the ball itself: actions.js VOLLEY.WAIT)
+  const air = !!rq.style && VOLLEY.STYLES.has(rq.style);
+  const incoming = !air && b.state === "free" && ms.poss.ctl !== me.id && !cs.ok && Math.hypot(b.v.x, b.v.z) > 2 && approaching(ms, me);
   if (incoming){
     const p = me.plan && me.plan.kind === "receive" ? me.plan : (me.plan = {kind:"receive", push:null, first:null});
     p.first = rq; p.firstT = ms.t;
