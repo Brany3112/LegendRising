@@ -295,7 +295,7 @@ export const ACTION_XP = Object.freeze({
   shot: [['accuracy', 3, 4], ['power', 1, 2]],
   win: [['interception', 3, 0]],
   tackle: [['tackling', 3, 0]],
-  sprint: [['pace', 1, 0], ['stamina', 1, 0]]            // per 60 m of sprinting
+  sprint: [['sprintSpeed', 1, 0], ['acceleration', 0.5, 0], ['stamina', 1, 0]]            // per 60 m of sprinting
 });
 // what the player did in a block, from its events: [{key, q}] in order (the session's XP and its score)
 export function involvements(evs, me){

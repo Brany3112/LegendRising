@@ -33,6 +33,10 @@ export async function openDay({gfx = "low", seed = 7, role = "starter", before =
     const ok = f => f && (!kind || f.kind === kind);
     let n = 0; while (!ok(todaysFixture()) && n++ < 28){ S.life.min = 23*60; sleepNight(2); startNewDay(); }
     if (role === "starter"){ S.trust = 100; S.chem = 80; } else { S.trust = 0; S.chem = 0; }
+    // the manager's pick has a dose of chance in it (daily.js selectRole); the fixture is about the match day, so its
+    // role is the one asked for (a late arrival still demotes it, matchSetup)
+    const pick = role === "starter" ? "starter" : "sub";
+    window.selectRole = f => f && f.kind === "N" ? "rotation" : pick;
     S.fatigue = 0; S.energy = 100;
     const f = todaysFixture(), ko = fixtureSlot(f).min;
     S.life.min = ko - before;

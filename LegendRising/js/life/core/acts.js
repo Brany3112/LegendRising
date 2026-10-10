@@ -351,7 +351,7 @@ export function trainCheck(){
 const begin = D => { if (D) enterMode("drill", D); };
 export function reps(kind){ if (!trainCheck() || mode() !== "life") return; begin(startReps(kind, H.host)); }
 // what each position works on when the session has little to measure (being out there with the lads)
-const SESSION_SKILLS = {ST:["accuracy", "power", "heading", "pace"], LW:["dribbling", "pace", "passacc", "accuracy"], RW:["dribbling", "pace", "passacc", "accuracy"],
+const SESSION_SKILLS = {ST:["accuracy", "power", "heading", "sprintSpeed"], LW:["dribbling", "acceleration", "passacc", "accuracy"], RW:["dribbling", "acceleration", "passacc", "accuracy"],
   CAM:["passing", "passacc", "curve", "dribbling"], CM:["passing", "stamina", "interception", "tackling"], DF:["tackling", "interception", "heading", "passacc"],
   GK:["jumping", "passacc", "composure", "stamina"]};
 const slotOf = () => (S.player && (S.player.teamPos || S.player.pref)) || "CM";

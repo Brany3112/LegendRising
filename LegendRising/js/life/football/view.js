@@ -62,7 +62,10 @@ export function looksOf(ms, kits, meLook){
 export function viewInit(ms, scene, kits, o = {}){
   const L = matchLooks(ms, kits, o.meLook);
   const V = {ms, scene, L, rec:[], ball:null, extra:[], alpha:0, src:null, fpOn:true, me:-1, fp:null, fpLook:o.meFPLook || o.meLook || null,
-    clipN:0, goals:[], saves:new Map(), celebUntil:0, flagUntil:[0, 0], t:0, hideAll:false, offs:[]};
+    clipN:0, goals:[], saves:new Map(), celebUntil:0, flagUntil:[0, 0], t:0, hideAll:false, offs:[],
+    // where the view's group sits in the world (a training item's frame: o.frame {cx, cz}; a match is at the origin),
+    // so the scheduler's tiers go by real distance; lookOf(agent): a look of the agent's own (a borrowed squad body)
+    ox:o.frame ? +o.frame.cx || 0 : 0, oz:o.frame ? +o.frame.cz || 0 : 0, lookOf:typeof o.lookOf === "function" ? o.lookOf : null};
   const b = ballMesh({shadow:true});
   b.mesh.matrixAutoUpdate = true;
   scene.add(b.mesh);
@@ -76,13 +79,14 @@ function bodyFor(V, a){
   let R = V.rec[a.id];
   if (R) return R;
   const ms = V.ms;
-  const look = a.isGK && ms.gks[a.team] === a.id ? V.L.gk[a.team] : V.L.of(a);
+  const own = V.lookOf ? V.lookOf(a) : null;
+  const look = own || (a.isGK && ms.gks[a.team] === a.id ? V.L.gk[a.team] : V.L.of(a));
   const h = human(look, {cast:true});
   h.g.name = a.isMe ? "match-me" : "match-" + a.id;
   V.scene.add(h.g);
-  R = V.rec[a.id] = {a, h, st:{mode:"move", speed:0}, clip:null, actRef:null, kind:"", recv:null, cel:null, x:a.m.x, z:a.m.z, actor:null, hidden:false};
+  R = V.rec[a.id] = {a, h, st:{mode:"move", speed:0}, clip:null, actRef:null, kind:"", recv:null, cel:null, x:a.m.x, z:a.m.z, actor:null, hidden:false, wpos:{x:0, y:0, z:0}};
   R.actor = SCHED.actor({id:"match-" + a.id, kind:"match", r:1.1,
-    pos:() => R.pos || (R.pos = {x:0, y:0, z:0}),
+    pos:() => { const p = R.pos || (R.pos = {x:0, y:0, z:0}), w = R.wpos; w.x = p.x + V.ox; w.y = p.y; w.z = p.z + V.oz; return w; },
     active:() => !!(R.clip || (a.act && !a.act.done) || a.isMe || (a.gk && a.gk.plan)),
     anim:(dt, tier) => animAgent(V, R, dt, tier)});
   R.pos = {x:a.m.x, y:0, z:a.m.z};

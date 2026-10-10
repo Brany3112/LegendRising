@@ -83,13 +83,13 @@ try {
     const t = W.leagues[lg] && W.leagues[lg].tab; const row = t ? (Array.isArray(t) ? null : t[h]) : null;
     const L = window.__life;
     return {played: row ? row[0] : null, doneKey: !!W.done[key], done: Object.keys(W.done).length, min: S.life.min, zone: L.LIFE.zone, mode: L.modes.mode(), state: window.__fp.state,
-      P: [L.P.x, L.P.z], inMatch: !!S.life.inMatch, last: S.lastMatch || null, top: L.camera.top()};
+      P: [L.P.x, L.P.z], tun: L.GROUND && L.GROUND.tunnel ? [L.GROUND.tunnel.x, L.GROUND.tunnel.spawnZ] : [0, -21], inMatch: !!S.life.inMatch, last: S.lastMatch || null, top: L.camera.top()};
   }, T.info);
   check(h && h.phase === "over", "__fp.headless(5400) completes the match", h && {phase: h.phase, score: h.score});
   check(!!(h && h.my && h.my.mins > 0 && h.my.touches >= 0 && "goals" in h.my), "MT.my populated", h && h.my && {mins: h.my.mins, touches: h.my.touches, goals: h.my.goals});
   check(after.doneKey && (before.played == null || after.played === before.played + 1), "finaliseMatch applied: the fixture done, the league table updated", {before: before.played, after: after.played, done: after.doneKey});
   check(after.min === T.info.ko + 115, "the life clock at kick-off + 115 minutes", {min: after.min, want: T.info.ko + 115});
-  check(after.zone === "ground" && after.mode === "life" && !after.state && Math.hypot(after.P[0], after.P[1] + 21) < 8 && after.top === "life-fp", "control back at the ground tunnel", after);
+  check(after.zone === "ground" && after.mode === "life" && !after.state && Math.hypot(after.P[0] - after.tun[0], after.P[1] - after.tun[1]) < 8 && after.top === "life-fp", "control back at the ground tunnel", after);
   check(!after.inMatch && !!after.last, "S.life.inMatch cleared, the match on the record", {inMatch: after.inMatch, last: after.last});
   check(page.errors.length === 0, "zero console and page errors", page.errors.slice(0, 5));
   ok = true;

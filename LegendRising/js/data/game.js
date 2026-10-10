@@ -9,7 +9,8 @@ const SKILLS = [
   ["accuracy","Accuracy","Less random error on hard shots"],
   ["passing","Passing","Vision and the weight you put on a pass"],
   ["passacc","Pass accuracy","How precisely a pass lands where you meant it to"],
-  ["pace","Pace","Running speed with the ball"],
+  ["acceleration","Acceleration","How quickly you get up to full speed"],
+  ["sprintSpeed","Sprint speed","How fast you are flat out"],
   ["dribbling","Dribbling","Chance to ride a tackle"],
   ["stamina","Stamina","How slowly your energy drains in matches. Low stamina burns out fast"],
   ["composure","Composure","Keeps your skills from dropping in front of huge crowds"],
@@ -22,7 +23,7 @@ const SKILLS = [
 const SKILL_HOW = {
   power:"Gym · squat rack and dumbbells", aero:"Pitch · shooting drill, hit it hard and clean", curve:"Matches · bend shots and free kicks",
   accuracy:"Pitch · shooting accuracy drill at the goal", passing:"Pitch · pass accuracy drill, team sessions", passacc:"Pitch · pass accuracy drill in the centre circle",
-  pace:"Gym · sprint ladder and bike", dribbling:"Matches and team sessions", stamina:"Gym · treadmill and bike",
+  acceleration:"Gym · sprint ladder", sprintSpeed:"Gym · bike and treadmill", dribbling:"Matches and team sessions", stamina:"Gym · treadmill and bike",
   composure:"Big crowds on match day", tackling:"Matches and team sessions", interception:"Pitch · interception drill by the ball machine",
   jumping:"Gym · plyo boxes, and the heading drill", heading:"Pitch · heading drill at the far goal"
 };
@@ -109,7 +110,7 @@ const POS = {
   DF: {name:"Defender",       line:0, bonus:{tackling:9, composure:5, passing:3, interception:7, heading:6, jumping:4}, blurb:"You defend first. Fewer chances, but a clean sheet is your goal."},
   CM: {name:"Central mid",    line:1, bonus:{passing:6, stamina:4, tackling:4, passacc:5, interception:4},  blurb:"The engine. You touch the ball more than anyone."},
   AM: {name:"Attacking mid",  line:2, bonus:{curve:4, passing:6, accuracy:2, passacc:5},  blurb:"Between the lines. Create, and get on the end of things."},
-  W:  {name:"Winger",         line:2, bonus:{pace:6, dribbling:6, passacc:2},             blurb:"One against one on the touchline. Beat him and cross, or cut in."},
+  W:  {name:"Winger",         line:2, bonus:{acceleration:6, sprintSpeed:4, dribbling:6, passacc:2},             blurb:"One against one on the touchline. Beat him and cross, or cut in."},
   ST: {name:"Striker",        line:3, bonus:{power:6, accuracy:6, heading:4, jumping:3},  blurb:"Score. Everything else is a bonus."}
 };
 const POS_ORDER = ["DF", "CM", "AM", "W", "ST"];
@@ -197,8 +198,8 @@ const SHOP = [
 const STAFF = [
   {id:"shootCoach", name:"Shooting coach", desc:"Shooting training: +50% XP and a good chance of a free +1 to power, clean strike, curl or accuracy.", hire:150, weekly:15},
   {id:"passCoach", name:"Passing coach", desc:"Passing training: +50% XP and a good chance of a free +1 to passing or accuracy.", hire:150, weekly:15},
-  {id:"dribCoach", name:"Dribbling coach", desc:"Dribbling training: +50% XP and a good chance of a free +1 to dribbling or pace.", hire:150, weekly:15},
-  {id:"fitCoach", name:"Fitness coach", desc:"Fitness training: +50% XP, a good chance of a free +1 to stamina or pace, and it costs less energy.", hire:150, weekly:15},
+  {id:"dribCoach", name:"Dribbling coach", desc:"Dribbling training: +50% XP and a good chance of a free +1 to dribbling or acceleration.", hire:150, weekly:15},
+  {id:"fitCoach", name:"Fitness coach", desc:"Fitness training: +50% XP, a good chance of a free +1 to stamina or sprint speed, and it costs less energy.", hire:150, weekly:15},
   {id:"trainer", name:"Personal trainer", desc:"Every training session gives 50% more XP.", hire:400, weekly:30},
   {id:"nutri", name:"Nutritionist", desc:"Match moments and sprinting burn 20% less energy.", hire:300, weekly:25},
   {id:"psych", name:"Sports psychologist", desc:"Calmer under pressure: your aim wobbles 30% less, and Mental training gives +50% XP and free Composure points.", hire:500, weekly:35},
@@ -208,8 +209,8 @@ const TRAIN = {
   general:{name:"General", skills:null, coach:null},
   shooting:{name:"Shooting", skills:["power","aero","curve","accuracy"], coach:"shootCoach"},
   passing:{name:"Passing", skills:["passing","passacc"], coach:"passCoach"},
-  dribbling:{name:"Dribbling", skills:["dribbling","pace"], coach:"dribCoach"},
-  fitness:{name:"Fitness", skills:["stamina","pace","jumping"], coach:"fitCoach"},
+  dribbling:{name:"Dribbling", skills:["dribbling","acceleration"], coach:"dribCoach"},
+  fitness:{name:"Fitness", skills:["stamina","sprintSpeed","jumping"], coach:"fitCoach"},
   defending:{name:"Defending", skills:["tackling","interception","heading"], coach:null},
   mental:{name:"Mental", skills:["composure"], coach:"psych"}
 };

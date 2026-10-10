@@ -29,7 +29,7 @@ import {SCHED} from "../core/sched.js";
 import {moveBy, findInside} from "../core/collide.js";
 import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
-import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, liveRating} from "./sim.js";
+import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating} from "./sim.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
 import {minuteOf, highlights, onSec, deriveMy} from "./events.js";
 import {makePitch, ROLL, dirOf, yawOf, wrapA} from "./pitchspec.js";
@@ -958,6 +958,7 @@ function teardown(){
   for (const f of FS.offs) try { f(); } catch(e){ console.error(e); }
   FS.offs.length = 0;
   if (playing()) skip();
+  if (AUD.feelOff) AUD.feelOff();
   camDispose();
   hudDispose();
   if (FS.V){ viewDispose(FS.V); FS.V = null; }
@@ -1155,7 +1156,7 @@ function testConfig(name, o = {}){
   };
   const teams = [mk(0, o.ovr || 60), mk(1, o.ovr || 60)];
   if (o.me) Object.assign(teams[0].players.find(p => p.isMe).at, o.me);
-  return {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[2]}), halfRealSec: HALF_REAL[2], tempo: {directness: 1.25, shotBias: 1.9, pressMul: 1.15},
+  return {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[2]}), halfRealSec: HALF_REAL[2], tempo: Object.assign({}, TEMPO[2]),
     teams, me: {team: 0, slot: o.slot || "ST", prefFoot: "Right", chem: 50, trust: 50, traits: o.traits || {}, staminaF: 1, role: "starter"},
     rules: {offside: true, cards: true, subs: 5}, roleTimes: {}, kickoffTeam: o.kickoffTeam != null ? o.kickoffTeam : 1, benchSide: -1, htAuto: false,
     ovr: [o.ovr || 60, o.ovr || 60], visible: visibleFn};

@@ -520,7 +520,7 @@ export function highlights(ms, agentId){
     if (ev.kind === 'goal' && !ev.disallowed){
       const mine = ev.scorer === agentId, ast = ev.assister === agentId;
       const st = ev.style || {}, d = Math.round(st.dist || 0);
-      const how = st.pen ? "from the spot" : st.fk ? `free kick from ${d}m` : st.header ? "header" : `from ${d}m`;
+      const how = st.pen ? "from the spot" : st.fk ? `free kick from ${d}m` : st.header ? "header" : d < 2 ? "from close in" : `from ${d}m`;
       h = {kind: mine ? 'goal' : ast ? 'assist' : ev.team === (ms.agents[agentId] || {}).team ? 'teamGoal' : 'conceded',
         icon: mine ? "⚽" : ast ? "🅰" : "•",
         text: ev.ownGoal ? `Own goal by ${nm(ev.scorer)}` : mine ? `Goal, ${how}` : ast ? `Assist for ${nm(ev.scorer)}, ${how}` : `${nm(ev.scorer)} scores, ${how}`,

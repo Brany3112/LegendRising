@@ -134,7 +134,7 @@ function hey(c, out, t, g, seed){
 }
 
 /* ---------- the live context ---------- */
-const AU = {ctx:null, master:null, comp:null, wanted:false, armed:false, unavailable:false, voices:[], bed:null, lp:null, vol:.8, muffle:0};
+const AU = {ctx:null, master:null, comp:null, wanted:false, armed:false, unavailable:false, voices:[], bed:null, feel:null, lp:null, vol:.8, muffle:0};
 const gestured = () => { try { const u = navigator.userActivation; return !!(u && u.hasBeenActive); } catch(e){ return false; } };
 function onGesture(){ disarm(); if (AU.wanted) create(); }
 function arm(){
@@ -255,13 +255,45 @@ export const AUD = {
       L.upX.setValueAtTime(0, t); L.upY.setValueAtTime(1, t); L.upZ.setValueAtTime(0, t);
     } else { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(fx, 0, fz, 0, 1, 0); }
   },
+  /* what you hear of your own running and breathing (addendum A1.2, A1.3), every frame of a match: o = {wind 0..1, the
+     rush of air with your share of top speed; breath 0..1, how hard you are breathing; pulse 0..1, the beat when you
+     reach your top speed; motion 0..1, the "Camera motion and effects" setting, which scales all of it}. A looped
+     noise through two filters: a high hiss for the wind, a breathy band whose level follows the breathing's rhythm. */
+  feel(o){
+    if (!AU.ctx || AU.ctx.state === "closed" || !o) return false;
+    const k = Math.max(0, Math.min(1, o.motion == null ? 1 : +o.motion || 0));
+    if (!AU.feel){
+      const c = AU.ctx, n = c.createBufferSource(); n.buffer = noiseOf(c); n.loop = true;
+      const hp = filt(c, "highpass", 600, .7), bp = filt(c, "bandpass", 420, 1.4), gw = c.createGain(), gb = c.createGain();
+      gw.gain.value = 0; gb.gain.value = 0;
+      n.connect(hp); hp.connect(gw); gw.connect(AU.master); n.connect(bp); bp.connect(gb); gb.connect(AU.master);
+      n.start();
+      AU.feel = {n, gw, gb, ph:0, t:c.currentTime, pl:0};
+    }
+    const F = AU.feel, now = AU.ctx.currentTime, dt = Math.max(0, Math.min(.1, now - F.t)); F.t = now;
+    F.gw.gain.setTargetAtTime(.10*k*Math.max(0, Math.min(1, +o.wind || 0)), now, .15);
+    const br = Math.max(0, Math.min(1, +o.breath || 0));
+    F.ph = (F.ph + dt*(.35 + .9*br)) % 1;
+    F.gb.gain.setTargetAtTime(.07*br*Math.pow(Math.sin(F.ph*Math.PI), 2), now, .05);
+    // the beat at top speed, once as it arrives
+    const pl = +o.pulse || 0;
+    if (pl > .9 && F.pl <= .9 && k > 0) AUD.cue("bounce", null, .15*k);
+    F.pl = pl;
+    return true;
+  },
+  // the feel channel off (the end of a match, dispose)
+  feelOff(){
+    const F = AU.feel; if (!F) return;
+    AU.feel = null;
+    try { F.n.stop(); F.gw.disconnect(); F.gb.disconnect(); } catch(e){}
+  },
   // the master volume (0..1), as the settings have it
   volume(v){ AU.vol = Math.max(0, Math.min(1, +v || 0)); if (AU.master) AU.master.gain.setTargetAtTime(AU.vol, AU.ctx.currentTime, .05); return AU.vol; },
   dispose(){
     AU.wanted = false; disarm();
     if (!AU.ctx) return;
     for (const v of AU.voices) stopVoice(v);
-    AU.voices = []; bedStop();
+    AU.voices = []; bedStop(); AUD.feelOff();
     setTimeout(() => { if (AU.ctx && !AU.wanted && AU.ctx.state === "running") AU.ctx.suspend().catch(() => {}); }, 1600);
   },
   // what is going on, for tests and the settings: {ctx, state, voices, armed, bed}

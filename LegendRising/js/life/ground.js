@@ -91,7 +91,7 @@ function gym(){
   spot({aim:[[-9.1, 0, 13.2], [-5.9, .9, 14.0]], x:-7.5, z:13.6, label:"Plyo boxes", hint:"Jump set · jumping · 45 min", run:() => ctx.reps("plyo")});
   // pace: the sprint lane
   ladderLane(0, 4.6, 15.2, t);
-  spot({aim:[[-1.3, 0, 4.6], [1.3, 1.0, 12.6]], x:0, z:8, label:"Sprint ladder", hint:"Speed set · pace · 45 min", run:() => ctx.reps("ladder")});
+  spot({aim:[[-1.3, 0, 4.6], [1.3, 1.0, 12.6]], x:0, z:8, label:"Sprint ladder", hint:"Speed set · acceleration · 45 min", run:() => ctx.reps("ladder")});
   // stamina: treadmills facing the window, a bike
   for (const x of [5.4, 7.6, 9.8]){
     // at the bottom tier one of them has given up
@@ -100,7 +100,7 @@ function gym(){
     spot({aim:[[x - .5, 0, 5.8], [x + .5, 1.7, 8.0]], x, z:7.2, label:"Treadmill", hint:broken ? "Out of order. It has been for months" : "Endurance run · stamina · 45 min", run:() => broken ? ctx.note("OUT OF ORDER. The tape on the sign has gone yellow.") : ctx.reps("treadmill")});
   }
   spinBike(5.6, 10.8, 0, t); spinBike(7.6, 10.8, 0, t);
-  spot({aim:[[4.9, 0, 10.4], [8.4, 1.2, 11.2]], x:6.6, z:10.8, label:"Exercise bike", hint:"Intervals · stamina and pace · 45 min", run:() => ctx.reps("bike")});
+  spot({aim:[[4.9, 0, 10.4], [8.4, 1.2, 11.2]], x:6.6, z:10.8, label:"Exercise bike", hint:"Intervals · stamina and sprint speed · 45 min", run:() => ctx.reps("bike")});
   // the refreshment corner: the fridge for your food, a vending machine, water, and a bench to wait on
   gymFridge(12.25, 14.6);
   vending(12.25, 12.75, -Math.PI/2, vendTex());
@@ -639,7 +639,8 @@ export function buildGround(c){
     get hint(){ return sessionHint(); }, run:() => ctx.session()});
   finishBatches();
   // the players' tunnel: where you come out on a match day, and how far into it the match begins (tunnel.js reads it:
-  // within 1.6 m of its line and 1.55 m past this spot)
-  GROUND.tunnel = {x:TUNNEL.x, z:TUNNEL.z, spawnZ:TUNNEL.z, trigger:TUNNEL.z - 1.55, half:1.6, mouth:{x:TUNNEL.x, z:STAND_Z}};
+  // within 1.6 m of its line and 0.6 m short of the doors at the back of the recess, which stop a body about 0.36 m
+  // out, so walking up to them always starts it)
+  GROUND.tunnel = {x:TUNNEL.x, z:TUNNEL.z, spawnZ:TUNNEL.z, trigger:STAND_Z + .6, half:1.6, mouth:{x:TUNNEL.x, z:STAND_Z}};
   return {bus:{x:-14, z:23.2, y:0, yaw:0}, tunnel:{x:TUNNEL.x, z:TUNNEL.z, y:0, yaw:Math.PI}};
 }

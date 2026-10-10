@@ -52,7 +52,7 @@ export const BRAIN = Object.freeze({
     ST: {shoot: 1.8, dribble: 1.2, tackle: 1.3, back: 3, seek: 8, up: 5, drop: 2},
     W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 8, drop: 0},
     AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 3, up: 4, drop: 8},
-    CM: {shoot: 1.3, dribble: 1.2, tackle: 5.5, back: 1, seek: 2, up: 2, drop: 0},
+    CM: {shoot: 1.3, dribble: 1.2, tackle: 6.0, back: 1, seek: 2, up: 2, drop: 0},
     DF: {shoot: 1, dribble: 1, tackle: 1, back: 1, seek: 12, up: 0, drop: 0}
   },
   ME_RANGE: 36, ME_DRIVE: 0.6,

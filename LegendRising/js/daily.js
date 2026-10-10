@@ -234,7 +234,9 @@ function freshToday(){
 const SKILL_SEED = {
   passacc: s => s.passing*.85 + s.accuracy*.15,
   interception: s => s.tackling*.8 + s.composure*.2,
-  jumping: s => (s.pace + s.stamina)/2,
+  jumping: s => ((s.sprintSpeed != null ? s.sprintSpeed : s.pace) + s.stamina)/2,
+  acceleration: s => s.pace,
+  sprintSpeed: s => s.pace,
   heading: s => (s.power + s.tackling)/2
 };
 function dailyEnsure(){
@@ -244,7 +246,7 @@ function dailyEnsure(){
   for (const [k] of SKILLS){
     if (!(typeof S.skills[k] === "number" && isFinite(S.skills[k]))){
       const seed = SKILL_SEED[k];
-      const base = {power:30, aero:30, curve:30, accuracy:30, passing:30, pace:30, dribbling:30, stamina:30, composure:28, tackling:24};
+      const base = {power:30, aero:30, curve:30, accuracy:30, passing:30, pace:30, acceleration:30, sprintSpeed:30, dribbling:30, stamina:30, composure:28, tackling:24};
       const s = Object.assign({}, base, S.skills);
       for (const q of Object.keys(base)) if (!(typeof s[q] === "number" && isFinite(s[q]))) s[q] = base[q];
       S.skills[k] = clamp(Math.round(seed ? seed(s) : 24), 5, 99);
@@ -284,6 +286,9 @@ function dailyEnsure(){
   S.money = Math.round(num(S.money, 0));
   S.traits = Object.assign({team:50, conf:50, dec:50, risk:50}, S.traits || {});
   for (const k of TRAIT_KEYS) S.traits[k] = clamp(num(S.traits[k], 50), 0, 100);
+  // the moves only some players have in them (addendum A1.5): the scissor and overhead kick, and the rabona
+  if (typeof S.traits.acrobatic !== "boolean") S.traits.acrobatic = false;
+  if (typeof S.traits.flair !== "boolean") S.traits.flair = false;
   S.inv = S.inv || {};
   for (const k of Object.keys(FOOD)) S.inv[k] = Math.max(0, Math.round(num(S.inv[k], 0)));
   // food did not exist before then: a few things in the fridge so the first morning is not an empty one
@@ -799,7 +804,7 @@ function roleOutlook(){
 
 /* ---------- training: experience for a skill, scaled by how fit you are for it ---------- */
 const COACH_FOR = {power:"shootCoach", aero:"shootCoach", curve:"shootCoach", accuracy:"shootCoach", passing:"passCoach", passacc:"passCoach",
-  dribbling:"dribCoach", pace:"dribCoach", stamina:"fitCoach", jumping:"fitCoach", composure:"psych"};
+  dribbling:"dribCoach", acceleration:"dribCoach", sprintSpeed:"fitCoach", stamina:"fitCoach", jumping:"fitCoach", composure:"psych"};
 function trainXP(k, amt, o){
   o = o || {};
   if (!(k in S.skills)) return 0;

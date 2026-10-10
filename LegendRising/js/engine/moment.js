@@ -186,7 +186,7 @@ function updateDribble(dt){
   const kx = (keys.arrowright ? 1 : 0) - (keys.arrowleft ? 1 : 0);
   const ky = (keys.arrowdown ? 1 : 0) - (keys.arrowup ? 1 : 0);
   if (kx || ky){ const m = Math.hypot(kx,ky), L = keys.shift ? 10 : 4; tx = b.x + kx/m*L; ty = b.y + ky/m*L; }
-  const base = (5.2 + sk.pace*.036) * (.6 + .4*ef) * (S.items.grip ? 1.03 : 1);
+  const base = (5.2 + sk.sprintSpeed*.036) * (.6 + .4*ef) * (S.items.grip ? 1.03 : 1);
   let dirx = 0, diry = 0, want = 0, far = 0;
   if (tx !== null){ const dx = tx-b.x, dy = ty-b.y, d = Math.hypot(dx,dy); if (d > .25){ dirx = dx/d; diry = dy/d; want = clamp(d/5, .3, 1); far = d; } }
   M.sprinting = want > 0 && (far > 7 || keys.shift);
@@ -586,7 +586,7 @@ function updateRebound(dt){
   const kx = (keys.arrowright ? 1 : 0) - (keys.arrowleft ? 1 : 0);
   const ky = (keys.arrowdown ? 1 : 0) - (keys.arrowup ? 1 : 0);
   if (kx || ky){ const m = Math.hypot(kx, ky); tx = p.x + kx/m*8; ty = p.y + ky/m*8; }
-  const mySpd = (5.2 + sk.pace*.036)*(.6 + .4*energyFactor())*(S.items.grip ? 1.03 : 1)*1.12;
+  const mySpd = (5.2 + sk.sprintSpeed*.036)*(.6 + .4*energyFactor())*(S.items.grip ? 1.03 : 1)*1.12;
   if (tx === null){ const ic = interceptOn(ballPath(), p, mySpd, .05); tx = ic ? ic.x : b.x; ty = ic ? ic.y : b.y; }
   runTo(p, tx, ty, mySpd, dt);
   // the keeper scrambles for it too, once he is back on his feet, and so do the defenders
@@ -848,7 +848,7 @@ function updateSupportRun(dt, meetBall){
   const ky = (keys.arrowdown ? 1 : 0) - (keys.arrowup ? 1 : 0);
   if (kx || ky){ const m = Math.hypot(kx, ky); tx = p.x + kx/m*8; ty = p.y + ky/m*8; }
   if (tx === null && meetBall){                           // it's coming to you — go and meet it
-    const ic = interceptOn(ballPath(), p, 5.5 + effSkill("pace")*.036, .05);
+    const ic = interceptOn(ballPath(), p, 5.5 + effSkill("sprintSpeed")*.036, .05);
     tx = ic ? ic.x : b.x; ty = ic ? ic.y : b.y;
   }
   if (tx === null){                                       // no input: hold a run into space ahead of the man on the ball
@@ -862,7 +862,7 @@ function updateSupportRun(dt, meetBall){
     }
     tx = p.sup.x; ty = p.sup.y;
   }
-  const base = (5.2 + effSkill("pace")*.036)*(.62 + .38*energyFactor());
+  const base = (5.2 + effSkill("sprintSpeed")*.036)*(.62 + .38*energyFactor());
   const dx = tx - p.x, dy = ty - p.y, dl = Math.hypot(dx, dy);
   const want = dl > .4 ? Math.min(1, dl/5) : 0;
   const k = Math.min(1, dt*8);
@@ -949,7 +949,7 @@ function updateAiPass(dt){
     if (d.ic && (!dFirst || d.ic.t < dFirst.ic.t)) dFirst = d;
   }
   const recv = ap.isPlayer ? M.p : ap.to;
-  const recvIc = interceptOn(path, recv, ap.isPlayer ? 5.5 + effSkill("pace")*.036 : mateSpeed(recv));
+  const recvIc = interceptOn(path, recv, ap.isPlayer ? 5.5 + effSkill("sprintSpeed")*.036 : mateSpeed(recv));
   for (const d of M.defs){
     if (d.stun > 0) continue;
     if (d === dFirst && d.ic && (!recvIc || d.ic.t < recvIc.t - .05)) runTo(d, d.ic.x, d.ic.y, d.spd, dt);

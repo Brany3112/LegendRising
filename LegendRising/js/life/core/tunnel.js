@@ -15,6 +15,7 @@ import {timeLapse} from "./acts.js";
 import {matchFatigue, matchIntensity} from "../stamina.js";
 import {bodyLook} from "../look.js";
 import {FP, fpHost, recoverCheck} from "../football/controller.js";
+import {GROUND} from "../ground.js";
 
 // info: today's match as matchToday() last said; go: you have walked in and the match is starting; quiet: just back
 // from full time, so the bar keeps quiet until you leave the tunnel's reach (or step back into its mouth)
@@ -42,11 +43,16 @@ export function matchToday(){
   } catch(e){ return {ok:false, why:"No match today."}; }
 }
 // every frame at the ground. active: false while a mode keeps the tunnel shut (a drill, a cinematic): the bar goes
+// where the players' tunnel is at the training ground (ground.js GROUND.tunnel: its spot, the line you cross into it,
+// how wide its mouth is); the old ground's numbers until the ground has been built
+const OLD_TUNNEL = {x:0, z:-27.2, spawnZ:-27.2, trigger:-26.75, half:2.3};
+const tunnelSpec = () => GROUND.tunnel || OLD_TUNNEL;
 export function tunnel(active = modeFlags().tunnel){
   const bar = document.getElementById("lifeMatch"), fadeEl = document.getElementById("lifeFade");
-  const d = Math.hypot(P.x, P.z + 27.2);
-  // just back from full time (lifeAfterMatch): quiet until you leave the tunnel's reach or step back into its mouth
-  if (TUN.quiet && (d > 11 || d < 1.4)) TUN.quiet = false;
+  const T = tunnelSpec(), d = Math.hypot(P.x - T.x, P.z - T.z);
+  // just back from full time (lifeAfterMatch, which leaves you on the tunnel's spot): quiet until you leave the
+  // tunnel's reach or step back into its mouth
+  if (TUN.quiet && (d > 11 || (P.z < T.z - .8 && Math.abs(P.x - T.x) < T.half))) TUN.quiet = false;
   if (!active || d > 11 || TUN.go || TUN.quiet){ if (bar) bar.classList.remove("on"); if (!TUN.go && fadeEl.dataset.tun){ fadeEl.style.opacity = "0"; FADE.v = 0; delete fadeEl.dataset.tun; } TUN.info = null; return; }
   if (!TUN.info || ++TUN.age > 45){ TUN.info = matchToday(); TUN.age = 0; }
   const info = TUN.info;
@@ -60,7 +66,7 @@ export function tunnel(active = modeFlags().tunnel){
     const op = Math.max(0, (3.2 - d)/3.2)*.55;
     FADE.boot = false;
     fadeEl.style.transition = "none"; fadeEl.style.opacity = String(op); fadeEl.dataset.tun = "1"; FADE.v = op;
-    if (P.z < -26.75 && Math.abs(P.x) < 2.3){ TUN.go = true; bar.classList.remove("on"); toMatch(); }
+    if (P.z < T.trigger && Math.abs(P.x - T.x) < T.half){ TUN.go = true; bar.classList.remove("on"); toMatch(); }
   }
 }
 export function toMatch(){
@@ -75,7 +81,8 @@ export function toMatch(){
     let ok = false;
     try { ok = FP.enter(info.f); } catch(e){ console.error(e); ok = false; }
     if (!ok){
-      TUN.go = false; H.place({x:0, z:-21, y:0, yaw:Math.PI});
+      const T = tunnelSpec();
+      TUN.go = false; H.place({x:T.x, z:T.spawnZ + 6, y:0, yaw:Math.PI});
       o.style.transition = "opacity .8s ease"; o.style.opacity = "0"; FADE.v = 0; delete o.dataset.tun;
       note("The match couldn't start. Open the hub (Q) to see what's on.");
     }

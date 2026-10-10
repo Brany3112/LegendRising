@@ -356,7 +356,7 @@ function momentOver(){
   my.dribbles += M.dribbles;
   // skill experience for what you just did
   if (M.dribbles) skillXP("dribbling", 14*M.dribbles);
-  if (M.sprintT) skillXP("pace", Math.min(20, M.sprintT*1.6));
+  if (M.sprintT){ skillXP("sprintSpeed", Math.min(14, M.sprintT*1.1)); skillXP("acceleration", Math.min(8, M.sprintT*.6)); }
   if (M.isPass && !M.gaveBack && !M.shooting){
     if (M.passTo){ skillXP("passing", 6 + Math.min(8, M.passLen*.2)); skillXP("passacc", 6 + Math.min(8, M.passLen*.2)); }
     if (r === "goal"){ skillXP("passing", 14); skillXP("passacc", 10); }
@@ -679,7 +679,7 @@ function ftCardHTML(M, R){
     ${sc[0] || sc[1] ? `<div class="muted small ft-scorers"><span>${sc[0]}</span><span>${sc[1]}</span></div>` : ""}
     <div class="ft-grid">${dnp ? `<div class="ft-rating dnp"><b>Bench</b><span>You didn't get on</span></div>`
       : `<div class="ft-rating ${rating >= 7.5 ? "hi" : rating < 6 ? "lo" : ""}"><b>${rating}</b><span>Your rating</span></div>`}
-      <div class="ft-list">${dnp ? `<div>The manager kept you on the bench today.</div>` : `<div>${my.goals} goals · ${my.assists} assists</div><div>${my.dribbles} dribbles · ${my.spass + my.lpass}/${my.passAtt} passes</div><div>${my.onTarget}/${my.shots} shots on target</div>`}
+      <div class="ft-list">${dnp ? `<div>The manager kept you on the bench today.</div>` : `<div>${my.goals} goal${my.goals === 1 ? "" : "s"} · ${my.assists} assist${my.assists === 1 ? "" : "s"}</div><div>${my.dribbles} dribbles · ${my.spass + my.lpass}/${my.passAtt} passes</div><div>${my.onTarget}/${my.shots} shots on target</div>`}
       ${mo ? `<div>Man of the match: <b>${esc(pname(mo))}</b></div>` : ""}${dnp ? "" : `<div class="gold">+${Math.round(R.xp || 0)} XP${R.bonus ? ` · +${eur(R.bonus)} bonuses` : ""}</div>`}
       ${chem ? `<div class="${chem > 0 ? "good" : "bad"}">Team Chemistry ${chem > 0 ? "+" : "−"}${Math.abs(chem).toFixed(1)}</div>` : ""}
       ${trust ? `<div class="${trust > 0 ? "good" : "bad"}">The manager's trust ${trust > 0 ? "+" : "−"}${Math.abs(trust).toFixed(1)}</div>` : ""}</div></div>

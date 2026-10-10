@@ -720,6 +720,7 @@ function openSheet(kind){
     body = `<h2>Menu</h2><div class="stack">
       <button class="btn" onclick="A.fullscreen()">⛶ Toggle full screen</button>
       <div><label>Graphics</label>${gfxSeg("A.gfx")}</div>
+      ${window.fpSettingsHTML ? `<div><label>Matches</label>${window.fpSettingsHTML()}</div>` : ""}
       <button class="btn ghost" onclick="saveNow();toast('Saved','good')">Save now</button>
       <button class="btn ghost" onclick="A.faultReport()">🩺 Report a problem: copy the details${S && S.faults && S.faults.length ? ` (${S.faults.length})` : ""}</button>
       <textarea id="faultOut" class="codebox" style="display:none"></textarea>

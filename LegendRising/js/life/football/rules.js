@@ -303,7 +303,15 @@ export function startRestart(ms, kind, team, spot, opt = {}){
   deadRoll(b);
   // anyone holding the ball (a keeper) lets the hands go of it
   if (b.state === 'held' && kind !== 'goalkick') b.state = 'dead';
-  for (const a of ms.agents){ if (a.act && a.act.kind !== 'dive' && a.role === 'player') a.act = null; a.drib = null; a.plan = null; }
+  // what everyone was doing stops with the whistle; a keeper's dive and a header already off the ground finish their
+  // flight (it can no longer touch the ball: done), so nobody is left hanging in the air through the dead ball
+  for (const a of ms.agents){
+    if (a.act && a.act.kind !== 'dive' && a.role === 'player'){
+      if (a.act.kind === 'header' && (a.act.air || a.act.dive && a.act.t >= a.act.jumpAt)) a.act.done = true;
+      else { a.act = null; a.y = 0; a.vy = 0; }
+    }
+    a.drib = null; a.plan = null;
+  }
   clearCtl(ms);
   const wall = kind === 'free' && isFKWallZone(ms, team, spot);
   const limit = kind === 'kickoff' ? (opt.first ? RULES.LIMIT.kickoff0 : RULES.LIMIT.kickoff) : kind === 'free' && wall ? RULES.LIMIT.freeWall : RULES.LIMIT[kind] || 8;

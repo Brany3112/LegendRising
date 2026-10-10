@@ -13,7 +13,8 @@ import {W} from "../build.js";
 import {G, P, B, E, FLAGS, keys, spring} from "./state.js";
 import {moveBy, touching} from "./collide.js";
 import {hud} from "./hud.js";
-import {createMover, moverParams, moverStep} from "../mover.js";
+import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
+import {speedFx} from "../football/matchcam.js";
 import {createStam, stamStep, stamFactors, stamSetCap, effortOf, effF} from "../stamina.js";
 
 // the old controller's numbers (?loco=old); drill: how fast you move in a drill that lets you (the interception
@@ -108,8 +109,10 @@ export function body(dt, f, r, len, run){
     if (!P.vx && !P.vz && !P.speed){ m.vx = m.vz = m.speed = 0; m.sprintB = 0; m.heading = m.yaw = P.yaw; }
   }
   // the profile for your skills; your breath and its cap from today's energy and fatigue (looked at once a second)
-  const pace = skillOf("pace"), stamina = skillOf("stamina"), energy = s ? +s.energy || 0 : 100, fatigue = s ? +s.fatigue || 0 : 0;
-  if (!LOCO.prm || LOCO.prm.pace !== Math.max(1, Math.min(99, pace))) LOCO.prm = moverParams({pace, dribbling:skillOf("dribbling")}, "life");
+  // (the speed skills of addendum A1.1: sprint speed sets the top speeds, acceleration how steeply you get there)
+  const spd = skillOf("sprintSpeed"), acc = skillOf("acceleration"), stamina = skillOf("stamina"), energy = s ? +s.energy || 0 : 100, fatigue = s ? +s.fatigue || 0 : 0;
+  if (!LOCO.prm || LOCO.prm.pace !== Math.max(1, Math.min(99, spd)) || LOCO.prm.acceleration !== Math.max(1, Math.min(99, acc)))
+    LOCO.prm = moverParams({sprintSpeed:spd, acceleration:acc, dribbling:skillOf("dribbling")}, "life");
   if (!LOCO.st) LOCO.st = createStam({stamina, energy, fatigue});
   if ((LOCO.capT -= dt) <= 0){ LOCO.capT = 1; stamSetCap(LOCO.st, energy, fatigue); }
   const eF = effF(energy), fac = stamFactors(LOCO.st, eF, LOCO.fac);
@@ -203,8 +206,39 @@ function bodyOld(dt, f, r, len, run){
 
 // a slightly wider view at a sprint, eased in and out; the camera takes it up (B.fovSet) only when it has moved enough
 // to matter, so the projection is not rebuilt every frame
-export function fovStep(dt){
-  const fovT = 74 + 4*P.sprint*P.sprint*(3 - 2*P.sprint);
+// The widening is the match camera's own speed feel (matchcam.js speedFx, addendum A1.2): up to 5 degrees over the
+// last 20% of your top speed, scaled by the "Camera motion and effects" setting. LIFE_FX also carries the breath's
+// vignette for the life HUD.
+export const LIFE_FX = {share:0, fov:0, lines:0, sway:0, vig:0, pulse:0, heavy:0, wind:0, top:0, topT:0, beat:0, desat:0};
+const MOTION = {v:1, t:0};
+function lifeMotion(dt){
+  if ((MOTION.t -= dt) > 0) return MOTION.v;
+  MOTION.t = 1;
+  try { const o = JSON.parse(localStorage.getItem("freyaFootball.ctrl") || "{}"); MOTION.v = o && o.motion != null && Number.isFinite(+o.motion) ? +o.motion : 1; }
+  catch(e){ MOTION.v = 1; }
+  return MOTION.v;
+}
+// the breath's vignette over the life view (A1.3, the match HUD's own .fp-vig look): only while your own legs carry you
+// in the life world (a match or a drill draws its own), made the first time it is needed
+const VIG = {el:null, o:-1};
+function lifeVig(v){
+  if (!VIG.el){
+    if (v <= .002 || typeof document === "undefined" || !document.body) return;
+    const w = document.createElement("div");
+    w.className = "lf-vig";
+    w.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2";
+    w.innerHTML = '<div class="fp-vig"></div>';
+    document.body.appendChild(w);
+    VIG.el = w.firstChild;
+  }
+  const o = Math.round(v*200)/200;
+  if (o !== VIG.o){ VIG.o = o; VIG.el.style.opacity = o.toFixed(3); }
+}
+export function fovStep(dt, own = true){
+  const top = LOCO.prm && !OLD ? sprintSpeed(LOCO.prm, LOCO.fac && LOCO.fac.speed != null ? LOCO.fac : undefined) : 0;
+  const fx = speedFx(top > 0 ? P.speed/top : P.sprint, LOCO.st ? LOCO.st.B : 100, lifeMotion(dt), dt, LIFE_FX);
+  lifeVig(own && !OLD ? fx.vig*(.75 + .25*fx.pulse) : 0);
+  const fovT = 74 + fx.fov;
   B.fov = Math.abs(fovT - B.fov) < .005 ? fovT : B.fov + (fovT - B.fov)*(1 - Math.exp(-5*dt));
   if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)) B.fovSet = B.fov;
 }

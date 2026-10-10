@@ -189,7 +189,7 @@ function step(dt, real){
   if (RT.cam){ SV.cam = RT.cam; SV.cx = RT.cam.position.x; SV.cy = RT.cam.position.y; SV.cz = RT.cam.position.z; }
   SCHED.frame(real, SV);
   if (!FLAGS.lockLost) modeStep(dt, real);
-  fovStep(dt);
+  fovStep(dt, fl.movement !== "own");
   // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
   camApply(dt);
   const now = modeFlags();

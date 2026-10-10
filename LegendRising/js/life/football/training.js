@@ -364,7 +364,11 @@ registerMode("train", {
     g.name = "training"; g.position.set(T.F.cx, 0, T.F.cz); g.updateMatrixWorld(true);
     W.scene.add(g);
     const look = HOST.look();
-    T.V = viewInit(T.ms, g, T.kits || HOST.kits(), {meLook:look, meFPLook:look, frame:T.F});
+    // the borrowed squad bodies on your side (and a keeper) keep their own looks (npc.js teamSession.lookOf); the ones
+    // against you wear the other kit, as bibs would, so you can tell the sides apart
+    const sess = GROUND.session;
+    const lookOf = a => { if (a.team !== T.myTeam && !a.isGK) return null; const b = T.bodies.get(a.id); return b && b.h && sess && sess.lookOf ? sess.lookOf(b.h) : null; };
+    T.V = viewInit(T.ms, g, T.kits || HOST.kits(), {meLook:look, meFPLook:look, frame:T.F, lookOf});
     T.V.me = T.ms.me;
     // your eyes: match-fp (matchcam.js) over where your agent is, your first-person body under them
     CAM.camInit({me:() => T.me, view:() => T.V, eye:out => { out.x = P.x; out.z = P.z; out.y = P.eye; return out; },

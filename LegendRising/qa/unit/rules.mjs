@@ -17,6 +17,7 @@ import {situation, xT} from "../../js/life/football/tactics.js";
 import {chainKick} from "../../js/life/football/events.js";
 import {logEv} from "../../js/life/football/events.js";
 import {BALL} from "../../js/life/football/ball.js";
+import {startHeader} from "../../js/life/football/actions.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const res = {name: "unit-rules", checks: [], ok: true};
@@ -346,6 +347,33 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   }
   check(late === 0 && lateAssert === 0 && ['throw', 'goalkick', 'corner', 'free', 'kickoff'].every(k => kindsSeen[k] > 0),
     `two whole matches: every restart taken within its limit + 5 s (worst ${r2(worstN)} s over the limit)`, {late, lateAssert, kinds: kindsSeen});
+}
+
+/* ---------- a whistle while a player is in the air ----------
+   The stoppage stops what everyone was doing; a header already off the ground finishes its flight (it can no longer
+   touch the ball) and lands, a header still loading is called off with the body on the ground. Before the fix the act
+   was dropped with a.y and a.vy left as they were, so the player floated at that height for the rest of the dead ball. */
+{
+  const {ms, out} = scene(9);
+  const a = out[0][2], b = out[0][3];
+  ballAt(ms, a.m.x + 3, a.m.z, 2.6);
+  startHeader(ms, a, 0.55, 'clear', null, 1, false, 2.6);
+  let k = 0;
+  while (!(a.act && a.act.air && a.y > 0.15) && k++ < 120) simStep(ms);
+  const upY = a.y;
+  // a second player still loading his jump when the whistle goes
+  ballAt(ms, b.m.x + 3, b.m.z, 2.6);
+  startHeader(ms, b, 0.6, 'clear', null, 1, false, 2.6);
+  b.y = 0.05; b.vy = 1;                              // (a stale height a dropped act could leave behind)
+  startRestart(ms, 'throw', 1, {x: 0, z: ms.spec.hz});
+  const loadOff = !b.act && b.y === 0 && b.vy === 0;
+  const flying = !!a.act && a.act.done === true;
+  let maxY = a.y, n = 0, landedAt = -1;
+  for (let i = 0; i < 120; i++){ simStep(ms); maxY = Math.max(maxY, a.y || 0); if (landedAt < 0 && !(a.y > 0)) landedAt = i; n++; }
+  check(upY > 0.15 && flying, "a header in the air at the whistle finishes its flight, unable to touch the ball", {upY: r2(upY), done: flying});
+  check(landedAt >= 0 && landedAt < 60 && a.y === 0 && (a.vy || 0) === 0, "and lands within a second, staying on the ground for the dead ball", {landedStep: landedAt, y: a.y, vy: a.vy});
+  check(maxY <= upY + 1.0 && !(a.act && a.act.kind === 'header'), "the header is over once he has landed", {maxY: r2(maxY), act: a.act && a.act.kind});
+  check(loadOff, "a header still loading at the whistle is called off with the body on the ground", {act: b.act && b.act.kind, y: b.y, vy: b.vy});
 }
 
 /* ---------- the scenario line (3.2.9) ---------- */

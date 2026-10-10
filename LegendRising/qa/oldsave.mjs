@@ -34,11 +34,18 @@ function stable(S){
   const name = s => typeof s === "string" ? s.split(" " + D + " ").join(": ") : s;
   const cell = s => s === D || s === N ? "(empty)" : s;
   const W = S.W || {};
+  // the A1.1 migration (career.js resume): an old Pace becomes Acceleration and Sprint Speed, nudged by position
+  const skills = Object.assign({}, S.skills || {});
+  if (skills.pace != null && skills.acceleration == null){
+    const pl = S.player || {}, slot = pl.slot || pl.teamPos || "", full = /^(LB|RB|LWB|RWB)$/.test(slot);
+    const n = pl.pos === "W" || full ? 1 : pl.pos === "ST" || (pl.pos === "DF" && !full) ? -1 : 0, c = v => Math.max(1, Math.min(99, v));
+    skills.acceleration = c(Math.round(skills.pace + 3*n)); skills.sprintSpeed = c(Math.round(skills.pace - 3*n)); delete skills.pace;
+  }
   return {
     exact: {
       v: S.v, cid: S.cid, startSeason: S.startSeason, owner: S.owner,
       player: pick(S.player, ["name", "number", "pos", "pref", "teamPos", "foot", "nat", "age", "look"]),
-      skills: S.skills, seasonMy: S.seasonMy, careerMy: S.careerMy, cards: S.cards, ban: S.ban, lastMatch: S.lastMatch,
+      skills, seasonMy: S.seasonMy, careerMy: S.careerMy, cards: S.cards, ban: S.ban, lastMatch: S.lastMatch,
       meId: S.meId, rivalId: S.rivalId, speed: S.speed, contract: pick(S.contract, ["club", "wage", "years", "role"]),
       wardrobe: S.wardrobe, items: S.items, staff: S.staff, phone: S.phone, apps: S.apps,
       world: {season: W.season, clubs: (W.clubs || []).map(c => c.nm), leagues: Object.keys(W.leagues || {}).sort().map(k => [k, W.leagues[k].nm])}

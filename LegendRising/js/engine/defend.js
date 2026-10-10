@@ -69,7 +69,7 @@ function startAerial(){
 
 /* ---------- stage one: jockey him ---------- */
 // (the player's skills as they are on the day: effSkill, the nerves and tired legs off them, DESIGN D8)
-const jockeySpeed = () => 5.0 + effSkill("pace")*.028 + (S.skills.tackling ? effSkill("tackling") : 20)*.012;
+const jockeySpeed = () => 5.0 + effSkill("sprintSpeed")*.028 + (S.skills.tackling ? effSkill("tackling") : 20)*.012;
 function updateJockey(dt){
   M.phaseT += dt; M.jockT += dt;
   const a = M.att, p = M.p;

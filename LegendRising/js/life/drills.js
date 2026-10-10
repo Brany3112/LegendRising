@@ -56,9 +56,9 @@ const SETS = {
   squat:{title:"Squat rack", main:"power", side:["jumping", .3], bob:"dip"},
   dumbbell:{title:"Dumbbells", main:"power", side:["stamina", .2], bob:"curl"},
   plyo:{title:"Plyo boxes", main:"jumping", side:["power", .35], bob:"hop"},
-  ladder:{title:"Sprint ladder", main:"pace", side:["dribbling", .3], bob:"run"},
-  treadmill:{title:"Treadmill", main:"stamina", side:["pace", .25], bob:"run"},
-  bike:{title:"Exercise bike", main:"stamina", side:["pace", .35], bob:"run"}
+  ladder:{title:"Sprint ladder", main:"acceleration", side:["dribbling", .3], bob:"run"},
+  treadmill:{title:"Treadmill", main:"stamina", side:["sprintSpeed", .25], bob:"run"},
+  bike:{title:"Exercise bike", main:"stamina", side:["sprintSpeed", .35], bob:"run"}
 };
 /* Where each set is done and how it is filmed: where you stand (x, z, facing yaw), the equipment, and the camera's place
    in your own frame (right, up, back; back is negative, so in front of you), looking at a point in the same frame. */

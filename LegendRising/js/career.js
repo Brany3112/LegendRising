@@ -174,6 +174,14 @@ function resume(data){
   if (S.skillsBase){ S.skills = S.skillsBase; delete S.skillsBase; }
   if (S.skills.composure == null) S.skills.composure = 28;
   if (S.skills.tackling == null) S.skills.tackling = 24;      // careers made before defending existed
+  // Pace split into Acceleration and Sprint Speed (addendum A1.1): both start at the old pace, nudged by position
+  if (S.skills.pace != null && S.skills.acceleration == null){
+    const p = S.skills.pace, pos = S.player.pos, slot = S.player.slot || S.player.teamPos || "";
+    const n = pos === "W" || /^(LB|RB|LWB|RWB)$/.test(slot) ? 1 : pos === "ST" || (pos === "DF" && !/^(LB|RB|LWB|RWB)$/.test(slot)) ? -1 : 0;
+    S.skills.acceleration = clamp(Math.round(p + 3*n), 1, 99); S.skills.sprintSpeed = clamp(Math.round(p - 3*n), 1, 99);
+    S.skillXp.acceleration = S.skillXp.pace || 0; S.skillXp.sprintSpeed = S.skillXp.pace || 0;
+    delete S.skills.pace; delete S.skillXp.pace;
+  }
   if (S.ban == null) S.ban = 0;
   if (!S.cards) S.cards = {y:0, r:0, run:0};
   // a milestone for nought of something was never earned: clear any that were handed out
