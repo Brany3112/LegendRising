@@ -69,7 +69,7 @@ export function hudInit(cfg){
     </div>
     <div class="fp-ret" data-part="reticle">
       <svg class="fp-arc" viewBox="-40 -40 80 80" aria-hidden="true">
-        <circle class="fp-ret-c" r="5.5"/>
+        <circle class="fp-ret-c" r="7"/>
         <g class="fp-arcg">
           <circle class="fp-arc-bg" r="${ARC_R}"/>
           <circle class="fp-arc-sweet" r="${ARC_R}"/>
@@ -208,7 +208,7 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   E.ret.style.opacity = (D.retA*(ch ? 1 : .55)).toFixed(3);
   // its pulse on your support foot's plant (the rhythm to release on), red when held past full
   const over = s.ctrl && s.ctrl.wind ? s.ctrl.wind.over : 0;
-  E.retC.setAttribute("r", (5.5 + 2.2*(ret ? ret.beat : 0)).toFixed(2));
+  E.retC.setAttribute("r", (7 + 2.5*(ret ? ret.beat : 0)).toFixed(2));
   E.retC.classList.toggle("over", over > .05);
   // the power arc round the reticle: only while charging a shot or a pass; the sweet spot from the target distance
   if (ch && (ch.kind === "shot" || ch.kind === "pass" || ch.kind === "throw")){
@@ -279,7 +279,7 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   if (D.tab || SET.radar) radar(s, D.tab);
 }
 // the power arc's circle (A1.7): its radius, the angle it starts at (SVG degrees, clockwise from three o'clock) and its span
-const ARC_R = 15, ARC_START = 120, ARC_SPAN = 300;
+const ARC_R = 18, ARC_START = 120, ARC_SPAN = 300;
 // the picture greyed a little near an empty tank (A1.3, A1.6): a CSS filter on the canvas, set only when it changes
 function desaturate(v){
   const k = Math.round(clamp(v || 0, 0, 1)*50)/50;

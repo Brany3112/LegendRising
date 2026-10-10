@@ -47,9 +47,10 @@ try {
 
   // ---- 2. holding sprint, capped under the run speed by fatigue, keeps draining
   const S2 = await page.evaluate(() => {
-    const T = window.__t, F = window.__fp, L = window.__life, ms = T.enter("stamina"), me = F.me();
+    // (a player of low Sprint Speed: tired, his sprint is capped under his run speed)
+    const T = window.__t, F = window.__fp, L = window.__life, ms = T.enter("stamina", {me: {pace: 30, sprintSpeed: 30, acceleration: 30}}), me = F.me();
     ms.ball.p.x = 40; ms.ball.p.z = 30; ms.poss.ctl = -1;
-    L.P.yaw = -Math.PI/2; me.m.x = me.x0 = -45; me.m.z = me.z0 = 0; me.st.B = 12;
+    L.P.yaw = -Math.PI/2; me.m.x = me.x0 = -45; me.m.z = me.z0 = 0; me.st.B = 4;
     T.key("w", true); T.key("shift", true);
     const B0 = me.st.B; let vmax = 0, rose = false, last = me.st.B;
     for (let i = 0; i < 240; i++){ T.steps(1); if (me.m.x > 45){ me.m.x = me.x0 = -45; } if (i > 60){ vmax = Math.max(vmax, me.m.speed); if (me.st.B > last + 1e-9) rose = true; } last = me.st.B; }

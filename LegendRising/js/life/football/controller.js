@@ -821,10 +821,15 @@ const cameOnAllowed = () => !!FS.ms && FS.ms.me < 0;
 // where a substitute steps on (rules.js enterSub: the halfway line on the bench side): beside the fourth official
 function entrySpot(){ const ms = FS.ms, t = FS.cfg.me ? FS.cfg.me.team : 0; return {x: (t === 0 ? -1 : 1)*2.5, z: -(ms.spec.hz + .9)}; }
 // E at the dugout: sit down (the bench camera); E again: stand
+// (you take a seat a little way along the dugout with the one beside you left free: the seated substitutes, crowd
+// impostors filling the seats from the far end, would otherwise sit at your elbows and fill the edges of the view, and
+// the end seat has the dugout's side wall against your shoulder, A1.6; the others are warming up)
 function sitDown(side){
   if (FS.state !== "bench" || FS.seated) return;
-  const us = FS.cfg.me ? FS.cfg.me.team : 0;
-  const x = (side === "home" ? -10 : 10) + (us === 0 ? -1 : 1)*.0;
+  const seats = (STADIUM.bench || []).filter(b => b.side === side), k = Math.max(0, seats.length - 4), mine = seats[k];
+  const x = mine ? mine.x : side === "home" ? -10 : 10;
+  const C = STADIUM.crowd;
+  if (C && C.setBench && C.benchN && seats.length){ FS.benchKept = {side, n: C.benchN[side]}; C.setBench(side, Math.min(C.benchN[side], Math.max(0, k - 1))); }
   FS.seated = true; FS.benchSeat = {x, z: -37.4, y: 0, yaw: Math.PI};
   placeOwn({x, z: -37.4, yaw: Math.PI});
   P.yaw = Math.PI; P.pitch = -.05;
@@ -834,6 +839,8 @@ function standUp(){
   if (!FS.seated) return;
   // (on your feet the match is watched in real time again)
   FS.seated = false; benchCam(false); FS.ffRate = 1;
+  const C = STADIUM.crowd, K = FS.benchKept;
+  if (C && C.setBench && K){ C.setBench(K.side, K.n); FS.benchKept = null; }
   placeOwn({x: P.x, z: -36.6, yaw: Math.PI});
 }
 // you came on (the sub event): your agent takes your place where you stand
@@ -1275,7 +1282,9 @@ function testConfig(name, o = {}){
   const teams = [mk(0, o.ovr || 60), mk(1, o.ovr || 60)];
   if (o.me) Object.assign(teams[0].players.find(p => p.isMe).at, o.me);
   return {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[2]}), halfRealSec: HALF_REAL[2], tempo: Object.assign({}, TEMPO[2]),
-    teams, me: {team: 0, slot: o.slot || "ST", prefFoot: "Right", chem: 50, trust: 50, traits: o.traits || {}, staminaF: 1, role: "starter"},
+    teams, me: {team: 0, slot: o.slot || "ST", prefFoot: "Right", chem: 50, trust: 50, traits: o.traits || {},
+      // (the career's staminaF, career.js: 1.6 - 1.15 stamina/100, when the fixture gives you a stamina; else 1)
+      staminaF: o.me && o.me.stamina != null ? 1.6 - 1.15*o.me.stamina/100 : 1, role: "starter"},
     rules: {offside: true, cards: true, subs: 5}, roleTimes: {}, kickoffTeam: o.kickoffTeam != null ? o.kickoffTeam : 1, benchSide: -1, htAuto: false,
     ovr: [o.ovr || 60, o.ovr || 60], visible: visibleFn};
 }

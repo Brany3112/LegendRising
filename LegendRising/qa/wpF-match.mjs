@@ -78,9 +78,10 @@ if (ONLY.includes("bench")) try {
       F.input({type: "keydown", key: k}); F.input({type: "keyup", key: k});
       L.stepN(3);
       const n = [], thin0 = F.FS.thinN || 0; for (let i = 0; i < 30; i++){ L.stepN(1); n.push(F.FS.stepsLast); }
+      const undrawn = (F.FS.thinN || 0) - thin0;
       L.stepN(8);
       const hint = [...document.querySelectorAll("#fpHud .fp-hints div")].map(d => d.textContent).join(" | ");
-      out[rate] = {ff: F.FS.ffRate, mean: n.reduce((a, b) => a + b, 0)/n.length, achieved: +F.FS.ffAch.toFixed(2), undrawn: (F.FS.thinN || 0) - thin0, hint};
+      out[rate] = {ff: F.FS.ffRate, mean: n.reduce((a, b) => a + b, 0)/n.length, achieved: +F.FS.ffAch.toFixed(2), undrawn, hint};
     }
     F.input({type: "keydown", key: "1"});
     return out;

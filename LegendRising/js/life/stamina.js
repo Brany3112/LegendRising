@@ -81,7 +81,7 @@ export function stamStep(st, h, effort, ctx = {}){
   const s = ctx.stamina == null ? (st.stamina == null ? 50 : st.stamina) : ctx.stamina, eF = ctx.eF == null ? 1 : ctx.eF;
   const ks = ksOf(s);
   // (a sprint held under the run speed: a sprint once the breath is what caps it, A1.6)
-  if (effort === 'sprint-run' || effort === 'sprint-jog') effort = st.B < STAM.BF_FULL ? 'sprint' : effort.slice(7);
+  if (effort === 'sprint-run' || effort === 'sprint-jog') effort = st.B < STAM.BF_FULL ? 'sprint' : effort === 'sprint-run' ? 'run' : 'jog';
   const drain = effort === 'sprint' ? STAM.SPRINT*ks : effort === 'run' ? STAM.RUN*ks : 0;
   if (drain > 0){
     const before = st.B;

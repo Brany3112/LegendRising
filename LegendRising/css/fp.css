@@ -86,7 +86,7 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-cross{position:absolute;left:50%;top:50%;width:0;height:0}
 .fp-dot{position:absolute;left:calc(var(--fp-cross)/-2);top:calc(var(--fp-cross)/-2);width:var(--fp-cross);height:var(--fp-cross);border-radius:50%;
   background:rgba(255,255,255,.92);box-shadow:0 0 2px rgba(0,0,0,.8)}
-.fp-hold{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible;opacity:0;transition:opacity .12s}
+.fp-hold{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible;opacity:0}
 .fp-hold.on{opacity:1}
 .fp-ring,.fp-ring-win{fill:none;stroke-width:1.6;opacity:0;transform:rotate(-90deg)}
 .fp-ring{stroke:rgba(255,255,255,.9);filter:drop-shadow(0 0 1.5px rgba(0,0,0,.9))}.fp-ring.now{stroke:var(--fp-good);stroke-width:2.4}
@@ -100,7 +100,7 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
    open at the bottom, with the sweet spot and the distance tick; red held past full. Moved by a transform each frame */
 .fp-ret{position:absolute;left:0;top:0;width:0;height:0;opacity:0;will-change:transform}
 .fp-arc{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible}
-.fp-ret-c{fill:none;stroke:rgba(255,255,255,.92);stroke-width:1.4;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.85));transition:stroke .1s}
+.fp-ret-c{fill:none;stroke:rgba(255,255,255,.95);stroke-width:1.8;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.85));transition:stroke .1s}
 .fp-ret-c.over{stroke:var(--fp-bad)}
 .fp-arcg{opacity:0}
 .fp-arcg circle{fill:none;stroke-linecap:round;transform:rotate(120deg)}
@@ -109,11 +109,11 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-arc-fill{stroke:var(--fp-charge);stroke-width:2;transition:stroke .1s;filter:drop-shadow(0 0 1px rgba(0,0,0,.8))}
 .fp-arc-fill.over{stroke:var(--fp-bad)}
 .fp-arc-tick{stroke:#fff;stroke-width:1.3;opacity:0}
-.fp-contact{position:absolute;left:calc(-27px*var(--s));top:-9px;display:flex;flex-direction:column-reverse;gap:3px;opacity:0;transition:opacity .15s}
+.fp-contact{position:absolute;left:calc(-31px*var(--s));top:-9px;display:flex;flex-direction:column-reverse;gap:3px;opacity:0;transition:opacity .15s}
 .fp-contact.on{opacity:1}
 .fp-contact i{display:block;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.25)}
 .fp-contact.c1 i:nth-child(1),.fp-contact.c2 i:nth-child(-n+2),.fp-contact.c3 i{background:#fff}
-.fp-curl{position:absolute;left:calc(21px*var(--s));top:-10px;font-size:14px;opacity:0;transition:opacity .15s;text-shadow:0 1px 2px #000}
+.fp-curl{position:absolute;left:calc(25px*var(--s));top:-10px;font-size:14px;opacity:0;transition:opacity .15s;text-shadow:0 1px 2px #000}
 .fp-curl.on{opacity:.9}
 /* the line on how you struck it, under the middle of the view */
 .fp-sline{position:absolute;left:50%;top:calc(50% + 46px*var(--s));transform:translate(-50%,4px);opacity:0;white-space:nowrap;
