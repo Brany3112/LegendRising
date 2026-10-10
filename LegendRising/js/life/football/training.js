@@ -753,9 +753,14 @@ function nextBlock(run){
   run.B = B; run.T = null;
   HOST.say("Coach", B.coach);
   hudSet({title:"Team session", rep:run.i, reps:run.blocks.length, scores:run.qs}, {hint:`${B.line} · over to the cones`});
+  // the first ball: the coach plays it in from the corner of the block's ground nearest the touchline; he heads there
+  // while everyone comes over
+  const c = areaC(B.area), hx = B.area ? (B.area.x1 - B.area.x0)/2 : TP.L/2, hz = B.area ? (B.area.z1 - B.area.z0)/2 : TP.Wd/2;
+  const ballAt = {x:c.x - Math.min(9, hx + 1), z:c.z + Math.min(7, hz + 1)};
+  coachPrep(ballAt, c);
   gather(run, Object.assign({}, B, {restarts:false}), r => {
     const item = r.item;
-    const T = buildItem(item, whoOf(r.spots), {n:run.i, ballAt:TS.toLocal(P.x - 9, P.z + 7), onEnd:t => blockEnd(run, t)});
+    const T = buildItem(item, whoOf(r.spots), {n:run.i, ballAt, onEnd:t => blockEnd(run, t)});
     T.kits = HOST.kits();
     T.rate = B.mins/B.real;
     T.script = blockScript(B, run);
@@ -784,6 +789,8 @@ function blockScript(B, run){
   };
 }
 function blockEnd(run, T){
+  // a block walked out of (Esc) is not kept: the blocks finished are, and a rejoin plays this one again
+  if (T.quit || run.stopped){ HOST.blockDone(run.B.mins, 0); sessionEnd(run); return; }
   const inv = TS.involvements(evsOf(Object.assign({}, T, {evFrom:0})), T.me.id);
   for (const v of inv){ if (v.key) award(T, TS.ACTION_XP[v.key], v.q); run.qs.push(v.q); }
   // sprinting: pace and stamina, one a 60 m
@@ -799,8 +806,7 @@ function blockEnd(run, T){
   const scale = T.xpRaw > hi ? hi/T.xpRaw : 1;
   run.xpRaw += T.xpRaw*scale;
   run.xp = (run.xp || 0) + payXP(T, scale);
-  HOST.blockDone(run.B.mins, T.quit ? 0 : 1);
-  if (T.quit || run.stopped){ sessionEnd(run); return; }
+  HOST.blockDone(run.B.mins, 1);
   run.i++;
   nextBlock(run);
 }
