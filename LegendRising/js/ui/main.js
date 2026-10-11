@@ -481,7 +481,10 @@ function renderHubInner(){
   const {fx, next, me, c, win} = hubState();
   const lg = W.leagues[c.lg], pos = sortTab(lg.tab).indexOf(c.id) + 1, need = xpNeed(), k = S.contract;
   const inj = me.inj > 0;
-  const life = typeof lifeMode === "function" && lifeMode();
+  // living it day by day in the 3D world, or the hub on its own (no 3D world: its Play match button plays the fixture
+  // out, DESIGN 3.4.6). The page's own "life" class says which: window.lifeMode (life/phone.js, loaded on every page)
+  // names where the phone is, a non-empty string even when there is no world, so it cannot tell
+  const life = document.body.classList.contains("life");
   const fxHtml = fx.length ? fx.map(f => {
     const d = W.done[f.key], home = f.kind === "N" ? f.h === me.nat : f.h === me.club, sl = life ? fixtureSlot(f) : null;
     const today = life && sl.wd === S.life.wd;
