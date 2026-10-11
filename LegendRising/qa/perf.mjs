@@ -63,8 +63,9 @@ const check = (name, ok, detail, soft = false) => {
 };
 
 async function probe(view, tier){
-  const frames = +opt("--frames", tier === "high" ? 12 : 40), warm = +opt("--warm", tier === "high" ? 6 : 20);
-  const {page, close, errors} = await launch({gfx: tier, seed: 1, query: `perf=probe&zone=${ZONE[view]}&view=${view}&gfx=${tier}&t=12:00&frames=${frames}&warm=${warm}`});
+  // (Medium and High draw a frame in one to two SwiftShader seconds: fewer of them than Low's)
+  const frames = +opt("--frames", tier !== "low" ? 12 : 40), warm = +opt("--warm", tier !== "low" ? 6 : 20);
+  const {page, close, errors} = await launch({gfx: tier, seed: 1, bootTimeout: 15*60*1000, query: `perf=probe&zone=${ZONE[view]}&view=${view}&gfx=${tier}&t=12:00&frames=${frames}&warm=${warm}`});
   try {
     await page.waitForFunction(() => window.__perfResult, null, {timeout: 30*60*1000, polling: 1000});
     const r = await page.evaluate(async () => {

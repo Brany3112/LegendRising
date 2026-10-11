@@ -48,7 +48,7 @@ function pageInit({seed, gfx}){
 // a browser on the game. Resolves {browser, context, page, errors, close}; page.errors collects every console error
 // and uncaught page error. Requests outside this server (web fonts, the online backend) are answered empty, so a run
 // never depends on the network.
-export async function launch({gfx = "low", query = "", w = 1280, h = 720, seed = 1, headless = true} = {}){
+export async function launch({gfx = "low", query = "", w = 1280, h = 720, seed = 1, headless = true, bootTimeout = 60000} = {}){
   const srv = await ensureServer(PORT);
   const browser = await chromium.launch({headless, args: ARGS});
   const context = await browser.newContext({viewport: {width: w, height: h}});
@@ -63,7 +63,9 @@ export async function launch({gfx = "low", query = "", w = 1280, h = 720, seed =
   page.on("console", m => { if (m.type() === "error") errors.push("console.error: " + m.text() + (m.location() && m.location().url ? `  (${m.location().url}:${m.location().lineNumber})` : "")); });
   page.on("crash", () => errors.push("page crashed"));
   await page.goto(BASE + "index.html" + (query ? "?" + String(query).replace(/^\?/, "") : ""));
-  await page.waitForFunction(() => typeof newCareer === "function" && typeof window.startLife === "function" && !!window.__life, null, {timeout: 60000});
+  // (bootTimeout: a page that starts measuring as soon as it has loaded, the perf probe, holds its main thread for as long
+  // as its frames take, so the check runs only once they are done)
+  await page.waitForFunction(() => typeof newCareer === "function" && typeof window.startLife === "function" && !!window.__life, null, {timeout: bootTimeout});
   const close = async () => {
     await browser.close().catch(() => {});
     if (srv.started) await new Promise(r => srv.server.close(() => r()));

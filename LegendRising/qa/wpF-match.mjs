@@ -149,7 +149,8 @@ if (ONLY.includes("bench")) try {
     const me = F.me();
     return {ev: ev && {min: ev.min != null ? ev.min : null, t: ev.t}, minute: Math.floor(((ms.half - 1)*2700 + ms.clock.sec)/60), subOn: ms.cfg.roleTimes.subOn, P0, start: me && me.onT && me.on.length ? {x: me.m.x, z: me.m.z} : null, state: F.state, entry: ms.cfg.me.team === 0 ? -2.5 : 2.5, hz: ms.spec.hz};
   });
-  check(!!on.ev && on.state === "live" && on.minute >= on.subOn, "the player comes on at the planned minute (at the next stoppage)", on);
+  // (the match's own minute numbering, as its events carry it: the 60th minute is 59:00 to 59:59 on the clock)
+  check(!!on.ev && on.state === "live" && on.ev.min >= on.subOn, "the player comes on at the planned minute (at the next stoppage)", on);
   check(Math.hypot(on.P0.x - on.entry, on.P0.z + on.hz + .9) < 1.2, "from the fourth official's position", {P: on.P0, entry: [on.entry, -(on.hz + .9)]});
   if (T.page.errors.length) errs.push(...T.page.errors);
   await T.close();

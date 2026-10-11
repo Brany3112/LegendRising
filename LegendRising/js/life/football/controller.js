@@ -502,6 +502,9 @@ function live(dt, real){
   // them a real second; at most 4 a frame (the world slows rather than spirals)
   bigChance(ms);
   const scale = FS.timeScale*(FS.onPitch ? 1 : FS.ffRate);
+  // the goal replay holds the steps only while it plays: its end clears the queue here, in the frame, not in the
+  // promise's callback (a callback waits for the task to end, so frames stepped in one go would never see it)
+  if (FS.replayQ && !playing()) FS.replayQ = null;
   if (!playing() && !FS.replayQ){
     FS.acc += Math.max(0, real)*scale;
     let n = 0;
