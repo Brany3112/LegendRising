@@ -391,7 +391,7 @@ registerMode("train", {
     CAM.camInit({me:() => T.me, view:() => T.V, eye:out => { out.x = P.x; out.z = P.z; out.y = P.eye; return out; },
       speed:() => T.me.m.speed, top:() => T.me.prm.sprint || 8, breath:() => T.me.st.B, accel:() => T.me.m.acc || 0, bench:() => null,
       motion:() => SET().motion, fov:() => SET().fov,
-      pose:(x, z, yaw, dt) => VW.fpPose ? VW.fpPose(T.V, x - T.F.cx, z - T.F.cz, yaw, dt, {speed:T.me.m.speed}) : 0,
+      pose:(x, z, yaw, dt) => VW.fpPose ? VW.fpPose(T.V, x - T.F.cx, z - T.F.cz, yaw, dt, {speed:T.me.m.speed, wind:CTRL.wind}) : 0,
       clip:() => { const R = T.V && T.V.rec[T.ms.me]; return !!(R && R.clip); }, after:() => {}});
     // the HUD: your breath, the power arc, the hints, the calls; a scorebug only where there is a score to keep
     const k = T.kits || HOST.kits();
