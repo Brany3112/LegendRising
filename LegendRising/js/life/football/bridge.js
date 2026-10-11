@@ -112,6 +112,13 @@ export function seedOf(f){
   return hashStr(`${f.key}|${S && S.cid != null ? S.cid : ""}|${S && S.life ? S.life.day : 0}`);
 }
 
+// the coach's style on our side (A1.8, career.js coachStyleOf): the club's own; a national team's is fixed by its name
+function coachStyleFor(f, M){
+  if (!has("coachStyleOf")) return null;
+  const c = f.kind !== "N" && typeof W !== "undefined" && W && W.clubs ? W.clubs[M.usId] : null;
+  return coachStyleOf(c || {nm: String(M.nameUs || "")});
+}
+
 // The simulation's configuration (1.4.16) from a fixture and the MT of match.js matchSetup. opts = {seed, resume
 // (S.life.inMatch of a checkpoint), visible, benchSide}. Home is team 0. The tempo and the half length come from
 // S.speed, Standard when that setting is not calibrated yet (D3).
@@ -136,7 +143,7 @@ export function matchConfig(f, M = MT, opts = {}){
   // (the stadium's boards, with their gap in front of the dugouts: pitchspec BOARDS, the layout stadium.js draws)
   const cfg = {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[tier]}), halfRealSec: HALF_REAL[speed], tempo: Object.assign({}, TEMPO[speed]),
     teams, me: {team: usTeam, slot: meP0 ? meP0.slot : null, prefFoot: footOf(S.player && S.player.foot), chem: +S.chem || 0, trust: +S.trust || 0,
-      traits: Object.assign({}, S.traits || {}), staminaF: has("staminaF") ? staminaF() : null, role},
+      traits: Object.assign({}, S.traits || {}), staminaF: has("staminaF") ? staminaF() : null, role, coachStyle: coachStyleFor(f, M)},
     rules: {offside: true, cards: true, subs: 5}, roleTimes, friendly: f.kind === "F", fkey: f.key,
     ovr: [Math.round(teams[0].ovr*10)/10, Math.round(teams[1].ovr*10)/10]};
   if (opts.benchSide != null) cfg.benchSide = opts.benchSide;

@@ -109,10 +109,11 @@ export const FOCUS = Object.freeze({
   technical: [{name: "Passing", keys: ["passing", "passacc"]}, {name: "Ball Control", keys: ["ctrl"]}]
 });
 /* the boost of a warm-up scored q (0..1) with motivation mot (0..100) under a coach of style: {rating, all (+1..+4),
-   focus {skill: +n}, focusName, mins (10..15 on the pitch), q}. Motivation scales the size (0.7x at 0 to 1.3x at 100) */
-export function boostFor(q, mot, style, r){
+   focus {skill: +n}, focusName, mins (10..15 on the pitch), q}. Motivation scales the size: the career's own scale
+   when it is given (scale, career.js motivationBoostScale), else 0.7x at 0 to 1.3x at 100 */
+export function boostFor(q, mot, style, r, scale){
   q = clamp(+q || 0, 0, 1);
-  const mf = .7 + .6*clamp(mot == null ? 60 : +mot, 0, 100)/100;
+  const mf = Number.isFinite(scale) && scale > 0 ? scale : .7 + .6*clamp(mot == null ? 60 : +mot, 0, 100)/100;
   const all = clamp(Math.round(1 + 3.3*q*q*mf), 1, 4);
   const f = (FOCUS[style] || FOCUS.attacking)[r() < .5 ? 0 : 1];
   const fn = clamp(Math.round(1 + 4*q*mf), 1, 5);
@@ -387,8 +388,12 @@ for (const id of POOL_IDS) POOL[id].id = id;
 const WIN0 = {strides: [.055, .11, .17], knees: [.05, .095, .15], lunges: [.06, .12, .22], swings: [.2, .38, .62],
   hips: [.14, .26, .42], juggle: [.06, .12, .2], shuffle: [.3, .45, .7], onetwo: [.12, .26, .45]};
 const WIN = {};
-// motivation widens the windows a little (A1.8): 0.92x at 0 to 1.08x at 100
-function setWindows(mot){ const k = .92 + .16*clamp(mot, 0, 100)/100; for (const id in WIN0) WIN[id] = WIN0[id].map(v => v*k); }
+// motivation widens the windows a little (A1.8): the career's own factor when it is given (k, career.js
+// motivationTiming, the one the match and the lessons use), else 0.92x at 0 to 1.08x at 100
+function setWindows(mot, k){
+  if (!(Number.isFinite(k) && k > 0)) k = .92 + .16*clamp(mot, 0, 100)/100;
+  for (const id in WIN0) WIN[id] = WIN0[id].map(v => v*k);
+}
 setWindows(60);
 const timingWord = d => Math.abs(d) < .03 ? null : d > 0 ? "Early" : "Late";
 
@@ -397,7 +402,7 @@ const timingWord = d => Math.abs(d) < .03 ? null : d > 0 ? "Early" : "Late";
 // motivationAdd(d, why) recorded. Used until the career's own exist, and always in the test fixtures
 export function localPort(){
   const L = {boost: null, log: [], mot: 60,
-    motivation: () => L.mot,
+    motivation: () => L.mot, boostScale: () => null, timing: () => null,
     motivationAdd(d, why){ L.log.push(["motivation", d, why]); L.mot = clamp(L.mot + (+d || 0), 0, 100); },
     trust(d){ L.log.push(["trust", d]); },
     style: () => null,
@@ -414,13 +419,23 @@ export function careerPort(){
   const w = typeof window !== "undefined" ? window : {};
   const loc = localPort();
   const wb = w.warmBoost && typeof w.warmBoost.set === "function" ? w.warmBoost : null;
+  // (Ball Control is a derived number in the match, ctrl; to the career it is the coach's ballControl focus, the
+  // skills it stands for in COACH_STYLES)
+  const toCareer = o => {
+    if (!o || !o.focus || o.focus.ctrl == null) return o;
+    const f = Object.assign({}, o.focus); f.ballControl = (f.ballControl || 0) + f.ctrl; delete f.ctrl;
+    return Object.assign({}, o, {focus: f});
+  };
+  const num = name => { try { const v = typeof w[name] === "function" ? +w[name]() : NaN; return Number.isFinite(v) ? v : null; } catch(e){ return null; } };
   return {
     real: !!wb, local: loc,
     motivation: () => { try { const m = typeof w.motivation === "function" ? +w.motivation() : NaN; return Number.isFinite(m) ? m : loc.motivation(); } catch(e){ return loc.motivation(); } },
     motivationAdd: (d, why) => { try { if (typeof w.motivationAdd === "function") return w.motivationAdd(d, why); } catch(e){ console.error(e); } return loc.motivationAdd(d, why); },
     trust: d => { try { if (typeof w.trustAdd === "function") return w.trustAdd(d); } catch(e){ console.error(e); } return loc.trust(d); },
     style: () => { try { return typeof w.coachStyle === "function" ? w.coachStyle() : null; } catch(e){ return null; } },
-    warmBoost: wb || loc.warmBoost
+    boostScale: () => num("motivationBoostScale"),
+    timing: () => num("motivationTiming"),
+    warmBoost: wb ? {set: o => wb.set(toCareer(o)), get: () => wb.get(), clear: () => wb.clear(), extend: m => wb.extend(m)} : loc.warmBoost
   };
 }
 
@@ -443,7 +458,7 @@ export function warmPlan(ctx){
   SESS.on = true; SESS.ctx = ctx; SESS.phase = "wait"; SESS.t = 0; SESS.r = r; SESS.scores = []; SESS.result = null; SESS.boost = null;
   SESS.plan = {subOn, call, seed: ctx.seed >>> 0};
   SESS.set = null; SESS.i = -1; SESS.X = null; SESS.tab = 0; SESS.auto = false;
-  setWindows(ctx.port ? ctx.port.motivation() : 60);
+  setWindows(ctx.port ? ctx.port.motivation() : 60, ctx.port && ctx.port.timing ? ctx.port.timing() : null);
   return SESS.plan;
 }
 export const warmOn = () => SESS.on && SESS.phase !== "idle";
@@ -645,7 +660,7 @@ function finishWarm(done){
   let s = 0; for (let i = 0; i < n; i++) s += SESS.scores[i] || 0;
   const q = n ? s/n : 0;
   const mot = C.port.motivation();
-  const b = boostFor(q, mot, C.style(), SESS.r);
+  const b = boostFor(q, mot, C.style(), SESS.r, C.port.boostScale ? C.port.boostScale() : null);
   SESS.boost = b; SESS.result = {q, rating: b.rating, done, auto: SESS.auto, scores: SESS.scores.slice(0, n)};
   // the boost lasts its minutes from when you go on (the planned change until then; controller.js moves it on)
   C.port.warmBoost.set({rating: b.rating, all: b.all, focus: Object.assign({}, b.focus), focusName: b.focusName, mins: b.mins, untilMin: SESS.plan.subOn + b.mins, onFire: false});

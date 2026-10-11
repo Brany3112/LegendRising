@@ -90,12 +90,13 @@ function bodyFor(V, a){
     active:() => !!(R.clip || (a.act && !a.act.done) || a.isMe || (a.gk && a.gk.plan)),
     anim:(dt, tier) => animAgent(V, R, dt, tier)});
   R.pos = {x:a.m.x, y:0, z:a.m.z};
-  if (a.isMe) makeFP(V, a);
+  if (a.isMe) makeFP(V);
   return R;
 }
-// your first-person body (no head: the body ends at the shoulders), in the kit
-function makeFP(V, a){
-  if (V.fp || !V.fpLook) return;
+// your first-person body (no head: the body ends at the shoulders), in the kit; also made by controller.js for a
+// substitute off the pitch (the warm-up, A1.8), who has no agent yet: the same body is taken over when he goes on
+export function makeFP(V){
+  if (!V || V.fp || !V.fpLook) return;
   const h = human(V.fpLook, {noHead:true, lod:false, track:true});
   h.near.frustumCulled = false;
   h.g.name = "match-fp";

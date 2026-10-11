@@ -467,7 +467,8 @@ const warmBoost = {
     o = o || {};
     const m = warmMatch();
     WARM = {rating:WARM_RATINGS.includes(o.rating) ? o.rating : "ready", all:clamp(num(+o.all, 0), -20, 20), focus:warmFocus(o.focus),
-      untilMin:num(+o.untilMin, 0), onFire:!!o.onFire, fkey:m && m.f ? m.f.key : (o.fkey != null ? o.fkey : null)};
+      untilMin:num(+o.untilMin, 0), onFire:!!o.onFire, fkey:m && m.f ? m.f.key : (o.fkey != null ? o.fkey : null),
+      focusName:typeof o.focusName === "string" ? o.focusName : "", mins:clamp(num(+o.mins, 0), 0, 90), ignored:!!o.ignored};
     return warmBoost.get();
   },
   // a copy, with active (applying now) and left (match minutes to go)

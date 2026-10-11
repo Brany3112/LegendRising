@@ -9,7 +9,7 @@
      AUD.resume()          wakes the context after the page was hidden or the match was left
      AUD.cue(name, pos, gain)   one sound, at a point in the world (x, y, z) or, with pos null, in your head:
                            whistleShort, whistleLong, whistleTriple, kick, bounce, post, net, board, crowdOoh, crowdRoar,
-                           crowdGroan
+                           crowdGroan, and for the bench warm-up (A1.8) clap (a few fans clapping) and tick (a soft beat)
      AUD.crowd(level, excite)   the crowd's bed of noise: level 0..1 from the attendance, excite 0..1 swells it
      AUD.call(name, pos, voiceSeed)   a team-mate's "hey!" from his head (an HRTF panner), and his name said by the
                            browser's speech voice when the setting allows and there is one
@@ -19,7 +19,7 @@
    every call does nothing, and the match goes on with what you can see. */
 
 const CTRL_KEY = "freyaFootball.ctrl", MAX_VOICES = 12;
-export const CUES = ["whistleShort", "whistleLong", "whistleTriple", "kick", "bounce", "post", "net", "board", "crowdOoh", "crowdRoar", "crowdGroan"];
+export const CUES = ["whistleShort", "whistleLong", "whistleTriple", "kick", "bounce", "post", "net", "board", "crowdOoh", "crowdRoar", "crowdGroan", "clap", "tick"];
 function settings(){
   try { return Object.assign({volume:.8, speech:true}, JSON.parse(localStorage.getItem(CTRL_KEY) || "{}") || {}); }
   catch(e){ return {volume:.8, speech:true}; }
@@ -100,6 +100,22 @@ const SYN = {
     bp.frequency.setValueAtTime(1900, t); bp.frequency.exponentialRampToValueAtTime(700, t + .4);
     const e = env(c, t, .45*g, .03, .06, .3); n.connect(bp); bp.connect(e); e.connect(out);
     return t + .45;
+  },
+  // a few fans clapping (the warm-up's great set, A1.8): sixteen claps from five or six pairs of hands, out of step,
+  // each a 1 to 2 kHz crack of noise dying in 40 ms, over about a second and a half
+  clap(c, out, t, g){
+    let end = t;
+    for (let i = 0; i < 16; i++){
+      const s = t + (i % 6)*.045 + Math.floor(i/6)*.48 + .09*hash(i*17 + 3), f = 1100 + 900*hash(i*29 + 5);
+      const n = noise(c, s, s + .06, s*23 + i), bp = filt(c, "bandpass", f, 1.6), e = env(c, s, g*(.35 + .25*hash(i*7 + 1)), .001, .003, .04);
+      n.connect(bp); bp.connect(e); e.connect(out); end = Math.max(end, s + .06);
+    }
+    return end;
+  },
+  // a soft beat for the rhythm reps: a 1.6 kHz blip of 30 ms
+  tick(c, out, t, g){
+    const o = osc(c, "sine", 1600, t, t + .05), e = env(c, t, .25*g, .002, .004, .025); o.connect(e); e.connect(out);
+    return t + .05;
   },
   crowdOoh:(c, out, t, g) => chorus(c, out, t, g, {f1:360, f2:880, a:.35, hold:.35, rel:.7, glide:[1, 1.12, .95], noise:.25}),
   crowdRoar:(c, out, t, g) => chorus(c, out, t, g, {f1:780, f2:1250, a:.15, hold:1.2, rel:1.0, glide:[1, 1.18, 1.05], noise:.6}),

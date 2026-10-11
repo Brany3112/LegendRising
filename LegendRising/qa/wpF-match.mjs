@@ -113,9 +113,13 @@ if (ONLY.includes("bench")) try {
   const sk = await T.page.evaluate(() => {
     const F = window.__fp, L = window.__life, ms = F.ms;
     F.input({type: "keydown", key: "e"});
-    const ms0 = [], card = [];
+    const ms0 = [], card = [], warm = [];
     for (let i = 0; i < 20000 && !(F.FS.called && !F.FS.skipping); i++){
       L.stepN(1);
+      // (the skip stops at the coach's warm-up call first, A1.8: left unanswered he gives up, and the skip goes on to
+      // the change)
+      const wp = F.warm && F.warm.S.on ? F.warm.S.phase : null;
+      if (!F.FS.skipping && !F.FS.called && wp && warm[warm.length - 1] !== wp){ warm.push(wp); if (wp === "ignored") F.skipToCall(); }
       if (F.FS.skipping || F.FS.skipMs){ if (F.FS.skipMs) ms0.push([F.FS.skipMs, F.FS.skipWorst || 0, F.FS.skipSteps || 0, F.FS.skipPre || 0, F.FS.skipLast || 0, F.FS.skipBudget || 11]); F.FS.skipMs = 0; }
       if (i % 200 === 0){ const o = document.querySelector(".fp-overlay.on .fp-skip"); if (o) card.push(o.textContent); }
       if (ms.phase === "over") break;
@@ -129,11 +133,12 @@ if (ONLY.includes("bench")) try {
     // frames of a frame's mean step, so a stall does not hide inside its own frame's mean
     const per = ms0.filter(x => x[2] > 0).map(x => x[0]/x[2]).sort((a, b) => a - b), typical = per[Math.floor(per.length/2)] || 0;
     const over = ms0.filter(x => x[0] > 13), unexplained = over.filter(x => !(x[3] <= Math.min(11, x[5]) + .05 && x[4] > Math.max(2, 8*typical)));
-    return {frames: ms0.length, max: Math.max(...sorted), p99, typical, over: over.length, unexplained: unexplained.length, worstOver: over.slice(0, 4).map(x => x.map(v => +v.toFixed(1))), called: F.FS.called, callUp: ms.callUp, min: Math.floor(((ms.half - 1)*2700 + ms.clock.sec)/60), state: F.state, card: card.slice(0, 2), P: [window.__life.P.x, window.__life.P.z]};
+    return {frames: ms0.length, max: Math.max(...sorted), p99, typical, over: over.length, unexplained: unexplained.length, worstOver: over.slice(0, 4).map(x => x.map(v => +v.toFixed(1))), called: F.FS.called, callUp: ms.callUp, min: Math.floor(((ms.half - 1)*2700 + ms.clock.sec)/60), state: F.state, card: card.slice(0, 2), warm, P: [window.__life.P.x, window.__life.P.z]};
   });
   check(sk.frames > 10 && sk.p99 <= 13 && sk.unexplained === 0, "holding E skips to the call with at most 13 ms of simulation work a frame",
     {frames: sk.frames, p99: +sk.p99.toFixed(2), maxMs: +sk.max.toFixed(2), typicalStep: +sk.typical.toFixed(3), overBudget: sk.over, overWithoutAStall: sk.unexplained, examples: sk.worstOver});
   check(sk.called && sk.card.length > 0 && /\d+'/.test(sk.card[0]), "the skip runs under a card with the live score and minute", sk.card[0]);
+  check(sk.warm.includes("call") && sk.warm.includes("ignored"), "the skip stops at the coach's warm-up call, and goes on to the change once he is ignored (A1.8)", sk.warm);
   // the change at the next stoppage: on from beside the fourth official
   const on = await T.page.evaluate(() => {
     const F = window.__fp, L = window.__life, ms = F.ms;

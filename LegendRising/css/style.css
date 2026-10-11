@@ -1228,6 +1228,7 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
 .pb i{display:block;height:100%;border-radius:inherit;background:var(--lime);transition:width .6s var(--ease)}
 .pb.en i{background:linear-gradient(90deg,#16c2b0,#58e0cf)} .pb.fa i{background:linear-gradient(90deg,#8d6bff,#d06bff)} .pb.chem i{background:linear-gradient(90deg,#2a8fd8,#48d0f0)}
 .pb.trust i{background:linear-gradient(90deg,#ff8a5a,#ffd75a 45%,#9be04a)} .pb.job i{background:linear-gradient(90deg,#f2b84a,#ffd75a)} .pb.trait i{background:linear-gradient(90deg,#4ea8ff,#c8f060)}
+.pb.motiv i{background:linear-gradient(90deg,#ff7a45,#ffb347 50%,#ffe066)}
 .mrow{display:flex;align-items:center;gap:10px;font-size:.84rem;margin:6px 0 2px}
 .mrow>span{width:110px;color:var(--muted);flex:none} .mrow>b{min-width:28px;text-align:right;font-variant-numeric:tabular-nums}
 /* the computer */

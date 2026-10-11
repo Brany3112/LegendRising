@@ -52,7 +52,7 @@ import {restartReady, startRestart} from "./rules.js";
 import {startAction} from "./actions.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
-import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv} from "./view.js";
+import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv, makeFP} from "./view.js";
 import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
 import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay} from "./fphud.js";
@@ -61,7 +61,7 @@ import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent,
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
 import {STADIUM, SPAWNS} from "./stadium.js";
 import {AUD} from "./audio.js";
-import {prebuildHumans, human} from "../human.js";
+import {prebuildHumans} from "../human.js";
 import {runOne} from "./harness.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -838,7 +838,7 @@ function bench(dt, real){
   const drv = warmDriving() && !FS.onPitch;
   if (drv !== !!FS.wDrive){ FS.wDrive = drv; for (const k in CTRL.held) CTRL.held[k] = false; }
   if (FS.riseT >= 0){ FS.riseT += real; if (FS.riseT > WU.RISE) FS.riseT = -1; }
-  if (!FS.seated && !FS.onPitch) ensureFP(FS.V);
+  if (!FS.seated && !FS.onPitch) makeFP(FS.V);
   if (!FS.seated){
     ownWalk(dt, true);
     // the call came: walk to the fourth official
@@ -985,18 +985,23 @@ function skipFrame(){
    Planned at the match's start for a substitute with a planned change (cfg.roleTimes.subOn); the warm-up runs its own
    course from the bench (warmFrame); here are its hands on the day: your seat, your legs, the bench record your agent is
    made from when you go on, the HUD, the career's port (the stand-in in the test fixtures: a test never touches a
-   career). The set of the last match is kept on this device (freyaFootball.warmLast), so no two matches running have
-   the same one. */
+   career). The set of the last match is kept in the career's save (S.player.warmLast) and on this device
+   (freyaFootball.warmLast), so no two matches running have the same one. */
 const WARM_KEY = "freyaFootball.warmLast";
 let WARM_LAST = null;
+// (a career keeps it in its save, S.player.warmLast; the device's copy is for a match outside one)
+const careerP = () => FS.real && typeof S !== "undefined" && S && S.player ? S.player : null;
 function warmLast(){
   if (FS.testWarm && FS.testWarm.last !== undefined) return FS.testWarm.last;
+  const cp = careerP();
+  if (cp && Array.isArray(cp.warmLast)) return cp.warmLast;
   if (WARM_LAST) return WARM_LAST;
   try { const v = JSON.parse(localStorage.getItem(WARM_KEY) || "null"); return Array.isArray(v) ? v : null; } catch(e){ return null; }
 }
 function warmRemember(set){
   WARM_LAST = set.slice();
   if (FS.testWarm) return;
+  const cp = careerP(); if (cp) cp.warmLast = set.slice();
   try { localStorage.setItem(WARM_KEY, JSON.stringify(set)); } catch(e){}
 }
 // the coach's style (attacking, pressing, technical): the configuration's (bridge) when it carries one, the career's,
@@ -1095,16 +1100,6 @@ function warmIcon(){
   I.all = b.all; I.mins = b.mins || 12; I.fire = !!b.onFire; I.wait = !FS.onPitch;
   I.left = FS.onPitch ? b.untilMin - (FS.ms.clock.sec/60 + 1 + (FS.ms.half - 1)*45) : I.mins;
   return I;
-}
-// your first-person body off the pitch (a substitute has no agent to give view.js one): the same headless body in your
-// kit that view.js makes for you on the pitch (it takes this one over when you go on)
-function ensureFP(V){
-  if (!V || V.fp || !V.fpLook) return;
-  const h = human(V.fpLook, {noHead: true, lod: false, track: true});
-  h.near.frustumCulled = false;
-  h.g.name = "match-fp";
-  V.scene.add(h.g);
-  V.fp = h;
 }
 // while the warm-up has your view, it turns to what the set is framed for, eased (the look is the warm-up's then)
 function warmLook(dt){

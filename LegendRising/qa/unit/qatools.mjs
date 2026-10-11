@@ -82,6 +82,7 @@ for (const a of b) { q(); }`);
     "no-legacy-match": ["js/match.js", "if (params.get(\"legacyMatch\")) old();", "// legacyMatch is gone"],
     "one-ball-integrator": ["js/life/drills.js", "function stepBall(b, dt){}\nfunction ballStep(b){}", "ballStep(b, bw, 1/60);"],
     "trust-writes": ["js/career.js", "S.trust += 6;\nS.trust = 0;\nS.trust--;", "if (S.trust === 3) x();\nconst t = S.trust;\nfunction trustAdd(d){ S.trust = clamp(S.trust + d, -30, 80); }"],
+    "motivation-writes": ["js/daily.js", "S.player.motivation += 2;\nS.player.motivation = 60;\nS.player.motivation--;", "if (S.player.motivation < 35) x();\nconst m = S.player.motivation;\nfunction motivationAdd(d){ S.player.motivation = clamp(S.player.motivation + d, 0, 100); }"],
     "inv-writes": ["js/ui/main.js", "S.inv[id]--;\nS.inv.drink = 0;\ndelete S.inv.x;", "if (!S.inv[id]) return;\nfunction consume(id){ S.inv[id]--; }"],
     "hours-literals": ["js/life/intro.js", "note(\"Training starts at 10:00 AM.\");", "note(`Training starts at ${fmtTime(SESSION.start)}.`); // 10:00 AM"],
     "engine-names": ["css/style.css", "#pitch{display:block}", "#pitchlines{display:block}"]

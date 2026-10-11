@@ -7,7 +7,7 @@
     "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed.",
     "merged: the packages the integrator has merged so far. A rule is active exactly when the package in its activatedBy is in this list (qa/unit/qatools.mjs checks it), so at each stage merge the integrator adds the packages and flips their rules on together."
   ],
-  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1", "WP-K", "WP-F", "WP-I", "WP-F2", "WP-H2"],
+  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1", "WP-K", "WP-F", "WP-I", "WP-F2", "WP-H2", "WP-W2", "WP-W1"],
   "pure": [
     "js/life/mover.js", "js/life/stamina.js", "js/life/gaitcore.js",
     "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/detmath.js", "js/life/football/ball.js", "js/life/football/strike.js",
@@ -134,6 +134,18 @@
       "scope": "code",
       "pattern": "\\bS\\s*\\.\\s*inv\\b(?:\\s*\\[[^\\]]*\\]|\\s*\\.\\s*[A-Za-z_$][\\w$]*)?\\s*(?:[-+*/]?=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*S\\s*\\.\\s*inv\\b|\\bdelete\\s+S\\s*\\.\\s*inv\\b",
       "allowIn": ["consume", "parcelStep", "buyFood", "shopBuy", "buy", "dailyEnsure"]
+    },
+    {
+      "id": "motivation-writes",
+      "active": true,
+      "activatedBy": "WP-W2",
+      "ref": "Addendum A1.8 (Motivation), DESIGN 1.7 (migration)",
+      "what": "S.player.motivation changes only through motivationAdd, the load-time motivationMigrate, the nightly motivationNewDay and the __motivation test stub's set (career.js). The admin editor sets values directly by design. js/engine goes with WP-L.",
+      "files": ["js/**/*.js"],
+      "except": ["js/ui/admin.js", "js/engine/**"],
+      "scope": "code",
+      "pattern": "\\.\\s*player\\s*\\.\\s*motivation\\s*(?:[-+*/]?=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*S\\s*\\.\\s*player\\s*\\.\\s*motivation\\b",
+      "allowIn": ["motivationAdd", "motivationMigrate", "motivationNewDay", "set"]
     },
     {
       "id": "hours-literals",
