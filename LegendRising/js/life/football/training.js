@@ -2,7 +2,8 @@
    Owner: WP-I (Stage P2). Contract: DESIGN 1.2 (training.js), 1.4.1 (the mode train and its flags), 1.4.13 (createMatch
    with a training cfg.mode), 1.4.17 (control.js, view.js and fphud.js: the match's own controls, bodies and HUD),
    1.6 (the controls), 3.6.2 (partial simulations, the team session), 3.6.3 (the first day's lessons), D4 (one ball,
-   one integrator).
+   one integrator). WP-D3 (Stage P3a, addendum A1.7): the corner targets and their scoring for the finishing drill and
+   the free kicks, the volley drill (a lob met on the A1.5 timing ring), the charge handed to view.js fpPose.
 
    Everything you do with a ball at the training ground is the match: the same simulation (sim.js simStep at 60 Hz),
    the same ball (ball.js, the one integrator), the same actions, AI, keeper and touch models, and the same controls,
@@ -736,7 +737,7 @@ function drillScript(kind, D, run){
     const ms = T.ms, end = ms.dirs[T.myTeam], k = ms.agents.find(a => a.isGK && a.team === T.oppTeam && a.onPitch);
     return !k || S.kWait > 10 || Math.hypot(k.m.x - end*T.spec.hx, k.m.z) < 3;
   };
-  const lastKick = evs => { for (let i = evs.length - 1; i >= 0; i--){ const e = evs[i]; if (e.kind === "kick" && e.agent === run.T.me.id && !e.whiff) return e; } return null; };
+  const lastKick = (evs, id) => { for (let i = evs.length - 1; i >= 0; i--){ const e = evs[i]; if (e.kind === "kick" && e.agent === id && !e.whiff) return e; } return null; };
   return {
     post(T){
       if (D.orders === "pass") passersOnly(T);
@@ -758,7 +759,7 @@ function drillScript(kind, D, run){
         }
       }
       else if (test === "volley"){
-        const lk = lastKick(evs), k = lk ? S.kicks.get(lk.id) : null;
+        const lk = lastKick(evs, T.me.id), k = lk ? S.kicks.get(lk.id) : null;
         v = TS.volleyTest(evs, T.me.id, Object.assign(ctx, {air:k ? k.air : true}));
       }
       else if (test === "header") v = TS.headerTest(evs, T.me.id, ctx);
@@ -769,7 +770,7 @@ function drillScript(kind, D, run){
       S.rep++; run.scores.push(v.ok ? Math.max(.45, v.q) : v.q*.4);
       award(T, D.xp, v.ok ? v.q : 0);
       T.results.push(v);
-      const sub = sc ? (sc.pts ? `+${sc.pts} point${sc.pts === 1 ? "" : "s"}` : "") : test === "volley" && v.kick && v.ok ? `Strike ${Math.round(v.clean*100)}%` : "";
+      const sub = sc ? (sc.pts ? `+${sc.pts} point${sc.pts === 1 ? "" : "s"}` : "") : test === "volley" && v.kick && v.ok ? `Strike quality ${Math.round(v.clean*100)}%` : "";
       hudResult(sc && sc.line ? sc.line : v.ok ? (v.q >= .9 ? "Perfect" : v.q >= .7 ? "Great" : "Good") : ((test === "header" || test === "volley") && v.why === "none" ? WHY.missed : WHY[v.why]) || "Not this time", sub, v.ok);
       card();
       HOST.pass(D.mins/D.reps);
