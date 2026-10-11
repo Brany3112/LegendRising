@@ -1,0 +1,1115 @@
+{
+ "about": "Rendering baseline of build 2026.10.11c (DESIGN 3.9.8 and 4.10), recorded by qa/record-perf.mjs in headless Chromium on SwiftShader at 1280 x 720. Milliseconds are SwiftShader figures: compare ratios against this file, never absolute times. calls and tris are the main pass without a shadow redraw; shadowCalls and shadowTris are what a shadow-map redraw adds.",
+ "build": "2026.10.11c",
+ "method": {
+  "viewport": [
+   1280,
+   720
+  ],
+  "warm": 30,
+  "frames": 60,
+  "minute": 720,
+  "frame": "__life.stepN(1), then renderer.render(scene, cam) and a 1-pixel gl.readPixels that waits for the GPU (renderMs); submitMs is the render call alone",
+  "stats": "median and p95 over the measured frames"
+ },
+ "views": [
+  {
+   "name": "bedroom",
+   "zone": "home",
+   "at": "bed",
+   "pitch": -0.08
+  },
+  {
+   "name": "lobby",
+   "zone": "home",
+   "at": {
+    "x": -9.5,
+    "z": -1,
+    "y": 0.12,
+    "yaw": 3.141592653589793
+   },
+   "pitch": 0
+  },
+  {
+   "name": "street",
+   "zone": "home",
+   "at": {
+    "x": 3,
+    "z": 10,
+    "y": 0.12,
+    "yaw": 1.5707963267948966
+   },
+   "pitch": 0
+  },
+  {
+   "name": "park",
+   "zone": "home",
+   "at": {
+    "x": 24,
+    "z": 52.8,
+    "y": 0.12,
+    "yaw": 3.141592653589793
+   },
+   "pitch": -0.05
+  },
+  {
+   "name": "yard",
+   "zone": "ground",
+   "at": {
+    "x": 0,
+    "z": 22,
+    "y": 0,
+    "yaw": 0
+   },
+   "pitch": 0
+  },
+  {
+   "name": "pitch",
+   "zone": "ground",
+   "at": {
+    "x": 0,
+    "z": -1,
+    "y": 0,
+    "yaw": 0
+   },
+   "pitch": -0.1
+  },
+  {
+   "name": "town-road",
+   "zone": "town",
+   "at": {
+    "x": 0,
+    "z": 4,
+    "y": 0.12,
+    "yaw": 1.5707963267948966
+   },
+   "pitch": 0
+  }
+ ],
+ "missing": {
+  "views": [
+   "stadium-kickoff",
+   "corner-flag",
+   "crowd-pan"
+  ],
+  "why": "the stadium's views are measured live by qa/wpD-stadium.mjs and qa/int-fullmatch.mjs, not by this probe"
+ },
+ "tiers": {
+  "high": {
+   "bedroom": {
+    "zone": "home",
+    "at": [
+     -1.82,
+     9.62,
+     -7.655,
+     2.336,
+     -0.08
+    ],
+    "gfxLow": false,
+    "calls": 33,
+    "tris": 29152,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 3102.1,
+     "p95": 3530.5
+    },
+    "submitMs": {
+     "median": 7.6,
+     "p95": 12.9
+    },
+    "stepMs": {
+     "median": 2.1,
+     "p95": 5.6
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.5
+    },
+    "anims": 23,
+    "castUs": 9.8,
+    "programs": 34,
+    "geometries": 86,
+    "textures": 291,
+    "pointLights": 8,
+    "meshes": 376,
+    "visibleMeshes": 297,
+    "skinnedVisible": 1,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "lobby": {
+    "zone": "home",
+    "at": [
+     -9.5,
+     0.27,
+     -1,
+     3.142,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 31,
+    "tris": 54881,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 1856.5,
+     "p95": 2089.7
+    },
+    "submitMs": {
+     "median": 6.6,
+     "p95": 9.7
+    },
+    "stepMs": {
+     "median": 2.1,
+     "p95": 3.5
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.6
+    },
+    "anims": 23,
+    "castUs": 5.8,
+    "programs": 34,
+    "geometries": 135,
+    "textures": 317,
+    "pointLights": 8,
+    "meshes": 376,
+    "visibleMeshes": 303,
+    "skinnedVisible": 7,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "street": {
+    "zone": "home",
+    "at": [
+     3,
+     0,
+     10,
+     1.571,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 40,
+    "tris": 60558,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 1729.3,
+     "p95": 1923.8
+    },
+    "submitMs": {
+     "median": 6.6,
+     "p95": 11.6
+    },
+    "stepMs": {
+     "median": 2,
+     "p95": 3.7
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.8
+    },
+    "anims": 23,
+    "castUs": 4,
+    "programs": 34,
+    "geometries": 131,
+    "textures": 311,
+    "pointLights": 8,
+    "meshes": 376,
+    "visibleMeshes": 301,
+    "skinnedVisible": 5,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "park": {
+    "zone": "home",
+    "at": [
+     24,
+     0.05,
+     52.8,
+     3.142,
+     -0.05
+    ],
+    "gfxLow": false,
+    "calls": 24,
+    "tris": 36922,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 1128.5,
+     "p95": 1271.8
+    },
+    "submitMs": {
+     "median": 5.1,
+     "p95": 7.6
+    },
+    "stepMs": {
+     "median": 1.9,
+     "p95": 2.7
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.4
+    },
+    "anims": 23,
+    "castUs": 6.3,
+    "programs": 34,
+    "geometries": 130,
+    "textures": 311,
+    "pointLights": 8,
+    "meshes": 376,
+    "visibleMeshes": 306,
+    "skinnedVisible": 10,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "yard": {
+    "zone": "ground",
+    "at": [
+     0,
+     0,
+     22,
+     0,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 51,
+    "tris": 74616,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 1543.4,
+     "p95": 1816
+    },
+    "submitMs": {
+     "median": 5.2,
+     "p95": 9.3
+    },
+    "stepMs": {
+     "median": 1.6,
+     "p95": 4.7
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.3
+    },
+    "anims": 8,
+    "castUs": 3.4,
+    "programs": 33,
+    "geometries": 81,
+    "textures": 231,
+    "pointLights": 8,
+    "meshes": 247,
+    "visibleMeshes": 198,
+    "skinnedVisible": 2,
+    "solids": 243,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "pitch": {
+    "zone": "ground",
+    "at": [
+     0,
+     0,
+     -1,
+     0,
+     -0.1
+    ],
+    "gfxLow": false,
+    "calls": 30,
+    "tris": 38207,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 577,
+     "p95": 702.4
+    },
+    "submitMs": {
+     "median": 3.8,
+     "p95": 7.2
+    },
+    "stepMs": {
+     "median": 1.5,
+     "p95": 2.9
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.3
+    },
+    "anims": 8,
+    "castUs": 9.3,
+    "programs": 33,
+    "geometries": 74,
+    "textures": 219,
+    "pointLights": 8,
+    "meshes": 247,
+    "visibleMeshes": 200,
+    "skinnedVisible": 4,
+    "solids": 243,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "town-road": {
+    "zone": "town",
+    "at": [
+     0,
+     0,
+     4,
+     1.571,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 31,
+    "tris": 42620,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 1049.2,
+     "p95": 1197.1
+    },
+    "submitMs": {
+     "median": 4.3,
+     "p95": 6.8
+    },
+    "stepMs": {
+     "median": 1.4,
+     "p95": 2.7
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.4
+    },
+    "anims": 6,
+    "castUs": 2.8,
+    "programs": 24,
+    "geometries": 49,
+    "textures": 169,
+    "pointLights": 8,
+    "meshes": 228,
+    "visibleMeshes": 195,
+    "skinnedVisible": 1,
+    "solids": 288,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   }
+  },
+  "medium": {
+   "bedroom": {
+    "zone": "home",
+    "at": [
+     -1.82,
+     9.62,
+     -7.655,
+     2.336,
+     -0.08
+    ],
+    "gfxLow": false,
+    "calls": 33,
+    "tris": 28592,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 1692.1,
+     "p95": 1997.9
+    },
+    "submitMs": {
+     "median": 7,
+     "p95": 12.1
+    },
+    "stepMs": {
+     "median": 2.2,
+     "p95": 4.2
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.4
+    },
+    "anims": 23,
+    "castUs": 9.9,
+    "programs": 41,
+    "geometries": 81,
+    "textures": 271,
+    "pointLights": 4,
+    "meshes": 370,
+    "visibleMeshes": 291,
+    "skinnedVisible": 1,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "lobby": {
+    "zone": "home",
+    "at": [
+     -9.5,
+     0.27,
+     -1,
+     3.142,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 30,
+    "tris": 54321,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 1030.8,
+     "p95": 1173
+    },
+    "submitMs": {
+     "median": 6.1,
+     "p95": 9
+    },
+    "stepMs": {
+     "median": 2,
+     "p95": 3.9
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.3
+    },
+    "anims": 23,
+    "castUs": 5.7,
+    "programs": 41,
+    "geometries": 126,
+    "textures": 293,
+    "pointLights": 4,
+    "meshes": 370,
+    "visibleMeshes": 295,
+    "skinnedVisible": 5,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "street": {
+    "zone": "home",
+    "at": [
+     3,
+     0,
+     10,
+     1.571,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 39,
+    "tris": 61906,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 974.7,
+     "p95": 1179.8
+    },
+    "submitMs": {
+     "median": 6.7,
+     "p95": 11.1
+    },
+    "stepMs": {
+     "median": 2.1,
+     "p95": 3.1
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.4
+    },
+    "anims": 23,
+    "castUs": 3.8,
+    "programs": 41,
+    "geometries": 123,
+    "textures": 289,
+    "pointLights": 4,
+    "meshes": 370,
+    "visibleMeshes": 293,
+    "skinnedVisible": 3,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "park": {
+    "zone": "home",
+    "at": [
+     24,
+     0.05,
+     52.8,
+     3.142,
+     -0.05
+    ],
+    "gfxLow": false,
+    "calls": 24,
+    "tris": 36362,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 656.2,
+     "p95": 759.9
+    },
+    "submitMs": {
+     "median": 5.4,
+     "p95": 9.3
+    },
+    "stepMs": {
+     "median": 2,
+     "p95": 5.4
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.5
+    },
+    "anims": 23,
+    "castUs": 3.9,
+    "programs": 41,
+    "geometries": 122,
+    "textures": 289,
+    "pointLights": 4,
+    "meshes": 370,
+    "visibleMeshes": 305,
+    "skinnedVisible": 15,
+    "solids": 457,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "yard": {
+    "zone": "ground",
+    "at": [
+     0,
+     0,
+     22,
+     0,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 49,
+    "tris": 64291,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 939.8,
+     "p95": 1047.5
+    },
+    "submitMs": {
+     "median": 4.7,
+     "p95": 7.7
+    },
+    "stepMs": {
+     "median": 1.6,
+     "p95": 2.1
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.3
+    },
+    "anims": 8,
+    "castUs": 4.2,
+    "programs": 38,
+    "geometries": 76,
+    "textures": 214,
+    "pointLights": 4,
+    "meshes": 240,
+    "visibleMeshes": 192,
+    "skinnedVisible": 3,
+    "solids": 243,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "pitch": {
+    "zone": "ground",
+    "at": [
+     0,
+     0,
+     -1,
+     0,
+     -0.1
+    ],
+    "gfxLow": false,
+    "calls": 32,
+    "tris": 39867,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 351,
+     "p95": 417.9
+    },
+    "submitMs": {
+     "median": 3.7,
+     "p95": 6.4
+    },
+    "stepMs": {
+     "median": 1.5,
+     "p95": 2.3
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.3
+    },
+    "anims": 8,
+    "castUs": 3.3,
+    "programs": 38,
+    "geometries": 73,
+    "textures": 206,
+    "pointLights": 4,
+    "meshes": 240,
+    "visibleMeshes": 197,
+    "skinnedVisible": 8,
+    "solids": 243,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   },
+   "town-road": {
+    "zone": "town",
+    "at": [
+     0,
+     0,
+     4,
+     1.571,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 31,
+    "tris": 42284,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": true,
+    "renderMs": {
+     "median": 593.5,
+     "p95": 690
+    },
+    "submitMs": {
+     "median": 4.1,
+     "p95": 6.6
+    },
+    "stepMs": {
+     "median": 1.5,
+     "p95": 2.5
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.3
+    },
+    "anims": 6,
+    "castUs": 2.7,
+    "programs": 27,
+    "geometries": 48,
+    "textures": 162,
+    "pointLights": 4,
+    "meshes": 224,
+    "visibleMeshes": 193,
+    "skinnedVisible": 3,
+    "solids": 288,
+    "canvas": [
+     1280,
+     720
+    ],
+    "pixelRatio": 1
+   }
+  },
+  "low": {
+   "bedroom": {
+    "zone": "home",
+    "at": [
+     -1.82,
+     9.62,
+     -7.655,
+     2.336,
+     -0.08
+    ],
+    "gfxLow": false,
+    "calls": 42,
+    "tris": 23094,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": false,
+    "renderMs": {
+     "median": 324.4,
+     "p95": 387.1
+    },
+    "submitMs": {
+     "median": 5.9,
+     "p95": 9
+    },
+    "stepMs": {
+     "median": 2.1,
+     "p95": 3
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.4
+    },
+    "anims": 23,
+    "castUs": 18.7,
+    "programs": 28,
+    "geometries": 65,
+    "textures": 217,
+    "pointLights": 2,
+    "meshes": 350,
+    "visibleMeshes": 271,
+    "skinnedVisible": 1,
+    "solids": 458,
+    "canvas": [
+     1278,
+     719
+    ],
+    "pixelRatio": 0.9991315673568165
+   },
+   "lobby": {
+    "zone": "home",
+    "at": [
+     -9.5,
+     0.27,
+     -1,
+     3.142,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 27,
+    "tris": 38446,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": false,
+    "renderMs": {
+     "median": 200.6,
+     "p95": 228.3
+    },
+    "submitMs": {
+     "median": 4.8,
+     "p95": 8.4
+    },
+    "stepMs": {
+     "median": 1.8,
+     "p95": 3
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.4
+    },
+    "anims": 23,
+    "castUs": 4.3,
+    "programs": 28,
+    "geometries": 91,
+    "textures": 223,
+    "pointLights": 2,
+    "meshes": 350,
+    "visibleMeshes": 274,
+    "skinnedVisible": 4,
+    "solids": 458,
+    "canvas": [
+     1278,
+     719
+    ],
+    "pixelRatio": 0.9991315673568165
+   },
+   "street": {
+    "zone": "home",
+    "at": [
+     3,
+     0,
+     10,
+     1.571,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 46,
+    "tris": 50802,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": false,
+    "renderMs": {
+     "median": 193.3,
+     "p95": 235.3
+    },
+    "submitMs": {
+     "median": 5.2,
+     "p95": 9.4
+    },
+    "stepMs": {
+     "median": 1.8,
+     "p95": 3.6
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.4
+    },
+    "anims": 23,
+    "castUs": 3,
+    "programs": 28,
+    "geometries": 99,
+    "textures": 221,
+    "pointLights": 2,
+    "meshes": 350,
+    "visibleMeshes": 273,
+    "skinnedVisible": 3,
+    "solids": 458,
+    "canvas": [
+     1278,
+     719
+    ],
+    "pixelRatio": 0.9991315673568165
+   },
+   "park": {
+    "zone": "home",
+    "at": [
+     24,
+     0.05,
+     52.8,
+     3.142,
+     -0.05
+    ],
+    "gfxLow": false,
+    "calls": 21,
+    "tris": 22384,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": false,
+    "renderMs": {
+     "median": 144.1,
+     "p95": 177.8
+    },
+    "submitMs": {
+     "median": 3.9,
+     "p95": 6.8
+    },
+    "stepMs": {
+     "median": 1.7,
+     "p95": 2.8
+    },
+    "animMs": {
+     "median": 0.2,
+     "p95": 0.4
+    },
+    "anims": 23,
+    "castUs": 4.1,
+    "programs": 28,
+    "geometries": 88,
+    "textures": 223,
+    "pointLights": 2,
+    "meshes": 350,
+    "visibleMeshes": 282,
+    "skinnedVisible": 12,
+    "solids": 458,
+    "canvas": [
+     1278,
+     719
+    ],
+    "pixelRatio": 0.9991315673568165
+   },
+   "yard": {
+    "zone": "ground",
+    "at": [
+     0,
+     0,
+     22,
+     0,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 44,
+    "tris": 37566,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": false,
+    "renderMs": {
+     "median": 164.2,
+     "p95": 205.7
+    },
+    "submitMs": {
+     "median": 3.7,
+     "p95": 6.6
+    },
+    "stepMs": {
+     "median": 1.4,
+     "p95": 2.4
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.2
+    },
+    "anims": 8,
+    "castUs": 5.3,
+    "programs": 28,
+    "geometries": 59,
+    "textures": 172,
+    "pointLights": 2,
+    "meshes": 228,
+    "visibleMeshes": 182,
+    "skinnedVisible": 5,
+    "solids": 243,
+    "canvas": [
+     1278,
+     719
+    ],
+    "pixelRatio": 0.9991315673568165
+   },
+   "pitch": {
+    "zone": "ground",
+    "at": [
+     0,
+     0,
+     -1,
+     0,
+     -0.1
+    ],
+    "gfxLow": false,
+    "calls": 26,
+    "tris": 14572,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": false,
+    "renderMs": {
+     "median": 91.5,
+     "p95": 119
+    },
+    "submitMs": {
+     "median": 2.9,
+     "p95": 5.1
+    },
+    "stepMs": {
+     "median": 1.4,
+     "p95": 2.1
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.3
+    },
+    "anims": 8,
+    "castUs": 3.2,
+    "programs": 28,
+    "geometries": 51,
+    "textures": 168,
+    "pointLights": 2,
+    "meshes": 228,
+    "visibleMeshes": 183,
+    "skinnedVisible": 6,
+    "solids": 243,
+    "canvas": [
+     1278,
+     719
+    ],
+    "pixelRatio": 0.9991315673568165
+   },
+   "town-road": {
+    "zone": "town",
+    "at": [
+     0,
+     0,
+     4,
+     1.571,
+     0
+    ],
+    "gfxLow": false,
+    "calls": 29,
+    "tris": 29891,
+    "shadowCalls": 0,
+    "shadowTris": 0,
+    "shadowMapOn": false,
+    "renderMs": {
+     "median": 139.7,
+     "p95": 179.2
+    },
+    "submitMs": {
+     "median": 3.7,
+     "p95": 6
+    },
+    "stepMs": {
+     "median": 1.4,
+     "p95": 2.6
+    },
+    "animMs": {
+     "median": 0.1,
+     "p95": 0.3
+    },
+    "anims": 6,
+    "castUs": 2.5,
+    "programs": 19,
+    "geometries": 35,
+    "textures": 138,
+    "pointLights": 2,
+    "meshes": 212,
+    "visibleMeshes": 183,
+    "skinnedVisible": 5,
+    "solids": 288,
+    "canvas": [
+     1278,
+     719
+    ],
+    "pixelRatio": 0.9991315673568165
+   }
+  }
+ },
+ "walk60": {
+  "tier": "low",
+  "zone": "home",
+  "from": {
+   "x": -27,
+   "z": 4.6,
+   "y": 0.12,
+   "yaw": -1.5707963267948966
+  },
+  "metres": 60.03,
+  "frames": 601,
+  "end": [
+   33.03,
+   4.6
+  ],
+  "stepMs": {
+   "median": 0.7,
+   "p95": 1.8,
+   "p99": 4.4,
+   "max": 19.4,
+   "mean": 0.871
+  }
+ }
+}
