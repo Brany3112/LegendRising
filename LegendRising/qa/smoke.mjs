@@ -22,7 +22,7 @@ const {page, close} = await launch({gfx, seed: 1});
 async function settings(){
   const out = {steps: []};
   await page.evaluate(() => { window.__gfxCalls = []; window.__gfxOff = gfxOn((P, prevP, reason) => window.__gfxCalls.push({tier: P.tier, prev: prevP && prevP.tier, reason})); });
-  await page.locator(".title-screen button", {hasText: "Settings"}).click();
+  await page.locator('.title-screen button[title="Settings"]').click();
   await page.waitForSelector("#sheetRoot.open .seg button");
   const labels = await page.locator("#sheetRoot .seg button").allTextContents();
   out.buttons = labels;

@@ -10,7 +10,7 @@
 // your feet), dropped onto the flat's floor, the stair landing and the lobby floor (resting on each), and reloaded
 // where it rested. The ball the film sends in through the window bounces in and rolls to rest with no pop: every
 // frame it moves no further than its speed allows (|v| dt + 1 cm). Every ball step goes through football/ball.js.
-import {launch, snap, report, freeze, CAREER_AT} from "./lib.mjs";
+import {launch, snap, report, freeze, CAREER_AT, titleStart} from "./lib.mjs";
 
 const out = {checks: [], ok: false};
 const check = (what, ok, detail) => { out.checks.push({what, ok: !!ok, detail}); console.log(`  ${ok ? "ok  " : "FAIL"} ${what}${detail !== undefined ? "  " + JSON.stringify(detail).slice(0, 300) : ""}`); };
@@ -200,8 +200,8 @@ try {
   // back in the flat, at rest; the page is closed and the career continued: the ball is where it was
   const before = await ev(() => { const B = __bot, {A, base} = B.flat(); B.place(A.door + .2, base + .02, A.wz + A.s*1.4); B.spawn({x: (A.x0 + A.x1)/2 - .3, y: base + .5, z: (A.wz + A.ext)/2 + .2}); B.settle(6); __bot.modes.persist(true); const d = B.ballDrop(); return {x: d.x, y: d.y, z: d.z, n: S.drops.filter(x => x.item.id === "ball").length}; });
   await page.reload();
-  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".slot-main"), null, {timeout: 90000});
-  await page.locator(".slot-main").first().click();
+  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".ts-save:not(.new)"), null, {timeout: 90000});
+  await titleStart(page);
   await page.waitForFunction(() => window.__life && window.__life.presented >= 2, null, {timeout: 120000});
   await freeze(page);
   await botInit();

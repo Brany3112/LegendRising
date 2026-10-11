@@ -18,7 +18,7 @@
 //   node qa/oldsave.mjs [fixture]     exits 1 on any failure; writes qa/out/oldsave.json
 import fs from "node:fs";
 import path from "node:path";
-import {launch, report, ROOT} from "./lib.mjs";
+import {launch, report, ROOT, titleStart} from "./lib.mjs";
 
 const DIR = path.join(ROOT, "qa", "golden");
 const only = process.argv[2];
@@ -92,9 +92,9 @@ for (const name of FIX){
     await page.evaluate(d => { localStorage.setItem(d.key, JSON.stringify(d.save)); localStorage.setItem(d.metaKey, JSON.stringify(d.meta)); }, doc);
     await page.reload();
     await page.waitForFunction(ready, null, {timeout: 60000});
-    const card = await page.locator(".slot-main .slot-name").first().textContent({timeout: 30000});
+    const card = await page.locator(".ts-save b").first().textContent({timeout: 30000});
     check("the title screen shows the career", card && card.includes(doc.meta.name) ? [] : [`card reads ${JSON.stringify(card)}`]);
-    await page.locator(".slot-main").first().click();
+    await titleStart(page);
     await page.waitForFunction(inWorld, 3, {timeout: 180000});
     const loaded = await page.evaluate(`(${stable})(S)`);
     compare("loaded", loaded);
@@ -119,7 +119,7 @@ for (const name of FIX){
     const back = await page.evaluate(() => { const d = load(); resume(d); return serial(); });
     check("the save reads back into the state that was saved", diffs(JSON.parse(saved), JSON.parse(back)));
     r.hashes.saved = hash(JSON.parse(saved).S); r.hashes.reread = hash(JSON.parse(back).S);
-    await page.locator(".slot-main").first().click();
+    await titleStart(page);
     await page.waitForFunction(inWorld, 3, {timeout: 180000});
     const again = await page.evaluate(`(${stable})(S)`);
     compare("loaded again", again);

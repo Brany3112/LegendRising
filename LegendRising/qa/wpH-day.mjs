@@ -16,7 +16,7 @@
 // trust does not move; and the bus ride ends the home chapter at the training centre.
 // With --reload, the page is reloaded (Continue on the title screen) after every step from H2 on, and the step must
 // resume with nothing duplicated (the plate, the bulb, the ball, the bag).
-import {launch, snap, report, freeze, stepN, CAREER_AT} from "./lib.mjs";
+import {launch, snap, report, freeze, stepN, CAREER_AT, titleStart} from "./lib.mjs";
 
 const RELOAD = process.argv.includes("--reload");
 const SAID_BEFORE = [];
@@ -89,8 +89,8 @@ async function reload(id){
   // (what was said lives in the page: kept from each page before it is reloaded)
   SAID_BEFORE.push(...await linesSaid());
   await page.reload();
-  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".slot-main"), null, {timeout: 90000});
-  await page.locator(".slot-main").first().click();
+  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".ts-save:not(.new)"), null, {timeout: 90000});
+  await titleStart(page);
   await page.waitForFunction(() => window.__life && window.__life.presented >= 2, null, {timeout: 120000});
   await freeze(page);
   await botInit();

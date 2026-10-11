@@ -129,6 +129,17 @@ export async function snap(page, name){
   return file;
 }
 
+// the title screen (ui/main.js screenTitle): a click on the page finishes the entrance if it is still playing, the next
+// one starts (New Game with no career, Continue with one). Clicked for real, on the "press to start" line.
+export async function titleStart(page, timeout = 90000){
+  await page.waitForSelector(".title-screen.ts .ts-press", {timeout});
+  for (let i = 0; i < 4; i++){
+    if (!(await page.locator(".title-screen.ts").count())) return;
+    await page.locator(".ts-press").click({timeout: 30000}).catch(() => {});
+    await page.waitForTimeout(150);
+  }
+  if (await page.locator(".title-screen.ts").count()) throw new Error("the title screen did not start");
+}
 export function expect(cond, msg){ if (!cond) throw new Error(msg || "expectation failed"); }
 
 // write qa/out/<name>.json (the per-script report run.mjs and the integrator read)

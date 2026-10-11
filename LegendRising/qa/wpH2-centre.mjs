@@ -15,7 +15,7 @@
 // for word; trust must not move on day one; the slow clock must hold until the lessons. With the tour reloaded half
 // way it resumes where it was, nothing duplicated. A second career shows the postponement (a tour not done by 3:30 PM
 // carries on the next day, still excused) and the early arrival after the first day. --quick leaves out the lessons.
-import {launch, snap, report, freeze, CAREER_AT} from "./lib.mjs";
+import {launch, snap, report, freeze, CAREER_AT, titleStart} from "./lib.mjs";
 import {playLessons} from "./wpH2-lessonbot.mjs";
 
 const QUICK = process.argv.includes("--quick");
@@ -102,8 +102,8 @@ async function rideToGround(){
 }
 async function reload(){
   await page.reload();
-  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".slot-main"), null, {timeout: 90000});
-  await page.locator(".slot-main").first().click();
+  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".ts-save:not(.new)"), null, {timeout: 90000});
+  await titleStart(page);
   await page.waitForFunction(() => window.__life && window.__life.presented >= 2, null, {timeout: 120000});
   await freeze(page);
   await botInit();

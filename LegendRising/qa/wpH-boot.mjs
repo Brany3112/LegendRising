@@ -13,7 +13,7 @@
 // written and New Game starts again; then creation ("That's me") and the offers, and back in the world the body is the
 // one created (its look's shape key equals bodyLook(S.player.look)'s). Continue of a career is covered too: no frame
 // before the reveal shows anything but black.
-import {launch, snap, report, expect} from "./lib.mjs";
+import {launch, snap, report, expect, titleStart} from "./lib.mjs";
 
 const out = {checks: [], ok: false};
 const check = (what, ok, detail) => { out.checks.push({what, ok: !!ok, detail}); console.log(`  ${ok ? "ok  " : "FAIL"} ${what}${detail !== undefined ? "  " + JSON.stringify(detail).slice(0, 300) : ""}`); };
@@ -37,9 +37,9 @@ await context.addInitScript(frameHook);
 try {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".slot.empty"), null, {timeout: 90000});
+  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".ts-save.new"), null, {timeout: 90000});
   const t0 = Date.now();
-  await page.locator(".slot.empty").first().click();
+  await titleStart(page);
   // black at once
   const black = await page.evaluate(() => !!document.querySelector(".onb-black"));
   check("New Game paints a black page at once", black);
@@ -71,11 +71,11 @@ try {
   await snap(page, "wpH-boot-5-create");
   // reload on the creation screen: still nothing saved, and New Game is there again
   await page.reload();
-  await page.waitForFunction(() => typeof window.startLife === "function" && !!document.querySelector(".slot.empty"), null, {timeout: 90000});
-  const after = await page.evaluate(() => ({slot: localStorage.getItem(slotKey(SLOT)), empty: !!document.querySelector(".slot.empty")}));
+  await page.waitForFunction(() => typeof window.startLife === "function" && !!document.querySelector(".ts-save.new"), null, {timeout: 90000});
+  const after = await page.evaluate(() => ({slot: localStorage.getItem(slotKey(SLOT)), empty: !!document.querySelector(".ts-save.new")}));
   check("a reload during creation writes no save and leaves New Game", !after.slot && after.empty, after);
   // and again, this time to the end: skip the film (Tab), make the player, sign
-  await page.locator(".slot.empty").first().click();
+  await titleStart(page);
   await page.waitForFunction(() => !!document.querySelector("#cineSub.on"), null, {timeout: 240000});
   await page.keyboard.press("Tab");
   await page.waitForSelector(".page.create", {timeout: 240000});
@@ -107,8 +107,8 @@ try {
   // Continue: the career comes back at the bed, and nothing is shown until two frames have been drawn behind the cover
   await page.evaluate(() => saveNow());
   await page.reload();
-  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".slot-main"), null, {timeout: 90000});
-  await page.locator(".slot-main").first().click();
+  await page.waitForFunction(() => typeof window.startLife === "function" && !!window.__life && !!document.querySelector(".ts-save:not(.new)"), null, {timeout: 90000});
+  await titleStart(page);
   await page.waitForFunction(() => window.__frames.length >= 4, null, {timeout: 120000, polling: 100});
   const cont = await page.evaluate(() => ({frames: window.__frames.slice(0, 4), step: S.onb.step, film: S.flags.FirstTimeIntroductionCompleted}));
   check("Continue: the first two frames are drawn behind the cover", cont.frames.slice(0, 2).every(f => f.op >= .98), cont.frames);
