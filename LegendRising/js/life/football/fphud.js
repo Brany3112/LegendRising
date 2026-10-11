@@ -20,6 +20,11 @@
      edges         team-mates' calls (a chevron, or a tick at the edge when he is off screen), the ball when it is
                    off screen and near, the speed lines and the fatigue vignette
      Tab held      the overview radar; a small radar always on when the setting asks for it
+     the warm-up   (WP-W1, addendum A1.8) the set's panel top right (the exercise, what to do, its time, a dot per
+                   exercise), the exercise's own guide round the crosshair (the beat ring, the beat strip, the depth
+                   gauge, the pendulum, the circle, the balance dot, the Go call, the pass marker over the coach), the
+                   pops (Good, Perfect, Streak x5), the coaches' and team-mates' lines as subtitles, the rating card; at
+                   the scorebug's foot a small Warm mark with the boost and its minutes left (On fire after a goal)
    Text is written at most ten times a second and only when it changes; the arcs and rings are transforms and dash
    offsets updated per frame. Settings (this device's, control.js SET): HUD scale, opacity, a colour-blind palette,
    each element hidden on its own. */
@@ -57,6 +62,7 @@ export function hudInit(cfg){
       <div class="fp-clock"><b class="fp-min">0'</b><span class="fp-add"></span></div>
       <div class="fp-pips"><span class="fp-off" title="Offside line"></span><span class="fp-bk"></span></div>
     </div>
+    <div class="fp-warm"><i></i><b></b><span></span></div>
     <div class="fp-scen" data-part="scenario"></div>
     <div class="fp-cards" data-part="cards"></div>
     <div class="fp-cross">
@@ -85,6 +91,10 @@ export function hudInit(cfg){
     <div class="fp-calls" data-part="calls"></div>
     <div class="fp-ballmark"></div>
     <canvas class="fp-radar" width="210" height="140"></canvas>
+    <div class="fp-wu"><div class="fp-wu-head"><b class="fp-wu-name"></b><span class="fp-wu-n"></span></div><div class="fp-wu-how"></div><div class="fp-wu-bar"><i></i></div><div class="fp-wu-dots"></div></div>
+    <div class="fp-wu-w"></div>
+    <div class="fp-pops"></div>
+    <div class="fp-say"><b></b><span></span></div>
     <div class="fp-overlay"></div>`;
   host.appendChild(r);
   const q = s => r.querySelector(s);
@@ -93,7 +103,9 @@ export function hudInit(cfg){
     arc:q(".fp-arc"), arcFill:q(".fp-arc-fill"), arcSweet:q(".fp-arc-sweet"), arcTick:q(".fp-arc-tick"), ring:q(".fp-ring"), ringWin:q(".fp-ring-win"),
     hold:q(".fp-hold"), ret:q(".fp-ret"), retC:q(".fp-ret-c"), arcBg:q(".fp-arc-bg"), arcG:q(".fp-arcg"), sline:q(".fp-sline"),
     contact:q(".fp-contact"), curl:q(".fp-curl"), glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
-    energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:q(".fp-overlay")});
+    energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:q(".fp-overlay"),
+    warm:q(".fp-warm"), warmB:q(".fp-warm b"), warmS:q(".fp-warm span"), wu:q(".fp-wu"), wuName:q(".fp-wu-name"), wuN:q(".fp-wu-n"), wuHow:q(".fp-wu-how"),
+    wuBar:q(".fp-wu-bar i"), wuDots:q(".fp-wu-dots"), wuW:q(".fp-wu-w"), pops:q(".fp-pops"), say:q(".fp-say"), sayB:q(".fp-say b"), sayS:q(".fp-say span")});
   const sides = [q(".fp-home i"), q(".fp-away i")];
   sides[0].style.background = cfg.home.kit[0]; sides[1].style.background = cfg.away.kit[0];
   D.el.hs.textContent = cfg.home.short; D.el.as.textContent = cfg.away.short;
@@ -104,6 +116,7 @@ export function hudInit(cfg){
   D.ringLen = 2*Math.PI*17;
   D.el.ring.style.strokeDasharray = `${D.ringLen} ${D.ringLen}`;
   D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null; D.retA = 0; D.kickSeq = -1; D.slineT = 0; D.desat = 0;
+  D.pops = []; D.sayT = 0; D.wuKind = null; D.wuEl = {};
   applySettings();
   return r;
 }
@@ -277,6 +290,8 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   ballMark(s);
   // the overview (Tab held) or the small radar (the setting)
   if (D.tab || SET.radar) radar(s, D.tab);
+  // the warm-up (A1.8): its panel and guide, the pops, the lines, the Warm mark
+  warmFrame(s, dt, now, slow);
 }
 // the power arc's circle (A1.7): its radius, the angle it starts at (SVG degrees, clockwise from three o'clock) and its span
 const ARC_R = 18, ARC_START = 120, ARC_SPAN = 300;
@@ -372,6 +387,127 @@ function radar(s, big){
   g.fillStyle = "#fff59a"; g.beginPath(); g.arc(ox + ms.ball.p.x*sx, oz + ms.ball.p.z*sz, 2, 0, Math.PI*2); g.fill();
   cv.classList.toggle("big", !!big);
 }
+
+/* ---------- the warm-up (WP-W1, addendum A1.8) ----------
+   s.warm (warmup.js warmHud): {name, how, i, n, sub: 'intro'|'go'|'outro', t, dur, streak, w: the guide's state, tab,
+   scores}; s.warmIcon: {all, left (minutes), mins, fire, wait} | null. hudPop and hudSay are called as things happen */
+const POP_MS = {rating:4200, great:1800, set:1500, streak:1500, info:1700, go:900};
+export function hudPop(text, kind = "good", sub = ""){
+  if (!D.root) return;
+  const n = document.createElement("div");
+  n.className = `fp-pop fp-pop-${kind}`;
+  n.innerHTML = `<b>${esc(text)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}`;
+  D.el.pops.appendChild(n);
+  void n.offsetWidth; n.classList.add("in");
+  D.pops.push({n, until:performance.now() + (POP_MS[kind] || 1000)});
+  while (D.pops.length > 4){ const o = D.pops.shift(); o.n.remove(); }
+}
+// a line said to you (the coaches) or shouted from the bench (a team-mate): a subtitle under the middle of the view
+export function hudSay(who, text, mate = false){
+  if (!D.root) return;
+  const E = D.el;
+  // (a shout from the bench never talks over a coach who is still being read)
+  if (mate && D.sayT > 1.6 && !E.say.classList.contains("mate")) return;
+  E.sayB.textContent = who ? who + ":" : ""; E.sayS.textContent = text;
+  E.say.classList.toggle("mate", !!mate);
+  E.say.classList.remove("in"); void E.say.offsetWidth; E.say.classList.add("in");
+  D.sayT = mate ? 2.6 : 4.8;
+}
+function warmFrame(s, dt, now, slow){
+  const E = D.el, W = s.warm || null;
+  // the pops float up and go
+  for (let i = D.pops.length - 1; i >= 0; i--){ const p = D.pops[i]; if (now > p.until){ p.n.classList.add("out"); const n = p.n; setTimeout(() => n.remove(), 350); D.pops.splice(i, 1); } }
+  if (D.sayT > 0 && (D.sayT -= dt) <= 0) E.say.classList.remove("in");
+  // the Warm mark: the boost and its minutes left, fading as they run down; On fire after a goal or an assist
+  const I = s.warmIcon || null;
+  if (slow){
+    if (I){
+      put("warmB", E.warmB, I.fire ? "On fire" : `Warm +${I.all}`);
+      put("warmS", E.warmS, `${Math.max(0, Math.ceil(I.wait ? I.mins : I.left))}'`);
+      E.warm.className = "fp-warm on" + (I.fire ? " fire" : "") + (I.wait ? " wait" : "");
+      E.warm.style.opacity = (I.wait ? .9 : .4 + .6*clamp(I.left/Math.max(1, I.mins), 0, 1)).toFixed(2);
+    } else if (D.txt.warmB !== null){ D.txt.warmB = null; E.warm.className = "fp-warm"; }
+  }
+  // the set's panel
+  E.wu.classList.toggle("on", !!W);
+  if (!W){ if (D.wuKind){ D.wuKind = null; E.wuW.innerHTML = ""; E.wuW.className = "fp-wu-w"; D.wuEl = {}; } return; }
+  if (slow){
+    put("wuName", E.wuName, W.name); put("wuN", E.wuN, `${W.i + 1} of ${W.n}`); put("wuHow", E.wuHow, W.how);
+    let dots = "";
+    for (let i = 0; i < W.n; i++){ const sc = W.scores[i]; dots += `<i class="${i === W.i ? "now" : sc == null ? "" : sc >= .72 ? "hi" : sc >= .42 ? "mid" : "lo"}"></i>`; }
+    putH("wuDots", E.wuDots, dots);
+  }
+  E.wuBar.style.transform = `scaleX(${(W.sub === "go" ? clamp(1 - W.t/W.dur, 0, 1) : W.sub === "intro" ? 1 : 0).toFixed(3)})`;
+  // the guide round the crosshair
+  const w = W.w, kind = w ? w.kind : null;
+  if (kind !== D.wuKind){
+    D.wuKind = kind; E.wuW.className = "fp-wu-w" + (kind ? " k-" + kind : ""); E.wuW.innerHTML = kind ? WIDGET[kind] : ""; D.wuEl = {};
+    for (const el of E.wuW.querySelectorAll("[data-w]")) D.wuEl[el.dataset.w] = el;
+  }
+  if (!w) return;
+  const G = D.wuEl, px = v => v.toFixed(1) + "px";
+  switch (kind){
+    case "beat": {
+      // the approach ring closes on the target ring as the next footfall comes; the target flashes as a foot lands
+      const k = clamp(w.next, 0, 1.4);
+      G.ap.setAttribute("r", (16 + 34*k).toFixed(1)); G.ap.style.opacity = (.25 + .6*(1 - k/1.4)).toFixed(2);
+      G.tg.style.strokeWidth = (2 + 3*w.flash).toFixed(2); G.tg.style.opacity = (.55 + .45*w.flash).toFixed(2);
+      break;
+    }
+    case "strip": {
+      // the beats slide in from the right to the hit line; A for the left leg, D for the right; the kicks in amber
+      const html = [];
+      for (const b of w.beats){ const x = 34 + (b.t - w.t)*150; if (x < 0 || x > 340 || b.done) continue; html.push(`<i class="${b.s > 0 ? "l" : "r"}${b.kick ? " kick" : ""}" style="transform:translateX(${x.toFixed(1)}px)">${b.s > 0 ? "A" : "D"}</i>`); }
+      G.beats.innerHTML = html.join("");
+      put("wuKick", G.lab, w.kick ? "Butt kicks" : "High knees");
+      break;
+    }
+    case "gauge":
+      G.knob.style.transform = `translateY(${px(170*(1 - clamp(w.v, 0, 1)))})`;
+      G.band.style.transform = `translateY(${px(170*(1 - w.target) - 170*w.band/2)})`; G.band.style.height = px(170*w.band);
+      G.ghost.style.transform = `translateY(${px(170*(1 - w.target))})`;
+      break;
+    case "pend":
+      G.guide.style.transform = `rotate(${(clamp(w.guide, -1.2, 1.2)*55).toFixed(1)}deg)`;
+      G.me.style.transform = `rotate(${(clamp(w.v, -1.2, 1.2)*55).toFixed(1)}deg)`;
+      break;
+    case "circle":
+      G.dot.setAttribute("cx", (70*clamp(w.x, -1.6, 1.6)).toFixed(1)); G.dot.setAttribute("cy", (70*clamp(w.y, -1.6, 1.6)).toFixed(1));
+      G.trail.setAttribute("points", w.trail.map(p => `${(70*p[0]).toFixed(1)},${(70*p[1]).toFixed(1)}`).join(" "));
+      break;
+    case "balance": {
+      const d = Math.hypot(w.x, w.y);
+      G.dot.style.transform = `translate(${px(52*w.x)}, ${px(52*w.y)})`;
+      G.dot.className = "dot " + (d < .3 ? "in" : d < .6 ? "near" : "out");
+      break;
+    }
+    case "go":
+      G.go.style.opacity = w.show.toFixed(2); G.go.style.transform = `scale(${(1 + .25*w.show).toFixed(3)})`;
+      put("wuRt", G.rt, w.rt != null ? `Reaction ${w.rt.toFixed(2)} s` : "Wait for the call");
+      break;
+    case "juggle": put("wuTouch", G.n, `Touches ${w.touches}`); break;
+    case "pass": {
+      const p = w.at && s.proj ? s.proj(w.at.x, 2.15, w.at.z) : null;
+      if (p && p.on){ G.mk.style.opacity = "1"; G.mk.style.transform = `translate(${px(p.x)}, ${px(p.y)})`; }
+      else G.mk.style.opacity = "0";
+      G.mk.classList.toggle("open", w.open >= 0);
+      G.fill.style.transform = `scaleX(${(w.open >= 0 ? 1 - w.open : 0).toFixed(3)})`;
+      break;
+    }
+  }
+}
+// the guides' markup (built once per exercise, moved by transforms each frame)
+const WIDGET = {
+  beat:`<svg class="w-beat" viewBox="-60 -60 120 120"><circle data-w="tg" class="tg" r="16"/><circle data-w="ap" class="ap" r="40"/></svg>`,
+  strip:`<div class="w-strip"><div class="w-hit"></div><div data-w="beats" class="w-beats"></div><span data-w="lab" class="w-lab"></span></div>`,
+  gauge:`<div class="w-gauge"><i data-w="band" class="band"></i><i data-w="ghost" class="ghost"></i><i data-w="knob" class="knob"></i></div>`,
+  pend:`<div class="w-pend"><div class="arc"></div><i data-w="guide" class="guide"><b></b></i><i data-w="me" class="me"><b></b></i></div>`,
+  circle:`<svg class="w-circle" viewBox="-115 -115 230 230"><circle class="ring" r="70"/><polyline data-w="trail" class="trail" points=""/><circle data-w="dot" class="dot" r="6"/></svg>`,
+  balance:`<div class="w-bal"><i class="zone2"></i><i class="zone"></i><i data-w="dot" class="dot"></i></div>`,
+  go:`<div class="w-go"><b data-w="go">GO!</b><span data-w="rt"></span></div>`,
+  juggle:`<div class="w-jug"><span data-w="n"></span></div>`,
+  pass:`<div data-w="mk" class="w-pass"><i><b data-w="fill"></b></i><span>Now!</span></div>`
+};
 
 /* ---------- the match settings (3.4.7; addendum A1.2 and A1.4) ----------
    This device's settings (control.js SET, localStorage freyaFootball.ctrl), as rows for the pause card and the
