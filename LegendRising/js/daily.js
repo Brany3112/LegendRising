@@ -26,7 +26,8 @@
      attendLeave(): you are leaving the training centre; before SESSION.late it undoes the arrival.
      homeMonth(s), homeMigrate(h): the billing month; the 1.7 migration of S.home (light, lightBy, lightMin).
      constants: EARLY, POWER_CUT_KEEP, WAKE, NOISY_SLEEP, ROADWORKS_DELAY, ATTEND, MISS_MATCH, SHIFT, ACT (with run).
-   Trust only ever changes through trustAdd (DESIGN 1.3). */
+   Trust only ever changes through trustAdd (DESIGN 1.3). WP-W2 (stage P2c, addendum A1.8): the day's events that move
+   Motivation call career.js (motivationAttend, motivationSlept, motivationAte, motivationMissedMatch, motivationNewDay). */
 
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 // team training: ten till four, the squad going home after it; the training centre itself is open six till five
@@ -234,7 +235,7 @@ function onboarding(){
 }
 function freshToday(){
   return {xp:0, xpBy:{}, jobXp:0, earned:0, spent:0, eaten:0, food:0, drinks:0, chem0:num(S.chem, 0), trust0:num(S.trust, 0),
-    trainMin:0, workMin:0, sessions:0, media:0, start:S.life ? absNow() : 0};
+    trainMin:0, workMin:0, sessions:0, media:0, motivFood:0, start:S.life ? absNow() : 0};
 }
 // new skills arrive in older careers as something close to what the player already is, so the overall barely moves
 const SKILL_SEED = {
@@ -551,6 +552,7 @@ function settleAttendance(){
   // a run of early days: on to the next, or over (anything but an early, full day ends it; the first day leaves it be)
   if (!a.excused) E.streak = early ? E.streak + 1 : 0;
   if (d) trustAdd(d);
+  if (typeof motivationAttend === "function") motivationAttend(k, a.chem);      // (Motivation, addendum A1.8)
   dailyEmit("settled", {d, k, bonus, streak:E.streak, capped, chem:a.chem});
 }
 
@@ -559,6 +561,7 @@ function dayRollover(){
   const L = S.life;
   if (!L.att.settled) settleAttendance();
   missedMatches(true);
+  if (typeof motivationNewDay === "function") motivationNewDay();
   L.day++; L.wd = (L.wd + 1) % 7;
   L.att = freshAtt();
   dailyEmit("newday", {day:L.day, wd:L.wd});
@@ -595,6 +598,7 @@ function missedMatches(dayEnded){
     try { simFixture(f); } catch(e){ console.error(e); }
     if (!excused){
       trustAdd(MISS_MATCH); chemAdd(MISS_MATCH_CHEM);
+      if (typeof motivationMissedMatch === "function") motivationMissedMatch();
       addNews("you", `${S.player.name} misses the match`, `${sideName(f, "h")} v ${sideName(f, "a")} went ahead without him. The manager wants an explanation.`, "me");
     }
     dailyEmit("missed", {f, excused});
@@ -635,10 +639,12 @@ function sleepPlan(kind, tier, m){
 }
 // sleep by a plan: the clock through it, then what it said
 function sleepBy(plan){
+  const f0 = num(S.fatigue, 0);
   S.boost = null;
   dailyPass(plan.mins, "sleep");
   S.fatigue = clamp(S.fatigue + plan.fatigue, 0, 100);
   S.energy = clamp(S.energy + plan.energy, 0, 100);
+  if (typeof motivationSlept === "function") motivationSlept(plan, f0);           // (a good night lifts Motivation, a short one drags it, A1.8)
   return {mins:plan.mins, hours:plan.hours, fatigue:Math.round(plan.fatigue), energy:Math.round(plan.energy), plan};
 }
 // sleep until WAKE tomorrow (or this morning, if it is already past midnight). Returns what it did.
@@ -736,6 +742,7 @@ function consume(id, src){
   if (!(S.inv[id] > 0)) return {ok:false, why:`You have no ${it.name.toLowerCase()} left.`};
   const fx = foodEffect(id, src);
   if (fx.full) return {ok:false, why:fx.why, full:true, fx};
+  const e0 = num(S.energy, 0);
   S.inv[id]--;
   if (it.kind === "energy"){
     S.today.drinks = (S.today.drinks || 0) + 1;
@@ -745,6 +752,7 @@ function consume(id, src){
   S.fatigue = clamp(S.fatigue + fx.fatigue, 0, 100);
   S.hyd = clamp(num(S.hyd, 82) + fx.hyd, 0, 100);
   S.today.eaten++; S.today.food += fx.energy;
+  if (typeof motivationAte === "function") motivationAte(it, e0);
   dailyPass(it.mins, "idle");
   if (typeof save === "function") save();
   return {ok:true, gain:Math.round(fx.energy), fat:Math.round(fx.fatigue*10)/10, hyd:Math.round(fx.hyd), item:it, mult:fx.keep, fx};

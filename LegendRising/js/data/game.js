@@ -27,6 +27,19 @@ const SKILL_HOW = {
   composure:"Big crowds on match day", tackling:"Matches and team sessions", interception:"Pitch · interception drill by the ball machine",
   jumping:"Gym · plyo boxes, and the heading drill", heading:"Pitch · heading drill at the far goal"
 };
+/* Every club's coach has a style (addendum A1.8, WP-W2): it is data on the club (W.clubs[i].coachStyle, career.js
+   coachStyleOf, fixed by a hash of the club's name so a club always keeps its coach) and it decides which focus the
+   warm-up's boost can land on. focus: the two the coach picks from, each with the career skills (S.skills keys) it
+   raises; warmBoost (career.js) reads the same keys. */
+const COACH_STYLES = {
+  attacking:{name:"Attacking", line:"Wants his players running at people and shooting on sight.",
+    focus:[{id:"finishing", name:"Finishing", skills:["accuracy", "power"]}, {id:"dribbling", name:"Dribbling", skills:["dribbling"]}]},
+  pressing:{name:"Pressing", line:"Wants the ball back the moment it's lost, and legs that last ninety minutes.",
+    focus:[{id:"stamina", name:"Stamina", skills:["stamina"]}, {id:"acceleration", name:"Acceleration", skills:["acceleration"]}]},
+  technical:{name:"Technical", line:"Wants it on the floor, passed quickly and controlled with one touch.",
+    focus:[{id:"passing", name:"Passing", skills:["passing", "passacc"]}, {id:"ballControl", name:"Ball Control", skills:["dribbling", "composure", "passing"]}]}
+};
+const COACH_STYLE_IDS = ["attacking", "pressing", "technical"];
 /* Everything you can eat or drink. energy is the food/energy meter, fatigue a change to tiredness
    (negative helps). mins is how long it takes. store is the Mini Market price, foodies the delivered one. */
 const FOOD = {

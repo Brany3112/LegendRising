@@ -14,7 +14,7 @@ APPVIEWS.scout = t => {
   if (t.view === "clubs"){
     const lg = W.leagues[t.p.lg];
     return {title:lg.nm, html:lg.clubs.map(id => W.clubs[id]).sort((a,b) => b.rep - a.rep).map(c => { const i = clubInterest(c), lock = S.locks[c.id] && S.locks[c.id] > gw();
-      return `<button class="list-row" onclick="startNeg(${c.id})">${crest(c.nm, 26)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)}${lock ? " · talks locked" : ""}</div></div><div class="interest"><i style="width:${Math.round(i*100)}%"></i></div></button>`; }).join("")};
+      return `<button class="list-row" onclick="startNeg(${c.id})">${crest(c.nm, 26)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)} · ${esc(coachStyleName(c))} coach${lock ? " · talks locked" : ""}</div></div><div class="interest"><i style="width:${Math.round(i*100)}%"></i></div></button>`; }).join("")};
   }
   if (t.view === "neg") return negView();
   return {title:"Scout Pro", html:""};
@@ -60,7 +60,7 @@ function negView(){
     : `<div class="neg-reply">Set your requests on the left, then send them. Ask for too much and their patience runs out.</div>`;
   const canSign = r && !r.stale && ["ok","loan"].includes(r.status) && !n.done;
   return {title:`Talks: ${c.nm}`, land:true, html:`<div class="neg">
-    <div class="neg-top">${crest(c.nm, 28)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)} · their first offer ${eur(n.base.wage)}/wk</div></div>
+    <div class="neg-top">${crest(c.nm, 28)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)} · their first offer ${eur(n.base.wage)}/wk</div><div class="muted small neg-coach">${esc(coachStyleName(c))} coach. ${esc(COACH_STYLES[coachStyleOf(c)].line)}</div></div>
       <div class="patience"><span>Patience</span><div class="meter"><i style="width:${pat}%;background:${pat > 50 ? "#5fd47a" : pat > 25 ? "#ffd75a" : "#ef5a60"}"></i></div></div></div>
     <div class="neg-cols"><div class="neg-left"><div class="neg-h">Your requests</div>${left}<button class="btn sm" ${n.done ? "disabled" : ""} onclick="negSend()">Send offer</button></div>
       <div class="neg-right"><div class="neg-h">Their answer</div>${right}

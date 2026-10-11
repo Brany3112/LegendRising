@@ -5,7 +5,7 @@
    card before you sleep. They all share one frame, one look, and Esc to close.
    Owner: WP-G (Stage 1). Contracts: DESIGN 3.8.3 (the sleep button says what sleepPlan says), 3.8.9 (bus minutes from
    busMins, hours from the helpers), 3.7.3 (the look editor in the world offers only what you own), 3.7.4 (lifeOnb
-   "openBus"). */
+   "openBus"). WP-W2 (stage P2c): Motivation and its reason on the computer's Today and Skills tabs (addendum A1.8). */
 const LP = {open:false, kind:"", tab:"today", onClose:null, busy:false};
 const pctOf = (v, max) => clamp(100*num(v, 0)/(max || 1), 0, 100);
 const pbar = (pct, cls) => `<div class="pb ${cls || ""}"><i style="width:${clamp(num(pct, 0), 0, 100).toFixed(1)}%"></i></div>`;
@@ -84,6 +84,7 @@ function pcToday(){
       <div class="pc-card"><div class="pc-h">At the club</div>
         ${meterRow("Team Chemistry", S.chem, 100, "chem", `${Math.round(S.chem)}`)}<div class="pc-lab">${chemLabel()}</div>
         ${meterRow("Manager trust", S.trust + 30, 110, "trust", `${Math.round(S.trust)}`)}<div class="pc-lab">${roleOutlook()}</div>
+        ${meterRow("Motivation", motivation(), 100, "motiv", `${Math.round(motivation())}`)}<div class="pc-lab" title="${esc(motivationWhy())}">${motivationLabel()}</div>
         <div class="pc-eff">Wage <b>${S.contract ? eur(S.contract.wage) + "/wk" : EMPTY_CELL}</b> · Money <b>${eurFull(S.money)}</b></div></div>
     </div>
     <div class="pc-card"><div class="pc-h">Advice</div>${tips.map(t => `<p class="pc-tip">${esc(t)}</p>`).join("")}</div>
@@ -92,11 +93,21 @@ function pcToday(){
 function pcSkills(){
   return `<div class="pc-hero slim"><div><span class="pc-dow">Overall</span><b class="pc-tm">${overall()}</b></div>
       <div class="pc-meta">Level ${S.level} · ${S.xp}/${xpNeed()} XP<br><b class="${S.sp ? "lime" : ""}">${S.sp} skill point${S.sp === 1 ? "" : "s"} to spend</b></div></div>
+    ${pcMotivation()}
     <div class="pc-skills">${SKILLS.map(([k, n]) => {
       const v = num(S.skills[k], 0), xp = num(S.skillXp[k], 0), need = skillNeed(k), cost = skillCost(v), pct = v >= 99 ? 100 : pctOf(xp, need);
       return `<div class="sk"><div class="sk-top"><b>${esc(n)}</b><em>${v}</em></div>${pbar(pct, "xp")}
         <div class="sk-foot"><span>${v >= 99 ? "Maxed" : `${Math.round(xp)} / ${need} XP`}</span><span class="sk-how">${esc(SKILL_HOW[k] || "")}</span>
         ${S.sp >= cost && v < 99 ? `<button class="sk-up" onclick="A.up('${k}');renderComputer()">+1 · ${cost} pt${cost > 1 ? "s" : ""}</button>` : ""}</div></div>`; }).join("")}</div>`;
+}
+// Motivation on the stats panel (addendum A1.8, WP-W2): the number, a word for it, the last thing that moved it, and
+// what it does for you
+function pcMotivation(){
+  const m = motivation(), w = S.player.motivWhy, d = w && w.d ? w.d : 0;
+  return `<div class="pc-card pc-motiv"><div class="pc-h">Motivation</div>
+    ${meterRow(motivationLabel(m), m, 100, "motiv", `${Math.round(m)}`)}
+    <p class="pc-tip motiv-why">${d ? `<b class="${d > 0 ? "lime" : ""}">${esc(fmtSigned(d, Number.isInteger(d) ? 0 : 1))}</b> ` : ""}${esc(motivationWhy())}</p>
+    <p class="pc-tip muted">Turning up early, wins, good games, proper sleep and food keep it up. Losing runs, the bench, bad nights and missed training wear it down. The higher it is, the more a warm-up gives you, the more room your timing has and the better you recover during a match.</p></div>`;
 }
 function pcCareer(){
   const k = S.contract, js = jobState(), {job, rank} = myJob(), top = jobIsTop(), me = meP(), sm = S.seasonMy, cm = S.careerMy;
