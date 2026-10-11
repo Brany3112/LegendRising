@@ -229,7 +229,7 @@ export function bus(to){
       H.enterZone(to, "bus");
       arrive(from, to);
       persist(true);
-      setTimeout(() => { o.style.transition = "opacity .55s ease"; o.style.opacity = "0"; FADE.v = 0; setTimeout(() => { const c = o.querySelector(".ride"); if (c && !FLAGS.busy) c.remove(); }, 600); }, 120);
+      setTimeout(() => { o.style.transition = "opacity .55s ease"; o.style.opacity = "0"; FADE.v = 0; }, 120);
     }, {icon:"🚌", dur:clamp(mins/60*1.7, 2.2, 3.6), ride:{from:STOP_NAME[from], to:STOP_NAME[to], mins}});
   }, 480);
 }
@@ -280,6 +280,20 @@ export function timeLapse(mins, act, label, done, o = {}){
   if (el && !o.ride){ el.innerHTML = `<div class="lb-card"><span class="lb-ico">${o.icon || "⏩"}</span><div><b class="lb-label"></b><span class="lb-time"></span></div><div class="lb-bar"><i></i></div></div>`; el.classList.add("on"); }
   if (el) paintBusy(FLAGS.busy, 0);
 }
+// a trip's card lives on the cover (#lifeFade) and goes once the cover has lifted after the trip, whoever lifts it (the
+// bus, the match day's dressing room): left there, the next cover (half time, a skip, a substitution) would show the
+// old trip instead of black
+function dropRideWhenClear(el){
+  const f = fadeEl();
+  const stop = () => { f.removeEventListener("transitionend", chk); clearInterval(iv); };
+  const chk = () => {
+    if (!el.isConnected){ stop(); return; }
+    if (FLAGS.busy && FLAGS.busy.el === el) return;
+    if (+getComputedStyle(f).opacity < .02){ el.remove(); stop(); }
+  };
+  f.addEventListener("transitionend", chk);
+  const iv = setInterval(chk, 400);
+}
 function paintBusy(b, k){
   const el = b.el; if (!el) return;
   const lab = typeof b.label === "function" ? b.label(k) : b.label;
@@ -297,6 +311,7 @@ export function stepBusy(real){
     FLAGS.busy = null; FLAGS.modal = false;
     if (b.el && !b.ride) b.el.classList.remove("on");
     if (b.cb) b.cb();
+    if (b.ride && b.el) dropRideWhenClear(b.el);
     if (window.lifeRelock) window.lifeRelock();
   }
 }
