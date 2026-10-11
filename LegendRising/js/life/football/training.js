@@ -29,7 +29,7 @@ import {SCHED} from "../core/sched.js";
 import {animateHuman, EV} from "../human.js";
 import {GROUND} from "../ground.js";
 import {hudSet, hudResult, hudClose} from "../drills.js";
-import {createMatch, simStep, REF, AR1, AR2, TEMPO} from "./sim.js";
+import {createMatch, simStep, on as simOn, REF, AR1, AR2, TEMPO} from "./sim.js";
 import {createBall, ballKick, BALL} from "./ball.js";
 import {solveStrike, idealPassSpeed} from "./strike.js";
 import {attrsForAI} from "./attrs.js";
@@ -233,7 +233,11 @@ function buildItem(item, who, opts = {}){
   };
   const T = {item, spec, F, ac, ms, me:ms.agents[ms.me], myTeam, oppTeam, bodies:new Map(), V:null, t:0, acc:0,
     evFrom:0, tries:0, rep:0, results:[], xp:{}, xpRaw:0, qs:[], done:false, phase:"play", tRep:0, opts, onEnd:opts.onEnd || null,
-    traits:meRec.traits || {}, sprintD:0, ballSeen:false, inPlay:false};
+    traits:meRec.traits || {}, sprintD:0, ballSeen:false, inPlay:false, goalAt:null, bounces:0};
+  // what the ball itself does (ball.js, through the simulation's own feed): where a goal crossed the line, height and
+  // all (the corner targets score on it), and each bounce on the grass (a volley is struck before the first)
+  simOn(ms, "goal", d => { if (d && d.end != null && d.y != null) T.goalAt = {y:d.y, z:d.z, end:d.end, t:d.t}; });
+  simOn(ms, "bounce", () => { T.bounces++; });
   placeAt(T.me, P.x, P.z, P.yaw);
   for (const t of [0, 1]){
     const list = ms.agents.filter(a => a.team === t && a.role === "player");
@@ -299,23 +303,27 @@ function feedStep(T){
       takeBall(T, f.from.x, f.from.z, true);
       f.stage = "swing"; f.t = 0;
       const bw = worldOf(T, f.from.x, f.from.z), tw = worldOf(T, f.to.x, f.to.z);
-      COACH.feed = {st:{mode:"strike", kind:f.kind === "cross" ? "lofted" : "side", side:"R", ball:{x:bw.x, y:R, z:bw.z}, dir:{x:tw.x - bw.x, z:tw.z - bw.z},
-        power:f.kind === "cross" ? .8 : .5, curl:0, lowHigh:f.kind === "cross" ? 1 : 0, tc:TRAIN.FEED_TC}};
+      const up = f.kind === "cross" || f.kind === "loft";
+      COACH.feed = {st:{mode:"strike", kind:up ? "lofted" : "side", side:"R", ball:{x:bw.x, y:R, z:bw.z}, dir:{x:tw.x - bw.x, z:tw.z - bw.z},
+        power:f.kind === "cross" ? .8 : f.kind === "loft" ? .55 : .5, curl:0, lowHigh:up ? 1 : 0, tc:TRAIN.FEED_TC}};
       f.tc = ms.t + TRAIN.FEED_TC;
     }
     return;
   }
   if (f.stage === "swing" && ms.t >= f.tc - 1e-9){
     const b = ms.ball, d = Math.hypot(f.to.x - b.p.x, f.to.z - b.p.z);
-    const cross = f.kind === "cross";
-    const speed = cross ? clamp(Math.sqrt(12.5*Math.max(4, d))*(1 + .005*d), 9, 24) : idealPassSpeed(Math.max(2, d), 9, b.rollDecel);
-    const r = solveStrike({from:{x:b.p.x, y:b.p.y, z:b.p.z}, target:{x:f.to.x, y:f.to.y != null ? f.to.y : R, z:f.to.z}, speed, contact:cross ? 1 : 0, curl:0, foot:"R",
-      kind:cross ? "cross" : "pass", rollDecel:b.rollDecel});
+    const cross = f.kind === "cross", loft = f.kind === "loft";
+    // (a lob for a volley: a little over the slowest speed that carries it there, so it climbs steeply, about 45 degrees,
+    // and drops into the volleyer's stride from above rather than skimming in)
+    const speed = loft ? clamp(Math.sqrt(9.81*Math.max(3, d))*1.06*(1 + .006*d), 6, 15)
+      : cross ? clamp(Math.sqrt(12.5*Math.max(4, d))*(1 + .005*d), 9, 24) : idealPassSpeed(Math.max(2, d), 9, b.rollDecel);
+    const r = solveStrike({from:{x:b.p.x, y:b.p.y, z:b.p.z}, target:{x:f.to.x, y:f.to.y != null ? f.to.y : R, z:f.to.z}, speed, contact:cross || loft ? 1 : 0, curl:0, foot:"R",
+      kind:cross || loft ? "cross" : "pass", rollDecel:b.rollDecel});
     b.state = "free";
-    ballKick(b, r.v, r.w, {agent:-1, team:T.myTeam, kind:cross ? "cross" : "pass", t:ms.t});
+    ballKick(b, r.v, r.w, {agent:-1, team:T.myTeam, kind:cross || loft ? "cross" : "pass", t:ms.t});
     refreshPred(ms);
     if (AUD && AUD.cue) AUD.cue("kick", worldPt(T, b.p), .7);
-    f.stage = "gone"; T.feed = null; T.fedAt = ms.t;
+    f.stage = "gone"; T.feed = null; T.fedAt = ms.t; T.fedBounces = T.bounces;
     if (COACH.feed) COACH.feed.after = .5;
   }
 }
@@ -636,7 +644,7 @@ function runOver(run){
   const sess = GROUND.session;
   if (run.leaveHook && sess && sess.beforeLeave){ const i = sess.beforeLeave.indexOf(run.leaveHook); if (i >= 0) sess.beforeLeave.splice(i, 1); }
   if (GROUND.session && GROUND.session.release) GROUND.session.release(run.lent || []);
-  coachGive(); conesFor(null); markAt(null); hudClose();
+  coachGive(); conesFor(null); markAt(null); hudClose(); targetsUp(run.item, false);
   if (RUN.cur === run) RUN.cur = null;
 }
 
@@ -644,7 +652,12 @@ function runOver(run){
 /* A drill is reps goes: the coach plays a ball in (to you, or to whoever starts with it), the go is decided by the
    drill's test, the card says how it went, and the next ball comes. 30 minutes of the clock in all, given out go by
    go. The ones with team-mates or opponents need the squad out on the pitch (the session's hours). */
-const DRILL_TEST = {shoot:"shot", head:"header", pass:"pass", intercept:"intercept", duel:"duel", setpiece:"shot"};
+const DRILL_TEST = {shoot:"shot", head:"header", volley:"volley", pass:"pass", intercept:"intercept", duel:"duel", setpiece:"shot"};
+// the corner targets in the goal a drill shoots at (ground.js goalTargets), up while it runs (A1.7)
+function targetsUp(item, on){
+  const m = item && item.targets && GROUND.targets ? GROUND.targets[item.dir] : null;
+  if (m) m.visible = !!on;
+}
 export function startDrill(kind){
   const D = TS.DRILLS[kind]; if (!D || RUN.cur) return false;
   const sess = GROUND.session, needSquad = D.mates + D.opps;
@@ -656,8 +669,9 @@ export function startDrill(kind){
   run.lent = lent;
   if (lent.filter(b => b.role !== "keeper").length < needSquad){ runOver(run); HOST.note("Not enough of the lads are free for that one right now."); return false; }
   const item = Object.assign({}, D, {restarts:kind === "setpiece", keeper:!!D.keeper && lent.some(b => b.role === "keeper")});
-  run.item = item;
+  run.item = item; run.pts = 0;
   RUN.cur = run;
+  targetsUp(item, true);
   run.quit = () => { run.stopped = true; if (run.T && mode() === "train") exitMode("quit"); else { runOver(run); HOST.note("Drill called off."); } };
   hudSet({title:D.label, rep:0, reps:D.reps, scores:[]}, {hint:D.sub});
   if (D.feed.from) coachPrep(D.feed.from, D.spot);
@@ -672,10 +686,12 @@ export function startDrill(kind){
 }
 function drillScript(kind, D, run){
   const test = DRILL_TEST[kind], to = D.feed.to;
-  const S = {state:"setup", wait:.6, rep:0};
-  const card = hint => hudSet({title:D.label, rep:S.rep, reps:D.reps, scores:run.scores}, hint != null ? {hint} : {});
+  const S = {state:"setup", wait:.6, rep:0, kicks:new Map(), seen:0};
+  // (a drill scored on the corner targets keeps its points in the title)
+  const title = () => D.targets ? `${D.title} · ${run.pts} point${run.pts === 1 ? "" : "s"}` : D.label;
+  const card = hint => hudSet({title:title(), rep:S.rep, reps:D.reps, scores:run.scores}, hint != null ? {hint} : {});
   const nextGo = T => {
-    T.evFrom = T.ms.events.length; T.tRep = 0; T.stillT = 0; T.inPlay = false; S.state = "go";
+    T.evFrom = T.ms.events.length; T.tRep = 0; T.stillT = 0; T.inPlay = false; S.state = "go"; T.goalAt = null;
     const me = T.me;
     if (to === "spot"){
       // a free kick: a ball on the spot, the wall and the keeper set by the restart's own rules, the kick yours
@@ -693,19 +709,58 @@ function drillScript(kind, D, run){
     } else if (to === "head"){
       const f = {x:-Math.sin(me.m.yaw), z:-Math.cos(me.m.yaw)};
       tgt = {x:me.m.x + f.x*.5, y:1.95*(me.scale || 1), z:me.m.z + f.z*.5};
+    } else if (to === "volley"){
+      // dropping in front of you, between you and the goal, at the height of a volley (about the knee to the hip)
+      const gx = T.ms.dirs[T.myTeam]*T.spec.hx, dx = gx - me.m.x, dz = -me.m.z, dl = Math.hypot(dx, dz) || 1;
+      tgt = {x:me.m.x + dx/dl*.8, y:.75*(me.scale || 1), z:me.m.z + dz/dl*.8};
     } else tgt = {x:me.m.x + me.m.vx*.6, z:me.m.z + me.m.vz*.6};
-    coachFeed(T, D.feed.kind === "cross" ? "cross" : "pass", toArea(T, D.feed.from), tgt);
-    card(D.sub);
+    coachFeed(T, D.feed.kind === "cross" || D.feed.kind === "loft" ? D.feed.kind : "pass", toArea(T, D.feed.from), tgt);
+    card(to === "volley" ? "Watch it drop. Hold the left button and let go as the ring closes." : D.sub);
   };
+  // each kick of yours as it leaves the boot: where its flight crosses the goal line you attack (the corner a save
+  // kept out) and whether the ball was still in the air (no bounce since the coach played it)
+  const noteKicks = T => {
+    const ms = T.ms, end = ms.dirs[T.myTeam];
+    for (let i = Math.max(S.seen, T.evFrom); i < ms.events.length; i++){
+      const e = ms.events[i];
+      if (e.kind !== "kick" || e.agent !== T.me.id || e.whiff) continue;
+      S.kicks.set(e.id, {cross:TS.crossAt(ms.pred, ms.predN, end, T.spec.hx, R), air:T.fedBounces == null || T.bounces === T.fedBounces});
+    }
+    S.seen = ms.events.length;
+  };
+  // the first ball waits for the keeper (a drill at a goal): he jogs over from wherever the squad had him, and the coach
+  // plays it once he is in his goal (within 3 m of the middle of its line), or after ten seconds whatever
+  const keeperSet = T => {
+    if (S.rep || !D.keeper) return true;
+    S.kWait = (S.kWait || 0) + H;
+    const ms = T.ms, end = ms.dirs[T.myTeam], k = ms.agents.find(a => a.isGK && a.team === T.oppTeam && a.onPitch);
+    return !k || S.kWait > 10 || Math.hypot(k.m.x - end*T.spec.hx, k.m.z) < 3;
+  };
+  const lastKick = evs => { for (let i = evs.length - 1; i >= 0; i--){ const e = evs[i]; if (e.kind === "kick" && e.agent === run.T.me.id && !e.whiff) return e; } return null; };
   return {
     post(T){
       if (D.orders === "pass") passersOnly(T);
-      if (S.state === "setup"){ if ((S.wait -= H) <= 0) nextGo(T); return; }
+      if (S.state === "setup"){ if ((S.wait -= H) <= 0 && keeperSet(T)) nextGo(T); return; }
       if (S.state === "result"){ if ((S.wait -= H) <= 0){ if (S.rep >= D.reps) finishItem(T); else nextGo(T); } return; }
       if (S.state !== "go" || T.feed) return;
+      noteKicks(T);
       const evs = evsOf(T), ctx = {timeUp:T.tRep > TRAIN.REP_LIMIT + (to === "spot" ? 8 : 0), dead:ballDead(T), passes:3};
-      let v = null;
-      if (test === "shot") v = TS.shotTest(evs, T.me.id, ctx);
+      let v = null, sc = null;
+      if (test === "shot"){
+        v = TS.shotTest(evs, T.me.id, ctx);
+        // the corner targets (A1.7): a goal by where it crossed the line, a save by where its flight was going
+        if (v && D.targets){
+          const end = T.ms.dirs[T.myTeam], k = v.kick ? S.kicks.get(v.kick.id) : null;
+          const at = v.why === "goal" ? T.goalAt : v.why === "saved" && k ? k.cross : null;
+          sc = TS.targetScore(v, at ? TS.cornerOf(at.y, at.z, end) : null);
+          v.q = sc.q; v.pts = sc.pts; v.corner = sc.corner; run.pts += sc.pts;
+          const fl = at || (k && k.cross); v.at = fl ? {y:Math.round(fl.y*100)/100, z:Math.round(fl.z*100)/100} : null;
+        }
+      }
+      else if (test === "volley"){
+        const lk = lastKick(evs), k = lk ? S.kicks.get(lk.id) : null;
+        v = TS.volleyTest(evs, T.me.id, Object.assign(ctx, {air:k ? k.air : true}));
+      }
       else if (test === "header") v = TS.headerTest(evs, T.me.id, ctx);
       else if (test === "pass") v = TS.passTest(evs, T.me.id, ctx);
       else if (test === "intercept") v = TS.interceptTest(evs, T.me.id, T.myTeam, ctx);
@@ -714,7 +769,8 @@ function drillScript(kind, D, run){
       S.rep++; run.scores.push(v.ok ? Math.max(.45, v.q) : v.q*.4);
       award(T, D.xp, v.ok ? v.q : 0);
       T.results.push(v);
-      hudResult(v.ok ? (v.q >= .9 ? "Perfect" : v.q >= .7 ? "Great" : "Good") : (test === "header" && v.why === "none" ? WHY.missed : WHY[v.why]) || "Not this time", "", v.ok);
+      const sub = sc ? (sc.pts ? `+${sc.pts} point${sc.pts === 1 ? "" : "s"}` : "") : test === "volley" && v.kick && v.ok ? `Strike ${Math.round(v.clean*100)}%` : "";
+      hudResult(sc && sc.line ? sc.line : v.ok ? (v.q >= .9 ? "Perfect" : v.q >= .7 ? "Great" : "Good") : ((test === "header" || test === "volley") && v.why === "none" ? WHY.missed : WHY[v.why]) || "Not this time", sub, v.ok);
       card();
       HOST.pass(D.mins/D.reps);
       S.state = "result"; S.wait = TRAIN.RESULT;
@@ -744,15 +800,17 @@ function passersOnly(T){
 }
 const WHY = {wide:"Wide", blocked:"Blocked", wood:"Off the woodwork", none:"No shot", time:"Out of time", missed:"Missed it", lost:"Didn't find him",
   out:"Out of play", int:"Cut out", off:"Offside", through:"They got it through", beaten:"He got past you", heavy:"Heavy touch", still:"Didn't take it forward",
-  other:"Not to the man who called", saved:"Saved"};
+  other:"Not to the man who called", saved:"Saved", bounced:"It bounced first"};
 function drillEnd(run, T){
   const D = TS.DRILLS[run.item.kind], done = T.results.length, avg = run.scores.length ? run.scores.reduce((a, b) => a + b, 0)/run.scores.length : 0;
   const xp = payXP(T);
   if (done){ HOST.exert(6*done/D.reps, 5*done/D.reps); HOST.trainMin(D.mins*done/D.reps); }
   runOver(run);
-  RUN.last = {kind:"drill", drill:D.kind, done, scores:run.scores.slice(), xp, results:T.results.map(v => ({ok:v.ok, why:v.why, q:v.q}))};
-  if (T.quit) HOST.note(done ? `Stopped after ${done} of ${D.reps}. You keep the ${Math.round(xp)} XP.` : "Drill called off.");
-  else HOST.center(`${D.label} complete`, `${Math.round(avg*100)}% · +${Math.round(xp)} XP`);
+  RUN.last = {kind:"drill", drill:D.kind, done, scores:run.scores.slice(), xp, pts:D.targets ? run.pts : null,
+    results:T.results.map(v => ({ok:v.ok, why:v.why, q:v.q, pts:v.pts, corner:v.corner, at:v.at, aim:v.kick ? {y:v.kick.ty, z:v.kick.tz} : null, air:v.air, clean:v.clean}))};
+  const ptsLine = D.targets ? `${run.pts} point${run.pts === 1 ? "" : "s"} · ` : "";
+  if (T.quit) HOST.note(done ? `Stopped after ${done} of ${D.reps}${D.targets ? ` with ${run.pts} point${run.pts === 1 ? "" : "s"}` : ""}. You keep the ${Math.round(xp)} XP.` : "Drill called off.");
+  else HOST.center(`${D.label} complete`, `${ptsLine}${Math.round(avg*100)}% · +${Math.round(xp)} XP`);
   HOST.persist();
 }
 // an item done by its own end (not left with Esc)
