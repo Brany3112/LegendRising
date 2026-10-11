@@ -232,7 +232,6 @@ function gfxApply(reason = "user"){
   GFX.low = GFX.tier === "low";
   const b = document.body;
   if (b){ for (const t of GFX_TIERS) b.classList.toggle("gfx-" + t, t === GFX.tier); b.classList.toggle("low", GFX.low); }
-  if (typeof resize === "function") resize();          // the 2D match canvas, while the 2D engine is still here
   for (const fn of GFX.subs.slice()){ try{ fn(GFX.P, prevP, reason); }catch(e){ console.error("graphics subscriber failed", e); } }
   return GFX.P;
 }

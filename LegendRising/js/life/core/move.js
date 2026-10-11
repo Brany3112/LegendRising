@@ -8,20 +8,18 @@
    from a short-term pool (stamina.js) shown by the breath arc beside the crosshair; tired legs (low breath, low energy,
    high fatigue) take the edge off the sprint. Then the ground under you, the eye height and its springs. The head bob
    rides your body's own pelvis and footfalls (me.js), not a clock of its own.
-   ?loco=old (a development flag, removed before release by WP-L) puts back the movement this replaced. */
+   WP-L (Stage 3) removed the development flag that put back the movement this replaced (DESIGN 2.5 WP-L, 0.2). */
 import {W} from "../build.js";
 import {G, P, B, E, FLAGS, LIFE, keys, spring} from "./state.js";
-import {moveBy, touching} from "./collide.js";
+import {moveBy} from "./collide.js";
 import {hud} from "./hud.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {speedFx} from "../football/matchcam.js";
 import {createStam, stamStep, stamFactors, stamSetCap, effortOf, effF} from "../stamina.js";
 import {onPitch} from "../football/trainspec.js";
 
-// the old controller's numbers (?loco=old); drill: how fast you move in a drill that lets you (the interception
-// lane): a quick shuffle, as the drills were timed for
-export const GAIT = {walk:2.0, run:6.0, sprint:7.6, back:.8, drill:4.0, bobFrom:4.0, accel:26, brake:24, turn:24, sprintIn:1.1, sprintOut:2.5};
-const OLD = (() => { try { return new URLSearchParams(location.search).get("loco") === "old"; } catch(e){ return false; } })();
+// drill: how fast you move in a drill that lets you (the interception lane): a quick shuffle, as the drills were timed for
+export const GAIT = {drill:4.0};
 
 /* the highest thing under you that you could step onto. Also the ground your eye rides on (GR.eg, with its slope
    GR.egx / GR.egz): the same, except that a flight's slope is carried on past its foot down to the floor in front of
@@ -55,12 +53,6 @@ export function groundAt(x, z, feet){
   return best;
 }
 
-// tired legs and an empty stomach slow you down a little: gradually, never in a sudden step (the old controller only)
-export function legs(){
-  const s = G(); if (!s) return 1;
-  return 1 - Math.min(.15, Math.max(0, (s.fatigue || 0) - 70)/200) - Math.min(1, Math.max(0, 15 - (s.energy || 0))/10)*.08;
-}
-
 // what the keys ask for this frame: forward (f) and right (r) as a direction of length len (0 or 1), and whether you
 // run (Shift). lk: your control is taken away. A drill that keeps you on its spot takes the keys too; nobody runs in one
 const IN = {f:0, r:0, len:0, run:false};
@@ -83,7 +75,7 @@ export function moveInput(lk){
    mover and your body's lean read it), LOCO.want: the speed the keys ask for (your body's stop starts from it) */
 // how fast a sprint left over from the other profile eases off (m/s per second; body() LOCO.ease)
 const EASE = 1.5;
-export const LOCO = {m:null, prm:null, prof:null, spd:NaN, acc:NaN, drb:NaN, ease:false, st:null, fac:{}, want:0, px:NaN, pz:NaN, capT:0, old:OLD,
+export const LOCO = {m:null, prm:null, prof:null, spd:NaN, acc:NaN, drb:NaN, ease:false, st:null, fac:{}, want:0, px:NaN, pz:NaN, capT:0,
   intent:{dx:0, dz:0, gait:"walk", face:{x:0, z:-1}, strafe:false, speedCap:Infinity}};
 const skillOf = k => {
   const s = G();
@@ -102,7 +94,6 @@ function collide(m, dx, dz){
 export function locoReset(){ LOCO.m = null; LOCO.px = LOCO.pz = NaN; }
 // one slice of moving: the mover, your breath, the ground under you and the eye height
 export function body(dt, f, r, len, run){
-  if (OLD) return bodyOld(dt, f, r, len, run);
   const s = G(), drill = FLAGS.drill;
   // the mover takes over where you are if something else moved you (a placement stops you dead)
   let m = LOCO.m;
@@ -174,57 +165,6 @@ function feetAndEye(dt, ax, az){
   P.eye = base + P.eyeH + E.a + E.b;
 }
 
-// the movement this replaced (?loco=old): its own speeds, steering and head bob
-function bodyOld(dt, f, r, len, run){
-  const drill = FLAGS.drill;
-  // sprint builds while you hold Shift going forward at full running pace, and falls away as soon as you don't
-  const fwd = run && f > .5;
-  if (fwd && P.speed > GAIT.run*.85*legs()) P.sprint = Math.min(1, P.sprint + dt/GAIT.sprintIn);
-  else P.sprint = Math.max(0, P.sprint - dt*GAIT.sprintOut);
-  const sb = P.sprint*P.sprint*(3 - 2*P.sprint);
-  let sp = (run ? GAIT.run + (GAIT.sprint - GAIT.run)*sb : drill ? GAIT.drill : GAIT.walk)*legs();
-  if (f < 0) sp *= GAIT.back;
-  const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
-  let tx = (r*cos - f*sin)*sp, tz = (-r*sin - f*cos)*sp;
-  if (tx && touching(Math.sign(tx), 0)) tx = 0;
-  if (tz && touching(0, Math.sign(tz))) tz = 0;
-  const tl = Math.hypot(tx, tz), v0 = Math.hypot(P.vx, P.vz);
-  let turned = false;
-  if (tl > .05 && v0 > .05){
-    const hv = Math.atan2(P.vz, P.vx);
-    let d = Math.atan2(tz, tx) - hv; d -= Math.round(d/(2*Math.PI))*2*Math.PI;
-    if (Math.abs(d) < 2.45){
-      const a = hv + Math.max(-GAIT.turn*dt, Math.min(GAIT.turn*dt, d)), s1 = v0 + Math.max(-GAIT.brake*dt, Math.min(GAIT.accel*dt, tl - v0));
-      P.vx = Math.cos(a)*s1; P.vz = Math.sin(a)*s1; turned = true;
-    }
-  }
-  if (!turned){
-    let dvx = tx - P.vx, dvz = tz - P.vz;
-    const dl = Math.hypot(dvx, dvz), lim = (tl ? GAIT.accel : GAIT.brake)*dt;
-    if (dl > lim){ dvx *= lim/dl; dvz *= lim/dl; }
-    P.vx += dvx; P.vz += dvz;
-  }
-  if (!tl && Math.hypot(P.vx, P.vz) < .02) P.vx = P.vz = 0;
-  const ox = P.x, oz = P.z;
-  if (P.vx || P.vz) moveBy(P.vx*dt, P.vz*dt);
-  const ax = dt > 0 ? (P.x - ox)/dt : 0, az = dt > 0 ? (P.z - oz)/dt : 0, actual = Math.hypot(ax, az);
-  P.speed += (actual - P.speed)*(1 - Math.exp(-14*dt));
-  if (P.speed < .01 && !actual) P.speed = 0;
-  FLAGS.moving = P.speed > .5;
-  P.moveMode = P.speed < .3 ? "idle" : P.sprint > .5 ? "sprint" : run && P.speed > GAIT.walk*1.08*legs() ? "run" : "walk";
-  LOCO.want = len ? sp : 0;
-  P.stride = (P.stride + actual*dt/Math.max(.9, P.speed/(1.4 + .25*P.speed))) % 1e4;
-  feetAndEye(dt, ax, az);
-  const want = P.speed < .3 ? 0 : Math.min(.011, P.speed*.0028) + Math.max(0, P.speed - GAIT.bobFrom)*.0034;
-  B.amt += (want - B.amt)*(1 - Math.exp(-6*dt));
-  if (B.amt < 1e-5 && !want) B.amt = 0;
-  const ph = P.stride*Math.PI*2;
-  B.y -= B.amt*Math.sin(ph); B.x -= B.amt*.45*Math.sin(ph/2);
-  spring(B, "y", "yv", 30, dt); spring(B, "x", "xv", 30, dt);
-  B.y += B.amt*Math.sin(ph); B.x += B.amt*.45*Math.sin(ph/2);
-  if (!B.amt && Math.abs(B.y) + Math.abs(B.x) < 1e-5 && Math.abs(B.yv) + Math.abs(B.xv) < 1e-4) B.y = B.yv = B.x = B.xv = 0;
-}
-
 // a slightly wider view at a sprint, eased in and out; the camera takes it up (B.fovSet) only when it has moved enough
 // to matter, so the projection is not rebuilt every frame
 // The widening is the match camera's own speed feel (matchcam.js speedFx, addendum A1.2): up to 5 degrees over the
@@ -256,9 +196,9 @@ function lifeVig(v){
   if (o !== VIG.o){ VIG.o = o; VIG.el.style.opacity = o.toFixed(3); }
 }
 export function fovStep(dt, own = true){
-  const top = LOCO.prm && !OLD ? sprintSpeed(LOCO.prm, LOCO.fac && LOCO.fac.speed != null ? LOCO.fac : undefined) : 0;
+  const top = LOCO.prm ? sprintSpeed(LOCO.prm, LOCO.fac && LOCO.fac.speed != null ? LOCO.fac : undefined) : 0;
   const fx = speedFx(top > 0 ? P.speed/top : P.sprint, LOCO.st ? LOCO.st.B : 100, lifeMotion(dt), dt, LIFE_FX);
-  lifeVig(own && !OLD ? fx.vig*(.75 + .25*fx.pulse) : 0);
+  lifeVig(own ? fx.vig*(.75 + .25*fx.pulse) : 0);
   const fovT = 74 + fx.fov;
   B.fov = Math.abs(fovT - B.fov) < .005 ? fovT : B.fov + (fovT - B.fov)*(1 - Math.exp(-5*dt));
   if (Math.abs(B.fov - B.fovSet) > .01 || (B.fov === fovT && B.fovSet !== fovT)) B.fovSet = B.fov;

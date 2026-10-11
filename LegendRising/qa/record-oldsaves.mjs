@@ -12,6 +12,16 @@
 //                       each delivery point (lobby and gym shelf) and one still on its way
 //   oldsave-replay      that career with a Foodies bag in a pocket (picked up and pocketed through inv.js) and the
 //                       dream being replayed from the menu (S.replay set, S.tutDone false)
+//   oldsave-midmatch    a career one friendly in, saved in the middle of its next 2D match (at half time; S.skillsBase
+//                       holds his skills while the nerves take some off, the fixture not played yet). Added by WP-L.
+//   oldsave-dream       a new career saved in the middle of the dream on its first night (every skill 99, S.skillsBase
+//                       holding the real ones, S.tutDone false). Added by WP-L.
+//
+// These are saves of the release before the rework, so this recorder drives the game as it was then (the 2D match,
+// the dream, qa/record-legacy.mjs's bot). Since Stage 3 (WP-L) that code is gone from the tree: run the recorder in
+// a copy of the I0 commit (c7d4760, "I0 baselines") with this file copied over its own, and copy the fixtures back:
+//   git archive c7d4760 LegendRising | tar -x -C /tmp/i0 && cp qa/record-oldsaves.mjs /tmp/i0/LegendRising/qa/
+//   (cd /tmp/i0/LegendRising && node qa/record-oldsaves.mjs [onboarding|midseason|midmatch|dream])
 //
 // File shape: {about, has, build, slot, key, metaKey, meta, save}. `save` is the parsed slot string, {S, P2} as
 // career.js serial() writes it (JSON.stringify(save) gives back what the game reads); `meta` is the slot's card on the
@@ -117,9 +127,63 @@ async function midseasonAndReplay(){
   } finally { await close(); }
 }
 
+async function midmatch(){
+  const {page, close} = await launch({gfx: "low", seed: 43});
+  try {
+    await freeze(page);
+    await career(page, {zone: "home", at: "bed", pos: "ST", name: "Old Save", frames: 0});
+    // one friendly played to full time first, so the career has a record
+    const r = await page.evaluate(playInPage, {kind: "F", trust: 30, chem: 20, wr: 2});
+    console.log(`  match ${r.fixture.kind}: ${r.out.score}, rating ${r.out.rating}`);
+    await page.evaluate(() => A.leaveMatch());
+    await page.evaluate(() => { S.life.min = 23*60; sleepNight(2); startNewDay(); });
+    // the next fixture: kicked off through the 2D engine and its clock run until it stops (a moment of his, or half
+    // time), then saved as the game's own save does
+    const info = await page.evaluate(() => {
+      for (let n = 0; n < 60; n++){ const f = todaysFixture(); if (f) break; S.life.min = 23*60; sleepNight(2); startNewDay(); }
+      const f = todaysFixture(); if (!f) throw new Error("no fixture");
+      S.life.min = fixtureSlot(f).min;
+      S.trust = 40; S.workrate = 3;
+      startMatch(f);
+      MT.running = false; clearTimeout(MT.timer);
+      let k = 0; while (k++ < 400 && advance()){}
+      const e = MT.events[MT.i];
+      if (e && e.kind === "moment") A.playMoment();
+      return {key: f.key, kind: f.kind, label: MT.label, score: MT.score.slice(), skillsBase: !!S.skillsBase};
+    });
+    console.log("  mid-match:", JSON.stringify(info));
+    const m = await capture(page, `A career saved in the middle of a 2D league match, at ${info.label === "HT" ? "half time" : info.label} (${info.score.join("-")}): S.skillsBase holds his skills while the crowd nerves take some off, and the fixture is not played yet.`);
+    m.has = has(m.save);
+    if (!m.save.S.skillsBase) throw new Error("midmatch fixture has no skillsBase");
+    write("midmatch", m);
+    if (page.errors.length) throw new Error(page.errors.join("\n"));
+  } finally { await close(); }
+}
+
+async function dream(){
+  const {page, close} = await launch({gfx: "low", seed: 47});
+  try {
+    await freeze(page);
+    await career(page, {zone: "home", at: "bed", pos: "CM", name: "Old Save", frames: 0});
+    // the first night of a new career: the world steps aside for the dream (world.js sleep: !tutDone and lifeDream),
+    // its cards are passed and the dream match kicks off (every skill 99, S.skillsBase kept)
+    await page.evaluate(() => { S.tutDone = false; S.replay = null; window.lifeDream(); });
+    await page.waitForTimeout(1200);
+    await page.evaluate(() => { TUT.steps = []; tutClose(); startDream(); });
+    await page.waitForTimeout(600);
+    const d = await capture(page, "A new career saved in the middle of the dream on its first night, after the old first-day introduction (every skill 99 for the dream, S.skillsBase holding the real ones, S.tutDone false).");
+    d.has = has(d.save);
+    if (!d.save.S.skillsBase || d.save.S.tutDone !== false) throw new Error("dream fixture is missing something");
+    write("dream", d);
+    if (page.errors.length) throw new Error(page.errors.join("\n"));
+  } finally { await close(); }
+}
+
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain){
   const only = process.argv[2];
   if (!only || only === "onboarding") await onboardingAndFresh();
   if (!only || only === "midseason") await midseasonAndReplay();
+  if (!only || only === "midmatch") await midmatch();
+  if (!only || only === "dream") await dream();
 }

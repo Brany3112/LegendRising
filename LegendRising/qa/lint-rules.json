@@ -7,7 +7,7 @@
     "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed.",
     "merged: the packages the integrator has merged so far. A rule is active exactly when the package in its activatedBy is in this list (qa/unit/qatools.mjs checks it), so at each stage merge the integrator adds the packages and flips their rules on together."
   ],
-  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1", "WP-K", "WP-F", "WP-I", "WP-F2", "WP-H2", "WP-W2", "WP-W1"],
+  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1", "WP-K", "WP-F", "WP-I", "WP-F2", "WP-H2", "WP-W2", "WP-W1", "WP-L"],
   "pure": [
     "js/life/mover.js", "js/life/stamina.js", "js/life/gaitcore.js",
     "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/detmath.js", "js/life/football/ball.js", "js/life/football/strike.js",
@@ -116,9 +116,9 @@
       "active": true,
       "activatedBy": "WP-T1",
       "ref": "DESIGN 1.3 (trust single owner), 2.3 WP-G and WP-T1 acceptance, 4.11",
-      "what": "Trust changes only through trustAdd (daily.js); the load-time clamp in dailyEnsure is the one other write. The admin editor sets values directly by design. js/engine goes with WP-L.",
+      "what": "Trust changes only through trustAdd (daily.js); the load-time clamp in dailyEnsure is the one other write. The admin editor sets values directly by design.",
       "files": ["js/**/*.js"],
-      "except": ["js/ui/admin.js", "js/engine/**"],
+      "except": ["js/ui/admin.js"],
       "scope": "code",
       "pattern": "\\bS\\s*\\.\\s*trust\\s*(?:[-+*/]?=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*S\\s*\\.\\s*trust\\b",
       "allowIn": ["trustAdd", "dailyEnsure"]
@@ -140,9 +140,9 @@
       "active": true,
       "activatedBy": "WP-W2",
       "ref": "Addendum A1.8 (Motivation), DESIGN 1.7 (migration)",
-      "what": "S.player.motivation changes only through motivationAdd, the load-time motivationMigrate, the nightly motivationNewDay and the __motivation test stub's set, motivationTestSet (career.js). The admin editor sets values directly by design. js/engine goes with WP-L.",
+      "what": "S.player.motivation changes only through motivationAdd, the load-time motivationMigrate, the nightly motivationNewDay and the __motivation test stub's set, motivationTestSet (career.js). The admin editor sets values directly by design.",
       "files": ["js/**/*.js"],
-      "except": ["js/ui/admin.js", "js/engine/**"],
+      "except": ["js/ui/admin.js"],
       "scope": "code",
       "pattern": "\\.\\s*player\\s*\\.\\s*motivation\\s*(?:[-+*/]?=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*S\\s*\\.\\s*player\\s*\\.\\s*motivation\\b",
       "allowIn": ["motivationAdd", "motivationMigrate", "motivationNewDay", "motivationTestSet"]
@@ -159,7 +159,7 @@
     },
     {
       "id": "engine-names",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-L",
       "ref": "DESIGN D18, 2.5 WP-L acceptance",
       "what": "The 2D engine and the dream are gone: no startMoment, renderMatchScreen, matchSkillsOn, startDream, legacyMatch, loco=old, #pitch or js/engine/ anywhere in the game.",
@@ -169,7 +169,7 @@
     },
     {
       "id": "importmap-complete",
-      "active": false,
+      "active": true,
       "activatedBy": "WP-L",
       "ref": "DESIGN 2.5 WP-L acceptance",
       "what": "Every js/life/**/*.js module has an importmap entry in index.html, so a returning player never runs a new module against a cached one.",

@@ -12,7 +12,6 @@ window.lifeReady = new Promise(r => { window.lifeReadyResolve = r; });
 // fade-out still pending when the next card comes up (office.js, admin.js and awards.js count on it too)
 const TUT = {tok:0};
 function render(html, key){
-  document.body.classList.remove("in-match");
   const app = $("#app"), same = !!key && key === LAST_SCREEN;
   app.classList.toggle("still", same);
   if (same) morph(app, html); else { app.innerHTML = html; app.scrollTop = 0; }
@@ -208,8 +207,9 @@ function enterCity(){
    it takes a while), the career's shell is built behind it, and the world starts with the intro's own boot plan
    (intro.js), which keeps the screen covered until the city has been drawn from the film's first camera. The
    creation screen comes after your uncle's "Tell me about yourself" (intro.js calls onbCreation). Without a 3D world
-   (a double-clicked file, no WebGL 2) the career is made the plain way: creation, offers, the hub. */
-const NG = {tok:0};
+   (a double-clicked file, no WebGL 2) New Game only says how to get one (screenNoWorld); a world that was expected
+   and never loaded makes the career the plain way: creation, offers, the hub, its matches played out (3.4.6). */
+const NG = {tok:0, noWorld:false};      // noWorld: the 3D world was expected and never loaded
 const worldOK = () => location.protocol !== "file:" && typeof WebGL2RenderingContext !== "undefined";
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
 async function newGameWorld(){
@@ -225,7 +225,7 @@ async function newGameWorld(){
   clearTimeout(ld);
   if (tok !== NG.tok) return;
   // the world never came (it failed to load): who you are, and the hub
-  if (!ok || !window.startLife){ CR = null; screenCreate(); return; }
+  if (!ok || !window.startLife){ NG.noWorld = true; CR = null; screenCreate(); return; }
   document.body.classList.add("life");
   window.startLife({intro:true});
 }
@@ -412,8 +412,6 @@ function ccPanel(t){
 // the pitch: your goal at the bottom, theirs at the top; click where you want to play
 function ccPosHTML(){
   const sel = CR.pref, P = POSITIONS[sel], arch = archOf(sel);
-  const mix = MOMENT_MIX[arch] || MOMENT_MIX.ST, shoot = mix.run + mix.wing + mix.oneonone + mix.edge + mix.penalty + mix.freekick;
-  const pct = Math.round(100*shoot/Object.values(mix).reduce((a, b) => a + b, 0));
   const bon = Object.entries(POS[arch].bonus).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `<span class="pill">${esc(skillName(k))} +${v}</span>`).join("");
   const alt = (POS_NEAR[sel] || []).slice(0, 3).map(k => `<b>${k}</b>`).join(", ");
   const marks = POSITION_ORDER.map(k => { const Q = POSITIONS[k], gk = k === "GK";
@@ -425,7 +423,6 @@ function ccPosHTML(){
         <div class="pp-l pp-six t"></div><div class="pp-l pp-six b"></div><span class="pp-att">Attack ↑</span>${marks}</div>
       <div class="pp-info"><div class="pp-code">${sel}</div><h4>${esc(P.name)}</h4>
         <p class="muted small">${esc(POS[arch].blurb)}</p>
-        <div class="pos-mix"><span>In a game</span><div class="meter thin"><i style="width:${pct}%"></i></div><b>${pct}% chances on goal</b></div>
         <div class="pp-bon">${bon}</div>
         <p class="muted small">This is where you want to play. Every club has its own shape: if yours has no ${sel}, the manager plays you in the nearest role${alt ? ` (${alt})` : ""}. You can ask him to move you later.</p>
       </div></div>`;
@@ -476,14 +473,20 @@ function renderHub(){ try{ renderHubInner(); }catch(e){
 function renderHubInner(){
   // an honour won while the week was simulating gets its moment as soon as you are back on the hub
   if (typeof HONOUR_QUEUE === "object" && HONOUR_QUEUE.length) setTimeout(() => showNextHonour(), 260);
-  if (MT){ clearTimeout(MT.timer); MT = null; } loopOn = false; M = null;
+  // a match mirror left behind by a first-person match that stopped without a result is let go (a match in progress
+  // keeps its own; quickMatch and full time clear theirs)
+  if (MT && !(window.FP && window.FP.state)) MT = null;
   if (ensureClub()) return screenOffers();          // a free agent picks a club before anything else
   if (S.offerSet) return screenOffers();
   setPhoneVisible(true);
   const {fx, next, me, c, win} = hubState();
   const lg = W.leagues[c.lg], pos = sortTab(lg.tab).indexOf(c.id) + 1, need = xpNeed(), k = S.contract;
   const inj = me.inj > 0;
-  const life = typeof lifeMode === "function" && lifeMode();
+  // living it day by day in the 3D world (in it, or about to be: the world is there and loads, enterCity), or the hub
+  // on its own (no 3D world, or one that never loaded: its Play match button plays the fixture out, DESIGN 3.4.6).
+  // (window.lifeMode, from life/phone.js, which every page loads, names where the phone is: a non-empty string even
+  // when there is no world, so it cannot tell)
+  const life = document.body.classList.contains("life") || (worldOK() && !NG.noWorld);
   const fxHtml = fx.length ? fx.map(f => {
     const d = W.done[f.key], home = f.kind === "N" ? f.h === me.nat : f.h === me.club, sl = life ? fixtureSlot(f) : null;
     const today = life && sl.wd === S.life.wd;
@@ -854,15 +857,66 @@ function placeToasts(){
   }
   if (!ts.length) return;
   let lift = "";
-  if (n && n.classList.contains("on") && document.body.classList.contains("life") && !document.body.classList.contains("in-match") && n.offsetParent){
+  if (n && n.classList.contains("on") && document.body.classList.contains("life") && n.offsetParent){
     const r = n.getBoundingClientRect(), H = window.innerHeight, th = Math.max(...[...ts].map(t => t.offsetHeight)) || 48;
     if (r.height > 0 && r.bottom > H - 26 - th - 10 && r.top < H) lift = Math.round(H - r.top + 10) + "px";
   }
   ts.forEach(t => { if (t.style.bottom !== lift) t.style.bottom = lift; });
 }
+/* ---------- playing a match (DESIGN 3.4.6) ----------
+   Every match the player plays is the first-person one (js/life/football, controller.js FP.enter): from the world,
+   straight in; from the hub, the world is started at the training ground's tunnel first and the match day goes on
+   under its cover (the travel card, the dressing room, the walk-out). With no 3D world at all (a double-clicked file,
+   no WebGL 2, or a world that never loaded) the world's own simulation plays the fixture out for him (quickMatch) and
+   its full-time card says so. Cup ties, friendlies, internationals and league games all come this way. */
+const PLAY = {tok:0};
+function playFixture(f){
+  if (!S || !f || (W.done && W.done[f.key])) return false;
+  if (window.FP && window.FP.state) return false;                 // a match is on already
+  setPhoneVisible(false); closePhone(); closeSheet();
+  if (!worldOK()) return playedForYou(f);
+  if (!window.startLife || !window.FP){
+    // the world's modules are still loading (a click straight after the page opened): the match waits for them
+    const tok = ++PLAY.tok, s0 = S;
+    render(`<section class="onb-black"><div class="onb-loader on"><div class="spinner"></div><p>Getting the ground ready</p></div></section>`, "black");
+    Promise.race([window.lifeReady, new Promise(r => setTimeout(() => r(false), 60000))]).then(ok => {
+      if (tok !== PLAY.tok || S !== s0) return;
+      if (ok && window.startLife && window.FP) playFixture(f);
+      else { NG.noWorld = true; playedForYou(f); }
+    });
+    return true;
+  }
+  // into the world at the ground's tunnel (the hub stays in your phone), then the match day from there
+  if (!(document.body.classList.contains("life") && window.LIFE && window.LIFE.running)){
+    renderHub();
+    document.body.classList.add("life");
+    window.startLife({zone:"ground", at:"tunnel"});
+  }
+  let ok = false;
+  try { ok = !!window.FP.enter(f); } catch(e){ console.error(e); ok = false; }
+  if (!ok && window.lifeNote) window.lifeNote("The match couldn't start. Open the hub (Q) to see what's on.");
+  return ok;
+}
+// the match played out for him, and its full-time card in place of the hub
+function playedForYou(f){
+  const R = quickMatch(f);
+  render(`<section class="page"><div class="page-inner"><div class="card glass ft-card rise">${ftCardHTML(R.M, R)}
+    <p class="muted small">${esc(R.notice || QUICK_NOTE)}</p>
+    <div class="row gap8 center"><button class="btn" onclick="A.quickDone()">Continue</button></div></div></div></section>`, "quickft");
+  setTimeout(() => { const c = document.querySelector(".ft-card"); if (c && typeof odoRun === "function") odoRun(c); }, 260);
+  return true;
+}
+// New Game without a 3D world
+function screenNoWorld(){
+  setPhoneVisible(false);
+  render(`<section class="page center"><div class="page-inner"><h1>Legend Rising</h1>
+    <p class="lede">This build has to be served over http(s) to play.</p>
+    <div class="row gap10 center"><button class="btn" onclick="screenTitle()">Back</button></div></div></section>`, "noworld");
+}
 const A = {
-  // New Game: black at once, the world and the film, then who you are (newGameWorld); without a 3D world, straight to it
-  newGame(n){ useSlot(n || 1); CR = null; if (worldOK()) return newGameWorld(); screenCreate(); },
+  // New Game: black at once, the world and the film, then who you are (newGameWorld). A career starts in the 3D world,
+  // so without one (a double-clicked file, no WebGL 2) there is only the line saying how to get it (DESIGN 3.4.6)
+  newGame(n){ useSlot(n || 1); CR = null; if (worldOK()) return newGameWorld(); screenNoWorld(); },
   // back to the title from the creation screen: a career that was never made is let go, the film with it
   ccCancel(){ NG.tok++; if (window.lifeOnboard && window.lifeOnboard.waiting()) window.lifeOnboard.abort(); screenTitle(); },
   deleteSlot(n){
@@ -900,36 +954,11 @@ const A = {
     if (!document.body.classList.contains("life")) enterCity();
   },
   afterSeason(){ save(); S.offerSet ? screenOffers() : renderHub(); },
-  playMatch(){ const {next} = hubState(); if (!next) return; setPhoneVisible(false); closePhone(); closeSheet(); startMatch(next); },
-  playFixture(f){ if (!f || W.done[f.key]) return; setPhoneVisible(false); closePhone(); closeSheet(); startMatch(f); },
-  kickOff(){ resumeClock(); },
-  resumeMatch(){ resumeClock(); },
-  playMoment(){
-    const e = MT && MT.events[MT.i];
-    if (!e || e.kind !== "moment") return A.contMoment();      // the chance was taken away (injury, substitution)
-    $("#ov").hidden = true; const c = $("#comm"); if (c) c.classList.add("hide");
-    const ms = $(".match-screen"); if (ms) ms.classList.add("moment");
-    startMoment(e.type);
-  },
-  contMoment(){ const c = $("#comm"); if (c) c.classList.remove("hide"); const ms = $(".match-screen"); if (ms) ms.classList.remove("moment"); MT.i++; resumeClock(); },
-  speed(s){ S.speed = s; showLive(); },
-  skipAhead(){ skipAhead(); },
-  skipReplay(){ endReplay(); },
-  playHighlight(i){ const h = MT.highlights[i]; const ov = $("#ov"); if (ov) ov.hidden = true; startReplay(h.rec, {label:`${h.min}' ${h.text}`}, () => MT.ftCard()); },
-  passNow(){ if (typeof passNow === "function") passNow(); },
-  shootNow(){ shootNow(); },
-  leaveMatch(){ loopOn = false; M = null; REP = null; clearTimeout(MT && MT.timer); MT = null; save(); flushHeldToasts();
-    // in the city, the final whistle sends you back out into the yard rather than to the hub
-    if (document.body.classList.contains("life") && window.LIFE){
-      document.body.classList.remove("in-match");
-      if (window.lifeReset) window.lifeReset();
-      renderHub();
-      // back out of the tunnel, a couple of hours on, facing the pitch you just played on
-      if (window.lifeAfterMatch) window.lifeAfterMatch(window.lifeMatchFatigue ? window.lifeMatchFatigue(A._matchLegs) : 0);
-      A._matchLegs = null;
-      return;
-    }
-    renderHub(); },
+  // the hub's match button and any fixture played from anywhere: always the first-person match (playFixture below)
+  playMatch(){ const {next} = hubState(); if (next) playFixture(next); },
+  playFixture(f){ return playFixture(f); },
+  // the full-time card of a match played out for you: on to the hub, with what full time held back
+  quickDone(){ flushHeldToasts(); renderHub(); },
   city(n){
     if (n) useSlot(n);
     const d = load(); if (!d) return screenTitle();
@@ -940,8 +969,6 @@ const A = {
     renderHub();
     if (window.startLife) window.startLife();
   },
-  workrate(){ S.workrate = (S.workrate || 2) % 4 + 1; updateWR(); const b = $("#wrBtn"); if (b){ b.classList.remove("bump"); void b.offsetWidth; b.classList.add("bump"); }
-    const names = ["", "Saving energy", "Balanced", "High intensity", "All-out"]; toast(`Work rate: ${"⚡".repeat(S.workrate)} ${names[S.workrate]}`); save(); },
   endWeek(){
     let r;
     try{ r = endWeek(); }

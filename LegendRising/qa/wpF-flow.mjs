@@ -70,7 +70,7 @@ try {
     rec.forEach((r, i) => { if (r.fade >= .98) return; const ex = r.dx - (r.vmax/60 + .01); if (ex > worst){ worst = ex; at = i; } if (ex > 0) bad++; });
     const liveRec = rec.filter(r => r.state === "live");
     return {frames: rec.length, worst, at, bad, atRec: rec[at], liveFrames: liveRec.length, liveTop: [...new Set(liveRec.map(r => r.top))], tp: rec.some(r => r.owners.includes("life-tp")),
-      inMatch: rec.some(r => r.inMatch), dom2d: !!document.querySelector(".match-screen, #pitch")};
+      inMatch: rec.some(r => r.inMatch), dom2d: !!document.querySelector(".match-screen")};
   });
   check(R.bad === 0, "the player's displacement per frame never exceeds vmax*dt + 0.01 outside a fade", {frames: R.frames, worstExcess: +R.worst.toFixed(4), bad: R.bad, at: R.atRec});
   check(R.liveFrames > 100 && R.liveTop.length === 1 && R.liveTop[0] === "match-fp", "the camera owner during live play is match-fp", R.liveTop);

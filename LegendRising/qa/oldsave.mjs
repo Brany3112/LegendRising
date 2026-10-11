@@ -12,7 +12,8 @@
 //      that was saved, field for field (resume is idempotent), and Continue brings the world up again;
 //   5. at every step the untouched fields hash the same as in the old save: who you are, your skills, your record, your
 //      club and the world's clubs and leagues, exactly; your awards, history, trophies, ratings, milestones, purchases
-//      and the world's results only ever grow. Text the 1.7 migration rewrites (a spaced em dash in an award name
+//      and the world's results only ever grow. A save from the middle of a 2D match (midmatch) or of the dream (dream)
+//      has its real skills in S.skillsBase: those are the ones compared. Text the 1.7 migration rewrites (a spaced em dash in an award name
 //      becoming ": ", a lone dash in the history becoming EMPTY_CELL) compares equal either way.
 //
 //   node qa/oldsave.mjs [fixture]     exits 1 on any failure; writes qa/out/oldsave.json
@@ -35,7 +36,9 @@ function stable(S){
   const cell = s => s === D || s === N ? "(empty)" : s;
   const W = S.W || {};
   // the A1.1 migration (career.js resume): an old Pace becomes Acceleration and Sprint Speed, nudged by position
-  const skills = Object.assign({}, S.skills || {});
+  // a save written in the middle of a 2D match or the dream holds his real skills in S.skillsBase (S.skills were the
+  // nerves' or the dream's for the match): resume() puts them back, so they are what must come through untouched
+  const skills = Object.assign({}, S.skillsBase || S.skills || {});
   if (skills.pace != null && skills.acceleration == null){
     const pl = S.player || {}, slot = pl.slot || pl.teamPos || "", full = /^(LB|RB|LWB|RWB)$/.test(slot);
     const n = pl.pos === "W" || full ? 1 : pl.pos === "ST" || (pl.pos === "DF" && !full) ? -1 : 0, c = v => Math.max(1, Math.min(99, v));
