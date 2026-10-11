@@ -36,7 +36,7 @@ import {mulberry32, hashStr} from "./rng.js";
 import {createBall, createBallWorld, ballKick, ballHold, ballStep, rollSpeedFor} from "./ball.js";
 import {ballMesh} from "./pitchmesh.js";
 import {dirOf, wrapA} from "./pitchspec.js";
-import {levelled} from "./attrs.js";
+import {raised} from "./attrs.js";
 import {AUD} from "./audio.js";
 import {STADIUM} from "./stadium.js";
 
@@ -128,13 +128,12 @@ export function boostFor(q, mot, style, r, scale, styles = coachStyles()){
   return {rating, all, focus, focusId: f ? f.id : "", focusName: f ? f.name : "", mins: Math.round(10 + 5*q), q};
 }
 // an agent's attributes with a boost on: every skill up by all, the focus skills by their own amount, the derived
-// numbers (Ball Control, pass accuracy, pace...) worked out again from them (attrs.js levelled), as the career's
-// effSkill sees the same skills. A new object
+// numbers (Ball Control, pass accuracy, pace...) worked out again from them with the player's own boots and decision
+// trait (attrs.js raised), so the record is what attrsForPlayer makes from career.js effSkill with the same boost on.
+// A new object
 export function boostedAttrs(at, b){
   if (!at || !b) return at;
-  const base = Object.assign({}, at), f = b.focus || {};
-  for (const k in f) if (base[k] != null) base[k] = base[k] + f[k];
-  return levelled(base, b.all || 1e-9);
+  return raised(at, b.all || 0, b.focus || {});
 }
 const NUM = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
   "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
@@ -266,7 +265,8 @@ POOL.hips = {name: "Hip openers", order: 1, dur: [10, 12], face: "strip", view: 
       if (X.dirSign && Math.sign(d) === X.dirSign) X.acc += Math.abs(d); else if (X.dirSign) X.back += Math.abs(d);
       X.dev += Math.abs(Math.hypot(X.cx, X.cy) - R)/R*Math.abs(d); X.n += Math.abs(d);
     }
-    X.trail.push([X.cx/R, X.cy/R]); if (X.trail.length > 28) X.trail.shift();
+    // (the oldest point reused for the newest once the trail is full: no new array a step)
+    const tp = X.trail.length >= 28 ? X.trail.shift() : [0, 0]; tp[0] = X.cx/R; tp[1] = X.cy/R; X.trail.push(tp);
     if (X.acc >= TAU){
       const e = X.dev/Math.max(1e-3, X.n) + .5*X.back/TAU;
       let g = grade(e, WIN.hips), word = null;
@@ -295,7 +295,7 @@ POOL.quad = {name: "Quad stretch balance", order: 1, dur: [9, 11], face: "strip"
     X.ux *= Math.exp(-.35*dt); X.uy *= Math.exp(-.35*dt);
     const dx = X.wx + X.ux, dy = X.wy + X.uy, d = Math.hypot(dx, dy);
     if (d > 1.4){ X.ux -= dx*(1 - 1.4/d); X.uy -= dy*(1 - 1.4/d); }
-    X.dot = {x: clamp(dx, -1.4, 1.4), y: clamp(dy, -1.4, 1.4)};
+    const D0 = X.dot || (X.dot = {x: 0, y: 0}); D0.x = clamp(dx, -1.4, 1.4); D0.y = clamp(dy, -1.4, 1.4);
     const dd = Math.hypot(X.dot.x, X.dot.y);
     if (dd < .3) X.in += dt; if (dd < .6) X.good += dt;
     X.sec += dt;
@@ -415,13 +415,14 @@ const timingWord = d => Math.abs(d) < .03 ? null : d > 0 ? "Early" : "Late";
 // The stand-in has the contract's shape: motivation() 60, warmBoost {set(o), get(), clear(), extend(min), rev()}, trust(d) and
 // motivationAdd(d, why) recorded. Used until the career's own exist, and always in the test fixtures
 export function localPort(){
-  const L = {boost: null, log: [], mot: 60, rev: 0,
+  // (wrote: a boost was set through this port, so the match that made it clears it when it ends)
+  const L = {boost: null, log: [], mot: 60, rev: 0, wrote: false,
     motivation: () => L.mot, boostScale: () => null, timing: () => null,
     motivationAdd(d, why){ L.log.push(["motivation", d, why]); L.mot = clamp(L.mot + (+d || 0), 0, 100); },
     trust(d){ L.log.push(["trust", d]); },
     style: () => null,
     warmBoost: {
-      set(o){ L.rev++; L.boost = Object.assign({rating: "ready", all: 0, focus: {}, untilMin: 0, onFire: false}, o || {}); L.log.push(["set", Object.assign({}, L.boost)]); return L.boost; },
+      set(o){ L.rev++; L.wrote = true; L.boost = Object.assign({rating: "ready", all: 0, focus: {}, untilMin: 0, onFire: false}, o || {}); L.log.push(["set", Object.assign({}, L.boost)]); return L.boost; },
       get(){ return L.boost; },
       clear(){ L.rev++; L.boost = null; L.log.push(["clear"]); },
       extend(min){ if (L.boost){ L.rev++; L.boost.untilMin += +min || 0; L.boost.onFire = true; L.log.push(["extend", min]); } return L.boost; },
@@ -435,16 +436,19 @@ export function careerPort(){
   const loc = localPort();
   const wb = w.warmBoost && typeof w.warmBoost.set === "function" ? w.warmBoost : null;
   const num = name => { try { const v = typeof w[name] === "function" ? +w[name]() : NaN; return Number.isFinite(v) ? v : null; } catch(e){ return null; } };
-  return {
-    real: !!wb, local: loc,
+  // (wrote: a boost, even a Cold one, was set through this port in this match: the match clears it when it ends)
+  const P = {
+    real: !!wb, local: loc, wrote: false,
     motivation: () => { try { const m = typeof w.motivation === "function" ? +w.motivation() : NaN; return Number.isFinite(m) ? m : loc.motivation(); } catch(e){ return loc.motivation(); } },
     motivationAdd: (d, why) => { try { if (typeof w.motivationAdd === "function") return w.motivationAdd(d, why); } catch(e){ console.error(e); } return loc.motivationAdd(d, why); },
     trust: d => { try { if (typeof w.trustAdd === "function") return w.trustAdd(d); } catch(e){ console.error(e); } return loc.trust(d); },
     style: () => { try { return typeof w.coachStyle === "function" ? w.coachStyle() : null; } catch(e){ return null; } },
     boostScale: () => num("motivationBoostScale"),
     timing: () => num("motivationTiming"),
-    warmBoost: wb ? {set: o => wb.set(o), get: () => wb.get(), clear: () => wb.clear(), extend: m => wb.extend(m), rev: () => typeof wb.rev === "function" ? wb.rev() : -1} : loc.warmBoost
+    warmBoost: wb ? {set: o => { P.wrote = true; return wb.set(o); }, get: () => wb.get(), clear: () => wb.clear(), extend: m => wb.extend(m), rev: () => typeof wb.rev === "function" ? wb.rev() : -1}
+      : Object.assign({}, loc.warmBoost, {set: o => { P.wrote = true; return loc.warmBoost.set(o); }})
   };
+  return P;
 }
 
 /* ---------- the session ---------- */
@@ -929,8 +933,9 @@ function makeBody(C, role, seed, at, bare = false){
   return o;
 }
 function dropBody(o){ if (!o) return; SCHED.remove(o.actor); if (o.h) o.h.dispose(); o.h = null; }
+const BODY_KEYS = ["coach", "fit"];
 function stepBodies(dt){
-  for (const key of ["coach", "fit"]){
+  for (const key of BODY_KEYS){
     const o = SESS[key]; if (!o || !o.h) continue;
     const g = o.h.g;
     let moving = false;
@@ -1017,20 +1022,21 @@ export function warmPose(h, x, z, yaw, dt){
   eyeFrom(h, st.mode !== "move");
   return ev.mask;
 }
+// (the pose record is one object for the whole warm-up, its fields set in place each frame)
 function myState(X, still = false){
   const s = SESS.my || (SESS.my = {});
   switch (X.id){
-    case "lunges": return Object.assign(s, {mode: "wu:lunge", d: still ? 0 : X.d, lead: X.lead});
-    case "swings": return Object.assign(s, {mode: "wu:swing", a: still ? 0 : X.a, s: X.s, lat: X.lat, board: Math.max(.45, (P.z - (-38))/1.0)});
-    case "hips": return Object.assign(s, {mode: "wu:hips", th: X.th, r: still ? 0 : clamp(Math.hypot(X.cx, X.cy)/X.var.R, 0, 1.4), s: X.s});
-    case "quad": return Object.assign(s, {mode: "wu:quad", ox: X.dot ? X.dot.x : 0, oy: X.dot ? X.dot.y : 0, s: X.s});
-    case "knees": return Object.assign(s, {mode: "wu:knees", L: X.kL, R: X.kR, kick: X.kick});
-    case "juggle": return Object.assign(s, {mode: "wu:juggle", k: X.k, side: X.side});
+    case "lunges": s.mode = "wu:lunge"; s.d = still ? 0 : X.d; s.lead = X.lead; return s;
+    case "swings": s.mode = "wu:swing"; s.a = still ? 0 : X.a; s.s = X.s; s.lat = X.lat; s.board = Math.max(.45, (P.z - (-38))/1.0); return s;
+    case "hips": s.mode = "wu:hips"; s.th = X.th; s.r = still ? 0 : clamp(Math.hypot(X.cx, X.cy)/X.var.R, 0, 1.4); s.s = X.s; return s;
+    case "quad": s.mode = "wu:quad"; s.ox = X.dot ? X.dot.x : 0; s.oy = X.dot ? X.dot.y : 0; s.s = X.s; return s;
+    case "knees": s.mode = "wu:knees"; s.L = X.kL; s.R = X.kR; s.kick = X.kick; return s;
+    case "juggle": s.mode = "wu:juggle"; s.k = X.k; s.side = X.side; return s;
     case "onetwo":
       if (SESS.strike){ const k = SESS.sk || (SESS.sk = {mode: "strike", kind: "side", side: "R", power: .45}); k.id = SESS.strike.id; k.ball = SESS.strike.ball; k.dir = SESS.strike.dir; k.tc = Math.max(0, SESS.strike.tc); return k; }
-      return Object.assign(s, {mode: "idle"});
+      s.mode = "idle"; return s;
   }
-  return Object.assign(s, {mode: "idle"});
+  s.mode = "idle"; return s;
 }
 // the eye rides your neck while a set bends you (a lunge takes it down): how far the neck is from where it stands at
 // rest, eased in and out so nothing jumps between the moving and the standing exercises

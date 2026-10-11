@@ -154,6 +154,12 @@ export function hudNotice(kind, text, sub = ""){
   D.cards.push({n, until:performance.now() + (kind === "goal" ? 5000 : 3500)});
   while (D.cards.length > 2){ const o = D.cards.shift(); o.n.remove(); }
 }
+// the cards on screen taken away at once (the second half starting: the first half's ones are old news)
+export function hudClearCards(){
+  if (!D.root) return;
+  for (const c of D.cards) c.n.remove();
+  D.cards.length = 0;
+}
 // the scenario line (3.2.9): one line, fading after 4 s, at most one new one per 20 s of real time
 export function hudScenario(text){
   if (!D.root || !text) return;
@@ -443,7 +449,7 @@ function warmFrame(s, dt, now, slow){
   // the guide round the crosshair
   const w = W.w, kind = w ? w.kind : null;
   if (kind !== D.wuKind){
-    D.wuKind = kind; E.wuW.className = "fp-wu-w" + (kind ? " k-" + kind : ""); E.wuW.innerHTML = kind ? WIDGET[kind] : ""; D.wuEl = {};
+    D.wuKind = kind; E.wuW.className = "fp-wu-w" + (kind ? " k-" + kind : ""); E.wuW.innerHTML = kind ? WIDGET[kind] : ""; D.wuEl = {}; D.beatPool = [];
     for (const el of E.wuW.querySelectorAll("[data-w]")) D.wuEl[el.dataset.w] = el;
   }
   if (!w) return;
@@ -458,9 +464,21 @@ function warmFrame(s, dt, now, slow){
     }
     case "strip": {
       // the beats slide in from the right to the hit line; A for the left leg, D for the right; the kicks in amber
-      const html = [];
-      for (const b of w.beats){ const x = 34 + (b.t - w.t)*150; if (x < 0 || x > 340 || b.done) continue; html.push(`<i class="${b.s > 0 ? "l" : "r"}${b.kick ? " kick" : ""}" style="transform:translateX(${x.toFixed(1)}px)">${b.s > 0 ? "A" : "D"}</i>`); }
-      G.beats.innerHTML = html.join("");
+      // (a pool of beat marks made as they are first needed and moved in place: no markup rebuilt a frame)
+      const pool = D.beatPool;
+      let n = 0;
+      for (const b of w.beats){
+        const x = 34 + (b.t - w.t)*150; if (x < 0 || x > 340 || b.done) continue;
+        let m = pool[n];
+        if (!m){ const el = document.createElement("i"); G.beats.appendChild(el); m = pool[n] = {el, c: "", t: "", on: true}; }
+        const c = b.s > 0 ? (b.kick ? "l kick" : "l") : (b.kick ? "r kick" : "r"), t = b.s > 0 ? "A" : "D";
+        if (m.c !== c){ m.c = c; m.el.className = c; }
+        if (m.t !== t){ m.t = t; m.el.textContent = t; }
+        if (!m.on){ m.on = true; m.el.hidden = false; }
+        m.el.style.transform = `translateX(${x.toFixed(1)}px)`;
+        n++;
+      }
+      for (let i = n; i < pool.length; i++) if (pool[i].on){ pool[i].on = false; pool[i].el.hidden = true; }
       put("wuKick", G.lab, w.kick ? "Butt kicks" : "High knees");
       break;
     }
@@ -475,7 +493,7 @@ function warmFrame(s, dt, now, slow){
       break;
     case "circle":
       G.dot.setAttribute("cx", (70*clamp(w.x, -1.6, 1.6)).toFixed(1)); G.dot.setAttribute("cy", (70*clamp(w.y, -1.6, 1.6)).toFixed(1));
-      G.trail.setAttribute("points", w.trail.map(p => `${(70*p[0]).toFixed(1)},${(70*p[1]).toFixed(1)}`).join(" "));
+      trailPoints(G.trail, w.trail);
       break;
     case "balance": {
       const d = Math.hypot(w.x, w.y);
@@ -497,6 +515,15 @@ function warmFrame(s, dt, now, slow){
       break;
     }
   }
+}
+// the hip circles' trail onto its polyline: the points of the list moved in place, one added or taken away as the
+// trail grows or shrinks (no points string built a frame)
+function trailPoints(line, trail){
+  const pts = line.points, svg = line.ownerSVGElement;
+  if (!pts || !svg){ line.setAttribute("points", trail.map(p => `${(70*p[0]).toFixed(1)},${(70*p[1]).toFixed(1)}`).join(" ")); return; }
+  while (pts.numberOfItems > trail.length) pts.removeItem(pts.numberOfItems - 1);
+  while (pts.numberOfItems < trail.length) pts.appendItem(svg.createSVGPoint());
+  for (let i = 0; i < trail.length; i++){ const q = pts.getItem(i); q.x = 70*trail[i][0]; q.y = 70*trail[i][1]; }
 }
 // the guides' markup (built once per exercise, moved by transforms each frame)
 const WIDGET = {

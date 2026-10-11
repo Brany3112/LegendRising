@@ -62,6 +62,10 @@ function derive(a, o = {}){
   return a;
 }
 
+// what derive() is given for a record: the player's boots and decision trait (attrsForPlayer keeps them on it); an AI
+// player's record has neither
+function deriveOpts(a){ return {control: !!a.controlBoots, dec: a.decTrait != null ? a.decTrait : null}; }
+
 // The player's attributes (1.4.13) from his effective skills (bridge.effSkills: S.skills after nerves and tired legs,
 // composure exempt), his items ({grip, strike, control}) and his traits ({team, conf, dec, risk}).
 export function attrsForPlayer(effSkills, items = {}, traits = {}){
@@ -70,7 +74,11 @@ export function attrsForPlayer(effSkills, items = {}, traits = {}){
   // the two speed skills of a migrated career (pace their mean when the record no longer has it)
   for (const k of SPEED_KEYS) if (effSkills && effSkills[k] != null) a[k] = clamp(+effSkills[k], 1, 99);
   if (effSkills && effSkills.pace == null && a.acceleration != null && a.sprintSpeed != null) a.pace = (a.acceleration + a.sprintSpeed)/2;
-  derive(a, {control: !!(items && items.control), dec: traits && traits.dec != null ? traits.dec : null});
+  // (the boots and the decision trait kept on the record, so anything that works the derived numbers out again from
+  // moved skills, a warm-up's boost, uses the same ones: deriveOpts)
+  a.controlBoots = !!(items && items.control);
+  a.decTrait = traits && traits.dec != null ? +traits.dec : null;
+  derive(a, deriveOpts(a));
   a.gk = null;
   a.strikeBoots = !!(items && items.strike);
   a.grip = !!(items && items.grip);
@@ -126,8 +134,20 @@ export function levelled(at, shift){
   if (!at || !shift) return at;
   const a = Object.assign({}, at);
   for (const k of SKILL_KEYS.concat(SPEED_KEYS)) if (a[k] != null) a[k] = clamp(Math.round(a[k] + shift), 20, 99);
-  derive(a);
+  derive(a, deriveOpts(a));
   if (at.gk){ a.gk = {}; for (const [k, v] of Object.entries(at.gk)) a.gk[k] = clamp(Math.round(v + shift), 20, 99); }
+  return a;
+}
+
+// The player's attributes with skill points on top (a warm-up's boost, A1.8): every career skill up by all, the ones
+// in add ({skill: +n}) by their own amount as well, each capped at 99 as career.js effSkill caps them, and the derived
+// ones worked out again with the same boots and decision trait, so the record is what attrsForPlayer makes from the
+// raised skills. (pace is not a career skill: it stays the mean of the two speed skills.) A new object
+export function raised(at, all = 0, add = {}){
+  if (!at) return at;
+  const a = Object.assign({}, at);
+  for (const k of SKILL_KEYS.concat(SPEED_KEYS)) if (k !== "pace" && a[k] != null) a[k] = clamp(Math.min(99, a[k] + all + (+add[k] || 0)), 1, 99);
+  derive(a, deriveOpts(a));
   return a;
 }
 

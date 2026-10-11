@@ -271,7 +271,8 @@ body.gfx-low .fp-wu{background:rgba(9,15,24,.85)}
   background:rgba(9,15,24,.72);font-size:calc(15px*var(--s));text-align:center;transition:opacity .3s,transform .35s var(--fp-spring)}
 .fp-say.in{opacity:1;transform:translate(-50%,0)}
 .fp-say b{margin-right:6px;font-family:var(--fp-font);letter-spacing:.03em;color:var(--fp-charge)}
-.fp-say.mate{bottom:calc(var(--fp-pad) + 190px);font-size:calc(13px*var(--s));background:rgba(9,15,24,.55)}.fp-say.mate b{color:#9be7ff}
+/* (a team-mate's shout goes under the coaches' line, below the guides round the crosshair and the juggling ring) */
+.fp-say.mate{bottom:calc(var(--fp-pad) + 84px);max-width:min(560px,70vw);font-size:calc(13px*var(--s));background:rgba(9,15,24,.55)}.fp-say.mate b{color:#9be7ff}
 @media (prefers-reduced-motion:reduce){.fp-pop,.fp-say,.fp-wu{transition:none !important}}
 /* a narrow screen (a phone held upright, 390 wide): the scorebug takes the top row, so the set's panel goes under it
    across the width (the Warm mark, under the scorebug too, only shows once the set is over), and the event cards come

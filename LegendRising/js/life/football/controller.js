@@ -55,7 +55,7 @@ import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv, makeFP} from "./view.js";
 import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
-import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff} from "./fphud.js";
+import {hudInit, hudFrame, hudNotice, hudClearCards, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff} from "./fphud.js";
 import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling,
   warmCallDue, warmOn, warmTab, careerPort, localPort, boostedAttrs, pickSet, WARM_POOL, boostFor, callMinute, exerciseCount, exScore} from "./warmup.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
@@ -1173,6 +1173,8 @@ function secondHalfGo(){
   if (FS.state !== "halftime") return;
   const ms = FS.ms;
   hudOverlay(null);
+  // the first half's cards (the added minutes, the whistle) do not carry on into the second, however long the break
+  hudClearCards();
   // ends changed, everyone on the kick-off spots behind the fade (sim.js secondHalf), you at yours
   if (ms.phase === "halftime") secondHalf(ms);
   const me = liveMe();
@@ -1259,9 +1261,9 @@ function teardown(){
   for (const f of FS.offs) try { f(); } catch(e){ console.error(e); }
   FS.offs.length = 0;
   if (playing()) skip();
-  // the warm-up's coaches and ball go; its boost belongs to this match only
+  // the warm-up's coaches and ball go; its boost belongs to this match only (a Cold record from an ignored call too)
   warmDispose();
-  if (FS.wport && (FS.boostLive || FS.wb)) FS.wport.warmBoost.clear();
+  if (FS.wport && (FS.boostLive || FS.wb || FS.wport.wrote)) FS.wport.warmBoost.clear();
   FS.wport = null; FS.wbNow = null; FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.wDrive = false; FS.testWarm = null;
   if (AUD.feelOff) AUD.feelOff();
   camDispose();
