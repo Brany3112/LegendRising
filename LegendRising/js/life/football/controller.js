@@ -27,7 +27,13 @@
    goes), a tap of E stands you up to warm up along the touchline; watching at 2x and 4x the picture is drawn at 30 Hz
    and the hints say the rate it really runs at. Your strikes: a big chance eases time a little while you wind up (the
    world's time-scale, never a pause); your contact is heard and felt by how cleanly you struck it (the kick's gain
-   and a moment of hit-stop for a clean one). */
+   and a moment of hit-stop for a clean one).
+
+   WP-W1 (addendum A1.8): the warm-up. A substitute with a planned change is called 10 to 15 match minutes before it:
+   the assistant coach comes over, E stands you up, you jog to the strip behind the touchline and warm up (warmup.js,
+   the exercises, their poses, the coaches) while the match goes on; the rating's boost goes onto your agent's numbers
+   for your first minutes on (and 10 more after a goal or an assist while it lasts), then comes off again. The skip to
+   your call stops at the coach's call. The career's side (motivation, the boost, trust) through warmup.js's port. */
 import {P, RT, FLAGS, FADE, ME, LIFE} from "../core/state.js";
 import {registerMode, enterMode, exitMode, mode, revealAfterFrames, persistNow, coverScreen} from "../core/modes.js";
 import {camKick} from "../core/camera.js";
@@ -49,11 +55,13 @@ import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv} from "./view.js";
 import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
-import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal} from "./fphud.js";
+import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay} from "./fphud.js";
+import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling,
+  warmCallDue, warmOn, warmTab, careerPort, localPort, boostedAttrs, pickSet, WARM_POOL, boostFor, callMinute, exerciseCount, exScore} from "./warmup.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
 import {STADIUM, SPAWNS} from "./stadium.js";
 import {AUD} from "./audio.js";
-import {prebuildHumans} from "../human.js";
+import {prebuildHumans, human} from "../human.js";
 import {runOne} from "./harness.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -100,7 +108,8 @@ const isTest = () => !!FS.test;
    movement 'own' (your own walk before and after, your agent in play), targeting only the stadium's own spots,
    saves deferred to the checkpoints, no third person, no life HUD, the pointer let go pauses it */
 // (seated on the bench nothing is offered under your eye: the bench's own spot would keep saying "Sit down", A1.6)
-const FLAGS_MATCH = {clock: "own", movement: "own", targeting: s => !!(s && s.stadium) && !(FS.state === "bench" && FS.seated), tunnel: false, closing: false,
+// (nor while the warm-up has you: its own keys are the set's, A1.8)
+const FLAGS_MATCH = {clock: "own", movement: "own", targeting: s => !!(s && s.stadium) && !(FS.state === "bench" && FS.seated) && !(warmDriving() || WARM.phase === "call"), tunnel: false, closing: false,
   homeTick: false, compass: false, saves: "defer", tp: false, hud: "none", pauseOnUnlock: true, leaveOnZone: false};
 registerMode("match", {
   flags: FLAGS_MATCH,
@@ -125,7 +134,8 @@ function capture(e){
     // (a key with a modifier held: only its default is stopped; control.js ignores it while MOD.on)
     MOD.on = false;
     if (e.ctrlKey || e.altKey || e.metaKey) return void (MOD.on = true);
-    if (e.type === "keydown" && k === "tab" && !e.repeat){ FS.tabHeld = true; hudTab(true); }
+    // (Tab held through the warm-up finishes it instead of opening the overview)
+    if (e.type === "keydown" && k === "tab" && !e.repeat){ FS.tabHeld = true; hudTab(!(warmDriving() && !FS.onPitch)); }
     if (e.type === "keyup" && k === "tab"){ FS.tabHeld = false; hudTab(false); }
     return;
   }
@@ -245,6 +255,8 @@ function startMatch(cfg, kits){
   FS.own = createMover({x: P.x, z: P.z, yaw: P.yaw});
   if (FS.real){ writeCheckpoint(true); }
   FS.lastMin = -1; FS.board = -1;
+  FS.kits = kits;
+  warmSetup();
 }
 const meNumber = () => { const ms = FS.ms; if (!ms) return 9; const a = ms.agents.find(x => x.isMe); if (a) return a.number; for (const t of [0, 1]) for (const p of ms.bench[t]) if (p.isMe) return p.number; return 9; };
 function myAttrs(){
@@ -448,7 +460,7 @@ function frame(dt, real){
   // the bodies, the ball, the crowd and the board
   const alpha = clamp(FS.acc/H, 0, 1);
   viewFrame(FS.V, ms, alpha, FS.viewDt, RT.cam);
-  FS.viewDt = 0;
+  FS.viewDtLast = FS.viewDt; FS.viewDt = 0;
   place();
   hud(dt);
 }
@@ -465,10 +477,12 @@ function ownWalk(dt, walls){
   const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
   OWN_IT.dx = len ? (r*cos - f*sin)/len : 0; OWN_IT.dz = len ? (-r*sin - f*cos)/len : 0;
   OWN_IT.gait = CTRL.walk ? "walk" : CTRL.held.shift ? "sprint" : FS.state === "dressing" ? "walk" : "jog";
-  OWN_IT.face = {x: -sin, z: -cos};
+  OWN_IT.face = {x: -sin, z: -cos}; OWN_IT.strafe = false; OWN_IT.speedCap = Infinity;
   if (m.x !== P.x || m.z !== P.z){ m.x = P.x; m.z = P.z; }
   const fac = stamFactors(FS.ownSt, 1, FS.ownFac);
-  moverStep(m, OWN_IT, FS.ownPrm, fac, dt, walls ? ownCollide : null);
+  // the warm-up runs your legs while it has you (to the strip, the strides, the shuffles, a few steps to a spot)
+  const wi = FS.onPitch ? null : warmIntent();
+  moverStep(m, wi || OWN_IT, FS.ownPrm, fac, dt, walls ? ownCollide : null);
   stamStep(FS.ownSt, dt, effortOf(m.gait, m.speed, FS.ownPrm.run), {stamina: 50, eF: 1});
   P.x = m.x; P.z = m.z; P.vx = m.vx; P.vz = m.vz; P.speed = m.speed;
   P.feet = 0; P.eye = CAM.EYE*(ME.scale || 1);
@@ -506,6 +520,8 @@ function live(dt, real){
   // your eye rides your agent between its last two steps
   mirror();
   scanStep(dt);
+  // the warm-up's boost comes off when its minutes are up (A1.8)
+  warmBoostStep();
   // the phase of the match
   if (ms.phase === "halftime" && FS.state === "live") startHalftime();
   else if ((ms.phase === "fulltime" || ms.phase === "over") && FS.state === "live") startFulltime();
@@ -558,6 +574,12 @@ function mirror(){
 function eyeOf(out){
   out.x = P.x; out.z = P.z;
   out.y = FS.state === "bench" && FS.seated ? CAM.BENCH_EYE : P.eye;
+  if (!FS.onPitch && !FS.seated){
+    // off the seat the view rises to your standing eye (A1.8); a set that bends you (a lunge) takes the eye with your neck
+    if (FS.riseT >= 0){ const k = clamp(FS.riseT/WU.RISE, 0, 1), e = k*k*(3 - 2*k); out.y = CAM.BENCH_EYE + (P.eye - CAM.BENCH_EYE)*e; }
+    const E = warmEye();
+    if (E.w > 0){ out.x += E.x; out.y += E.y; out.z += E.z; }
+  }
   return out;
 }
 function mySpeed(){ const me = liveMe(); return me ? me.m.speed : FS.own ? FS.own.speed : 0; }
@@ -567,6 +589,8 @@ function myAcc(){ const me = liveMe(); return me ? me.m.acc || 0 : FS.own ? FS.o
 function fpPoseNow(x, z, yaw, dt){
   const V = FS.V; if (!V || !V.fp) return 0;
   V.fpOn = !(FS.state === "bench" && FS.seated) && !playing();
+  // the warm-up poses you through its set (the body where you stand, not where the eye has gone with the neck)
+  if (V.fpOn && !FS.onPitch && !V.src && !V.hideAll){ const m = warmPose(V.fp, P.x, P.z, yaw, dt); if (m != null) return m; }
   return fpPose(V, x, z, yaw, dt, {speed: mySpeed()});
 }
 function fpInClip(){ const V = FS.V, ms = FS.ms; if (!V || !ms || ms.me < 0) return false; const R = V.rec[ms.me]; return !!(R && R.clip); }
@@ -599,6 +623,7 @@ function events(){
         AUD.cue("crowdRoar", null, 1); AUD.cue("net", at, 1);
         if (STADIUM.crowd) STADIUM.crowd.goal(ev.x < 0 ? -1 : 1);
         if (ev.scorer === me){ camTrauma(.35); }
+        if (me >= 0) warmGoal(ev, me);
         break;
       case "offside": {
         const m = (+ev.margin || 0).toFixed(1);
@@ -663,7 +688,9 @@ function ballSound(k, d){
 function place(){
   const ms = FS.ms;
   const since = FS.goalT >= 0 ? ms.t - FS.goalT : 99, near = Math.max(0, (Math.abs(ms.ball.p.x) - 30)/22);
-  STADIUM.excite(Math.min(1, .3 + .25*near + (since < 25 ? .7*Math.exp(-since/12) : 0)));
+  // (a great set on the touchline gets the fans by the boards going for a moment, A1.8)
+  FS.cheer = Math.max(0, (FS.cheer || 0) - (FS.viewDtLast || 0)*.35);
+  STADIUM.excite(Math.min(1, .3 + .25*near + (since < 25 ? .7*Math.exp(-since/12) : 0) + .4*FS.cheer));
   const mm = minuteOf(ms), key = (ms.score[0]*1000 + ms.score[1])*1000 + mm;
   if (key !== FS.board){ FS.board = key; STADIUM.score({hs: ms.score[0], as: ms.score[1], min: mm}); }
 }
@@ -719,10 +746,13 @@ function hud(dt){
     HUDS.hold = null;
   } else {
     HUDS.B = FS.ownSt ? FS.ownSt.B : 100; HUDS.cap = FS.ownSt ? FS.ownSt.cap : 100; HUDS.offPip = null; HUDS.offX = null; HUDS.sweet = HUDS.tick = null; HUDS.glyph = "";
-    if (slow) HUDS.hints = offHints();
-    // E held on the bench: the ring fills to the skip
-    HUDS.hold = FS.eDown && FS.state === "bench" && FS.seated && !FS.skipping ? clamp(FS.eHeld/DAY.E_HOLD, 0, 1) : null;
+    if (slow) HUDS.hints = warmHints() || offHints();
+    // E held on the bench: the ring fills to the skip; Tab held through the warm-up fills it to the finish
+    HUDS.hold = FS.eDown && FS.state === "bench" && FS.seated && !FS.skipping ? clamp(FS.eHeld/DAY.E_HOLD, 0, 1) : warmDrilling() && warmTab() > 0 ? clamp(warmTab(), 0, 1) : null;
   }
+  // the warm-up's panel and guide (off the pitch), the Warm mark (A1.8)
+  HUDS.warm = FS.onPitch ? null : warmHud();
+  HUDS.warmIcon = warmIcon();
   hudShow(!playing() && FS.state !== "travel");
   hudFrame(ms, me, CTRL, dt, HUDS);
   // the receiver ring (1.5.10): under the pass's point while you hold the pass, or where a pass to you will be met
@@ -802,6 +832,13 @@ function bench(dt, real){
   // card while E is held)
   if (FS.skipping) skipFrame();
   else live(dt, real);
+  // the warm-up (A1.8): the coach's call, the set, the coaches; your look while it frames the set
+  if (!FS.skipping && !FS.onPitch && FS.state !== "halftime" && FS.state !== "fulltime"){ warmFrame(real); warmLook(real); }
+  // (the keys held when the warm-up takes your legs, or gives them back, are let go: their key-ups went to the set)
+  const drv = warmDriving() && !FS.onPitch;
+  if (drv !== !!FS.wDrive){ FS.wDrive = drv; for (const k in CTRL.held) CTRL.held[k] = false; }
+  if (FS.riseT >= 0){ FS.riseT += real; if (FS.riseT > WU.RISE) FS.riseT = -1; }
+  if (!FS.seated && !FS.onPitch) ensureFP(FS.V);
   if (!FS.seated){
     ownWalk(dt, true);
     // the call came: walk to the fourth official
@@ -867,6 +904,9 @@ function onCameOn(){
   FS.state = "live"; FS.called = false; FS.atFourth = false;
   if (FS.V) FS.V.me = ms.me;
   hudNotice("sub", "You're on", "Go and make a difference.");
+  // the warm-up's boost runs from now (A1.8); the warm-up itself is over
+  warmBoostOn();
+  warmDispose(); FS.lockLook = false; FS.riseT = -1;
 }
 // E held on the bench: the simulation runs headless under a card with the live score and minute (3.4.2: at most
 // DAY.SKIP_MS of it a frame, under the 12 ms of the spec)
@@ -905,7 +945,8 @@ function skipFrame(){
     dtS = now - last; last = now; if (dtS > worst) worst = dtS;
     if (dtS > 4*FS.stepMean + 1) FS.stallAllow = Math.max(FS.stallAllow, Math.min(dtS, DAY.SKIP_CAP));
     else FS.stepMean += (dtS - FS.stepMean)*.02;
-    if (S0.kind === "call" && ms.callUp) break;
+    // (the skip to your call stops for the coach's warm-up call too, A1.8)
+    if (S0.kind === "call" && (ms.callUp || warmCallDue())) break;
     if (S0.kind === "late" && matchSec(ms) >= S0.until) break;
     if (ms.phase === "halftime"){ if (S0.kind === "late" || FS.state === "lateRun"){ secondHalf(ms); } else break; }
     if (now - t0 + Math.max(.2, 2*FS.stepMean) >= budget) break;
@@ -916,7 +957,7 @@ function skipFrame(){
   FS.headless = false;
   events();
   hudOverlay(skipHTML(), "card dim");
-  const done = S0.kind === "call" ? !!ms.callUp : S0.kind === "late" ? matchSec(ms) >= S0.until : false;
+  const done = S0.kind === "call" ? !!ms.callUp || warmCallDue() : S0.kind === "late" ? matchSec(ms) >= S0.until : false;
   if (done || ms.phase === "halftime" || ms.phase === "fulltime" || ms.phase === "over"){
     FS.skipping = null;
     // (half time stops the skip for the dressing room; it carries on with the second half)
@@ -938,6 +979,141 @@ function skipFrame(){
     }
     revealAfterFrames(2).then(() => liftCover());
   }
+}
+
+/* ---------- the warm-up (WP-W1, addendum A1.8; warmup.js) ----------
+   Planned at the match's start for a substitute with a planned change (cfg.roleTimes.subOn); the warm-up runs its own
+   course from the bench (warmFrame); here are its hands on the day: your seat, your legs, the bench record your agent is
+   made from when you go on, the HUD, the career's port (the stand-in in the test fixtures: a test never touches a
+   career). The set of the last match is kept on this device (freyaFootball.warmLast), so no two matches running have
+   the same one. */
+const WARM_KEY = "freyaFootball.warmLast";
+let WARM_LAST = null;
+function warmLast(){
+  if (FS.testWarm && FS.testWarm.last !== undefined) return FS.testWarm.last;
+  if (WARM_LAST) return WARM_LAST;
+  try { const v = JSON.parse(localStorage.getItem(WARM_KEY) || "null"); return Array.isArray(v) ? v : null; } catch(e){ return null; }
+}
+function warmRemember(set){
+  WARM_LAST = set.slice();
+  if (FS.testWarm) return;
+  try { localStorage.setItem(WARM_KEY, JSON.stringify(set)); } catch(e){}
+}
+// the coach's style (attacking, pressing, technical): the configuration's (bridge) when it carries one, the career's,
+// else one of the three fixed by the club (a hash of its name: the same club always has the same coach)
+const STYLES = ["attacking", "pressing", "technical"];
+function coachStyle(){
+  const me = FS.cfg && FS.cfg.me, M = FS.M;
+  const s = (me && me.coachStyle) || (M && M.coachStyle) || (FS.testWarm && FS.testWarm.style) || (FS.wport && FS.wport.style());
+  if (STYLES.includes(s)) return s;
+  const team = FS.cfg && me ? FS.cfg.teams[me.team] : null;
+  let h = 0; const n = String(team ? team.name : "club"); for (let i = 0; i < n.length; i++) h = (h*31 + n.charCodeAt(i)) >>> 0;
+  return STYLES[h % 3];
+}
+function warmSetup(){
+  const cfg = FS.cfg, ms = FS.ms;
+  const subOn = cfg && cfg.roleTimes ? cfg.roleTimes.subOn : 0;
+  FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.cheer = 0;
+  if (!subOn || !cfg.me || cfg.resume || ms.me >= 0){ warmDispose(); return; }
+  const port = FS.real ? careerPort() : (FS.testPort = localPort());
+  FS.wport = port;
+  const t = cfg.me.team, kit = FS.kits ? (t === 0 ? FS.kits.home : FS.kits.away) : null;
+  warmPlan({seed: cfg.seed, subOn, callAt: FS.testWarm && FS.testWarm.callAt != null ? FS.testWarm.callAt : null, team: t, side: t === 0 ? -1 : 1,
+    real: FS.real, kit, port,
+    style: () => coachStyle(),
+    minute: () => FS.ms ? minuteOf(FS.ms) : 0, rate: () => FS.ms ? FS.ms.clock.rate : 4.5,
+    called: () => !!FS.called || !!(FS.ms && FS.ms.callUp) || FS.onPitch,
+    seatAt: () => FS.seated ? FS.benchSeat : null,
+    stand: () => { if (FS.seated){ standUp(); FS.riseT = 0; } },
+    own: () => FS.own, V: () => FS.V,
+    note: t0 => note(t0),
+    say: (who, text, mate) => hudSay(who, text, mate),
+    pop: (text, kind, sub) => hudPop(text, kind, sub),
+    cheer: v => { FS.cheer = Math.min(1, (FS.cheer || 0) + v); },
+    mates: () => benchMates(),
+    last: () => warmLast(), remember: set => warmRemember(set), forceSet: FS.testWarm && FS.testWarm.set ? FS.testWarm.set : null,
+    applyBoost: b => warmBoostBench(b)});
+}
+// the team-mates on the bench (the ones who have not gone on), where they sit: they shout across now and then
+function benchMates(){
+  const ms = FS.ms, t = FS.cfg.me ? FS.cfg.me.team : 0, sx = t === 0 ? -1 : 1;
+  // (called by the surname, as team-mates do; a name that ends in a number is said whole)
+  const callName = n => { const w = String(n || "").split(" "), last = w[w.length - 1]; return /^\d+$/.test(last) ? w.join(" ") : last; };
+  return ms.bench[t].filter(p => !p.isMe && !p.used).slice(0, 4).map((p, i) => ({name: callName(p.name), x: sx*10 + sx*(1.2 - .6*i), z: -37.3, seed: p.pid || i}));
+}
+// the boost onto the record your agent is made from when you go on (sim.js benchMe keeps you there): the boosted
+// numbers, the plain ones kept to put back
+function warmBoostBench(b){
+  const ms = FS.ms, t = FS.cfg.me ? FS.cfg.me.team : 0;
+  const rec = ms.bench[t].find(p => p.isMe && !p.used);
+  FS.wb = b;
+  if (!rec || !b) return;
+  if (!rec.atBase) rec.atBase = rec.at;
+  rec.at = boostedAttrs(rec.atBase, b);
+}
+// you came on with a boost: it runs its minutes from now (the port's untilMin, which a goal or an assist moves on);
+// the stamina it gives is in your tank's drain too (cfg.me.staminaF)
+function warmBoostOn(){
+  const ms = FS.ms, me = ms.agents[ms.me], b = FS.wb, port = FS.wport;
+  if (!me || !b || !port) return;
+  const t = me.team, rec = ms.bench[t].find(p => p.isMe);
+  const now = minuteOf(ms), cur = port.warmBoost.get() || {};
+  port.warmBoost.set(Object.assign({}, cur, {rating: b.rating, all: b.all, focus: Object.assign({}, b.focus), focusName: b.focusName, mins: b.mins, untilMin: now + b.mins, onFire: false}));
+  const sF = FS.cfg.me.staminaF;
+  FS.boostLive = {atBase: rec && rec.atBase ? rec.atBase : me.at, sF, mins: b.mins};
+  if (sF != null) FS.cfg.me.staminaF = Math.max(.3, sF - 1.15*((b.all || 0) + (b.focus.stamina || 0))/100);
+}
+// the boost's time is up: your plain numbers again (the mover's profile from them, its bounds kept), the tank as it was
+function warmBoostOff(){
+  const ms = FS.ms, me = ms && ms.me >= 0 ? ms.agents[ms.me] : null, L = FS.boostLive;
+  FS.boostLive = null;
+  if (FS.wport) FS.wport.warmBoost.clear();
+  if (!me || !L) return;
+  const at = me.at = L.atBase;
+  me.prm = Object.assign(moverParams({pace: at.pace, dribbling: at.dribbling, acceleration: at.acceleration, sprintSpeed: at.sprintSpeed, agility: at.agility}, "football", me.items || {}), {bounds: me.prm.bounds});
+  if (L.sF != null) FS.cfg.me.staminaF = L.sF;
+  hudNotice("info", "Your warm-up boost has worn off.");
+}
+function warmBoostStep(){
+  const L = FS.boostLive, port = FS.wport; if (!L || !port || !FS.onPitch) return;
+  const b = port.warmBoost.get();
+  if (!b || minuteOf(FS.ms) >= b.untilMin) warmBoostOff();
+}
+// a goal or an assist of yours while the boost lasts: 10 more minutes, and you are on fire
+function warmGoal(ev, me){
+  if (!FS.boostLive || !FS.wport || ev.disallowed || ev.ownGoal) return;
+  if (ev.scorer !== me && ev.assister !== me) return;
+  FS.wport.warmBoost.extend(WU.EXTEND);
+  hudNotice("goal", "On fire", `Your warm-up boost runs ${WU.EXTEND} more minutes.`);
+}
+// the Warm mark on the HUD: the boost waiting for you to go on, or running with its minutes left
+function warmIcon(){
+  const b = FS.wport ? FS.wport.warmBoost.get() : null;
+  if (!b || !(b.all > 0)) return null;
+  if (FS.onPitch && !FS.boostLive) return null;
+  const I = FS.wIcon || (FS.wIcon = {});
+  I.all = b.all; I.mins = b.mins || 12; I.fire = !!b.onFire; I.wait = !FS.onPitch;
+  I.left = FS.onPitch ? b.untilMin - (FS.ms.clock.sec/60 + 1 + (FS.ms.half - 1)*45) : I.mins;
+  return I;
+}
+// your first-person body off the pitch (a substitute has no agent to give view.js one): the same headless body in your
+// kit that view.js makes for you on the pitch (it takes this one over when you go on)
+function ensureFP(V){
+  if (!V || V.fp || !V.fpLook) return;
+  const h = human(V.fpLook, {noHead: true, lod: false, track: true});
+  h.near.frustumCulled = false;
+  h.g.name = "match-fp";
+  V.scene.add(h.g);
+  V.fp = h;
+}
+// while the warm-up has your view, it turns to what the set is framed for, eased (the look is the warm-up's then)
+function warmLook(dt){
+  const v = warmView();
+  FS.lockLook = !!v || (warmOn() && WARM.phase === "rise");
+  if (!v) return;
+  const k = 1 - Math.exp(-5*dt);
+  P.yaw = wrapA(P.yaw + wrapA(v.yaw - P.yaw)*k);
+  P.pitch += (v.pitch - P.pitch)*k;
 }
 
 /* ---------- half time (3.4.3) ---------- */
@@ -1073,6 +1249,10 @@ function teardown(){
   for (const f of FS.offs) try { f(); } catch(e){ console.error(e); }
   FS.offs.length = 0;
   if (playing()) skip();
+  // the warm-up's coaches and ball go; its boost belongs to this match only
+  warmDispose();
+  if (FS.wport && (FS.boostLive || FS.wb)) FS.wport.warmBoost.clear();
+  FS.wport = null; FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.wDrive = false; FS.testWarm = null;
   if (AUD.feelOff) AUD.feelOff();
   camDispose();
   hudDispose();
@@ -1145,6 +1325,8 @@ function input(ev){
     // Esc during a replay skips it
     if (k === "escape" && playing()){ skip(); return true; }
     if (k === "h"){ if (down && !ev.repeat) hudToggleHints(); return true; }
+    // the warm-up (A1.8): E answers the coach's call; through the set its keys are the exercise's, Tab held finishes it
+    if (!FS.onPitch && !FS.skipping && warmInput(ev)){ if (k === "tab"){ FS.tabHeld = false; hudTab(false); } return true; }
     if (k === "tab"){ FS.tabHeld = down; hudTab(down); return true; }
     // E: context only (Ready at kick-off, sit or stand on the bench, held to skip); in the dressing room and on your feet
     // by the dugout it uses the spot (the manager, the door, the seat)
@@ -1160,6 +1342,7 @@ function input(ev){
     // 1, 2, 3 on the bench: watch at 1x, 2x, 4x (on the pitch they choose the contact)
     if (st === "bench" && FS.seated && down && (k === "1" || k === "2" || k === "3")){ FS.ffRate = DAY.FF[+k - 1]; FS.ffSteps = 0; FS.ffReal = 0; FS.ffAch = FS.ffRate; return true; }
   }
+  if (!FS.onPitch && !FS.skipping && (ev.type === "move" || ev.type === "down" || ev.type === "up") && warmInput(ev)) return true;
   if (ev.type === "move" && st === "bench" && FS.seated){ look(ev.dx || 0, ev.dy || 0); benchClamp(Math.PI); return true; }
   if (playing() && (ev.type === "down" || ev.type === "up")) return true;
   return controlInput(ev);
@@ -1186,7 +1369,11 @@ function benchRelease(ev){
   FS.eT0 = null;
   FS.eDown = false; FS.eHeld = 0;
   if (!was || FS.state !== "bench" || !FS.seated || FS.skipping) return;
-  if (held < DAY.E_TAP){ standUp(); note("You're up. Warm up along the touchline, and press E by the dugout to sit back down."); }
+  if (held < DAY.E_TAP){
+    standUp();
+    note(warmOn() && WARM.phase === "wait" ? "You're up. Keep loose, the coach will tell you when to warm up properly. Press E by the dugout to sit back down."
+      : "You're up. Warm up along the touchline, and press E by the dugout to sit back down.");
+  }
   else hudNotice("info", "Keep holding E until the ring fills.");
 }
 const callPlanned = () => { const rt = FS.cfg && FS.cfg.roleTimes; return !!(rt && rt.subOn) && !(FS.ms && FS.ms.roleDone.on && !FS.ms.callUp); };
@@ -1296,8 +1483,10 @@ function testConfig(name, o = {}){
   return {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[2]}), halfRealSec: HALF_REAL[2], tempo: Object.assign({}, TEMPO[2]),
     teams, me: {team: 0, slot: o.slot || "ST", prefFoot: "Right", chem: 50, trust: 50, traits: o.traits || {},
       // (the career's staminaF, career.js: 1.6 - 1.15 stamina/100, when the fixture gives you a stamina; else 1)
-      staminaF: o.me && o.me.stamina != null ? 1.6 - 1.15*o.me.stamina/100 : 1, role: "starter"},
-    rules: {offside: true, cards: true, subs: 5}, roleTimes: {}, kickoffTeam: o.kickoffTeam != null ? o.kickoffTeam : 1, benchSide: -1, htAuto: false,
+      staminaF: o.me && o.me.stamina != null ? 1.6 - 1.15*o.me.stamina/100 : 1, role: name === "bench" ? "sub" : "starter",
+      coachStyle: o.style || null},
+    // (test:bench: a substitute planned on at o.subOn, 30 by default)
+    rules: {offside: true, cards: true, subs: 5}, roleTimes: name === "bench" ? {subOn: o.subOn || 30} : {}, kickoffTeam: o.kickoffTeam != null ? o.kickoffTeam : 1, benchSide: -1, htAuto: false,
     ovr: [o.ovr || 60, o.ovr || 60], visible: visibleFn};
 }
 function enterTest(name, o){
@@ -1307,12 +1496,28 @@ function enterTest(name, o){
   const kits = {home: ["#2c66b8", "#ffffff"], away: ["#c8463a", "#ffffff"]};
   build({tier: o.tier != null ? o.tier : 2, crowd: o.crowd != null ? o.crowd : 9000, cap: 28000, kits, clubs: {home: "Testers", away: "Rivals"}, at: "tunnelMouth", homeShare: .7});
   const cfg = testConfig(name.replace(/-.*$/, ""), o);
+  // test:bench (A1.8): the warm-up's numbers for the test (the call's minute, the last match's set, the coach's style)
+  // (warmLast: the last match's set as given, or "memory" for the one this session remembers, as a real match uses)
+  FS.testWarm = name === "bench" ? {callAt: o.callAt != null ? o.callAt : null, last: o.warmLast === "memory" ? undefined : o.warmLast !== undefined ? o.warmLast : null, style: o.style || null,
+    set: Array.isArray(o.warmSet) ? o.warmSet.slice() : null} : null;
   startMatch(cfg, kits);
+  if (name === "bench") return enterBench(o);
   const ms = FS.ms, me = ms.agents[ms.me];
   FS.state = "live"; FS.onPitch = true;
   placeOwn({x: me.m.x, z: me.m.z, yaw: me.m.yaw}); P.yaw = me.m.yaw; P.pitch = -.12;
   handover();
   scenario(name, o);
+  revealAfterFrames(2).then(() => liftCover(100));
+  return true;
+}
+// test:bench (A1.8): you on the home bench, seated (o.seated false: on your feet by the dugout), the match from its
+// kick-off with the clock at o.startMin, your change planned at o.subOn
+function enterBench(o){
+  const ms = FS.ms;
+  if (o.startMin > 1) ms.clock.sec = (o.startMin - 1)*60;
+  FS.state = "bench"; FS.onPitch = false; FS.V.pre = null;
+  placeOwn({x: -10, z: -36.6, yaw: Math.PI}); P.yaw = Math.PI; P.pitch = -.1;
+  if (o.seated !== false) sitDown("home");
   revealAfterFrames(2).then(() => liftCover(100));
   return true;
 }
@@ -1432,6 +1637,12 @@ window.__fp = {
   harness: {runOne}, testInfo: () => FS.testInfo || null, sitDown: s => sitDown(s || "home"), leave: () => leave(),
   halftimeGo: () => secondHalfGo(),
   // your stride's rhythm for a strike with this foot now (A1.7: control.js rhythmOf, a copy of its record)
-  rhythm: (foot = "R") => { const me = liveMe(); return me ? Object.assign({}, rhythmOf(me, foot)) : null; }
+  rhythm: (foot = "R") => { const me = liveMe(); return me ? Object.assign({}, rhythmOf(me, foot)) : null; },
+  // the warm-up (A1.8, WP-W1): its session, the pool, the pure rules, the port it used (the stand-in in the tests)
+  warm: {
+    get S(){ return WARM; }, POOL: WARM_POOL, WU, pickSet, boostFor, boostedAttrs, callMinute, exerciseCount, exScore,
+    port: () => FS.wport, testPort: () => FS.testPort || null, boostLive: () => FS.boostLive, wb: () => FS.wb, icon: () => warmIcon(),
+    stand: () => FS.seated ? standUp() : null
+  }
 };
 void DEG; void sprintSpeed; void wrapA; void yawOf; void onSec;
