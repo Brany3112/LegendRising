@@ -274,7 +274,7 @@ const PATCH = [
     "Motivation is a new stat. Turning up, winning, eating and sleeping well lift it, losing runs and long spells on the bench drag it down. It changes how much a warm-up gives you and widens your timing a little. Every coach now has a style, attacking, pressing or technical, and it shows in the club info.",
     "Your first day is a proper first day. The intro starts straight away, then your uncle walks you through the flat, the bulb, the store, the mailbox, the notice board, the delivery shelf, the fridge, the bed, your pockets and the bus. The training centre opens at 10:00 AM, and the coach shows you round before your first session.",
     "Training is played in first person with the same controls as a match. Lessons on day one teach you to move, pass, shoot and receive, and the drills now have corner targets in the goal and a volley station.",
-    "The football in your flat is a real ball. Pick it up, carry it, put it in a pocket or throw it across the room.",
+    "The football in your flat is a real ball. Pick it up in both hands, carry it about, kick it or throw it across the room.",
     "A new title screen, with the stadium behind the logo.",
     "A lot of work went into speed. Low settings now really are light: fewer shadows and lights, simpler distant buildings and people, and the crowd, the players and the people in town update less often when they're far away. Pick Auto, Low, Medium or High in Settings.",
     "If the 3D world can't start on your computer, your career still goes on: your matches are played out for you from the hub.",

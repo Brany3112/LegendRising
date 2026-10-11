@@ -119,6 +119,9 @@ fpHost({
   drinks(){ const s = G(); return DRINKS.filter(id => typeof FOOD === "object" && FOOD[id]).map(id => ({id, name:FOOD[id].name, n:(s.inv && s.inv[id]) || 0})); },
   htCard:(M, o) => htCardHTML(M, o),
   ftCard:(M, R) => ftCardHTML(M, R),
+  // man of the match: the post-match interview (awards.js), offered from the full-time card
+  pressOpen:() => typeof pressOpen === "function" && pressOpen(),
+  press:() => pressSheet(),
   // the league's other results this week, played out now as the 2D match did at full time
   around(f){
     try {

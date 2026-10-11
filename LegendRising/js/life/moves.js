@@ -619,7 +619,8 @@ function strikeBegin(h, C, st){
   setBT(h);
   // (let go from a held wind-up: the support foot is already planted and the leg cocked, so no step onto a plant; the
   // swing goes on from where the hold has it)
-  C.fromHold = h.heldAt != null && h.t - h.heldAt < .1;
+  // (only with the leg that was held: a release that kicks with the other foot steps onto its plant as any strike)
+  C.fromHold = h.heldAt != null && h.t - h.heldAt < .1 && h.heldSide === (st.side === "L" || st.side === 1 ? 1 : -1);
   if (C.fromHold){ C.pre = 0; C.back = 0; C.tau0 = Math.max(0, KINDS[kindOf(st.kind)].contact - WIND.SWING); return; }
   const k = kindOf(st.kind), sc = BT.sc, kickS = st.side === "L" || st.side === 1 ? 1 : -1, iS = kickS > 0 ? 1 : 0;
   const f = aimOf(st, h, {x:0, z:0}), ball = st.ball || defaultBall(h, kickS, f);
@@ -724,7 +725,7 @@ function strikeHold(h, T, st, dt){
   lockFeet(h, C);
   h.ev.reachErr = 0;
   h.gw = 0;
-  h.heldAt = h.t;
+  h.heldAt = h.t; h.heldSide = kickS;
 }
 // the upper body of a wind-up on the run (st.upper {g: 'windup', w (the charge), side}): the support arm out, the hips
 // and chest opening; the legs are the stride's
@@ -915,7 +916,7 @@ function strike(h, T, st, dt){
     }
   }
   // legs onto the feet
-  for (const i of [iS, iK]){
+  for (let j = 0; j < 2; j++){ const i = j ? iK : iS;
     const f = F[i], s = i ? -1 : 1;
     kneeBlend(f, tau, i === iK ? tau > P.tLand - .12 && tau < P.tLand : (d.sLandT != null && tau > d.sLandT - .12 && tau < d.sLandT) || (tau > tP - .12 && tau < tP));
     legW(h, T, s, f.x, f.y, f.z, f.yaw, f.pitch, f.roll, i === iS && tau > ct && !K.acro ? .25*sstep(ct, ct + .1, tau)*(1 - sstep(sUp, sUp + .1, tau)) : 0, f.kb);
@@ -954,7 +955,7 @@ function strike(h, T, st, dt){
   // limit, stands on its point or within a few millimetres of it; the plant pass takes up only that much (held only
   // while the drawn ankle is within a centimetre of the point: a larger pull would turn a knee near straight faster
   // than any joint may turn in a frame)
-  for (const i of [iS, iK]){
+  for (let j = 0; j < 2; j++){ const i = j ? iK : iS;
     const f = F[i];
     if (!(f.land > 0) || f.w) continue;
     frameOf(h, T, LEG(i ? -1 : 1)[2], _M); _V.setFromMatrixPosition(_M);

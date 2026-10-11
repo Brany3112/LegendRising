@@ -198,6 +198,7 @@ function matchStatRows(M){
   if (s.corners) rows.push(["Corners", s.corners[0], s.corners[1]]);
   if (s.fouls) rows.push(["Fouls", s.fouls[0], s.fouls[1]]);
   if (s.cards) rows.push(["Cards", s.cards[0], s.cards[1]]);
+  if (!rows.length) return "";
   return `<div class="stattable">${rows.map(([k, a, b]) => `<div><b>${a}</b><span>${k}</span><b>${b}</b></div>`).join("")}</div>`;
 }
 // who scored, as the card lists them
@@ -226,7 +227,7 @@ function ftCardHTML(M, R){
     ${sc[0] || sc[1] ? `<div class="muted small ft-scorers"><span>${sc[0]}</span><span>${sc[1]}</span></div>` : ""}
     <div class="ft-grid">${dnp ? `<div class="ft-rating dnp"><b>Bench</b><span>You didn't get on</span></div>`
       : `<div class="ft-rating ${rating >= 7.5 ? "hi" : rating < 6 ? "lo" : ""}"><b>${rating}</b><span>Your rating</span></div>`}
-      <div class="ft-list">${dnp ? `<div>The manager kept you on the bench today.</div>` : `<div>${my.goals} goal${my.goals === 1 ? "" : "s"} · ${my.assists} assist${my.assists === 1 ? "" : "s"}</div><div>${my.dribbles} dribbles · ${my.spass + my.lpass}/${my.passAtt} passes</div><div>${my.onTarget}/${my.shots} shots on target</div>`}
+      <div class="ft-list">${dnp ? `<div>The manager kept you on the bench today.</div>` : `<div>${my.goals} goal${my.goals === 1 ? "" : "s"} · ${my.assists} assist${my.assists === 1 ? "" : "s"}</div>${M.quick ? "" : `<div>${my.dribbles} dribbles · ${my.spass + my.lpass}/${my.passAtt} passes</div><div>${my.onTarget}/${my.shots} shots on target</div>`}`}
       ${mo ? `<div>Man of the match: <b>${esc(pname(mo))}</b></div>` : ""}${dnp ? "" : `<div class="gold">+${Math.round(R.xp || 0)} XP${R.bonus ? ` · +${eur(R.bonus)} bonuses` : ""}</div>`}
       ${chem ? `<div class="${chem > 0 ? "good" : "bad"}">Team Chemistry ${chem > 0 ? "+" : "−"}${Math.abs(chem).toFixed(1)}</div>` : ""}
       ${trust ? `<div class="${trust > 0 ? "good" : "bad"}">The manager's trust ${trust > 0 ? "+" : "−"}${Math.abs(trust).toFixed(1)}</div>` : ""}</div></div>
@@ -256,6 +257,8 @@ function htCardHTML(M, opts = {}){
 const QUICK_NOTE = "This match was played out for you. Full matches need the 3D world: open the game from a web address in a browser with WebGL2.";
 function quickMatch(f){
   matchSetup(f);
+  // nothing but the score and the scorers is played out: no shots, corners or cards to show (ftCardHTML leaves them out)
+  MT.quick = true; MT.stats = {};
   const role = MT.role, playing = role === "starter" || role === "rotation";
   const hx = MT.home ? MT.usXI : MT.themXI, ax = MT.home ? MT.themXI : MT.usXI;
   const [hg, ag] = goalsFor(strength(hx), strength(ax), f.kind !== "N");

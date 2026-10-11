@@ -82,7 +82,7 @@ export const DAY = Object.freeze({
 /* ---------- the host: the career's side of the day (tunnel.js gives it) ----------
    {setup(f, {late}) -> MT, kickoff(f) -> minute of the day, now() -> minute of the day, travel(f) -> minutes, place(f)
    -> {from, to}, look(kit, number) -> a body look, drinks() -> [{id, name, n}], htCard(M, opts) -> html,
-   ftCard(M, R) -> html, around(f) -> list, leave(fatigue), traits() -> {}, persist(), timeLapse(mins, label, done, o),
+   ftCard(M, R) -> html, pressOpen() -> bool, press() -> html (the man of the match interview), around(f) -> list, leave(fatigue), traits() -> {}, persist(), timeLapse(mins, label, done, o),
    note(text), relock()} */
 let HOST = null;
 export function fpHost(h){ HOST = h; }
@@ -1229,11 +1229,15 @@ function showFulltimeCard(){
     const T = FS.cfg.teams;
     html = `<div class="eyebrow">Full time</div><h2>${esc(T[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(T[1].name)}</h2>`;
   }
-  const o = hudOverlay(`<div class="fp-box">${html}<div class="row gap8 center"><button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
+  const press = !!(HOST && FS.real && HOST.pressOpen && HOST.pressOpen());
+  const o = hudOverlay(`<div class="fp-box">${html}<div class="row gap8 center">${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}<button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
   if (o){
     o.onclick = e => {
       const b = e.target.closest("button"); if (!b) return;
       if (b.dataset.ft === "go"){ leave(); return; }
+      // the interview (awards.js): its answers run their own onclick (A.press), then it is back to the card
+      if (b.dataset.ft === "press"){ hudOverlay(`<div class="fp-box">${HOST.press()}<div class="row gap8 center"><button class="btn ghost" data-ft="back">Back</button></div></div>`, "ft"); return; }
+      if (b.dataset.ft === "back" || b.classList.contains("media")){ showFulltimeCard(); return; }
       if (b.dataset.clip != null) playHighlight(+b.dataset.clip);
     };
   }
@@ -1467,9 +1471,19 @@ export function recoverCheck(){
     RECOVER.out = {rating: out.rating, mins: out.R ? out.R.mins : null, score: ms.score.slice(), fkey: f.key, checkpointMin: min};
     persistNow();
     const R = out.R ? Object.assign({}, out.R, {around: out.around}) : null;
-    const o = hudOverlay(`<div class="fp-box">${R ? HOST.ftCard(M, R) : ""}<div class="row gap8 center"><button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
     const done = () => { hudOverlay(null); hudDispose(); FS.ms = null; FS.M = null; FS.f = null; FS.real = false; RECOVER.busy = false; RECOVER.done = true; HOST.afterRecover(f, out.R && out.R.fatigue || 0); };
-    if (o) o.onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.ft === "go") done(); };
+    // (as the full-time card of a match played through: a man of the match is offered the press from it)
+    const show = () => {
+      const press = !!(R && HOST.pressOpen && HOST.pressOpen());
+      const o = hudOverlay(`<div class="fp-box">${R ? HOST.ftCard(M, R) : ""}<div class="row gap8 center">${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}<button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
+      if (o) o.onclick = e => {
+        const b = e.target.closest("button"); if (!b) return;
+        if (b.dataset.ft === "go") return done();
+        if (b.dataset.ft === "press") return void hudOverlay(`<div class="fp-box">${HOST.press()}<div class="row gap8 center"><button class="btn ghost" data-ft="back">Back</button></div></div>`, "ft");
+        if (b.dataset.ft === "back" || b.classList.contains("media")) show();
+      };
+    };
+    show();
     RECOVER.finish = done;
   }});
   return true;

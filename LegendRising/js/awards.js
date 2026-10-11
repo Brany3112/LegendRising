@@ -326,6 +326,8 @@ const PRESS_LINES = [
   {t:"Call your shot", rep:2.1, trust:-10, risk:.34,
    say:"Watch this league. I am going to take it apart this season."}
 ];
+// the cameras are waiting: man of the match today, and nothing said yet (the full-time cards offer the press then)
+function pressOpen(){ const lm = S && S.lastMatch; return !!(lm && lm.motm && S.pressDone !== lm.gw); }
 function pressSheet(){
   const lm = S.lastMatch;
   if (!lm || !lm.motm) return `<h2>The press</h2><p class="muted">They only want you when you are the best man on the pitch.</p>`;
@@ -351,6 +353,7 @@ function pressSay(i){
   addNews("you", back ? `${S.player.name}'s words cause a stir` : `${S.player.name} speaks after the win`,
     `“${l.say}”${back ? " It has not gone down well." : ""}`, "me");
   socialEvent("match", `Man of the match vs ${lm.opp}`);
-  closeSheet(); save(); renderHub();
+  // (from the first-person full-time card the hub is drawn when you leave the ground)
+  closeSheet(); save(); if (!(window.FP && window.FP.state)) renderHub();
   toast(back ? `+${fmt(gain)} reputation, but that one stung` : `+${fmt(gain)} reputation`, back ? "bad" : "good");
 }

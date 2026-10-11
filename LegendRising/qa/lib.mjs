@@ -48,11 +48,15 @@ function pageInit({seed, gfx}){
 // a browser on the game. Resolves {browser, context, page, errors, close}; page.errors collects every console error
 // and uncaught page error. Requests outside this server (web fonts, the online backend) are answered empty, so a run
 // never depends on the network.
-export async function launch({gfx = "low", query = "", w = 1280, h = 720, seed = 1, headless = true, bootTimeout = 60000} = {}){
+// (abort: a pattern of the game's own URLs to fail, as a world that never loads; noGL: the browser gives no WebGL
+// context at all. With either, the page is waited for without its 3D world)
+export async function launch({gfx = "low", query = "", w = 1280, h = 720, seed = 1, headless = true, bootTimeout = 60000, abort = null, noGL = false} = {}){
   const srv = await ensureServer(PORT);
   const browser = await chromium.launch({headless, args: ARGS});
   const context = await browser.newContext({viewport: {width: w, height: h}});
   await context.addInitScript(pageInit, {seed, gfx});
+  if (noGL) await context.addInitScript(() => { const g = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function(t, o){ return /webgl/.test(t) ? null : g.call(this, t, o); }; });
+  if (abort) await context.route(url => abort.test(String(url)), route => route.abort());
   await context.route(url => !String(url).startsWith(BASE), route => {
     const u = route.request().url();
     route.fulfill({status: 200, body: "", contentType: /\.css|fonts\.googleapis/.test(u) ? "text/css" : /\.m?js(\?|$)/.test(u) ? "text/javascript" : "text/plain"});
@@ -65,7 +69,8 @@ export async function launch({gfx = "low", query = "", w = 1280, h = 720, seed =
   await page.goto(BASE + "index.html" + (query ? "?" + String(query).replace(/^\?/, "") : ""));
   // (bootTimeout: a page that starts measuring as soon as it has loaded, the perf probe, holds its main thread for as long
   // as its frames take, so the check runs only once they are done)
-  await page.waitForFunction(() => typeof newCareer === "function" && typeof window.startLife === "function" && !!window.__life, null, {timeout: bootTimeout});
+  const world = !abort && !noGL;
+  await page.waitForFunction(world => typeof newCareer === "function" && (!world || typeof window.startLife === "function" && !!window.__life) && document.readyState !== "loading", world, {timeout: bootTimeout});
   const close = async () => {
     await browser.close().catch(() => {});
     if (srv.started) await new Promise(r => srv.server.close(() => r()));

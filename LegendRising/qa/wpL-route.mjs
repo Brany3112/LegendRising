@@ -10,7 +10,11 @@
 //   4. No 3D world (WebGL 2 missing): "Play match" plays the fixture out for him (quickMatch); its full-time card says
 //      so, the world has the result, MT is let go, Continue goes back to the hub; New Game says the build has to be
 //      served over http(s).
-//   Zero console and page errors throughout.
+//   5. A world that was expected and never loaded (js/life/world.js fails) and a browser that gives no WebGL context:
+//      Continue on an old save draws the hub with its Play match button, and Play match plays the fixture out at
+//      once (no wait for a world that is not coming); the card shows no shot, corner or card counts it never had, and
+//      a man of the match is offered the press, whose answer goes back to the hub.
+//   Zero console and page errors throughout (in 5, only the failed module loads and the renderer's own error).
 //
 //   QA_PORT=8830 node qa/wpL-route.mjs        exits 1 on any failed check; writes qa/out/wpL-route.json
 import fs from "node:fs";
@@ -99,6 +103,7 @@ const state = page => page.evaluate(() => ({fp: window.FP && window.FP.state, zo
       fp: window.FP ? window.FP.state : null, life: document.body.classList.contains("life"), apps: S.careerMy.apps, dom2d: !!document.querySelector(".match-screen")}), fx.key);
     check(r.card && r.note.includes(NOTE), "no 3D world: the match is played out for him and the full-time card says so", {card: r.card, note: r.note.slice(-160)});
     check(!before.done && r.done && r.mt && !r.fp && !r.life && !r.dom2d, "the world has the result, MT is let go, no match mode and no 2D screen", r);
+    check(!/\bShots\b|Corners|\bCards\b|shots on target/.test(r.note), "the played-out card shows no shot, corner or card counts it never had", r.note.slice(0, 300));
     await page.evaluate(() => { const b = [...document.querySelectorAll(".ft-card button")].find(x => /Continue/.test(x.textContent)); b.click(); });
     const hub = await page.evaluate(() => ({screen: LAST_SCREEN, hub: !!document.querySelector(".hub")}));
     check(hub.screen === "hub" && hub.hub, "Continue goes back to the hub", hub);
@@ -110,6 +115,44 @@ const state = page => page.evaluate(() => ({fp: window.FP && window.FP.state, zo
     const t = await page.evaluate(() => LAST_SCREEN);
     check(t === "title", "its Back button returns to the title screen", t);
     check(page.errors.length === 0, "no console or page errors (without the world)", page.errors);
+  } finally { await close(); }
+}
+
+/* ---------- 5. a world that never loaded, and a browser with no WebGL context ---------- */
+const GOLD = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "golden", "oldsave-midmatch.json"), "utf8"));
+for (const how of [{abort: /js\/life\/world\.js/, name: "world.js fails to load"}, {noGL: true, name: "no WebGL context"}]){
+  const {page, close} = await launch(Object.assign({gfx: "low", seed: 13}, how));
+  try {
+    await page.evaluate(g => { localStorage.setItem(g.key, JSON.stringify(g.save)); localStorage.setItem(g.metaKey, JSON.stringify(g.meta)); }, GOLD);
+    await page.reload();
+    await page.waitForFunction(() => typeof A === "object" && document.readyState === "complete", null, {timeout: 60000});
+    await page.evaluate(() => A.continue(1));
+    await page.waitForTimeout(1500);
+    const hub = await page.evaluate(() => ({screen: LAST_SCREEN, life: document.body.classList.contains("life"), cta: !!document.querySelector("#app .life-cta"),
+      play: [...document.querySelectorAll("#app button")].some(x => /Play (match|for your country)/.test(x.textContent))}));
+    check(hub.screen === "hub" && !hub.life && !hub.cta && hub.play, `${how.name}: Continue draws the hub with its Play match button`, hub);
+    // a man of the match, so the press is offered
+    await page.evaluate(() => { const q = window.quickMatch; window.quickMatch = f => { const R = q(f); R.motm = true; S.lastMatch.motm = true; return R; }; });
+    const t0 = Date.now();
+    await page.evaluate(() => A.playMatch());
+    await page.waitForFunction(() => !!document.querySelector(".ft-card"), null, {timeout: 10000}).catch(() => {});
+    const card = await page.evaluate(() => ({card: !!document.querySelector(".ft-card"), text: (document.querySelector(".ft-card") || {}).textContent || "",
+      press: [...document.querySelectorAll(".ft-card button")].some(x => /Talk to the press/.test(x.textContent))}));
+    check(card.card && Date.now() - t0 < 5000 && card.text.includes(NOTE), `${how.name}: Play match plays the fixture out at once`, {card: card.card, ms: Date.now() - t0});
+    check(card.press, `${how.name}: a man of the match is offered the press from the card`, card.press);
+    await page.waitForTimeout(800);
+    await page.evaluate(() => { [...document.querySelectorAll(".ft-card button")].find(x => /Talk to the press/.test(x.textContent)).click(); });
+    await page.waitForFunction(() => document.querySelectorAll("#sheetRoot.open button.opt.media").length > 0, null, {timeout: 5000}).catch(() => {});
+    const sheet = await page.evaluate(() => ({n: [...document.querySelectorAll("#sheetRoot button.opt.media")].length, text: document.getElementById("sheetRoot").textContent.slice(0, 160)}));
+    check(sheet.n === 3, `${how.name}: the press sheet has its three answers`, sheet);
+    if (sheet.n !== 3) continue;
+    const rep0 = await page.evaluate(() => meP().rep);
+    await page.evaluate(() => document.querySelector("#sheetRoot button.opt.media").click());
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(r0 => ({rep: meP().rep - r0, screen: LAST_SCREEN, done: S.pressDone === S.lastMatch.gw}), rep0);
+    check(after.rep > 0 && after.done && after.screen === "hub", `${how.name}: an answer is given once, adds reputation and goes back to the hub`, after);
+    const errs = page.errors.filter(e => !/Failed to load|ERR_FAILED|Error creating WebGL context|WebGLRenderer/.test(e));
+    check(errs.length === 0, `${how.name}: no other console or page errors`, errs);
   } finally { await close(); }
 }
 

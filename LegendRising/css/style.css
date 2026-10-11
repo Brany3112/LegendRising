@@ -1310,9 +1310,14 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
   .lf-keys{display:none}
   .dr-card{max-width:calc(100vw - 2*130px)}
 }
-@media (max-width:640px){ .dr-card{top:calc(var(--hud-pad) + 96px);min-width:0;max-width:calc(100vw - 24px);width:calc(100vw - 24px)} }
+/* (a centre notice and a note can be up together: the notice keeps its place, the note goes down above the pockets) */
+@media (max-width:900px){ #lifeRoot:has(> #lifeCenter > .lfc.in) > .lf-note{top:auto;bottom:calc(var(--hud-pad) + env(safe-area-inset-bottom,0px) + 104px)} }
+/* a phone upright: the drill's card under the need bars, which hang down the right side, and a centre notice under it */
+@media (max-width:640px){ .dr-card{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 172px);min-width:0;max-width:calc(100vw - 24px);width:calc(100vw - 24px)}
+  body.drillview #lifeRoot .lf-center{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 272px)} }
 
 @media (max-height:560px){ .lf-center{top:16%} .lf-prompt{top:calc(50% + 28px)} .lf-busy{top:58%} }
+@media (max-height:560px){ body.drillview #lifeRoot .lf-center{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 96px)} }   /* (under the drill's card) */
 /* short landscape screens (a phone on its side): the look editor's stage takes the row it is given, and the day
    summary tightens up with its buttons always in reach */
 @media (max-height:520px){

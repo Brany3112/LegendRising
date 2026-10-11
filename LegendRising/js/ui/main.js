@@ -190,17 +190,16 @@ function cloudCorner(){
     <span class="cc-s">${ONLINE.user ? "Your saved career" : "Pick up a career from your account"}</span></button>`;
 }
 // a career is lived in first person, the hub lives in your phone. The world's modules may still be loading (a click on
-// Continue straight after the page opens): it starts the moment they are, never with nothing (DESIGN 3.7.1)
+// Continue straight after the page opens): it starts the moment they are, never with nothing (DESIGN 3.7.1). Without
+// a world (a double-clicked file, no WebGL 2, or one that never loaded) the hub is the game (3.4.6)
 function enterCity(){
-  if (!S) return;
+  if (!S || NG.noWorld || !worldOK()) return;
   if (!window.startLife){
-    if (location.protocol === "file:") return;          // (no 3D world from a double-clicked file: the hub is the game)
     const s0 = S;
     window.lifeReady.then(() => { if (S === s0 && !document.body.classList.contains("life") && LAST_SCREEN === "hub") enterCity(); });
     return;
   }
-  document.body.classList.add("life");
-  window.startLife();
+  startWorld();
 }
 /* ---------- a new career: black at once, the city, the film, then who you are (DESIGN 3.7.1, 3.7.2) ----------
    Nothing of the flat is ever on screen first: the page goes black the moment New Game is clicked (a loader only if
@@ -210,7 +209,41 @@ function enterCity(){
    (a double-clicked file, no WebGL 2) New Game only says how to get one (screenNoWorld); a world that was expected
    and never loaded makes the career the plain way: creation, offers, the hub, its matches played out (3.4.6). */
 const NG = {tok:0, noWorld:false};      // noWorld: the 3D world was expected and never loaded
-const worldOK = () => location.protocol !== "file:" && typeof WebGL2RenderingContext !== "undefined";
+// a 3D world is possible here: served over http(s), and the browser really gives a WebGL 2 context (one that only
+// defines the constructor, with the GPU blocklisted or hardware acceleration off, gives none). Asked once.
+let GL2 = null;
+function gl2(){
+  if (GL2 === null){
+    GL2 = false;
+    try {
+      const g = document.createElement("canvas").getContext("webgl2");
+      if (g){ GL2 = true; const x = g.getExtension("WEBGL_lose_context"); if (x) x.loseContext(); }
+    } catch(e){ GL2 = false; }
+  }
+  return GL2;
+}
+const worldOK = () => location.protocol !== "file:" && typeof WebGL2RenderingContext !== "undefined" && gl2();
+// the world's module never ran (it failed to load, or threw while it did): module scripts have all run by
+// DOMContentLoaded, so whoever waits on window.lifeReady hears it at once, and the career goes on from the hub (3.4.6)
+document.addEventListener("DOMContentLoaded", () => {
+  if (window.startLife || location.protocol === "file:") return;
+  NG.noWorld = true;
+  if (typeof window.lifeReadyResolve === "function") window.lifeReadyResolve(false);
+  if (S && LAST_SCREEN === "hub") renderHub();
+});
+// starts the 3D world; if it cannot (no context after all, a module error), the world is let go for this session and
+// the hub, with its Play match button, is the game
+function startWorld(opts){
+  try { document.body.classList.add("life"); window.startLife(opts); return true; }
+  catch(e){ console.error(e); worldFailed(); if (S && LAST_SCREEN === "hub") renderHub(); return false; }
+}
+function worldFailed(){
+  NG.noWorld = true;
+  try { if (window.stopLife) window.stopLife(); } catch(e){}
+  document.body.classList.remove("life", "cine", "hand", "hub-out");
+  const lr = document.getElementById("lifeRoot"); if (lr) lr.style.display = "none";
+  const f = document.getElementById("lifeFade"); if (f){ f.style.transition = "none"; f.style.opacity = "0"; }
+}
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
 async function newGameWorld(){
   const tok = ++NG.tok;
@@ -225,9 +258,7 @@ async function newGameWorld(){
   clearTimeout(ld);
   if (tok !== NG.tok) return;
   // the world never came (it failed to load): who you are, and the hub
-  if (!ok || !window.startLife){ NG.noWorld = true; CR = null; screenCreate(); return; }
-  document.body.classList.add("life");
-  window.startLife({intro:true});
+  if (!ok || !window.startLife || !startWorld({intro:true})){ NG.noWorld = true; CR = null; screenCreate(); return; }
 }
 // the film has reached "Tell me about yourself" (intro.js): the world stops behind the creation screen
 function onbCreation(){
@@ -874,7 +905,7 @@ function playFixture(f){
   if (!S || !f || (W.done && W.done[f.key])) return false;
   if (window.FP && window.FP.state) return false;                 // a match is on already
   setPhoneVisible(false); closePhone(); closeSheet();
-  if (!worldOK()) return playedForYou(f);
+  if (!worldOK() || NG.noWorld) return playedForYou(f);
   if (!window.startLife || !window.FP){
     // the world's modules are still loading (a click straight after the page opened): the match waits for them
     const tok = ++PLAY.tok, s0 = S;
@@ -889,8 +920,7 @@ function playFixture(f){
   // into the world at the ground's tunnel (the hub stays in your phone), then the match day from there
   if (!(document.body.classList.contains("life") && window.LIFE && window.LIFE.running)){
     renderHub();
-    document.body.classList.add("life");
-    window.startLife({zone:"ground", at:"tunnel"});
+    if (!startWorld({zone:"ground", at:"tunnel"})) return playedForYou(f);
   }
   let ok = false;
   try { ok = !!window.FP.enter(f); } catch(e){ console.error(e); ok = false; }
@@ -902,7 +932,7 @@ function playedForYou(f){
   const R = quickMatch(f);
   render(`<section class="page"><div class="page-inner"><div class="card glass ft-card rise">${ftCardHTML(R.M, R)}
     <p class="muted small">${esc(R.notice || QUICK_NOTE)}</p>
-    <div class="row gap8 center"><button class="btn" onclick="A.quickDone()">Continue</button></div></div></div></section>`, "quickft");
+    <div class="row gap8 center">${R.motm ? `<button class="btn ghost" onclick="flushHeldToasts(); openSheet('press')">🎙 Talk to the press</button>` : ""}<button class="btn" onclick="A.quickDone()">Continue</button></div></div></div></section>`, "quickft");
   setTimeout(() => { const c = document.querySelector(".ft-card"); if (c && typeof odoRun === "function") odoRun(c); }, 260);
   return true;
 }
@@ -965,9 +995,10 @@ const A = {
     startPlayClock(); resume(d);
     if (S.offerSet) return screenOffers();
     S.tutDone = true;
-    document.body.classList.add("life");
+    const world = !!window.startLife && !NG.noWorld && worldOK();
+    if (world) document.body.classList.add("life");
     renderHub();
-    if (window.startLife) window.startLife();
+    if (world) startWorld();
   },
   endWeek(){
     let r;
