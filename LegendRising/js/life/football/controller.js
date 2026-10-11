@@ -108,7 +108,8 @@ const isTest = () => !!FS.test;
    movement 'own' (your own walk before and after, your agent in play), targeting only the stadium's own spots,
    saves deferred to the checkpoints, no third person, no life HUD, the pointer let go pauses it */
 // (seated on the bench nothing is offered under your eye: the bench's own spot would keep saying "Sit down", A1.6)
-const FLAGS_MATCH = {clock: "own", movement: "own", targeting: s => !!(s && s.stadium) && !(FS.state === "bench" && FS.seated), tunnel: false, closing: false,
+// (nor while the warm-up has you: its own keys are the set's, A1.8)
+const FLAGS_MATCH = {clock: "own", movement: "own", targeting: s => !!(s && s.stadium) && !(FS.state === "bench" && FS.seated) && !(warmDriving() || WARM.phase === "call"), tunnel: false, closing: false,
   homeTick: false, compass: false, saves: "defer", tp: false, hud: "none", pauseOnUnlock: true, leaveOnZone: false};
 registerMode("match", {
   flags: FLAGS_MATCH,
@@ -1030,13 +1031,15 @@ function warmSetup(){
     pop: (text, kind, sub) => hudPop(text, kind, sub),
     cheer: v => { FS.cheer = Math.min(1, (FS.cheer || 0) + v); },
     mates: () => benchMates(),
-    last: () => warmLast(), remember: set => warmRemember(set),
+    last: () => warmLast(), remember: set => warmRemember(set), forceSet: FS.testWarm && FS.testWarm.set ? FS.testWarm.set : null,
     applyBoost: b => warmBoostBench(b)});
 }
 // the team-mates on the bench (the ones who have not gone on), where they sit: they shout across now and then
 function benchMates(){
   const ms = FS.ms, t = FS.cfg.me ? FS.cfg.me.team : 0, sx = t === 0 ? -1 : 1;
-  return ms.bench[t].filter(p => !p.isMe && !p.used).slice(0, 4).map((p, i) => ({name: String(p.name || "").split(" ").slice(-1)[0], x: sx*10 + sx*(1.2 - .6*i), z: -37.3, seed: p.pid || i}));
+  // (called by the surname, as team-mates do; a name that ends in a number is said whole)
+  const callName = n => { const w = String(n || "").split(" "), last = w[w.length - 1]; return /^\d+$/.test(last) ? w.join(" ") : last; };
+  return ms.bench[t].filter(p => !p.isMe && !p.used).slice(0, 4).map((p, i) => ({name: callName(p.name), x: sx*10 + sx*(1.2 - .6*i), z: -37.3, seed: p.pid || i}));
 }
 // the boost onto the record your agent is made from when you go on (sim.js benchMe keeps you there): the boosted
 // numbers, the plain ones kept to put back
@@ -1494,7 +1497,8 @@ function enterTest(name, o){
   build({tier: o.tier != null ? o.tier : 2, crowd: o.crowd != null ? o.crowd : 9000, cap: 28000, kits, clubs: {home: "Testers", away: "Rivals"}, at: "tunnelMouth", homeShare: .7});
   const cfg = testConfig(name.replace(/-.*$/, ""), o);
   // test:bench (A1.8): the warm-up's numbers for the test (the call's minute, the last match's set, the coach's style)
-  FS.testWarm = name === "bench" ? {callAt: o.callAt != null ? o.callAt : null, last: o.warmLast !== undefined ? o.warmLast : null, style: o.style || null} : null;
+  FS.testWarm = name === "bench" ? {callAt: o.callAt != null ? o.callAt : null, last: o.warmLast !== undefined ? o.warmLast : null, style: o.style || null,
+    set: Array.isArray(o.warmSet) ? o.warmSet.slice() : null} : null;
   startMatch(cfg, kits);
   if (name === "bench") return enterBench(o);
   const ms = FS.ms, me = ms.agents[ms.me];
