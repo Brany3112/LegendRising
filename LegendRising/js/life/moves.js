@@ -759,6 +759,15 @@ function strike(h, T, st, dt){
   // (after the contact the shift it last needed eases away, rather than chasing the follow-through)
   if (tau <= ct){ reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2)), d.rh || (d.rh = {x:0, y:0, z:0})); }
   else if (d.rh){ const w = Math.exp(-Math.pow((tau - ct)/.2, 2)); T[60] += d.rh.x*w; T[61] += d.rh.y*w; T[62] += d.rh.z*w; }
+  // the support foot's landing on its plant: a fast run-up carries the body on past it, so where the leg would not reach
+  // the point it lands on, the hips come back toward it, easing in over the last tenth of a second of the step and out
+  // over the first fifth of a second down (the leg then lands on its point instead of short of it)
+  {
+    // (an acrobatic strike stays on it until he takes off from it: the hips keep back over it to the take-off)
+    const wEnd = K.acro ? sUp : tP + .1;
+    const wl = sstep(tP - .1, tP, tau)*(1 - sstep(wEnd - .08, wEnd, tau));
+    if (wl > .01){ _land.x = d.px; _land.y = groundY; _land.z = d.pz; reachHips(h, T, supS, _land, wl, null, true); }
+  }
   // a held support leg that the body is leaving behind rolls up onto the ball of its foot (the heel rises), so its knee
   // keeps a bend instead of snapping straight
   // the striking foot, while it is still the one standing (a run-up's last step), rolls up onto its toes as the body
@@ -789,9 +798,23 @@ function strike(h, T, st, dt){
     // (a foot already rolling onto its toe is let go at once: the plant pass would turn its shin to the heel's pitch)
     // (and once let go it stays free: taken again it would be pulled back onto its point in one frame)
     f.hold = f.hold !== false && f.down && C.lastT < .12 && Math.abs(f.y - f.y0) < .01 && Math.abs(f.pitch - (f.p0 || 0)) < .05;
+    // (the support foot that has just landed on its plant is held on its point through its first tenth of a second,
+    // letting go over the last forty milliseconds of it: below)
+    f.land = i === iS && f.down && f.landT != null && f.landT <= tP + .02 && tau < sUp && !f.hold ? 1 - sstep(.06, .1, tau - f.landT) : 0;
     f.w = f.hold ? 1 : 0;
   }
   rateLegs(h, T, C, dt);
+  // the landing's hold: the hips came back for the plant above, so the pose's own leg, kept under the joints' speed
+  // limit, stands on its point or within a few millimetres of it; the plant pass takes up only that much (held only
+  // while the drawn ankle is within a centimetre of the point: a larger pull would turn a knee near straight faster
+  // than any joint may turn in a frame)
+  for (const i of [iS, iK]){
+    const f = F[i];
+    if (!(f.land > 0) || f.w) continue;
+    frameOf(h, T, LEG(i ? -1 : 1)[2], _M); _V.setFromMatrixPosition(_M);
+    toB(f.x, f.y, f.z, _b3);
+    if (Math.hypot(_b3.x - _V.x, _b3.y - _V.y, _b3.z - _V.z)*sc < .01) f.w = f.land;
+  }
   lockFeet(h, C);
   h.ev.reachErr = C.reachErr;
   // the camera channels (3.5.9): a strike pitches the view a touch and dips it at the plant
@@ -964,7 +987,8 @@ function heelApply(f, r){
   f.pitch += r;
 }
 // bring the hips toward a foot's world target when the leg would not reach it (weight w of the shortfall)
-function reachHips(h, T, s, f, w, keep = null){
+const _land = {x:0, y:0, z:0};
+function reachHips(h, T, s, f, w, keep = null, farOnly = false){
   if (keep){ keep.x = keep.y = keep.z = 0; }
   if (!(w > .01)) return;
   const D = h.D, L = (D.hipY - D.ankY)*.975;
@@ -972,7 +996,7 @@ function reachHips(h, T, s, f, w, keep = null){
   toB(f.x, f.y, f.z, _b3);
   // (too near is no better: a leg folded right up cannot strike, so the body leans away from a ball on top of it)
   const dx = _b3.x - _V.x, dy = _b3.y - _V.y, dz = _b3.z - _V.z, dl = Math.hypot(dx, dy, dz), near = .72*(D.hipY - D.ankY);
-  const ex = dl > L ? dl - L : dl < near ? dl - near : 0;
+  const ex = dl > L ? dl - L : dl < near && !farOnly ? dl - near : 0;
   if (ex === 0 || dl < 1e-4) return;
   const k = clamp(ex, -.3, .35)*w/dl;
   T[60] += dx*k; T[61] += dy*k; T[62] += dz*k;
