@@ -1497,7 +1497,8 @@ function enterTest(name, o){
   build({tier: o.tier != null ? o.tier : 2, crowd: o.crowd != null ? o.crowd : 9000, cap: 28000, kits, clubs: {home: "Testers", away: "Rivals"}, at: "tunnelMouth", homeShare: .7});
   const cfg = testConfig(name.replace(/-.*$/, ""), o);
   // test:bench (A1.8): the warm-up's numbers for the test (the call's minute, the last match's set, the coach's style)
-  FS.testWarm = name === "bench" ? {callAt: o.callAt != null ? o.callAt : null, last: o.warmLast !== undefined ? o.warmLast : null, style: o.style || null,
+  // (warmLast: the last match's set as given, or "memory" for the one this session remembers, as a real match uses)
+  FS.testWarm = name === "bench" ? {callAt: o.callAt != null ? o.callAt : null, last: o.warmLast === "memory" ? undefined : o.warmLast !== undefined ? o.warmLast : null, style: o.style || null,
     set: Array.isArray(o.warmSet) ? o.warmSet.slice() : null} : null;
   startMatch(cfg, kits);
   if (name === "bench") return enterBench(o);

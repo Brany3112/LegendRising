@@ -158,7 +158,7 @@ const POOL_IDS = ["strides", "lunges", "swings", "hips", "quad", "knees", "shuff
 
 // strides along the strip: tap Shift as each foot lands (the footfalls of your own body's gait), the run picks up
 // with the streak and stumbles on a miss
-POOL.strides = {name: "Touchline strides", order: 0, dur: [10, 12], face: "strip", view: {pitch: -.5}, minK: 1,
+POOL.strides = {name: "Touchline strides", order: 0, dur: [10, 12], face: "strip", view: {pitch: -.7}, minK: 1,
   say: ["Few strides down the line, nice and easy.", "Stretch the legs out along the line for me."],
   how: "Tap Shift each time a foot lands.", keys: [{key: "Shift", verb: "as a foot lands"}],
   begin(X, r){ X.var.v0 = 3.0 + .5*r(); X.dir = X.side; X.falls = []; X.claim = null; X.period = .36; X.speed = X.var.v0; X.flash = 0; },
@@ -217,7 +217,7 @@ POOL.lunges = {name: "Forward lunges", order: 1, dur: [11, 13], face: "strip", v
   hud(X){ return {kind: "gauge", v: X.d/1.25, target: X.target/1.25, band: WIN.lunges[1]/1.25}; }
 };
 // leg swings at the boards: one hand on the boards, swing a leg with the mouse in time with the pendulum
-POOL.swings = {name: "Leg swings at the boards", order: 1, dur: [10, 12], face: "boards", view: {pitch: -.82}, minK: 1,
+POOL.swings = {name: "Leg swings at the boards", order: 1, dur: [10, 12], face: "boards", view: {pitch: -.95}, minK: 1,
   say: ["Hand on the boards. Leg swings, in time with me.", "Grab the boards and swing that leg, nice rhythm."],
   how: "Move the mouse up and down to swing your leg with the pendulum.", keys: [{key: "Mouse", verb: "swing with the pendulum"}],
   begin(X, r){ X.var.T = 1.15 + .35*r(); X.a = 0; X.s = r() < .5 ? 1 : -1; X.lat = false; X.ph = 0; X.next = .25; X.swapped = false; },
@@ -274,8 +274,11 @@ POOL.quad = {name: "Quad stretch balance", order: 1, dur: [9, 11], face: "strip"
   step(X, dt){
     // the wobble: a springy drift that keeps changing its mind (pushes drawn from the match's own numbers)
     const F = X.var.force;
-    X.vx += ((X.r() - .5)*F*2.6 - X.wx*1.2 - X.vx*.9)*dt*3; X.vy += ((X.r() - .5)*F*2.6 - X.wy*1.2 - X.vy*.9)*dt*3;
-    X.wx += X.vx*dt; X.wy += X.vy*dt;
+    // (the wobble leans you off somewhere new every second or so and keeps you there: left alone, you topple out of
+    // the middle; the stronger the force drawn for this set, the further it leans)
+    if ((X.lean = (X.lean || 0) - dt) <= 0){ X.lean = .7 + .5*X.r(); const a = X.r()*TAU, m = (.45 + .35*X.r())*F*.55; X.tx = Math.cos(a)*m; X.ty = Math.sin(a)*m; }
+    const kw = 1 - Math.exp(-2.6*dt);
+    X.wx += ((X.tx || 0) - X.wx)*kw + (X.r() - .5)*.02; X.wy += ((X.ty || 0) - X.wy)*kw + (X.r() - .5)*.02;
     X.ux *= Math.exp(-.35*dt); X.uy *= Math.exp(-.35*dt);
     const dx = X.wx + X.ux, dy = X.wy + X.uy, d = Math.hypot(dx, dy);
     if (d > 1.4){ X.ux -= dx*(1 - 1.4/d); X.uy -= dy*(1 - 1.4/d); }
@@ -319,7 +322,7 @@ POOL.knees = {name: "High knees and butt kicks", order: 2, dur: [10, 12], face: 
   hud(X){ return {kind: "strip", t: X.t, beats: X.beats, kick: X.kick}; }
 };
 // side shuffles: along the strip facing the pitch; on the coach's "Go!" burst away (W) as quickly as you can
-POOL.shuffle = {name: "Side shuffles", order: 0, dur: [11, 13], face: "pitch", view: {pitch: -.9}, minK: .3,
+POOL.shuffle = {name: "Side shuffles", order: 0, dur: [11, 13], face: "pitch", view: {pitch: -1.1}, minK: .3,
   say: ["Shuffle along the line. When I shout go, you go!", "Side shuffles. Stay on your toes and react to my call."],
   how: "Press W the moment the coach shouts Go.", keys: [{key: "W", verb: "burst on Go"}],
   begin(X, r){ X.r = r; X.dir = X.side; X.goAt = 1.6 + 1.2*r(); X.go = null; X.burst = 0; X.rt = null; X.goShow = 0; },
