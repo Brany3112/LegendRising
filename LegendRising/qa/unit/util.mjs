@@ -153,7 +153,8 @@ function boot({stored = {}, cores = 8, mem = 8, gpu = "ANGLE (Intel, Intel(R) UH
   check("gfxApply passes its reason through", p.run(`CALLS.length === 1 && CALLS[0].reason === "zone" && CALLS[0].P === CALLS[0].prevP`));
   p.run(`CALLS.length = 0; gfxApply();`);
   check("gfxApply's reason defaults to user", p.run(`CALLS[0].reason === "user"`));
-  check("gfxApply still resizes the 2D canvas while it exists", p.resized >= 6, p.resized);
+  // (the 2D match canvas and its resize() went with the 2D engine, WP-L: a stray global resize is never called)
+  check("gfxApply calls no 2D canvas resize", p.resized === 0, p.resized);
   p.run(`OFF(); CALLS.length = 0; gfxApply("x");`);
   eq("the function gfxOn returns unsubscribes", p.run("CALLS.length"), 0);
   p.run(`var BOOM = gfxOn(() => { throw new Error("boom"); }); var AFTER = 0; gfxOn(() => AFTER++);`);

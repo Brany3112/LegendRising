@@ -3,9 +3,10 @@
 // determinism Node versus Chromium).
 //
 // 1. Parity: for each match of qa/golden/legacy-finish.json (ten 2D matches recorded before the rework), the career at
-//    full time is rebuilt from what finishMatch read (pre) and the counters it had (mt); legacyRating and matchRewards
-//    then have to give the recorded rating, reputation, world reputation, XP, trust and chemistry exactly, with the
-//    random numbers finishMatch drew itself fed back in order.
+//    full time is rebuilt from what finishMatch read (pre) and the counters it had (mt); matchRewards, given the
+//    recorded rating, then has to give the recorded reputation, world reputation, XP, trust and chemistry exactly, with
+//    the random numbers finishMatch drew itself fed back in order. (The 2D match's own rating formula went with it in
+//    Stage 3, WP-L: the first-person match rates through events.js, so the golden's rating is the input here.)
 // 2. The 3D match flow on a real career: matchSetup, bridge.matchConfig, createMatch, bridge.attach, a checkpoint, a
 //    level-up during the match, bridge.finish; the world's record, MT, S.life.inMatch cleared, the cards' HTML.
 // 3. quickMatch (the hub without the 3D world): the fixture is played out and the notice is given.
@@ -51,7 +52,10 @@ function parityInPage(g){
   MT.chemD = mt.chemD - g.out.chem.formula;
   MT.usGoals = mt.usGoals.map(x => ({s: x.s, a: x.a})); MT.themGoals = mt.themGoals.map(x => ({s: x.s, a: x.a}));
   MT.usXI = mt.usXI.map(id => W.players[id]).filter(Boolean); MT.themXI = mt.themXI.map(id => W.players[id]).filter(Boolean);
-  delete MT.on;                                             // the 2D match's minutes (role, came on, went off)
+  // the 2D match's minutes as it counted them (a starter the whole game, else until he went off, else from when he
+  // came on), as one closed interval of MT.on
+  const mins2D = mt.role === "starter" ? 90 : mt.subbedOff ? mt.subbedOff : mt.cameOn ? 90 - mt.cameOn : 0;
+  MT.on = [[0, mins2D]];
   // the career as finishMatch read it
   const p = g.pre;
   S.trust = p.trust; S.chem = p.chem; S.xp = p.xp; S.xpF = p.xpF; S.level = p.level; S.sp = p.sp; S.money = p.money;
@@ -75,7 +79,7 @@ function parityInPage(g){
   };
   let rating, R, err = null;
   try {
-    rating = legacyRating(MT);
+    rating = g.out.rating;
     R = matchRewards(MT, rating, {motm: g.out.motm ? S.meId : -1});
   } catch(e){ err = String(e && e.stack || e); }
   finally { Math.random = was.random; window.styleMul = was.styleMul; window.addXP = was.addXP; window.chemAdd = was.chemAdd; }
@@ -105,7 +109,7 @@ const golden = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "golden", "legac
       chem: [r.chem, o.chem.formula], rolls: [r.used, r.rolls], level: [r.level, o.level], err: r.err, errors: r.errors});
     console.log(`  seed ${g.cfg.seed}: ${same ? "same" : "DIFFERS"} rating ${r.rating}/${o.rating} rep ${r.repD}/${o.rep.formula} wrep ${r.wrepD}/${o.wrep.formula} xp ${r.xp}/${o.xp} trust ${r.trustD}/${o.trust.formula} chem ${r.chem}/${o.chem.formula}${r.err ? " ERROR " + r.err : ""}${r.errors.length ? " page errors: " + r.errors.join("; ") : ""}`);
   }
-  check(allSame && rows.length > 0, `matchRewards and legacyRating reproduce rating, reputation, world reputation, XP, trust and chemistry of the ${rows.length} golden matches exactly`, rows.filter(x => !x.same));
+  check(allSame && rows.length > 0, `matchRewards reproduces reputation, world reputation, XP, trust and chemistry of the ${rows.length} golden matches exactly`, rows.filter(x => !x.same));
 }
 
 /* ---------- 2 to 4. the 3D match flow, quickMatch, determinism ---------- */

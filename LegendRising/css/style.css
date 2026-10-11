@@ -134,43 +134,9 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 .opt{display:grid;gap:4px;justify-items:start;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.04);transition:all .2s}
 .opt:hover{border-color:rgba(200,240,96,.5);background:rgba(200,240,96,.08)}
 
-/* ---------- match ---------- */
-.match-screen{position:fixed;inset:0;background:#1f4a2a}
-#pitch{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;user-select:none;-webkit-user-select:none}
-.scorebug{position:absolute;top:12px;left:50%;transform:translateX(-50%);border-radius:16px;padding:6px 16px 8px;text-align:center;z-index:3;min-width:min(560px,94vw)}
-.sb-comp{font-size:.7rem;color:var(--lime);letter-spacing:.12em;text-transform:uppercase;font-weight:700}
-.sb-row{display:flex;align-items:center;justify-content:center;gap:12px;font-family:var(--display);font-weight:800;font-size:1.25rem}
-.sb-team{display:flex;align-items:center;gap:6px;max-width:34vw;min-width:0;white-space:nowrap}
-.sb-team .dot{flex:0 0 auto}
-.sb-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sb-score{font-size:1.9rem;color:var(--gold);min-width:80px}
-.sb-min{font-family:var(--display);font-size:1rem;color:#c9d6e3}
+/* ---------- match cards (half time and full time, js/match.js) ---------- */
 .dot{display:inline-block;width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.5)}
-.match-hud{position:absolute;right:12px;bottom:12px;border-radius:16px;padding:10px;display:grid;gap:8px;z-index:3;width:min(300px,46vw)}
-.hud-energy{display:flex;align-items:center;gap:8px;font-size:.85rem}
-.hud-energy .meter>i{background:linear-gradient(90deg,#16c2b0,#48f0dd)}
-.commentary{position:absolute;left:12px;bottom:12px;width:min(430px,50vw);max-height:44vh;overflow:hidden;border-radius:16px;padding:10px 12px;z-index:3}
-.commentary.hide{opacity:0;transform:translateY(20px);pointer-events:none}
-.commentary{transition:opacity .3s,transform .3s}
-.comm-head{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted);margin-bottom:6px}
-.comm-head b{color:var(--red);letter-spacing:.1em}
-.comm-head b::before{content:"● ";animation:blink 1.2s infinite}
-@keyframes blink{50%{opacity:.2}}
-.cl{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.9rem;animation:slidein .35s var(--ease)}
-.cl .cm{display:inline-block;min-width:44px;color:var(--lime);font-family:var(--display);font-weight:700}
-.cl.goal{color:var(--gold);font-weight:700} .cl.bad{color:#ffb0b2} .cl.hot{color:#fff;font-weight:600}
-@keyframes slidein{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
-.ov{position:absolute;inset:0;z-index:6;display:grid;place-items:center;padding:16px}
-.ov[hidden]{display:none}
-/* every card that floats over the pitch keeps clear of the score banner: the top padding is
-   the banner's own height, measured on screen, so a tall card is centred in what is left */
-.ov.center{background:rgba(3,8,14,.55);animation:fade .3s;padding-top:calc(var(--sb-bottom,88px) + 8px)}
-.ov.live{inset:auto;top:calc(var(--sb-bottom,88px) + 8px);right:12px;left:auto;bottom:auto;background:none;padding:0}
 @keyframes fade{from{opacity:0}}
-.ov .card{max-width:min(600px,94vw);max-height:100%;overflow:auto;text-align:center}
-.ov .card h2{font-size:2.2rem} .ov .card h2.gold{color:var(--gold);font-size:3rem}
-.live-ctl{border-radius:14px;padding:8px;display:flex;gap:8px;align-items:center}
-.newslist{text-align:left;margin:12px 0;padding-left:18px;display:grid;gap:6px}
 .stattable{display:grid;gap:4px;margin:12px 0}
 .stattable>div{display:grid;grid-template-columns:1fr 2fr 1fr;align-items:center;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,.04)}
 .stattable span{color:var(--muted);font-size:.85rem}
@@ -179,11 +145,13 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 .ft-rating b{font-family:var(--display);font-size:3rem;line-height:1} .ft-rating span{font-size:.75rem;color:var(--muted)}
 .ft-rating.hi{background:rgba(95,212,122,.18)} .ft-rating.lo{background:rgba(255,90,95,.18)} .ft-rating.dnp b{font-size:1.6rem}
 .ft-list{display:grid;gap:3px}
+/* a match played out for you (no 3D world): its full-time card on the page, ui/main.js playedForYou */
+.ft-card{max-width:min(640px,94vw);margin:0 auto;text-align:center}
+.ft-card h2{font-size:2.2rem}
 .around,.res{font-size:.88rem}
 .res{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05)}
 .res>span:first-child{text-align:right} .res b{font-family:var(--display);color:var(--gold)}
 .res.now{background:rgba(200,240,96,.08)}
-@media (max-width:720px){.commentary{width:auto;right:12px;bottom:auto;top:96px;max-height:22vh}.match-hud{width:auto;left:12px}}
 
 /* ---------- phone shell ---------- */
 #phoneRoot.hidden{display:none}
@@ -334,14 +302,11 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 .round:disabled{opacity:.35}
 .award{padding:6px 0}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
-.rotate-tip{display:none}
-@media (max-width:620px) and (orientation:portrait){.rotate-tip{display:block;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;padding:8px 14px;border-radius:12px;background:rgba(0,0,0,.55);font-size:.85rem;pointer-events:none;animation:fadeout 5s forwards}}
 @keyframes fadeout{0%,70%{opacity:1}100%{opacity:0}}
 
 /* refreshes after a click update in place, with no replayed entrance animations */
 #app.still .rise,#app.still .pop,#app.still .page-inner,#app.still .title-inner{animation:none!important}
 .phone-holder.still .pop-up,.phone-holder.still .app,.phone-holder.still .sm-home{animation:none!important}
-.ov.still,.ov.still .card{animation:none!important}
 .btn,.tile,.opt,.kk,.app,.pillbtn,.mini{-webkit-tap-highlight-color:transparent}
 
 .quick{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
@@ -352,34 +317,8 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 .mini:hover{background:rgba(255,255,255,.12)}
 .ctx-card{padding:10px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.03);display:grid;gap:6px}
 
-@media (max-height:520px){.scorebug{top:6px;padding:3px 12px 4px}.sb-row{font-size:1rem;gap:8px}.sb-score{font-size:1.35rem;min-width:56px}.sb-comp,.sb-min{font-size:.62rem}
-  .commentary{max-height:34vh}.match-hud{padding:6px;gap:5px}}
 
-/* during your moment the corner panel shrinks to just the shoot button, so the power bar is always clear */
-.match-screen.moment .hud-energy,.match-screen.moment #mdrinks{display:none}
-.match-screen.moment .match-hud{width:auto;padding:6px}
 
-/* ---------- work rate button ---------- */
-@property --wa{syntax:'<angle>';inherits:false;initial-value:0deg}
-.wr{position:relative;border:0;border-radius:12px;height:34px;min-width:52px;padding:0 10px;background:transparent;color:#fff;font-size:1rem;display:inline-grid;place-items:center;isolation:isolate;flex:none;transition:transform .15s}
-.wr:hover{transform:translateY(-1px)} .wr:active{transform:scale(.95)}
-.wr-ring{position:absolute;inset:-2px;border-radius:14px;z-index:-1;background:conic-gradient(from var(--wa),transparent 0 55%,var(--c1) 72%,var(--c2) 82%,transparent 95%);animation:wrspin var(--spin) linear infinite;box-shadow:0 0 var(--glow) var(--c1)}
-.wr-ring::after{content:"";position:absolute;inset:2px;border-radius:12px;background:linear-gradient(180deg,#16243b,#0a1220)}
-@keyframes wrspin{to{--wa:360deg}}
-.wr-bolts{position:relative;letter-spacing:-3px;filter:drop-shadow(0 0 3px var(--c1)) drop-shadow(0 0 8px var(--c1));animation:bolt var(--flick) steps(1) infinite}
-@keyframes bolt{0%,100%{opacity:1}46%{opacity:1}48%{opacity:.45}50%{opacity:1}73%{opacity:.75}75%{opacity:1}}
-.spark{position:absolute;left:50%;top:50%;width:3px;height:3px;border-radius:50%;background:var(--c2);box-shadow:0 0 6px 1px var(--c1);opacity:0;pointer-events:none;animation:spark var(--sd) ease-out infinite;animation-delay:var(--d)}
-@keyframes spark{0%{opacity:0;transform:translate(-50%,-50%)}12%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + var(--x)),calc(-50% + var(--y))) scale(.3)}}
-.wr.lv1{--c1:#38bdf8;--c2:#e0f2fe;--spin:4.5s;--sd:2.4s;--glow:4px;--flick:3s}
-.wr.lv2{--c1:#facc15;--c2:#fef9c3;--spin:2.8s;--sd:1.8s;--glow:8px;--flick:2.2s}
-.wr.lv3{--c1:#fb923c;--c2:#fff7ed;--spin:1.6s;--sd:1.3s;--glow:14px;--flick:1.2s}
-.wr.lv4{--c1:#c084fc;--c2:#ffffff;--spin:.8s;--sd:.95s;--glow:22px;--flick:.55s}
-.wr.lv4::before{content:"";position:absolute;inset:-8px;border-radius:18px;z-index:-2;background:radial-gradient(closest-side,rgba(192,132,252,.45),transparent);animation:halo 1s ease-in-out infinite}
-@keyframes halo{50%{opacity:.4;transform:scale(1.12)}}
-.wr.bump{animation:wrbump .35s var(--ease)}
-@keyframes wrbump{40%{transform:scale(1.22)}}
-.nerves{font-size:.78rem;color:#ffb4b6;padding:3px 8px;border-radius:8px;background:rgba(255,90,95,.12)}
-.match-screen.moment .nerves{display:none}
 
 .tut{position:fixed;inset:0;z-index:120;display:none}
 .tut.on{display:block;animation:fade .45s}
@@ -397,25 +336,12 @@ label{display:block;font-weight:600;margin:12px 0 6px;color:#c9d6e3}
 .build{margin-top:18px;font-size:.78rem;color:rgba(200,215,230,.55);letter-spacing:.04em}
 
 /* ---------- performance ---------- */
-body.in-match #bg{display:none}                       /* nothing animates behind a match */
-.match-screen .glass{background:rgba(10,18,30,.9)}
-#pitch{will-change:contents}
 /* Low graphics: no ambient animation, fewer particles, no glows */
 body.low #bg .beam{animation:none;opacity:.6}
 body.low .btn.pulse{animation:none}
-body.low .comm-head b::before{animation:none}
-body.low .wr .spark:nth-of-type(n+7){display:none}
-body.low .wr .wr-ring{box-shadow:none}
-body.low .wr.lv4::before{display:none}
 body.low .glass,body.low .card,body.low .phone,body.low .toast{box-shadow:none}
 
 /* ---------- replays and highlights ---------- */
-.ov.rep{background:none;place-items:start center;padding-top:0;pointer-events:none}
-/* the replay strip starts under the score banner rather than on top of it */
-.rep-bar{margin-top:calc(env(safe-area-inset-top,0px) + var(--sb-bottom,88px));display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:14px;background:rgba(8,14,22,.82);border:1px solid var(--line);pointer-events:auto;max-width:92vw}
-.rep-bar b{font-weight:600;font-size:.86rem;color:#dfe8f2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
-.rep-dot{color:var(--red);font-weight:800;font-size:.78rem;letter-spacing:.1em;animation:blink 1.2s infinite}
-body.low .rep-dot{animation:none}
 .hlist{display:grid;gap:6px;margin-top:6px;text-align:left}
 .hl-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border-left:3px solid #3b4b60;font-size:.9rem}
 .hl-row.goal{border-left-color:var(--gold);background:rgba(255,215,90,.1)}
@@ -425,7 +351,6 @@ body.low .rep-dot{animation:none}
 .hl-ico{font-size:1.15rem;width:24px;text-align:center}
 .hl-min{font-family:var(--display);font-weight:700;color:var(--muted);min-width:34px}
 
-.match-hud.hud-hidden{opacity:0;pointer-events:none;transition:opacity .2s}
 
 .xprow{display:flex;align-items:center;gap:8px;margin-top:4px}
 .meter.xp{height:5px;flex:1;background:rgba(255,255,255,.07)}
@@ -664,8 +589,6 @@ body.low .flagbtn.unread .fl{animation:none}
 .phone ::-webkit-scrollbar,.sm-tabs::-webkit-scrollbar{width:0;height:0;display:none}
 .tile-why{font-size:.66rem;font-weight:600;color:var(--muted);line-height:1.15;margin-top:2px}
 .tile:disabled{opacity:.45}
-.act-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.act-row .btn{font-size:.78rem;padding-left:6px;padding-right:6px}
 
 /* ---- account panel in the menu ---- */
 .acct{display:grid;gap:8px}
@@ -933,10 +856,6 @@ body.low .odo-strip{will-change:auto}
   background:rgba(255,255,255,.04);border:1px solid var(--line)}
 .cab-item.trophy{background:rgba(255,215,90,.1);border-color:rgba(255,215,90,.28)}
 .ci-ic{font-size:1.1rem} .ci-nm{flex:1;min-width:0;font-weight:600;font-size:.9rem}
-.pos-mix{display:grid;grid-template-columns:70px minmax(0,1fr) auto;align-items:center;gap:9px;
-  margin:8px 0 2px;padding:9px 11px;border-radius:12px;background:rgba(255,255,255,.04)}
-.pos-mix>span{font-size:.76rem;color:var(--muted);font-weight:600}
-.pos-mix>b{font-size:.8rem;white-space:nowrap}
 
 /* ============ LIFE: the first-person world ============ */
 /* outside life mode the phone wrapper does not exist as far as layout is concerned */
@@ -1153,9 +1072,6 @@ body:not(.life) .lp-frame{display:none}
 body.life.hub-out #lifeDim{opacity:1}
 body:not(.life) #lifeDim{display:none}
 /* a match takes over the whole screen at once */
-body.life.in-match #lifePhone{visibility:visible;pointer-events:auto}
-body.life.in-match .lp-screen{transform:none;opacity:1;transition:none;overflow:hidden}
-body.life.in-match .lp-frame{display:none}
 /* sheets, the tutorial and toasts sit above the hub */
 body.life #sheetRoot{z-index:70}
 /* ---------- the pocket phone (Tab): in your hand, over the street ---------- */
@@ -1418,35 +1334,6 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
   body.life .hud-tr{transition:right .3s cubic-bezier(.2,.9,.25,1)}
   body.life.hand .hud-tr{right:calc(max(20px,3vw) + min(290px,(100vh - 24px)*.4754) + 30px)}
 }
-/* ---------- the match: your options when a chance opens up ---------- */
-.decide{position:absolute;left:50%;bottom:clamp(70px,13vh,130px);transform:translateX(-50%) translateY(10px);width:min(760px,94vw);display:grid;gap:8px;opacity:0;pointer-events:none;
-  transition:opacity .2s,transform .3s var(--ease);z-index:6}
-.decide.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
-.decide.top{bottom:auto;top:calc(var(--sb-bottom,84px) + 34px)}
-/* beside the play, when both the bottom (the play) and the top (the goal) are taken */
-.decide.side{left:auto;right:16px;bottom:auto;top:50%;width:min(260px,30vw);transform:translateY(calc(-50% + 10px))}
-.decide.side.on{transform:translateY(-50%)}
-.decide.side.l{left:16px;right:auto}
-.decide.side .dc-opts{grid-template-columns:1fr}
-.decide.side .dc-head{flex-wrap:wrap;gap:6px 12px}
-.dc-head{display:flex;align-items:center;gap:12px;justify-content:center}
-.dc-head b{font-family:var(--display);font-weight:800;font-size:1.1rem;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 2px 10px #000}
-.dc-timer{width:140px;height:5px;border-radius:4px;background:rgba(255,255,255,.18);overflow:hidden}
-.dc-timer i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff6a3a,#ffd75a)}
-.dc-opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
-.dc-opt{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;align-items:center;gap:1px 9px;text-align:left;padding:10px 12px;border-radius:12px;
-  border:1px solid rgba(255,255,255,.14);background:rgba(9,15,24,.86);color:#fff;transition:transform .12s,border-color .15s,background .15s;backdrop-filter:blur(6px)}
-.dc-opt:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.4)}
-.dc-opt kbd{grid-row:span 2;width:26px;height:26px;display:grid;place-items:center;border-radius:7px;background:#eef3f8;color:#0b1220;font-family:var(--display);font-weight:800}
-.dc-opt b{font-family:var(--display);font-weight:800;font-size:1.02rem;letter-spacing:.04em}
-.dc-opt span{font-size:.72rem;color:#b9c8d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dc-opt.shoot{border-color:rgba(255,215,90,.55);background:linear-gradient(180deg,rgba(255,215,90,.16),rgba(9,15,24,.88))} .dc-opt.shoot b{color:var(--gold)}
-.dc-opt.open{border-color:rgba(95,212,122,.5)} .dc-opt.open span{color:#9df07a}
-.dc-opt.better{border-color:rgba(200,240,96,.6)} .dc-opt.better span{color:var(--lime)}
-.dc-opt.run span{color:#7fdcf5} .dc-opt.marked span{color:#ffc27a} .dc-opt.held span{color:#ffadb0}
-.judge{display:grid;gap:3px;margin:-2px 0 12px;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.05);border-left:3px solid rgba(255,255,255,.25);text-align:left}
-.judge span{font-size:.86rem;color:#d5e1ec;font-style:italic} .judge b{font-family:var(--display);font-size:.9rem;letter-spacing:.06em;text-transform:uppercase}
-.judge.good{border-left-color:var(--green)} .judge.good b{color:#9df07a} .judge.bad{border-left-color:var(--red)} .judge.bad b{color:#ffadb0}
 /* ---------- the hub, lived day by day ---------- */
 .life-cta{display:grid;gap:3px;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--line);margin:8px 0}
 .life-cta b{font-family:var(--display);font-size:1.15rem} .life-cta span{font-size:.84rem;color:#c6d4e2}
@@ -1678,7 +1565,7 @@ body.building #lifeCanvas{cursor:crosshair}
 .cp-mk.sub b::after{content:" · JOB";color:#ffd25a}
 /* crowded (js/life/compass.js): a farther marker with no room for its words in either row shows as its icon alone */
 .cp-mk.slim b,.cp-mk.slim span{display:none}
-body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass, body.in-match #lifeCompass{opacity:0}
+body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass{opacity:0}
 /* the objective and the match bar sit under the compass and its two rows of markers (js/life/compass.js ROWS) */
 .onb-goal{top:calc(var(--hud-pad) + 126px)}
 .lf-match{top:calc(var(--hud-pad) + 126px)}

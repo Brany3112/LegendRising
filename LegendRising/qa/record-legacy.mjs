@@ -1,6 +1,8 @@
 // qa/record-legacy.mjs: ten seeded matches of the 2D engine played to full time, for qa/golden/legacy-finish.json.
 // Owner: I0 (DESIGN 2.1). WP-E's bridge parity (matchRewards) reads the golden: fed the same counters it has to give
 // the same rating, reputation, XP, trust and chemistry as finishMatch did.
+// It drives the 2D engine, which Stage 3 (WP-L) deleted: like qa/record-oldsaves.mjs it runs only in a copy of the I0
+// commit (c7d4760); the golden it wrote stays the reference qa/wpE-bridge.mjs checks matchRewards against.
 //
 // Each match is its own browser with Math.random seeded, the RAF loop frozen, and the career created at a fixed time.
 // The career sleeps forward to the wanted fixture (the first one, a pre-season friendly, or the first league match),

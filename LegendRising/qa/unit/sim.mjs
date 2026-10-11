@@ -1,7 +1,7 @@
 // qa/unit/sim.mjs: the match simulation as a whole under plain node: the slot coordinates agree with the career's
 // positions.js, the same seed replays the same match, a match runs to full time with every assert quiet, the bridge
 // builds its configuration without touching the career's skills, a level-up gained during a match survives
-// bridge.finish (the career.js:189-194 regression of matchSkillsOn/Off), and the checkpoint and resume records.
+// bridge.finish (the career.js:189-194 regression of the 2D match swapping S.skills), and the checkpoint and resume records.
 // Owner: WP-E. Contract DESIGN 1.4.13, 1.4.16, 1.7 (S.life.inMatch); acceptance 2.3 WP-E (qa/unit/sim.mjs).
 //
 //   node qa/unit/sim.mjs     exits 1 on any failed check; writes qa/out/unit-sim.json
