@@ -128,12 +128,14 @@ try {
   const S3 = await page.evaluate(async () => {
     const S = window.__s, F = window.__fp, L = window.__life, THREE = await import("./vendor/three.module.js");
     S.setup({});
-    const V = F.FS.V, h = V && V.fp, T = THREE.Vector3;
+    // (the first-person body is made again on every S.setup: read it when measuring, not once)
+    let h = F.FS.V && F.FS.V.fp; const T = THREE.Vector3;
     // the right leg: the boot's place along your facing relative to the knee (+ ahead), the knee's height, and whether
     // you see the knee and the boot: inside the picture, and the first thing of your own body a ray from the eye meets
     const ray = new THREE.Raycaster();
     const meshes = () => { const out = []; h.g.traverse(o => { if (o.isMesh && o.visible) out.push(o); }); return out; };
     const leg = () => {
+      h = F.FS.V && F.FS.V.fp;
       if (!h) return null;
       h.g.updateMatrixWorld(true);
       const at = i => h.bones[i].getWorldPosition(new T());
@@ -152,7 +154,7 @@ try {
     };
     const l0 = leg();
     S.btn(0, true); S.steps(30);
-    const mid = {p: F.ctrl.wind.p, k: F.MC.wind.k, leg: leg(), dip: F.MC.wind.dip, arc: +getComputedStyle(document.querySelector("#fpHud .fp-arcg")).opacity, ret: +document.querySelector("#fpHud .fp-ret").style.opacity,
+    const mid = {p: F.ctrl.wind.p, k: F.MC.wind.k, leg: leg(), look: L.P.pitch, camPitch: L.cam.rotation.x, arc: +getComputedStyle(document.querySelector("#fpHud .fp-arcg")).opacity, ret: +document.querySelector("#fpHud .fp-ret").style.opacity,
       retY: (() => { const m = /translate\([^,]+,\s*([-\d.]+)px/.exec(document.querySelector("#fpHud .fp-ret").style.transform || ""); return m ? +m[1] : null; })()};
     S.steps(60);
     const over = {over: F.ctrl.wind.over, red: document.querySelector("#fpHud .fp-ret-c").classList.contains("over"), y: F.ctrl.ret.y, lean: F.ctrl.ret.sp};
@@ -160,18 +162,22 @@ try {
     S.btn(0, false);
     let k = null; for (let i = 0; i < 30 && !k; i++){ S.steps(1); k = S.kick(from); }
     S.steps(40);
-    const after = {dip: F.MC.wind.dip};
-    // looking down at the ball
-    S.setup({pitch: -1.0}); S.btn(0, true); S.steps(40);
-    const down = leg();
+    // looking down at the ball, the same charge
+    S.setup({pitch: -1.0}); S.btn(0, true); S.steps(30);
+    const down = Object.assign(leg(), {k: F.MC.wind.k});
     S.btn(0, false); S.steps(40);
-    return {l0, mid, over, after, down, k: k && {ty: k.ty, shape: k.shape, intent: k.intent}, fp: !!h, ray: !!ray.set};
+    return {l0, mid, over, down, k: k && {ty: k.ty, shape: k.shape, intent: k.intent}, fp: !!h, ray: !!ray.set};
   });
   check(S3.fp && S3.mid.p > .5 && S3.mid.k > .4, "holding the shot fills the charge and the drawn wind-up", {p: S3.mid.p, k: S3.mid.k});
   check(S3.fp && S3.l0 && S3.mid.leg.back < -.1 && S3.mid.leg.back < S3.l0.back - .05 && S3.mid.leg.kneeY > S3.l0.kneeY + .1, "the first-person body cocks the kicking leg: the knee comes up and the boot is drawn back behind it", {before: S3.l0, during: S3.mid.leg});
-  check(S3.ray && S3.mid.dip > .2 && S3.mid.retY != null && S3.mid.retY > 12 && S3.after.dip < .01, "looking at goal, the head goes down over the ball while you wind up, the reticle stays in the picture, and it comes back up", {dip: S3.mid.dip, retY: S3.mid.retY, after: S3.after});
-  check(S3.mid.leg.knee.inView && S3.mid.leg.knee.clear, "looking at goal, the cocked knee is in view, not hidden by your own body", S3.mid.leg);
-  check(S3.down.knee.inView && S3.down.knee.clear && S3.down.foot.inView && S3.down.foot.clear, "looking down at the ball, the knee and the drawn-back boot are both in view", S3.down);
+  // (D22, Appendix A 1: no automatic camera pitch. The view stays where you look, within the action springs' 3 degrees,
+  // so the crosshair dot stays true and the reticle and its arc stay in the middle of the picture)
+  check(S3.ray && Math.abs(S3.mid.camPitch - S3.mid.look) < .055 && S3.mid.retY != null && S3.mid.retY > 200 && S3.mid.retY < 520,
+    "looking at goal while you wind up, the view stays where you look (no automatic pitch) and the reticle stays mid-picture", {look: S3.mid.look, cam: S3.mid.camPitch, retY: S3.mid.retY});
+  check(S3.down.knee.inView && S3.down.knee.clear && S3.down.foot.inView && S3.down.foot.clear && S3.down.back < -.05,
+    "looking down at the ball, the knee and the boot drawn back behind it are both in view", S3.down);
+  check(Math.abs(S3.down.back - S3.mid.leg.back) < .05 && Math.abs(S3.down.kneeY - S3.mid.leg.kneeY) < .05,
+    "the wind-up is the same pose whichever way you look", {goal: S3.mid.leg, down: S3.down});
   check(S3.mid.arc > .8 && S3.mid.ret > .8, "the power arc shows round the reticle while winding up", S3.mid);
   check(S3.over.over > .9 && S3.over.red && S3.k && /over/.test(S3.k.shape) && S3.k.ty > 1.6, "held past full: it trembles, turns red, you lean back and the shot rises", {over: S3.over, kick: S3.k});
 

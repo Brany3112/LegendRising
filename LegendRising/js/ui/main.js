@@ -281,8 +281,9 @@ function onbMigrate(){
     seen.slam = true;
     S.onb = {v:ONB_V2, step:"H3", seen};
   }
-  // the day you are in, while the first day is not over, is excused at the training centre
-  if (S.life && S.life.att && typeof S.life.att === "object") S.life.att.excused = true;
+  // the day you are in, while the first day is not over, is excused at the training centre (not for the old
+  // training-centre stage: that tour waits for your next arrival there, and only that day is excused, firstday.js)
+  if (!S.onb.centre && S.life && S.life.att && typeof S.life.att === "object") S.life.att.excused = true;
 }
 function screenTitle(){
   if (document.body.classList.contains("life")){

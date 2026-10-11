@@ -279,27 +279,43 @@ const BALLS = [];
 export const balls = () => BALLS;
 const SOLIDS = {
   cast:(ox, oy, oz, dx, dy, dz, len, out) => camCast(ox, oy, oz, dx, dy, dz, len, null, out),
-  floor:(x, y, z) => surfaceUnder(x, y, z)
+  // the floor under the ball, looked for all the way down (surfaceUnder stops 95 cm down: a ball rolled off a bench
+  // or the fridge top would keep the floor it had and hang in the air past the edge)
+  floor:(x, y, z) => { const top = y + .45, d = camCast(x, top, z, 0, -1, 0, FLOOR_LOOK); return d < FLOOR_LOOK ? top - d : null; }
 };
+const FLOOR_LOOK = 12;
 let BW = null;
 const ballWorld = () => BW || (BW = createBallWorld({solids:SOLIDS, onEvent:ballEvent}));
 function ballLive(d, m, at){
   const p = at || d, y0 = Number.isFinite(+p.y) ? Math.max(+p.y, BALL.R) : null;
   const b = createBall({x:+p.x, y:y0 != null ? y0 : BALL.R, z:+p.z});
   /* (resting where its drop says: asleep until something reaches it; let go from somewhere: awake). A drop is written
-     only when the ball has come to rest, so its height is where it lay: on the floor under it, or up on something the
-     floor query does not report but the ball's casts met (a bench, a ledge, lodged against the shelter). Only a drop
+     only when the ball has come to rest, so its height is where it lay: on the floor under it, or up on something
+     (the bed, a bench, the fridge top, lodged on an edge). Only a drop
      at the floor's height, or one with no height (an older save), is put on the floor; one above it is put back
-     exactly where it rested, asleep like any ball at rest, until something reaches it */
+     exactly where it rested, asleep, as long as something is still under it; when whatever held it up has gone since
+     (a bed sold, a shelf moved) it is left awake and falls */
   if (!at){
     const f = surfaceUnder(b.p.x, b.p.y - BALL.R, b.p.z);
     if (f != null && (y0 == null || b.p.y - (f + BALL.R) < LIFE_BALL.REST_TOL)){ b.p.y = f + BALL.R; b.floor = f; }
-    b.sleep = true; b.still = 1;
+    if (b.floor != null || held(b)){ b.sleep = true; b.still = 1; }
   }
-  const e = {d, m, b};
+  const e = {d, m, b, rev:W.solidsRev || 0};
   m.position.set(b.p.x, b.p.y, b.p.z);
   BALLS.push(e);
   return e;
+}
+// lying on the floor (its height within REST_TOL of the floor under it), not up on something
+function onFloor(b){ const f = surfaceUnder(b.p.x, b.p.y - BALL.R, b.p.z); return f != null && b.p.y - (f + BALL.R) < LIFE_BALL.REST_TOL; }
+// something still under a ball at rest: a ray from its centre straight down, or slanting down (45 degrees) to any of
+// eight sides, meets a surface within its radius and a little (a ball lodged on the edge of a bench, or against its
+// back, is held off to one side, not under its centre)
+const UNDER = [[0, -1, 0]];
+for (let i = 0; i < 8; i++){ const a = i*Math.PI/4; UNDER.push([Math.SQRT1_2*Math.cos(a), -Math.SQRT1_2, Math.SQRT1_2*Math.sin(a)]); }
+function held(b){
+  const len = BALL.R + .06;
+  for (const [dx, dy, dz] of UNDER) if (camCast(b.p.x, b.p.y, b.p.z, dx, dy, dz, len) < len) return true;
+  return false;
 }
 function ballGone(e){ const i = BALLS.indexOf(e); if (i >= 0) BALLS.splice(i, 1); }
 // its sounds: a thud off the floor or a wall, louder the harder it hits and the nearer you are
@@ -341,6 +357,13 @@ function ballsStep(h){
     const e = BALLS[i], b = e.b;
     if (e.d.zone !== LIFE.zone) continue;
     if (you) ballPush(b);
+    // a ball asleep up off the floor with nothing under it any more wakes, and falls: checked at once when the room's
+    // solids change (a piece of furniture sold, picked up or moved), and twice a second for what moves on its own
+    e.chk = (e.chk || 0) + h;
+    if (b.sleep && (e.rev !== (W.solidsRev || 0) || e.chk > .5)){
+      e.rev = W.solidsRev || 0; e.chk = 0;
+      if (!onFloor(b) && !held(b)){ b.sleep = false; b.still = 0; }
+    }
     const slept = b.sleep;
     ballStep(b, bw, h);
     e.m.position.set(b.p.x, b.p.y, b.p.z);
@@ -355,7 +378,10 @@ function ballsStep(h){
 function ballRest(e){
   const b = e.b, d = e.d;
   if (!(G_().drops || []).includes(d)) return;
-  d.x = +b.p.x.toFixed(3); d.y = +b.p.y.toFixed(3); d.z = +b.p.z.toFixed(3);
+  const x = +b.p.x.toFixed(3), y = +b.p.y.toFixed(3), z = +b.p.z.toFixed(3);
+  // (woken and settled again where it was: nothing to write)
+  if (d.x === x && d.y === y && d.z === z) return;
+  d.x = x; d.y = y; d.z = z;
   persist();
   if (typeof window.lifeOnb === "function") window.lifeOnb("ballRest", {zone:d.zone, x:d.x, z:d.z});
 }

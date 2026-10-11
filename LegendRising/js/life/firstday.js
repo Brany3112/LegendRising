@@ -27,7 +27,7 @@
    Day one also runs slower (setClockScale: ONB_RATE of the usual passive clock while a step before the lessons is
    current: at home, and at the training centre), counts as excused at the training centre (daily.js onboarding()),
    will not let you sleep the day away, and keeps the bus to training shut until the ride would get you there for the
-   start. A tour of the centre not finished by POSTPONE_AT carries on the next day, still excused. */
+   start. A tour of the centre not finished by POSTPONE_AT carries on the next training day, still excused. */
 import {THREE, W, LH, textTex, label} from "./build.js";
 import {HOME, APT} from "./home.js";
 import {GROUND, PITCH} from "./ground.js";
@@ -71,10 +71,13 @@ function reopenCentre(s){
    more: the tour waits, with none of day one's rules, until you next get to the training centre (DESIGN 3.7.7). That
    day is the tour's (S.onb.centreDay): excused there, the slow clock while it runs, and put off to the next arrival
    when it is not done by POSTPONE_AT */
-const dormant = (s, o) => !!(o.centre && o.centreDay !== (s.life && s.life.day));
+const dormant = (s, o) => centreDormant(o, s);
 function wakeCentre(){
   const s = G(), o = s && s.onb;
   if (!o || o.v !== 2 || !o.centre || o.step === "done" || !dormant(s, o) || !s.life) return;
+  // (only for a training day, and in time to go round before the afternoon: on a match day, a rest day or for the
+  // evening gym it goes on waiting)
+  if (!trainingToday() || s.life.min >= POSTPONE_AT) return;
   o.centreDay = s.life.day;
   if (s.life.att && typeof s.life.att === "object" && !s.life.att.settled) s.life.att.excused = true;
   RUN.cur = undefined; RUN.dirty = true;
@@ -519,10 +522,13 @@ const STEPS = [
     done:() => seen("onPitch"),
     end(){ speak(ASSIST, `Team training is out here, ${hours()}, Monday to Friday unless there's a game.`); }},
 
-  // (a day with no session on, or none left: nobody out there to meet. Only judged at the training centre: away from
-  // it, on the way back after a reload, the step waits for you to be there)
-  {id:"G3", zone:"ground", objective:() => "Say hello to the lads", at:() => { const m = nearestMate(); return m ? {x:m.x, z:m.z, zone:"ground", outdoor:true} : null; },
-    skip:() => LIFE.zone === "ground" && !squadDue(),
+  // (a day with no session, or none left: nobody out there to meet, so no step. Only judged at the training centre:
+  // away from it, on the way back after a reload, the step waits for you to be there. In before the session starts,
+  // the squad is still to come out: the tour carries on past this step and comes back to it once they are out)
+  {id:"G3", zone:"ground", objective:() => squadSoon() ? `Say hello to the lads when they come out at ${time(SESS().start)}` : "Say hello to the lads",
+    at:() => { const m = nearestMate(); return m ? {x:m.x, z:m.z, zone:"ground", outdoor:true} : null; },
+    skip:() => LIFE.zone === "ground" && !squadToday(),
+    wait:() => LIFE.zone === "ground" && squadSoon(),
     start(){ guideTo("pitch"); },
     tick(){ const m = nearestMate(); if (m && m.d < 4) mark("metLads"); },
     done:() => seen("metLads"),
@@ -568,7 +574,7 @@ const STEPS = [
     done:() => seen("manager") && !!(G().flags && G().flags.TrainingCenterTutorialCompleted)},
 
   // your first training: the lessons on the match's own controls (training.js startFirstTraining, DESIGN 3.6.3)
-  {id:"G9", zone:"ground", objective:() => "Join the coach on the pitch", at:() => { const c = lessonCoach(); return {x:c.x, z:c.z, zone:"ground", outdoor:true}; },
+  {id:"G9", zone:"ground", gate:true, objective:() => "Join the coach on the pitch", at:() => { const c = lessonCoach(); return {x:c.x, z:c.z, zone:"ground", outdoor:true}; },
     start(){ guideHome(); },
     tick(){
       if (RUN.lessons || !G().flags) return;
@@ -625,8 +631,10 @@ function squadBodies(){
   for (const ac of T.actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) if (h && h.g && h.g.visible) out.push(h.g.position);
   return out;
 }
-// the squad is out there today or will still be this session (its bodies may not be drawn for a frame or two yet)
-const squadDue = () => typeof sessionOn === "function" && sessionOn() && !!GROUND.session && !GROUND.session.left;
+// the squad is out there today, or will still come out today (a training day before the session's end, the squad not
+// yet gone home); squadSoon: not out yet, the session still to start
+const squadToday = () => trainingToday() && LIFE.min < SESS().end && !!GROUND.session && !GROUND.session.left;
+const squadSoon = () => squadToday() && LIFE.min < SESS().start;
 function nearestMate(){
   let best = null;
   for (const p of squadBodies()){ const d = Math.hypot(p.x - P.x, p.z - P.z); if (!best || d < best.d) best = {x:p.x, z:p.z, d}; }
@@ -819,7 +827,20 @@ function stepDone(st){
   if (d){ o.seen[st.id] = true; persist(); }
   return d;
 }
-function current(){ for (const st of STEPS) if (!stepDone(st)) return st; return null; }
+/* the first step not done. A step whose moment has not come yet (wait: G3 before the squad is out) is passed over and
+   the tour goes on, up to a step that must come after it (gate: the first training); it is taken up again once its
+   moment comes, after the step under way then is finished */
+function current(){
+  let held = null;
+  for (const st of STEPS){
+    if (stepDone(st)) continue;
+    if (held) return st.gate ? held : st;
+    const cur = RUN.cur, busy = cur && cur !== st && cur.zone === st.zone && STEPS.indexOf(cur) > STEPS.indexOf(st) && !stepDone(cur);
+    if (st.wait && (busy || st.wait())){ held = st; continue; }
+    return st;
+  }
+  return held;
+}
 export function currentId(){ return active() ? (current() || {id:null}).id : null; }
 function enter(st){
   const prev = RUN.cur; RUN.cur = st;
@@ -831,12 +852,15 @@ function enter(st){
   const o = OB();
   o.step = st ? st.id : o.step;
   if (!st){ finishHome(); return; }
-  if (st.start && !RUN.started.has(st.id)){ RUN.started.add(st.id); try { st.start(); } catch(e){ console.error(e); } }
+  // (and again for a training-centre step taken up after a step that waited and came back in front of it, G3: the
+  // assistant coach walks on to it again; those starts only send him somewhere)
+  const again = st.zone === "ground" && prev && prev.wait && prev !== st;
+  if (st.start && (!RUN.started.has(st.id) || again)){ RUN.started.add(st.id); try { st.start(); } catch(e){ console.error(e); } }
   showGoal();
 }
 function showGoal(){
   const st = RUN.cur; if (!st || RUN.lessons){ goal(null); return; }
-  if (st.zone === "ground" && postponed()){ goal(`Back at the training centre tomorrow, ${time(SESS().start)}`, null); return; }
+  if (st.zone === "ground" && postponed()){ goal(`Back at the training centre ${resumeWhen()}, ${time(SESS().start)}`, null); return; }
   if (st.zone !== LIFE.zone){
     // a step to do somewhere else: the ride there (DESIGN 3.7.4). A home step that ends on the bus to training (H21)
     // is the ride to the training centre wherever you are
@@ -939,13 +963,30 @@ export function slow(){
 }
 // the tour of the centre is put off until tomorrow (S.onb.post: the day it was put off)
 const postponed = () => { const o = OB(); return !!(o && o.post != null && G().life && G().life.day <= o.post); };
+// how many days from today to the next training day (1: tomorrow); next week's games are not known yet, so its
+// weekdays count as training days
+function nextSessionIn(){
+  const wd = G().life.wd || 0;
+  for (let d = 1; d <= 7; d++){
+    const w = (wd + d) % 7;
+    if (wd + d < 7 ? (typeof trainingDay === "function" ? trainingDay(w) : w < 5) : w < 5) return d;
+  }
+  return 1;
+}
+// the day the tour carries on (the day after S.onb.post): "tomorrow", or its weekday
+function resumeWhen(){
+  const s = G(), o = OB(), d = o && o.post != null ? o.post + 1 - s.life.day : 1;
+  const names = typeof DOW !== "undefined" && Array.isArray(DOW) ? DOW : null;
+  return d <= 1 || !names ? "tomorrow" : `on ${names[((s.life.wd || 0) + d) % 7]}`;
+}
 function postponeCheck(){
   const o = OB(), st = RUN.cur;
   if (!st || st.zone !== "ground" || st.id === "G9" || postponed()) return;
   if (o.post != null){ delete o.post; persist(); }
   if (LIFE.zone !== "ground" || LIFE.min < POSTPONE_AT || RUN.lessons) return;
-  o.post = G().life.day; persist();
-  speak(COACH, `Let's pick this up tomorrow at ${time(SESS().start)}.`);
+  // (put off to the next training day: a match day or the weekend in between has no tour)
+  o.post = G().life.day + nextSessionIn() - 1; persist();
+  speak(COACH, `Let's pick this up ${resumeWhen()} at ${time(SESS().start)}.`);
   guideHome(); RUN.dirty = true;
 }
 /* after the first day: in 30 to 60 minutes before training starts, and the coach has seen you (acts.js arrive prints

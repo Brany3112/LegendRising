@@ -208,21 +208,47 @@ try {
   r = await ev(() => { const B = __bot, d = B.ballDrop(), e = B.live(); B.step(30); return {n: S.drops.filter(x => x.item.id === "ball").length, d: d && [d.x, d.y, d.z], b: e && [+e.b.p.x.toFixed(3), +e.b.p.y.toFixed(3), +e.b.p.z.toFixed(3)], sleep: e && e.b.sleep}; });
   check("after a reload the ball is where it came to rest, once", r.n === 1 && r.b && Math.hypot(r.b[0] - before.x, r.b[2] - before.z) < .01 && Math.abs(r.b[1] - before.y) < .012 && r.sleep, {before, after: r});
 
-  // a ball at rest on something the floor query does not report (the bus-stop bench in the street, found by the
-  // ball's own casts) stays there across leaving the area and coming back: it is not put under the bench
-  // (put down with G standing at (3, 13.5) facing the shelter: it comes to rest up on the bench)
+  // a ball thrown at the bus-stop bench comes to rest where something holds it (on the bench or on the pavement, never
+  // in the air past the bench's edge), and is in the same place after leaving the street and coming back
+  // (put down with G standing at (3, 13.5) facing the shelter)
   const bench = await ev(() => {
     const B = __bot; B.place(3, .02, 12.2, Math.PI); B.spawn({x: 3, y: .3, z: 12.9}); B.settle(4);
     const e = B.live(); B.aim(e.b.p.x, e.b.p.y, e.b.p.z); B.click(); B.step(4);
     const had = B.inv.hand() && B.inv.hand().id;
     B.place(3, .02, 13.5, Math.PI); B.P.pitch = 0; B.step(2); B.key("g", 1);
-    const s = B.settle(8); __bot.modes.persist(true); const d = B.ballDrop();
-    return {had, s, d: d && {x: d.x, y: d.y, z: d.z}};
+    const s = B.settle(8); __bot.modes.persist(true); const d = B.ballDrop(), b = B.live().b;
+    // under it: a ray from its centre, straight down or slanting down, meets something within its radius and a little
+    let under = false;
+    for (const [dx, dy, dz] of [[0, -1, 0], [.7071, -.7071, 0], [-.7071, -.7071, 0], [0, -.7071, .7071], [0, -.7071, -.7071]]) if (B.coll.camCast(b.p.x, b.p.y, b.p.z, dx, dy, dz, .17) < .17) under = true;
+    return {had, s, under, d: d && {x: d.x, y: d.y, z: d.z}};
   });
   r = await ev(() => {
     const L = window.__life; L.enterZone("ground", "bus"); __bot.step(5); L.enterZone("home", {x: 3, y: .02, z: 13.5, yaw: Math.PI}); const B = __bot, e = B.live(), d = B.ballDrop(); const y0 = e && +e.b.p.y.toFixed(3); B.step(60); return {y0, y: e && +e.b.p.y.toFixed(3), x: e && +e.b.p.x.toFixed(3), z: e && +e.b.p.z.toFixed(3), sleep: e && e.b.sleep, d: d && {x: d.x, y: d.y, z: d.z}}; });
-  check("a ball resting on the bus-stop bench is still on the bench after leaving the street and coming back",
-    bench.s.sleep && !bench.s.onFloor && bench.d && bench.d.y > .4 && r.y0 != null && Math.abs(r.y0 - bench.d.y) < .02 && Math.abs(r.y - bench.d.y) < .02 && Math.hypot(r.x - bench.d.x, r.z - bench.d.z) < .05 && r.sleep, {bench, after: r});
+  check("a ball thrown at the bus-stop bench rests on something (never in the air past its edge), and is still there after leaving the street and coming back",
+    bench.had === "ball" && bench.s.sleep && (bench.s.onFloor || bench.under) && bench.d && r.y0 != null && Math.abs(r.y0 - bench.d.y) < .02 && Math.abs(r.y - bench.d.y) < .02 && Math.hypot(r.x - bench.d.x, r.z - bench.d.z) < .05 && r.sleep, {bench, after: r});
+
+  // a ball at rest up on a piece of furniture (the bed): the piece sold in build mode, it falls to the floor at once,
+  // and after leaving and coming back it lies on the floor, not in mid-air where the bed was
+  r = await ev(async () => {
+    const [furn, inv, hand, coll] = await Promise.all(["furniture", "inv", "core/hand", "core/collide"].map(m => import(`./js/life/${m}.js`)));
+    const B = __bot, L = window.__life, {A, base} = B.flat(), q = furn.pieceOf("bed");
+    if (!q) return {bed: false};
+    B.place(A.door + .2, base + .02, A.wz + A.s*1.4);
+    for (const d of (S.drops || []).filter(d => d.item && d.item.id === "ball")){ const sp = L.spots.find(s => s.drop === d); if (sp) sp.pick(); }
+    const d = {zone: "home", x: q.wx, y: base + 1.6, z: q.wz, ry: 0, item: {id: "ball"}};
+    inv.addDrop(d); const e = hand.dropSpot(d, inv.itemMesh(d.item), {x: q.wx, y: base + 1.6, z: q.wz});
+    for (let i = 0; i < 600 && !(e.b.sleep && i > 5); i++) B.step(1);
+    const onBed = {y: +e.b.p.y.toFixed(3), sleep: e.b.sleep};
+    furn.removePiece(q); S.home.fx.furn = S.home.fx.furn.filter(x => x !== q.p);
+    for (let i = 0; i < 240 && !(e.b.sleep && i > 5); i++) B.step(1);
+    const fl = coll.surfaceUnder(e.b.p.x, e.b.p.y - .11, e.b.p.z), fell = {y: +e.b.p.y.toFixed(3), floor: fl, sleep: e.b.sleep, drop: d.y};
+    L.enterZone("home", {x: A.door + .2, y: base + .02, z: A.wz + A.s*1.4, yaw: 0}); B.step(60);
+    const e2 = window.__balls.list[0], f2 = e2 && coll.surfaceUnder(e2.b.p.x, e2.b.p.y - .11, e2.b.p.z);
+    return {bed: true, base, onBed, fell, back: e2 ? {y: +e2.b.p.y.toFixed(3), floor: f2, sleep: e2.b.sleep} : null};
+  });
+  check("a ball resting on the bed falls to the floor when the bed is sold, and lies on the floor after coming back",
+    r.bed && r.onBed.sleep && r.onBed.y > r.base + .3 && r.fell.sleep && r.fell.floor != null && Math.abs(r.fell.y - .11 - r.fell.floor) < .02 && Math.abs(r.fell.drop - r.fell.y) < .01 &&
+    r.back && r.back.floor != null && Math.abs(r.back.y - .11 - r.back.floor) < .02, r);
 
   // the film's ball: in through the broken window, bouncing in and rolling to rest without a pop
   r = await ev(() => {

@@ -324,6 +324,43 @@ try {
   check("an older career with the centre's chapters still to do: on day 4 at 9 PM none of day one's rules (sleep, excused, bus, objective)",
     reopen.home.step === "G1" && !reopen.home.active && reopen.home.refuse === null && !reopen.home.excused && !reopen.home.onboarding && !reopen.home.goal && reopen.home.gate === null && !reopen.morning.excused && !reopen.morning.active, reopen);
   check("  the next arrival at the training centre starts G1, and that day is excused", reopen.ground.active && reopen.ground.cur === "G1" && reopen.ground.excused && reopen.ground.goal === "Meet the assistant coach at the gate", reopen.ground);
+  // such a career in early on a training day (9:30 AM, the squad out at 10:00): "Say hello to the lads" is not dropped,
+  // the tour goes on past it and comes back to it once the squad is out (DESIGN 3.7.6 G3)
+  const earlyC = await page.evaluate(() => {
+    const B = __bot, fd = B.fd, L = __life, seen = {slam: true};
+    L.enterZone("home", "bus"); B.idle(.5);
+    for (let i = 1; i <= 21; i++) seen["H" + i] = true;
+    S.flags.TrainingCenterTutorialCompleted = false; S.flags.GameplayTutorialCompleted = false;
+    S.onb = {v: 2, step: "G1", seen, centre: true};
+    const d0 = S.life.day;
+    while (S.life.day === d0 || !trainingDay()){ S.life.min = 23*60; sleepNight(2); startNewDay(); }
+    S.life.min = 9*60 + 30; L.pass(.01); B.idle(.3);
+    L.enterZone("ground", "bus"); B.idle(1);
+    const out = {day: S.life.day, a: B.cur()};
+    for (let i = 0; i < 400 && B.cur() === "G1"; i++){ const g = fd.FD.guide().pos; if (g) L.place({x: g.x + 1.5, z: g.z, y: 0, yaw: 0}); L.stepN(2); }
+    for (let i = 0; i < 400 && B.cur() === "G2"; i++){ L.place({x: 0, z: -20, y: 0, yaw: 0}); L.stepN(2); }
+    out.b = {cur: B.cur(), g3: S.onb.seen.G3 == null ? null : S.onb.seen.G3, min: Math.round(S.life.min)};
+    for (let i = 0; i < 200 && B.cur() === "G4"; i++){ L.place({x: 0, z: 10, y: 0, yaw: 0}); L.stepN(2); }
+    out.c = {cur: B.cur()};
+    // the squad comes out while you are on your way to another step: that one is finished first
+    S.life.min = 10*60 + 5; L.pass(.01); B.idle(.5);
+    out.d = {cur: B.cur(), min: Math.round(S.life.min)};
+    for (let i = 0; i < 200 && B.cur() === "G7"; i++){ L.place({x: 26, z: 7, y: 0, yaw: 0}); L.stepN(2); }
+    out.e = {cur: B.cur(), goal: fd.FD.goal(), g3: S.onb.seen.G3 == null ? null : S.onb.seen.G3};
+    // and on a match day it does not wake at all
+    S.onb = {v: 2, step: "G1", seen, centre: true};
+    L.enterZone("home", "bus"); B.idle(.3);
+    let n = 0; while (!todaysFixture() && n++ < 28){ S.life.min = 23*60; sleepNight(2); startNewDay(); }
+    S.life.min = 11*60; L.pass(.01); B.idle(.3);
+    L.enterZone("ground", "bus"); B.idle(1);
+    out.match = {fixture: !!todaysFixture(), active: fd.FD.active(), excused: S.life.att.excused, centreDay: S.onb.centreDay == null ? null : S.onb.centreDay};
+    return out;
+  });
+  check("an older career in early on a training day: after G1 and G2, 'Say hello to the lads' waits for the squad (not skipped) and the tour goes on",
+    earlyC.a === "G1" && earlyC.b.cur === "G4" && earlyC.b.g3 === null, earlyC);
+  check("  the squad out while you are on another step: that step first, then 'Say hello to the lads'",
+    earlyC.c.cur === "G7" && earlyC.d.cur === "G7" && earlyC.e.cur === "G3" && /^Say hello to the lads/.test(earlyC.e.goal) && earlyC.e.g3 === null, earlyC);
+  check("  on a match day the tour does not wake, and nothing is excused", earlyC.match.fixture && !earlyC.match.active && !earlyC.match.excused && earlyC.match.centreDay === null, earlyC.match);
   check("no console or page errors", errors.length === 0 && errs2.length === 0, errors.concat(errs2).slice(0, 5));
 } catch(e){
   check("the run finished", false, String(e && e.stack || e).slice(0, 800));

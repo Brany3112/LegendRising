@@ -221,12 +221,14 @@ const TRAIT_KEYS = ["team", "conf", "dec", "risk"];
 function freshSess(){ return {blocks:0, mins:0, done:false, score:0}; }
 function freshAtt(){ return {arrived:null, min:0, pre:0, atStart:false, gone:false, status:"", settled:false, chem:0, told:false, excused:onboarding(), sess:freshSess()}; }
 // the first day's introduction is still running (DESIGN 3.7.4: attendance excused, no trust either way)
+/* a career whose training-centre chapters were added after its first day (S.onb.centre): those chapters wait for the
+   day you next arrive there for a training day (firstday.js wakes them then, S.onb.centreDay), and only that day
+   counts as the first day's. The one rule for it; firstday.js asks it too */
+function centreDormant(o, s){ return !!(o && o.centre && o.centreDay !== (s && s.life && s.life.day)); }
 function onboarding(){
   if (typeof S === "undefined" || !S) return false;
   const o = S.onb, f = S.flags;
-  // (a career whose training-centre chapters were added after its first day, S.onb.centre: those chapters run on the
-  // day you next arrive there, and only that day counts as the first day's; firstday.js wakes them on arrival)
-  if (o && typeof o === "object" && o.v === 2) return o.step !== "done" && !(o.centre && o.centreDay !== (S.life && S.life.day));
+  if (o && typeof o === "object" && o.v === 2) return o.step !== "done" && !centreDormant(o, S);
   if (!f || typeof f !== "object") return false;
   return f.CharacterCreated === false || !f.TrainingCenterTutorialCompleted;
 }
