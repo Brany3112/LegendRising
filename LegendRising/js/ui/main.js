@@ -208,7 +208,7 @@ function enterCity(){
    (intro.js), which keeps the screen covered until the city has been drawn from the film's first camera. The
    creation screen comes after your uncle's "Tell me about yourself" (intro.js calls onbCreation). Without a 3D world
    (a double-clicked file, no WebGL 2) the career is made the plain way: creation, offers, the hub. */
-const NG = {tok:0};
+const NG = {tok:0, noWorld:false};      // noWorld: the 3D world was expected and never loaded
 const worldOK = () => location.protocol !== "file:" && typeof WebGL2RenderingContext !== "undefined";
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
 async function newGameWorld(){
@@ -224,7 +224,7 @@ async function newGameWorld(){
   clearTimeout(ld);
   if (tok !== NG.tok) return;
   // the world never came (it failed to load): who you are, and the hub
-  if (!ok || !window.startLife){ CR = null; screenCreate(); return; }
+  if (!ok || !window.startLife){ NG.noWorld = true; CR = null; screenCreate(); return; }
   document.body.classList.add("life");
   window.startLife({intro:true});
 }
@@ -481,10 +481,11 @@ function renderHubInner(){
   const {fx, next, me, c, win} = hubState();
   const lg = W.leagues[c.lg], pos = sortTab(lg.tab).indexOf(c.id) + 1, need = xpNeed(), k = S.contract;
   const inj = me.inj > 0;
-  // living it day by day in the 3D world, or the hub on its own (no 3D world: its Play match button plays the fixture
-  // out, DESIGN 3.4.6). The page's own "life" class says which: window.lifeMode (life/phone.js, loaded on every page)
-  // names where the phone is, a non-empty string even when there is no world, so it cannot tell
-  const life = document.body.classList.contains("life");
+  // living it day by day in the 3D world (in it, or about to be: the world is there and loads, enterCity), or the hub
+  // on its own (no 3D world, or one that never loaded: its Play match button plays the fixture out, DESIGN 3.4.6).
+  // (window.lifeMode, from life/phone.js, which every page loads, names where the phone is: a non-empty string even
+  // when there is no world, so it cannot tell)
+  const life = document.body.classList.contains("life") || (worldOK() && !NG.noWorld);
   const fxHtml = fx.length ? fx.map(f => {
     const d = W.done[f.key], home = f.kind === "N" ? f.h === me.nat : f.h === me.club, sl = life ? fixtureSlot(f) : null;
     const today = life && sl.wd === S.life.wd;
@@ -879,7 +880,8 @@ function playFixture(f){
     render(`<section class="onb-black"><div class="onb-loader on"><div class="spinner"></div><p>Getting the ground ready</p></div></section>`, "black");
     Promise.race([window.lifeReady, new Promise(r => setTimeout(() => r(false), 60000))]).then(ok => {
       if (tok !== PLAY.tok || S !== s0) return;
-      if (ok && window.startLife && window.FP) playFixture(f); else playedForYou(f);
+      if (ok && window.startLife && window.FP) playFixture(f);
+      else { NG.noWorld = true; playedForYou(f); }
     });
     return true;
   }

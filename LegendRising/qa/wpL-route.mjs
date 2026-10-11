@@ -3,8 +3,9 @@
 //
 //   1. The game: no js/engine, none of the 2D match's names (startMatch, finishMatch, renderMatchScreen, the
 //      A.kickOff / A.leaveMatch / A.workrate buttons) left in the page.
-//   2. The hub with the 3D world available but not running (the "Play match" button): the world starts at the
-//      ground's tunnel and the match day begins (FP state travel, then the dressing room in the stadium).
+//   2. The hub of a career with the 3D world: no hub-only match button (the match is at the tunnel); A.playMatch
+//      from the hub with the world not running starts it at the ground's tunnel and the match day begins (FP state
+//      travel, then the dressing room in the stadium).
 //   3. A.playFixture from inside the world: straight into the first-person match day.
 //   4. No 3D world (WebGL 2 missing): "Play match" plays the fixture out for him (quickMatch); its full-time card says
 //      so, the world has the result, MT is let go, Continue goes back to the hub; New Game says the build has to be
@@ -59,11 +60,11 @@ const state = page => page.evaluate(() => ({fp: window.FP && window.FP.state, zo
     const fx = await matchDay(page);
     await page.waitForFunction(() => window.__life && window.__life.presented >= 2, null, {timeout: 120000});
     await toHub(page);
-    const btn = await page.evaluate(() => { const b = [...document.querySelectorAll("#app button")].find(x => /Play match/.test(x.textContent)); return b ? b.getAttribute("onclick") : null; });
-    check(btn === "A.playMatch()", "the hub without the world running shows the Play match button", btn);
-    await page.evaluate(() => { const b = [...document.querySelectorAll("#app button")].find(x => /Play match/.test(x.textContent)); b.click(); });
+    const hubNow = await page.evaluate(() => ({play: [...document.querySelectorAll("#app button")].some(x => /Play match|Next week/.test(x.textContent)), cta: !!document.querySelector("#app .life-cta.match")}));
+    check(!hubNow.play && hubNow.cta, "a career with the 3D world: the hub says the match is at the tunnel, with no hub-only Play match or Next week button", hubNow);
+    await page.evaluate(() => A.playMatch());
     let s = await state(page);
-    check(s.life && s.fp === "travel" && !s.dom2d, "Play match from the hub: the world starts and the match day begins (the travel card)", s);
+    check(s.life && s.fp === "travel" && !s.dom2d, "A.playMatch from the hub: the world starts and the match day begins (the travel card)", s);
     await freeze(page);
     for (let i = 0; i < 120 && s.fp !== "dressing"; i++){ await page.evaluate(() => window.__life.stepN(30)); s = await state(page); }
     check(s.fp === "dressing" && s.zone === "stadium" && !s.dom2d, "then the dressing room in the stadium, with no 2D screen", s);
@@ -87,8 +88,10 @@ const state = page => page.evaluate(() => ({fp: window.FP && window.FP.state, zo
     const fx = await matchDay(page);
     await page.waitForFunction(() => window.__life && window.__life.presented >= 2, null, {timeout: 120000});
     await toHub(page);
-    // a browser without WebGL 2, as the routing sees one
+    // a browser without WebGL 2, as the routing sees one: the hub on its own, with its Play match button
     await page.evaluate(() => { window.WebGL2RenderingContext = undefined; renderHub(); });
+    const btn = await page.evaluate(() => { const b = [...document.querySelectorAll("#app button")].find(x => /Play match/.test(x.textContent)); return b ? b.getAttribute("onclick") : null; });
+    check(btn === "A.playMatch()", "no 3D world: the hub shows the Play match button", btn);
     const before = await page.evaluate(k => ({done: !!W.done[k], apps: S.careerMy.apps}), fx.key);
     await page.evaluate(() => { const b = [...document.querySelectorAll("#app button")].find(x => /Play match/.test(x.textContent)); b.click(); });
     await page.waitForTimeout(400);
