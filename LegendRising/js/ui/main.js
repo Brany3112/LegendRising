@@ -207,7 +207,8 @@ function enterCity(){
    it takes a while), the career's shell is built behind it, and the world starts with the intro's own boot plan
    (intro.js), which keeps the screen covered until the city has been drawn from the film's first camera. The
    creation screen comes after your uncle's "Tell me about yourself" (intro.js calls onbCreation). Without a 3D world
-   (a double-clicked file, no WebGL 2) the career is made the plain way: creation, offers, the hub. */
+   (a double-clicked file, no WebGL 2) New Game only says how to get one (screenNoWorld); a world that was expected
+   and never loaded makes the career the plain way: creation, offers, the hub, its matches played out (3.4.6). */
 const NG = {tok:0, noWorld:false};      // noWorld: the 3D world was expected and never loaded
 const worldOK = () => location.protocol !== "file:" && typeof WebGL2RenderingContext !== "undefined";
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
