@@ -30,7 +30,7 @@ try {
     if (s.go) break;
   }
   await page.evaluate(() => window.__life.keysUp(["w"]));
-  // the 950 ms fade into the tunnel runs on a real timer
+  // the fade into the tunnel runs in real time (FP.enter waits for its end)
   await page.waitForTimeout(1300);
   let s = await T.untilState("dressing", 4000);
   check(s.state === "dressing" && s.zone === "stadium", "the travel card, then the dressing room in the stadium", {state: s.state, zone: s.zone, min: s.min});
@@ -70,11 +70,11 @@ try {
     rec.forEach((r, i) => { if (r.fade >= .98) return; const ex = r.dx - (r.vmax/60 + .01); if (ex > worst){ worst = ex; at = i; } if (ex > 0) bad++; });
     const liveRec = rec.filter(r => r.state === "live");
     return {frames: rec.length, worst, at, bad, atRec: rec[at], liveFrames: liveRec.length, liveTop: [...new Set(liveRec.map(r => r.top))], tp: rec.some(r => r.owners.includes("life-tp")),
-      inMatch: rec.some(r => r.inMatch), dom2d: !!document.querySelector(".match-screen")};
+      dom2d: !!document.querySelector(".match-screen")};
   });
   check(R.bad === 0, "the player's displacement per frame never exceeds vmax*dt + 0.01 outside a fade", {frames: R.frames, worstExcess: +R.worst.toFixed(4), bad: R.bad, at: R.atRec});
   check(R.liveFrames > 100 && R.liveTop.length === 1 && R.liveTop[0] === "match-fp", "the camera owner during live play is match-fp", R.liveTop);
-  check(!R.tp && !R.inMatch && !R.dom2d, "no life-tp view and no 2D match DOM", {tp: R.tp, inMatch: R.inMatch, dom2d: R.dom2d});
+  check(!R.tp && !R.dom2d, "no life-tp view and no 2D match DOM", {tp: R.tp, dom2d: R.dom2d});
   // the rest of the match, headless, then back out of the tunnel
   // (every note shown from here on, to see the full-time line land: it waits behind the cards full time brings)
   await page.evaluate(() => { window.__ftNotes = []; const seen = new Set(); new MutationObserver(() => { const e = document.getElementById("lifeNote"); const t = e && e.textContent.trim(); if (t && !seen.has(t)){ seen.add(t); window.__ftNotes.push(t); } }).observe(document.body, {subtree: true, childList: true, characterData: true}); });

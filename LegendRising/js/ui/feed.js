@@ -9,7 +9,7 @@ const FEED = {
   money:{shown:null, from:0, to:0, t0:0, dur:650},
   live(){
     const r = document.getElementById("lifeRoot");
-    return !!r && r.style.display !== "none" && document.body.classList.contains("life") && !document.body.classList.contains("in-match");
+    return !!r && r.style.display !== "none" && document.body.classList.contains("life");
   },
   el(id){ return document.getElementById(id); },
 

@@ -19,7 +19,7 @@ const pct = (l, p) => { if (!l.length) return 0; const s = l.slice().sort((a, b)
 
 /* ---------- the oracles (3.4.5: the 2D match's moment mixes, kept here when match.js loses them) ---------- */
 
-// the 2D match's MOMENT_MIX (match.js), DEFEND_MIX (data/game.js) and EXTRA_MIX (its decide.js): what a game asked of
+// the retired 2D match's MOMENT_MIX, DEFEND_MIX and EXTRA_MIX (its decide.js): what a game asked of
 // each position
 export const ORACLE = Object.freeze({
   MOMENT_MIX: {

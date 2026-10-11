@@ -150,7 +150,7 @@ export function persistNow(){ saveNowIf(); }
 const save0 = typeof save === "function" ? save : null;
 if (save0) window.save = function(){
   const sv = modeFlags().saves;
-  if (LIFE.running && (sv === "defer" || (sv === "life" && !FLAGS.modal && !FLAGS.busy && document.pointerLockElement && !document.body.classList.contains("in-match")))){ SAVE.due = true; return true; }
+  if (LIFE.running && (sv === "defer" || (sv === "life" && !FLAGS.modal && !FLAGS.busy && document.pointerLockElement))){ SAVE.due = true; return true; }
   return save0.apply(this, arguments);
 };
 addEventListener("pagehide", () => { if (SAVE.due) saveNowIf(); });

@@ -31,7 +31,6 @@ import {P, RT} from "../core/state.js";
 import {camPush, camPop, camKick} from "../core/camera.js";
 import {dirOf, wrapA} from "./pitchspec.js";
 import {EV} from "../human.js";
-import {THREE} from "../build.js";
 import {CTRL} from "./control.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -50,13 +49,10 @@ export const CAM = Object.freeze({
   ACT_MAX_A: 3*DEG, ACT_MAX_D: .06, ACT_W: 12,                 // the action springs: held within 3 degrees and 6 cm
   BENCH_YAW: 100*DEG, BENCH_UP: 20*DEG, BENCH_DOWN: 30*DEG,
   VIG_FROM: 40, VIG_MAX: .92, DESAT: .38,                      // the fatigue vignette from 40 breath down; the grey near empty
-  // the wind-up (A1.7): the kicking leg cocked where you can see it when you look down at the ball (radians at a full
-  // charge; a pass 60% as far): the thigh up in front (THIGH), turned out a little about its length (ROT) and taken out
-  // to the side (ABD), the knee bent hard (KNEE) so the shin sweeps back and the boot is drawn back behind the knee and
-  // out beside it, clear of your own chest; the foot, the hips opening, the other arm out; the view dips a little with
-  // the charge (PITCH, inside the action springs) and leans back held past full. The look itself is never moved (D22)
-  WIND: Object.freeze({THIGH: -1.0, ABD: .6, ROT: -.5, KNEE: 1.7, FOOT: .4, HIPS: .2, ARM: .7, LEAN: .14, PITCH: -1.4*DEG, DZ: -.03,
-    OVER_PITCH: 2.2*DEG, TREMBLE: .22*DEG}),
+  // the wind-up (A1.7): the body's own pose is the strike clip's held backswing (moves.js WIND); the view dips a
+  // little with the charge (PITCH, inside the action springs) and leans back held past full. The look itself is never
+  // moved (D22)
+  WIND: Object.freeze({PITCH: -1.4*DEG, DZ: -.03, OVER_PITCH: 2.2*DEG, TREMBLE: .22*DEG}),
   // the head following your shot (A1.7): at most this far from where you look, turning at most this fast
   FOLLOW: Object.freeze({YAW: 40*DEG, PITCH: 22*DEG, RATE: 34*DEG, HOLD: 1.3, BACK: .5})
 });
@@ -171,8 +167,8 @@ function fpFrame(dt, cam){
   let ev = 0, h = null;
   if (V && V.fp && SRC.pose){ ev = SRC.pose(x, z, P.yaw, dt) || 0; h = V.fp; }
   const v = SRC.speed ? SRC.speed() : 0, top = SRC.top ? Math.max(1, SRC.top()) : 8, B = SRC.breath ? SRC.breath() : 100;
-  // the wind-up drawn on your body (A1.7), and the head following your own strike
-  windup(h && h.g.visible ? h : null, dt, v);
+  // the wind-up as the view feels it (A1.7: your body draws it, moves.js), and the head following your own strike
+  windup(dt);
   follow(a, V, x, y0, z, dt);
   speedFx(v/top, B, motion, dt);
   // the bob (3.5.9, 1.5.9): the pelvis against its running mean, held within 0.006 + 0.0016 v; heavier and uneven when
@@ -230,42 +226,17 @@ function fpFrame(dt, cam){
 }
 const FP_OWNER = {id:"match-fp", priority:40, frame:fpFrame, fov:() => Math.round(MC.fov*20)/20, near:CAM.NEAR};
 
-/* ---------- the wind-up on your body (A1.7) ----------
-   Laid over the pose the body has this frame (after view.js fpPose, before it is drawn): the kicking leg cocked as far
-   as the charge has gone, where your own eyes can see it when you look down at the ball (a leg swung straight back is
-   behind and under the eye, out of any view): the knee lifted in front and a little out, the knee bent hard so the
-   shin sweeps back and the boot is drawn back behind the knee, out beside it, the foot pointed, the hips turning open
-   and the other arm going out, the chest leaning back when held past full. The same pose whichever way you look: the
-   view is never pitched for you (D22); looking at the goal the reticle and its power arc carry the wind-up. Eased in
-   as the button is held and out fast once it is let go (the strike's own swing, moves.js, takes over). A running body
-   draws it back about half as far: its stride has the leg. */
-const WQ = new THREE.Quaternion(), WA = new THREE.Vector3();
-function turnBone(b, x, y, z, a){
-  if (!b || !a) return;
-  WA.set(x, y, z); WQ.setFromAxisAngle(WA, a);
-  b.quaternion.premultiply(WQ); b.updateMatrix();
-}
-export const WSIGN = {thigh: 1, knee: 1, foot: 1, hips: 1, arm: 1, lean: 1};
-function windup(h, dt, v){
+/* ---------- the wind-up as the view feels it (A1.7) ----------
+   The leg cocked, the hips opening and the lean back are your body's own pose: the strike clip's held backswing
+   (moves.js windHold, posed by view.js for your agent, so your eyes, the third person and a replay all show it). Here
+   only its weight is followed (eased in as the button is held, out fast once it is let go) for the view's own small
+   dip within the action springs and the tremble held past full; the look itself is never moved (D22). */
+function windup(dt){
   const W = CTRL.wind, Mw = MC.wind;
   const want = W.kind === "shot" ? W.p : W.kind === "pass" ? .6*W.p : 0;
   Mw.k += (want - Mw.k)*(1 - Math.exp(-(want > Mw.k ? 14 : 24)*Math.max(0, dt)));
   Mw.over += ((W.kind ? W.over : 0) - Mw.over)*(1 - Math.exp(-10*Math.max(0, dt)));
   if (want > 0) Mw.side = W.side === "L" ? "L" : "R";
-  if (!h || !h.bones || Mw.k < .01) return;
-  const K = CAM.WIND, k = Mw.k*(1 - .5*sstep(3, 7, v)), L = Mw.side === "L", Bn = h.bones, s = L ? 1 : -1, S = WSIGN;
-  // (bone axes: the rig's body frame, +X the body's left, +Y up, +Z forward; a turn about +X takes a hanging leg back,
-  // about +Z swings it to the body's left. The thigh is first turned out a little about its own length, then lifted,
-  // then taken out to the side, so the shin swept back by the knee brings the boot out beside it, not under your chest)
-  const th = Bn[L ? 12 : 16];
-  if (th){ WA.set(0, 1, 0); WQ.setFromAxisAngle(WA, s*K.ROT*k); th.quaternion.multiply(WQ); th.updateMatrix(); }
-  turnBone(th, 1, 0, 0, S.thigh*K.THIGH*k);
-  turnBone(th, 0, 0, 1, s*K.ABD*k);
-  turnBone(Bn[L ? 13 : 17], 1, 0, 0, S.knee*K.KNEE*k);
-  turnBone(Bn[L ? 14 : 18], 1, 0, 0, S.foot*K.FOOT*k);
-  turnBone(Bn[1], 0, 1, 0, S.hips*-s*K.HIPS*k);
-  turnBone(Bn[L ? 9 : 6], 0, 0, 1, S.arm*s*K.ARM*k);
-  turnBone(Bn[3], 1, 0, 0, S.lean*-K.LEAN*Mw.over);
 }
 
 /* ---------- the head following your strike (A1.7) ----------

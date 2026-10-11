@@ -31,7 +31,7 @@ const check = (pass, name, value) => {
   if (!pass) res.ok = false;
   console.log(`${pass ? "ok  " : "FAIL"} ${name}${value === undefined ? "" : ": " + JSON.stringify(value)}`);
 };
-const base = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "perf-baseline.json"), "utf8"));
+const base = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "golden", "perf-i0.json"), "utf8"));
 const I0 = base.tiers.low.pitch.animMs;
 
 // 1. side by side with the I0 tree: the ground at noon on Low, seen from the pitch, frames taken in turns

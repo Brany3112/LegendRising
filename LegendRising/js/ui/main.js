@@ -1191,10 +1191,10 @@ const A = {
     toast(`${before.job.name} · ${before.rank.name}: +${eur(m)}`);
   },
   // a drink from your stock (the hub, half time): what it does is what consume() says, the same as from a fridge
-  drink(id, inMatch){
+  drink(id){
     const r = consume(id);
-    if (!r.ok){ if (inMatch) return updateMatchHUD(); return toast(r.why); }
-    save(); if (inMatch) return updateMatchHUD(); renderHub(); toast(`${r.item.name} · Energy ${fmtSigned(r.gain)}`);
+    if (!r.ok) return toast(r.why);
+    save(); renderHub(); toast(`${r.item.name} · Energy ${fmtSigned(r.gain)}`);
   },
   up(k){ const c = skillCost(S.skills[k]); if (S.sp < c || S.skills[k] >= 99) return; S.sp -= c; S.skills[k]++; meP().ovr = overall(); save(); refreshSheet(); renderHub(); },
   buy(id){

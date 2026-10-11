@@ -40,7 +40,7 @@ export function rec(ms){
       // the clip's own numbers (not its objects' identity): enough to pose it again
       const st = q.st || (q.st = {});
       for (const k in st) st[k] = undefined;
-      for (const k of ["mode", "kind", "side", "power", "curl", "lowHigh", "take", "jump", "part", "cushion", "style", "outcome", "at", "run", "groupY"]) if (c[k] !== undefined) st[k] = c[k];
+      for (const k of ["mode", "kind", "side", "power", "curl", "lowHigh", "take", "jump", "part", "cushion", "style", "outcome", "at", "run", "groupY", "hold", "over"]) if (c[k] !== undefined) st[k] = c[k];
       if (c.plan) st.plan = c.plan;
       if (c.ball) st.ball = {x:c.ball.x, y:c.ball.y, z:c.ball.z};
       if (c.dir) st.dir = typeof c.dir === "object" ? {x:c.dir.x, z:c.dir.z} : c.dir;

@@ -5,7 +5,10 @@
 // (js/life/perf.js): a test career at noon (made at qa/lib.mjs CAREER_AT, so the street is the same in every run), you
 // at the view, warm-up frames, then measured frames, each one world
 // frame stepped by hand, drawn and waited for (a one-pixel readPixels: Chromium's gl.finish() does not wait).
-// Checked against qa/perf-baseline.json (I0, the tree before the rework) as ratios, never as absolute milliseconds:
+// Checked against qa/golden/perf-i0.json (I0, the tree before the rework) as ratios, never as absolute milliseconds,
+// and against the release's own baseline, qa/perf-baseline.json (qa/record-perf.mjs, re-recorded by WP-QA at each
+// release): each tier's render and step p95 within 10% of it (DESIGN 4.10; a note unless --gate-release, for the same
+// reason as below: SwiftShader's times swing with the machine's load):
 //   Low     draw calls and triangles within the 1.5.11 budget of the view (+5%), no shadow pass, 2 real point lights;
 //           render ms at most 50% of the Low baseline and at most 35% of the High baseline of the same view;
 //           1000 collision rays (camCast, a fan from the eye) reported against the baseline's time
@@ -28,6 +31,8 @@
 //   node qa/perf.mjs --gate-render                       the render and recorded CPU ratios gated as well (a quiet machine)
 //   node qa/perf.mjs --gate-time                         the recorded CPU ratio gated as well
 //   node qa/perf.mjs --report                            no time ratio gated (and no side-by-side step)
+//   node qa/perf.mjs --tiers low,medium,high --views bedroom,street   Medium and High measured on these views too
+//   node qa/perf.mjs --gate-release                      the 10% against the release baseline gated as well
 //
 // Writes qa/out/perf.json.
 import fs from "node:fs";
@@ -36,7 +41,9 @@ import {spawnSync} from "node:child_process";
 import {launch, report, ROOT, OUT} from "./lib.mjs";
 
 const a = process.argv.slice(2), opt = (k, d) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : d; };
-const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "perf-baseline.json"), "utf8"));
+const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, "qa", "golden", "perf-i0.json"), "utf8"));
+const REL_F = path.join(ROOT, "qa", "perf-baseline.json"), REL = fs.existsSync(REL_F) ? JSON.parse(fs.readFileSync(REL_F, "utf8")) : null;
+const GATE_REL = !a.includes("--report") && a.includes("--gate-release");
 const VIEWS = opt("--views", "bedroom,lobby,street,park,yard,pitch,town-road").split(",");
 const TIERS = opt("--tiers", "low,high").split(",");
 const GATE_RENDER = !a.includes("--report") && a.includes("--gate-render"), GATE_TIME = GATE_RENDER || (!a.includes("--report") && a.includes("--gate-time"));
@@ -81,7 +88,7 @@ async function probe(view, tier){
 
 for (const tier of TIERS){
   out.results[tier] = {};
-  for (const view of (tier === "high" && !a.includes("--views") ? ["lobby"] : VIEWS)){
+  for (const view of (tier !== "low" && !a.includes("--views") ? ["lobby"] : VIEWS)){
     const t0 = Date.now();
     let r;
     try { r = await probe(view, tier); }
@@ -109,6 +116,14 @@ for (const tier of TIERS){
         const rs = +(r.ms.step.median/bl.stepMs.median).toFixed(3);
         check(`low ${view}: CPU per frame (step) against the recorded baseline (the gate is side by side, below)`, rs <= 1.1, {ratio: rs, ms: r.ms.step.median, baseline: bl.stepMs.median}, !GATE_TIME);
       }
+    }
+    // against the release baseline (DESIGN 4.10): the same view and tier, p95 within 10%
+    const rel = REL && REL.tiers && REL.tiers[tier] && REL.tiers[tier][view];
+    if (rel && rel.renderMs && rel.stepMs){
+      const rr = +(r.ms.render.p95/rel.renderMs.p95).toFixed(3), rs = +(r.ms.step.p95/rel.stepMs.p95).toFixed(3);
+      check(`${tier} ${view}: render p95 within 10% of the release baseline (${REL.build || "?"})`, rr <= 1.1, {ratio: rr, ms: r.ms.render.p95, baseline: rel.renderMs.p95}, !GATE_REL);
+      check(`${tier} ${view}: step p95 within 10% of the release baseline (${REL.build || "?"})`, rs <= 1.1, {ratio: rs, ms: r.ms.step.p95, baseline: rel.stepMs.p95}, !GATE_REL);
+      check(`${tier} ${view}: draw calls no more than the release baseline's (+5%)`, r.calls <= rel.calls*1.05, {calls: r.calls, baseline: rel.calls}, tier !== "low");   // (with a shadow map the probe's count can take in a redraw)
     }
     if (tier === "high" && view === "lobby"){
       check("high lobby: within 90 draw calls", r.calls <= 90, r.calls);

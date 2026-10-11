@@ -153,7 +153,7 @@ export function report(name, data){
 /* ---------- side by side with the tree before the rework ----------
    SwiftShader's milliseconds follow the machine's load, so a time against a figure recorded on another day says as
    much about the machine as about the code. sideBySide() serves this tree and a base tree (git archive of `ref`, by
-   default c7d4760, the I0 tree qa/perf-baseline.json was recorded from, exported once into qa/out/ab-base-<ref>) to
+   default c7d4760, the I0 tree qa/golden/perf-i0.json was recorded from, exported once into qa/out/ab-base-<ref>) to
    one browser from disk (no second server or port): open("new" | "base", gfx, place) gives a page with a test career
    standing at place ({zone, at: "bus" | "bed" | {x, z, y, yaw}, pitch}) at noon, frozen, a few frames drawn. A test
    then takes its measures from both pages in turns, so whatever else the machine is doing weighs on both alike.

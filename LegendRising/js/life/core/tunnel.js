@@ -12,7 +12,6 @@ import {note, clockText} from "./hud.js";
 import {modeFlags, mode, persistNow} from "./modes.js";
 import {SCHED} from "./sched.js";
 import {timeLapse} from "./acts.js";
-import {matchFatigue, matchIntensity} from "../stamina.js";
 import {bodyLook} from "../look.js";
 import {FP, fpHost, recoverCheck, DAY} from "../football/controller.js";
 import {GROUND} from "../ground.js";
@@ -77,8 +76,9 @@ export function toMatch(){
   o.style.transition = "opacity .9s ease"; o.style.opacity = "1"; FADE.v = 1;
   LIFE.matchEnd = fixtureSlot(info.f).min + MATCH_LEN;
   // the match day in the stadium (football/controller.js): the travel card, the dressing room, the walk-out, the
-  // match, the way back out of this tunnel (lifeAfterMatch). If it cannot start, you are not left in the dark
-  setTimeout(() => {
+  // match, the way back out of this tunnel (lifeAfterMatch). It starts when the screen has gone dark (the fade's own
+  // end, not a guessed delay); if it cannot start, you are not left in the dark
+  afterFade(o, () => {
     let ok = false;
     try { ok = FP.enter(info.f); } catch(e){ console.error(e); ok = false; }
     if (!ok){
@@ -87,7 +87,20 @@ export function toMatch(){
       o.style.transition = "opacity .8s ease"; o.style.opacity = "0"; FADE.v = 0; delete o.dataset.tun;
       note("The match couldn't start. Open the hub (Q) to see what's on.");
     }
-  }, 950);
+  });
+}
+// fn once the cover's opacity transition has ended. When nothing is left to animate (already dark) it runs straight
+// after this task (a timer, not a frame: a paused frame loop must not hold the match up); a hidden tab runs no
+// transitions and never sends their end, so the transition's own length (plus a little) is the most it waits
+function afterFade(o, fn){
+  let done = false;
+  const go = () => { if (done) return; done = true; o.removeEventListener("transitionend", end); fn(); };
+  const end = e => { if (e.target === o && e.propertyName === "opacity") go(); };
+  const cs = getComputedStyle(o);
+  if (+cs.opacity >= .999){ setTimeout(go, 0); return; }
+  o.addEventListener("transitionend", end);
+  const dur = (parseFloat(cs.transitionDuration) || 0)*1000 + (parseFloat(cs.transitionDelay) || 0)*1000;
+  setTimeout(go, dur + 100);
 }
 
 /* ---------- the career's side of the match day (football/controller.js fpHost) ---------- */
@@ -154,12 +167,8 @@ SCHED.task({id:"fp-resume", hz:1, kind:"keep", run:() => {
   if (!s || !s.life || !s.life.inMatch || !LIFE.running || mode() !== "life" || document.body.classList.contains("cine")) return;
   try { recoverCheck(); } catch(e){ console.error(e); }
 }});
-// the fatigue a 2D match leaves, for its caller in ui/main.js (a classic script): what matchRewards recorded in
-// A._matchLegs ({mins, drain}) through the one formula there is (stamina.js matchFatigue, 1.5.2), as bridge.finish
-// does for R.fatigue
-window.lifeMatchFatigue = legs => legs ? matchFatigue(legs.mins, matchIntensity(legs.drain)) : 0;
 // back from the final whistle (DESIGN 3.4.3): out of the tunnel, a couple of hours later, with tired legs. fatigue: the
-// number the match adds to S.fatigue (bridge.finish R.fatigue for a 3D match; lifeMatchFatigue above for the 2D one)
+// number the match adds to S.fatigue (bridge.finish R.fatigue)
 window.lifeAfterMatch = (fatigue, lead = "Full time. You walk back out of the tunnel.") => {
   const s = G();
   const end = LIFE.matchEnd || 21*60;

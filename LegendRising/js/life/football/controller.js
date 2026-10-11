@@ -591,7 +591,7 @@ function fpPoseNow(x, z, yaw, dt){
   V.fpOn = !(FS.state === "bench" && FS.seated) && !playing();
   // the warm-up poses you through its set (the body where you stand, not where the eye has gone with the neck)
   if (V.fpOn && !FS.onPitch && !V.src && !V.hideAll){ const m = warmPose(V.fp, P.x, P.z, yaw, dt); if (m != null) return m; }
-  return fpPose(V, x, z, yaw, dt, {speed: mySpeed()});
+  return fpPose(V, x, z, yaw, dt, {speed: mySpeed(), wind: CTRL.wind});
 }
 function fpInClip(){ const V = FS.V, ms = FS.ms; if (!V || !ms || ms.me < 0) return false; const R = V.rec[ms.me]; return !!(R && R.clip); }
 // after the camera is placed: the frustum (the spare balls come back to their cones unseen), the listener

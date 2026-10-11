@@ -126,7 +126,7 @@ function neckFix(h, Q){
 export const BOB = {mean:null, x:0, y:0, nods:0, lastN:-1};
 function bobStep(h, dt){
   const Gt = h.gait;
-  if (!Gt || LOCO.old){ BOB.x = BOB.y = 0; return; }
+  if (!Gt){ BOB.x = BOB.y = 0; return; }
   const s = h.scale, v = P.speed, dy = Gt.hipDy*s, mv = sstep(.05, .5, v);
   if (BOB.mean == null) BOB.mean = dy;
   BOB.mean += (dy - BOB.mean)*(1 - Math.exp(-2.5*dt));
@@ -155,7 +155,7 @@ export function meStep(dt){
     tb.g.position.set(P.x, P.feet, P.z); tb.g.rotation.y = ME.yaw + Math.PI;
     animateHuman(tb, dt, gaitState(ME.look));
     animateHuman(fp, dt, gaitState(0), {tier:4});
-    if (!LOCO.old){ BOB.x = BOB.y = 0; B.x = B.y = 0; }
+    BOB.x = BOB.y = 0; B.x = B.y = 0;
     // the camera gliding in to your eyes (no room behind you, or V) passes through where your head and shoulders are:
     // the body fades out (dithered, so nothing needs sorting) as it comes within half a metre, and is gone before the
     // view could fill with the back of your head or the inside of your collar
@@ -184,7 +184,7 @@ export function meStep(dt){
   const brakes = Gt ? Math.max(sstep(0, 3.3, -(Gt.acc || 0)), Gt.brakeW || 0) : 0;
   const armK = ME.act ? 0 : run*Math.max(sstep(.1, .6, -P.pitch), brakes);
   animateHuman(fp, dt, gaitState(0, armK, neckFix));
-  if (!LOCO.old){
+  {
     // the camera was placed with last frame's bob: this frame's (the same clock as the feet just drawn)
     const by = B.y, bx = B.x;
     bobStep(fp, dt); B.x = BOB.x; B.y = BOB.y;

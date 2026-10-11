@@ -53,7 +53,7 @@ export async function openDay({gfx = "low", seed = 7, role = "starter", before =
     uncover: () => page.evaluate(() => { const f = document.getElementById("lifeFade"); f.style.transition = "none"; f.style.opacity = "0"; window.__life.FADE.v = 0; }),
     draw: (n = 1) => page.evaluate(n => { const L = window.__life; for (let i = 0; i < n; i++) L.stepN(1); L.renderer().render(L.scene(), L.cam); }, n)
   };
-  // frames until the match day's state is `want` (or a guard runs out); the 950 ms fade into the tunnel is real time
+  // frames until the match day's state is `want` (or a guard runs out); the fade into the tunnel (0.9 s, to its end) is real time
   T.untilState = async (want, frames = 3000, per = 30) => {
     for (let i = 0; i < frames/per; i++){
       const s = await T.st();
@@ -112,7 +112,7 @@ export async function installBot(page){
           L.stepN(1);
           const me = F.me();
           this.rec.push({dx: Math.hypot(P.x - x0, P.z - z0), fade: L.FADE.v, state: F.state, top: L.camera.top(), owners: L.camera.owners().join(","),
-            vmax: me && F.FS.onPitch ? me.prm.vmax : F.FS.ownPrm ? F.FS.ownPrm.vmax : 9.5, inMatch: document.body.classList.contains("in-match")});
+            vmax: me && F.FS.onPitch ? me.prm.vmax : F.FS.ownPrm ? F.FS.ownPrm.vmax : 9.5});
         }
       }
     };

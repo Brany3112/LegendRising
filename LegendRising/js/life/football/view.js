@@ -19,7 +19,7 @@ import {SCHED} from "../core/sched.js";
 import {ballMesh} from "./pitchmesh.js";
 import {STADIUM} from "./stadium.js";
 import {predAt} from "./actions.js";
-import {kindOf} from "../moves.js";
+import {kindOf, windHold, windUpper} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
 
@@ -229,6 +229,9 @@ function liveSt(V, R, a, ms, dt){
     }
   }
   if (act && act !== R.actRef){ R.actRef = act; R.clip = null; }
+  // your wind-up (A1.7): standing or walking, the strike clip held at its backswing (moves.js windHold), the same
+  // clip in your eyes, from outside and in a replay; on the run the stride keeps the legs (windUpper, below)
+  if (a.isMe && !act){ const w = windHold(V.wind, a.m.speed, R.hold || (R.hold = {})); if (w){ R.clip = w; return w; } if (R.clip === R.hold) R.clip = null; }
   if (act){
     switch (act.kind){
       case "kick": {
@@ -297,6 +300,7 @@ function liveSt(V, R, a, ms, dt){
   // a call for the ball (the arm up), the assistant's flag (up and out)
   if (a.lastCall != null && ms.t - a.lastCall < .9) loco.upper = UP_CALL;
   else if (a.role === "ar" && V.flag && V.flag.agent === a.id && ms.t < V.flag.until) loco.upper = UP_FLAG;
+  else if (a.isMe) loco.upper = windUpper(V.wind, a.m.speed, R.windUp || (R.windUp = {}));
   return loco;
 }
 const UP_CALL = {g:"call", w:1}, UP_FLAG = {g:"point", w:1};
@@ -348,6 +352,8 @@ function recvFor(V, R, a, ms){
 const FPST = {mode:"move", speed:0, root:{x:0, z:0}, armsIn:0, fatigue:0, correct:null};
 // x, z: where you stand; yaw: where you look; dt; armsIn (0..1), correct (the neck fix); returns the pose's events
 export function fpPose(V, x, z, yaw, dt, o = {}){
+  // (the charge being wound up, control.js CTRL.wind: your body poses it from the next frame, liveSt)
+  if (o.wind !== undefined) V.wind = o.wind;
   const h = V.fp; if (!h) return 0;
   const ms = V.ms, a = ms.agents[V.me];
   h.g.visible = !!(V.fpOn && !V.src && !V.hideAll);

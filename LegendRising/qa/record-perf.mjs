@@ -1,4 +1,6 @@
-// qa/record-perf.mjs: the rendering baseline of the tree before the rework, as qa/perf-baseline.json.
+// qa/record-perf.mjs: a rendering baseline: the release's as qa/perf-baseline.json (WP-QA re-records it at each
+// release, DESIGN 4.10), or the tree before the rework's, kept as qa/golden/perf-i0.json (recorded once at I0 in a copy
+// of that tree, with --out; the ratio gates of qa/perf.mjs and qa/wpB-npc.mjs are against it).
 // Owner: I0 (DESIGN 2.1; the views and the gate are DESIGN 3.9.8, the budgets 1.5.11). WP-A's qa/perf.mjs measures
 // the same views and compares; WP-QA re-records the file at the end.
 //
@@ -15,7 +17,7 @@
 // from the eye in a fan, timed, for the camera-collision cost. walk60 is the CPU cost of each frame of a 60 m run
 // down your street on Low (see WALK).
 //
-//   node qa/record-perf.mjs              every view, High and Low, and the walk; writes qa/perf-baseline.json
+//   node qa/record-perf.mjs              every view, High, Medium and Low, and the walk; writes qa/perf-baseline.json
 //   node qa/record-perf.mjs --views street,yard --tiers low --out /tmp/x.json
 //   node qa/record-perf.mjs --walk-only  only the 60 m walk (walk60), into the existing file
 import fs from "node:fs";
@@ -128,7 +130,7 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain){
   const a = process.argv.slice(2), opt = k => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : null; };
   const views = opt("--views") ? VIEWS.filter(v => opt("--views").split(",").includes(v.name)) : VIEWS;
-  const tiers = opt("--tiers") ? opt("--tiers").split(",") : ["high", "low"];
+  const tiers = opt("--tiers") ? opt("--tiers").split(",") : ["high", "medium", "low"];
   const out = opt("--out") || path.join(ROOT, "qa", "perf-baseline.json");
   if (a.includes("--walk-only")){
     // add (or redo) the walk in an existing baseline file
@@ -138,9 +140,10 @@ if (isMain){
     console.log(`walk: ${w.metres} m in ${w.frames} frames, step ${w.stepMs.median} ms median, ${w.stepMs.p99} p99, ${w.stepMs.max} max${w.errors ? "\n  errors: " + w.errors.join("\n  ") : ""}`);
     process.exit(w.errors ? 1 : 0);
   }
-  const doc = {about: "Rendering baseline of the tree before the rework (I0, DESIGN 2.1 and 3.9.8), recorded by qa/record-perf.mjs in headless Chromium on SwiftShader at 1280 x 720. Milliseconds are SwiftShader figures: compare ratios against this file, never absolute times. calls and tris are the main pass without a shadow redraw; shadowCalls and shadowTris are what a shadow-map redraw adds.",
-    method: {viewport: [1280, 720], warm: WARM, frames: FRAMES, minute: 12*60, frame: "__life.stepN(1), then renderer.render(scene, cam) and a 1-pixel gl.readPixels that waits for the GPU (renderMs); submitMs is the render call alone", stats: "median and p95 over the measured frames"},
-    views: VIEWS, missing: {views: MISSING, why: "this build has no stadium: matches are the 2D engine, which has no 3D scene"}, tiers: {}};
+  const build = (/FF_BUILD = "([^"]+)"/.exec(fs.readFileSync(path.join(ROOT, "index.html"), "utf8")) || [])[1] || "unknown";
+  const doc = {about: `Rendering baseline of build ${build} (DESIGN 3.9.8 and 4.10), recorded by qa/record-perf.mjs in headless Chromium on SwiftShader at 1280 x 720. Milliseconds are SwiftShader figures: compare ratios against this file, never absolute times. calls and tris are the main pass without a shadow redraw; shadowCalls and shadowTris are what a shadow-map redraw adds.`,
+    build, method: {viewport: [1280, 720], warm: WARM, frames: FRAMES, minute: 12*60, frame: "__life.stepN(1), then renderer.render(scene, cam) and a 1-pixel gl.readPixels that waits for the GPU (renderMs); submitMs is the render call alone", stats: "median and p95 over the measured frames"},
+    views: VIEWS, missing: {views: MISSING, why: "the stadium's views are measured live by qa/wpD-stadium.mjs and qa/int-fullmatch.mjs, not by this probe"}, tiers: {}};
   let errs = 0;
   for (const tier of tiers){
     doc.tiers[tier] = {};

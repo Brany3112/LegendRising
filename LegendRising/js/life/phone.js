@@ -10,7 +10,6 @@
   let mode = "street", busy = false;
   const body = document.body;
   const life = () => body.classList.contains("life");
-  const inMatch = () => body.classList.contains("in-match");
   const lp = () => document.getElementById("lifePhone");
   const handOpen = () => typeof PH !== "undefined" && PH.open;
   const smart = () => typeof S !== "undefined" && S && S.phone === "smart";
@@ -32,7 +31,7 @@
 
   /* ---------- Tab: the phone in your hand ---------- */
   window.lifeHand = function(){
-    if (!life() || busy || mode !== "street" || inMatch()) return;
+    if (!life() || busy || mode !== "street") return;
     if (handOpen()){
       closePhone(); hint();
       if (window.lifeRelock) window.lifeRelock();
@@ -48,7 +47,7 @@
 
   /* ---------- Q: up to your face, and it becomes the hub ---------- */
   window.lifeHub = function(){
-    if (!life() || busy || mode === "hub" || inMatch()) return;
+    if (!life() || busy || mode === "hub") return;
     busy = true; mode = "hub";
     if (handOpen()) closePhone();
     hint();
@@ -71,7 +70,7 @@
 
   /* ---------- the phone button in the hub: back into your pocket ---------- */
   window.lifePutAway = function(){
-    if (!life() || busy || mode !== "hub" || inMatch()) return;
+    if (!life() || busy || mode !== "hub") return;
     busy = true;
     if (typeof closeSheet === "function") closeSheet();
     if (window.resumeLife) window.resumeLife();            // the street is moving again behind the phone
@@ -99,7 +98,7 @@
 
   /* ---------- keys ---------- */
   addEventListener("keydown", e => {
-    if (!life() || inMatch()) return;
+    if (!life()) return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
     if (e.repeat) return;

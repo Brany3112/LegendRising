@@ -455,7 +455,7 @@ function bindInput(cv){
   addEventListener("wheel", e => { if (LIFE.running && lockedHere()) routeInput({type:"wheel", deltaY:e.deltaY, locked:true}); }, {passive:true});
   addEventListener("keydown", e => {
     const t = e.target, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-    if (typing || !document.body.classList.contains("life") || document.body.classList.contains("in-match")) return;
+    if (typing || !document.body.classList.contains("life")) return;
     if (mailOpen()){ if (e.key === "Escape"){ e.preventDefault(); closeMail(); } return; }
     if (window.lifePanelOpen && window.lifePanelOpen()) return;
     if (window.lifeMode && window.lifeMode() === "hub") return;

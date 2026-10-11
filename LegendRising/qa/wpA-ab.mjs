@@ -2,7 +2,7 @@
 // Owner: WP-A (DESIGN 2.3 WP-A acceptance, 1.5.11 "relative SwiftShader targets", 3.9.8).
 //
 // SwiftShader's milliseconds follow the machine's load: qa/perf.mjs divides by times recorded on another day
-// (qa/perf-baseline.json), so a busy machine can fail a ratio that holds. Here both trees run in one browser at the
+// (qa/golden/perf-i0.json), so a busy machine can fail a ratio that holds. Here both trees run in one browser at the
 // same moment: this tree and the base tree (git archive of --base, by default c7d4760, the I0 tree the baseline was
 // recorded from) are served to the browser from disk (no second server or port), each opened at the same view, and
 // their frames are taken in turns, so whatever else the machine is doing weighs on both alike.
