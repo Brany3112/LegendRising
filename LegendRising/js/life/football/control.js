@@ -265,7 +265,7 @@ export function rhythmOf(me, foot){
   const stride = 2*stepLen(v, g.mode, me.scale || 1)/v, d = (((foot === "L" ? .5 : 0) - g.phi)%1 + 1)%1;
   RH.on = true; RH.tp = d*stride; RH.ts = (1 - d)*stride;
   const err = Math.min(Math.max(0, RH.tp - ACTN.TC_MAX), Math.max(0, RH.ts - AIM.RHY_LATE));
-  RH.rhythm = clamp(err/(AIM.RHY_W0 + AIM.RHY_W1*techniqueOf(me.at)/99), 0, 1);
+  RH.rhythm = clamp(err/((AIM.RHY_W0 + AIM.RHY_W1*techniqueOf(me.at)/99)*(typeof globalThis.motivationTiming === "function" ? globalThis.motivationTiming() : 1)), 0, 1);   // (Motivation widens the window a little, A1.8 WP-W2)
   if (RH.tp >= .1 && RH.tp <= ACTN.TC_MAX) RH.tc = RH.tp;
   return RH;
 }
@@ -508,7 +508,7 @@ export function controlStep(ms, me, h, opts = {}){
   // the timing ring of a volley or an acrobatic strike (A1.5): it closes on the moment the ball will be met
   const R = CTRL.resolve;
   if (R && R.kind !== "ground" && R.kind !== "header" && R.kind !== "divingHeader"){
-    CTRL.ring = RNG; RNG.kind = R.kind; RNG.tc = R.tc; RNG.w = CN.RING.W0 + (CN.RING.W1 - CN.RING.W0)*(me.at.dribbling || 50)/99;
+    CTRL.ring = RNG; RNG.kind = R.kind; RNG.tc = R.tc; RNG.w = (CN.RING.W0 + (CN.RING.W1 - CN.RING.W0)*(me.at.dribbling || 50)/99)*(typeof globalThis.motivationTiming === "function" ? globalThis.motivationTiming() : 1);   // (Motivation widens it a little, A1.8 WP-W2)
   } else CTRL.ring = null;
   // the reticle and the wind-up (A1.7): what a release would strike now
   reticleStep(ms, me, ctx);

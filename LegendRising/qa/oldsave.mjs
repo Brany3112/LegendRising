@@ -98,6 +98,12 @@ for (const name of FIX){
     await page.waitForFunction(inWorld, 3, {timeout: 180000});
     const loaded = await page.evaluate(`(${stable})(S)`);
     compare("loaded", loaded);
+    // the A1.8 migration (career.js motivationMigrate, coachStylesEnsure): an old save starts at Motivation 60 and every
+    // club gets its coach's style
+    const a18 = await page.evaluate(() => ({m: S.player.motivation, styles: W.clubs.every(c => ["attacking", "pressing", "technical"].includes(c.coachStyle))}));
+    const hadM = doc.save.S.player && doc.save.S.player.motivation != null;
+    check("Motivation migrated (60 for a save from before it) and a coach style on every club",
+      (hadM ? a18.m === doc.save.S.player.motivation : a18.m === 60) && a18.styles ? [] : [`motivation ${a18.m}, styles ${a18.styles}`]);
     const day0 = await page.evaluate(() => ({day: S.life.day, zone: window.__life.LIFE.zone}));
     // 2 and 3. the world runs, then a day
     if (name === "onboarding"){

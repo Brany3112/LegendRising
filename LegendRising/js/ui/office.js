@@ -29,6 +29,7 @@ function formStrip(){
     <div class="fs-row"><span>Form</span><div class="fp-row">${formPips(5)}</div></div>
     <div class="fs-row"><span>Sharpness</span><div class="meter thin"><i style="width:${sh}%"></i></div><b>${sh}</b></div>
     <div class="fs-row"><span>Manager</span><div class="meter thin trust"><i style="width:${tr}%"></i></div><b class="tl">${trustLabel()}</b></div>
+    <div class="fs-row" title="${esc(motivationWhy())}"><span>Motivation</span><div class="meter thin"><i style="width:${motivation()}%"></i></div><b class="tl">${motivationLabel()}</b></div>
   </div>`;
 }
 
@@ -176,6 +177,8 @@ function officeSheet(){
   const rc = raiseCase(), block = raiseBlock(rc);
   const head = `<h2>The manager's office</h2>
     <p class="muted">${esc(c.nm)} · ${esc(trustLabel())} · ${eur(S.contract.wage)}/week</p>
+    <p class="muted small mgr-style">${esc(coachStyleName(c))} coach. ${esc(COACH_STYLES[coachStyleOf(c)].line)}</p>
+    <blockquote class="mq mgr-motiv">${esc(motivationManagerLine())}</blockquote>
     <div class="mgr-read">
       <div><span>Games since you signed</span><b>${rc.since}</b></div>
       <div><span>Goals · assists</span><b>${rc.g} · ${rc.a}</b></div>

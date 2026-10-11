@@ -2,7 +2,8 @@
 /* ============ CAREER ============
    Owner: WP-G (Stage 1). Contracts: DESIGN 1.4.19 (careerShell(), applyCreation(cr), effSkill(k) and effSkills(),
    the smooth energyFactor()), 1.7 (save gating while S.flags.CharacterCreated === false; the migrations of resume()),
-   1.3 (trust changes only through trustAdd). */
+   1.3 (trust changes only through trustAdd). WP-W2 (stage P2c): Motivation, the warm-up's boost in effSkill and the
+   coach's style (addendum A1.8; the contract is spelled out above MOTIV below). */
 const KEY = "freyaFootball.v2";                       // the original single save, migrated into slot 1
 const SLOTS = 1;                                      // one career per account
 const OLD_SLOTS = 3;                                  // how many there used to be, for the tidy-up below
@@ -198,6 +199,8 @@ function resume(data){
   homeBallMigrate();
   assignTeamPos();                  // your preferred and team positions (saves from before there were seventeen)
   indexSquads();
+  motivationMigrate();              // Motivation (addendum A1.8): 60 for a career from before it
+  coachStylesEnsure();              // and a coach's style on every club
   dailyEnsure();                    // the daily-life fields (and S.player.owned, S.home), new skills for older careers
   // the first day's progress in the step runner's terms (DESIGN 3.7.7, ui/main.js): every way a career is loaded
   // (Continue, the city, an import, a cloud restore) comes through here
@@ -238,13 +241,266 @@ function nervesFor(crowd){ return +(crowdPressure(crowd)*(1 - S.skills.composure
 const NERVES_CAP = .45;
 // what the match takes off today (MT.nerves from the crowd, MT.tired from tired legs), at most NERVES_CAP
 function skillHit(){ const m = typeof MT !== "undefined" && MT ? MT : null; return m ? clamp(num(m.nerves, 0) + num(m.tired, 0), 0, NERVES_CAP) : 0; }
+// ...plus what a good warm-up puts on it while it lasts (warmBoost below, addendum A1.8): read-time as well, never
+// written into S.skills, and capped at 99 like any skill
 function effSkill(k){
   const v = S && S.skills ? num(S.skills[k], 0) : 0;
-  if (k === "composure") return v;
+  const up = warmBonus(k);
+  if (k === "composure") return up ? Math.min(99, v + up) : v;
   const hit = skillHit();
-  return hit > 0 ? Math.max(5, Math.round(v*(1 - hit))) : v;
+  const base = hit > 0 ? Math.max(5, Math.round(v*(1 - hit))) : v;
+  return up ? Math.min(99, base + up) : base;
 }
 function effSkills(){ const out = {}; for (const [k] of SKILLS) out[k] = effSkill(k); return out; }
+
+/* ---------- Motivation, the warm-up's boost and the coach's style (addendum A1.8) ----------
+   Owner: WP-W2 (stage P2c). Contract: the shared contract of A1.8 between WP-W1 (the warm-up) and WP-W2 (this):
+     S.player.motivation 0..100 (60 for a career saved before it existed, and for a new one); S.player.motivWhy =
+       {t, d, day}: the last thing that moved it, one line for the stats panel; S.player.motivRun = {loss, bench, told,
+       band}: the losing run and the run of games on the bench it watches, and when the manager last said something.
+     motivation() -> 0..100. motivationAdd(delta, reason) -> the change it made (clamped to 0..100); reason: one line,
+       as the player would say it. motivationLabel(m) -> a word for it.
+     motivationTiming() -> 0.9..1.1, exactly 1 at 60: the timing windows (a strike's rhythm and a volley's ring in
+       control.js, which the training lessons run through as well) are multiplied by it, so a motivated player gets a
+       little more room and a flat one a little less.
+     motivationRecovery() -> 0.95..1.05, exactly 1 at 60: a little in-match stamina recovery. staminaF() (the energy a
+       match minute costs) is divided by it; the stamina model may scale its breath recovery by it too.
+     motivationBoostScale() -> 0.6..1.4, exactly 1 at 60: what the warm-up's boost is scaled by (WP-W1 reads it).
+     warmBoost = {set(o), get(), clear(), extend(min)}, o = {rating:'sharp'|'ready'|'cold', all:+n, focus:{skill:+n},
+       untilMin:matchMinute, onFire:false}: effSkill adds all + focus[k] while the match it was set in is running and
+       MT.minute <= untilMin. A focus key is a career skill, or a coach focus id of COACH_STYLES (data/game.js), which
+       stands for its skills. extend(min) moves untilMin on and marks it on fire, only while it is active.
+     coachStyleOf(club) -> 'attacking'|'pressing'|'technical' (club.coachStyle, fixed by the club's name);
+       coachStyle(clubId = your club) -> the same, or null.
+   Motivation is the player's alone: no AI player and no simulation module reads it, and every multiplier is 1 at the
+   default, so the harness and every match of a career that has not moved it stay exactly as they were. */
+const MOTIV = Object.freeze({
+  BASE:60, DRIFT:.04,                     // each night it settles this share of the way back towards BASE
+  ATTEND:{good:1, goodEarly:2, lateStayed:0, late:-1.5, early:-1, absent:-4}, HABIT:-1.5, CHEM_DAY:.5, CHEM_MIN:.5,
+  WIN:2, DRAW:.3, LOSS:-1, LOSS_RUN:-1.5, LOSS_RUN_N:3,
+  RATE_HI:1.5, RATE_GOOD:.7, RATE_POOR:-1,
+  BENCH:-1.5, BENCH_N:2, BENCH_MORE:-.5,  // the second game in a row without getting on, then a little more each time
+  MISSED:-3,
+  SLEEP_GOOD:1, SLEEP_SHORT:-2, SLEEP_NOISY:-.8, NAP:.4, NAP_FATIGUE:40,
+  MEAL:.6, MEAL_DAY:2, MEAL_HUNGRY:50,
+  LOW:35, HIGH:80, TALK_GAP:7             // the manager says something when it drops under LOW or climbs to HIGH, at most once a week
+});
+const motivRound = v => Math.round(v*100)/100;
+function motivation(){ return S && S.player ? clamp(num(S.player.motivation, MOTIV.BASE), 0, 100) : MOTIV.BASE; }
+function motivationLabel(m){ m = num(m, motivation()); return m >= 80 ? "Fired up" : m >= 65 ? "Hungry" : m >= 45 ? "Steady" : m >= 30 ? "Flat" : "Low"; }
+function motivRun(){
+  const p = S.player;
+  if (!p.motivRun || typeof p.motivRun !== "object") p.motivRun = {loss:0, bench:0, told:0, band:""};
+  const R = p.motivRun;
+  for (const k of ["loss", "bench", "told"]) R[k] = Math.max(0, Math.round(num(R[k], 0)));
+  if (typeof R.band !== "string") R.band = "";
+  return R;
+}
+function motivationAdd(delta, reason){
+  if (!S || !S.player) return 0;
+  const d = num(+delta, 0), m0 = motivation(), m1 = clamp(motivRound(m0 + d), 0, 100);
+  S.player.motivation = m1;
+  if (reason && Math.abs(d) >= .1) S.player.motivWhy = {t:String(reason), d:Math.round(d*10)/10, day:S.life ? S.life.day : 0};
+  motivationTalk();
+  return motivRound(m1 - m0);
+}
+// several things at once (a match: the result, the rating, the bench): one change, and the reason is the biggest part
+// that points the same way as the total
+function motivationAddParts(parts){
+  const real = (parts || []).filter(p => p && p.d);
+  if (!real.length) return 0;
+  const tot = real.reduce((s, p) => s + p.d, 0), big = (a, b) => Math.abs(b.d) - Math.abs(a.d);
+  const lead = real.filter(p => Math.sign(p.d) === Math.sign(tot)).sort(big)[0] || real.slice().sort(big)[0];
+  return motivationAdd(tot, lead.why);
+}
+const motivSlope = (per, lo, hi) => clamp(1 + (motivation() - MOTIV.BASE)/per, lo, hi);
+function motivationTiming(){ return motivSlope(400, .9, 1.1); }
+function motivationRecovery(){ return motivSlope(800, .95, 1.05); }
+function motivationBoostScale(){ return motivSlope(100, .6, 1.4); }
+// a career saved before Motivation (1.7 migration chain, resume) and a new one: 60, and the fields it keeps
+function motivationMigrate(){
+  if (!S || !S.player) return;
+  const m = S.player.motivation;
+  S.player.motivation = typeof m === "number" && isFinite(m) ? clamp(motivRound(m), 0, 100) : MOTIV.BASE;
+  const w = S.player.motivWhy;
+  if (w != null && !(w && typeof w === "object" && typeof w.t === "string")) delete S.player.motivWhy;
+  motivRun();
+}
+// the night: it drifts a little way back towards the middle, so nothing sticks for ever (no reason line: nothing happened)
+function motivationNewDay(){
+  if (!S || !S.player) return;
+  S.player.motivation = clamp(motivRound(motivation() + (MOTIV.BASE - motivation())*MOTIV.DRIFT), 0, 100);
+}
+// the training day settled (daily.js settleAttendance): k as it emits it ("good", "goodEarly", "late", "lateStayed",
+// "early", "absent", "excused", with "+habit" when it has become one); chem: what the day with the squad was worth
+function motivationAttend(k, chem){
+  if (!S || !S.player || !k || k === "excused") return 0;
+  const habit = /\+habit$/.test(k), base = k.replace("+habit", ""), parts = [];
+  const WHY = {good:"You put in a full day's training.", goodEarly:"In early and through the whole session. It shows.", late:"You turned up late for training.",
+    early:"You left training early, and you know it.", absent:"You skipped training. That never feels good the day after."};
+  const d = MOTIV.ATTEND[base];
+  if (d) parts.push({d, why:WHY[base]});
+  if (habit) parts.push({d:MOTIV.HABIT, why:"That's the third time this week. Things are starting to slide."});
+  if (num(chem, 0) >= MOTIV.CHEM_MIN && (base === "good" || base === "goodEarly" || base === "lateStayed")) parts.push({d:MOTIV.CHEM_DAY, why:"A good day with the lads."});
+  return motivationAddParts(parts);
+}
+// the end of a match you were at (finaliseMatch, through newsFromMatch): the result, your rating, a run of defeats, a
+// run of games on the bench. Once per match, and only for the match MT is (a fixture played for you while you were
+// away is missedMatches' business)
+function motivationAfterMatch(res){
+  if (!S || !S.player || !res || !res.f) return 0;
+  const m = typeof MT !== "undefined" && MT ? MT : null;
+  if (!m || !m.f || m.f.key !== res.f.key || m.motivDone) return 0;
+  m.motivDone = true;
+  const f = res.f, me = meP(); if (!me) return 0;
+  const home = f.kind === "N" ? f.h === me.nat : f.h === me.club;
+  const us = home ? res.hg : res.ag, th = home ? res.ag : res.hg;
+  const R = motivRun(), r = res.rt ? res.rt[S.meId] : null, rating = r == null ? null : num(+r, null), parts = [];
+  if (rating == null){
+    // (injured or suspended you were never in the running)
+    if (!(me.inj > 0) && !((S.ban || 0) > 0)){
+      R.bench++;
+      if (R.bench >= MOTIV.BENCH_N) parts.push({d:MOTIV.BENCH + MOTIV.BENCH_MORE*Math.min(3, R.bench - MOTIV.BENCH_N),
+        why:R.bench >= 3 ? `${R.bench} games in a row without getting on. It's starting to wear on you.` : "Another game watched from the bench."});
+    }
+  } else {
+    R.bench = 0;
+    if (rating >= 7.5) parts.push({d:MOTIV.RATE_HI, why:`Rated ${rating.toFixed(1)}. You were flying out there.`});
+    else if (rating >= 7) parts.push({d:MOTIV.RATE_GOOD, why:`A solid ${rating.toFixed(1)}. That one felt good.`});
+    else if (rating < 5.8) parts.push({d:MOTIV.RATE_POOR, why:`Rated ${rating.toFixed(1)}. Not a night to remember.`});
+  }
+  // a friendly is a look, not a result
+  if (f.kind !== "F"){
+    if (us > th){ R.loss = 0; parts.push({d:MOTIV.WIN, why:"A win. The dressing room was buzzing afterwards."}); }
+    else if (us === th){ R.loss = 0; parts.push({d:MOTIV.DRAW, why:"A point on the board."}); }
+    else {
+      R.loss++;
+      parts.push(R.loss >= MOTIV.LOSS_RUN_N ? {d:MOTIV.LOSS + MOTIV.LOSS_RUN, why:`${R.loss} defeats on the bounce. It's getting to everyone.`}
+        : {d:MOTIV.LOSS, why:"A defeat. Nobody says much on the way home."});
+    }
+  }
+  return motivationAddParts(parts);
+}
+// a night's sleep, a nap (daily.js sleepBy): a full night lifts you, a short or noisy one drags you down
+function motivationSlept(plan, fatigueBefore){
+  if (!S || !S.player || !plan) return 0;
+  if (plan.kind === "night"){
+    if (plan.q < .7) return motivationAdd(MOTIV.SLEEP_SHORT, "You barely slept. Everything feels like hard work today.");
+    if ((plan.mods || []).some(x => x.k === "noisy")) return motivationAdd(MOTIV.SLEEP_NOISY, "The party upstairs kept you up half the night.");
+    if (plan.q >= .95) return motivationAdd(MOTIV.SLEEP_GOOD, "A proper night's sleep. You woke up ready to go.");
+    return 0;
+  }
+  if (plan.kind === "nap" && num(fatigueBefore, 0) >= MOTIV.NAP_FATIGUE) return motivationAdd(MOTIV.NAP, "A nap took the edge off.");
+  return 0;
+}
+// a real meal when you were hungry (daily.js consume), at most MEAL_DAY times a day
+function motivationAte(it, energyBefore){
+  if (!S || !S.player || !it || !(it.kind === "food" || it.kind === "recovery") || !(num(energyBefore, 100) < MOTIV.MEAL_HUNGRY) || !S.today) return 0;
+  if (num(S.today.motivFood, 0) >= MOTIV.MEAL_DAY) return 0;
+  S.today.motivFood = num(S.today.motivFood, 0) + 1;
+  return motivationAdd(MOTIV.MEAL, "A good meal when you needed one.");
+}
+// a match that went ahead without you (daily.js missedMatches, when it was not excused)
+function motivationMissedMatch(){ return motivationAdd(MOTIV.MISSED, "You missed a match. That one's going to sting for a while."); }
+// the manager notices: a message when it drops under LOW or climbs to HIGH, at most once in TALK_GAP days
+const MOTIV_TALK = {
+  low:["You've looked a bit flat lately. Keep your head up and keep working. Your chance will come.",
+    "I can see something's getting to you. My door's open. Until then, keep turning up and doing the work."],
+  high:["You look hungry at the moment. That's exactly what I want to see. Keep it going.",
+    "Whatever you're doing right now, keep doing it. You've got a real spark about you."]
+};
+function motivationTalk(){
+  if (!S || !S.player) return;
+  const m = motivation(), R = motivRun(), band = m < MOTIV.LOW ? "low" : m >= MOTIV.HIGH ? "high" : "";
+  if (band === R.band) return;
+  R.band = band;
+  if (!band || !(S.meId >= 0) || !W || !W.players) return;
+  const c = myClub(), day = S.life ? S.life.day : 0;
+  if (!c || (R.told && day - R.told < MOTIV.TALK_GAP)) return;
+  R.told = day || 1;
+  const lines = MOTIV_TALK[band];
+  msg(c.nm, lines[day % lines.length]);
+}
+// what the manager says about it in his office (ui/office.js)
+function motivationManagerLine(){
+  const m = motivation();
+  return m >= MOTIV.HIGH ? "You look sharp and hungry at the moment. Keep that up and you'll get your minutes."
+    : m >= 60 ? "You seem in a good place. Keep doing what you're doing."
+    : m >= MOTIV.LOW ? "Keep your head down and keep working. I'm watching, believe me."
+    : "You look like you've lost a bit of fire lately. If something's wrong, talk to me.";
+}
+// the stats panel's line: the last reason, or what the number means when nothing has moved it yet
+function motivationWhy(){
+  const w = S && S.player ? S.player.motivWhy : null;
+  return w && w.t ? w.t : "Nothing much has moved it yet. Turn up, play well and look after yourself.";
+}
+
+/* the warm-up's boost (A1.8): set by the warm-up (WP-W1) when you come off the bench, read by effSkill. Held here, not
+   in the save: a boost is for the match it was set in (fkey), and a match reloaded from its checkpoint has the player
+   off the pitch anyway (3.4.4) */
+const WARM_RATINGS = ["sharp", "ready", "cold"];
+let WARM = null;
+function warmMatch(){ return typeof MT !== "undefined" && MT ? MT : null; }
+function warmActive(){
+  if (!WARM) return false;
+  const m = warmMatch();
+  if (!m || m.label === "FT") return false;
+  if (WARM.fkey != null && !(m.f && m.f.key === WARM.fkey)) return false;
+  return num(m.minute, 0) <= WARM.untilMin;
+}
+function warmBonus(k){
+  if (!WARM || !warmActive()) return 0;
+  return Math.round(WARM.all + num(WARM.focus[k], 0));
+}
+// focus keys as skills: a coach focus id (finishing, ballControl, ...) stands for the skills COACH_STYLES gives it
+function warmFocus(f){
+  const out = {}, all = typeof COACH_STYLES === "object" ? Object.values(COACH_STYLES).flatMap(s => s.focus) : [];
+  for (const [k, v] of Object.entries(f && typeof f === "object" ? f : {})){
+    const n = clamp(num(+v, 0), -20, 20); if (!n) continue;
+    const fo = all.find(x => x.id === k);
+    for (const sk of fo ? fo.skills : [k]) out[sk] = (out[sk] || 0) + n;
+  }
+  return out;
+}
+const warmBoost = {
+  set(o){
+    o = o || {};
+    const m = warmMatch();
+    WARM = {rating:WARM_RATINGS.includes(o.rating) ? o.rating : "ready", all:clamp(num(+o.all, 0), -20, 20), focus:warmFocus(o.focus),
+      untilMin:num(+o.untilMin, 0), onFire:!!o.onFire, fkey:m && m.f ? m.f.key : (o.fkey != null ? o.fkey : null)};
+    return warmBoost.get();
+  },
+  // a copy, with active (applying now) and left (match minutes to go)
+  get(){
+    if (!WARM) return null;
+    const m = warmMatch(), on = warmActive();
+    return Object.assign({}, WARM, {focus:Object.assign({}, WARM.focus), active:on, left:on ? Math.max(0, WARM.untilMin - num(m.minute, 0)) : 0});
+  },
+  clear(){ WARM = null; },
+  extend(min){
+    if (!warmActive()) return false;
+    WARM.untilMin += num(+min, 10); WARM.onFire = true;
+    return true;
+  }
+};
+if (typeof window !== "undefined") window.warmBoost = warmBoost;
+
+// the coach's style: data on the club, fixed by its name (the same club always has the same coach)
+function coachStyleOf(c){
+  if (!c) return null;
+  if (COACH_STYLE_IDS.includes(c.coachStyle)) return c.coachStyle;
+  return COACH_STYLE_IDS[Math.min(COACH_STYLE_IDS.length - 1, Math.floor(hash(String(c.nm) + "|coach")*COACH_STYLE_IDS.length))];
+}
+function coachStyle(cid){ const c = cid == null ? (S && S.meId >= 0 ? myClub() : null) : W && W.clubs ? W.clubs[cid] : null; return c ? coachStyleOf(c) : null; }
+function coachStyleName(c){ const s = coachStyleOf(c); return s ? COACH_STYLES[s].name : ""; }
+// every club has one (a world built before coaches had styles gets them on load; a new world when it is made)
+function coachStylesEnsure(){ if (W && Array.isArray(W.clubs)) for (const c of W.clubs) if (c) c.coachStyle = coachStyleOf(c); }
+// for tests: set Motivation directly, read what it keeps
+if (typeof window !== "undefined") window.__motivation = {
+  MOTIV, set(v, why){ if (!S || !S.player) return null; S.player.motivation = clamp(num(+v, MOTIV.BASE), 0, 100); if (why) S.player.motivWhy = {t:String(why), d:0, day:S.life ? S.life.day : 0}; return motivation(); },
+  get(){ return S && S.player ? {m:motivation(), why:S.player.motivWhy || null, run:Object.assign({}, motivRun())} : null; },
+  warm(){ return WARM ? JSON.parse(JSON.stringify(WARM)) : null; }
+};
 const blankMy = () => ({apps:0, goals:0, assists:0, longGoals:0, fkGoals:0, curlGoals:0, penGoals:0, dribbles:0, spass:0, lpass:0, passAtt:0, shots:0, onTarget:0, lost:0, motm:0, ratingSum:0, wins:0});
 // the rating: the mean of the skills, with acceleration and sprint speed counted as one (the old Pace they were split
 // from, addendum A1.1), so an old save's overall is the same after the split and pace is not weighed twice
@@ -385,7 +641,8 @@ function addXP(x){
 }
 function skillCost(v){ return v < 50 ? 1 : v < 75 ? 2 : 3; }
 // how fast energy burns: stamina 24 -> x1.32, 50 -> x1.03, 75 -> x0.74, 99 -> x0.46 (nutritionist: 20% less)
-function staminaF(){ return (1.6 - 1.15*effSkill("stamina")/100)*(S.staff.nutri ? .8 : 1)*(typeof MT !== "undefined" && MT && typeof fatigueDrain === "function" ? fatigueDrain() : 1); }
+// (a motivated player recovers a little better: motivationRecovery, exactly 1 at the default 60, A1.8)
+function staminaF(){ return (1.6 - 1.15*effSkill("stamina")/100)*(S.staff.nutri ? .8 : 1)*(typeof MT !== "undefined" && MT && typeof fatigueDrain === "function" ? fatigueDrain() : 1)/motivationRecovery(); }
 // how much the tank has left: full strength from 60 energy, easing down to 60% at empty with no cliff on the way
 function energyFactor(){ const t = clamp(num(S.energy, 0)/60, 0, 1); return .6 + .4*t*t*(3 - 2*t); }
 function avgRating(l){ return l.length ? l.reduce((a,b) => a+b, 0)/l.length : 0; }
@@ -412,6 +669,7 @@ function myAward(name, rep, wrep){
 function myTrophy(name){ const c = myClub(); S.trophies.unshift({name, season:W.season, year:S.year});
   addNews("you", `Champions! ${name}`, `${S.player.name} lifts the trophy${c ? ` with ${c.nm}` : ""}.`, "me"); socialEvent("trophy", name); }
 function newsFromMatch(res){
+  motivationAfterMatch(res);        // (every finished match passes here: the one you were at moves your Motivation)
   const f = res.f, mineLg = S && W.players[S.meId] ? myLg() : null;
   const relevant = (f.kind === "L" && f.lg === mineLg) || f.kind === "E" || f.kind === "N";
   if (!relevant) return;
@@ -452,6 +710,8 @@ function careerShell(o = {}){
     flags:{CharacterCreated:false, FirstTimeIntroductionCompleted:false, ApartmentTutorialCompleted:false, GameplayTutorialCompleted:false, TrainingCenterTutorialCompleted:false},
     onb:{v:2, step:"intro", seen:{}}};
   genWorld();
+  coachStylesEnsure();
+  motivationMigrate();
   S.startSeason = W.season;
   dailyEnsure();
   if (o.home !== false && typeof window !== "undefined" && typeof window.lifeEnsureHome === "function") window.lifeEnsureHome();

@@ -452,6 +452,7 @@ function screenOffers(){
     <div class="grid3">${list.map((o, i) => { const c = W.clubs[o.club];
       return `<div class="card glass offer rise" style="animation-delay:${i*80}ms">${crest(c.nm, 44)}<h3>${esc(c.nm)}</h3>
         <div class="muted small">${esc(W.leagues[c.lg].nm)} · rep ${pad5(c.rep)}${o.renewal ? " · your club" : ""}</div>
+        <div class="muted small offer-coach" title="${esc(COACH_STYLES[coachStyleOf(c)].line)}">${esc(coachStyleName(c))} coach</div>
         <div class="kvs"><div><span>Wage</span><b>${eur(o.wage)}/week</b></div><div><span>Role</span><b>${ROLE[o.role]}</b></div><div><span>Length</span><b>${o.years} season${o.years > 1 ? "s" : ""}</b></div><div><span>Signing bonus</span><b>${eur(o.sign)}</b></div></div>
         <button class="btn" onclick="A.sign(${i})">Sign</button></div>`; }).join("")}</div>
   </div></section>`, "offers");
@@ -520,6 +521,7 @@ function renderHubInner(){
         <div class="meter-row"><span>Energy</span><div class="meter energy"><i style="width:${S.energy}%"></i></div><b>${Math.round(S.energy)}</b></div>
         ${life ? `<div class="meter-row"><span>Fatigue</span><div class="meter fatigue"><i style="width:${num(S.fatigue, 0)}%"></i></div><b>${Math.round(num(S.fatigue, 0))}</b></div>
         <div class="meter-row"><span>Chemistry</span><div class="meter chem"><i style="width:${num(S.chem, 0)}%"></i></div><b>${Math.round(num(S.chem, 0))}</b></div>` : ""}
+        <div class="meter-row motiv-row" title="${esc(motivationWhy())}"><span>Motivation</span><div class="meter"><i style="width:${motivation()}%"></i></div><b>${Math.round(motivation())}</b></div>
         <div class="meter-row"><span>Level ${S.level}</span><div class="meter xp"><i style="width:${100*S.xp/need}%"></i></div><b>${S.xp}/${need}</b></div>
         ${(() => { const js = jobState(), jn = jobNeed(), top = jobIsTop(), {job, rank} = myJob();
           // at the top of the ladder there is nothing left to earn towards: you just keep working for the money
@@ -613,7 +615,7 @@ function squadPanel(){
   }).join("");
   const avg = Math.round(xi.reduce((t, p) => t + p.ovr, 0)/Math.max(1, xi.length));
   return `<div class="row between sq-title"><h3>Your squad</h3>
-      <span class="muted small">${crest(c.nm, 14)} ${esc(formationName(xi))} · ${avg} OVR</span></div>
+      <span class="muted small" title="${esc(COACH_STYLES[coachStyleOf(c)].line)}">${crest(c.nm, 14)} ${esc(formationName(xi))} · ${avg} OVR · ${esc(coachStyleName(c))} coach</span></div>
     <div class="sq-wrap">
       <div class="pitch-mini"><div class="pm-lines"></div><div class="pm-box"></div>${tokens}</div>
       <div class="bench">
