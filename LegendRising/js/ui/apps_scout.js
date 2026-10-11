@@ -4,7 +4,7 @@ APPVIEWS.scout = t => {
   const me = meP();
   if (t.view === "main"){
     const inbox = S.msgs.map((m, i) => ({m, i})).filter(x => x.m.offer && !x.m.done);
-    return {title:"Scout Pro", html:`<div class="card-in"><div class="muted small">You</div><b>REP ${pad5(me.rep)} · WORLD ${pad5(me.wrep)}</b><div class="muted small">Form ${recentAvg().toFixed(2)} · ${S.staff.agent ? "Agent working for you" : "No agent — clubs judge you on your own"}</div>
+    return {title:"Scout Pro", html:`<div class="card-in"><div class="muted small">You</div><b>REP ${pad5(me.rep)} · WORLD ${pad5(me.wrep)}</b><div class="muted small">Form ${recentAvg().toFixed(2)} · ${S.staff.agent ? "Agent working for you" : "No agent, so clubs judge you on your own"}</div>
       <div class="muted small">${windowAt(S.week).open ? `Window open: moves happen now.` : `Window shut: agreed deals complete when the ${windowAt(S.week).next.toLowerCase()} opens.`}</div></div>
       ${inbox.length ? `<h4>Offers waiting</h4>` + inbox.map(x => { const c = W.clubs[x.m.offer.club]; return `<button class="list-row" onclick="startNeg(${c.id},${x.i})">${crest(c.nm, 26)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">${eur(x.m.offer.wage)}/wk · ${x.m.offer.years}y</div></div><span class="pill gold">Negotiate</span></button>`; }).join("") : ""}
       ${S.contract && S.contract.years <= 1 ? `<button class="list-row" onclick="startNeg(${me.club})">${crest(myClub().nm, 26)}<div class="grow"><b>Renew with ${esc(myClub().nm)}</b><div class="muted small">Last year of your deal</div></div></button>` : ""}
@@ -54,7 +54,7 @@ function negView(){
   const left = NEGF.map(([k, l, f]) => `<div class="neg-row"><span>${l}</span><div class="stepper"><button onclick="negAdj('${k}',-1)">−</button><b>${f(n.ask[k])}</b><button onclick="negAdj('${k}',1)">+</button></div></div>`).join("")
     + `<div class="neg-row"><span>Playing time</span><div class="stepper"><button onclick="negRole()">⇄</button><b>${ROLE[n.ask.role]}</b></div></div>`;
   const pat = clamp(n.patience, 0, 100);
-  const right = r ? `<div class="neg-reply ${r.status}">${esc(r.msg)}${r.stale ? `<div class="muted small">You changed your requests — send again.</div>` : ""}</div>
+  const right = r ? `<div class="neg-reply ${r.status}">${esc(r.msg)}${r.stale ? `<div class="muted small">You changed your requests. Send them again.</div>` : ""}</div>
       ${reqs && !r.stale ? `<div class="muted small">Required over the contract${n.ask.years > 1 ? ` (${n.ask.years} years)` : ""}:</div>${Object.entries(reqs).map(([k,v]) => `<div class="req"><span>${REQ_LABEL[k]}</span><b>${v}</b></div>`).join("")}
         <p class="muted small">Promise = hit these in half the time (${Math.max(1, Math.round(n.ask.years*CAL.W/2))} weeks). Deliver: 20% raise. Fail: wage halved, bonuses gone, less playing time.</p>` : ""}`
     : `<div class="neg-reply">Set your requests on the left, then send them. Ask for too much and their patience runs out.</div>`;

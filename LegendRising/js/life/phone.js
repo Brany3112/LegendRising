@@ -26,7 +26,7 @@
     const on = life() && handOpen() && mode === "street";
     body.classList.toggle("hand", on);
     if (on) h.textContent = smart() ? "Mouse to use the phone · Tab put it away · Q hub"
-                                    : "↑ ↓ choose · Enter select · Backspace back · Tab put it away · Q hub";
+                                    : "Wheel or ↑ ↓ choose · click or Enter select · Esc back · Tab put it away · Q hub";
   }
   window.lifePhoneChanged = hint;            // the game's phone calls this when it opens or closes
 
@@ -39,7 +39,9 @@
       return;
     }
     const r = document.getElementById("phoneRoot"); if (r) r.classList.remove("hidden");
-    if (smart() && document.exitPointerLock) document.exitPointerLock();
+    // the mouse is the phone's while it's out (the keypad phone too: wheel, click, Esc); the clock keeps running, and
+    // with the keypad phone you can still walk
+    if (document.exitPointerLock) document.exitPointerLock();
     if (window.lifeClearKeys && smart()) window.lifeClearKeys();
     openPhone(); hint();
   };
@@ -102,6 +104,8 @@
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
     if (e.repeat) return;
     const k = e.key.toLowerCase();
+    // nothing comes up over a cinematic (intro.js): the camera is not yours until it hands it back
+    if (window.lifeCine && window.lifeCine()){ if (k === "tab" || k === "q") e.preventDefault(); return; }
     if (k === "tab"){ e.preventDefault(); if (mode === "hub") return; window.lifeHand(); return; }
     if (k === "q"){ e.preventDefault(); mode === "hub" ? window.lifePutAway() : window.lifeHub(); return; }
     if (k === "escape" && mode === "hub"){

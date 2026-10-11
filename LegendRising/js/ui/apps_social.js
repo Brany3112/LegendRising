@@ -30,18 +30,19 @@ APPVIEWS.showoff = t => {
   let html = "";
   if (tab === "feed"){
     html = s.feed.length ? s.feed.map((f, i) => { const p = W.players[f.by];
-      return `<div class="so-post ${f.mention ? "mention" : ""}"><div class="row gap8">${avatarFor(p)}<div class="grow"><b>${esc(pname(p))}</b><div class="muted small">@${esc(handleOf(p))} · ${esc(W.clubs[p.club].nm)}${p.id === S.rivalId ? ` · <span class="bad">RIVAL</span>` : ""}</div></div>
+      return `<div class="so-post ${f.mention ? "mention" : ""}"><div class="row gap8">${avatarFor(p)}<div class="grow"><b>${esc(pname(p))}</b><div class="muted small">@${esc(handleOf(p))} · ${esc(clubLabel(p.club))}${p.id === S.rivalId ? ` · <span class="bad">RIVAL</span>` : ""}</div></div>
         ${s.following.includes(p.id) ? `<span class="muted small">${s.friends.includes(p.id) ? "Friends" : "Following"}</span>` : `<button class="pillbtn" onclick="soFollow(${p.id})">Follow</button>`}</div>
         <p>${esc(f.text)}</p><div class="quick sm"><button class="mini ${f.liked ? "on" : ""}" ${f.liked ? "disabled" : ""} onclick="soLikeF(${i})">♥ ${f.likes}</button>${f.mine ? `<span class="yours">You: ${esc(f.mine)}</span>` : `${COMMENT_TONES.map(q => `<button class="mini" onclick="soQuickComment(${i},'${q.id}')">${q.icon} ${q.label}</button>`).join("")}<button class="mini" onclick="soToggle('f${i}')">✎</button>`}</div>
         ${!f.mine && PH.custom === `f${i}` ? `<div class="row gap6"><input class="mini-in" id="fc${i}" placeholder="Your comment…"><button class="mini" onclick="soCommentF(${i})">Send</button></div>` : ""}
         ${f.comments.map(c => `<div class="small muted">You: ${esc(c)}</div>`).join("")}</div>`; }).join("") : `<div class="empty">Your feed fills up as the season goes. Follow players in Discover.</div>`;
   } else if (tab === "post"){
-    html = s.ctx.length ? `<p class="muted small">You can post after a game, a purchase, an award, a move, or when someone mentions you.</p>` + s.ctx.map(c => `<div class="ctx-card"><div class="row gap8"><span class="avatar">${{match:"⚽",purchase:"🛍",mention:"@",award:"🏆",trophy:"🏆",transfer:"✈"}[c.type]}</span><div class="grow"><b>${esc(c.label)}</b><div class="muted small">${c.type === "mention" ? "Someone mentioned you — reply" : "One tap posts a random line in that style"}</div></div></div>
+    html = s.ctx.length ? `<p class="muted small">You can post after a game, a purchase, an award, a move, or when someone mentions you.</p>` + s.ctx.map(c => `<div class="ctx-card"><div class="row gap8"><span class="avatar">${{match:"⚽",purchase:"🛍",mention:"@",award:"🏆",trophy:"🏆",transfer:"✈"}[c.type]}</span><div class="grow"><b>${esc(c.label)}</b><div class="muted small">${c.type === "mention" ? "Someone mentioned you. Reply to them." : "One tap posts a random line in that style"}</div></div></div>
       <div class="quick">${QUICK_TONES.map(q => `<button class="qchip" onclick="soQuickPost('${c.id}','${q.id}')">${q.icon} ${q.label}</button>`).join("")}<button class="qchip" onclick="smGo('compose',{id:${c.id}})">✎ Custom / edit</button></div></div>`).join("")
       : `<div class="empty">Nothing to post about right now. Play a game, buy something, or wait for someone to mention you.</div>`;
   } else if (tab === "me"){
     const per = perception();
-    html = `<div class="so-profile"><span class="avatar big" style="background:${kitOf(myClub().nm)[0]}">${esc(S.player.name[0])}</span><div><b>@${esc(s.handle)}</b><div class="muted small">${esc(S.player.name)} · ${esc(myClub().nm)}</div></div></div>
+    const club = myClub();
+    html = `<div class="so-profile"><span class="avatar big" style="background:${kitOf(club ? club.nm : "x")[0]}">${esc(S.player.name[0])}</span><div><b>@${esc(s.handle)}</b><div class="muted small">${esc(S.player.name)} · ${esc(club ? club.nm : FREE_AGENT)}</div></div></div>
       <div class="so-stats"><div><b>${s.followers.toLocaleString("en-GB")}</b><span>followers</span></div><div><b>${s.following.length}</b><span>following</span></div><div><b>${s.friends.length}</b><span>friends</span></div><div><b>${s.likes.toLocaleString("en-GB")}</b><span>likes</span></div></div>
       <div class="pill" style="color:${per.color}">Seen as: ${per.label}</div>
       <div class="meter-row"><span>Humble</span><div class="meter axis"><i style="left:${50 + s.humility/2}%"></i></div><span>Cocky</span></div>
@@ -49,13 +50,13 @@ APPVIEWS.showoff = t => {
       ${s.notes.slice(0, 3).map(n => `<div class="small good">${esc(n)}</div>`).join("")}
       <h4>Your posts</h4>${s.posts.length ? s.posts.map(p => `<button class="so-post mine" onclick="smGo('post',{id:${p.id}})"><p>${esc(p.text)}</p><div class="muted small">♥ ${p.likes} · ${p.comments.length} comments · ${esc(p.ctx)}</div></button>`).join("") : `<div class="muted small">No posts yet.</div>`}`;
   } else {
-    const lg = W.leagues[myClub().lg], ps = lg.clubs.flatMap(cid => squadOf(cid)).filter(p => !p.me).sort((a,b) => b.rep - a.rep).slice(0, 25);
-    const mates = squadOf(meP().club).filter(p => !p.me).slice(0, 8);
-    html = `<h4>Team-mates</h4>` + mates.map(p => findRow(p)).join("") + `<h4>Biggest names in your league</h4>` + ps.map(p => findRow(p)).join("");
+    const lg = W.leagues[shownLg()], ps = lg.clubs.flatMap(cid => squadOf(cid)).filter(p => !p.me).sort((a,b) => b.rep - a.rep).slice(0, 25);
+    const mates = myClub() ? squadOf(meP().club).filter(p => !p.me).slice(0, 8) : [];
+    html = (mates.length ? `<h4>Team-mates</h4>` + mates.map(p => findRow(p)).join("") : "") + `<h4>Biggest names in ${myClub() ? "your league" : esc(lg.nm)}</h4>` + ps.map(p => findRow(p)).join("");
   }
   return {title:"Showoff", tabs:soTabs(tab), html};
 };
-function findRow(p){ const s = S.social; return `<div class="list-row">${avatarFor(p)}<div class="grow"><b>${esc(pname(p))}</b><div class="muted small">${esc(W.clubs[p.club].nm)} · ${p.fol.toLocaleString("en-GB")} followers${p.id === S.rivalId ? " · RIVAL" : ""}</div></div>${s.following.includes(p.id) ? `<span class="muted small">${s.friends.includes(p.id) ? "Friends" : "Following"}</span>` : `<button class="pillbtn" onclick="soFollow(${p.id})">Follow</button>`}</div>`; }
+function findRow(p){ const s = S.social; return `<div class="list-row">${avatarFor(p)}<div class="grow"><b>${esc(pname(p))}</b><div class="muted small">${esc(clubLabel(p.club))} · ${p.fol.toLocaleString("en-GB")} followers${p.id === S.rivalId ? " · RIVAL" : ""}</div></div>${s.following.includes(p.id) ? `<span class="muted small">${s.friends.includes(p.id) ? "Friends" : "Following"}</span>` : `<button class="pillbtn" onclick="soFollow(${p.id})">Follow</button>`}</div>`; }
 const COMMENT_TONES = [{id:"humble", label:"Respect", icon:"👏"}, {id:"funny", label:"Funny", icon:"😂"}, {id:"brag", label:"Cocky", icon:"😎"}, {id:"toxic", label:"Toxic", icon:"😤"}];
 const REPLY_TONES = [{id:"humble", label:"Thanks", icon:"🙏"}, {id:"funny", label:"Funny", icon:"😂"}, {id:"brag", label:"Cocky", icon:"😎"}, {id:"toxic", label:"Toxic", icon:"😤"}];
 function soFind(id){ return S.social.ctx.find(x => String(x.id) === String(id)); }
@@ -92,15 +93,15 @@ APPVIEWS.visage = t => {
   if (t.view === "cmp"){ const o = W.players[t.p.id]; return {title:"Compare", html:compareHTML(me, o)}; }
   if (tab === "me"){
     const s = S.seasonMy, c = S.careerMy;
-    html = `<div class="vis-hero"><div class="ovr-ring small" style="--p:${overall()}"><b>${overall()}</b><span>OVR</span></div><div><b>${esc(S.player.name)}</b><div class="muted small">${esc(myClub().nm)} · age ${S.player.age}</div>
+    html = `<div class="vis-hero"><div class="ovr-ring small" style="--p:${overall()}"><b>${overall()}</b><span>OVR</span></div><div><b>${esc(S.player.name)}</b><div class="muted small">${esc(clubLabel(me.club))} · age ${S.player.age}</div>
       <div class="row gap6"><span class="pill">REP ${pad5(me.rep)}</span><span class="pill">WORLD ${pad5(me.wrep)}</span></div></div></div>
-      <div class="statgrid">${[["Apps",s.apps],["Goals",s.goals],["Assists",s.assists],["MotM",s.motm],["Dribbles",s.dribbles],["Passes",`${s.spass + s.lpass}/${s.passAtt}`],["Shots on target",`${s.onTarget}/${s.shots}`],["Avg rating",s.apps ? (s.ratingSum/s.apps).toFixed(2) : "–"]].map(([k,v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("")}</div>
+      <div class="statgrid">${[["Apps",s.apps],["Goals",s.goals],["Assists",s.assists],["MotM",s.motm],["Dribbles",s.dribbles],["Passes",`${s.spass + s.lpass}/${s.passAtt}`],["Shots on target",`${s.onTarget}/${s.shots}`],["Avg rating",s.apps ? (s.ratingSum/s.apps).toFixed(2) : EMPTY_CELL]].map(([k,v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("")}</div>
       <h4>Career</h4><div class="statgrid">${[["Apps",c.apps],["Goals",c.goals],["Assists",c.assists],["From 20m+",c.longGoals],["Free kicks",c.fkGoals],["Curled",c.curlGoals],["Caps",me.nt.caps],["Europe goals",me.ct.g]].map(([k,v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("")}</div>
       <h4>Skills</h4>${SKILLS.map(([k,n]) => `<div class="meter-row"><span>${n}</span><div class="meter thin"><i style="width:${S.skills[k]}%"></i></div><b>${S.skills[k]}</b></div>`).join("")}
       <h4>Honours</h4>${[...S.trophies, ...S.awards].map(a => `<div class="small">🏆 ${esc(a.name)} <span class="muted">${a.year}</span></div>`).join("") || `<div class="muted small">Nothing yet.</div>`}
       <h4>History</h4>${S.history.map(h => `<div class="small">${h.year}/${String((h.year+1)%100).padStart(2,"0")} · ${esc(h.club)} · ${h.apps} apps, ${h.goals} G, ${h.assists} A · ${h.avg}</div>`).join("") || `<div class="muted small">First season.</div>`}`;
   } else if (tab === "league"){
-    const key = t.p.sort || "g", lg = W.leagues[myClub().lg];
+    const key = t.p.sort || "g", lg = W.leagues[shownLg()];
     const ps = lg.clubs.flatMap(cid => squadOf(cid)).filter(p => p.pos !== "GK").sort((a,b) => STATCOLS[key][1](b) - STATCOLS[key][1](a));
     const top = ps.slice(0, 30); if (!top.includes(me)) top.push(me);
     html = `<div class="chips">${Object.entries(STATCOLS).map(([k,[l]]) => `<button class="${key === k ? "on" : ""}" onclick="PH.stack[PH.stack.length-1].p.sort='${k}';smRefresh()">${l}</button>`).join("")}</div>` + playerTable(top, key, ps);
@@ -108,7 +109,7 @@ APPVIEWS.visage = t => {
     const rv = W.players[S.rivalId];
     html = rv ? `<p class="muted small">Your rival for life. The press compares you every week.</p>` + compareHTML(me, rv) : `<div class="empty">No rival yet.</div>`;
   } else if (tab === "tops"){
-    const cc = t.p.cc || myClub().cc, lgs = Object.values(W.leagues).filter(l => l.cc === cc).sort((a,b) => a.t - b.t || a.id.localeCompare(b.id));
+    const cc = t.p.cc || W.leagues[shownLg()].cc, lgs = Object.values(W.leagues).filter(l => l.cc === cc).sort((a,b) => a.t - b.t || a.id.localeCompare(b.id));
     const lgId = t.p.lg && W.leagues[t.p.lg] && W.leagues[t.p.lg].cc === cc ? t.p.lg : lgs[0].id, lg = W.leagues[lgId];
     const ps = lg.clubs.flatMap(cid => squadOf(cid));
     const top = (f) => ps.filter(p => f(p) > 0).sort((a,b) => f(b) - f(a)).slice(0, 10);
@@ -128,12 +129,12 @@ APPVIEWS.visage = t => {
   return {title:"Visage", tabs, html};
 };
 function playerTable(list, key, full){
-  return `<table class="tbl"><thead><tr><th>#</th><th class="l">Player</th><th>${STATCOLS[key][0]}</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="${p.me ? "me" : p.id === S.rivalId ? "rival" : ""}"><td>${full.indexOf(p) + 1}</td><td class="l"><b>${esc(pname(p))}</b><div class="muted small">${esc(W.clubs[p.club].nm)} · ${p.pos} · ${p.age}</div></td><td><b>${STATCOLS[key][1](p)}</b></td><td>${p.me ? "" : `<button class="mini" onclick="smGo('cmp',{id:${p.id}})">vs</button>`}</td></tr>`).join("")}</tbody></table>`;
+  return `<table class="tbl"><thead><tr><th>#</th><th class="l">Player</th><th>${STATCOLS[key][0]}</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="${p.me ? "me" : p.id === S.rivalId ? "rival" : ""}"><td>${full.indexOf(p) + 1}</td><td class="l"><b>${esc(pname(p))}</b><div class="muted small">${esc(clubLabel(p.club))} · ${p.pos} · ${p.age}</div></td><td><b>${STATCOLS[key][1](p)}</b></td><td>${p.me ? "" : `<button class="mini" onclick="smGo('cmp',{id:${p.id}})">vs</button>`}</td></tr>`).join("")}</tbody></table>`;
 }
-function rankList(list, f){ return list.length ? list.map((p, i) => `<div class="rank ${p.me ? "me" : p.id === S.rivalId ? "rival" : ""}"><span>${i+1}</span><div class="grow"><b>${esc(pname(p))}</b><div class="muted small">${esc(W.clubs[p.club].nm)}</div></div><b>${f(p)}</b></div>`).join("") : `<div class="muted small">No data yet.</div>`; }
+function rankList(list, f){ return list.length ? list.map((p, i) => `<div class="rank ${p.me ? "me" : p.id === S.rivalId ? "rival" : ""}"><span>${i+1}</span><div class="grow"><b>${esc(pname(p))}</b><div class="muted small">${esc(clubLabel(p.club))}</div></div><b>${f(p)}</b></div>`).join("") : `<div class="muted small">No data yet.</div>`; }
 function compareHTML(a, b){
-  const rows = [["Club", p => W.clubs[p.club].nm], ["Age", p => p.age], ["Overall", p => p.me ? overall() : p.ovr], ["Reputation", p => pad5(p.rep)], ["World rep", p => pad5(p.wrep)], ["Apps", p => p.st.ap], ["Goals", p => p.st.g], ["Assists", p => p.st.a],
-    ["Avg rating", p => p.st.ap ? (p.st.rs/p.st.ap).toFixed(2) : "–"], ["MotM", p => p.st.mo], ["Career goals", p => p.cr.g], ["Trophies", p => p.tro], ["Caps", p => p.nt.caps], ["Followers", p => p.me ? (S.social ? S.social.followers : 0) : p.fol]];
+  const rows = [["Club", p => clubLabel(p.club)], ["Age", p => p.age], ["Overall", p => p.me ? overall() : p.ovr], ["Reputation", p => pad5(p.rep)], ["World rep", p => pad5(p.wrep)], ["Apps", p => p.st.ap], ["Goals", p => p.st.g], ["Assists", p => p.st.a],
+    ["Avg rating", p => p.st.ap ? (p.st.rs/p.st.ap).toFixed(2) : EMPTY_CELL], ["MotM", p => p.st.mo], ["Career goals", p => p.cr.g], ["Trophies", p => p.tro], ["Caps", p => p.nt.caps], ["Followers", p => p.me ? (S.social ? S.social.followers : 0) : p.fol]];
   return `<div class="cmp-head"><div><b>${esc(pname(a))}</b></div><span>vs</span><div><b>${esc(pname(b))}</b></div></div>` + rows.map(([k, f]) => { const x = f(a), y = f(b), nx = parseFloat(x), ny = parseFloat(y);
     return `<div class="cmp-row"><b class="${!isNaN(nx) && nx > ny ? "good" : ""}">${esc(x)}</b><span>${k}</span><b class="${!isNaN(ny) && ny > nx ? "good" : ""}">${esc(y)}</b></div>`; }).join("");
 }

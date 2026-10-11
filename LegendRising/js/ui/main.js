@@ -1,6 +1,16 @@
 "use strict";
-/* ============ SCREENS ============ */
+/* ============ SCREENS ============
+   Owner: WP-H (Stage 1: the boot order of a new career, creation, offers, the first day's migration, TUT moved in
+   here, the dream's entry points gone), WP-H2 (Stage 2), WP-L (Stage 3: match routing). Contract: DESIGN 3.7.1 (New
+   Game paints black at once and waits for window.lifeReady), 3.7.2 (creation and offers after the uncle's line,
+   every line on them), 3.7.7 (deletions; the onboarding migration table, onbMigrate), 3.8.2 (the hub's drink goes
+   through consume), 1.3 (trust only through trustAdd). */
 let LAST_SCREEN = null;
+// settles once the 3D world module has loaded (js/life/world.js resolves it), so a new career can wait for it
+window.lifeReady = new Promise(r => { window.lifeReadyResolve = r; });
+// the generic card layer #tutRoot (confirmations, the promotion card, honours, the office): a token that cancels a
+// fade-out still pending when the next card comes up (office.js, admin.js and awards.js count on it too)
+const TUT = {tok:0};
 function render(html, key){
   document.body.classList.remove("in-match");
   const app = $("#app"), same = !!key && key === LAST_SCREEN;
@@ -12,7 +22,7 @@ function setPhoneVisible(v){ const r = $("#phoneRoot"); if (r) r.classList.toggl
 function crest(name, size){ return badgeSVG(name, size || 26, "club"); }
 function leagueBadge(name, size){ return badgeSVG(name, size || 22, "league"); }
 
-// "just now", "4 min", "2 h" — for the last automatic sync
+// "just now", "4 min", "2 h": for the last automatic sync
 function sinceShort(at){
   const s = Math.max(0, Math.round((Date.now() - (at || 0))/1000));
   return s < 45 ? "moments" : s < 5400 ? Math.round(s/60) + " min" : Math.round(s/3600) + " h";
@@ -77,8 +87,9 @@ function promoBox(p, paid){
       <div class="promo-badge">${esc(p.job.icon)}</div>
       <div class="eyebrow">${p.newJob ? "New job" : "Promoted"}</div>
       <h3>You've been promoted for your hard work</h3>
-      <p class="muted small">${p.newJob ? `${esc(p.job.name)} took you on.` : `${esc(p.job.name)}.`} You're now <b>${esc(p.to.name)}</b>${p.to.blurb ? ` — ${esc(p.to.blurb)}` : ""}</p>
+      <p class="muted small">${p.newJob ? `${esc(p.job.name)} took you on.` : `${esc(p.job.name)}.`} You're now <b>${esc(p.to.name)}</b>${p.to.blurb ? `: ${esc(p.to.blurb)}` : ""}</p>
       <div class="promo-pay"><span class="old">${esc(p.from.name)}<b>${payRange(p.from)}</b></span><i>→</i><span class="new">${esc(p.to.name)}<b>${payRange(p.to)}</b></span></div>
+      ${p.newJob && typeof jobWhereLine === "function" && JOB_WHERE[p.job.id] ? `<p class="promo-where">${esc(jobWhereLine(p.job.id))}<span>${esc(JOB_WHERE[p.job.id].how[0].toUpperCase() + JOB_WHERE[p.job.id].how.slice(1))}. It's JOB on your compass.</span></p>` : ""}
       ${paid != null ? `<p class="muted small">That shift paid ${eur(paid)}.</p>` : ""}
       <div class="tut-foot end"><button class="btn sm" id="promoOk" onclick="closeConfirm()">OK</button></div></div>`;
   const b = $("#promoOk"); if (b) b.focus();
@@ -115,11 +126,11 @@ function cloudBoxHTML(){
   if (CLOUD.loading) return `<div class="cloud-box"><span class="muted small">Looking at your account…</span></div>`;
   if (!i){
     const p = ONLINE.probe;
-    // when the account looks empty, say what was actually looked at — a leaderboard row with no save
+    // when the account looks empty, say what was actually looked at: a leaderboard row with no save
     // behind it is a different problem from never having synced at all
     const why = !p ? ""
       : p.err ? `Could not read your account: ${esc(p.err)}`
-      : p.board && !p.slots.length ? `You are on the leaderboard${p.boardSlot !== "—" ? ` (save ${esc(String(p.boardSlot))})` : ""}, but no career file came with it. Sync from the computer you play on and it will be here.`
+      : p.board && !p.slots.length ? `You are on the leaderboard${p.boardSlot !== BOARD_NO_SLOT ? ` (save ${esc(String(p.boardSlot))})` : ""}, but no career file came with it. Sync from the computer you play on and it will be here.`
       : !p.board ? "Nothing has ever been synced from this account."
       : "";
     return `<div class="cloud-box"><b>Nothing saved to your account yet</b>
@@ -138,13 +149,13 @@ function cloudBoxHTML(){
     </div>${cloudAllHTML()}`;
 }
 // the account, as it appears inside another sheet (the in-game menu)
-// the account box redraws itself in place — a whole-sheet refresh does not always take
+// the account box redraws itself in place: a whole-sheet refresh does not always take
 function cloudAllHTML(){
   const rows = CLOUD.all || [];
   if (rows.length < 2) return "";
   return `<div class="cloud-other"><div class="eyebrow">Everything on your account</div>
     ${rows.map(r => `<div class="co-row">
-      <div class="grow"><b>${esc(r.name)}</b><span class="muted small">${esc(r.club || "—")} · ${fmt(r.score)} pts · save ${r.n} · ${r.at ? sinceShort(r.at) + " ago" : "—"} · ${r.kb} KB</span></div>
+      <div class="grow"><b>${esc(r.name)}</b><span class="muted small">${esc(r.club || EMPTY_CELL)} · ${fmt(r.score)} pts · save ${r.n} · ${r.at ? sinceShort(r.at) + " ago" : EMPTY_CELL} · ${r.kb} KB</span></div>
       <button class="btn sm ghost" onclick="A.pullSlot(${r.n})">Play this</button></div>`).join("")}
     <p class="muted small">Careers synced by the older version of the game are kept here. Bringing one down replaces the career on this computer.</p></div>`;
 }
@@ -179,11 +190,99 @@ function cloudCorner(){
     <span class="cc-ico">☁</span><span class="cc-t">${ONLINE.user ? esc(who) : "Sign in"}</span>
     <span class="cc-s">${ONLINE.user ? "Your saved career" : "Pick up a career from your account"}</span></button>`;
 }
-// the test build: a career is lived in first person, the hub lives in your phone
+// a career is lived in first person, the hub lives in your phone. The world's modules may still be loading (a click on
+// Continue straight after the page opens): it starts the moment they are, never with nothing (DESIGN 3.7.1)
 function enterCity(){
-  if (!window.startLife || !S) return;
+  if (!S) return;
+  if (!window.startLife){
+    if (location.protocol === "file:") return;          // (no 3D world from a double-clicked file: the hub is the game)
+    const s0 = S;
+    window.lifeReady.then(() => { if (S === s0 && !document.body.classList.contains("life") && LAST_SCREEN === "hub") enterCity(); });
+    return;
+  }
   document.body.classList.add("life");
   window.startLife();
+}
+/* ---------- a new career: black at once, the city, the film, then who you are (DESIGN 3.7.1, 3.7.2) ----------
+   Nothing of the flat is ever on screen first: the page goes black the moment New Game is clicked (a loader only if
+   it takes a while), the career's shell is built behind it, and the world starts with the intro's own boot plan
+   (intro.js), which keeps the screen covered until the city has been drawn from the film's first camera. The
+   creation screen comes after your uncle's "Tell me about yourself" (intro.js calls onbCreation). Without a 3D world
+   (a double-clicked file, no WebGL 2) the career is made the plain way: creation, offers, the hub. */
+const NG = {tok:0};
+const worldOK = () => location.protocol !== "file:" && typeof WebGL2RenderingContext !== "undefined";
+const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
+async function newGameWorld(){
+  const tok = ++NG.tok;
+  setPhoneVisible(false); closeSheet();
+  render(`<section class="onb-black"><div class="onb-loader"><div class="spinner"></div><p>Getting the city ready</p></div></section>`, "black");
+  const ld = setTimeout(() => { const l = document.querySelector(".onb-black .onb-loader"); if (l) l.classList.add("on"); }, 600);
+  await nextFrame(); await nextFrame();
+  if (tok !== NG.tok) return;
+  careerShell();
+  await nextFrame();
+  const ok = await Promise.race([window.lifeReady, new Promise(r => setTimeout(() => r(false), 60000))]);
+  clearTimeout(ld);
+  if (tok !== NG.tok) return;
+  // the world never came (it failed to load): who you are, and the hub
+  if (!ok || !window.startLife){ CR = null; screenCreate(); return; }
+  document.body.classList.add("life");
+  window.startLife({intro:true});
+}
+// the film has reached "Tell me about yourself" (intro.js): the world stops behind the creation screen
+function onbCreation(){
+  if (window.stopLife) window.stopLife();
+  document.body.classList.remove("life", "cine", "hand", "hub-out");
+  const lr = document.getElementById("lifeRoot"); if (lr) lr.style.display = "none";
+  const f = document.getElementById("lifeFade"); if (f){ f.style.transition = "none"; f.style.opacity = "0"; }
+  setPhoneVisible(false); closeSheet();
+  CR = null; screenCreate();
+}
+window.onbCreation = onbCreation;
+/* ---------- the first day's state from an older build (DESIGN 3.7.7, 1.7) ----------
+   S.onb = {v:2, step, seen}: the step runner (js/life/firstday.js) works out where you are from the state of the
+   world (the bulb in the light, your letters read, the ball moved); seen marks the steps that are only looking at
+   something, and what has already happened. Run once per load (resume, and firstday.js before it reads S.onb). */
+const ONB_V2 = 2;
+function onbMigrate(){
+  if (!S) return;
+  const o = S.onb;
+  if (o && typeof o === "object" && o.v === ONB_V2){ if (!o.seen || typeof o.seen !== "object") o.seen = {}; return; }
+  const f = S.flags && typeof S.flags === "object" ? S.flags : (S.flags = {});
+  const K = ["FirstTimeIntroductionCompleted", "ApartmentTutorialCompleted", "GameplayTutorialCompleted", "TrainingCenterTutorialCompleted"];
+  const old = o && typeof o === "object" ? o : {}, seen = {};
+  S.tutDone = true; delete S.replay;
+  // all of it done, or a save from before the flags (resume gave those every flag): nothing to teach
+  if (K.every(k => f[k]) || old.stage === "done"){ for (const k of K) f[k] = true; S.onb = {v:ONB_V2, step:"done", seen}; return; }
+  // "the whole tutorial" now ends with first-person training: not done, unless everything was
+  f.GameplayTutorialCompleted = false; f.TrainingCenterTutorialCompleted = false;
+  // the neighbour has slammed his door already (the old first arrival): it is not slammed twice
+  if (old.slam){ seen.slam = true; seen.H7 = true; if (old.fixed){ seen.H8 = true; seen.H10 = true; } }
+  if (!f.FirstTimeIntroductionCompleted){
+    // the film again (creation and offers are skipped: you have a name and a club)
+    S.onb = {v:ONB_V2, step:"intro", seen};
+  } else if (!f.ApartmentTutorialCompleted){
+    // the flat's steps resume by what is so (the number plate where it is); the old tour showed the flat, the board
+    // and the table
+    if (old.stage === "tour") for (const k of ["H2", "H12", "H13"]) seen[k] = true;
+    S.onb = {v:ONB_V2, step:"H1", seen};
+  } else if (old.stage === "centre"){
+    // already at the training centre the old way: the flat and the bus are behind you, so none of the home steps come
+    // back and the home rules (the slow clock at home) do not apply. The training centre's own chapters (G1 to G9,
+    // DESIGN 3.7.6) pick this career up: the assistant coach meets you at the gate on your next arrival there
+    f.ApartmentTutorialCompleted = true;
+    for (const k of ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12", "H13", "H14", "H15", "H16", "H17", "H18", "H19", "H20", "H21"]) seen[k] = true;
+    seen.slam = true;
+    S.onb = {v:ONB_V2, step:"G1", seen, centre:true};
+  } else {
+    // the flat was done the old way (the old guide or bus stage): what was only shown or told is seen, what the world
+    // can say is checked (the bulb, your post, the ball), and it ends with the compass, the stop and the bus
+    for (const k of ["H1", "H2", "H7", "H8", "H10", "H12", "H13", "H14", "H15", "H16", "H18"]) seen[k] = true;
+    seen.slam = true;
+    S.onb = {v:ONB_V2, step:"H3", seen};
+  }
+  // the day you are in, while the first day is not over, is excused at the training centre
+  if (S.life && S.life.att && typeof S.life.att === "object") S.life.att.excused = true;
 }
 function screenTitle(){
   if (document.body.classList.contains("life")){
@@ -206,46 +305,107 @@ function screenTitle(){
         <button class="btn lg ghost" onclick="A.fullscreen()">⛶ Full screen</button>
         <button class="btn lg ghost" onclick="openSheet('settings0')">⚙ Settings</button>
       </div>
-      <div class="build">Build ${esc(window.FF_BUILD || "dev")}</div>
-    </div>${cloudCorner()}</section>`, "title");
+      </div>${cloudCorner()}<div class="build build-corner">Version ${esc(window.FF_BUILD || "dev")}</div></section>`, "title");
   if (typeof fbInit === "function" && fbConfigured()) fbInit().then(() => { if (LAST_SCREEN === "title") { const c = $("#cloudCorner"); if (c) c.outerHTML = cloudCorner(); } }).catch(() => {});
 }
 let CR = null;
+/* ---------- creating your player ----------
+   One screen: your player large on the left, turning in the light (drag to spin), and on the right four steps:
+   who you are, where you play (a pitch you click), how you look, what you are good at. Every change shows at once;
+   nothing is fixed until "That's me". The screen redraws itself on a click; the 3D preview survives that.
+   The cut and the colour you pick here are the ones you own (DESIGN 3.7.3); other cuts cost money at the barber. */
+const CC_TABS = [["you", "Identity"], ["pos", "Position"], ["look", "Appearance"], ["skills", "Abilities"]];
+const CC_LOOK = [["body", "Body"], ["face", "Face"], ["hair", "Hair"], ["beard", "Beard"], ["clothes", "Clothing"]];
 function screenCreate(){
-  CR = CR || {name:"", number:9, pos:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
-  const baseOf = k => 24 + (POS[CR.pos].bonus[k] || 0);
-  render(`<section class="page create"><div class="page-inner">
-    <div class="eyebrow">Step 1</div><h1>Create your player</h1>
-    <div class="grid2">
-      <div class="card glass">
-        <label>Name</label><input id="nm" type="text" maxlength="24" placeholder="e.g. Andrei Popa" value="${esc(CR.name)}" oninput="CR.name=this.value">
-        <div class="row gap10">
-          <div class="grow"><label>Shirt number</label><input type="number" min="1" max="99" value="${CR.number}" oninput="CR.number=clamp(+this.value||9,1,99)"></div>
-          <div class="grow"><label>Strong foot</label><div class="seg">${["Right","Left"].map(f => `<button aria-pressed="${CR.foot === f}" onclick="CR.foot='${f}';screenCreate()">${f}</button>`).join("")}</div></div>
-        </div>
-        <label>Nationality</label><div class="seg wrap">${HOME_NATS.map(n => `<button aria-pressed="${CR.nat === n}" onclick="CR.nat='${n}';screenCreate()">${NAMES[n].n}</button>`).join("")}</div>
-        <label>Position</label><div class="seg wrap">${POS_ORDER.map(k => `<button aria-pressed="${CR.pos === k}" onclick="CR.pos='${k}';screenCreate()">${POS[k].name}</button>`).join("")}</div>
-        <p class="muted small">${esc(POS[CR.pos].blurb)}</p>
-        <div class="pos-mix">${(() => { const mix = MOMENT_MIX[CR.pos] || MOMENT_MIX.ST;
-          const shoot = mix.run + mix.wing + mix.oneonone + mix.edge + mix.penalty + mix.freekick;
-          const total = Object.values(mix).reduce((a, b) => a + b, 0);
-          const pct = Math.round(100*shoot/total);
-          return `<span>In a game</span><div class="meter thin"><i style="width:${pct}%"></i></div><b>${pct}% chances on goal</b>`; })()}</div>
-        <p class="muted small">You start at 17 in Romanian Liga 4, whatever your nationality. You can ask the manager to move you up or down the pitch later in your career.</p>
-      </div>
-      <div class="card glass">
-        <div class="row between"><h3>Starting abilities</h3><span class="pill">${CR.pts} points left</span></div>
-        ${SKILLS.map(([k,n,d]) => `<div class="skillrow"><div><b>${n}</b><div class="muted small">${d}</div></div><div class="sv">${baseOf(k) + CR.alloc[k]}</div>
-          <div class="row gap6"><button class="btn sm ghost" onclick="A.alloc('${k}',-1)">−</button><button class="btn sm ghost" onclick="A.alloc('${k}',1)">+</button></div></div>`).join("")}
+  CR = CR || {name:"", number:9, pos:"ST", pref:"ST", foot:"Right", nat:"RO", alloc:Object.fromEntries(SKILLS.map(([k]) => [k, 0])), pts:30};
+  CR.pref = posOrArch(CR.pref || CR.pos); if (!POSITIONS[CR.pref] || CR.pref === "GK") CR.pref = "ST";
+  CR.pos = archOf(CR.pref);
+  CR.tab = CC_TABS.some(t => t[0] === CR.tab) ? CR.tab : "you";
+  CR.lookSec = CC_LOOK.some(t => t[0] === CR.lookSec) ? CR.lookSec : "body";
+  /* how you look: a default of your own until you change it, seeded from a token drawn when this screen first opens,
+     so every new player starts as somebody different, and what the preview shows is what the career gets
+     (the 3D preview needs the world's modules, so not on file://) */
+  const looks = typeof lookFormHTML === "function" && location.protocol !== "file:";
+  if (!CR.seed) CR.seed = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  if (looks){
+    CR.look = lookSane(CR.look, "p:" + CR.seed);
+    LK.draft = CR.look; LK.where = "create"; LK.only = CR.lookSec;
+    // before there is a career: your chosen number on the back, a plain blue kit until a club signs you
+    LK.o = {number:clamp(Math.round(num(+CR.number, 9)), 1, 99), age:17, kit:["#2c66b8", "#ffffff"], seed:7};
+  }
+  const t = CR.tab, idx = CC_TABS.findIndex(x => x[0] === t);
+  const nav = `<nav class="cc-tabs" role="tablist">${CC_TABS.map(([k, n], i) => `<button role="tab" aria-selected="${k === t}" onclick="A.ccTab('${k}')"><i>${i + 1}</i>${n}</button>`).join("")}</nav>`;
+  const stage = looks ? `<div class="cc-stage card glass">${lkStageHTML()}
+      <div class="cc-plate"><b id="ccName">${esc(CR.name.trim() || "Your name")}</b><span><em id="ccNum">#${CR.number}</em> · <em class="cc-posb">${CR.pref}</em> ${esc(POSITIONS[CR.pref].name)}</span></div></div>`
+    : `<div class="cc-stage card glass cc-noprev"><div class="cc-plate"><b id="ccName">${esc(CR.name.trim() || "Your name")}</b><span><em id="ccNum">#${CR.number}</em> · ${esc(POSITIONS[CR.pref].name)}</span></div></div>`;
+  render(`<section class="page create cc"><div class="page-inner">
+    <div class="cc-head"><div><div class="eyebrow">New career</div><h1>Who are you?</h1></div>${nav}</div>
+    <div class="cc-grid">${stage}
+      <div class="cc-panel card glass">${ccPanel(t)}
+        <div class="cc-foot"><button class="btn ghost" onclick="${idx > 0 ? `A.ccTab('${CC_TABS[idx - 1][0]}')` : "A.ccCancel()"}">${idx > 0 ? "← Back" : "Cancel"}</button><span class="grow"></span>
+          ${idx < CC_TABS.length - 1 ? `<button class="btn ghost" onclick="A.ccTab('${CC_TABS[idx + 1][0]}')">Next: ${CC_TABS[idx + 1][1]} →</button>` : ""}
+          <button class="btn" onclick="A.startCareer()">That's me</button></div>
       </div>
     </div>
-    <div class="row gap10"><button class="btn lg" onclick="A.startCareer()">Find a club →</button><button class="btn lg ghost" onclick="screenTitle()">Back</button></div>
   </div></section>`, "create");
+  if (looks) lookCreateMount();
+}
+function ccPanel(t){
+  if (t === "pos") return ccPosHTML();
+  if (t === "look") return ccLookHTML();
+  if (t === "skills"){
+    const baseOf = k => 24 + (POS[CR.pos].bonus[k] || 0);
+    return `<div class="row between"><h3>Starting abilities</h3><span class="pill">${CR.pts} points left</span></div>
+      <p class="muted small">Your position gives you a head start in what it needs. Spread the rest where you like.</p>
+      <div class="cc-skills">${SKILLS.map(([k, n, d]) => `<div class="skillrow"><div><b>${n}</b><div class="muted small">${d}</div></div><div class="sv">${baseOf(k) + CR.alloc[k]}${POS[CR.pos].bonus[k] ? `<small class="cc-bon">+${POS[CR.pos].bonus[k]}</small>` : ""}</div>
+        <div class="row gap6"><button class="btn sm ghost" aria-label="Less ${esc(n)}" onclick="A.alloc('${k}',-1)">−</button><button class="btn sm ghost" aria-label="More ${esc(n)}" onclick="A.alloc('${k}',1)">+</button></div></div>`).join("")}</div>`;
+  }
+  return `<h3>Who you are</h3>
+    <label>Name</label><input id="nm" type="text" maxlength="24" placeholder="e.g. Andrei Popa" value="${esc(CR.name)}" oninput="A.ccName(this.value)">
+    <div class="row gap10">
+      <div class="grow"><label>Shirt number</label><input type="number" min="1" max="99" value="${CR.number}" oninput="A.ccNumber(this.value)"></div>
+      <div class="grow"><label>Strong foot</label><div class="seg">${["Right", "Left"].map(f => `<button aria-pressed="${CR.foot === f}" onclick="CR.foot='${f}';screenCreate()">${f}</button>`).join("")}</div></div>
+    </div>
+    <label>Nationality</label><div class="seg wrap">${HOME_NATS.map(n => `<button aria-pressed="${CR.nat === n}" onclick="CR.nat='${n}';screenCreate()">${NAMES[n].n}</button>`).join("")}</div>
+    <p class="muted small">You start at 17 in Romanian Liga 4, whatever your nationality.</p>`;
+}
+// the pitch: your goal at the bottom, theirs at the top; click where you want to play
+function ccPosHTML(){
+  const sel = CR.pref, P = POSITIONS[sel], arch = archOf(sel);
+  const mix = MOMENT_MIX[arch] || MOMENT_MIX.ST, shoot = mix.run + mix.wing + mix.oneonone + mix.edge + mix.penalty + mix.freekick;
+  const pct = Math.round(100*shoot/Object.values(mix).reduce((a, b) => a + b, 0));
+  const bon = Object.entries(POS[arch].bonus).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `<span class="pill">${esc(skillName(k))} +${v}</span>`).join("");
+  const alt = (POS_NEAR[sel] || []).slice(0, 3).map(k => `<b>${k}</b>`).join(", ");
+  const marks = POSITION_ORDER.map(k => { const Q = POSITIONS[k], gk = k === "GK";
+    return `<button class="pp-m${k === sel ? " on" : ""}${gk ? " off" : ""}" style="left:${Q.x}%;top:${100 - Q.y}%" aria-pressed="${k === sel}"
+      ${gk ? `disabled title="Goalkeeper careers are not playable yet"` : `title="${esc(Q.name)}" onclick="A.ccPos('${k}')"`}>${k}</button>`; }).join("");
+  return `<div class="row between"><h3>Preferred position</h3><span class="pill">${esc(POS[arch].name)} role</span></div>
+    <div class="pp"><div class="pp-pitch" role="group" aria-label="Pick your position on the pitch">
+        <div class="pp-l pp-half"></div><div class="pp-l pp-circle"></div><div class="pp-l pp-box t"></div><div class="pp-l pp-box b"></div>
+        <div class="pp-l pp-six t"></div><div class="pp-l pp-six b"></div><span class="pp-att">Attack ↑</span>${marks}</div>
+      <div class="pp-info"><div class="pp-code">${sel}</div><h4>${esc(P.name)}</h4>
+        <p class="muted small">${esc(POS[arch].blurb)}</p>
+        <div class="pos-mix"><span>In a game</span><div class="meter thin"><i style="width:${pct}%"></i></div><b>${pct}% chances on goal</b></div>
+        <div class="pp-bon">${bon}</div>
+        <p class="muted small">This is where you want to play. Every club has its own shape: if yours has no ${sel}, the manager plays you in the nearest role${alt ? ` (${alt})` : ""}. You can ask him to move you later.</p>
+      </div></div>`;
+}
+function ccLookHTML(){
+  if (!(typeof lookFormHTML === "function" && location.protocol !== "file:")) return `<h3>Appearance</h3><p class="muted">The 3D preview needs the game served over http(s). You can change your look later at the mirror at home.</p>`;
+  return `<div class="row between"><h3>Appearance</h3><button class="btn sm ghost" onclick="lkRandom()">🎲 Randomise</button></div>
+    <div class="seg wrap cc-sub" role="tablist">${CC_LOOK.map(([k, n]) => `<button role="tab" aria-selected="${k === CR.lookSec}" aria-pressed="${k === CR.lookSec}" onclick="A.ccLook('${k}')">${n}</button>`).join("")}</div>
+    <div class="lk-ctl cc-ctl" id="lkCtl">${lookFormHTML(CR.look, CR.lookSec)}</div>
+    <p class="muted small" id="ccLookNote">${ccLookNote(CR.lookSec)}</p>`;
+}
+// under the look controls: under the hair, what a cut chosen here means for later (DESIGN 3.7.3)
+function ccLookNote(sec){
+  return sec === "hair" ? "This is your starting cut. Other styles cost money at the barber, and you keep the ones you've paid for."
+    : "Your face and build stay as you make them here. At home the mirror changes your clothes, and any cut or colour you own.";
 }
 function screenOffers(){
   setPhoneVisible(false);
   const {ctx, list} = S.offerSet;
-  const head = ctx === "start" ? ["Step 2", "Clubs want you", "Three Liga 4 clubs made you an offer. Your keypad phone only lets you take a basic deal — you'll negotiate once you own a smartphone."]
+  const head = ctx === "start" ? ["Your first contract", "Three Liga 4 clubs want to see you. Pick one.", "Your keypad phone only lets you take a basic deal. You can negotiate once you own a smartphone."]
     : ["Summer", "Your contract is up", "Pick where you play next season. Your current club's renewal is first."];
   render(`<section class="page"><div class="page-inner">
     <div class="eyebrow">${head[0]}</div><h1>${head[1]}</h1><p class="lede">${head[2]}</p>
@@ -282,15 +442,22 @@ function renderHubInner(){
   const {fx, next, me, c, win} = hubState();
   const lg = W.leagues[c.lg], pos = sortTab(lg.tab).indexOf(c.id) + 1, need = xpNeed(), k = S.contract;
   const inj = me.inj > 0;
+  const life = typeof lifeMode === "function" && lifeMode();
   const fxHtml = fx.length ? fx.map(f => {
-    const d = W.done[f.key], home = f.kind === "N" ? f.h === me.nat : f.h === me.club;
-    return `<div class="fx ${d ? "done" : f === next ? "next" : ""}"><div class="fx-comp">${esc(compLabel(f))}</div>
+    const d = W.done[f.key], home = f.kind === "N" ? f.h === me.nat : f.h === me.club, sl = life ? fixtureSlot(f) : null;
+    const today = life && sl.wd === S.life.wd;
+    return `<div class="fx ${d ? "done" : today ? "next" : f === next && !life ? "next" : ""}"><div class="fx-comp">${esc(compLabel(f))}</div>
       <div class="fx-teams">${f.kind !== "N" ? crest(sideName(f,"h"), 18) : ""}<span>${esc(sideName(f,"h"))}</span><b>${d ? `${d.hg}–${d.ag}` : "vs"}</b><span>${esc(sideName(f,"a"))}</span>${f.kind !== "N" ? crest(sideName(f,"a"), 18) : ""}</div>
-      <div class="fx-meta">${home ? "Home" : "Away"}${d ? " · played" : ""}</div></div>`; }).join("")
+      <div class="fx-meta">${home ? "Home" : "Away"}${d ? " · played" : life ? ` · ${today ? "TODAY" : dayName(sl.wd)} ${fmtTime(sl.min)}` : ""}</div></div>`; }).join("")
     : `<div class="empty">No match for you this week.${CAL.INTL.includes(S.week) ? " International break." : ""}</div>`;
   const banned = !inj && (S.ban || 0) > 0;
-  const cta = next ? (inj ? `<button class="btn lg" onclick="A.endWeek()">Injured — watch from the stands, next week →</button>`
-      : banned ? `<button class="btn lg" onclick="A.endWeek()">Suspended — ${S.ban} match${S.ban === 1 ? "" : "es"} to sit out, next week →</button>`
+  // living it day by day there is no button that skips time: you sleep, and the week turns on its own
+  const tf = life ? todaysFixture() : null;
+  const cta = life ? `<div class="life-cta ${tf ? "match" : ""}"><b>${todayName()} · ${fmtTime(S.life.min)}</b><span>${tf
+      ? (inj ? "Match today, but you're injured and will watch from the stand." : banned ? "Match today, but you're suspended." : `Match today at ${fmtTime(fixtureSlot(tf).min)}. Walk out of the tunnel at the training ground.`)
+      : `${esc(todayLine())}. Sleep in your own bed to move on to tomorrow.`}</span></div>`
+    : next ? (inj ? `<button class="btn lg" onclick="A.endWeek()">Injured: watch from the stands, next week →</button>`
+      : banned ? `<button class="btn lg" onclick="A.endWeek()">Suspended: ${S.ban} match${S.ban === 1 ? "" : "es"} to sit out, next week →</button>`
       : `<button class="btn lg pulse" onclick="A.playMatch()">Play ${next.kind === "N" ? "for your country" : "match"} →</button>`)
     : `<button class="btn lg" onclick="A.endWeek()">Next week →</button>`;
   const news = S.news.slice(0, 7);
@@ -303,18 +470,20 @@ function renderHubInner(){
         <span class="chip">REP <b>${pad5(me.rep)}</b></span><span class="chip">WORLD <b>${pad5(me.wrep)}</b></span>
         <button class="chip flagbtn${patchUnseen() ? " unread" : ""}" title="Patch notes" onclick="A.patch()"><span class="fl">⚑</span>Updates${patchUnseen() ? `<i class="dotn"></i>` : ""}</button>
       </div>
-      <div class="row gap6"><button class="icon-btn" title="Full screen" onclick="A.fullscreen()">⛶</button><button class="icon-btn" title="Menu" onclick="A.menu()">☰</button></div>
+      <div class="row gap6"><button class="icon-btn tb-phone" title="Phone" aria-label="Phone" onclick="togglePhone()">▮<i class="badge ph-badge"></i></button><button class="icon-btn" title="Full screen" onclick="A.fullscreen()">⛶</button><button class="icon-btn" title="Menu" onclick="A.menu()">☰</button></div>
     </header>
     <main class="hub-grid">
       <section class="card glass me-card rise">
         <div class="row gap10"><div class="ovr-ring" style="--p:${overall()}"><b>${overall()}</b><span>OVR</span></div>
-          <div><h2>${esc(S.player.name)}</h2><div class="muted">#${S.player.number} · ${POS[S.player.pos].name} · ${S.player.age} · ${NAMES[S.player.nat].n}</div>
+          <div><h2>${esc(S.player.name)}</h2><div class="muted">#${S.player.number} · ${esc(teamPosText())} · ${S.player.age} · ${NAMES[S.player.nat].n}</div>
           <div class="row gap6 wrap" style="margin-top:6px"><span class="pill">${ROLE[currentRole()]}</span>${inj ? `<span class="pill bad">Injured · ${me.inj} wk</span>` : ""}${(S.ban || 0) > 0 ? `<span class="pill bad">Suspended · ${S.ban}</span>` : ""}${(S.cards && S.cards.run) ? `<span class="pill">🟨 ${S.cards.run}</span>` : ""}${S.sp ? `<span class="pill gold">${S.sp} skill points</span>` : ""}</div></div></div>
         <div class="meter-row"><span>Energy</span><div class="meter energy"><i style="width:${S.energy}%"></i></div><b>${Math.round(S.energy)}</b></div>
+        ${life ? `<div class="meter-row"><span>Fatigue</span><div class="meter fatigue"><i style="width:${num(S.fatigue, 0)}%"></i></div><b>${Math.round(num(S.fatigue, 0))}</b></div>
+        <div class="meter-row"><span>Chemistry</span><div class="meter chem"><i style="width:${num(S.chem, 0)}%"></i></div><b>${Math.round(num(S.chem, 0))}</b></div>` : ""}
         <div class="meter-row"><span>Level ${S.level}</span><div class="meter xp"><i style="width:${100*S.xp/need}%"></i></div><b>${S.xp}/${need}</b></div>
         ${(() => { const js = jobState(), jn = jobNeed(), top = jobIsTop(), {job, rank} = myJob();
-          // at the top of the ladder there is nothing left to earn towards — you just keep working for the money
-          return `<div class="job-row${top ? " maxed" : ""}" title="${top ? "Top of the ladder — keep working for the money" : "Work experience — fill the bar to get promoted"}">
+          // at the top of the ladder there is nothing left to earn towards: you just keep working for the money
+          return `<div class="job-row${top ? " maxed" : ""}" title="${top ? "Top of the ladder. Keep working for the money" : "Work experience. Fill the bar to get promoted"}">
             <div class="job-head"><span class="ji">${job.icon}</span><b>${esc(rank.name)}</b><span class="muted">${top ? "top rank" : esc(job.name)}</span><em>${top ? payRange(rank) : `${js.xp}/${jn}`}</em></div>
             <div class="meter work"><i style="width:${top ? 100 : Math.min(100, 100*js.xp/jn)}%"></i></div></div>`; })()}
         <div class="kvs"><div class="kv-money"><span>Money</span><b>${eurFull(S.money)}</b></div>${k ? `<div><span>Wage</span><b>${eur(k.wage)}/wk${k.loan ? " (loan)" : ""}</b></div><div><span>Contract</span><b>${k.years} season${k.years !== 1 ? "s" : ""}${k.promised ? " · promised" : ""}</b></div>` : ""}
@@ -322,24 +491,26 @@ function renderHubInner(){
           <div class="kv-value"><span>Value</span><b>${eur(marketValue(me))}</b></div></div>
         <button class="btn sm ghost wide" onclick="openSheet('cabinet')">🏆 Trophy cabinet${(S.trophies.length + S.awards.length) ? ` (${S.trophies.length + S.awards.length})` : ""}</button>
         <button class="btn sm ghost wide" onclick="openSheet('skills')">Upgrade skills${S.sp ? ` (${S.sp})` : ""}</button>
-        <div class="drink-row"><button class="btn sm drink" ${S.inv.drink ? "" : "disabled"} onclick="A.drink('drink')">Energy-UP ×${S.inv.drink}</button>
-          <button class="btn sm drink" ${S.inv.max ? "" : "disabled"} onclick="A.drink('max')">Energy-UP MAX ×${S.inv.max}</button></div>
+        ${life ? "" : `<div class="drink-row"><button class="btn sm drink" ${S.inv.drink ? "" : "disabled"} onclick="A.drink('drink')">Energy-UP ×${S.inv.drink}</button>
+          <button class="btn sm drink" ${S.inv.max ? "" : "disabled"} onclick="A.drink('max')">Energy-UP MAX ×${S.inv.max}</button></div>`}
         <div class="activities me-acts">
-          ${tile("train", "Train", "🏃", S.actions && S.energy >= trainCost() && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${trainCost()} energy`)}
+          ${life ? "" : tile("train", "Train", "🏃", S.actions && S.energy >= trainCost() && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired. You need ${trainCost()} energy`)}
           ${tile("staff", "Staff", "🧑‍🏫", true)}
-          ${tile("rest", "Rest at home", "🛏", S.actions > 0, "No actions left this week")}
-          ${tile("media", "Media", "🎙", S.actions && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired — needs ${MEDIA_COST} energy`)}
+          ${life ? "" : tile("rest", "Rest at home", "🛏", S.actions > 0, "No actions left this week")}
+          ${life ? tile("media", "Media", "🎙", !S.today.media && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : S.today.media ? "Done for today" : `Too tired. You need ${MEDIA_COST} energy`)
+            : tile("media", "Media", "🎙", S.actions && S.energy >= MEDIA_COST && !inj, inj ? "You're injured" : !S.actions ? "No actions left this week" : `Too tired. You need ${MEDIA_COST} energy`)}
           ${tile("manager", "Manager", "🧑‍💼", !!myClub(), "You have no club")}
         </div>
         ${myClub() ? formStrip() : ""}
       </section>
       <div class="col-week">
       <section class="card glass week-card rise" style="animation-delay:60ms">
-        <div class="row between"><h3>This week</h3><span class="pill">${S.actions} action${S.actions !== 1 ? "s" : ""} left</span></div>
+        <div class="row between"><h3>This week</h3><span class="pill">${life ? `${todayName()} · ${fmtTime(S.life.min)}` : `${S.actions} action${S.actions !== 1 ? "s" : ""} left`}</span></div>
         <div class="fxlist">${fxHtml}</div>
         ${cta}
         <div class="activities week-acts">
-          ${tile("work", jobLabel(), myJob().job.icon, S.actions && S.energy >= 8 && !inj, workWhy(inj))}
+          ${life ? `<div class="tile info" title="Your workplace: ${esc(JOB_WHERE[jobState().id].how)}"><span class="ti">${myJob().job.icon}</span><span>${esc(jobLabel())}</span><span class="tile-why">Clock in at work · ${esc(JOB_WHERE[jobState().id].area)}</span></div>`
+            : tile("work", jobLabel(), myJob().job.icon, S.actions && S.energy >= 8 && !inj, workWhy(inj))}
           ${tile("mall", "Mall", "🛍", true)}
           ${tile("clothes", "Clothes", "👕", true)}
         </div>
@@ -357,7 +528,7 @@ function renderHubInner(){
   </section>`, "hub");
   phoneBadge();
 }
-/* the flag only wears a dot until you've read the newest notes — it never interrupts you */
+/* the flag only wears a dot until you've read the newest notes: it never interrupts you */
 function patchUnseen(){ return !!(typeof PATCH !== "undefined" && PATCH.length && S && S.seenPatch !== PATCH[0].v); }
 /* ---------- your team: the eleven laid out on the pitch, with the bench beside it ---------- */
 const LINE_ORDER = ["GK", "DF", "CM", "CAM", "LW", "RW", "ST"];
@@ -453,7 +624,7 @@ function leaguePanel(){
     <div class="lgbody">${body}</div>`;
 }
 function tile(id, label, icon, enabled, why){
-  // a greyed-out tile says why — the rank you've reached is never the reason
+  // a greyed-out tile says why; the rank you've reached is never the reason
   return `<button class="tile" ${enabled ? "" : "disabled"} title="${esc(enabled ? label : (why || label))}" onclick="A.tile('${id}')">
     <span class="ti">${icon}</span><span>${label}</span>${!enabled && why ? `<span class="tile-why">${esc(why)}</span>` : ""}</button>`;
 }
@@ -461,7 +632,7 @@ function tile(id, label, icon, enabled, why){
 function workWhy(inj){
   if (inj) return "You're injured";
   if (!S.actions) return "No actions left this week";
-  if (S.energy < 8) return "Too tired — needs 8 energy";
+  if (S.energy < 8) return "Too tired. You need 8 energy";
   return "";
 }
 function trainCost(){ return 14 - (carTier() >= 2 ? 3 : 0); }
@@ -476,8 +647,11 @@ function openSheet(kind){
         <span class="pill ${has ? "good" : ""}">${t.coach ? (has ? "Coach hired" : "No coach") : (S.staff.trainer ? "Personal trainer" : "Basic")}</span></button>`; }).join("")}</div>
       <p class="muted small">Costs ${trainCost()} energy and one action.</p>`;
   } else if (kind === "mall"){
-    const cats = [...new Set(SHOP.map(s => s.cat))];
-    body = `<h2>Mall</h2><p class="muted">You have ${eur(S.money)}.</p>` + cats.map(cat => `<h4>${cat}</h4><div class="shopgrid">${SHOP.filter(s => s.cat === cat).map(it => {
+    const lifeNow = typeof lifeMode === "function" && lifeMode();
+    // in the first-person world food, drinks and furniture are bought in person, in the shops on your street
+    const sold = SHOP.filter(s => !lifeNow || s.life !== false);
+    const cats = [...new Set(sold.map(s => s.cat))].filter(c => !lifeNow || (c !== "Food" && c !== "Energy"));
+    body = `<h2>Mall</h2><p class="muted">You have ${eur(S.money)}.${lifeNow ? " Food and drinks: the Mini Market on your street, or Foodies on your phone. Beds, fridges and furniture: the furniture store next to your block." : ""}</p>` + cats.map(cat => `<h4>${cat}</h4><div class="shopgrid">${sold.filter(s => s.cat === cat).map(it => {
       const owned = it.stack ? false : it.id === "smartphone" ? S.phone === "smart" : !!S.items[it.id];
       const outgrown = it.tier && ((it.cat === "Home" && homeTier() > it.tier) || (it.cat === "Car" && carTier() > it.tier));
       return `<div class="shopitem ${owned ? "owned" : ""}"><div class="row between"><b>${it.name}</b><span class="price">${eur(it.price)}</span></div><p class="muted small">${it.desc}${it.stack ? ` · you have ${S.inv[it.id] || 0}` : ""}</p>
@@ -501,7 +675,7 @@ function openSheet(kind){
         ${has ? `<button class="btn sm ghost" onclick="A.fire('${s.id}')">Let go</button>` : `<button class="btn sm" ${S.money >= s.hire ? "" : "disabled"} onclick="A.hire('${s.id}')">Hire</button>`}</div>`; }).join("")}</div>`;
   } else if (kind === "skills"){
     body = `<h2>Skills</h2><p class="muted">${S.sp} skill points. Upgrades cost 1 point below 50, 2 below 75, then 3.</p>
-      <p class="muted small">Each skill also fills its own bar as you play — shooting builds power and accuracy, beating a man builds dribbling, and so on. Fill it and that skill goes up by 1 for free.</p>
+      <p class="muted small">Each skill also fills its own bar as you play: shooting builds power and accuracy, beating a man builds dribbling, and so on. Fill it and that skill goes up by 1 for free.</p>
       ${SKILLS.map(([k,n,d]) => { const v = S.skills[k], c = skillCost(v), xp = (S.skillXp && S.skillXp[k]) || 0, need = skillNeed(k), pct = v >= 99 ? 100 : Math.round(100*xp/need);
       return `<div class="skillrow"><div><b>${n}</b><div class="muted small">${d}</div><div class="meter thin"><i style="width:${v}%"></i></div>
         <div class="xprow"><div class="meter xp"><i style="width:${pct}%"></i></div><span class="muted small">${v >= 99 ? "max" : `${Math.round(xp)}/${need} xp`}</span></div></div>
@@ -516,7 +690,7 @@ function openSheet(kind){
             ${shopLogo(sh)}
             <div class="grow"><b>${esc(sh.nm)}</b> <span class="tierpill ${sh.tier}">${CLOTHES_TIER[sh.tier].label}</span>
               <div class="muted small">${esc(sh.blurb)}</div>
-              <div class="stars">${starsHTML(sh.stars)}<span class="muted small">Reputation ${fmt(sh.rep)}${open ? "" : ` — you have ${fmt(r)}`}</span></div></div>
+              <div class="stars">${starsHTML(sh.stars)}<span class="muted small">Reputation ${fmt(sh.rep)}${open ? "" : `, you have ${fmt(r)}`}</span></div></div>
             <div class="shopright">${open ? `${owned}/${sh.items.length}` : "🔒"}</div></button>`; }).join("")}`;
     } else {
       const open = shopOpen(shop);
@@ -532,7 +706,6 @@ function openSheet(kind){
     body = adminHTML();
   } else if (kind === "settings0"){
     body = `<h2>Settings</h2><div class="stack"><div><label>Graphics</label>${gfxSeg("A.gfx0")}</div>
-      <p class="muted small">Auto drops to Low on slower machines, and switches by itself if a match runs below about 25 fps.</p>
       <button class="btn ghost" onclick="A.fullscreen()">⛶ Toggle full screen</button>
       <div class="transfer">
         <label>Import a save from another device</label>
@@ -544,15 +717,15 @@ function openSheet(kind){
   } else if (kind === "menu"){
     body = `<h2>Menu</h2><div class="stack">
       <button class="btn" onclick="A.fullscreen()">⛶ Toggle full screen</button>
-      <button class="btn ghost" onclick="closeSheet();A.replayDream()">✨ Replay the dream tutorial</button>
       <div><label>Graphics</label>${gfxSeg("A.gfx")}</div>
+      ${window.fpSettingsHTML ? `<div><label>Matches</label>${window.fpSettingsHTML()}</div>` : ""}
       <button class="btn ghost" onclick="saveNow();toast('Saved','good')">Save now</button>
-      <button class="btn ghost" onclick="A.faultReport()">🩺 Report a problem — copy the details${S && S.faults && S.faults.length ? ` (${S.faults.length})` : ""}</button>
+      <button class="btn ghost" onclick="A.faultReport()">🩺 Report a problem: copy the details${S && S.faults && S.faults.length ? ` (${S.faults.length})` : ""}</button>
       <textarea id="faultOut" class="codebox" style="display:none"></textarea>
 
       <div class="transfer">
         <label>Move this career to another device</label>
-        <button class="btn" id="saveCodeBtn" onclick="A.saveGame()">💾 Save game — copy code</button>
+        <button class="btn" id="saveCodeBtn" onclick="A.saveGame()">💾 ${SAVE_CODE_LABEL}</button>
         <textarea id="saveCode" class="codebox" readonly placeholder="Your save code will appear here" onclick="this.select()"></textarea>
         <p class="muted small">Copy the code, then paste it into <b>Import save</b> on the other device.</p>
       </div>
@@ -567,7 +740,7 @@ function openSheet(kind){
       ${ONLINE.user ? cloudPanel() : accountPanel()}
 
       <button class="btn ghost" onclick="A.quit()">Quit to title</button></div>
-      <p class="muted small">Your career saves automatically in this browser — the code is only needed to move it somewhere else.</p>`;
+      <p class="muted small">Your career saves automatically in this browser. The code is only needed to move it somewhere else.</p>`;
   } else if (kind === "patch"){
     body = `<h2>Updates <span class="fl big">⚑</span></h2><p class="muted small">Everything that's changed, newest first. You're on build ${esc(window.FF_BUILD || "dev")}.</p>
       <div class="patchlist">${PATCH.map((p, i) => `<div class="patch${i === 0 ? " latest" : ""}">
@@ -600,36 +773,93 @@ function screenSeasonEnd(sum){
 }
 
 /* ---------- actions ---------- */
+// a toast that lands while the full-time card is up (a milestone, big-game experience) would sit over its rows:
+// it waits until you leave the ground, then they come one after another
+const TOAST_HELD = [];
+const toastNow = toast;
+// an award's toast ("🏆 Your first appearance") says what an honour card is saying, or is about to (the card is
+// queued just after the toast is sent): while that card is up or waiting, the card is enough
+function honourCarded(title){
+  if (typeof HONOUR_QUEUE === "object" && HONOUR_QUEUE.some(h => h && h[2] === title)) return true;
+  const h3 = document.querySelector("#tutRoot.on .honour h3");
+  return !!(h3 && h3.textContent === title);
+}
+const isAwardToast = (msg, kind) => kind === "gold" && typeof msg === "string" && msg.startsWith("🏆 ");
+function toastOut(msg, kind){
+  if (isAwardToast(msg, kind) && honourCarded(msg.slice(3))) return;
+  toastNow(msg, kind); placeToasts();
+}
+toast = function(msg, kind){
+  const hold = typeof MT !== "undefined" && MT && MT.holdToasts;     // read now: full time lifts the hold before a microtask runs
+  const send = () => hold ? TOAST_HELD.push([msg, kind]) : toastOut(msg, kind);
+  // an award is judged once its card, if any, is queued (the line after the toast): with a card it is dropped for
+  // good, so it never turns up later as a second announcement of a card already read and closed
+  if (isAwardToast(msg, kind)) queueMicrotask(() => { if (!honourCarded(msg.slice(3))) send(); });
+  else send();
+};
+function flushHeldToasts(){
+  const q = TOAST_HELD.splice(0);
+  q.forEach(([msg, kind], i) => setTimeout(() => toastOut(msg, kind), 700 + i*3300));
+}
+// in the street a toast sits at the bottom, where the narrative note (#lifeNote) also sits on a wide screen: while the
+// note is up, toasts rise to just above it, and settle back once it has faded
+function placeToasts(){
+  const ts = document.querySelectorAll("body > .toast"), n = document.getElementById("lifeNote");
+  if (n && !placeToasts.mo && typeof MutationObserver === "function"){
+    placeToasts.mo = new MutationObserver(() => { clearTimeout(placeToasts.t);
+      if (n.classList.contains("on")) placeToasts(); else placeToasts.t = setTimeout(placeToasts, 380); });
+    placeToasts.mo.observe(n, {attributes:true, attributeFilter:["class"]});
+  }
+  if (!ts.length) return;
+  let lift = "";
+  if (n && n.classList.contains("on") && document.body.classList.contains("life") && !document.body.classList.contains("in-match") && n.offsetParent){
+    const r = n.getBoundingClientRect(), H = window.innerHeight, th = Math.max(...[...ts].map(t => t.offsetHeight)) || 48;
+    if (r.height > 0 && r.bottom > H - 26 - th - 10 && r.top < H) lift = Math.round(H - r.top + 10) + "px";
+  }
+  ts.forEach(t => { if (t.style.bottom !== lift) t.style.bottom = lift; });
+}
 const A = {
-  newGame(n){ useSlot(n || 1); CR = null; screenCreate(); },
+  // New Game: black at once, the world and the film, then who you are (newGameWorld); without a 3D world, straight to it
+  newGame(n){ useSlot(n || 1); CR = null; if (worldOK()) return newGameWorld(); screenCreate(); },
+  // back to the title from the creation screen: a career that was never made is let go, the film with it
+  ccCancel(){ NG.tok++; if (window.lifeOnboard && window.lifeOnboard.waiting()) window.lifeOnboard.abort(); screenTitle(); },
   deleteSlot(n){
     const m = slotMeta(n); if (!m) return;
     confirmBox(`Delete slot ${n}?`, `${esc(m.name)} · ${esc(m.club)} · ${m.apps} matches, ${playTime(m.ms)} played. This can't be undone.`, () => { deleteSlot(n); toast("Save deleted."); screenTitle(); });
   },
   alloc(k, d){ if (d > 0 && CR.pts <= 0) return; if (d < 0 && CR.alloc[k] <= 0) return; CR.alloc[k] += d; CR.pts -= d; screenCreate(); },
+  ccTab(t){ CR.tab = t; if (t === "pos" && typeof lkKind === "function" && LK.kind !== "training") lkKind("training");
+    if (t !== "look" && LK.view !== "front" && typeof lkView === "function") lkView("front"); screenCreate(); },
+  ccLook(k){ CR.lookSec = k; LK.only = k; const c = $("#lkCtl"); if (c){ c.innerHTML = lookFormHTML(CR.look, k); for (const b of document.querySelectorAll(".cc-sub button")){ const on = b.getAttribute("onclick").includes(`'${k}'`); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-selected", String(on)); } }
+    if (typeof lkView === "function") lkView(k === "face" || k === "hair" || k === "beard" ? "face" : "front");
+    if (k === "clothes" && typeof lkKind === "function") lkKind("casual");
+    const nt = $("#ccLookNote"); if (nt) nt.textContent = ccLookNote(k); },
+  ccPos(k){ if (!POSITIONS[k] || k === "GK") return; CR.pref = k; CR.pos = archOf(k); screenCreate(); },
+  ccName(v){ CR.name = v; const e = $("#ccName"); if (e) e.textContent = v.trim() || "Your name"; },
+  ccNumber(v){ CR.number = clamp(+v || 9, 1, 99); const e = $("#ccNum"); if (e) e.textContent = "#" + CR.number; if (LK.o){ LK.o.number = CR.number; if (typeof lkUpdate === "function") lkUpdate(); } },
   startCareer(){
-    const name = (CR.name || "").trim(); if (!name){ toast("Give your player a name first."); $("#nm").focus(); return; }
+    const name = (CR.name || "").trim(); if (!name){ toast("Give your player a name first."); if (CR.tab !== "you") A.ccTab("you"); const n = $("#nm"); if (n) n.focus(); return; }
     CR.name = name;
-    render(`<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world — clubs, squads, fixtures…</p></div></section>`);
+    // the career whose shell the film was built on (New Game in the world): you, in it, and the clubs that want you
+    if (S && S.flags && S.flags.CharacterCreated === false){ applyCreation(CR); screenOffers(); return; }
+    render(`<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world: clubs, squads, fixtures…</p></div></section>`);
     setTimeout(() => { newCareer(CR); save(); screenOffers(); }, 50);
   },
-  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); if (!S.tutDone && S.week === 0) return startTutorial(); renderHub(); enterCity();
-    },      // nothing announces itself after an update — the flag in the top bar has the notes when you want them
-  replayDream(){
-    if (!S){ const d = load(); if (!d) return; resume(d); }
-    if (S.offerSet) return screenOffers();
-    closePhone(); closeSheet(); S.replay = S.week > 0 ? {energy:S.energy} : null; S.tutDone = false; startTutorial();
-  },
+  continue(n){ if (n) useSlot(n); const d = load(); if (!d) return screenTitle(); startPlayClock(); resume(d); if (S.synced) startAutoSync(); if (S.offerSet) return screenOffers(); renderHub(); enterCity();
+    },      // nothing announces itself after an update: the flag in the top bar has the notes when you want them
   sign(i){
     const o = S.offerSet.list[i], ctx = S.offerSet.ctx; S.offerSet = null;
-    joinClub(o); if (ctx === "start"){ addNews("you", `A career begins at ${W.clubs[o.club].nm}`, "Liga 4. Keypad phone. Big dreams.", "me"); msg("Branyfon", "Welcome! Use ▲▼ to move, the centre key to select, the red key to go back."); }
+    joinClub(o); if (ctx === "start"){ addNews("you", `A career begins at ${W.clubs[o.club].nm}`, "Liga 4. Keypad phone. Big dreams.", "me"); msg("Branyfon", "Welcome! Use the arrows or the wheel to move, Enter to select, Esc to go back."); }
     save();
-    if (ctx === "start" && !S.tutDone) return startTutorial();
+    // a new career made in the middle of the film: back into the world, in your own eyes, for your uncle's last
+    // lines (intro.js); the hub waits in your phone
+    if (ctx === "start" && window.lifeOnboard && window.lifeOnboard.waiting()){ renderHub(); document.body.classList.add("life"); window.lifeOnboard.afterSign(); return; }
     renderHub();
     if (!document.body.classList.contains("life")) enterCity();
   },
   afterSeason(){ save(); S.offerSet ? screenOffers() : renderHub(); },
   playMatch(){ const {next} = hubState(); if (!next) return; setPhoneVisible(false); closePhone(); closeSheet(); startMatch(next); },
+  playFixture(f){ if (!f || W.done[f.key]) return; setPhoneVisible(false); closePhone(); closeSheet(); startMatch(f); },
   kickOff(){ resumeClock(); },
   resumeMatch(){ resumeClock(); },
   playMoment(){
@@ -646,15 +876,15 @@ const A = {
   playHighlight(i){ const h = MT.highlights[i]; const ov = $("#ov"); if (ov) ov.hidden = true; startReplay(h.rec, {label:`${h.min}' ${h.text}`}, () => MT.ftCard()); },
   passNow(){ if (typeof passNow === "function") passNow(); },
   shootNow(){ shootNow(); },
-  leaveMatch(){ loopOn = false; M = null; REP = null; clearTimeout(MT && MT.timer); MT = null; matchSkillsOff(); save();
+  leaveMatch(){ loopOn = false; M = null; REP = null; clearTimeout(MT && MT.timer); MT = null; save(); flushHeldToasts();
     // in the city, the final whistle sends you back out into the yard rather than to the hub
     if (document.body.classList.contains("life") && window.LIFE){
       document.body.classList.remove("in-match");
       if (window.lifeReset) window.lifeReset();
-      LIFE.min = Math.max(LIFE.min, 17*60); S.life = {day:LIFE.day, min:LIFE.min}; LIFE.zone = "ground";
       renderHub();
-      // back out of the tunnel, facing the pitch you just played on
-      if (window.startLife) window.startLife({zone:"ground", at:"tunnel", msg:"Full time. You walk back out of the tunnel — it is five o'clock. The bus home is by the gate."});
+      // back out of the tunnel, a couple of hours on, facing the pitch you just played on
+      if (window.lifeAfterMatch) window.lifeAfterMatch(window.lifeMatchFatigue ? window.lifeMatchFatigue(A._matchLegs) : 0);
+      A._matchLegs = null;
       return;
     }
     renderHub(); },
@@ -681,11 +911,11 @@ const A = {
       return toast("One part of the week had a problem and was skipped. Menu → Report a problem has the details.", "bad");
     }
     if (r.seasonOver){
-      let sum; try{ sum = seasonEnd(); }catch(e){ console.error("seasonEnd failed", e); S.faults = (S.faults || []).concat([{gw:gw(), wk:S.week, at:"seasonEnd", m:String(e && e.message || e).slice(0, 160)}]); sum = {pos:0, lg:"—", report:[]}; }
+      let sum; try{ sum = seasonEnd(); }catch(e){ console.error("seasonEnd failed", e); S.faults = (S.faults || []).concat([{gw:gw(), wk:S.week, at:"seasonEnd", m:String(e && e.message || e).slice(0, 160)}]); sum = {pos:0, lg:EMPTY_CELL, report:[]}; }
       save(); return screenSeasonEnd(sum);
     }
     save(); renderHub();
-    if (r.skipped && r.skipped.length) return toast(`Week ${S.week}. One part of the week was skipped (${r.skipped.join(", ")}) — Menu → Report a problem has the details.`, "bad");
+    if (r.skipped && r.skipped.length) return toast(`Week ${S.week}. One part of the week was skipped (${r.skipped.join(", ")}). Menu → Report a problem has the details.`, "bad");
     if (r.income != null) toast(`Week ${S.week}: +${eur(r.income)} wage${r.cost ? `, −${eur(r.cost)} staff` : ""}`);
   },
   faultReport(){
@@ -700,25 +930,31 @@ const A = {
       ...((S.faults || []).length ? S.faults.map(f => `  s${Math.floor(f.gw/CAL.W)+1} w${f.wk} ${f.at}: ${f.m}`) : ["  none recorded"])
     ];
     const txt = lines.join("\n");
-    try{ navigator.clipboard.writeText(txt); toast("Problem report copied — paste it to whoever is fixing this", "good"); }
+    try{ navigator.clipboard.writeText(txt); toast("Problem report copied. Paste it to whoever is fixing this.", "good"); }
     catch(e){ const t = $("#faultOut"); if (t){ t.style.display = "block"; t.value = txt; t.focus(); t.select(); toast("Copy the text in the box", "bad"); } }
     return txt;
   },
   tile(id){ if (id === "rest") return A.rest(); if (id === "work") return A.work(); openSheet(id === "train" ? "train" : id); },
   media(k, i){
     const l = MEDIA_LINES[k] && MEDIA_LINES[k][i]; if (!l) return;
-    if (!S.actions || S.energy < MEDIA_COST) return toast("Not enough energy or actions.");
-    S.actions--; S.energy -= MEDIA_COST;
+    const life = typeof lifeMode === "function" && lifeMode();
+    if (life){
+      if (S.today.media || S.energy < MEDIA_COST) return toast(S.today.media ? "You've spoken to the press today." : "Too tired to face the cameras.");
+      S.today.media = 1; S.energy -= MEDIA_COST; dailyPass(30, "idle");
+    } else {
+      if (!S.actions || S.energy < MEDIA_COST) return toast("Not enough energy or actions.");
+      S.actions--; S.energy -= MEDIA_COST;
+    }
     const me = meP(), back = Math.random() < l.risk;
-    // a line that backfires still gets you talked about — it just costs you the dressing room
+    // a line that backfires still gets you talked about; it just costs you the dressing room
     const gain = Math.max(3, Math.round((8 + me.rep*.012)*l.rep*styleMul()*(back ? .6 : 1)));
     me.rep += gain; me.wrep += Math.round(gain*.18);
-    S.trust = clamp(S.trust + (back ? l.trust - 8 : l.trust), -30, 80);
+    trustAdd(back ? l.trust - 8 : l.trust);
     addNews("you", back ? `${S.player.name}'s words go down badly` : `${S.player.name} speaks to the press`,
       `“${l.say}” ${back ? "It has not landed well inside the club." : ""}`.trim(), "me");
     if (typeof socialEvent === "function") try{ socialEvent("media", l.t); }catch(e){}
     closeSheet(); save(); renderHub();
-    toast(back ? `+${fmt(gain)} reputation — but that one stung` : `+${fmt(gain)} reputation`, back ? "bad" : "good");
+    toast(back ? `+${fmt(gain)} reputation, but that one stung` : `+${fmt(gain)} reputation`, back ? "bad" : "good");
   },
   askRaise(p){ askRaise(p); },
   askPos(to){ askPos(to); },
@@ -747,13 +983,13 @@ const A = {
     }
     if (r.did === "local-ahead"){
       cloudRefresh();
-      acctMsg(`The career on this computer (${r.local.apps} matches) is further along than the one on your account (${(r.info.career || {}).apps || 0}). It has been left alone — sync it up to make it the account's copy.`, true);
+      acctMsg(`The career on this computer (${r.local.apps} matches) is further along than the one on your account (${(r.info.career || {}).apps || 0}). It has been left alone. Sync it up to make it the account's copy.`, true);
       return;
     }
     if (r.did === "ask"){
       cloudRefresh();
       confirmBox("There is already a career on this computer",
-        `<b>${esc(r.local.name)}</b> — ${esc(r.local.club)}, ${r.local.apps} match${r.local.apps === 1 ? "" : "es"}, ${playTime(r.local.ms)} played — is saved here and ${r.local.owner ? "belongs to a different account" : "has never been put on an account"}. Replacing it with <b>${esc(r.info.name)}</b> from your account deletes it for good.`,
+        `<b>${esc(r.local.name)}</b> (${esc(r.local.club)}, ${r.local.apps} match${r.local.apps === 1 ? "" : "es"}, ${playTime(r.local.ms)} played) is saved here and ${r.local.owner ? "belongs to a different account" : "has never been put on an account"}. Replacing it with <b>${esc(r.info.name)}</b> from your account deletes it for good.`,
         async () => {
           ONLINE.busy = "Fetching your career"; refreshSheet();
           try{
@@ -791,9 +1027,9 @@ const A = {
         closeSheet(); toast(`${i.name} is ready to play`, "good"); screenTitle();
       }catch(e){ ONLINE.busy = ""; refreshSheet(); acctMsg("Couldn't fetch it. Check your connection and try again."); }
     };
-    // there is a career on this device that is about to be written over — say exactly whose
+    // there is a career on this device that is about to be written over: say exactly whose
     if (local) return confirmBox("Replace the career on this computer?",
-      `<b>${esc(local.name)}</b> — ${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"}, ${playTime(local.ms)} played — will be deleted from this device and replaced with <b>${esc(i.name)}</b> from your account. Anything in it you have not synced is gone for good.`, go);
+      `<b>${esc(local.name)}</b> (${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"}, ${playTime(local.ms)} played) will be deleted from this device and replaced with <b>${esc(i.name)}</b> from your account. Anything in it you have not synced is gone for good.`, go);
     go();
   },
   acctMode(m){ ONLINE.mode = m; ONLINE.err = ""; refreshSheet(); },
@@ -826,7 +1062,7 @@ const A = {
       closeSheet(); toast(`${r.name} is on this computer now`, "good"); screenTitle();
     };
     if (local) return confirmBox("Replace the career on this computer?",
-      `<b>${esc(local.name)}</b> — ${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"} — will be deleted from this device and replaced with <b>${esc(row.name)}</b> from your account.`, go);
+      `<b>${esc(local.name)}</b> (${esc(local.club)}, ${local.apps} match${local.apps === 1 ? "" : "es"}) will be deleted from this device and replaced with <b>${esc(row.name)}</b> from your account.`, go);
     go();
   },
   async syncUp(){
@@ -880,18 +1116,23 @@ const A = {
     const js = jobState(), before = myJob(), m = jobPay();
     S.money += m; S.energy -= 8; S.actions--; js.shifts = (js.shifts || 0) + 1;
     let promo = null;
-    if (!jobIsTop()){ js.xp++; if (js.xp >= jobNeed()) promo = jobMove(1); }
+    if (!jobIsTop()){ js.xp += JOB_XP_PER_SHIFT; if (js.xp >= jobNeed()) promo = jobMove(1); }
     save(); renderHub();
     if (promo) return promoBox(promo, m);
     toast(`${before.job.name} · ${before.rank.name}: +${eur(m)}`);
   },
-  drink(id, inMatch){ if (!S.inv[id]) return; S.inv[id]--; const g = Math.round((id === "max" ? 60 : 30)*energyMult()); S.energy = Math.min(100, S.energy + g); save(); if (inMatch) return updateMatchHUD(); renderHub(); toast(`+${g} energy`); },
+  // a drink from your stock (the hub, half time): what it does is what consume() says, the same as from a fridge
+  drink(id, inMatch){
+    const r = consume(id);
+    if (!r.ok){ if (inMatch) return updateMatchHUD(); return toast(r.why); }
+    save(); if (inMatch) return updateMatchHUD(); renderHub(); toast(`${r.item.name} · Energy ${fmtSigned(r.gain)}`);
+  },
   up(k){ const c = skillCost(S.skills[k]); if (S.sp < c || S.skills[k] >= 99) return; S.sp -= c; S.skills[k]++; meP().ovr = overall(); save(); refreshSheet(); renderHub(); },
   buy(id){
     const it = SHOP.find(x => x.id === id); if (S.money < it.price) return;
     S.money -= it.price;
     if (it.stack) S.inv[id] = (S.inv[id] || 0) + 1;
-    else if (id === "smartphone"){ S.phone = "smart"; addNews("you", "New phone!", "The Branyfon S1 is yours. Open the Branystore to get apps.", "me"); toast("Smartphone unlocked — pull up your phone!", "gold"); }
+    else if (id === "smartphone"){ S.phone = "smart"; addNews("you", "New phone!", "The Branyfon S1 is yours. Open the Branystore to get apps.", "me"); toast("Smartphone unlocked. Pull up your phone!", "gold"); }
     else S.items[id] = true;
     if (!it.stack){ S.purchases.push({id, name:it.name, gw:gw()}); socialEvent("purchase", it.name); }
     save(); refreshSheet(); renderHub(); if (!it.stack && id !== "smartphone") toast(`Bought: ${it.name}`, "good");
@@ -916,7 +1157,7 @@ const A = {
     if (!item || ownsCloth(id) || !shopOpen(shop) || S.money < item.p) return;
     S.money -= item.p; (S.wardrobe || (S.wardrobe = [])).push(id);
     const per = CLOTHES_TIER[shop.tier].per*100;
-    toast(`${item.n} — looking sharp. +${per.toFixed(2)}% reputation and followers`, "good");
+    toast(`${item.n}. Looking sharp. +${per.toFixed(2)}% reputation and followers`, "good");
     socialEvent("purchase", item.n);
     save(); refreshSheet(); renderHub();
   },
@@ -928,9 +1169,9 @@ const A = {
       const code = await makeCode();
       const box = $("#saveCode"); if (box){ box.value = code; box.select && box.select(); }
       const ok = await copyText(code);
-      toast(ok ? `Save code copied — ${Math.round(code.length/1024)} KB. Paste it on the other device.` : "Code ready below — select it all and copy.", ok ? "good" : "");
+      toast(ok ? `Save code copied (${Math.round(code.length/1024)} KB). Paste it on the other device.` : "Code ready below. Select it all and copy.", ok ? "good" : "");
     }catch(e){ toast("Couldn't build the code."); }
-    if (btn){ btn.disabled = false; btn.textContent = "💾 Save game — copy code"; }
+    if (btn){ btn.disabled = false; btn.textContent = `💾 ${SAVE_CODE_LABEL}`; }
   },
   async importSave(slot){
     const box = $("#impCode2") || $("#impCode0"), txt = box ? box.value : "";
@@ -954,7 +1195,7 @@ const A = {
   quit(){ saveNow(); closeSheet(); closePhone(); screenTitle(); },
   fullscreen(){
     const d = document;
-    if (!d.fullscreenElement){ const el = d.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => Promise.reject())).call(el).catch(() => toast("Your browser blocked full screen — press F11.")); }
+    if (!d.fullscreenElement){ const el = d.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => Promise.reject())).call(el).catch(() => toast("Your browser blocked full screen. Press F11.")); }
     else (d.exitFullscreen || d.webkitExitFullscreen).call(d);
   }
 };

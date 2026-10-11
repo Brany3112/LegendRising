@@ -15,6 +15,15 @@ function meP(){ return W.players[S.meId]; }
 function myClub(){ const p = meP(); return p && p.club >= 0 ? W.clubs[p.club] : null; }
 // between clubs you still have a career — everything that asks which league you are in has to cope
 function myLg(){ const c = myClub(); return c ? c.lg : null; }
+// a club's name as a page prints it: a player between clubs (club -1) is a free agent
+const FREE_AGENT = "Free agent";
+function clubLabel(id){ const c = id >= 0 && W ? W.clubs[id] : null; return c ? c.nm : FREE_AGENT; }
+// the league a page shows as yours: your club's, or, between clubs, the bottom division at home, where every career starts
+function shownLg(){
+  const c = myClub(); if (c) return c.lg;
+  const home = Object.values(W.leagues).filter(l => l.cc === "ROU").sort((a, b) => b.t - a.t || a.id.localeCompare(b.id))[0];
+  return (home || Object.values(W.leagues)[0]).id;
+}
 function gw(){ return (W.season-1)*CAL.W + S.week; }
 function monthName(w){ return CAL.MONTHS[Math.min(9, Math.floor(w/4))]; }
 function calYear(w){ return S.year + (Math.floor(w/4) >= 5 ? 1 : 0); }
@@ -97,7 +106,8 @@ function lineup(cid){
   let sq = squadOf(cid).filter(p => !p.inj);
   if (sq.length < 12) sq = squadOf(cid);           // injury crisis: the walking wounded have to play
   const used = new Set(), xi = [];
-  for (const [k, n] of FORMATION){
+  const shape = typeof formationLinesOf === "function" ? formationLinesOf(club(cid)) : FORMATION;   // the club's own shape (positions.js)
+  for (const [k, n] of shape){
     sq.filter(p => lineOf(p) === k && !used.has(p.id)).sort((a, b) => b.ovr - a.ovr).slice(0, n)
       .forEach(p => { used.add(p.id); xi.push(p); });
   }
@@ -360,7 +370,7 @@ function advanceWorldWeek(){
       el.ko.qf = [[elTop[0], dropped[3]], [elTop[1], dropped[2]], [elTop[2], dropped[1]], [elTop[3], dropped[0]]]
         .filter(p => p[0] != null && p[1] != null);
       for (const cid of dropped) addNews("world", `${W.clubs[cid].nm} drop into the ${CONT.EL}`,
-        `Bottom half of the ${CONT.CL} group phase — their European run carries on in the ${CONT.EL} knockout.`);
+        `Bottom half of the ${CONT.CL} group phase. Their European run carries on in the ${CONT.EL} knockout.`);
     }
   }
   if (w === CAL.KO.qf) for (const c of Object.values(W.comps)){ const r = (c.ko.qfR || []).sort((a,b) => a.i-b.i).map(x => x.win); if (r.length === 4) c.ko.sf = [[r[0],r[3]],[r[1],r[2]]]; }
@@ -423,7 +433,7 @@ function monthAwards(w){
     for (const cid of lg.clubs) for (const p of squadOf(cid)) if (p.m.ap >= 2){ const s = p.m.g*3 + p.m.a*2 + (p.m.rs/p.m.ap - 6.5)*4; if (s > bs){ bs = s; best = p; } }
     if (!best) continue;
     W.awards.potm[lg.id] = best.id; best.rep += Math.round(20 + W.clubs[best.club].rep*.01);
-    if (best.me) myAward(`Player of the Month (${monthName(w)}) — ${lg.nm}`, 60);
+    if (best.me) myAward(`Player of the Month (${monthName(w)}): ${lg.nm}`, 60);
     else if (lg.id === mine) addNews("award", `${pname(best)} is ${lg.nm} Player of the Month`, `${best.m.g} goals, ${best.m.a} assists in ${monthName(w)} for ${W.clubs[best.club].nm}.`, best.id === S.rivalId ? "rival" : "");
   }
   for (const p of W.players) if (p) p.m = zst();

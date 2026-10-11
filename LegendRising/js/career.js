@@ -1,6 +1,9 @@
 "use strict";
-/* ============ CAREER ============ */
-const KEY = "freyaFootball.v2";                       // the original single save — migrated into slot 1
+/* ============ CAREER ============
+   Owner: WP-G (Stage 1). Contracts: DESIGN 1.4.19 (careerShell(), applyCreation(cr), effSkill(k) and effSkills(),
+   the smooth energyFactor()), 1.7 (save gating while S.flags.CharacterCreated === false; the migrations of resume()),
+   1.3 (trust changes only through trustAdd). */
+const KEY = "freyaFootball.v2";                       // the original single save, migrated into slot 1
 const SLOTS = 1;                                      // one career per account
 const OLD_SLOTS = 3;                                  // how many there used to be, for the tidy-up below
 let SLOT = 1;
@@ -18,7 +21,8 @@ function metaFromSave(n){
     const raw = localStorage.getItem(slotKey(n)); if (!raw) return null;
     const d = deserial(raw); if (!d || !d.player) return null;
     const me = d.W.players[d.meId], c = me && me.club >= 0 ? d.W.clubs[me.club] : null;
-    const sk = d.skills || {}, ovr = Math.round(SKILLS.reduce((a, [k]) => a + (sk[k] || 0), 0)/SKILLS.length);
+    const sk = d.skills || {}, have = SKILLS.filter(([k]) => typeof sk[k] === "number");
+    const ovr = have.length ? Math.round(have.reduce((a, [k]) => a + sk[k], 0)/have.length) : 0;
     const cm = d.careerMy || {apps:0, goals:0, assists:0};
     return {name:d.player.name, club:c ? c.nm : "Free agent", lg:c ? (d.W.leagues[c.lg] || {}).nm || "" : "",
       season:d.W.season, seasons:(d.W.season - (d.startSeason || d.W.season)) + 1, week:d.week,
@@ -81,7 +85,7 @@ function packP(p){ if (!p) return 0; return [p.fn, p.ln, NATS.indexOf(p.nat), PP
 function unpackP(a, id){ if (!a) return null; const p = {id, fn:a[0], ln:a[1], nat:NATS[a[2]], pos:PPOS[a[3]], age:a[4], ovr:a[5], pot:a[6], rep:a[7], wrep:a[8], club:a[9], loan:a[10], inj:a[11],
   st:un5(a.slice(12,17)), m:un5(a.slice(17,22)), ct:un5(a.slice(22,27)), nt:{caps:a[27], g:a[28], a:a[45] || 0}, cr:{ap:a[29], g:a[30], a:a[31], mo:a[32]}, tro:a[33], fol:a[34], per:a[35], ls:{g:a[37], a:a[38], ap:a[39]}, el:a.length > 40 ? un5(a.slice(40,45)) : {ap:0,g:0,a:0,mo:0,rs:0}, cu:a.length > 46 ? un5(a.slice(46,51)) : {ap:0,g:0,a:0,mo:0,rs:0}};
   if (a[36]) p.me = true; return p; }
-/* The packed squad is three quarters zeros — every player carries season, month, cup and career
+/* The packed squad is three quarters zeros: every player carries season, month, cup and career
    columns he has not filled in yet. Writing those as one run instead of "0,0,0,0,…" is lossless and
    takes the save from 2.3 MB to well under half that, which matters because a browser only gives the
    whole game about 5 MB and three careers have to fit in it. */
@@ -124,12 +128,15 @@ function deserial(txt){
   if (d.P){ d.S.W.players = d.P.map(unpackP); return d.S; }        // a save from before the squad was packed down
   return d;
 }
-// saving the whole world is ~1 MB, so clicks only schedule a save; it's written once things go quiet
+/* saving the whole world is ~1 MB, so clicks only schedule a save; it's written once things go quiet. A career that
+   is still being made (the intro and the creation screen, S.flags.CharacterCreated === false) is never saved: a
+   reload there starts a fresh New Game (DESIGN 1.7) */
 let SAVE_T = null;
-function save(){ clearTimeout(SAVE_T); SAVE_T = setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(saveNow, {timeout:2000}); else saveNow(); }, 800); return true; }
+const saveGated = () => !!(S && S.flags && S.flags.CharacterCreated === false);
+function save(){ if (saveGated()) return false; clearTimeout(SAVE_T); SAVE_T = setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(saveNow, {timeout:2000}); else saveNow(); }, 800); return true; }
 addEventListener("pagehide", () => { if (SAVE_T) saveNow(); });
 document.addEventListener("visibilitychange", () => { if (document.hidden && SAVE_T) saveNow(); });
-function saveNow(){ clearTimeout(SAVE_T); SAVE_T = null; if (!S) return false; try{ localStorage.setItem(slotKey(SLOT), serial()); writeMeta(SLOT); return true; }catch(e){ console.warn("save failed", e); if (e && e.name === "QuotaExceededError") toast("Browser storage is full. Delete a career you are not using, or sync this one to the leaderboard first.", "bad"); return false; } }
+function saveNow(){ clearTimeout(SAVE_T); SAVE_T = null; if (!S || saveGated()) return false; try{ localStorage.setItem(slotKey(SLOT), serial()); writeMeta(SLOT); return true; }catch(e){ console.warn("save failed", e); if (e && e.name === "QuotaExceededError") toast("Browser storage is full. Delete a career you are not using, or sync this one to the leaderboard first.", "bad"); return false; } }
 function load(n){ try{ const r = localStorage.getItem(slotKey(n || SLOT)); return r ? deserial(r) : null; }catch(e){ console.warn(e); return null; } }
 // Clubs and leagues are built in a fixed order, so a career started before a renaming
 // can be brought up to date by index without disturbing anything else.
@@ -167,27 +174,87 @@ function resume(data){
   if (S.skillsBase){ S.skills = S.skillsBase; delete S.skillsBase; }
   if (S.skills.composure == null) S.skills.composure = 28;
   if (S.skills.tackling == null) S.skills.tackling = 24;      // careers made before defending existed
+  // Pace split into Acceleration and Sprint Speed (addendum A1.1): both start at the old pace, nudged by position
+  if (S.skills.pace != null && S.skills.acceleration == null){
+    const p = S.skills.pace, pos = S.player.pos, slot = S.player.slot || S.player.teamPos || "";
+    const n = pos === "W" || /^(LB|RB|LWB|RWB)$/.test(slot) ? 1 : pos === "ST" || (pos === "DF" && !/^(LB|RB|LWB|RWB)$/.test(slot)) ? -1 : 0;
+    S.skills.acceleration = clamp(Math.round(p + 3*n), 1, 99); S.skills.sprintSpeed = clamp(Math.round(p - 3*n), 1, 99);
+    S.skillXp.acceleration = S.skillXp.pace || 0; S.skillXp.sprintSpeed = S.skillXp.pace || 0;
+    delete S.skills.pace; delete S.skillXp.pace;
+  }
   if (S.ban == null) S.ban = 0;
   if (!S.cards) S.cards = {y:0, r:0, run:0};
-  // a milestone for nought of something was never earned — clear any that were handed out
+  // a milestone for nought of something was never earned: clear any that were handed out
   if (S.miles){ for (const k of Object.keys(S.miles)) if (/:0$/.test(k)) delete S.miles[k]; }
   if (S.awards) S.awards = S.awards.filter(a => !/^0 /.test(a.name || ""));
   if (!S.workrate) S.workrate = 2;
-  if (S.tutDone == null) S.tutDone = true;
+  // the dream tutorial is gone (DESIGN D24): every career has done it, and nothing replays it
+  S.tutDone = true; delete S.replay;
+  // careers from before the first-day introduction have long since found their way about
+  if (!S.flags || typeof S.flags !== "object") S.flags = {CharacterCreated:true, FirstTimeIntroductionCompleted:true, ApartmentTutorialCompleted:true, GameplayTutorialCompleted:true, TrainingCenterTutorialCompleted:true};
+  if (S.flags.CharacterCreated == null) S.flags.CharacterCreated = true;       // (a save is a career that was made)
+  if (!S.onb || typeof S.onb !== "object") S.onb = {stage:S.flags.TrainingCenterTutorialCompleted ? "done" : "intro"};
+  textMigrate();                    // words saved by older builds, in the punctuation the game uses now
+  homeBallMigrate();
+  assignTeamPos();                  // your preferred and team positions (saves from before there were seventeen)
   indexSquads();
+  dailyEnsure();                    // the daily-life fields (and S.player.owned, S.home), new skills for older careers
+  // the first day's progress in the step runner's terms (DESIGN 3.7.7, ui/main.js): every way a career is loaded
+  // (Continue, the city, an import, a cloud restore) comes through here
+  if (typeof onbMigrate === "function") onbMigrate();
 }
-/* ---------- match-day skills: crowd nerves (composure) and the dream ---------- */
+/* text a career saved before the no-dash rule (DESIGN 1.7), through util.js undash: an award or a headline's spaced
+   dash becomes a colon, a sentence's a full stop (and the next word a capital), and a lone dash standing for "nothing"
+   the empty-cell mark. Step 2 (S.textV = 2): awards, news, the history's cells. Step 3: the messages and the Showoff
+   notes, which older builds also wrote with dashes */
+function textMigrate(){
+  const v = num(S.textV, 0);
+  if (v >= 3) return;
+  if (v < 2){
+    for (const a of S.awards || []) if (a) a.name = undash(a.name, ": ");
+    for (const n of S.news || []) if (n){ n.title = undash(n.title, ": "); n.body = undash(n.body, ". "); }
+    for (const h of S.history || []) if (h){ for (const k of ["lg", "avg", "club"]) if (typeof h[k] === "string" && h[k].trim() === EM_DASH) h[k] = EMPTY_CELL; }
+  }
+  for (const m of S.msgs || []) if (m) m.text = undash(m.text, ". ");
+  if (S.social && Array.isArray(S.social.notes)) S.social.notes = S.social.notes.map(t => undash(t, ". "));
+  S.textV = 3;
+}
+/* the football that came in through your window on the first morning is a real thing now (inv.js item "ball"). A
+   career past the intro that has none lying about gets it where the old prop lay; the home zone puts it there the next
+   time it is built (S.home.ballPending, home.js), since only it knows where that is (DESIGN 1.7) */
+function homeBallMigrate(){
+  const h = S.home; if (!h || h.ballGiven) return;
+  const past = !!(S.flags && S.flags.FirstTimeIntroductionCompleted) || !!(h.win && h.win.state && h.win.state !== "ok");
+  const has = (S.drops || []).some(d => d && d.item && d.item.id === "ball") || [S.carry && S.carry.hand].concat((S.carry && S.carry.slots) || []).some(it => it && it.id === "ball");
+  if (has) h.ballGiven = true;
+  else if (past) h.ballPending = true;
+}
+/* ---------- match-day skills: crowd nerves (composure) and tired legs ----------
+   Read, never written (DESIGN D8): effSkill(k) is S.skills[k] less what the day takes off it, S.skills itself stays
+   as it is, so a skill point earned during a match is kept. */
 // big crowds only: under ~8,000 there's no pressure; it grows up to full pressure around 68,000
 function crowdPressure(crowd){ return clamp((crowd - 8000)/60000, 0, 1); }
 function nervesFor(crowd){ return +(crowdPressure(crowd)*(1 - S.skills.composure/100)*.35).toFixed(3); }
-function matchSkillsOn(nerves, dream){
-  if (S.skillsBase) return;
-  S.skillsBase = Object.assign({}, S.skills);
-  for (const [k] of SKILLS){ if (dream) S.skills[k] = 99; else if (k !== "composure") S.skills[k] = Math.max(5, Math.round(S.skills[k]*(1 - nerves))); }
+const NERVES_CAP = .45;
+// what the match takes off today (MT.nerves from the crowd, MT.tired from tired legs), at most NERVES_CAP
+function skillHit(){ const m = typeof MT !== "undefined" && MT ? MT : null; return m ? clamp(num(m.nerves, 0) + num(m.tired, 0), 0, NERVES_CAP) : 0; }
+function effSkill(k){
+  const v = S && S.skills ? num(S.skills[k], 0) : 0;
+  if (k === "composure") return v;
+  const hit = skillHit();
+  return hit > 0 ? Math.max(5, Math.round(v*(1 - hit))) : v;
 }
-function matchSkillsOff(){ if (S.skillsBase){ S.skills = S.skillsBase; delete S.skillsBase; } }
+function effSkills(){ const out = {}; for (const [k] of SKILLS) out[k] = effSkill(k); return out; }
 const blankMy = () => ({apps:0, goals:0, assists:0, longGoals:0, fkGoals:0, curlGoals:0, penGoals:0, dribbles:0, spass:0, lpass:0, passAtt:0, shots:0, onTarget:0, lost:0, motm:0, ratingSum:0, wins:0});
-function overall(){ return Math.round(SKILLS.reduce((a,[k]) => a + S.skills[k], 0)/SKILLS.length); }
+// the rating: the mean of the skills, with acceleration and sprint speed counted as one (the old Pace they were split
+// from, addendum A1.1), so an old save's overall is the same after the split and pace is not weighed twice
+const PACE_PAIR = ["acceleration", "sprintSpeed"];
+function overall(){
+  let sum = 0, n = 0;
+  for (const [k] of SKILLS){ if (!PACE_PAIR.includes(k)){ sum += num(S.skills[k], 0); n++; } }
+  sum += (num(S.skills.acceleration, 0) + num(S.skills.sprintSpeed, 0))/2; n++;
+  return Math.round(sum/n);
+}
 function xpNeed(){ return 90 + S.level*35; }
 
 /* ---------- moving a career between devices ----------
@@ -245,7 +312,7 @@ async function applyCode(text, slot){
 function jobState(){
   const s = S.job || (S.job = {j:0, r:0, xp:0, shifts:0});
   // the id is what the save really means; the index is looked up from it, so a job inserted into the
-  // middle of the ladder moves nobody. Saves from the five-job ladder carry no id — read those by the old order.
+  // middle of the ladder moves nobody. Saves from the five-job ladder carry no id: read those by the old order.
   if (!s.id) s.id = JOB_LEGACY[s.j] || JOBS[0].id;
   const i = JOBS.findIndex(j => j.id === s.id);
   s.j = i < 0 ? 0 : i;
@@ -256,7 +323,7 @@ function jobSync(s){ s.id = JOBS[clamp(s.j, 0, JOBS.length - 1)].id; return s; }
 function myJob(){ const s = jobState(); return jobAt(s.j, s.r); }
 function jobLabel(){ const {job, rank} = myJob(); return `${job.name} · ${rank.name}`; }
 function jobPay(){ const {rank} = myJob(); return ri(rank.pay[0], rank.pay[1]); }
-function jobNeed(){ return myJob().rank.need; }
+function jobNeed(){ return myJob().rank.need*JOB_XP_PER_SHIFT; }     // experience points to the next rank
 function jobStage(){ const s = jobState(); return s.j*3 + s.r; }          // 0…14, one number for the whole ladder
 function jobIsTop(){ const s = jobState(); return s.j >= JOBS.length - 1 && s.r >= 2; }
 // moves you one position up the ladder (rolling over into the next job), or down. Returns the pay before and after.
@@ -288,21 +355,39 @@ function shopOpen(sh){ return shopRep() >= sh.rep; }
 function clothesOwned(){ return (S.wardrobe || []).length; }
 /* ----------each skill earns its own experience from what you actually do ---------- */
 function skillNeed(k){ return Math.round(45 + S.skills[k]*13); }   // higher skills take longer to grow
+function skillName(k){ return (SKILLS.find(s => s[0] === k) || [0, String(k)])[1]; }
 function skillXP(k, x){
   if (!S.skillXp) S.skillXp = {};
+  if (typeof S.skills[k] !== "number" || !isFinite(x)) return;
   if (S.skills[k] >= 99){ S.skillXp[k] = 0; return; }
   S.skillXp[k] = (S.skillXp[k] || 0) + x;
   while (S.skills[k] < 99 && S.skillXp[k] >= skillNeed(k)){
     S.skillXp[k] -= skillNeed(k); S.skills[k]++;
-    const nm = (SKILLS.find(s => s[0] === k) || [0, k])[1];
-    toast(`${nm} up! Now ${S.skills[k]} — from playing.`, "good");
+    const me = W && W.players ? meP() : null; if (me) me.ovr = overall();
+    notifySkillUp(k);
   }
 }
-function addXP(x){ S.xp += Math.round(x); while (S.xp >= xpNeed()){ S.xp -= xpNeed(); S.level++; S.sp += 4; toast(`Level ${S.level}! 4 skill points to spend.`, "good"); } }
+// in the first-person world a skill going up is a moment of its own; anywhere else it is a toast
+function notifySkillUp(k){
+  const nm = skillName(k);
+  if (typeof FEED === "object" && FEED.live()) FEED.center("Skill point earned", `+1 ${nm} · now ${S.skills[k]}`, {kind:"skill", icon:"▲"});
+  else toast(`${nm} up! Now ${S.skills[k]}.`, "good");
+}
+function addXP(x){
+  if (!isFinite(x)) return;
+  S.xpF = (S.xpF || 0) + x;                     // fractions add up instead of being rounded away
+  const whole = Math.floor(S.xpF); S.xpF -= whole; S.xp += whole;
+  while (S.xp >= xpNeed()){
+    S.xp -= xpNeed(); S.level++; S.sp += 4;
+    if (typeof FEED === "object" && FEED.live()) FEED.center(`Level ${S.level}`, "+4 skill points to spend · open the stats computer", {kind:"level", icon:"★"});
+    else toast(`Level ${S.level}! 4 skill points to spend.`, "good");
+  }
+}
 function skillCost(v){ return v < 50 ? 1 : v < 75 ? 2 : 3; }
 // how fast energy burns: stamina 24 -> x1.32, 50 -> x1.03, 75 -> x0.74, 99 -> x0.46 (nutritionist: 20% less)
-function staminaF(){ return (1.6 - 1.15*S.skills.stamina/100)*(S.staff.nutri ? .8 : 1); }
-function energyFactor(){ return S.energy >= 45 ? 1 : .55 + .45*S.energy/45; }
+function staminaF(){ return (1.6 - 1.15*effSkill("stamina")/100)*(S.staff.nutri ? .8 : 1)*(typeof MT !== "undefined" && MT && typeof fatigueDrain === "function" ? fatigueDrain() : 1); }
+// how much the tank has left: full strength from 60 energy, easing down to 60% at empty with no cliff on the way
+function energyFactor(){ const t = clamp(num(S.energy, 0)/60, 0, 1); return .6 + .4*t*t*(3 - 2*t); }
 function avgRating(l){ return l.length ? l.reduce((a,b) => a+b, 0)/l.length : 0; }
 function recentAvg(){ return avgRating(S.ratings.slice(-6)) || 6.3; }
 function currentRole(){ return S.trust >= 40 ? "starter" : S.trust >= 12 ? "rotation" : "sub"; }
@@ -312,7 +397,8 @@ function carTier(){ return S.items.sports ? 3 : S.items.suv ? 2 : S.items.car ? 
 function energyMult(){ return [1, 1.15, 1.3, 1.5][homeTier()]; }
 function weeklyRecovery(){ return 22 + [0,5,10,15][homeTier()] + (S.items.physio ? 10 : 0); }
 function weeklyActions(){ return 3 + (carTier() ? 1 : 0); }
-function staffCost(){ let c = 0; for (const s of STAFF) if (S.staff[s.id]) c += s.pct ? S.contract.wage*s.pct : s.weekly; return Math.round(c); }
+// a share of the wage costs nothing while there is no contract (a released player who kept his agent)
+function staffCost(){ let c = 0; const wage = S.contract ? num(S.contract.wage, 0) : 0; for (const s of STAFF) if (S.staff && S.staff[s.id]) c += s.pct ? wage*s.pct : s.weekly; return Math.round(c); }
 function hotness(){ return clamp((recentAvg() - 6.2)*.6 + S.seasonMy.goals*.03 + S.seasonMy.assists*.02, 0, 1.5); }
 
 /* ---------- news ---------- */
@@ -330,33 +416,78 @@ function newsFromMatch(res){
   const relevant = (f.kind === "L" && f.lg === mineLg) || f.kind === "E" || f.kind === "N";
   if (!relevant) return;
   const hn = sideName(f, "h"), an = sideName(f, "a"), score = `${res.hg}–${res.ag}`;
-  const counts = {}; for (const e of [...res.hG, ...res.aG]) counts[e.s] = (counts[e.s] || 0) + 1;
+  // an own goal credits s = -1 (bridge goal lists, DESIGN 1.4.16): only real players get a headline
+  const counts = {}; for (const e of [...res.hG, ...res.aG]) if (W.players[e.s]) counts[e.s] = (counts[e.s] || 0) + 1;
   for (const [pid, n] of Object.entries(counts)){
     const p = W.players[pid]; if (p.me) continue;
     if (n >= 3) addNews("league", `Hat-trick for ${pname(p)}!`, `${n} goals as ${hn} ${score} ${an}.`, +pid === S.rivalId ? "rival" : "");
     else if (n === 2 && (+pid === S.rivalId || f.kind !== "L")) addNews(+pid === S.rivalId ? "rival" : "league", `${pname(p)} scores twice`, `${hn} ${score} ${an}.`, +pid === S.rivalId ? "rival" : "");
   }
   const m = W.players[res.motm];
-  if (f.kind === "L" && !m.me && Math.random() < .35 && !(f.h === meP().club || f.a === meP().club)) addNews("league", `${hn} ${score} ${an}`, `Man of the match: ${pname(m)} (${res.rt[m.id]}).`, m.id === S.rivalId ? "rival" : "");
+  if (f.kind === "L" && m && !m.me && Math.random() < .35 && !(f.h === meP().club || f.a === meP().club)) addNews("league", `${hn} ${score} ${an}`, `Man of the match: ${pname(m)} (${res.rt[m.id]}).`, m.id === S.rivalId ? "rival" : "");
   if (f.kind === "L" && Math.abs(res.hg - res.ag) >= 4) addNews("league", `Thrashing: ${hn} ${score} ${an}`, "A result nobody saw coming.");
   const rv = W.players[S.rivalId];
   if (rv && (rv.club === f.h || rv.club === f.a) && res.rt[rv.id] != null && !counts[rv.id] && res.rt[rv.id] < 5.8) addNews("rival", `Tough day for ${pname(rv)}`, `Rated ${res.rt[rv.id]} in ${hn} ${score} ${an}.`, "rival");
 }
 
-/* ---------- new career ---------- */
-function newCareer(cr){
-  const skills = {}; SKILLS.forEach(([k]) => skills[k] = 24 + (POS[cr.pos].bonus[k] || 0) + cr.alloc[k]);
-  S = {v:2, cid:"c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), player:{name:cr.name, number:cr.number, pos:cr.pos, foot:cr.foot, nat:cr.nat, age:17}, skills, sp:0, xp:0, level:1,
-    energy:100, money:100, workrate:2, tutDone:false, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0}, inv:{drink:2, max:0}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
+/* ---------- new career (DESIGN 3.7.1, 3.7.2, 1.4.19) ----------
+   A new career is made in two steps, so the city can be up (and the intro running) before you have said who you are:
+   careerShell() builds everything that does not depend on you: the football world, the first morning's clock (day 1,
+   8:00 AM, a Monday), your flat (ensureHome, when the 3D world is loaded) and a placeholder look, with
+   S.flags.CharacterCreated = false, so nothing is saved and no body is drawn for you yet. applyCreation(cr) then does
+   everything that does: your skills, your player in the world, the look, the cut and colour you own, the three clubs
+   that want you, your uncle's and the landlord's letters, and CharacterCreated = true; then it saves.
+   newCareer(cr) is both at once, for the path without the intro (the hub, scripts and tests). */
+const CAREER_START = {day:1, min:8*60, wd:0};
+function careerShell(o = {}){
+  const seed = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const skills = {}; SKILLS.forEach(([k]) => skills[k] = 24);
+  S = {v:2, cid:"c" + seed, player:{name:"", number:9, pos:"ST", pref:"ST", teamPos:"ST", foot:"Right", nat:"RO", age:17, look:lookDefault("p:" + seed)}, skills, sp:0, xp:0, level:1,
+    energy:85, fatigue:10, chem:0, money:100, workrate:2, tutDone:true, skillXp:{}, wardrobe:[], playMs:0, startSeason:0, job:{id:"cafe", j:0, r:0, xp:0, shifts:0, v2:true},
+    inv:{drink:2, max:0, sandwich:3, meal:2, fruit:3, water:4, pasta:1}, items:{}, staff:{}, phone:"keypad", apps:[], year:2026, week:0,
     contract:null, trust:0, raise:null, ban:0, cards:{y:0, r:0, run:0}, seasonMy:blankMy(), careerMy:blankMy(), ratings:[], awards:[], trophies:[], news:[], msgs:[], requests:[],
-    locks:{}, pendingMove:null, actions:3, weekDone:{}, history:[], meId:-1, rivalId:-1, offerSet:null, social:null, purchases:[], speed:2, lastMatch:null, promiseLog:[]};
+    locks:{}, pendingMove:null, actions:3, weekDone:{}, history:[], meId:-1, rivalId:-1, offerSet:null, social:null, purchases:[], speed:2, lastMatch:null, promiseLog:[],
+    textV:3, life:Object.assign({}, CAREER_START),
+    // the first day, one step at a time (firstday.js); each flag is kept the moment it is done
+    flags:{CharacterCreated:false, FirstTimeIntroductionCompleted:false, ApartmentTutorialCompleted:false, GameplayTutorialCompleted:false, TrainingCenterTutorialCompleted:false},
+    onb:{v:2, step:"intro", seen:{}}};
   genWorld();
+  S.startSeason = W.season;
+  dailyEnsure();
+  if (o.home !== false && typeof window !== "undefined" && typeof window.lifeEnsureHome === "function") window.lifeEnsureHome();
+  return S;
+}
+function applyCreation(cr){
+  if (!S) careerShell();
+  // where you want to play (one of the seventeen in positions.js); the archetype a match plays you as follows from it
+  cr.pref = posOrArch(cr.pref || cr.pos); if (!POSITIONS[cr.pref] || cr.pref === "GK") cr.pref = POSITIONS[cr.pref] ? "CB" : "ST";
+  cr.pos = archOf(cr.pref);
+  const alloc = cr.alloc || {};
+  S.skills = {}; SKILLS.forEach(([k]) => S.skills[k] = 24 + (POS[cr.pos].bonus[k] || 0) + num(alloc[k], 0));
+  // how you look: what the creation screen showed you; without that screen (file://, scripts) a default of your own
+  // from your name and nationality
+  const look = lookSane(cr.look, cr.look ? S.cid : "p:" + (cr.name || "") + ":" + (cr.nat || ""));
+  Object.assign(S.player, {name:cr.name, number:cr.number, pos:cr.pos, pref:cr.pref, teamPos:cr.pref, foot:cr.foot, nat:cr.nat, age:17, look});
+  // the cut and the colour you chose are the ones you own; a clean shave, stubble and the beard you chose come free
+  S.player.owned = {hair:[look.hair], beard:[...new Set([look.beard, "", "stubble"])], hairColor:[look.hairColor]};
   // you join the world as a player with no club yet
-  const me = newPlayer(cr.nat, MY_POS[cr.pos], 17, overall(), -1);
+  const me = newPlayer(cr.nat, POSITIONS[cr.pref].world, 17, overall(), -1);
   me.me = true; me.rep = 4; me.wrep = 0; me.fol = 0; S.meId = me.id;
+  S.flags.CharacterCreated = true;
+  dailyEnsure();
   const starts = shuffle(W.clubs.filter(c => c.cc === "ROU" && c.t === 4)).slice(0, 3);
   S.offerSet = {ctx:"start", list:starts.map(c => baseOffer(c, true))};
-  S.startSeason = W.season; startPlayClock();
+  // the flat has been waiting for you: your uncle's welcome and the landlord's terms, now there is a name to write to
+  if (typeof window !== "undefined" && typeof window.lifeWelcomeLetters === "function") window.lifeWelcomeLetters();
+  startPlayClock();
+  save();
+  return S;
+}
+// the whole career at once (no intro): the shell, then you. The first day's introduction as this build runs it
+function newCareer(cr){
+  careerShell({home:false});
+  S.onb = {stage:"intro"}; S.life.min = 7*60;
+  return applyCreation(cr);
 }
 function pickRival(){
   const me = meP(), lg = W.leagues[myLg()];
@@ -393,9 +524,13 @@ function joinClub(o){
   me.club = c.id; me.loan = o.loan ? (old >= 0 ? old : -1) : -1;
   S.raise = null;                                   // a new deal wipes any rise agreed with the last manager
   S.contract = Object.assign({}, o, {start:gw(), startSnap:snapMy(), deadline:o.promised ? gw() + Math.round(o.years*CAL.W/2) : gw() + o.years*CAL.W});
-  S.trust = trustFor(o.role); S.money += o.sign || 0;
+  trustAdd(trustFor(o.role) - S.trust); S.money += o.sign || 0;     // a new manager starts from the role he signed you for
+  if (old !== c.id) S.chem = 18;                    // a new dressing room: you start again with these lads
+  if (S.today){ S.today.chem0 = S.chem; S.today.trust0 = S.trust; }   // signing is not something the day summary should count
   S.requests = S.requests.filter(r => r.club !== c.id);
   S.msgs.forEach(m => { if (m.offer && m.offer.club === c.id) m.done = true; });
+  if (old !== c.id) delete S.player.asked;          // a new manager fits you into his own shape
+  assignTeamPos();
   indexSquads();
   addNews("you", `${S.player.name} signs for ${c.nm}${o.loan ? " on loan" : ""}`, contractText(o), "me");
   if (S.rivalId < 0) pickRival();
@@ -411,7 +546,7 @@ const REQ_LABEL = {goals:"Goals", assists:"Assists", dribbles:"Successful dribbl
 // ask a transfer: the player's move happens now if the window is open, otherwise at the next window
 function agreeMove(o){
   if (windowAt(S.week).open || o.renewal){ joinClub(o); toast(`Signed for ${W.clubs[o.club].nm}!`, "good"); }
-  else { S.pendingMove = o; addNews("you", `Deal agreed with ${W.clubs[o.club].nm}`, `You'll join when the ${windowAt(S.week).next.toLowerCase()} opens.`, "me"); toast("Deal agreed — you move when the window opens.", "good"); }
+  else { S.pendingMove = o; addNews("you", `Deal agreed with ${W.clubs[o.club].nm}`, `You'll join when the ${windowAt(S.week).next.toLowerCase()} opens.`, "me"); toast("Deal agreed. You move when the window opens.", "good"); }
 }
 
 /* ---------- negotiation (smartphone) ---------- */
@@ -450,7 +585,7 @@ function evaluateAsk(n){
   } else if (r <= 1.05*awardsF){
     status = "ok"; msg = r < .9 ? "That works for us. Here's what we expect." : "We can stretch to that, but we need numbers from you.";
   } else if (r <= 1.8*awardsF){
-    status = "ok"; msg = "That's a big ask. If you want it, earn it — these are our conditions.";
+    status = "ok"; msg = "That's a big ask. If you want it, earn it. These are our conditions.";
     n.patience -= Math.round((r - 1.05)*28);
   } else {
     status = "toomuch"; n.patience -= Math.round(25 + (r - 1.8)*35);
@@ -524,8 +659,8 @@ function ensureClub(){
 }
 function endWeek(){
   const report = {};
-  // Every part of the week runs on its own. If one of them ever fails — a corrupt fixture, a club
-  // that has gone missing, anything — that part is skipped and noted, and the week still turns.
+  // Every part of the week runs on its own. If one of them ever fails (a corrupt fixture, a club
+  // that has gone missing, anything), that part is skipped and noted, and the week still turns.
   // A career must never be left on a button that does nothing.
   const me = meP();
   step(report, "fixtures", () => { if (myClub()) for (const f of myFixtures()) if (!f.done) simFixture(f); });
@@ -544,7 +679,8 @@ function endWeek(){
       if (!S.ban) addNews("you", "Suspension served", "You are available again.", "me");
     }
     if (me.inj > 0){ me.inj = Math.max(0, me.inj - (S.items.physio ? 2 : 1)); if (!me.inj) addNews("you", "Back in training", "You're fit again.", "me"); }
-    S.energy = Math.min(100, S.energy + weeklyRecovery());
+    // living it day by day, your body is managed by the day; the old weekly top-up only applies to the hub
+    if (!(typeof lifeMode === "function" && lifeMode())) S.energy = Math.min(100, S.energy + weeklyRecovery());
     S.actions = weeklyActions();
   });
   step(report, "contract", checkPromise);
@@ -577,11 +713,11 @@ function checkPromise(){
   const prog = reqProgress(), met = Object.values(prog).every(x => x.have >= x.target);
   if (met && !k.metDone){
     k.metDone = true;
-    if (k.promised){ k.wage = Math.round(k.wage*1.2/5)*5; addNews("you", "Promise kept", `${c.nm} reward you with a 20% raise: ${eur(k.wage)}/week.`, "me"); S.trust += 15; msg(c.nm, `You delivered on your promise. New wage: ${eur(k.wage)}/week. Keep going.`); }
+    if (k.promised){ k.wage = Math.round(k.wage*1.2/5)*5; addNews("you", "Promise kept", `${c.nm} reward you with a 20% raise: ${eur(k.wage)}/week.`, "me"); trustAdd(15); msg(c.nm, `You delivered on your promise. New wage: ${eur(k.wage)}/week. Keep going.`); }
     else addNews("you", "Contract targets reached", `You hit every target in your ${c.nm} contract.`, "me");
   }
   if (k.promised && !k.metDone && !k.failed && gw() >= k.deadline){
-    k.failed = true; k.wage = Math.round(k.wage*.5); k.bG = k.bA = k.bApp = k.bW = 0; S.trust = Math.min(S.trust, 8) - 10;
+    k.failed = true; k.wage = Math.round(k.wage*.5); k.bG = k.bA = k.bApp = k.bW = 0; trustAdd(Math.min(S.trust, 8) - 10 - S.trust);
     addNews("you", "Promise broken", `You didn't reach the numbers you promised. Wage halved, bonuses gone, and the dressing room has lost respect.`, "me");
     msg(c.nm, "You promised and didn't deliver. Your wage is halved and your bonuses are cancelled.");
   }
@@ -593,13 +729,13 @@ function seasonEnd(){
   const lgBefore = c ? W.leagues[c.lg] : null;
   const order = lgBefore ? sortTab(lgBefore.tab) : [];
   const pos = c && lgBefore ? order.indexOf(c.id) + 1 : 0;
-  S.history.push({year:S.year, club:c ? c.nm : "Free agent", lg:lgBefore ? lgBefore.nm : "—", pos, apps:sm.apps, goals:sm.goals, assists:sm.assists, avg:sm.apps ? (sm.ratingSum/sm.apps).toFixed(2) : "–", rep:me.rep});
+  S.history.push({year:S.year, club:c ? c.nm : "Free agent", lg:lgBefore ? lgBefore.nm : EMPTY_CELL, pos, apps:sm.apps, goals:sm.goals, assists:sm.assists, avg:sm.apps ? (sm.ratingSum/sm.apps).toFixed(2) : EMPTY_CELL, rep:me.rep});
   const report = seasonEndWorld();
   if (S.cards) S.cards.run = 0;                   // bookings do not carry into a new season
   S.year++; S.player.age++; me.age = S.player.age; S.week = 0; S.seasonMy = blankMy(); S.energy = 100; S.actions = weeklyActions();
   // loan ends
   const k = S.contract;
-  if (k && k.loan && me.loan >= 0){ me.club = me.loan; me.loan = -1; S.contract = Object.assign({}, k.prev || baseOffer(W.clubs[me.club]), {start:gw(), startSnap:snapMy(), loan:false}); report.push(`Loan over: back at ${W.clubs[me.club].nm}.`); }
+  if (k && k.loan && me.loan >= 0){ me.club = me.loan; me.loan = -1; S.contract = Object.assign({}, k.prev || baseOffer(W.clubs[me.club]), {start:gw(), startSnap:snapMy(), loan:false}); report.push(`Loan over: back at ${W.clubs[me.club].nm}.`); delete S.player.asked; assignTeamPos(); }
   else if (k){ k.years--; if (k.raise) k.wage = Math.round(k.wage*(1 + k.raise/100)); }
   indexSquads();
   if (S.contract && S.contract.years <= 0 && W.clubs[me.club]){
@@ -609,5 +745,5 @@ function seasonEnd(){
   }
   addNews("world", `Season ${W.season - 1} is over`, report.join(" · "));
   ensureClub();                                   // start the new season somewhere
-  return {pos, lg:lgBefore ? lgBefore.nm : "—", report};
+  return {pos, lg:lgBefore ? lgBefore.nm : EMPTY_CELL, report};
 }

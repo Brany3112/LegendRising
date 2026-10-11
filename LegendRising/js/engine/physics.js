@@ -37,7 +37,7 @@ function stepBall(b, h, aero){
 // Where will the ball cross the plane y = yPlane? spinMul < 1 simulates a keeper who misreads spin.
 function predictCross(b0, yPlane, spinMul = 1){
   const b = {...b0}; b.spin *= spinMul; b.lift *= spinMul; b.knuck = 0;
-  const aero = S.skills.aero;
+  const aero = effSkill("aero");
   for (let t = 0; t < 3; t += 1/240){
     const py = b.y; stepBall(b, 1/240, aero);
     if (py > yPlane && b.y <= yPlane) return {x:b.x, z:b.z, t};
@@ -49,14 +49,14 @@ function predictCross(b0, yPlane, spinMul = 1){
 /* Turn stage 1 (aim angle + power) and stage 2 (contact point on the ball) into a flight.
    u: -1 left .. +1 right of centre (as the shooter sees it). v: -1 top .. +1 bottom. */
 function launchBall(b, ang, power, u, v, moving){
-  const sk = S.skills, ef = energyFactor();
+  const sk = effSkills(), ef = energyFactor();
   const r = Math.hypot(u, v);
   const q = r <= .8 ? 1 : clamp(1 - (r-.8)*2.2, .35, 1);      // clean contact vs catching the edge
   u = clamp(u, -1, 1); v = clamp(v, -1, 1);
   const vmax = (17 + sk.power*.18) * (.72 + .28*ef) * (S.items.strike ? 1.04 : 1);
   const spd = vmax * power * (.55 + .45*q);
   const over = power > .9 ? 1 + (power-.9)*8 : 1;              // over-hitting costs accuracy
-  const acc = M && M.isPass ? sk.passing*.7 + sk.accuracy*.3 : sk.accuracy;
+  const acc = M && typeof passMode === "function" && passMode() ? (sk.passacc || sk.passing)*.65 + sk.passing*.35 : sk.accuracy;
   const errDeg = (1 - acc/115) * 6 * Math.pow(power, 1.5) * over * (1.6 - .6*ef) * (moving ? 1.25 : 1) * (1 + (1-q)*3);
   // hitting the right side pushes the ball out right first; the spin then bends it back left
   const a = ang + u*.16 + gauss()*errDeg*Math.PI/180;

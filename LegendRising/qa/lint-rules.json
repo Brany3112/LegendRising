@@ -1,0 +1,168 @@
+{
+  "about": [
+    "The grep gates qa/lint.mjs runs. Owner: WP-0B (DESIGN 2.2 WP-0B lint rules, 4.11 integrity checks).",
+    "A rule runs in `node qa/lint.mjs` only while `active` is true. Each starts inactive until the merge of the package named in `activatedBy`, the one whose work makes it pass; the integrator flips it on at that merge. `node qa/lint.mjs --all` reports every rule, active or not.",
+    "files and except are globs from the game root (* within a folder, ** across folders). A file that does not exist yet is simply not checked, so a rule over modules still to be written covers each one from the day it lands.",
+    "scope: code (comments, string text and regex bodies blanked: only code can match), nocomment (comments blanked, strings kept), raw (the whole file).",
+    "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed.",
+    "merged: the packages the integrator has merged so far. A rule is active exactly when the package in its activatedBy is in this list (qa/unit/qatools.mjs checks it), so at each stage merge the integrator adds the packages and flips their rules on together."
+  ],
+  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1", "WP-K", "WP-F", "WP-I", "WP-F2", "WP-H2"],
+  "pure": [
+    "js/life/mover.js", "js/life/stamina.js", "js/life/gaitcore.js",
+    "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/detmath.js", "js/life/football/ball.js", "js/life/football/strike.js",
+    "js/life/football/touch.js", "js/life/football/agent.js", "js/life/football/attrs.js", "js/life/football/tactics.js",
+    "js/life/football/brain.js", "js/life/football/gkplan.js", "js/life/football/gkbrain.js", "js/life/football/rules.js",
+    "js/life/football/actions.js", "js/life/football/events.js", "js/life/football/judge.js", "js/life/football/sim.js",
+    "js/life/football/harness.js", "js/life/football/trainspec.js"
+  ],
+  "rules": [
+    {
+      "id": "pure-no-random",
+      "active": true,
+      "activatedBy": "WP-0D",
+      "ref": "DESIGN 1.2 (modules marked P), D6",
+      "what": "No Math.random in a pure module: every random draw comes from the seeded RNG passed in (rng.js), so a seed reproduces a match.",
+      "files": ["@pure"],
+      "scope": "code",
+      "pattern": "\\bMath\\s*\\.\\s*random\\b"
+    },
+    {
+      "id": "pure-no-globals",
+      "active": true,
+      "activatedBy": "WP-0D",
+      "ref": "DESIGN 1.2 (P), D5",
+      "what": "No S., MT, A., window. or document. (or globalThis.) in a pure module: everything comes in through arguments, and only bridge.js touches the classic globals.",
+      "files": ["@pure"],
+      "scope": "code",
+      "pattern": "(?<![\\w$.])(?:S\\s*\\??\\.|A\\s*\\??\\.|MT\\b|window\\s*\\??\\.|document\\s*\\??\\.|globalThis\\s*\\??\\.)"
+    },
+    {
+      "id": "pure-no-three",
+      "active": true,
+      "activatedBy": "WP-0D",
+      "ref": "DESIGN header (\"Pure means a module with no THREE, no DOM and no classic global access\"), 1.2",
+      "what": "No THREE in a pure module, and no import of three.js: pure modules run under plain node for the unit tests and the harness.",
+      "files": ["@pure"],
+      "scope": "nocomment",
+      "patterns": ["(?<![\\w$.])THREE\\b", "\\bfrom\\s*[\"'][^\"']*three[^\"']*[\"']", "\\bimport\\s*\\(\\s*[\"'][^\"']*three[^\"']*[\"']"]
+    },
+    {
+      "id": "pure-det-math",
+      "active": true,
+      "activatedBy": "WP-C",
+      "ref": "DESIGN D6, 2.3 WP-E acceptance (same event-log hash in Node versus Chromium)",
+      "what": "No engine-approximated Math function (sin, cos, tan, their inverses, exp, log, pow, hypot and the like) and no ** in a pure module: ECMAScript leaves their last bits to the engine, so they come from detmath.js, which gives the same bits in Node and in every browser. detmath.js itself is the one exception.",
+      "files": ["@pure"],
+      "except": ["js/life/football/detmath.js"],
+      "scope": "code",
+      "patterns": ["\\bMath\\s*\\.\\s*(?:sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\\b", "\\*\\*"]
+    },
+    {
+      "id": "bridge-no-build-W",
+      "active": true,
+      "activatedBy": "WP-E",
+      "ref": "DESIGN D5",
+      "what": "bridge.js does not import W from ../build.js, so a bare W in it is the classic world data (js/world.js), never the 3D scene's.",
+      "files": ["js/life/football/bridge.js"],
+      "scope": "nocomment",
+      "pattern": "\\bimport\\s*\\{[^}]*\\bW\\b[^}]*\\}\\s*from\\s*[\"'][^\"']*build\\.js(?:\\?[^\"']*)?[\"']"
+    },
+    {
+      "id": "football-no-modifier-keys",
+      "active": true,
+      "activatedBy": "WP-F",
+      "ref": "DESIGN D9, 1.6",
+      "what": "No Ctrl, Alt or Meta gameplay binding in js/life/football: the only use allowed is the guard that ignores a key pressed with a modifier (if (ev.ctrlKey || ev.altKey || ev.metaKey) return ...).",
+      "files": ["js/life/football/**/*.js"],
+      "scope": "code",
+      "pattern": "\\b(?:ctrlKey|altKey|metaKey)\\b",
+      "allowLine": "\\bif\\s*\\(.*\\b(?:ctrlKey|altKey|metaKey)\\b.*\\)\\s*\\{?\\s*return\\b"
+    },
+    {
+      "id": "standard-material-routing",
+      "active": true,
+      "activatedBy": "WP-0C",
+      "ref": "DESIGN 2.2 WP-0C, 3.9.1",
+      "what": "No new MeshStandardMaterial outside build.js, human.js, sky.js and crowd.js: materials come from mat() and carry userData.spec, so a preset change can rematerialise them.",
+      "files": ["js/**/*.js"],
+      "except": ["js/life/build.js", "js/life/human.js", "js/life/sky.js", "js/life/football/crowd.js"],
+      "scope": "code",
+      "pattern": "\\bnew\\s+(?:THREE\\s*\\.\\s*)?MeshStandardMaterial\\b"
+    },
+    {
+      "id": "no-legacy-match",
+      "active": true,
+      "activatedBy": "WP-0B",
+      "ref": "DESIGN D18 (no legacy flag ships), 2.5 WP-L",
+      "what": "No legacyMatch flag or path anywhere in the game: the 2D engine is retired, not kept behind a switch.",
+      "files": ["js/**/*.js", "index.html"],
+      "scope": "nocomment",
+      "pattern": "\\blegacyMatch\\b"
+    },
+    {
+      "id": "one-ball-integrator",
+      "active": true,
+      "activatedBy": "WP-I",
+      "ref": "DESIGN D4, 2.4 WP-I acceptance",
+      "what": "One ball integrator: no stepBall in js/life, and ballStep is defined only in js/life/football/ball.js.",
+      "files": ["js/life/**/*.js"],
+      "except": ["js/life/football/ball.js"],
+      "scope": "code",
+      "patterns": ["\\bstepBall\\b", "\\bfunction\\s+ballStep\\b", "\\bballStep\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\()"]
+    },
+    {
+      "id": "trust-writes",
+      "active": true,
+      "activatedBy": "WP-T1",
+      "ref": "DESIGN 1.3 (trust single owner), 2.3 WP-G and WP-T1 acceptance, 4.11",
+      "what": "Trust changes only through trustAdd (daily.js); the load-time clamp in dailyEnsure is the one other write. The admin editor sets values directly by design. js/engine goes with WP-L.",
+      "files": ["js/**/*.js"],
+      "except": ["js/ui/admin.js", "js/engine/**"],
+      "scope": "code",
+      "pattern": "\\bS\\s*\\.\\s*trust\\s*(?:[-+*/]?=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*S\\s*\\.\\s*trust\\b",
+      "allowIn": ["trustAdd", "dailyEnsure"]
+    },
+    {
+      "id": "inv-writes",
+      "active": true,
+      "activatedBy": "WP-H",
+      "ref": "DESIGN 1.3 (food single owner), 4.11",
+      "what": "S.inv changes only in consume(), parcelStep and the shops (buyFood, shopBuy, the hub's buy); dailyEnsure only normalises it on load. The admin editor sets values directly by design.",
+      "files": ["js/**/*.js"],
+      "except": ["js/ui/admin.js"],
+      "scope": "code",
+      "pattern": "\\bS\\s*\\.\\s*inv\\b(?:\\s*\\[[^\\]]*\\]|\\s*\\.\\s*[A-Za-z_$][\\w$]*)?\\s*(?:[-+*/]?=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*S\\s*\\.\\s*inv\\b|\\bdelete\\s+S\\s*\\.\\s*inv\\b",
+      "allowIn": ["consume", "parcelStep", "buyFood", "shopBuy", "buy", "dailyEnsure"]
+    },
+    {
+      "id": "hours-literals",
+      "active": false,
+      "activatedBy": "WP-T2",
+      "ref": "DESIGN 1.8, 3.8.9, 2.5 WP-T2",
+      "what": "No literal \"10:00 AM\", \"4:00 PM\" or \"5:00 PM\" in js/life and js/ui: copy reads the hours from the constants through fmtTime and fmtRange.",
+      "files": ["js/life/**/*.js", "js/ui/**/*.js"],
+      "scope": "nocomment",
+      "pattern": "\\b(?:10:00 AM|4:00 PM|5:00 PM)\\b"
+    },
+    {
+      "id": "engine-names",
+      "active": false,
+      "activatedBy": "WP-L",
+      "ref": "DESIGN D18, 2.5 WP-L acceptance",
+      "what": "The 2D engine and the dream are gone: no startMoment, renderMatchScreen, matchSkillsOn, startDream, legacyMatch, loco=old, #pitch or js/engine/ anywhere in the game.",
+      "files": ["js/**/*.js", "index.html", "css/*.css"],
+      "scope": "raw",
+      "pattern": "\\b(?:startMoment|renderMatchScreen|matchSkillsOn|startDream|legacyMatch)\\b|loco=old|#pitch\\b|js/engine/"
+    },
+    {
+      "id": "importmap-complete",
+      "active": false,
+      "activatedBy": "WP-L",
+      "ref": "DESIGN 2.5 WP-L acceptance",
+      "what": "Every js/life/**/*.js module has an importmap entry in index.html, so a returning player never runs a new module against a cached one.",
+      "kind": "importmap",
+      "files": ["js/life/**/*.js"]
+    }
+  ]
+}

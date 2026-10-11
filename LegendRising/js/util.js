@@ -63,7 +63,7 @@ function badgePath(shape){
     default:        return "M7 5h50v28c0 15-11 24-25 30C18 57 7 48 7 33z";   // shield
   }
 }
-// the device inside the badge — a stripe, a chevron, a star and so on
+// the device inside the badge: a stripe, a chevron, a star and so on
 function badgeDevice(kind, a, b){
   switch (kind){
     case 0: return `<rect x="26" y="4" width="12" height="56" fill="${b}" opacity=".85"/>`;
@@ -130,17 +130,238 @@ function patchKids(a, b){
   for (let i = an.length - 1; i >= bn.length; i--) if (an[i].parentNode === a) a.removeChild(an[i]);
 }
 /* ============ GRAPHICS QUALITY ============
-   Auto: weak machines (≤4 cores or ≤4 GB) start in Low, and a match that runs slow switches to Low by itself.
-   Low = 1x canvas resolution, no background animations or glows, fewer particles. */
-const GFX = {mode:(() => { try{ return localStorage.getItem("freyaFootball.gfx") || "auto"; }catch(e){ return "auto"; } })(), low:false, autoLow:false};
-function gfxApply(){
-  const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4;
-  GFX.low = GFX.mode === "low" || (GFX.mode === "auto" && (weak || GFX.autoLow));
-  document.body.classList.toggle("low", GFX.low);
-  if (typeof resize === "function") resize();
+   One setting with four choices: Auto, Low, Medium or High (DESIGN 1.4.4). The tier picks one preset from GFX_PRESETS,
+   the table every 3D module reads at use time (GFX.P) or hears about through gfxOn. Auto picks the tier for this computer
+   from the name of its graphics chip, its CPU cores and its memory (gfxDetect, worked out once and remembered);
+   gfxStepDown is there for the 3D world's step down (WP-A) to take it one tier lower for the session when the game
+   keeps running slowly, and a slow 2D match asks for Low (GFX.autoLow). gfxApply() resolves the tier, sets GFX.P, GFX.low and the body classes, then calls every
+   subscriber with (P, prevP, reason).
+   GFX.low (true on Low) is what the 2D match and some 3D readers still check. Until the world applies whole presets
+   (quality.js applyPreset), the 3D readers already honour Medium where it is one line: materials (build.js mat: Lambert
+   for plain, printed and glowing surfaces), the pixel ratio cap (quality.js resize), cloud octaves, reflection bakes,
+   shadow redraws and the number of real point lights (sky.js). Graphics live in localStorage only, never in a save. */
+const GFX_TIERS = ["low", "medium", "high"];
+const GFX_LABEL = {auto:"Auto", low:"Low", medium:"Medium", high:"High"};
+// Every field, per tier (DESIGN 1.4.4). Distances in metres, rates in Hz, times in seconds.
+//   antialias               MSAA, fixed when the renderer is created (changing it recreates the renderer)
+//   pixelBudget, maxRatio   render pixels: ratio = clamp(sqrt(pixelBudget/(cssW*cssH)), 0.5, min(maxRatio, dpr))*Q.scale
+//   qMin                    the floor adaptive quality may lower Q.scale to
+//   shadow.life/.stadium    null = no shadow map (blob shadows); otherwise the filter, map size, half extent, snap grid
+//                           and the most redraws per second; in the stadium the box is the whole ground's (sky.js fits
+//                           it round the stands and roofs: a box round you would cut their shadows off across the
+//                           pitch), "statics" (drawn once per half) or "bowl" (redrawn up to hz, humans casting)
+//   nReal                   real point lights in the life zones and in the stadium
+//   material                "lambert" everywhere, "mixed" (Lambert for plain and textured surfaces, Standard for the
+//                           standardKinds) or "standard" everywhere; skylineBasic draws the far skyline unlit
+//   env                     environment map: null, or a PMREM of `size`, baked on zone entry and every `everyH` game hours
+//   skyOct, dome            cloud octaves (0: the gradient, sun, moon, stars and one cloud band) and dome segments
+//   fog.life, fog.stadium   near and far; in the life zones near + envNear*env and far + envFar*env, env being the
+//                           openness the sky already works out
+//   camFar, camFarPad       camera far plane: camFar when set, otherwise fog far + camFarPad
+//   drawDist, drawPad       draw distance: drawDist when set (Infinity: no limit), otherwise fog far + drawPad
+//   detailDist              small static pieces are drawn within this distance
+//   lod                     human LOD: full detail within near, from behind within back, the far mesh (LOD3) beyond lod3
+//   shirtNumDist            shirt numbers are drawn within this distance
+//   animNear, animMid       animation tiers by distance; midDiv and farDiv divide the update rate beyond them
+//   hiddenHz, staticHz      update rates for bodies out of view and for idle ones
+//   groundLiteBeyond        beyond this distance the second foot-grounding pass is skipped
+//   peds                    pedestrians at home and in town
+//   crowd                   "blocks": one textured quad strip per seating block (at most one draw per stand section);
+//                           "billboards": that many instanced billboards plus strips
+//   coverEvery              seconds between the camera's cover rays
+//   hudBlur                 backdrop blur on the HUD: "none", "modals" or "full"
+//   anisotropy, texScale    texture anisotropy; canvas textures wider than texScaleOver are drawn at texScale
+//   mip                     how mipmapped textures are read from afar: "linear" (two levels blended) or "nearest" (one)
+//   haloMax                 light halos are drawn within this distance (Infinity: always)
+const GFX_PRESETS = (() => {
+  const freeze = o => { if (o && typeof o === "object" && !Object.isFrozen(o)){ Object.freeze(o); for (const k of Object.keys(o)) freeze(o[k]); } return o; };
+  return freeze({
+    low:{tier:"low", label:"Low", antialias:false, pixelBudget:0.92e6, maxRatio:1.0, qMin:0.8,
+      shadow:{life:null, stadium:null}, nReal:{life:2, stadium:0},
+      material:"lambert", standardKinds:[], skylineBasic:true, env:null, skyOct:0, dome:[16, 8],
+      fog:{life:{near:35, far:150, envNear:0, envFar:0}, stadium:{near:110, far:240}},
+      camFar:0, camFarPad:30, drawDist:0, drawPad:20, detailDist:35,
+      lod:{near:8, back:7, lod3:30}, shirtNumDist:6, animNear:12, animMid:35, midDiv:3, farDiv:6, hiddenHz:5, staticHz:5,
+      groundLiteBeyond:10, peds:{home:3, town:3}, crowd:{kind:"blocks", count:0, strips:false},
+      coverEvery:0.25, hudBlur:"none", anisotropy:1, mip:"nearest", texScale:0.5, texScaleOver:1024, haloMax:120},
+    medium:{tier:"medium", label:"Medium", antialias:true, pixelBudget:1.6e6, maxRatio:1.25, qMin:0.7,
+      shadow:{life:{type:"pcf", size:2048, half:26, grid:6, hz:2}, stadium:{mode:"statics", type:"pcf", size:2048}},
+      nReal:{life:4, stadium:0},
+      material:"mixed", standardKinds:["gloss", "metal", "paint", "glass", "screen", "human"], skylineBasic:false,
+      env:{size:32, everyH:1}, skyOct:3, dome:[24, 12],
+      fog:{life:{near:50, far:180, envNear:50, envFar:130}, stadium:{near:150, far:380}},
+      camFar:0, camFarPad:40, drawDist:0, drawPad:30, detailDist:60,
+      lod:{near:12, back:11, lod3:45}, shirtNumDist:8, animNear:20, animMid:50, midDiv:2, farDiv:4, hiddenHz:8, staticHz:10,
+      groundLiteBeyond:20, peds:{home:5, town:4}, crowd:{kind:"billboards", count:4000, strips:true},
+      coverEvery:0.15, hudBlur:"modals", anisotropy:2, mip:"linear", texScale:1, texScaleOver:1024, haloMax:Infinity},
+    high:{tier:"high", label:"High", antialias:true, pixelBudget:3.7e6, maxRatio:1.5, qMin:0.6,
+      shadow:{life:{type:"pcf", size:2048, half:30, grid:4, hz:5}, stadium:{mode:"bowl", type:"pcf", size:4096, humans:true, hz:15}},
+      nReal:{life:8, stadium:2},
+      material:"standard", standardKinds:[], skylineBasic:false, env:{size:64, everyH:0.15}, skyOct:5, dome:[32, 18],
+      fog:{life:{near:50, far:180, envNear:50, envFar:130}, stadium:{near:170, far:450}},
+      camFar:600, camFarPad:0, drawDist:Infinity, drawPad:0, detailDist:90,
+      lod:{near:15, back:13.5, lod3:60}, shirtNumDist:9.5, animNear:25, animMid:70, midDiv:2, farDiv:3, hiddenHz:10, staticHz:15,
+      groundLiteBeyond:30, peds:{home:6, town:5}, crowd:{kind:"billboards", count:8000, strips:true},
+      coverEvery:0.1, hudBlur:"full", anisotropy:4, mip:"linear", texScale:1, texScaleOver:1024, haloMax:Infinity}
+  });
+})();
+const GFX_KEY = "freyaFootball.gfx", GFX_AUTO_KEY = "freyaFootball.gfxAuto";
+// mode: what the player chose. tier: what that resolves to. low: tier === "low" (what the older readers check).
+// autoLow: the 2D match asked for Low because it ran slowly. drop: how many tiers Auto stepped down this session.
+// detected: Auto's pick for this computer, {tier, base, gpu, ver, measured, cores, mem}.
+const GFX = {mode:(() => { try{ const m = localStorage.getItem(GFX_KEY); return GFX_LABEL[m] ? m : "auto"; }catch(e){ return "auto"; } })(),
+  tier:"high", low:false, autoLow:false, drop:0, P:GFX_PRESETS.high, subs:[], detected:null};
+function gfxPreset(){ return GFX.P; }
+// fn(P, prevP, reason) after every gfxApply; returns a function that unsubscribes it
+function gfxOn(fn){
+  if (typeof fn === "function" && !GFX.subs.includes(fn)) GFX.subs.push(fn);
+  return () => { const i = GFX.subs.indexOf(fn); if (i >= 0) GFX.subs.splice(i, 1); };
 }
-function setGfx(m){ GFX.mode = m; GFX.autoLow = false; try{ localStorage.setItem("freyaFootball.gfx", m); }catch(e){} gfxApply(); }
-function gfxSeg(onclickFn){ return `<div class="seg">${[["auto","Auto"],["high","High"],["low","Low"]].map(([k,l]) => `<button aria-pressed="${GFX.mode === k}" onclick="${onclickFn}('${k}')">${l}</button>`).join("")}</div>${GFX.mode === "auto" ? `<div class="muted small">Currently: ${GFX.low ? "Low" : "High"}</div>` : ""}`; }
+// the tier the current choice means: the chosen one, or under Auto the detected one less any steps down this session
+function gfxTier(){
+  if (GFX.mode !== "auto") return GFX.mode;
+  if (GFX.autoLow) return "low";
+  const d = GFX.detected || gfxDetect();
+  const i = GFX_TIERS.indexOf(d.tier);
+  return GFX_TIERS[Math.max(0, (i < 0 ? 1 : i) - (GFX.drop | 0))];
+}
+function gfxApply(reason = "user"){
+  const prevP = GFX.P;
+  GFX.tier = gfxTier();
+  GFX.P = GFX_PRESETS[GFX.tier];
+  GFX.low = GFX.tier === "low";
+  const b = document.body;
+  if (b){ for (const t of GFX_TIERS) b.classList.toggle("gfx-" + t, t === GFX.tier); b.classList.toggle("low", GFX.low); }
+  if (typeof resize === "function") resize();          // the 2D match canvas, while the 2D engine is still here
+  for (const fn of GFX.subs.slice()){ try{ fn(GFX.P, prevP, reason); }catch(e){ console.error("graphics subscriber failed", e); } }
+  return GFX.P;
+}
+function setGfx(m){
+  GFX.mode = GFX_LABEL[m] ? m : "auto"; GFX.autoLow = false; GFX.drop = 0;
+  try{ localStorage.setItem(GFX_KEY, GFX.mode); }catch(e){}
+  gfxApply("user");
+}
+// Under Auto, one tier down for the rest of the session because the game kept running slowly, and says so. Returns the
+// new tier, or null when the player chose a tier themselves or Auto is already on Low.
+function gfxStepDown(reason = "slow"){
+  if (GFX.mode !== "auto" || GFX.tier === "low") return null;
+  GFX.drop = (GFX.drop | 0) + 1;
+  gfxApply(reason);
+  toast(`Graphics lowered to ${GFX_LABEL[GFX.tier]} to keep things smooth. You can change this in Settings.`, "gold");
+  return GFX.tier;
+}
+// which tier a graphics chip suggests, from the renderer string WebGL reports (first match wins; unknown means Medium)
+const GFX_GPU_TIERS = [
+  [/swiftshader|llvmpipe|softpipe|software|basic render/i, "low"],
+  [/apple m\d/i, "high"],
+  [/geforce|\brtx\b|\bgtx\b|quadro|radeon\s*(?:\(tm\)\s*)?(?:rx|pro)\b|\barc\s*(?:\(tm\)\s*)?a[5-7]/i, "high"],
+  [/iris|radeon\s*(?:\(tm\)\s*)?vega\s*[3-8]\b|radeon\s*(?:\(tm\)\s*)?graphics|apple gpu|adreno\s*(?:\(tm\)\s*)?7\d\d/i, "medium"],
+  [/\bu?hd graphics|intel.*\bu?hd\b|mali|adreno\s*(?:\(tm\)\s*)?[3-6]\d\d|powervr/i, "low"]
+];
+function gfxGpuTier(gpu){
+  for (const [re, t] of GFX_GPU_TIERS) if (re.test(gpu || "")) return t;
+  return "medium";
+}
+// the renderer string, read from a throwaway WebGL context that is released straight away
+function gfxGpu(){
+  try{
+    const c = document.createElement("canvas"), gl = c.getContext("webgl2") || c.getContext("webgl");
+    if (!gl) return "";
+    let r = String(gl.getParameter(gl.RENDERER) || "");
+    if (!r || /^(webkit|mozilla)\b|^webgl/i.test(r)){            // a masked name: ask for the real one
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      if (ext) r = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || r);
+    }
+    const lose = gl.getExtension("WEBGL_lose_context"); if (lose) lose.loseContext();
+    return r;
+  }catch(e){ return ""; }
+}
+// a renderer string as a person would write it: "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11
+// vs_5_0 ps_5_0, D3D11)" is "Intel UHD Graphics 620"
+function gfxGpuName(gpu){
+  let s = String(gpu || "").trim();
+  if (!s) return "";
+  if (/swiftshader/i.test(s)) return "SwiftShader, software";
+  if (/llvmpipe|softpipe/i.test(s)) return "llvmpipe, software";
+  const a = /^ANGLE \((.*)\)$/.exec(s);
+  if (a){ const parts = a[1].split(/,\s+/); s = parts.length > 1 ? parts[1] : parts[0]; }
+  s = s.replace(/ANGLE Metal Renderer:\s*/i, "").replace(/\((?:R|TM|C)\)/gi, "").replace(/\s*\(0x[0-9a-f]+\)/gi, "")
+    .replace(/\s+Direct3D\S*.*$/i, "").replace(/\s+OpenGL (?:Engine|ES|\d).*$/i, "").replace(/\/PCIe.*$/i, "").replace(/\s+/g, " ").trim();
+  return s.length > 48 ? s.slice(0, 47).trim() + "…" : s;
+}
+// Auto's pick for this computer: the chip's tier, at most Medium with 4 cores or 4 GB or fewer, Low with 2 cores or
+// fewer. Worked out once and remembered in localStorage (asked again only if the cores or the memory change).
+// opts.fresh asks again; opts.measured ({tier, ms}) records what the first measured seconds of play found, which then
+// decides.
+function gfxDetect(opts = {}){
+  const cores = navigator.hardwareConcurrency || 0, mem = navigator.deviceMemory || 0;
+  let d = null;
+  if (!opts.fresh){
+    try{ d = JSON.parse(localStorage.getItem(GFX_AUTO_KEY) || "null"); }catch(e){ d = null; }
+    if (!d || d.ver !== 1 || !GFX_TIERS.includes(d.tier) || d.cores !== cores || d.mem !== mem) d = null;
+  }
+  if (!d){
+    const gpu = gfxGpu();
+    let i = GFX_TIERS.indexOf(gfxGpuTier(gpu));
+    if (cores && cores <= 2) i = 0;
+    else if ((cores && cores <= 4) || (mem && mem <= 4)) i = Math.min(i, 1);
+    d = {tier:GFX_TIERS[i], base:GFX_TIERS[i], gpu, ver:1, measured:null, cores, mem};
+  }
+  if (opts.measured && GFX_TIERS.includes(opts.measured.tier)){
+    d.measured = {tier:opts.measured.tier, ms:Number(opts.measured.ms) || 0};
+    d.tier = opts.measured.tier;
+  }
+  GFX.detected = d;
+  try{ localStorage.setItem(GFX_AUTO_KEY, JSON.stringify(d)); }catch(e){}
+  return d;
+}
+// What the Settings line under Auto promises (DESIGN 1.4.4), and it must stay true: the 3D world steps down a tier by
+// itself after 8 slow seconds at the lowest render scale (quality.js through gfxStepDown, with its toast), and a slow 2D
+// match still asks for Low (GFX.autoLow) until that engine goes.
+const GFX_AUTO_NOTE = "Auto picks a level for this computer, and steps down by itself if the game keeps running slowly.";
+// the Graphics control for a settings screen; fnName is the handler each button calls with its mode
+function gfxSeg(fnName){
+  const btns = ["auto", ...GFX_TIERS].map(k => `<button aria-pressed="${GFX.mode === k}" onclick="${fnName}('${k}')">${GFX_LABEL[k]}</button>`).join("");
+  if (GFX.mode !== "auto") return `<div class="seg">${btns}</div>`;
+  const gpu = gfxGpuName(GFX.detected && GFX.detected.gpu);
+  return `<div class="seg">${btns}</div><div class="muted small">Currently: ${GFX_LABEL[GFX.tier]}${gpu ? ` (${esc(gpu)})` : ""}</div>
+    <div class="muted small">${GFX_AUTO_NOTE}</div>`;
+}
+
+/* ============ WORDS AND NUMBERS IN COPY ============
+   Copy never spells out an hour, a duration or a signed amount by hand: it asks these, with the constant it describes,
+   so the text always says what the game does (DESIGN 1.8). No em dash in anything a player reads. */
+const EMPTY_CELL = "–";                      // an empty table cell (an en dash)
+/* words saved or sent by older builds, which still carry the long dash (DESIGN 1.7, 3.10): a dash standing alone for
+   "nothing" becomes EMPTY_CELL, and any other one, with the spaces round it, becomes rep: ": " in a name or a title,
+   ". " between two sentences (the word after it then starts with a capital). The one rule for a career's own text
+   (career.js textMigrate) and for board rows and account saves from other players (online.js boardRow) */
+const EM_DASH = String.fromCharCode(0x2014);
+const EM_SPACED = new RegExp(`\\s*${EM_DASH}\\s*(\\p{Ll})?`, "gu");
+function undash(t, rep = ": "){
+  if (typeof t !== "string" || t.indexOf(EM_DASH) < 0) return t;
+  if (t.trim() === EM_DASH) return EMPTY_CELL;
+  const cap = /[.!?]\s*$/.test(rep);
+  const r = t.replace(EM_SPACED, (m, c) => rep + (c ? (cap ? c.toUpperCase() : c) : ""));
+  return /\s$/.test(t) ? r : r.replace(/\s+$/, "");
+}
+const SAVE_CODE_LABEL = "Save game: copy code";
+// 45 -> "45 minutes", 60 -> "1 hour", 150 -> "2 hours 30 minutes"
+function fmtDur(mins){
+  const m = Math.max(0, Math.round(Number(mins) || 0)), h = Math.floor(m/60), r = m % 60;
+  const part = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  if (!h) return part(r, "minute");
+  return r ? `${part(h, "hour")} ${part(r, "minute")}` : part(h, "hour");
+}
+// minutes after midnight to "10:00 AM to 4:00 PM" (fmtTime, in daily.js, speaks twelve-hour time)
+function fmtRange(a, b){ return `${fmtTime(a)} to ${fmtTime(b)}`; }
+// 1.2 -> "+1.2", -3 -> "−3" (a real minus sign), 0 -> "0"; anything that rounds to nothing carries no sign
+function fmtSigned(x, dp = 0){
+  const v = Number(x);
+  if (!Number.isFinite(v)) return (0).toFixed(dp);
+  const s = Math.abs(v).toFixed(dp);
+  return Number(s) === 0 ? s : (v < 0 ? "−" : "+") + s;
+}
 
 // golden star rating, halves allowed
 function starsHTML(v){

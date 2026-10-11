@@ -2,9 +2,10 @@
 /* ============ PHONE SHELL ============ */
 const PH = {open:false, stack:[], kp:{view:"home", sel:0, scroll:0, data:null, hist:[]}, land:false, neg:null, installing:{}};
 function phoneBadge(){
-  const b = $("#phoneBadge"); if (!b || !S) return;
+  if (!S) return;
   const n = S.msgs.filter(m => !m.read).length + (S.social ? S.social.ctx.filter(c => c.type === "mention").length : 0);
-  b.textContent = n; b.style.display = n ? "" : "none";
+  // the floating button's badge, and the one on the hub header's phone button (on a phone screen)
+  for (const b of document.querySelectorAll("#phoneBadge, .ph-badge")){ b.textContent = n; b.style.display = n ? "" : "none"; }
 }
 function mountPhone(){
   const r = $("#phoneRoot");
@@ -36,14 +37,17 @@ function renderPhone(){
    Real button positions: soft keys either side of the D-pad, call/end below them, then the number pad.
    ▲/▼ on the ring (or 2/8) move, centre (or 5, green, left soft) selects, red / right soft go back. */
 function kpView(){
-  const K = PH.kp, me = meP();
+  // between clubs (or before you have signed for one) there is still a phone to use: no view leans on a club
+  const K = PH.kp, me = meP() || {rep:0, wrep:0, club:-1};
   switch (K.view){
-    case "home": return {title:"Menu", items:[...(inLife() ? [{l:"Hub ▸"}] : []), {l:"Stats"}, {l:"Scout"}, {l:`Messages${S.msgs.some(m => !m.read) ? " ●" : ""}`}, {l:"Settings"}], soft:["Select","Exit"]};
+    case "home": return {title:"Menu", items:[...(inLife() ? [{l:"Hub ▸"}] : []), {l:"Stats"}, ...(inLife() ? [{l:"Foodies"}] : []), {l:"Scout"}, {l:`Messages${S.msgs.some(m => !m.read) ? " ●" : ""}`}, {l:"Settings"}], soft:["Select","Exit"]};
+    case "foodies": return kpFoodiesView();
     case "stats": {
       const s = S.seasonMy, c = S.careerMy, k = S.contract, prog = reqProgress();
-      const lines = [`${S.player.name}`, `${POS[S.player.pos].name} · OVR ${overall()}`, `Club: ${myClub().nm}`, `Rep ${pad5(me.rep)} World ${pad5(me.wrep)}`, "-- SEASON --",
+      const lines = [`${S.player.name}`, `${S.player.teamPos || S.player.pos} · OVR ${overall()}`, `Club: ${clubLabel(me.club)}`, `Rep ${pad5(me.rep)} World ${pad5(me.wrep)}`, "-- SEASON --",
         `Apps ${s.apps}  Goals ${s.goals}`, `Assists ${s.assists}  MotM ${s.motm}`, `Dribbles ${s.dribbles}`, `Passes ${s.spass + s.lpass}/${s.passAtt}`, `Avg rating ${s.apps ? (s.ratingSum/s.apps).toFixed(2) : "-"}`,
-        "-- CAREER --", `Apps ${c.apps}  Goals ${c.goals}`, `Assists ${c.assists}`, "-- SKILLS --", ...SKILLS.map(([key, n]) => `${n} ${S.skills[key]}`),
+        "-- CAREER --", `Apps ${c.apps}  Goals ${c.goals}`, `Assists ${c.assists}`, "-- SKILLS --", ...SKILLS.map(([key, n]) => `${n} ${num(S.skills[key], 0)}`),
+        "-- TODAY --", `Energy ${Math.round(S.energy)} Fatigue ${Math.round(S.fatigue || 0)}`, `Chemistry ${Math.round(S.chem || 0)}`,
         "-- CONTRACT --", k ? `${eur(k.wage)}/wk ${k.years}y` : "None", ...(prog ? Object.entries(prog).map(([key, v]) => `${REQ_LABEL[key]} ${Math.min(v.have, v.target)}/${v.target}`) : [])];
       return {title:"Stats", lines, soft:["","Back"]};
     }
@@ -67,7 +71,7 @@ function keypadHTML(){
   if (v.lines){ const L = v.lines.slice(K.scroll, K.scroll + (v.items ? 4 : rows)); body += L.map(l => `<div class="kp-line">${esc(l)}</div>`).join(""); }
   if (v.items){
     const start = Math.max(0, Math.min(K.sel - 2, v.items.length - (v.lines ? 3 : rows)));
-    body += v.items.slice(start, start + (v.lines ? 3 : rows)).map((it, i) => `<div class="kp-item ${start + i === K.sel ? "sel" : ""}"><span>${esc(it.l)}</span>${it.r ? `<em>${it.r}</em>` : ""}</div>`).join("");
+    body += v.items.slice(start, start + (v.lines ? 3 : rows)).map((it, i) => `<div class="kp-item ${start + i === K.sel ? "sel" : ""}" onclick="kpPick(${start + i})"><span>${esc(it.l)}</span>${it.r ? `<em>${it.r}</em>` : ""}</div>`).join("");
   }
   const t = phoneTime();
   const key = (k, cls, html) => `<button class="kk ${cls}" onclick="kpKey('${k}')" aria-label="${k}">${html}</button>`;
@@ -77,9 +81,9 @@ function keypadHTML(){
       <div class="kp-soft"><span>${v.soft[0] || ""}</span><span>${v.soft[1] || ""}</span></div></div>
     <div class="kp-keys">
       <div class="kp-top">
-        ${key("lsoft","soft","—")}
+        ${key("lsoft","soft","━")}
         <div class="dpad"><button class="dp up" onclick="kpKey('up')" aria-label="up"></button><button class="dp ok" onclick="kpKey('ok')" aria-label="ok"></button><button class="dp down" onclick="kpKey('down')" aria-label="down"></button></div>
-        ${key("rsoft","soft","—")}
+        ${key("rsoft","soft","━")}
         ${key("call","call","<i class='ph g'></i>")}
         ${key("end","end","<i class='ph r'></i>")}
       </div>
@@ -96,12 +100,15 @@ function kpKey(k){
   else if (k === "ok") kpSelect(v);
   renderPhone();
 }
+// a click on a line of the menu: that one, chosen
+function kpPick(i){ const K = PH.kp, v = kpView(); if (!v.items || !v.items[i]) return; K.sel = i; kpKey("ok"); }
 function kpGo(view, data){ const K = PH.kp; K.hist.push({view:K.view, sel:K.sel, data:K.data}); K.view = view; K.data = data; K.sel = 0; K.scroll = 0; }
 function kpBack(){ const K = PH.kp, p = K.hist.pop(); if (p){ K.view = p.view; K.sel = p.sel; K.data = p.data; K.scroll = 0; } else { K.view = "home"; K.sel = 0; } }
 function kpSelect(v){
   const K = PH.kp, it = v.items ? v.items[K.sel] : null;
   switch (K.view){
-    case "home": { const list = [...(inLife() ? ["hub"] : []), "stats","scoutC","msgs","settings"];
+    case "foodies": if (it){ K.hist = []; K.view = "info"; K.data = kpFoodiesPick(it.v); save(); } return;
+    case "home": { const list = [...(inLife() ? ["hub"] : []), "stats", ...(inLife() ? ["foodies"] : []), "scoutC","msgs","settings"];
       if (list[K.sel] === "hub"){ if (window.lifeHub) setTimeout(window.lifeHub, 0); return; }
       return kpGo(list[K.sel]); }
     case "scoutC": return kpGo("scoutL", it.v);
@@ -116,6 +123,18 @@ function kpSelect(v){
     case "info": K.view = "home"; K.hist = []; K.sel = 0; return;
   }
 }
+/* the mouse on the keypad phone: the wheel moves up and down the menu (a trackpad's flood of small steps is gathered
+   into whole ones), a click on a line chooses it — and with the pointer locked (walking about with it in your hand),
+   the left button chooses the highlighted line (life/world.js). Esc goes back a screen, and out at the top. */
+let kpWheel = 0, kpWheelT = 0;
+window.addEventListener("wheel", e => {
+  if (!PH.open || !S || MT || S.phone !== "keypad") return;
+  const now = performance.now(); if (now - kpWheelT > 400) kpWheel = 0; kpWheelT = now;
+  kpWheel += e.deltaMode === 1 ? e.deltaY*40 : e.deltaY;
+  while (Math.abs(kpWheel) >= 60){ kpKey(kpWheel > 0 ? "down" : "up"); kpWheel -= Math.sign(kpWheel)*60; }
+  e.preventDefault();
+}, {passive:false});
+window.kpMouseOk = () => { if (!PH.open || !S || MT || S.phone !== "keypad") return false; kpKey("ok"); return true; };
 window.addEventListener("keydown", e => {
   if (!PH.open || !S || MT) return;
   if (e.target && /input|textarea/i.test(e.target.tagName)) return;

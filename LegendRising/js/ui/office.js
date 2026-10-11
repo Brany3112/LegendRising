@@ -61,12 +61,12 @@ const MEDIA_LINES = {
 function mediaSheet(){
   const p = mediaPrompt(), lines = MEDIA_LINES[p.k], can = S.actions > 0 && S.energy >= MEDIA_COST;
   return `<h2>Media duty</h2>
-    <p class="muted">A reporter is waiting after training. What you say moves your reputation — and what the manager thinks of you.</p>
+    <p class="muted">A reporter is waiting after training. What you say moves your reputation, and what the manager thinks of you too.</p>
     <blockquote class="mq">${esc(p.q)}</blockquote>
     <div class="stack">${lines.map((l, i) => `<button class="opt media" ${can ? "" : "disabled"} onclick="A.media('${p.k}',${i})">
       <b>${esc(l.t)}</b><span class="muted small">“${esc(l.say)}”</span>
       <span class="row gap6 wrap"><span class="pill">Reputation ${l.rep >= 1.5 ? "＋＋＋" : l.rep >= 1 ? "＋＋" : "＋"}</span>
-        <span class="pill ${l.trust > 0 ? "good" : l.trust < -6 ? "bad" : ""}">Manager ${l.trust > 0 ? "+" : ""}${l.trust}</span>
+        <span class="pill ${l.trust > 0 ? "good" : l.trust < -6 ? "bad" : ""}">Manager ${fmtSigned(l.trust)}</span>
         ${l.risk ? `<span class="pill bad">${Math.round(l.risk*100)}% it backfires</span>` : ""}</span></button>`).join("")}</div>
     <p class="muted small">${can ? `Costs ${MEDIA_COST} energy and one action.` : S.actions ? "Too tired to face the cameras." : "No actions left this week."}</p>`;
 }
@@ -144,15 +144,15 @@ function checkRaise(){
   const c = myClub();
   if (!c || !S.contract){ S.raise = null; return; }   // the deal was with a manager you no longer have
   if (raiseMet()){
-    S.contract.wage = d.wage; S.raise = null; S.trust += 6;
-    addNews("you", "Pay rise agreed", `${c.nm} move you to ${eur(d.wage)}/week — you hit every number the manager asked for.`, "me");
+    S.contract.wage = d.wage; S.raise = null; trustAdd(6);
+    addNews("you", "Pay rise agreed", `${c.nm} move you to ${eur(d.wage)}/week. You hit every number the manager asked for.`, "me");
     raiseBox(d);
     return;
   }
   if (gw() >= d.deadline){
-    S.raise = null; S.trust -= 4; S.contract.raiseCool = gw() + 10;
+    S.raise = null; trustAdd(-4); S.contract.raiseCool = gw() + 10;
     addNews("you", "No rise this time", `You fell short of the targets the manager set. Your wage stays at ${eur(S.contract.wage)}/week.`, "me");
-    msg(c.nm, "You did not get there. The offer is off the table for now — keep playing and we will look again.");
+    msg(c.nm, "You did not get there. The offer is off the table for now. Keep playing and we will look again.");
   }
 }
 // the same pop-up shape as a job promotion: old wage → new wage, one OK button
@@ -171,7 +171,7 @@ function raiseBox(d){
       <div class="tut-foot end"><button class="btn sm" onclick="closeConfirm()">OK</button></div></div>`;
 }
 function officeSheet(){
-  const c = myClub(); if (!c || !S.contract) return `<h2>Manager</h2><p class="muted">You are not at a club — there is nobody to talk to yet.</p>`;
+  const c = myClub(); if (!c || !S.contract) return `<h2>Manager</h2><p class="muted">You are not at a club, so there is nobody to talk to yet.</p>`;
   if (RAISE_PEND) return offerHTML();
   const rc = raiseCase(), block = raiseBlock(rc);
   const head = `<h2>The manager's office</h2>
@@ -187,7 +187,7 @@ function officeSheet(){
     const rows = Object.entries(p).map(([k, v]) => {
       const done = v.rating ? (v.n && v.have >= v.target) : v.have >= v.target;
       return `<div class="req ${done ? "done" : ""}"><span>${v.rating ? "Average rating" : REQ_LABEL[k]}</span>
-        <b>${v.rating ? (v.n ? v.have.toFixed(2) : "–") : v.have} / ${v.target}</b></div>`; }).join("");
+        <b>${v.rating ? (v.n ? v.have.toFixed(2) : EMPTY_CELL) : v.have} / ${v.target}</b></div>`; }).join("");
     return `${head}<div class="mgr-deal">
       <div class="row between"><b>Agreed: ${eur(d.from)} → ${eur(d.wage)}/wk</b><span class="pill">${left} week${left === 1 ? "" : "s"} left</span></div>
       <div class="reqs">${rows}</div>
@@ -208,9 +208,9 @@ function officeSheet(){
 let RAISE_PEND = null;
 function askRaise(pct){
   const rc = raiseCase(); if (raiseBlock(rc)) return;
-  if (pct <= rc.maxPct) RAISE_PEND = {pct, t:raiseTerms(pct), line:`Fine. ${eur(raiseWage(pct))} a week — but I want it earned.`};
+  if (pct <= rc.maxPct) RAISE_PEND = {pct, t:raiseTerms(pct), line:`Fine. ${eur(raiseWage(pct))} a week. But I want it earned.`};
   else if (rc.maxPct >= 5) RAISE_PEND = {pct:rc.maxPct, t:raiseTerms(rc.maxPct), asked:pct,
-    line:`+${pct}% is not happening, not at this club. The closest I can get you is +${rc.maxPct}% — ${eur(raiseWage(rc.maxPct))} a week.`};
+    line:`+${pct}% is not happening, not at this club. The closest I can get you is +${rc.maxPct}%, that's ${eur(raiseWage(rc.maxPct))} a week.`};
   else { S.contract.raiseCool = gw() + 8; save(); }
   openSheet("manager");
 }
@@ -242,12 +242,17 @@ function takeRaise(){
    A manager will move you one line at a time, and only when he can see a reason: you have played
    enough for him to judge you, he trusts you, and there is room in the side where you want to go. */
 const POS_COOL = 12;                                  // weeks before he will discuss it again
+// the other spots in his shape that are one line from yours (positions.js): deeper, across, or further forward
 function posMoveOptions(){
-  const i = POS_ORDER.indexOf(S.player.pos);
-  const out = [];
-  if (i > 0) out.push({dir:-1, to:POS_ORDER[i - 1], label:"Drop deeper"});
-  if (i >= 0 && i < POS_ORDER.length - 1) out.push({dir:1, to:POS_ORDER[i + 1], label:"Push further forward"});
-  return out;
+  const cur = S.player.teamPos || posOrArch(S.player.pos), i = POS_ORDER.indexOf(archOf(cur)), seen = new Set([cur]), out = [];
+  const slots = myClub() ? formationSlots(myClub()) : POSITION_ORDER;
+  for (const s of slots){
+    if (seen.has(s) || s === "GK") continue; seen.add(s);
+    const j = POS_ORDER.indexOf(archOf(s)), dy = POSITIONS[s].y - POSITIONS[cur].y;
+    if (Math.abs(j - i) > 1) continue;
+    out.push({dir:Math.sign(dy), to:s, label:j < i || dy < -6 ? "Drop deeper" : j > i || dy > 6 ? "Push further forward" : "Switch flank"});
+  }
+  return out.sort((a, b) => Math.abs(POSITIONS[a.to].y - POSITIONS[cur].y) - Math.abs(POSITIONS[b.to].y - POSITIONS[cur].y)).slice(0, 4);
 }
 function posBlock(){
   const c = myClub(); if (!c || !S.contract) return "You need a club before anyone will move you.";
@@ -261,7 +266,7 @@ function posBlock(){
 // how he feels about the move: your form, his trust, and whether that line needs a body
 function posVerdict(to){
   const c = myClub(), me = meP();
-  const want = MY_POS[to];
+  const want = POSITIONS[to] ? POSITIONS[to].world : MY_POS[to];
   const line = q => q.pos === "GK" ? "GK" : (q.pos === "ST" || q.pos === "LW" || q.pos === "RW") ? "FWD" : q.pos;
   const sq = squadOf(c.id).filter(p => !p.me);
   const there = sq.filter(p => line(p) === line({pos:want}));
@@ -275,20 +280,20 @@ function posSheet(){
   if (POS_ANSWER){
     const a = POS_ANSWER; POS_ANSWER = null;
     return `<h2>Where you play</h2><blockquote class="mq">${esc(a.line)}</blockquote>
-      <p class="muted small">${a.ok ? `You are a <b>${esc(POS[a.to].name)}</b> now. Your chances in a game change with the job.` : "Come back when something has changed."}</p>
+      <p class="muted small">${a.ok ? `You play <b>${esc(POSITIONS[a.to].name.toLowerCase())}</b> now. Your chances in a game change with the job.` : "Come back when something has changed."}</p>
       <button class="btn ghost" onclick="openSheet('pos')">Back</button>`;
   }
   const block = posBlock();
   const opts = posMoveOptions();
   const head = `<h2>Where you play</h2>
-    <p class="muted">You are a <b>${esc(POS[S.player.pos].name)}</b>. ${esc(POS[S.player.pos].blurb)}</p>`;
+    <p class="muted">You play <b>${esc(teamPosText())}</b> in his ${esc(clubFormation(myClub()))}. ${esc(POS[S.player.pos].blurb)}</p>`;
   if (block) return `${head}<blockquote class="mq">${esc(block)}</blockquote>`;
   return `${head}<p class="muted small">He will move you one line at a time, and only if he thinks it helps the team.</p>
     <div class="stack">${opts.map(o => {
       const v = posVerdict(o.to);
       return `<button class="opt" onclick="A.askPos('${o.to}')">
-        <b>${esc(o.label)} — ${esc(POS[o.to].name)}</b>
-        <span class="muted small">${esc(POS[o.to].blurb)}</span>
+        <b>${esc(o.label)}: ${esc(POSITIONS[o.to].name)}</b>
+        <span class="muted small">${esc(POS[archOf(o.to)].blurb)}</span>
         <span class="pill">${v.need ? "He is short of bodies there" : v.rival ? `${esc(sname(v.rival))} plays there` : "Nobody is ahead of you"}</span></button>`;
     }).join("")}</div>`;
 }
@@ -304,11 +309,11 @@ function askPos(to){
     save(); openSheet("pos");
     return;
   }
-  S.player.pos = to; me.pos = MY_POS[to];
+  S.player.asked = to; assignTeamPos();             // his slot for you, kept until you change clubs
   S.posCool = gw() + POS_COOL;
-  S.trust = Math.max(0, S.trust - 4);                 // a new job, and you start again proving it
-  POS_ANSWER = {ok:true, to, line:`Right. From Saturday you play ${POS[to].name.toLowerCase()}. Show me you can do it.`};
-  addNews("you", `${S.player.name} moves to ${POS[to].name.toLowerCase()}`, `${myClub().nm} give him a new job in the side.`, "me");
+  trustAdd(Math.max(0, S.trust - 4) - S.trust);     // a new job, and you start again proving it: 4 off, never below 0
+  POS_ANSWER = {ok:true, to, line:`Right. From Saturday you play ${POSITIONS[to].name.toLowerCase()}. Show me you can do it.`};
+  addNews("you", `${S.player.name} moves to ${POSITIONS[to].name.toLowerCase()}`, `${myClub().nm} give him a new job in the side.`, "me");
   save(); renderHub(); openSheet("pos");
 }
 let POS_ANSWER = null;
