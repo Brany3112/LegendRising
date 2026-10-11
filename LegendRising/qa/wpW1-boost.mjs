@@ -4,7 +4,7 @@
 // window.warmBoost {set, get, clear, extend}; the stand-in port in the test fixtures); DESIGN 1.4.20.
 //
 //   - rating to boost: Sharp, Ready, Cold from the warm-up's score; all stats +1 to +4 scaled by the result and by
-//     motivation; a focus picked by the coach's style (attacking: Finishing or Dribbling; pressing: Stamina or
+//     motivation (a Cold one gives none); a focus picked by the coach's style (data/game.js COACH_STYLES) (attacking: Finishing or Dribbling; pressing: Stamina or
 //     Acceleration; technical: Passing or Ball Control); 10 to 15 minutes;
 //   - the boost goes onto the numbers your agent is made from when you go on, and comes off when its minutes are up
 //     (your plain numbers back, nothing kept);
@@ -26,27 +26,31 @@ try {
     for (const q of [0, .2, .42, .55, .72, .85, 1]) for (const mot of [0, 30, 60, 100]){
       const b = W.boostFor(q, mot, "attacking", r0);
       out.rows.push([q, mot, b.rating, b.all, b.mins, JSON.stringify(b.focus)]);
-      if (b.all < 1 || b.all > 4 || b.mins < 10 || b.mins > 15) out.bad.push([q, mot, b]);
+      if (b.rating === "cold" ? b.all !== 0 || b.mins !== 0 || Object.keys(b.focus).length : b.all < 1 || b.all > 4 || b.mins < 10 || b.mins > 15) out.bad.push([q, mot, b]);
     }
     const mono = [0, .3, .6, .9].every(q => W.boostFor(q, 20, "pressing", r0).all <= W.boostFor(q, 95, "pressing", r0).all)
       && [0, 30, 60, 100].every(m => W.boostFor(.2, m, "technical", r0).all <= W.boostFor(.95, m, "technical", r0).all);
     const rating = [[.9, "sharp"], [.72, "sharp"], [.6, "ready"], [.42, "ready"], [.3, "cold"]].map(([q, want]) => W.boostFor(q, 60, "attacking", r0).rating === want);
     const styles = {};
     for (const st of ["attacking", "pressing", "technical"]) styles[st] = [W.boostFor(.8, 60, st, r0).focusName, W.boostFor(.8, 60, st, r1).focusName];
-    const top = W.boostFor(1, 100, "attacking", r0), low = W.boostFor(.15, 0, "attacking", r0);
-    return {bad: out.bad, mono, rating, styles, top: [top.rating, top.all, top.mins], low: [low.rating, low.all, low.mins], rows: out.rows};
+    const top = W.boostFor(1, 100, "attacking", r0), low = W.boostFor(.15, 0, "attacking", r0), ready = W.boostFor(.45, 0, "attacking", r0);
+    // the focus is COACH_STYLES' own (data/game.js): the same skills the career's warmBoost puts it on
+    const table = Object.entries(COACH_STYLES).every(([st, c]) => c.focus.every((f, i) => { const b = W.boostFor(.8, 60, st, i ? r1 : r0); return b.focusName === f.name && JSON.stringify(Object.keys(b.focus)) === JSON.stringify(f.skills); }));
+    return {bad: out.bad, mono, rating, styles, table, top: [top.rating, top.all, top.mins], low: [low.rating, low.all, low.mins, Object.keys(low.focus).length], ready: [ready.rating, ready.all, ready.mins], rows: out.rows};
   });
-  check(map.bad.length === 0, "all stats +1 to +4, for 10 to 15 minutes, whatever the score and motivation", map.bad);
+  check(map.bad.length === 0, "all stats +1 to +4 for 10 to 15 minutes from Ready up, whatever the motivation; Cold gives nothing", map.bad);
   check(map.mono, "bigger with a better warm-up and with more motivation", map.mono);
   check(map.rating.every(Boolean), "the rating: Sharp from 0.72, Ready from 0.42, Cold below", map.rating);
-  check(map.top[0] === "sharp" && map.top[1] === 4 && map.top[2] === 15 && map.low[0] === "cold" && map.low[1] === 1 && map.low[2] <= 11, "a perfect, motivated warm-up gives +4 for 15 minutes; a poor one +1 for about 10", {top: map.top, low: map.low});
+  check(map.top[0] === "sharp" && map.top[1] === 4 && map.top[2] === 15 && map.ready[0] === "ready" && map.ready[1] === 1 && map.ready[2] <= 13 && map.low[0] === "cold" && map.low[1] === 0 && map.low[2] === 0 && map.low[3] === 0,
+    "a perfect, motivated warm-up gives +4 for 15 minutes; a just-Ready one +1; a Cold one no boost at all", {top: map.top, ready: map.ready, low: map.low});
+  check(map.table, "each focus is the COACH_STYLES focus, on the same skills the career boosts", map.table);
   check(JSON.stringify(map.styles) === JSON.stringify({attacking: ["Finishing", "Dribbling"], pressing: ["Stamina", "Acceleration"], technical: ["Passing", "Ball Control"]}), "the focus follows the coach's style", map.styles);
   const ba = await page.evaluate(() => {
     const W = window.__fp.warm, at = {power: 50, aero: 50, curve: 50, accuracy: 50, passing: 60, passacc: 55, pace: 60, acceleration: 62, sprintSpeed: 58, dribbling: 57, stamina: 50, composure: 52, tackling: 40, interception: 45, jumping: 50, heading: 48};
-    const a0 = W.boostedAttrs(at, {all: 0, focus: {}}), b = W.boostedAttrs(at, {all: 3, focus: {stamina: 4, ctrl: 2}});
+    const a0 = W.boostedAttrs(at, {all: 0, focus: {}}), b = W.boostedAttrs(at, {all: 3, focus: {stamina: 4, composure: 2}});
     return {d: {passing: b.passing - at.passing, stamina: b.stamina - at.stamina, accel: b.acceleration - at.acceleration, ctrl: +(b.ctrl - a0.ctrl).toFixed(2)}, same: at.passing === 60};
   });
-  check(ba.d.passing === 3 && ba.d.stamina === 7 && ba.d.accel === 3 && ba.d.ctrl > 2 && ba.same, "the boost's numbers: every skill up by all, the focus on top, the derived ones worked out again (a new record)", ba.d);
+  check(ba.d.passing === 3 && ba.d.stamina === 7 && ba.d.accel === 3 && ba.d.ctrl > 3 && ba.same, "the boost's numbers: every skill up by all, the focus on top, the derived ones worked out again (a new record)", ba.d);
 
   // 2. a whole run: the call, a quick warm-up (Tab), the call to go on, on with the boost, a goal, the boost off
   await T.enter({startMin: 2, callAt: 2, subOn: 6, style: "pressing", warmSet: ["knees", "quad", "hips"]});

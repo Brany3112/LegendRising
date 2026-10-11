@@ -140,12 +140,12 @@
       "active": true,
       "activatedBy": "WP-W2",
       "ref": "Addendum A1.8 (Motivation), DESIGN 1.7 (migration)",
-      "what": "S.player.motivation changes only through motivationAdd, the load-time motivationMigrate, the nightly motivationNewDay and the __motivation test stub's set (career.js). The admin editor sets values directly by design. js/engine goes with WP-L.",
+      "what": "S.player.motivation changes only through motivationAdd, the load-time motivationMigrate, the nightly motivationNewDay and the __motivation test stub's set, motivationTestSet (career.js). The admin editor sets values directly by design. js/engine goes with WP-L.",
       "files": ["js/**/*.js"],
       "except": ["js/ui/admin.js", "js/engine/**"],
       "scope": "code",
       "pattern": "\\.\\s*player\\s*\\.\\s*motivation\\s*(?:[-+*/]?=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*S\\s*\\.\\s*player\\s*\\.\\s*motivation\\b",
-      "allowIn": ["motivationAdd", "motivationMigrate", "motivationNewDay", "set"]
+      "allowIn": ["motivationAdd", "motivationMigrate", "motivationNewDay", "motivationTestSet"]
     },
     {
       "id": "hours-literals",

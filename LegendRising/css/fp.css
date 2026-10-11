@@ -273,3 +273,10 @@ body.gfx-low .fp-wu{background:rgba(9,15,24,.85)}
 .fp-say b{margin-right:6px;font-family:var(--fp-font);letter-spacing:.03em;color:var(--fp-charge)}
 .fp-say.mate{bottom:calc(var(--fp-pad) + 190px);font-size:calc(13px*var(--s));background:rgba(9,15,24,.55)}.fp-say.mate b{color:#9be7ff}
 @media (prefers-reduced-motion:reduce){.fp-pop,.fp-say,.fp-wu{transition:none !important}}
+/* a narrow screen (a phone held upright, 390 wide): the scorebug takes the top row, so the set's panel goes under it
+   across the width (the Warm mark, under the scorebug too, only shows once the set is over), and the event cards come
+   down below both rather than over the score */
+@media (max-width:560px){
+  .fp-wu{left:var(--fp-pad);right:var(--fp-pad);top:calc(var(--fp-pad) + 38px*var(--s));width:auto}
+  .fp-cards{top:calc(var(--fp-pad) + 132px*var(--s))}
+}

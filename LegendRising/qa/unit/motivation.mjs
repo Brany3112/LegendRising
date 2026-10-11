@@ -238,12 +238,23 @@ run(`MT.label = "FT"; MT.f.key = "wb-1"; MT.minute = 20`);
 eq("full time: off", sk("accuracy"), 50);
 run(`MT = {f: {key: "wb-3"}, minute: 60, label: "60'"}; warmBoost.set({rating: "ready", all: 2, focus: {passing: 3, ballControl: 2}, untilMin: 72})`);
 eq("a skill key and a coach focus id together", [sk("passing"), sk("dribbling"), sk("composure")], [55 + 2 + 3 + 2, 98 + 2 + 2 > 99 ? 99 : 98 + 4, 40 + 2 + 2]);
+run(`S.skills.passacc = 50; warmBoost.set({rating: "ready", all: 2, focus: {passing: 3, passacc: 3}, untilMin: 72})`);
+eq("the Passing focus as skills (what the warm-up sends): each once, a skill key never read as a focus id", [sk("passing"), sk("passacc"), sk("accuracy")], [55 + 5, 50 + 5, 50 + 2]);
+eq("rev() moves with set, extend and clear", run(`(() => { const a = warmBoost.rev(); warmBoost.extend(5); const b = warmBoost.rev(); warmBoost.set({all: 1, untilMin: 70}); const c = warmBoost.rev(); return [b - a, c - b]; })()`), [1, 1]);
 run(`warmBoost.set({rating: "nonsense", all: 50, untilMin: 70})`);
 eq("a bad rating reads as ready, the size is held to 20", [run(`warmBoost.get().rating`), run(`warmBoost.get().all`)], ["ready", 20]);
 run(`warmBoost.clear()`);
 eq("clear()", [run(`warmBoost.get()`), sk("passing")], [null, 55]);
 run(`MT = null`);
 eq("window.warmBoost is the same object", run(`window.warmBoost === warmBoost`), true);
+
+/* ---------- a good dressing-room moment at half time ---------- */
+setM(60);
+eq("half time, the team ahead: up, with the dressing room's line", [run(`motivationHalfTime({lead: 1, rating: 6.5})`), run(`S.player.motivWhy.t`)], [0.8, "The dressing room was buzzing at half time."]);
+setM(60);
+eq("the gaffer singling you out counts for more, and is the line told", [run(`motivationHalfTime({lead: 0, rating: 7.8})`), run(`/singled you out/.test(S.player.motivWhy.t)`)], [0.7, true]);
+setM(60);
+eq("level or behind, nothing special: no change", [run(`motivationHalfTime({lead: -1, rating: null})`), run(`motivation()`)], [0, 60]);
 
 /* ---------- the test stub ---------- */
 eq("__motivation.set and get", run(`(__motivation.set(47, "stub"), [__motivation.get().m, __motivation.get().why.t])`), [47, "stub"]);

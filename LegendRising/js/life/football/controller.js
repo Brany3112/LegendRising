@@ -55,7 +55,7 @@ import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv, makeFP} from "./view.js";
 import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
-import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay} from "./fphud.js";
+import {hudInit, hudFrame, hudNotice, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff} from "./fphud.js";
 import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling,
   warmCallDue, warmOn, warmTab, careerPort, localPort, boostedAttrs, pickSet, WARM_POOL, boostFor, callMinute, exerciseCount, exScore} from "./warmup.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
@@ -903,6 +903,8 @@ function onCameOn(){
   handover();
   FS.state = "live"; FS.called = false; FS.atFourth = false;
   if (FS.V) FS.V.me = ms.me;
+  // (the coach's "get over to the fourth official" and the wait note no longer hold)
+  hudSayOff(); note("");
   hudNotice("sub", "You're on", "Go and make a difference.");
   // the warm-up's boost runs from now (A1.8); the warm-up itself is over
   warmBoostOn();
@@ -1005,20 +1007,19 @@ function warmRemember(set){
   try { localStorage.setItem(WARM_KEY, JSON.stringify(set)); } catch(e){}
 }
 // the coach's style (attacking, pressing, technical): the configuration's (bridge) when it carries one, the career's,
-// else one of the three fixed by the club (a hash of its name: the same club always has the same coach)
-const STYLES = ["attacking", "pressing", "technical"];
+// else the one career.js coachStyleOf fixes for a club of that name (the same club always has the same coach)
 function coachStyle(){
   const me = FS.cfg && FS.cfg.me, M = FS.M;
   const s = (me && me.coachStyle) || (M && M.coachStyle) || (FS.testWarm && FS.testWarm.style) || (FS.wport && FS.wport.style());
-  if (STYLES.includes(s)) return s;
+  const ids = typeof COACH_STYLE_IDS !== "undefined" ? COACH_STYLE_IDS : null;
+  if (s && (!ids || ids.includes(s))) return s;
   const team = FS.cfg && me ? FS.cfg.teams[me.team] : null;
-  let h = 0; const n = String(team ? team.name : "club"); for (let i = 0; i < n.length; i++) h = (h*31 + n.charCodeAt(i)) >>> 0;
-  return STYLES[h % 3];
+  return typeof coachStyleOf === "function" ? coachStyleOf({nm: team ? team.name : "club"}) : null;
 }
 function warmSetup(){
   const cfg = FS.cfg, ms = FS.ms;
   const subOn = cfg && cfg.roleTimes ? cfg.roleTimes.subOn : 0;
-  FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.cheer = 0;
+  FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.cheer = 0; FS.wbRev = NaN; FS.wbNow = null;
   if (!subOn || !cfg.me || cfg.resume || ms.me >= 0){ warmDispose(); return; }
   const port = FS.real ? careerPort() : (FS.testPort = localPort());
   FS.wport = port;
@@ -1060,7 +1061,7 @@ function warmBoostBench(b){
 // the stamina it gives is in your tank's drain too (cfg.me.staminaF)
 function warmBoostOn(){
   const ms = FS.ms, me = ms.agents[ms.me], b = FS.wb, port = FS.wport;
-  if (!me || !b || !port) return;
+  if (!me || !b || !port || !(b.all > 0)) return;
   const t = me.team, rec = ms.bench[t].find(p => p.isMe);
   const now = minuteOf(ms), cur = port.warmBoost.get() || {};
   port.warmBoost.set(Object.assign({}, cur, {rating: b.rating, all: b.all, focus: Object.assign({}, b.focus), focusName: b.focusName, mins: b.mins, untilMin: now + b.mins, onFire: false}));
@@ -1079,9 +1080,16 @@ function warmBoostOff(){
   if (L.sF != null) FS.cfg.me.staminaF = L.sF;
   hudNotice("info", "Your warm-up boost has worn off.");
 }
+// the port's boost as it stands: its last get(), read again only when rev() says it moved (no copy each frame)
+function warmBoostNow(){
+  const port = FS.wport; if (!port) return null;
+  const r = port.warmBoost.rev ? port.warmBoost.rev() : -1;
+  if (r < 0 || r !== FS.wbRev){ FS.wbRev = r; FS.wbNow = port.warmBoost.get(); }
+  return FS.wbNow;
+}
 function warmBoostStep(){
   const L = FS.boostLive, port = FS.wport; if (!L || !port || !FS.onPitch) return;
-  const b = port.warmBoost.get();
+  const b = warmBoostNow();
   if (!b || minuteOf(FS.ms) >= b.untilMin) warmBoostOff();
 }
 // a goal or an assist of yours while the boost lasts: 10 more minutes, and you are on fire
@@ -1093,7 +1101,7 @@ function warmGoal(ev, me){
 }
 // the Warm mark on the HUD: the boost waiting for you to go on, or running with its minutes left
 function warmIcon(){
-  const b = FS.wport ? FS.wport.warmBoost.get() : null;
+  const b = warmBoostNow();
   if (!b || !(b.all > 0)) return null;
   if (FS.onPitch && !FS.boostLive) return null;
   const I = FS.wIcon || (FS.wIcon = {});
@@ -1128,11 +1136,18 @@ function halftime(dt, real){
     FS.htCard = true; FS.htCardT = 0;
     coverScreen();
     writeCheckpoint(true);
+    htMotivation();
     showHalftimeCard();
   }
   FS.htCardT += real;
   if (FS.htCardT >= DAY.HT_CARD) secondHalfGo();
   void ms;
+}
+// a good dressing-room moment moves your Motivation (career.js motivationHalfTime, A1.8): once, as the card comes up
+function htMotivation(){
+  const ms = FS.ms, me = ms.me >= 0 ? ms.agents[ms.me] : null, t = FS.cfg.me ? FS.cfg.me.team : 0;
+  if (!FS.real || typeof window === "undefined" || typeof window.motivationHalfTime !== "function") return;
+  try { window.motivationHalfTime({lead: ms.score[t] - ms.score[1 - t], rating: me && me.on.length ? liveRating(ms, me) : null}); } catch(e){ console.error(e); }
 }
 function showHalftimeCard(){
   const ms = FS.ms, me = ms.me >= 0 ? ms.agents[ms.me] : null;
@@ -1247,7 +1262,7 @@ function teardown(){
   // the warm-up's coaches and ball go; its boost belongs to this match only
   warmDispose();
   if (FS.wport && (FS.boostLive || FS.wb)) FS.wport.warmBoost.clear();
-  FS.wport = null; FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.wDrive = false; FS.testWarm = null;
+  FS.wport = null; FS.wbNow = null; FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.wDrive = false; FS.testWarm = null;
   if (AUD.feelOff) AUD.feelOff();
   camDispose();
   hudDispose();

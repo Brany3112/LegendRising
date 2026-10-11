@@ -259,17 +259,19 @@ function effSkills(){ const out = {}; for (const [k] of SKILLS) out[k] = effSkil
        {t, d, day}: the last thing that moved it, one line for the stats panel; S.player.motivRun = {loss, bench, told,
        band}: the losing run and the run of games on the bench it watches, and when the manager last said something.
      motivation() -> 0..100. motivationAdd(delta, reason) -> the change it made (clamped to 0..100); reason: one line,
-       as the player would say it. motivationLabel(m) -> a word for it.
+       as the player would say it. motivationLabel(m) -> a word for it. motivationHalfTime({lead, rating}): a good
+       dressing-room moment at half time (the team ahead, or the manager singling you out), from controller.js.
      motivationTiming() -> 0.9..1.1, exactly 1 at 60: the timing windows (a strike's rhythm and a volley's ring in
        control.js, which the training lessons run through as well) are multiplied by it, so a motivated player gets a
        little more room and a flat one a little less.
      motivationRecovery() -> 0.95..1.05, exactly 1 at 60: a little in-match stamina recovery. staminaF() (the energy a
        match minute costs) is divided by it; the stamina model may scale its breath recovery by it too.
      motivationBoostScale() -> 0.6..1.4, exactly 1 at 60: what the warm-up's boost is scaled by (WP-W1 reads it).
-     warmBoost = {set(o), get(), clear(), extend(min)}, o = {rating:'sharp'|'ready'|'cold', all:+n, focus:{skill:+n},
+     warmBoost = {set(o), get(), clear(), extend(min), rev()}, o = {rating:'sharp'|'ready'|'cold', all:+n, focus:{skill:+n},
        untilMin:matchMinute, onFire:false}: effSkill adds all + focus[k] while the match it was set in is running and
-       MT.minute <= untilMin. A focus key is a career skill, or a coach focus id of COACH_STYLES (data/game.js), which
-       stands for its skills. extend(min) moves untilMin on and marks it on fire, only while it is active.
+       MT.minute <= untilMin. A focus key is a career skill, or else a coach focus id of COACH_STYLES (data/game.js),
+       which stands for its skills. extend(min) moves untilMin on and marks it on fire, only while it is active. get()
+       is a fresh copy; rev() a number that moves with every set, clear and extend (a per-frame reader polls it).
      coachStyleOf(club) -> 'attacking'|'pressing'|'technical' (club.coachStyle, fixed by the club's name);
        coachStyle(clubId = your club) -> the same, or null.
    Motivation is the player's alone: no AI player and no simulation module reads it, and every multiplier is 1 at the
@@ -283,6 +285,7 @@ const MOTIV = Object.freeze({
   MISSED:-3,
   SLEEP_GOOD:1, SLEEP_SHORT:-2, SLEEP_NOISY:-.8, NAP:.4, NAP_FATIGUE:40,
   MEAL:.6, MEAL_DAY:2, MEAL_HUNGRY:50,
+  HT_AHEAD:.8, HT_PRAISE:.7, HT_PRAISE_RATING:7.5,  // the dressing room at half time: the team ahead; the gaffer singling you out
   LOW:35, HIGH:80, TALK_GAP:7             // the manager says something when it drops under LOW or climbs to HIGH, at most once a week
 });
 const motivRound = v => Math.round(v*100)/100;
@@ -400,6 +403,16 @@ function motivationAte(it, energyBefore){
   S.today.motivFood = num(S.today.motivFood, 0) + 1;
   return motivationAdd(MOTIV.MEAL, "A good meal when you needed one.");
 }
+// a good dressing-room moment at half time (controller.js, once a match, when the dressing-room card comes up):
+// {lead: your side's goals minus theirs, rating: your match rating so far or null when you have not been on}. The
+// manager singling you out counts for more than the score, and only one of the two is told
+function motivationHalfTime(o){
+  o = o || {};
+  const rating = o.rating == null ? null : num(+o.rating, 0), lead = num(+o.lead, 0);
+  if (rating != null && rating >= MOTIV.HT_PRAISE_RATING) return motivationAdd(MOTIV.HT_PRAISE, "The gaffer singled you out at half time. That felt good.");
+  if (lead > 0) return motivationAdd(MOTIV.HT_AHEAD, "The dressing room was buzzing at half time.");
+  return 0;
+}
 // a match that went ahead without you (daily.js missedMatches, when it was not excused)
 function motivationMissedMatch(){ return motivationAdd(MOTIV.MISSED, "You missed a match. That one's going to sting for a while."); }
 // the manager notices: a message when it drops under LOW or climbs to HIGH, at most once in TALK_GAP days
@@ -439,7 +452,7 @@ function motivationWhy(){
    in the save: a boost is for the match it was set in (fkey), and a match reloaded from its checkpoint has the player
    off the pitch anyway (3.4.4) */
 const WARM_RATINGS = ["sharp", "ready", "cold"];
-let WARM = null;
+let WARM = null, WARM_REV = 0;
 function warmMatch(){ return typeof MT !== "undefined" && MT ? MT : null; }
 function warmActive(){
   if (!WARM) return false;
@@ -452,12 +465,14 @@ function warmBonus(k){
   if (!WARM || !warmActive()) return 0;
   return Math.round(WARM.all + num(WARM.focus[k], 0));
 }
-// focus keys as skills: a coach focus id (finishing, ballControl, ...) stands for the skills COACH_STYLES gives it
+// focus keys as skills: a career skill (SKILLS) is itself; any other key that is a coach focus id (finishing,
+// ballControl, ...) stands for the skills COACH_STYLES gives it. (A key that is both, passing or stamina, is the
+// skill: the warm-up sends the focus already as skills, and a focus id that is also a skill must not count twice)
 function warmFocus(f){
   const out = {}, all = typeof COACH_STYLES === "object" ? Object.values(COACH_STYLES).flatMap(s => s.focus) : [];
   for (const [k, v] of Object.entries(f && typeof f === "object" ? f : {})){
     const n = clamp(num(+v, 0), -20, 20); if (!n) continue;
-    const fo = all.find(x => x.id === k);
+    const fo = SKILLS.some(s => s[0] === k) ? null : all.find(x => x.id === k);
     for (const sk of fo ? fo.skills : [k]) out[sk] = (out[sk] || 0) + n;
   }
   return out;
@@ -469,6 +484,7 @@ const warmBoost = {
     WARM = {rating:WARM_RATINGS.includes(o.rating) ? o.rating : "ready", all:clamp(num(+o.all, 0), -20, 20), focus:warmFocus(o.focus),
       untilMin:num(+o.untilMin, 0), onFire:!!o.onFire, fkey:m && m.f ? m.f.key : (o.fkey != null ? o.fkey : null),
       focusName:typeof o.focusName === "string" ? o.focusName : "", mins:clamp(num(+o.mins, 0), 0, 90), ignored:!!o.ignored};
+    WARM_REV++;
     return warmBoost.get();
   },
   // a copy, with active (applying now) and left (match minutes to go)
@@ -477,12 +493,15 @@ const warmBoost = {
     const m = warmMatch(), on = warmActive();
     return Object.assign({}, WARM, {focus:Object.assign({}, WARM.focus), active:on, left:on ? Math.max(0, WARM.untilMin - num(m.minute, 0)) : 0});
   },
-  clear(){ WARM = null; },
+  clear(){ if (WARM) WARM_REV++; WARM = null; },
   extend(min){
     if (!warmActive()) return false;
-    WARM.untilMin += num(+min, 10); WARM.onFire = true;
+    WARM.untilMin += num(+min, 10); WARM.onFire = true; WARM_REV++;
     return true;
-  }
+  },
+  // a number that changes whenever set, clear or extend changes the boost: a reader that looks every frame keeps its
+  // last get() until it moves, rather than copying the boost each frame
+  rev(){ return WARM_REV; }
 };
 if (typeof window !== "undefined") window.warmBoost = warmBoost;
 
@@ -497,8 +516,9 @@ function coachStyleName(c){ const s = coachStyleOf(c); return s ? COACH_STYLES[s
 // every club has one (a world built before coaches had styles gets them on load; a new world when it is made)
 function coachStylesEnsure(){ if (W && Array.isArray(W.clubs)) for (const c of W.clubs) if (c) c.coachStyle = coachStyleOf(c); }
 // for tests: set Motivation directly, read what it keeps
+function motivationTestSet(v, why){ if (!S || !S.player) return null; S.player.motivation = clamp(num(+v, MOTIV.BASE), 0, 100); if (why) S.player.motivWhy = {t:String(why), d:0, day:S.life ? S.life.day : 0}; return motivation(); }
 if (typeof window !== "undefined") window.__motivation = {
-  MOTIV, set(v, why){ if (!S || !S.player) return null; S.player.motivation = clamp(num(+v, MOTIV.BASE), 0, 100); if (why) S.player.motivWhy = {t:String(why), d:0, day:S.life ? S.life.day : 0}; return motivation(); },
+  MOTIV, set:motivationTestSet,
   get(){ return S && S.player ? {m:motivation(), why:S.player.motivWhy || null, run:Object.assign({}, motivRun())} : null; },
   warm(){ return WARM ? JSON.parse(JSON.stringify(WARM)) : null; }
 };

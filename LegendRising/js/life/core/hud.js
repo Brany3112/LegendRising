@@ -16,6 +16,8 @@ export const range = (a, b) => fmtRange(a, b);
 /* ---------- notes and fades ---------- */
 export function note(t){
   const n = document.getElementById("lifeNote"); if (!n) return;
+  // (an empty note takes the one showing away: what it said no longer holds)
+  if (!t){ clearTimeout(note._t); n.classList.remove("on"); return; }
   n.textContent = t; n.classList.remove("on"); void n.offsetWidth; n.classList.add("on");
   clearTimeout(note._t); note._t = setTimeout(() => n.classList.remove("on"), Math.max(3600, t.length*55));
 }

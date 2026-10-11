@@ -36,6 +36,15 @@ try {
   });
   check(cm.bad.length === 0 && cm.lo >= 10 && cm.hi <= 15, "the call comes 10 to 15 match minutes before the planned change", {n: cm.n, lo: cm.lo, hi: cm.hi});
   check(cm.ht === 0, "never in the first half's last minutes (moved to the second half)", cm.ht);
+  // a change at 47 to 55: a call 10 to 15 minutes before would come in the first half's last minutes, so it comes at
+  // the second half's first minute (late, a shorter set)
+  const cm2 = await page.evaluate(() => {
+    const W = window.__fp.warm, out = [];
+    let s = 7; const r = () => { s = (s*16807) % 2147483647; return s/2147483647; };
+    for (const subOn of [47, 50, 52, 55]) for (let i = 0; i < 20; i++){ const c = W.callMinute(subOn, r); if (c > 37 && c < 46 || c >= subOn) out.push([subOn, c]); }
+    return out;
+  });
+  check(cm2.length === 0, "a change just after half time: the call waits for the second half, never in the last minutes of the first", cm2);
   const counts = await page.evaluate(() => { const W = window.__fp.warm; return [40, 66, 80, 100, 133, 200].map(s => [s, W.exerciseCount(s)]); });
   check(counts[0][1] === 3 && counts[1][1] === 3 && counts[4][1] === 5 && counts[5][1] === 5 && counts.every(c => c[1] >= 3 && c[1] <= 5), "3 exercises when the call comes late, up to 5 with time (real seconds left -> count)", counts);
 

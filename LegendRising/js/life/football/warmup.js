@@ -46,6 +46,8 @@ const TAU = Math.PI*2;
 export const WU = Object.freeze({
   CALL_LO: 15, CALL_HI: 10,           // the call: this many match minutes before the planned change (A1.8)
   HT_GUARD: 46,                        // a call that would land in the first half's last minutes waits for the second
+  HT_SPAN: 8,                          // (those last minutes: a warm-up takes about 5 to 7 match minutes, and must not run
+                                       // into the half-time whistle; for a change at 47 to 55 the call then comes late)
   WAIT_E: 22,                          // real seconds the coach waits for you to stand before he gives up on you
   TRUST_IGNORE: -1,                    // what ignoring him costs (trustAdd)
   RISE: .7, INTRO: 2.2, OUTRO: 1.3,    // real seconds: off the seat; the coach's line before a set; the result after it
@@ -69,7 +71,10 @@ export function callMinute(subOn, r){
   if (!(subOn > 0)) return null;
   let lo = subOn - WU.CALL_LO, hi = subOn - WU.CALL_HI;
   if (lo < WU.HT_GUARD && hi >= WU.HT_GUARD) lo = WU.HT_GUARD;
-  return Math.max(1, Math.round(lo + (hi - lo)*r()));
+  const c = Math.max(1, Math.round(lo + (hi - lo)*r()));
+  // a change in the second half whose call would come in the first half's last minutes: the call waits for the
+  // second half's first minute (the warm-up would otherwise be cut by the whistle and the dressing room)
+  return subOn > WU.HT_GUARD && c < WU.HT_GUARD && c > WU.HT_GUARD - 1 - WU.HT_SPAN ? WU.HT_GUARD : c;
 }
 // how many exercises fit in the real seconds left before the change (3 when the call came late, up to 5)
 export function exerciseCount(realLeft){
@@ -102,33 +107,34 @@ export function grade(err, win){
 // the rating of a warm-up score (0..1)
 export const ratingOf = q => q >= WU.SHARP ? "sharp" : q >= WU.READY ? "ready" : "cold";
 export const RATING_NAME = Object.freeze({sharp: "Sharp", ready: "Ready", cold: "Cold"});
-// the coach's style picks the focus (A1.8): two candidates each, one drawn
-export const FOCUS = Object.freeze({
-  attacking: [{name: "Finishing", keys: ["accuracy", "power"]}, {name: "Dribbling", keys: ["dribbling"]}],
-  pressing: [{name: "Stamina", keys: ["stamina"]}, {name: "Acceleration", keys: ["acceleration"]}],
-  technical: [{name: "Passing", keys: ["passing", "passacc"]}, {name: "Ball Control", keys: ["ctrl"]}]
-});
+// the coach's style picks the focus (A1.8): the two candidates COACH_STYLES (data/game.js) gives that style, one drawn.
+// That table is the only one: the career's warmBoost and this boost read the same focus, as the same career skills.
+// (styles: the table, the game's own by default; without one there is no focus, only the boost to everything)
+const coachStyles = () => typeof COACH_STYLES === "object" && COACH_STYLES ? COACH_STYLES : null;
 /* the boost of a warm-up scored q (0..1) with motivation mot (0..100) under a coach of style: {rating, all (+1..+4),
-   focus {skill: +n}, focusName, mins (10..15 on the pitch), q}. Motivation scales the size: the career's own scale
-   when it is given (scale, career.js motivationBoostScale), else 0.7x at 0 to 1.3x at 100 */
-export function boostFor(q, mot, style, r, scale){
+   focus {skill: +n} (the focus's career skills, each by the same amount), focusId, focusName, mins (10..15 on the
+   pitch), q}. Motivation scales the size: the career's own scale when it is given (scale, career.js
+   motivationBoostScale), else 0.7x at 0 to 1.3x at 100. A Cold warm-up gives nothing: all 0, no focus, 0 minutes */
+export function boostFor(q, mot, style, r, scale, styles = coachStyles()){
   q = clamp(+q || 0, 0, 1);
+  const rating = ratingOf(q);
+  // (the focus is drawn either way, so the draws after it do not depend on the result)
+  const cands = styles ? (styles[style] || styles.attacking || {}).focus || [] : [], f = cands.length ? cands[r() < .5 ? 0 : Math.min(1, cands.length - 1)] : null;
+  if (rating === "cold") return {rating, all: 0, focus: {}, focusId: "", focusName: "", mins: 0, q};
   const mf = Number.isFinite(scale) && scale > 0 ? scale : .7 + .6*clamp(mot == null ? 60 : +mot, 0, 100)/100;
   const all = clamp(Math.round(1 + 3.3*q*q*mf), 1, 4);
-  const f = (FOCUS[style] || FOCUS.attacking)[r() < .5 ? 0 : 1];
   const fn = clamp(Math.round(1 + 4*q*mf), 1, 5);
-  const focus = {}; for (const k of f.keys) focus[k] = fn;
-  return {rating: ratingOf(q), all, focus, focusName: f.name, mins: Math.round(10 + 5*q), q};
+  const focus = {}; if (f) for (const k of f.skills) focus[k] = fn;
+  return {rating, all, focus, focusId: f ? f.id : "", focusName: f ? f.name : "", mins: Math.round(10 + 5*q), q};
 }
 // an agent's attributes with a boost on: every skill up by all, the focus skills by their own amount, the derived
-// numbers worked out again (attrs.js levelled); Ball Control (ctrl, a derived number) on top. A new object
+// numbers (Ball Control, pass accuracy, pace...) worked out again from them (attrs.js levelled), as the career's
+// effSkill sees the same skills. A new object
 export function boostedAttrs(at, b){
   if (!at || !b) return at;
   const base = Object.assign({}, at), f = b.focus || {};
-  for (const k in f) if (k !== "ctrl" && base[k] != null) base[k] = base[k] + f[k];
-  const a = levelled(base, b.all || 1e-9);
-  if (f.ctrl) a.ctrl = clamp(a.ctrl + f.ctrl, 1, 99);
-  return a;
+  for (const k in f) if (base[k] != null) base[k] = base[k] + f[k];
+  return levelled(base, b.all || 1e-9);
 }
 const NUM = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
   "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
@@ -155,6 +161,10 @@ const LINES = {
    ev) -> boolean, pose(X) -> the body's state, demo(X, t) -> the coach's state (null: he watches), hud(X) -> what the
    HUD draws. X is the running exercise: {id, t, dur, reps: [], streak, best, var: {...}} */
 const POOL = {};
+// (the HUD's view of a running exercise: one record per exercise, filled in place each frame)
+const hw = X => X.hw || (X.hw = {});
+// a body's walk target, set in place (the targets a frame moves on are not new objects)
+const toAt = (o, x, z) => { const t = o.to || (o.to = {x: 0, z: 0}); t.x = x; t.z = z; return t; };
 const POOL_IDS = ["strides", "lunges", "swings", "hips", "quad", "knees", "shuffle", "juggle", "onetwo"];
 
 // strides along the strip: tap Shift as each foot lands (the footfalls of your own body's gait), the run picks up
@@ -176,6 +186,8 @@ POOL.strides = {name: "Touchline strides", order: 0, dur: [10, 12], face: "strip
     if (last && t - last.t > .18 && t - last.t < .8) X.period += ((t - last.t) - X.period)*.35;
     L.push({t, done: false}); if (L.length > 12) L.shift();
     X.flash = 1;
+    // (the beat you tap to, heard as well as seen)
+    AUD.cue("tick", null, .18);
     // a tap already waiting for this footfall
     if (X.claim && Math.abs(X.claim.t - t) <= WIN.strides[2]){ const c = X.claim; X.claim = null; L[L.length - 1].done = true; rep(X, grade(t - c.t, WIN.strides), timingWord(c.t - t)); }
   },
@@ -189,7 +201,7 @@ POOL.strides = {name: "Touchline strides", order: 0, dur: [10, 12], face: "strip
     else rep(X, "miss", "Off the beat");
     return true;
   },
-  hud(X){ const L = X.falls, lt = L.length ? L[L.length - 1].t : X.t; return {kind: "beat", lead: X.t - lt, period: X.period, flash: X.flash, next: (lt + X.period - X.t)/X.period}; }
+  hud(X){ const L = X.falls, lt = L.length ? L[L.length - 1].t : X.t, h = hw(X); h.kind = "beat"; h.lead = X.t - lt; h.period = X.period; h.flash = X.flash; h.next = (lt + X.period - X.t)/X.period; return h; }
 };
 // forward lunges: drag the mouse down to sink to the ghost depth line, up to rise; alternate legs
 POOL.lunges = {name: "Forward lunges", order: 1, dur: [11, 13], face: "strip", view: {pitch: -.88}, minK: .32,
@@ -215,7 +227,7 @@ POOL.lunges = {name: "Forward lunges", order: 1, dur: [11, 13], face: "strip", v
     }
     return true;
   },
-  hud(X){ return {kind: "gauge", v: X.d/1.25, target: X.target/1.25, band: WIN.lunges[1]/1.25}; }
+  hud(X){ const h = hw(X); h.kind = "gauge"; h.v = X.d/1.25; h.target = X.target/1.25; h.band = WIN.lunges[1]/1.25; return h; }
 };
 // leg swings at the boards: one hand on the boards, swing a leg with the mouse in time with the pendulum
 POOL.swings = {name: "Leg swings at the boards", order: 1, dur: [10, 12], face: "boards", view: {pitch: -.95}, minK: 1,
@@ -235,7 +247,7 @@ POOL.swings = {name: "Leg swings at the boards", order: 1, dur: [10, 12], face: 
     X.a = clamp(X.a - (X.lat ? -(ev.dx || 0) : (ev.dy || 0))/150, -1.15, 1.15);
     return true;
   },
-  hud(X){ return {kind: "pend", guide: X.guide || 0, v: X.a, lat: X.lat}; }
+  hud(X){ const h = hw(X); h.kind = "pend"; h.guide = X.guide || 0; h.v = X.a; h.lat = X.lat; return h; }
 };
 // hip openers: trace a smooth circle with the mouse; the knee draws it
 POOL.hips = {name: "Hip openers", order: 1, dur: [10, 12], face: "strip", view: {pitch: -.98}, minK: .55,
@@ -265,7 +277,7 @@ POOL.hips = {name: "Hip openers", order: 1, dur: [10, 12], face: "strip", view: 
     }
     return true;
   },
-  hud(X){ return {kind: "circle", x: X.cx/X.var.R, y: X.cy/X.var.R, trail: X.trail}; }
+  hud(X){ const h = hw(X); h.kind = "circle"; h.x = X.cx/X.var.R; h.y = X.cy/X.var.R; h.trail = X.trail; return h; }
 };
 // quad stretch balance: on one leg, the other foot in your hand; keep the wobbling dot in the middle with the mouse
 POOL.quad = {name: "Quad stretch balance", order: 1, dur: [9, 11], face: "strip", view: {pitch: -1.02}, minK: 1,
@@ -291,7 +303,7 @@ POOL.quad = {name: "Quad stretch balance", order: 1, dur: [9, 11], face: "strip"
     if (!X.swapped && X.t > X.dur/2){ X.swapped = true; X.s = -X.s; pop(X, "Other leg", "info"); }
   },
   input(X, ev){ if (ev.type !== "move") return false; X.ux += (ev.dx || 0)/110; X.uy += (ev.dy || 0)/110; return true; },
-  hud(X){ const d = X.dot || {x: 0, y: 0}; return {kind: "balance", x: d.x, y: d.y}; }
+  hud(X){ const h = hw(X); h.kind = "balance"; h.x = X.dot ? X.dot.x : 0; h.y = X.dot ? X.dot.y : 0; return h; }
 };
 // high knees, then butt kicks: A for the left leg, D for the right, on a beat that keeps getting quicker
 POOL.knees = {name: "High knees and butt kicks", order: 2, dur: [10, 12], face: "strip", view: {pitch: -1.05}, minK: 1,
@@ -300,7 +312,9 @@ POOL.knees = {name: "High knees and butt kicks", order: 2, dur: [10, 12], face: 
   begin(X, r){ X.var.p0 = .5 + .06*r(); X.var.p1 = .3 + .04*r(); X.beats = []; X.bt = .9; X.side = r() < .5 ? 1 : -1; X.kL = 0; X.kR = 0; X.kick = false; X.n = 0; },
   step(X, dt){
     const u = clamp(X.t/X.dur, 0, 1), p = lerp(X.var.p0, X.var.p1, u);
-    while (X.bt < X.t + 2.2){ X.beats.push({t: X.bt, s: X.side, done: false, kick: X.bt > X.dur/2}); X.side = -X.side; X.bt += p; }
+    while (X.bt < X.t + 2.2){ X.beats.push({t: X.bt, s: X.side, done: false, ticked: false, kick: X.bt > X.dur/2}); X.side = -X.side; X.bt += p; }
+    // (each beat ticks as it reaches the line, a little firmer for the kicks)
+    for (const b of X.beats) if (!b.ticked && b.t <= X.t){ b.ticked = true; AUD.cue("tick", null, b.kick ? .3 : .24); }
     for (const b of X.beats) if (!b.done && X.t - b.t > WIN.knees[2]){ b.done = true; if (b.t > .5) rep(X, "miss", "Missed the beat"); }
     while (X.beats.length && X.beats[0].done && X.t - X.beats[0].t > 1) X.beats.shift();
     X.kick = X.t > X.dur/2;
@@ -320,7 +334,7 @@ POOL.knees = {name: "High knees and butt kicks", order: 2, dur: [10, 12], face: 
     if (s > 0) X.kL = lift; else X.kR = lift;
     return true;
   },
-  hud(X){ return {kind: "strip", t: X.t, beats: X.beats, kick: X.kick}; }
+  hud(X){ const h = hw(X); h.kind = "strip"; h.t = X.t; h.beats = X.beats; h.kick = X.kick; return h; }
 };
 // side shuffles: along the strip facing the pitch; on the coach's "Go!" burst away (W) as quickly as you can
 POOL.shuffle = {name: "Side shuffles", order: 0, dur: [11, 13], face: "pitch", view: {pitch: -1.1}, minK: .3,
@@ -342,7 +356,7 @@ POOL.shuffle = {name: "Side shuffles", order: 0, dur: [11, 13], face: "pitch", v
     X.burst = 1.05;
     return true;
   },
-  hud(X){ return {kind: "go", show: X.goShow, rt: X.rt, burst: X.burst > 0}; }
+  hud(X){ const h = hw(X); h.kind = "go"; h.show = X.goShow; h.rt = X.rt; h.burst = X.burst > 0; return h; }
 };
 // ball juggling: click as the ball drops into the ring; a clean touch sends it straight back up
 POOL.juggle = {name: "Ball juggling", order: 3, dur: [11, 13], face: "strip", view: {pitch: -.95}, minK: .62,
@@ -361,7 +375,7 @@ POOL.juggle = {name: "Ball juggling", order: 3, dur: [11, 13], face: "strip", vi
     juggleTouch(X, g);
     return true;
   },
-  hud(X){ return {kind: "juggle", touches: X.touches}; }
+  hud(X){ const h = hw(X); h.kind = "juggle"; h.touches = X.touches; return h; }
 };
 // quick one-twos with the fitness coach: he plays it in, you take it, he steps across and opens up; click to pass it
 // back the moment he does
@@ -380,7 +394,7 @@ POOL.onetwo = {name: "Quick one-twos", order: 3, dur: [12, 14], face: "coach", v
     oneTwoPass(X, g);
     return true;
   },
-  hud(X){ return {kind: "pass", open: X.stage === "open" ? clamp((X.t - X.open)/WIN.onetwo[2], 0, 1) : -1, at: SESS.fit ? SESS.fit.pos : null}; }
+  hud(X){ const h = hw(X); h.kind = "pass"; h.open = X.stage === "open" ? clamp((X.t - X.open)/WIN.onetwo[2], 0, 1) : -1; h.at = SESS.fit ? SESS.fit.pos : null; return h; }
 };
 for (const id of POOL_IDS) POOL[id].id = id;
 // the timing windows: strides, knees (seconds either side); lunges (depth); swings (leg against pendulum, -1..1);
@@ -398,19 +412,20 @@ setWindows(60);
 const timingWord = d => Math.abs(d) < .03 ? null : d > 0 ? "Early" : "Late";
 
 /* ---------- the port to the career (the WP-W2 contract), and the stand-in ---------- */
-// The stand-in has the contract's shape: motivation() 60, warmBoost {set(o), get(), clear(), extend(min)}, trust(d) and
+// The stand-in has the contract's shape: motivation() 60, warmBoost {set(o), get(), clear(), extend(min), rev()}, trust(d) and
 // motivationAdd(d, why) recorded. Used until the career's own exist, and always in the test fixtures
 export function localPort(){
-  const L = {boost: null, log: [], mot: 60,
+  const L = {boost: null, log: [], mot: 60, rev: 0,
     motivation: () => L.mot, boostScale: () => null, timing: () => null,
     motivationAdd(d, why){ L.log.push(["motivation", d, why]); L.mot = clamp(L.mot + (+d || 0), 0, 100); },
     trust(d){ L.log.push(["trust", d]); },
     style: () => null,
     warmBoost: {
-      set(o){ L.boost = Object.assign({rating: "ready", all: 0, focus: {}, untilMin: 0, onFire: false}, o || {}); L.log.push(["set", Object.assign({}, L.boost)]); return L.boost; },
+      set(o){ L.rev++; L.boost = Object.assign({rating: "ready", all: 0, focus: {}, untilMin: 0, onFire: false}, o || {}); L.log.push(["set", Object.assign({}, L.boost)]); return L.boost; },
       get(){ return L.boost; },
-      clear(){ L.boost = null; L.log.push(["clear"]); },
-      extend(min){ if (L.boost){ L.boost.untilMin += +min || 0; L.boost.onFire = true; L.log.push(["extend", min]); } return L.boost; }
+      clear(){ L.rev++; L.boost = null; L.log.push(["clear"]); },
+      extend(min){ if (L.boost){ L.rev++; L.boost.untilMin += +min || 0; L.boost.onFire = true; L.log.push(["extend", min]); } return L.boost; },
+      rev: () => L.rev
     }};
   return L;
 }
@@ -419,13 +434,6 @@ export function careerPort(){
   const w = typeof window !== "undefined" ? window : {};
   const loc = localPort();
   const wb = w.warmBoost && typeof w.warmBoost.set === "function" ? w.warmBoost : null;
-  // (Ball Control is a derived number in the match, ctrl; to the career it is the coach's ballControl focus, the
-  // skills it stands for in COACH_STYLES)
-  const toCareer = o => {
-    if (!o || !o.focus || o.focus.ctrl == null) return o;
-    const f = Object.assign({}, o.focus); f.ballControl = (f.ballControl || 0) + f.ctrl; delete f.ctrl;
-    return Object.assign({}, o, {focus: f});
-  };
   const num = name => { try { const v = typeof w[name] === "function" ? +w[name]() : NaN; return Number.isFinite(v) ? v : null; } catch(e){ return null; } };
   return {
     real: !!wb, local: loc,
@@ -435,7 +443,7 @@ export function careerPort(){
     style: () => { try { return typeof w.coachStyle === "function" ? w.coachStyle() : null; } catch(e){ return null; } },
     boostScale: () => num("motivationBoostScale"),
     timing: () => num("motivationTiming"),
-    warmBoost: wb ? {set: o => wb.set(toCareer(o)), get: () => wb.get(), clear: () => wb.clear(), extend: m => wb.extend(m)} : loc.warmBoost
+    warmBoost: wb ? {set: o => wb.set(o), get: () => wb.get(), clear: () => wb.clear(), extend: m => wb.extend(m), rev: () => typeof wb.rev === "function" ? wb.rev() : -1} : loc.warmBoost
   };
 }
 
@@ -520,7 +528,7 @@ function callStep(dt){
   }
   if (SESS.wantE){
     // (he keeps facing you; if you walk off he follows a little)
-    if (k && !k.crouch){ k.to = {x: P.x + .8*Math.sin(P.yaw + .6), z: P.z - .8*Math.cos(P.yaw + .6)}; }
+    if (k && !k.crouch) toAt(k, P.x + .8*Math.sin(P.yaw + .6), P.z - .8*Math.cos(P.yaw + .6));
     SESS.waitT += dt;
     if (SESS.waitT > WU.WAIT_E) ignoreCall();
   }
@@ -562,7 +570,7 @@ function jogStep(dt){
   }
   if (d < .6 || SESS.st > 14){ SESS.it = null; startExercise(0); return; }
   SESS.it = intent(dx/d, dz/d, "jog", null, Math.min(WU.JOG, 1 + d));
-  SESS.view = {yaw: Math.atan2(-dx, -dz), pitch: -.15};
+  viewAt(Math.atan2(-dx, -dz), -.15);
 }
 function startExercise(i){
   const C = SESS.ctx;
@@ -599,7 +607,7 @@ function drillStep(dt){
   // the moving exercises run you along the strip; the others hold you on the spot the exercise is done on
   if (SESS.sub === "go" || SESS.sub === "intro") moveFor(X, dt);
   if (SESS.sub === "intro"){
-    SESS.view = {yaw: X.face, pitch: E.view.pitch};
+    viewAt(X.face, E.view.pitch);
     if (SESS.st >= WU.INTRO){ SESS.sub = "go"; SESS.st = 0; X.t = 0; pop(X, "Go", "go"); AUD.cue("whistleShort", null, .25); }
     return;
   }
@@ -607,13 +615,13 @@ function drillStep(dt){
     X.t += dt;
     E.step(X, dt);
     if (X.id === "juggle") ballStepX(X, dt);
-    SESS.view = {yaw: viewYaw(X), pitch: E.view.pitch};
+    viewAt(viewYaw(X), E.view.pitch);
     mateShout(dt);
     if (X.t >= X.dur) endExercise();
     return;
   }
   if (SESS.sub === "outro"){
-    SESS.view = {yaw: viewYaw(X), pitch: E.view.pitch*.6};
+    viewAt(viewYaw(X), E.view.pitch*.6);
     if (SESS.st >= WU.OUTRO){
       if (SESS.ball) ballEnd();
       if (SESS.i + 1 < SESS.set.length) startExercise(SESS.i + 1); else finishWarm(true);
@@ -664,12 +672,13 @@ function finishWarm(done){
   SESS.boost = b; SESS.result = {q, rating: b.rating, done, auto: SESS.auto, scores: SESS.scores.slice(0, n)};
   // the boost lasts its minutes from when you go on (the planned change until then; controller.js moves it on)
   C.port.warmBoost.set({rating: b.rating, all: b.all, focus: Object.assign({}, b.focus), focusName: b.focusName, mins: b.mins, untilMin: SESS.plan.subOn + b.mins, onFire: false});
-  if (b.rating === "sharp") C.port.motivationAdd(1, "A sharp warm-up");
-  C.applyBoost(b);
+  if (b.rating === "sharp") C.port.motivationAdd(1, "A sharp warm-up. Your legs were ready before you even went on.");
+  // (a Cold warm-up puts nothing on your numbers)
+  if (b.all > 0) C.applyBoost(b);
   SESS.phase = "done"; SESS.st = 0; SESS.X = null;
   say("fit", pick(LINES.done[b.rating]));
   const foc = b.focusName ? ` and +${b.focus[Object.keys(b.focus)[0]]} ${b.focusName}` : "";
-  C.pop(`${RATING_NAME[b.rating]}`, "rating", `+${b.all} to everything${foc} for your first ${b.mins} minutes on.`);
+  C.pop(`${RATING_NAME[b.rating]}`, "rating", b.all > 0 ? `+${b.all} to everything${foc} for your first ${b.mins} minutes on.` : "No boost this time. Your legs never really got going.");
   fitLeave();
 }
 function doneStep(dt){ SESS.st += dt; }
@@ -694,6 +703,9 @@ function moveFor(X, dt){
   if (d > .12) SESS.it = intent(dx/d, dz/d, "walk", dirOf(X.face), Math.min(WU.WALK, .4 + 2*d), true);
   else SESS.it = intent(0, 0, "walk", dirOf(X.face), 0, true);
 }
+// the look the warm-up frames (one record, set in place)
+const VIEW = {yaw: 0, pitch: 0};
+function viewAt(yaw, pitch){ VIEW.yaw = yaw; VIEW.pitch = pitch; SESS.view = VIEW; }
 const INT = {dx: 0, dz: 0, gait: "jog", face: null, strafe: false, speedCap: Infinity};
 function intent(dx, dz, gait, face, cap, strafe = false){
   const l = Math.hypot(dx, dz) || 1;
@@ -833,7 +845,7 @@ function oneTwoStep(X, dt){
   switch (X.stage){
     case "feed":
       // back on his spot with the ball at his feet, he plays it in to yours
-      F.to = {x: at.x + X.shift, z: at.z};
+      toAt(F, at.x + X.shift, at.z);
       if (b.state === "held") ballHold(b, {id: 1, x: F.pos.x, y: .11, z: F.pos.z - .45});
       // (his swing starts a moment before the ball goes: the clip runs to the contact, moves.js tc)
       if (X.st > .25 && F.arrived && !F.strike) F.strike = {tc: .3, after: .45, id: (F.sid = (F.sid || 0) + 1), ball: {x: b.p.x, y: .11, z: b.p.z}, dir: {x: X.home.x - b.p.x, z: X.home.z - b.p.z}};
@@ -848,7 +860,7 @@ function oneTwoStep(X, dt){
       }
       break;
     case "rolling":
-      F.to = {x: at.x + X.shift, z: at.z};
+      toAt(F, at.x + X.shift, at.z);
       // it comes to your feet: you take it (a cushioned first touch: the ball stops at your boot)
       if (Math.hypot(b.p.x - X.home.x, b.p.z - (X.home.z + .45)) < .45 || X.st > 3){
         ballHold(b, {id: 0, x: X.home.x, y: .11, z: X.home.z + .45}); AUD.cue("bounce", {x: X.home.x, y: .1, z: X.home.z + .45}, .25);
@@ -857,7 +869,7 @@ function oneTwoStep(X, dt){
       break;
     case "have":
       // he steps across, then opens his body to you
-      F.to = {x: at.x + X.shift, z: at.z};
+      toAt(F, at.x + X.shift, at.z);
       if (X.st >= X.openAt && F.arrived){ X.stage = "open"; X.open = X.t; F.open = 1; }
       break;
     case "open":
@@ -866,7 +878,7 @@ function oneTwoStep(X, dt){
     case "back": {
       // he takes it (a pass gone astray he has to go and fetch)
       const d = Math.hypot(b.p.x - F.pos.x, b.p.z - (F.pos.z - .45)), slow = Math.hypot(b.v.x, b.v.z) < .4;
-      if (slow && d > .6) F.to = {x: b.p.x, z: b.p.z + .45};
+      if (slow && d > .6) toAt(F, b.p.x, b.p.z + .45);
       if (d < .55 || (X.st > 4)){ ballHold(b, {id: 1, x: F.pos.x, y: .11, z: F.pos.z - .45}); X.stage = "feed"; X.st = 0; F.open = 0; }
       break;
     }
@@ -926,7 +938,9 @@ function stepBodies(dt){
     // moving ones
     if (key === "fit" && SESS.phase === "drill" && SESS.X && SESS.X.id !== "onetwo"){
       const X = SESS.X, f = dirOf(X.face);
-      o.to = X.id === "strides" || X.id === "shuffle" ? {x: X.home.x - SESS.ctx.side*4, z: WU.STRIP.z + 1.6} : X.id === "swings" ? {x: X.home.x + 1.5*SESS.ctx.side, z: WU.STRIP.boardZ} : {x: X.home.x + f.x*3.1, z: X.home.z + f.z*3.1};
+      if (X.id === "strides" || X.id === "shuffle") toAt(o, X.home.x - SESS.ctx.side*4, WU.STRIP.z + 1.6);
+      else if (X.id === "swings") toAt(o, X.home.x + 1.5*SESS.ctx.side, WU.STRIP.boardZ);
+      else toAt(o, X.home.x + f.x*3.1, X.home.z + f.z*3.1);
     }
     if (o.to){
       const dx = o.to.x - o.pos.x, dz = o.to.z - o.pos.z, d = Math.hypot(dx, dz);
@@ -953,17 +967,17 @@ function stepBodies(dt){
 const turnTo = (a, b, k) => a + clamp(wrapA(b - a), -k, k);
 const DEMO = {};
 function bodySt(key, o, moving){
-  if (moving) return Object.assign(o.mv || (o.mv = {mode: "move", speed: 0}), {speed: o.speed, upper: null});
+  if (moving){ const m = o.mv || (o.mv = {mode: "move", speed: 0, upper: null}); m.speed = o.speed; m.upper = null; return m; }
   if (key === "coach") return o.crouch && o.arrived ? (o.cst || (o.cst = {mode: "wu:crouch", talk: 0})) : (o.tst || (o.tst = {mode: "idle", upper: {g: "point", w: .6}}));
   // the fitness coach: loosening up, demonstrating the set, playing the one-twos
   if (SESS.phase === "drill" && SESS.X){
     const X = SESS.X, t = X.t + .15;
     switch (X.id){
-      case "lunges": { const c = Math.sin(Math.PI*(t % 2.6)/2.6); return demo("wu:lunge", {d: .95*c*c, lead: Math.floor(t/2.6) % 2 ? 1 : -1}); }
-      case "swings": return demo("wu:swing", {a: X.guide || 0, s: -X.s, lat: X.lat, board: .7});
-      case "hips": { const th = t*2.4; return demo("wu:hips", {th, r: 1, s: 1}); }
-      case "quad": return demo("wu:quad", {ox: .15*Math.sin(t*1.3), oy: .1*Math.sin(t*.9), s: -X.s});
-      case "knees": { const b = (X.beats || []).filter(q => q.t <= X.t).pop(); const since = b ? X.t - b.t : 9; return demo("wu:knees", {L: b && b.s > 0 ? Math.max(0, 1 - since*3.2) : 0, R: b && b.s < 0 ? Math.max(0, 1 - since*3.2) : 0, kick: X.kick}); }
+      case "lunges": { const c = Math.sin(Math.PI*(t % 2.6)/2.6), s = demo("wu:lunge"); s.d = .95*c*c; s.lead = Math.floor(t/2.6) % 2 ? 1 : -1; return s; }
+      case "swings": { const s = demo("wu:swing"); s.a = X.guide || 0; s.s = -X.s; s.lat = X.lat; s.board = .7; return s; }
+      case "hips": { const s = demo("wu:hips"); s.th = t*2.4; s.r = 1; s.s = 1; return s; }
+      case "quad": { const s = demo("wu:quad"); s.ox = .15*Math.sin(t*1.3); s.oy = .1*Math.sin(t*.9); s.s = -X.s; return s; }
+      case "knees": { let b = null; if (X.beats) for (const q of X.beats) if (q.t <= X.t) b = q; const since = b ? X.t - b.t : 9, s = demo("wu:knees"); s.L = b && b.s > 0 ? Math.max(0, 1 - since*3.2) : 0; s.R = b && b.s < 0 ? Math.max(0, 1 - since*3.2) : 0; s.kick = X.kick; return s; }
       case "juggle": return o.fst || (o.fst = {mode: "idle", arms: "folded"});
       case "onetwo": {
         if (o.strike){ const k = o.kst || (o.kst = {mode: "strike", kind: "side", side: "R", power: .45}); k.id = o.strike.id; k.ball = o.strike.ball; k.dir = o.strike.dir; k.tc = Math.max(0, o.strike.tc); return k; }
@@ -974,7 +988,8 @@ function bodySt(key, o, moving){
   }
   return o.sst || (o.sst = {mode: "stretch"});
 }
-function demo(mode, p){ const k = mode; const s = DEMO[k] || (DEMO[k] = {mode}); return Object.assign(s, p); }
+// (one record per demonstration, its numbers set in place each frame)
+function demo(mode){ return DEMO[mode] || (DEMO[mode] = {mode}); }
 
 /* ---------- your own body through the set (controller.js fpPose hands it over while the warm-up has you) ----------
    h: your first-person body; at (x, z) where you stand; dt. Places and poses it, returns the pose's events (the
@@ -1039,12 +1054,15 @@ export function warmEye(){
 }
 
 /* ---------- the HUD's view of it (fphud.js hudWarm) ---------- */
+// (one record, filled in place each frame)
+const HUD = {name: "", how: "", i: 0, n: 0, sub: "", t: 0, dur: 0, streak: 0, w: null, tab: 0, scores: null};
 export function warmHud(){
   if (!SESS.on) return null;
   if (SESS.phase === "drill" && SESS.X){
-    const X = SESS.X, E = POOL[X.id];
-    return {name: E.name, how: E.how, i: SESS.i, n: SESS.set.length, sub: SESS.sub, t: SESS.sub === "go" ? X.t : 0, dur: X.dur, streak: X.streak,
-      w: SESS.sub === "go" ? E.hud(X) : null, tab: SESS.tab/WU.TAB_HOLD, scores: SESS.scores};
+    const X = SESS.X, E = POOL[X.id], H = HUD;
+    H.name = E.name; H.how = E.how; H.i = SESS.i; H.n = SESS.set.length; H.sub = SESS.sub; H.t = SESS.sub === "go" ? X.t : 0; H.dur = X.dur;
+    H.streak = X.streak; H.w = SESS.sub === "go" ? E.hud(X) : null; H.tab = SESS.tab/WU.TAB_HOLD; H.scores = SESS.scores;
+    return H;
   }
   return null;
 }

@@ -413,6 +413,8 @@ export function hudSay(who, text, mate = false){
   E.say.classList.remove("in"); void E.say.offsetWidth; E.say.classList.add("in");
   D.sayT = mate ? 2.6 : 4.8;
 }
+// the line on screen taken away (it no longer holds: you came on)
+export function hudSayOff(){ if (!D.root) return; D.sayT = 0; D.el.say.classList.remove("in"); }
 function warmFrame(s, dt, now, slow){
   const E = D.el, W = s.warm || null;
   // the pops float up and go
