@@ -19,7 +19,7 @@ import {deliveryPoint, POINT_NAME} from "./parcels.js";
 import {departures, EXIT} from "./leave.js";
 import {bakeCar, CAR_KINDS} from "./cars.js";
 import {buildPitchMesh, ballMesh as ballLook} from "./football/pitchmesh.js";
-import {GP, groundPitch, meshTierFor, wornFor, DRILLS, toWorld, SESSION_PLAN_MINS} from "./football/trainspec.js";
+import {GP, groundPitch, meshTierFor, wornFor, DRILLS, toWorld, SESSION_PLAN_MINS, TARGET} from "./football/trainspec.js";
 
 let ctx = null;
 const G = () => (typeof S !== "undefined" ? S : null);
@@ -219,9 +219,38 @@ function drillStations(){
     if (D.feed && D.feed.from){ const q = toWorld(D.feed.from.x, D.feed.from.z); ballBag(q.x + .9, q.z + .4, .4); }
     spot({x:p.x, z:p.z, y:.6, r:1.6, near:true, label:D.label, hint:D.hint, run:() => ctx.drill(k)});
   }
+  // the corner targets of the goals the drills with targets shoot at (A1.7, WP-D3): put up while one of them runs
+  GROUND.targets = {};
+  for (const k of Object.keys(DRILLS)) if (DRILLS[k].targets && !GROUND.targets[DRILLS[k].dir]) GROUND.targets[DRILLS[k].dir] = goalTargets(DRILLS[k].dir);
   // the odd cone and ball left lying about after the morning, off the drills' ground
   for (const [x, z] of [[-33, -6], [-33, -8], [-31, -6], [-31, -8], [33, -50]]) cone(x, z, PC.orange, .8);
   ball(-2.4, .11, -45.4); ball(30.8, .11, -6.7);
+}
+/* the corner targets (addendum A1.7, WP-D3): in the goal at end (+1 east, -1 west, the training pitch's frame) a
+   metre-square frame of padded yellow tube in each corner of the mouth, the top two clipped under the bar, the bottom
+   two standing on the grass, each against the inside of its post, exactly the squares trainspec.js cornerOf scores (on
+   the ball's centre as it crosses the line). Just behind the line, inside the net, so the ball goes through the
+   middle of one and nothing it hits is moved: they are not solid. One mesh, hidden until training.js puts them up for
+   a drill that is scored on them, and taken down after. */
+function goalTargets(end){
+  const T = TARGET, th = .05, gx = PITCH.cx + end*(PITCH.L/2 + .16), pos = [], nor = [];
+  const add = (cx, cy, cz, sx, sy, sz) => {
+    const g = new THREE.BoxGeometry(sx, sy, sz).toNonIndexed(); g.translate(cx, cy, cz);
+    pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array); g.dispose();
+  };
+  for (const zs of [-1, 1]) for (const top of [true, false]){
+    const zc = PITCH.cz + zs*(T.HW - T.W/2), yc = top ? T.TOP - T.H/2 : T.H/2;
+    add(gx, yc + T.H/2 - th/2, zc, th, th, T.W); add(gx, yc - T.H/2 + th/2, zc, th, th, T.W);
+    add(gx, yc, zc - T.W/2 + th/2, th, T.H - 2*th, th); add(gx, yc, zc + T.W/2 - th/2, th, T.H - 2*th, th);
+    // the bottom ones stand on two short feet back into the net
+    if (!top) for (const dz of [-1, 1]) add(gx + end*.2, th/2, zc + dz*(T.W/2 - th/2), .4, th, th);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  const m = new THREE.Mesh(geo, mat({color:0xf2c418, roughness:.55}));
+  m.name = "goal-targets"; m.visible = false; m.castShadow = false; m.userData.noMerge = true;
+  W.scene.add(m);
+  return m;
 }
 // one moulded stadium seat, side on: a pan with a lip and a raked back (twenty triangles, shared by every seat)
 let SEAT = null;

@@ -4,7 +4,9 @@
 // is worth. training.js runs them on the match simulation (createMatch with cfg.mode set to a training mode): the same
 // step, ball, actions, AI and controls as a match.
 // Owner: WP-I. Contracts DESIGN 1.1 (the training ground's frame), 1.2 (trainspec.js, P), 1.4.13 (cfg.mode), 3.6.1,
-// 3.6.2, 3.6.3.
+// 3.6.2, 3.6.3. The corner targets, their scoring and the volley drill: WP-D3 (Stage P3a), DESIGN 2.7 (the hook queue's
+// A1.7 training drills) and addendum A1.7 ("shooting drills with corner targets and scoring, volley and header drills
+// that raise the stats").
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Every test takes the simulation's
 // own events and numbers as arguments.
@@ -72,10 +74,10 @@ export function goalsLaw(spec){
    way team 0 attacks (dir), who is in it, how the ball comes and any orders the others play to (orders 'pass': the
    opponents only pass it to each other). The squad's own work keeps clear of them (npc.js). */
 export const DRILLS = Object.freeze({
-  shoot: {kind: 'shoot', mode: 'drill', title: "Finishing", label: "Finishing against the keeper", sub: "The coach lays it off, you finish past the keeper",
-    hint: "Five shots against the keeper · accuracy and shot power · 30 min", mins: 30, reps: 5,
+  shoot: {kind: 'shoot', mode: 'drill', title: "Finishing", label: "Finishing against the keeper", sub: "The coach lays it off. Pick a corner past the keeper",
+    hint: "Five shots at the corner targets · accuracy and shot power · 30 min", mins: 30, reps: 5,
     spot: {x: 17, z: 4}, board: {x: 14.5, z: 9.5}, area: null, dir: 1,
-    mates: 0, opps: 0, keeper: true, feed: {kind: 'pass', to: 'me', from: {x: 24, z: 15}},
+    mates: 0, opps: 0, keeper: true, feed: {kind: 'pass', to: 'me', from: {x: 24, z: 15}}, targets: true,
     xp: [['accuracy', 3, 4], ['power', 1, 2]]},
   pass: {kind: 'pass', mode: 'drill', title: "Passing lanes", label: "Passing lanes", sub: "Three team-mates on the move: find them",
     hint: "Six passes · pass accuracy and passing · 30 min", mins: 30, reps: 6,
@@ -88,6 +90,13 @@ export const DRILLS = Object.freeze({
     spot: {x: -27, z: -1}, board: {x: -23.5, z: -6.5}, area: null, dir: -1,
     mates: 0, opps: 0, keeper: true, feed: {kind: 'cross', to: 'head', from: {x: -30, z: 19}},
     xp: [['heading', 3, 3], ['jumping', 1, 0]]},
+  // beside the heading: the coach lobs it up from the side and it drops in front of you; you meet it on the timing ring
+  // (A1.5) before it lands
+  volley: {kind: 'volley', mode: 'drill', title: "Volleys", label: "Volleys", sub: "The coach lobs it up. Hit it before it lands",
+    hint: "Five volleys at goal · clean strike and accuracy · 30 min", mins: 30, reps: 5,
+    spot: {x: -24, z: 7}, board: {x: -20.5, z: 10.5}, area: null, dir: -1,
+    mates: 0, opps: 0, keeper: true, feed: {kind: 'loft', to: 'volley', from: {x: -27.5, z: 14.5}},
+    xp: [['aero', 3, 3], ['accuracy', 1, 2]]},
   intercept: {kind: 'intercept', mode: 'drill', title: "Reading the lane", label: "Reading the lane", sub: "Two of them pass it between them, you cut it out",
     hint: "Six passes to read · interception · 30 min", mins: 30, reps: 6,
     spot: {x: -16, z: -15}, board: {x: -16, z: -5.5}, area: {x0: -28, x1: -4, z0: -22, z1: -8}, dir: 1,
@@ -100,11 +109,11 @@ export const DRILLS = Object.freeze({
     mates: 0, opps: 1, oppSlots: ['ST'], oppAt: [{x: 14, z: -15}], keeper: false,
     feed: {kind: 'pass', to: 'opp', from: {x: 10, z: -19}},
     xp: [['tackling', 3, 0]]},
-  setpiece: {kind: 'setpiece', mode: 'drill', title: "Free kicks", label: "Free kicks", sub: "Over the wall or round it, the keeper's in",
-    hint: "Five free kicks · curve and accuracy · 30 min", mins: 30, reps: 5,
+  setpiece: {kind: 'setpiece', mode: 'drill', title: "Free kicks", label: "Free kicks", sub: "Over the wall or round it, into a corner",
+    hint: "Five free kicks at the corner targets · curve and accuracy · 30 min", mins: 30, reps: 5,
     spot: {x: 13, z: -4}, board: {x: 9.5, z: -9.5}, area: null, dir: 1,
     mates: 0, opps: 3, oppSlots: ['CB', 'CB', 'CDM'], oppAt: [{x: 22, z: -5}, {x: 22, z: -4}, {x: 22, z: -3}], keeper: true,
-    feed: {kind: 'freekick', to: 'spot', at: {x: 13, z: -4}},
+    feed: {kind: 'freekick', to: 'spot', at: {x: 13, z: -4}}, targets: true,
     xp: [['curve', 2, 3], ['accuracy', 2, 0]]}
 });
 export const DRILL_KINDS = Object.freeze(Object.keys(DRILLS));
@@ -214,6 +223,62 @@ export function shotTest(evs, me, ctx = {}){
   // how good it was: on target is most of it; a goal is better; how far from the keeper's middle it went
   const q = on ? clamp(.6 + (res === 'goal' ? .25 : 0) + .15*clamp(Math.abs(+k.tz || 0)/3.66, 0, 1), 0, 1) : res === 'wood' ? .3 : 0;
   return {done: true, ok: on, q, why: res, contact: k.contact, kick: k};
+}
+/* ---------- the corner targets (A1.7) ----------
+   Four targets hang in the goal the finishing drill and the free kicks are aimed at: a metre square in each corner of
+   the goal mouth, measured on the ball's centre as it crosses the line (TARGET.W in from the post's inner face,
+   TARGET.H down from the bar or up from the grass). A goal through one is worth TARGET_PTS.corner, any other goal
+   TARGET_PTS.goal, a shot through one that the keeper keeps out TARGET_PTS.saved (it was in the corner: he did well);
+   nothing else scores. The goal mouth is 7.32 x 2.44 between the inner faces (pitchspec.js). */
+export const TARGET = Object.freeze({W: 1.0, H: 1.0, HW: 3.66, TOP: 2.44});
+export const TARGET_PTS = Object.freeze({corner: 3, goal: 1, saved: 1});
+export const CORNER_NAME = Object.freeze({tl: "top left", tr: "top right", bl: "bottom left", br: "bottom right"});
+// where a flight crosses the goal line of the goal at end (+1 or -1, its x sign; hx the half length): the ball's centre
+// {y, z} once it is all the way over the line, from the prediction pred (x, y, z, t per sample, n samples), or null
+// when it never gets there
+export function crossAt(pred, n, end, hx, r = 0.11){
+  const gx = end*(hx + r);
+  for (let k = 1; k < n; k++){
+    const x0 = pred[4*(k - 1)], x1 = pred[4*k];
+    if ((x0 - gx)*end < 0 && (x1 - gx)*end >= 0){
+      const f = (gx - x0)/(x1 - x0 || 1e-9);
+      return {y: pred[4*(k - 1) + 1] + f*(pred[4*k + 1] - pred[4*(k - 1) + 1]), z: pred[4*(k - 1) + 2] + f*(pred[4*k + 2] - pred[4*(k - 1) + 2])};
+    }
+  }
+  return null;
+}
+// which target a ball crossing the line at (y, z) went through ('tl', 'tr', 'bl', 'br', as the shooter sees the goal
+// at end), or null. Facing the goal at +x your right is +z; facing it at -x, -z.
+export function cornerOf(y, z, end){
+  if (!(y >= 0) || !Number.isFinite(z)) return null;
+  const az = Math.abs(z);
+  if (az > TARGET.HW || y > TARGET.TOP || az < TARGET.HW - TARGET.W) return null;
+  const lvl = y >= TARGET.TOP - TARGET.H ? 't' : y <= TARGET.H ? 'b' : null;
+  return lvl ? lvl + (z*end > 0 ? 'r' : 'l') : null;
+}
+// a decided shot (shotTest's verdict v) and the target it went through: the points, the quality (the XP's q) and the
+// line the card shows
+export function targetScore(v, corner){
+  if (!v || !v.done) return null;
+  const goal = v.why === 'goal', saved = v.why === 'saved';
+  const pts = goal ? (corner ? TARGET_PTS.corner : TARGET_PTS.goal) : saved && corner ? TARGET_PTS.saved : 0;
+  const q = goal ? (corner ? 1 : .8) : saved ? (corner ? .8 : .6) : v.why === 'wood' ? .3 : 0;
+  const line = goal ? (corner ? (corner[0] === 't' ? "Top corner!" : "Bottom corner!") : "Goal") : saved ? (corner ? "In the corner, but he saved it" : "Saved") : null;
+  return {pts, q, corner, where: corner ? CORNER_NAME[corner] : "", line};
+}
+
+/* ---------- the volley (A1.5, A1.7) ----------
+   A volley by you, decided: on target and struck before the ball landed. ctx.air: it was still in the air when you hit
+   it (the drill counts the bounces); the kick's strike (1 sweet, lower for a swing early or late off the timing ring)
+   makes most of its quality. */
+export function volleyTest(evs, me, ctx = {}){
+  const k = lastOf(kicksBy(evs, me, ['shot', 'chip', 'lob']));
+  if (!k) return ctx.timeUp || ctx.dead ? {done: true, ok: false, q: 0, why: ctx.dead ? 'missed' : 'none'} : null;
+  if (k.res == null && !ctx.timeUp && !ctx.dead) return null;
+  const res = k.res || 'wide', on = res === 'goal' || res === 'saved', air = ctx.air !== false;
+  const clean = clamp(k.strike != null ? +k.strike : .6, 0, 1);
+  const q = on ? clamp((.5 + (res === 'goal' ? .2 : 0) + .3*clean)*(air ? 1 : .6), 0, 1) : 0;
+  return {done: true, ok: on && air, q, why: on && !air ? 'bounced' : res, clean, air, kick: k};
 }
 // a header by you, decided: on target
 export function headerTest(evs, me, ctx = {}){
