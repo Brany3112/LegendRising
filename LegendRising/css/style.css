@@ -1676,10 +1676,12 @@ body.building #lifeCanvas{cursor:crosshair}
 .cp-mk.k-train i{background:#1f5a3a;border-color:#6fe0a0} .cp-mk.k-gym i,.cp-mk.k-club i{background:#4a3a6a;border-color:#b9a0ff}
 .cp-mk.k-shop i,.cp-mk.k-furniture i,.cp-mk.k-barber i{background:#5a2f2a;border-color:#ff9a7a}
 .cp-mk.sub b::after{content:" · JOB";color:#ffd25a}
+/* crowded (js/life/compass.js): a farther marker with no room for its words in either row shows as its icon alone */
+.cp-mk.slim b,.cp-mk.slim span{display:none}
 body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass, body.in-match #lifeCompass{opacity:0}
-/* the objective and the match bar sit under the compass now */
-.onb-goal{top:calc(var(--hud-pad) + 104px)}
-.lf-match{top:calc(var(--hud-pad) + 104px)}
+/* the objective and the match bar sit under the compass and its two rows of markers (js/life/compass.js ROWS) */
+.onb-goal{top:calc(var(--hud-pad) + 126px)}
+.lf-match{top:calc(var(--hud-pad) + 126px)}
 /* the bus: where to, and the ride on the black (the clock running, the bus moving along the line) */
 .bus-list .bus-opt{padding:12px 14px}
 .bus-opt i{font-style:normal;font-size:1.3rem;width:30px;text-align:center}

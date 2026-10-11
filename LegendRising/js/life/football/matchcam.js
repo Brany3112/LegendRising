@@ -21,8 +21,10 @@
    breathing and the footfalls land heavier and uneven; empty, the view sways a little.
 
    First-person striking (A1.7, WP-F2): the wind-up is seen. While a shot or a pass is held your first-person body
-   draws its kicking leg back (the thigh back, the knee bent, the hips opening, the other arm out for balance), as far
-   as the charge has gone; held past full the body leans back and the view trembles a little. After your own shot or
+   cocks its kicking leg where you can see it (the thigh up and out, the knee bent hard with the boot drawn back
+   behind it, the hips opening, the other arm out for balance) as far as the charge has gone, and with the ball at your
+   feet the head goes down over it, so the ball and the leg come into view; held past full the body leans back and the
+   view trembles a little. After your own shot or
    cross the head follows the ball for a moment (on top of where you look; moving the mouse takes the look back where
    the head has turned, so nothing jumps). On the bench (seated) your own legs are not drawn under the eye. */
 import {P, RT} from "../core/state.js";
@@ -48,10 +50,13 @@ export const CAM = Object.freeze({
   ACT_MAX_A: 3*DEG, ACT_MAX_D: .06, ACT_W: 12,                 // the action springs: held within 3 degrees and 6 cm
   BENCH_YAW: 100*DEG, BENCH_UP: 20*DEG, BENCH_DOWN: 30*DEG,
   VIG_FROM: 40, VIG_MAX: .92, DESAT: .38,                      // the fatigue vignette from 40 breath down; the grey near empty
-  // the wind-up (A1.7): the kicking thigh back, the knee bent, the foot, the hips opening, the other arm out (radians at
-  // a full charge; a pass draws it back 60% as far); the view dips with the charge and leans back held past full
-  WIND: Object.freeze({THIGH: .62, KNEE: 1.25, FOOT: .35, HIPS: .2, ARM: .7, LEAN: .14, PITCH: -1.4*DEG, DZ: -.03,
-    OVER_PITCH: 2.2*DEG, TREMBLE: .22*DEG}),
+  // the wind-up (A1.7): the kicking leg cocked where you can see it (radians at a full charge; a pass 60% as far): the
+  // thigh up and out (THIGH forward, ABD out to the side, ROT turned out), the knee bent hard so the boot is drawn back
+  // behind it, the foot, the hips opening, the other arm out; the view dips with the charge and leans back held past
+  // full. With the ball at your feet the head goes down over it (HEAD_DIP at most, at HEAD_RATE a second, never so far
+  // that what you aim at leaves the view: HEAD_KEEP inside its top edge), the ball BALL_UP of the half view below centre
+  WIND: Object.freeze({THIGH: -.95, ABD: .5, ROT: -1.0, KNEE: 1.6, FOOT: .4, HIPS: .2, ARM: .7, LEAN: .14, PITCH: -1.4*DEG, DZ: -.03,
+    OVER_PITCH: 2.2*DEG, TREMBLE: .22*DEG, HEAD_DIP: 33*DEG, HEAD_KEEP: 6*DEG, HEAD_RATE: 2.2, BALL_UP: .4, HEAD_DOWN: .1}),
   // the head following your shot (A1.7): at most this far from where you look, turning at most this fast
   FOLLOW: Object.freeze({YAW: 40*DEG, PITCH: 22*DEG, RATE: 34*DEG, HOLD: 1.3, BACK: .5})
 });
@@ -100,7 +105,7 @@ export const MC = {
   // the action springs: pitch (rad), dy, dz (m), roll; their targets and how long they are held
   act:{p:0, pv:0, y:0, yv:0, dz:0, dzv:0, r:0, rv:0, tp:0, ty:0, tdz:0, tr:0, hold:0},
   // the wind-up as drawn (eased toward control.js CTRL.wind), and the head following the ball after your strike
-  wind:{k:0, over:0, side:"R"}, follow:{on:false, t:0, y:0, p:0, seq:-1, yaw:0, pitch:0},
+  wind:{k:0, over:0, side:"R", dip:0}, follow:{on:false, t:0, y:0, p:0, seq:-1, yaw:0, pitch:0},
   // the trauma of a hit (0..1, squared for the amplitude), and the offsets this frame (for the tests)
   trauma:0, tt:0, off:{p:0, y:0, r:0, dy:0, dz:0}, last:{p:0, y:0, r:0},
   tilt:0, sway:0, t:0,
@@ -112,7 +117,7 @@ export const MC = {
 export function camInit(src){
   SRC = src;
   MC.bob.mean = null; MC.bob.x = MC.bob.y = 0; MC.trauma = 0; MC.cine = null;
-  MC.wind.k = MC.wind.over = 0; const F = MC.follow; F.on = false; F.y = F.p = 0; F.seq = -1;
+  MC.wind.k = MC.wind.over = MC.wind.dip = 0; const F = MC.follow; F.on = false; F.y = F.p = 0; F.seq = -1;
   const a = MC.act; for (const k in a) a[k] = 0;
   camPush(FP_OWNER);
   MC.on = true;
@@ -215,8 +220,9 @@ function fpFrame(dt, cam){
   // place it: the eye with the bob across the view (x) and up (y), then the offsets about its own axes
   const c = Math.cos(P.yaw), sn = Math.sin(P.yaw);
   cam.position.set(x + f.x*ahead + c*bob.x, y0 - .035*sstep(.3, 1.2, -P.pitch), z + f.z*ahead - sn*bob.x);
-  const Fo = MC.follow;
-  cam.rotation.set(clamp(P.pitch + Fo.p, -1.45, 1.45), P.yaw + Fo.y, 0, "YXZ");
+  const Fo = MC.follow, dip = headDip(V, cam.position, dt, motion);
+  cam.position.y -= WK.HEAD_DOWN*dip/WK.HEAD_DIP;
+  cam.rotation.set(clamp(P.pitch + Fo.p - dip, -1.45, 1.45), P.yaw + Fo.y, 0, "YXZ");
   cam.rotateY(MC.off.y); cam.rotateX(MC.off.p); cam.rotateZ(MC.off.r);
   if (MC.off.dy) cam.translateY(MC.off.dy);
   if (MC.off.dz) cam.translateZ(-MC.off.dz);
@@ -226,9 +232,11 @@ function fpFrame(dt, cam){
 const FP_OWNER = {id:"match-fp", priority:40, frame:fpFrame, fov:() => Math.round(MC.fov*20)/20, near:CAM.NEAR};
 
 /* ---------- the wind-up on your body (A1.7) ----------
-   Laid over the pose the body has this frame (after view.js fpPose, before it is drawn): the kicking thigh drawn back
-   and the knee bent as far as the charge has gone, the foot pointed, the hips turning open and the other arm going
-   out, the chest leaning back when held past full. Eased in as the button is held and out fast once it is let go (the
+   Laid over the pose the body has this frame (after view.js fpPose, before it is drawn): the kicking leg cocked as far
+   as the charge has gone, where your own eyes can see it (a leg swung straight back is behind and under the eye, out of
+   any view): the thigh lifted and turned out, the knee bent hard so the boot is drawn back behind it, out beside the
+   knee, the foot pointed, the hips turning open and the other arm going out, the chest leaning back when held past
+   full. The head goes down over the ball at the same time (headDip), so the leg is in view looking at the goal too. Eased in as the button is held and out fast once it is let go (the
    strike's own swing, moves.js, takes over). A running body draws it back about half as far: its stride has the leg. */
 const WQ = new THREE.Quaternion(), WA = new THREE.Vector3();
 function turnBone(b, x, y, z, a){
@@ -245,13 +253,38 @@ function windup(h, dt, v){
   if (want > 0) Mw.side = W.side === "L" ? "L" : "R";
   if (!h || !h.bones || Mw.k < .01) return;
   const K = CAM.WIND, k = Mw.k*(1 - .5*sstep(3, 7, v)), L = Mw.side === "L", Bn = h.bones, s = L ? 1 : -1, S = WSIGN;
-  // (bone axes: the rig's body frame, +X the body's left, +Y up, +Z forward; a turn about +X takes a hanging leg back)
-  turnBone(Bn[L ? 12 : 16], 1, 0, 0, S.thigh*K.THIGH*k);
+  // (bone axes: the rig's body frame, +X the body's left, +Y up, +Z forward; a turn about +X takes a hanging leg back,
+  // about +Z swings it to the body's left. The thigh is first turned out about its own length, then lifted, then
+  // taken out to the side, so the bent shin and the boot come out beside the knee instead of hiding under it)
+  const th = Bn[L ? 12 : 16];
+  if (th){ WA.set(0, 1, 0); WQ.setFromAxisAngle(WA, s*K.ROT*k); th.quaternion.multiply(WQ); th.updateMatrix(); }
+  turnBone(th, 1, 0, 0, S.thigh*K.THIGH*k);
+  turnBone(th, 0, 0, 1, s*K.ABD*k);
   turnBone(Bn[L ? 13 : 17], 1, 0, 0, S.knee*K.KNEE*k);
   turnBone(Bn[L ? 14 : 18], 1, 0, 0, S.foot*K.FOOT*k);
   turnBone(Bn[1], 0, 1, 0, S.hips*-s*K.HIPS*k);
   turnBone(Bn[L ? 9 : 6], 0, 0, 1, S.arm*s*K.ARM*k);
   turnBone(Bn[3], 1, 0, 0, S.lean*-K.LEAN*Mw.over);
+}
+
+/* ---------- the head over the ball while you wind up (A1.7) ----------
+   You look down at the ball you are about to strike: with it at your feet (on the grass, within 1.4 m) the view dips
+   toward it as the charge builds, so the ball and your cocked leg come into the bottom of the view, and comes back up
+   once you let go. It never dips so far that the point you aim at (your look, where the reticle is) leaves the view,
+   it turns at most HEAD_RATE a second, and the motion setting scales it (0: none). Returns the dip (radians). */
+function headDip(V, eye, dt, motion){
+  const K = CAM.WIND, Mw = MC.wind;
+  let want = 0;
+  if (V && V.ms && Mw.k > .01){
+    const b = V.ms.ball.p, dx = b.x + (V.ox || 0) - eye.x, dz = b.z + (V.oz || 0) - eye.z, d = Math.hypot(dx, dz);
+    if (d < 1.4 && b.y < .5){
+      const half = (MC.fov/2)*DEG, ball = Math.atan2(b.y - eye.y, d);
+      want = clamp(P.pitch - (ball + K.BALL_UP*half), 0, Math.min(K.HEAD_DIP, half - K.HEAD_KEEP))*sstep(0, .5, Mw.k)*motion;
+    }
+  }
+  const mx = K.HEAD_RATE*Math.max(0, dt);
+  Mw.dip += clamp(want - Mw.dip, -mx, mx);
+  return Mw.dip;
 }
 
 /* ---------- the head following your strike (A1.7) ----------
@@ -269,7 +302,13 @@ function follow(a, V, x, y, z, dt){
     const ev = ms.kick.ev, it = ev && ev.intent;
     if (ms.kick.agent === a.id && ev && !ev.whiff && (it === "shot" || it === "cross" || it === "lob" || (it === "header" && ev.atGoal))){ F.on = true; F.t = 0; }
   }
-  if (!F.on || !ms){ F.y *= .8; F.p *= .8; if (Math.abs(F.y) + Math.abs(F.p) < 1e-4){ F.y = F.p = 0; } F.yaw = P.yaw; F.pitch = P.pitch; return; }
+  // (off: whatever turn is left goes back at twice the turning rate, a small step a frame, never at once)
+  if (!F.on || !ms){
+    const mb = 2*K.RATE*Math.max(0, dt);
+    F.y -= clamp(F.y, -mb, mb); F.p -= clamp(F.p, -mb, mb);
+    if (Math.abs(F.y) + Math.abs(F.p) < 1e-4){ F.y = F.p = 0; }
+    F.yaw = P.yaw; F.pitch = P.pitch; return;
+  }
   F.t += dt;
   const b = ms.ball.p, bx = b.x + (V.ox || 0), bz = b.z + (V.oz || 0), dx = bx - x, dz = bz - z;
   const w = F.t < K.HOLD ? sstep(0, .2, F.t) : 1 - sstep(K.HOLD, K.HOLD + K.BACK, F.t);
@@ -277,7 +316,8 @@ function follow(a, V, x, y, z, dt){
   const tp = clamp(Math.atan2(b.y - y, Math.hypot(dx, dz)) - P.pitch, -K.PITCH, K.PITCH)*w;
   const mx = K.RATE*Math.max(0, dt);
   F.y += clamp(ty - F.y, -mx, mx); F.p += clamp(tp - F.p, -mx, mx);
-  if (F.t > K.HOLD + K.BACK){ F.on = false; F.y = F.p = 0; }
+  // (the time is up: off, and what is left of the turn eases back above, never in one frame)
+  if (F.t > K.HOLD + K.BACK) F.on = false;
   F.yaw = P.yaw; F.pitch = P.pitch;
 }
 

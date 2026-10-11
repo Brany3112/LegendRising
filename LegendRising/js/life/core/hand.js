@@ -272,7 +272,8 @@ export const LIFE_BALL = Object.freeze({
   PUSH_UP:.35,                // and its underside less than this above your feet
   PUSH_K:1.15, PUSH_ADD:.25,  // its speed along the contact at least PUSH_K times yours plus PUSH_ADD
   KICK_V:4.5, KICK_VY:1.2,    // E: struck along the way you face, where it lies
-  KICK_REACH:1.1              // no further than this from your feet
+  KICK_REACH:1.1,             // no further than this from your feet
+  REST_TOL:.03                // a saved ball this close to the floor's height lies on the floor (higher: on something else)
 });
 const BALLS = [];
 export const balls = () => BALLS;
@@ -283,11 +284,16 @@ const SOLIDS = {
 let BW = null;
 const ballWorld = () => BW || (BW = createBallWorld({solids:SOLIDS, onEvent:ballEvent}));
 function ballLive(d, m, at){
-  const p = at || d, b = createBall({x:+p.x, y:Math.max(+p.y, BALL.R), z:+p.z});
-  // (resting where its drop says, on the floor under it: asleep until something reaches it; let go from somewhere: awake)
+  const p = at || d, y0 = Number.isFinite(+p.y) ? Math.max(+p.y, BALL.R) : null;
+  const b = createBall({x:+p.x, y:y0 != null ? y0 : BALL.R, z:+p.z});
+  /* (resting where its drop says: asleep until something reaches it; let go from somewhere: awake). A drop is written
+     only when the ball has come to rest, so its height is where it lay: on the floor under it, or up on something the
+     floor query does not report but the ball's casts met (a bench, a ledge, lodged against the shelter). Only a drop
+     at the floor's height, or one with no height (an older save), is put on the floor; one above it is put back
+     exactly where it rested, asleep like any ball at rest, until something reaches it */
   if (!at){
     const f = surfaceUnder(b.p.x, b.p.y - BALL.R, b.p.z);
-    if (f != null){ b.p.y = f + BALL.R; b.floor = f; }
+    if (f != null && (y0 == null || b.p.y - (f + BALL.R) < LIFE_BALL.REST_TOL)){ b.p.y = f + BALL.R; b.floor = f; }
     b.sleep = true; b.still = 1;
   }
   const e = {d, m, b};
@@ -354,11 +360,12 @@ function ballRest(e){
   if (typeof window.lifeOnb === "function") window.lifeOnb("ballRest", {zone:d.zone, x:d.x, z:d.z});
 }
 const G_ = () => (typeof S !== "undefined" && S ? S : {});
-// leaving the zone: a ball still rolling stops where it is, on the floor under it
+// leaving the zone: a ball still rolling stops where it is, on the floor under it (one already at rest stays where it
+// lies: on a bench it is not put under it)
 function ballsEnd(){
   for (const e of BALLS){
     const b = e.b, f = b.floor != null ? b.floor : surfaceUnder(b.p.x, b.p.y - BALL.R, b.p.z);
-    b.p.y = (f != null ? f : Math.max(0, b.p.y - BALL.R)) + BALL.R;
+    if (!b.sleep) b.p.y = (f != null ? f : Math.max(0, b.p.y - BALL.R)) + BALL.R;
     b.v.x = b.v.y = b.v.z = 0; b.sleep = true;
     ballRest(e);
   }

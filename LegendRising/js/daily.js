@@ -224,7 +224,9 @@ function freshAtt(){ return {arrived:null, min:0, pre:0, atStart:false, gone:fal
 function onboarding(){
   if (typeof S === "undefined" || !S) return false;
   const o = S.onb, f = S.flags;
-  if (o && typeof o === "object" && o.v === 2) return o.step !== "done";
+  // (a career whose training-centre chapters were added after its first day, S.onb.centre: those chapters run on the
+  // day you next arrive there, and only that day counts as the first day's; firstday.js wakes them on arrival)
+  if (o && typeof o === "object" && o.v === 2) return o.step !== "done" && !(o.centre && o.centreDay !== (S.life && S.life.day));
   if (!f || typeof f !== "object") return false;
   return f.CharacterCreated === false || !f.TrainingCenterTutorialCompleted;
 }

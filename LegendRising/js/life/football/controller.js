@@ -423,7 +423,7 @@ function frame(dt, real){
         if (koGate(dt)){ viewRing(FS.V, null); handover(); FS.state = "live"; FS.V.pre = null; }
       } else if (walkersDone()){
         // a substitute: play starts without you; walk to the bench
-        FS.state = "bench"; FS.V.pre = null; FS.seated = false;
+        FS.state = "bench"; FS.V.pre = null; unseat();
       }
       break;
     }
@@ -511,7 +511,7 @@ function live(dt, real){
   else if ((ms.phase === "fulltime" || ms.phase === "over") && FS.state === "live") startFulltime();
   // off the pitch (substituted, sent off, hurt): your own legs again, to the bench
   const me = ms.me >= 0 ? ms.agents[ms.me] : null;
-  if (FS.onPitch && me && !me.onPitch){ FS.onPitch = false; FS.state = "bench"; FS.seated = false; note(me.sentOff ? "You've been sent off. Walk to the tunnel." : "Your match is over. Take a seat on the bench."); placeOwn({x: P.x, z: P.z, yaw: P.yaw}); }
+  if (FS.onPitch && me && !me.onPitch){ FS.onPitch = false; FS.state = "bench"; unseat(); note(me.sentOff ? "You've been sent off. Walk to the tunnel." : "Your match is over. Take a seat on the bench."); placeOwn({x: P.x, z: P.z, yaw: P.yaw}); }
   maybeCheckpoint();
   replayDue();
 }
@@ -526,9 +526,12 @@ function bigChance(ms){
 }
 // your contact (A1.7): the kick heard by how cleanly it was struck, and a moment of hit-stop for a clean strike at goal
 // or into the box
+// (a longer slow motion already running, an acrobatic strike's, A1.5, is left alone: the hit-stop would cut it short at
+// the very contact it is there for)
 function contactFeel(ev){
   const h = hitStopOf(ev);
-  if (h) FP.slowMo(h[1], h[2]);
+  if (!h || (FS.slow && !FS.slow.big && FS.slow.t > h[2])) return;
+  FP.slowMo(h[1], h[2]);
 }
 // one fixed step: your input first (before the AI, 3.2.1), then the simulation, the record for the replays
 function oneStep(){
@@ -827,7 +830,11 @@ function sitDown(side){
   const seats = (STADIUM.bench || []).filter(b => b.side === side), k = Math.max(0, seats.length - 4), mine = seats[k];
   const x = mine ? mine.x : side === "home" ? -10 : 10;
   const C = STADIUM.crowd;
-  if (C && C.setBench && C.benchN && seats.length){ FS.benchKept = {side, n: C.benchN[side]}; C.setBench(side, Math.min(C.benchN[side], Math.max(0, k - 1))); }
+  if (C && C.setBench && C.benchN && seats.length){
+    // (the count the dugout had before you sat: kept once, so a seat taken again never keeps an already shortened one)
+    if (!FS.benchKept || FS.benchKept.side !== side) FS.benchKept = {side, n: C.benchN[side]};
+    C.setBench(side, Math.min(FS.benchKept.n, Math.max(0, k - 1)));
+  }
   FS.seated = true; FS.benchSeat = {x, z: -37.4, y: 0, yaw: Math.PI};
   placeOwn({x, z: -37.4, yaw: Math.PI});
   P.yaw = Math.PI; P.pitch = -.05;
@@ -835,11 +842,18 @@ function sitDown(side){
 }
 function standUp(){
   if (!FS.seated) return;
+  unseat();
+  placeOwn({x: P.x, z: -36.6, yaw: Math.PI});
+}
+// out of the seat however you leave it (standing up, the skip to your call, sent to the bench): the bench camera off,
+// real time again, and the seated substitutes back in the dugout
+function unseat(){
+  const C = STADIUM.crowd, K = FS.benchKept;
+  if (C && C.setBench && K) C.setBench(K.side, K.n);
+  FS.benchKept = null;
+  if (!FS.seated) return;
   // (on your feet the match is watched in real time again)
   FS.seated = false; benchCam(false); FS.ffRate = 1;
-  const C = STADIUM.crowd, K = FS.benchKept;
-  if (C && C.setBench && K){ C.setBench(K.side, K.n); FS.benchKept = null; }
-  placeOwn({x: P.x, z: -36.6, yaw: Math.PI});
 }
 // you came on (the sub event): your agent takes your place where you stand
 function onCameOn(){
@@ -910,7 +924,7 @@ function skipFrame(){
     hudOverlay(null);
     if (S0.kind === "late"){
       // arriving late: on the bench (watching) with the match already going
-      FS.state = "bench"; FS.seated = false; FS.V.pre = null;
+      FS.state = "bench"; unseat(); FS.V.pre = null;
       placeOwn({x: 0, z: -40.5, yaw: Math.PI}); P.yaw = Math.PI;
       note("You're late. You start on the bench.");
       revealAfterFrames(2).then(() => liftCover());
@@ -918,7 +932,7 @@ function skipFrame(){
     }
     if (S0.kind === "call" && ms.callUp){
       // standing by the fourth official, under the card's cover
-      FS.called = true; FS.state = "entering"; FS.seated = false; benchCam(false);
+      FS.called = true; FS.state = "entering"; unseat(); benchCam(false);
       const e = entrySpot(); placeOwn({x: e.x, z: e.z - .3, yaw: Math.PI}); P.yaw = Math.PI; FS.atFourth = true;
       hudNotice("sub", "Get ready, you're going on.");
     }
@@ -1065,7 +1079,7 @@ function teardown(){
   if (FS.V){ viewDispose(FS.V); FS.V = null; }
   controlReset();
   CTRL.enabled = true;
-  FS.ms = null; FS.state = null; FS.walkers = null; FS.skipping = null; FS.seated = false; FS.called = false; FS.onPitch = false;
+  FS.ms = null; FS.state = null; FS.walkers = null; FS.skipping = null; FS.seated = false; FS.benchKept = null; FS.called = false; FS.onPitch = false;
   FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null;
   document.body.classList.remove("fp-match");
 }

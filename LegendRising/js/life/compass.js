@@ -31,7 +31,17 @@ const ICON = {
   goal:SVG('<path d="M8 1 13.6 8 8 15 2.4 8z"/>')
 };
 let root = null, strip = null, layer = null, H = null, W0 = 0, pxDeg = 3.4, list = [], listT = 0, sizeT = 0;
-const marks = new Map();                           // key → {el, a, row, x, txt}
+const marks = new Map();                           // key → {el, a, row, x, txt, w, h, w2, slim, crowd}
+/* the markers hang under the strip in at most ROWS rows, each a marker's own height apart (with ROW_GAP between), so
+   no two ever overlap: side by side in a row they keep GAP px apart by their real widths. With both rows taken where
+   it would go, a farther marker shows as its icon alone (ICON_W wide); with no room even for that, it is drawn faint
+   (CROWD_A of its opacity) in the bottom row. css/onb.css and style.css keep the objective below the two rows */
+const ROWS = 2, ROW_GAP = 2, GAP = 6, ICON_W = 24, CROWD_A = .35;
+// a marker's size as drawn (measured once it is in the page, and again when its label changes)
+function size(m){
+  const w = m.el.offsetWidth, h = m.el.offsetHeight;
+  if (w > 0 && h > 0){ m.w = w; m.h = h; m.sized = true; }
+}
 const wrap = d => ((d + 540) % 360) - 180;
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a)/(b - a))); return t*t*(3 - 2*t); };
 
@@ -90,7 +100,7 @@ export function compassStep(dt, P){
     if (!m){
       const el = document.createElement("div"); el.className = `cp-mk k-${q.kind}`;
       el.innerHTML = `<i>${ICON[q.kind] || ICON.goal}</i><b>${LABEL[q.kind]}</b><span></span>`;
-      layer.appendChild(el); m = {el, a:0, row:0, txt:"", sub:null}; marks.set(q.key, m);
+      layer.appendChild(el); m = {el, a:0, row:0, txt:"", sub:null, w:64, h:44, w2:64, slim:false, crowd:false, sized:false}; marks.set(q.key, m);
     }
     const dx = q.x - P.x, dz = q.z - P.z, dist = Math.hypot(dx, dz);
     const rel = wrap(Math.atan2(dx, -dz)*180/Math.PI - b);
@@ -101,21 +111,30 @@ export function compassStep(dt, P){
     m.x = W0/2 + Math.max(-SPAN/2, Math.min(SPAN/2, rel))*pxDeg; m.dist = dist;
     const txt = dist < 1000 ? `${Math.round(dist)} m` : `${(dist/1000).toFixed(1)} km`;
     if (txt !== m.txt){ m.txt = txt; m.el.lastChild.textContent = txt; }
-    if (q.sub !== m.sub){ m.sub = q.sub; m.el.title = q.sub || ""; m.el.classList.toggle("sub", !!q.sub && q.kind === "bus" && q.sub.startsWith("JOB")); }
+    if (q.sub !== m.sub){ m.sub = q.sub; m.el.title = q.sub || ""; m.el.classList.toggle("sub", !!q.sub && q.kind === "bus" && q.sub.startsWith("JOB")); m.sized = false; }
+    if (!m.sized && !m.slim) size(m);
     if (m.a > .02) row0.push(m);
   }
   for (const [k, m] of marks){ if (!seen.has(k)){ m.a += (0 - m.a)*Math.min(1, dt*5); if (m.a < .02){ m.el.remove(); marks.delete(k); continue; } row0.push(m); } }
-  // markers that would sit on top of each other: the nearer one keeps the top row, the other drops a row
+  // markers that would sit on top of each other: the nearer one keeps the top row, the other drops a row (by their
+  // real widths); with both rows taken there, it shows as its icon alone, and with no room for that it is drawn faint
   row0.sort((a, c) => a.dist - c.dist);
-  const placed = [];
+  const placed = [], fits = (m, r, w) => !placed.some(o => o.row === r && Math.abs(o.x - m.x) < (o.w2 + w)/2 + GAP);
+  let pitch = 0;
   for (const m of row0){
-    let row = 0;
-    while (row < 2 && placed.some(o => o.row === row && Math.abs(o.x - m.x) < 64)) row++;
-    m.row = row; placed.push(m);
+    // (kept inside the strip's width: a wide label at the edge would run under whatever sits beside the compass)
+    m.x = Math.max(m.w/2, Math.min(W0 - m.w/2, m.x));
+    let row = -1, slim = false;
+    for (let r = 0; r < ROWS && row < 0; r++) if (fits(m, r, m.w)) row = r;
+    if (row < 0){ slim = true; for (let r = 0; r < ROWS && row < 0; r++) if (fits(m, r, ICON_W)) row = r; }
+    m.crowd = row < 0; m.row = row < 0 ? ROWS - 1 : row;
+    if (slim !== m.slim){ m.slim = slim; m.el.classList.toggle("slim", slim); }
+    m.w2 = slim ? ICON_W : m.w; placed.push(m);
+    pitch = Math.max(pitch, m.h + ROW_GAP);
   }
   for (const m of marks.values()){
     const vis = m.a > .02;
-    m.el.style.opacity = vis ? m.a.toFixed(3) : "0";
-    if (vis) m.el.style.transform = `translate(${(m.x).toFixed(1)}px, ${m.row*30}px) translateX(-50%)`;
+    m.el.style.opacity = vis ? (m.a*(m.crowd ? CROWD_A : 1)).toFixed(3) : "0";
+    if (vis) m.el.style.transform = `translate(${(m.x).toFixed(1)}px, ${(m.row*pitch).toFixed(0)}px) translateX(-50%)`;
   }
 }

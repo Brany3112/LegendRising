@@ -136,6 +136,24 @@ try {
   out.clockG2 = {from: c0.min, to: c1, slow: c0.slow};
   check("the first day's slow clock holds at the training centre", c0.slow === true, c0);
 
+  const SAID_EARLY = [];
+  // a reload with G3 next (DESIGN 4.9: a reload at any step resumes it): you wake at home and G3 is still to do (it is
+  // only skipped at the training centre, on a day with nobody out there); back on the bus the tour goes on from G3,
+  // the assistant coach meeting you at the gate and leading on to the pitch
+  {
+    const before3 = await state();
+    SAID_EARLY.push(...await page.evaluate(() => __bot.fd.FD.said()));
+    await reload();
+    const home3 = await page.evaluate(() => { __bot.idle(1); return {cur: __bot.cur(), zone: __life.LIFE.zone, goal: __bot.fd.FD.goal(), seen: S.onb.seen.G3 || null}; });
+    check("reload with G3 next: at home G3 is still to do (not skipped away from the centre), 'Take the bus to the training centre'",
+      before3.cur === "G3" && home3.zone === "home" && home3.cur === "G3" && !home3.seen && home3.goal === "Take the bus to the training centre", {before3, home3});
+    await page.evaluate(() => { __bot.place(3, .12, 14.6, Math.PI); });
+    await rideToGround();
+    const back3 = await page.evaluate(() => { __bot.idle(1); const g = __bot.fd.FD.guide(); return {cur: __bot.cur(), to: g.to, pos: g.pos, P: {x: __bot.P.x, z: __bot.P.z}}; });
+    check("  back at the training centre: G3 again, the assistant coach meets you at the gate and leads on to the pitch",
+      back3.cur === "G3" && !!back3.pos && back3.to === "pitch" && Math.hypot(back3.pos.x - back3.P.x, back3.pos.z - back3.P.z) < 8, back3);
+  }
+
   // G3: over to the nearest of the lads
   await page.evaluate(() => { const B = __bot; B.listen(); for (let i = 0; i < 6 && B.cur() === "G3"; i++){ const m = B.fd.FD.goal() && (() => { let best = null; const T = B.ground.GROUND.session; for (const ac of T.actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) if (h.g.visible){ const d = Math.hypot(h.g.position.x - B.P.x, h.g.position.z - B.P.z); if (!best || d < best.d) best = {x: h.g.position.x, z: h.g.position.z, d}; } return best; })(); if (m) B.walkTo(m.x + 2.5, m.z + 1.5); B.idle(1); } });
   await done("G3");
@@ -184,6 +202,14 @@ try {
   const want = await page.evaluate(() => __bot.fd.FD.noticesCard().map(([k, v]) => `${k} ${v}`));
   check("his card: 'What the manager notices', with the numbers daily.js settles a day by", card.open && card.title === "What the manager notices" && JSON.stringify(card.rows) === JSON.stringify(want), {card, want});
   check("  +1.2, +0.3 to +0.6 up to three times a week, −3, −6, −10", JSON.stringify(want) === JSON.stringify(["A full session +1.2", "In early as well +0.3 to +0.6, up to three times a week", "Late −3", "Missing training −6", "Missing a match −10"]), want);
+  // (once the card has faded in: nothing of the HUD shows through it or over it)
+  await page.waitForTimeout(900);
+  const cardClear = await page.evaluate(() => {
+    const vis = e => !!e && +getComputedStyle(e).opacity > .05 && e.getBoundingClientRect().width > 0;
+    const card = document.querySelector("#lifePanel .lpn"), op = +getComputedStyle(document.getElementById("lifePanel")).opacity;
+    return {panel: op, cardBg: card ? getComputedStyle(card).backgroundImage.slice(0, 60) : null, shown: ["#onbGoal", "#onbSay", "#onbHint", "#lifeNote"].filter(s => vis(document.querySelector(s)))};
+  });
+  check("the manager's card is up, solid, with nothing of the HUD showing through it or over its button", cardClear.panel > .99 && !cardClear.shown.length, cardClear);
   await snap(page, "wpH2-centre-G8-card");
   await page.evaluate(() => { window.lifePanelClose(); __bot.idle(.5); });
   s = await done("G8", false);
@@ -225,7 +251,7 @@ try {
   }
 
   // every line of 3.7.6 the run calls for, word for word, its numbers from the constants
-  const lines = SAID_BEFORE.concat(await page.evaluate(() => __bot.fd.FD.said()));
+  const lines = SAID_EARLY.concat(SAID_BEFORE).concat(await page.evaluate(() => __bot.fd.FD.said()));
   const want76 = await page.evaluate(quick => {
     const AC = "Assistant coach", first = S.player.name.split(" ")[0];
     const L = [[AC, `You must be ${first}. Welcome. Walk with me, I'll show you round before the lads finish.`],
@@ -277,6 +303,27 @@ try {
     return {said: __bot.fd.FD.said().slice(-1)[0], box: (document.getElementById("onbSay") || {}).textContent || "", min: S.life.min, td: trainingDay(), fx: !!todaysFixture()};
   });
   check("after the first day, in 30 to 60 minutes early: the coach says 'In early. Good.'", early.said && early.said.who === "Coach" && early.said.text === "In early. Good." && /In early\. Good\./.test(early.box), early);
+  // a career from before the training centre's chapters (its flat done long ago, step "done", the centre's flag not
+  // set): none of day one's rules come back on a later day; the tour waits for the next arrival there (DESIGN 3.7.7)
+  const reopen = await page.evaluate(() => {
+    const B = __bot, fd = B.fd;
+    __life.enterZone("home", "bus"); B.idle(.5);
+    for (const k in S.flags) S.flags[k] = true;
+    S.flags.TrainingCenterTutorialCompleted = false; S.flags.GameplayTutorialCompleted = false;
+    S.onb = {v: 2, step: "done", seen: {}};
+    while (S.life.day < 4){ S.life.min = 23*60; sleepNight(2); startNewDay(); }
+    S.life.min = 21*60; __life.pass(.01); B.idle(1);
+    const home = {day: S.life.day, active: fd.FD.active(), refuse: fd.FD.refuse("sleepDay"), excused: S.life.att.excused, onboarding: onboarding(), goal: fd.FD.goal(), gate: window.lifeBusGate("home", "ground"), step: S.onb.step};
+    while (S.life.day < 5){ S.life.min = 23*60; sleepNight(2); startNewDay(); }
+    S.life.min = 10*60 + 30; __life.pass(.01); B.idle(.5);
+    const morning = {excused: S.life.att.excused, active: fd.FD.active()};
+    __life.enterZone("ground", "bus"); B.idle(1);
+    const ground = {day: S.life.day, active: fd.FD.active(), cur: B.cur(), excused: S.life.att.excused, goal: fd.FD.goal()};
+    return {home, morning, ground};
+  });
+  check("an older career with the centre's chapters still to do: on day 4 at 9 PM none of day one's rules (sleep, excused, bus, objective)",
+    reopen.home.step === "G1" && !reopen.home.active && reopen.home.refuse === null && !reopen.home.excused && !reopen.home.onboarding && !reopen.home.goal && reopen.home.gate === null && !reopen.morning.excused && !reopen.morning.active, reopen);
+  check("  the next arrival at the training centre starts G1, and that day is excused", reopen.ground.active && reopen.ground.cur === "G1" && reopen.ground.excused && reopen.ground.goal === "Meet the assistant coach at the gate", reopen.ground);
   check("no console or page errors", errors.length === 0 && errs2.length === 0, errors.concat(errs2).slice(0, 5));
 } catch(e){
   check("the run finished", false, String(e && e.stack || e).slice(0, 800));

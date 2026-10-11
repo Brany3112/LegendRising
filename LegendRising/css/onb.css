@@ -28,7 +28,7 @@ body.gfx-low{--onb-blur:0px}
 
 /* ---------- the objective: under the compass and its markers, and between the clock and the need bars, so it never
    runs into any of them (the bars are 175px plus the bar itself wide, css/style.css .hud-needs) ---------- */
-#lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 108px);width:max-content;
+#lifeRoot .onb-goal{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 126px);width:max-content;
   max-width:calc(100% - 2*(var(--hud-pad) + 175px + clamp(96px,9vw,140px)));background:var(--onb-panel);
   backdrop-filter:blur(var(--onb-blur));-webkit-backdrop-filter:blur(var(--onb-blur));border-radius:var(--onb-radius);font-family:var(--onb-font)}
 #lifeRoot .onb-goal span{color:var(--onb-ink)}
@@ -61,7 +61,7 @@ body.gfx-low{--onb-blur:0px}
 
 /* ---------- a line said while you play: your own thought, or your uncle on a hands-free call. Under the objective at
    the top, where it reads like a call coming in, clear of the crosshair, the use prompt and the notes below ---------- */
-.onb-say{position:absolute;left:50%;top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 154px);transform:translate(-50%,-8px);z-index:5;width:max-content;max-width:min(620px,calc(100vw - 32px));
+.onb-say{position:absolute;left:50%;top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 174px);transform:translate(-50%,-8px);z-index:5;width:max-content;max-width:min(620px,calc(100vw - 32px));
   padding:10px 16px 12px;border-radius:var(--onb-radius);background:var(--onb-panel);border:1px solid var(--onb-line);
   backdrop-filter:blur(var(--onb-blur));-webkit-backdrop-filter:blur(var(--onb-blur));box-shadow:0 10px 30px rgba(0,0,0,.3);
   opacity:0;transition:opacity var(--onb-in) ease,transform var(--onb-in) ease;pointer-events:none;font-family:var(--onb-font)}
@@ -86,6 +86,9 @@ body.low .onb-focus::after{animation:none;opacity:.9}
 
 /* ---------- what the manager notices (firstday.js G8): a card in the world's panel frame, once ---------- */
 #lifePanel.onbcard .lpn{width:min(460px,calc(100vw - 32px))}
+/* while the card is up, the objective, the line being said, the how-to and the narrative note wait out of sight
+   behind it (the panel's dimmed backdrop would otherwise still show them through it, under its header and button) */
+#lifeRoot:has(> #lifePanel.onbcard.on) :is(.onb-goal,.onb-say,.onb-hint,.lf-note){opacity:0 !important;transition:none}
 .onb-card{display:grid;gap:10px;font-family:var(--onb-font)}
 .onb-card-sub{margin:0;color:var(--onb-muted);font-size:.86rem}
 .onb-card-list{display:grid;gap:6px}

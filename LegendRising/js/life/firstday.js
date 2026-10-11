@@ -66,7 +66,19 @@ function reopenCentre(s){
   o.centre = true;
   for (const st of STEPS) if (st.zone === "home" && !o.seen[st.id]) o.seen[st.id] = "skipped";
   o.step = "G1";
-  if (s.life && s.life.att && typeof s.life.att === "object" && !s.life.att.settled) s.life.att.excused = true;
+}
+/* such a career (S.onb.centre, also the old training-centre stage of ui/main.js onbMigrate) is not on its first day any
+   more: the tour waits, with none of day one's rules, until you next get to the training centre (DESIGN 3.7.7). That
+   day is the tour's (S.onb.centreDay): excused there, the slow clock while it runs, and put off to the next arrival
+   when it is not done by POSTPONE_AT */
+const dormant = (s, o) => !!(o.centre && o.centreDay !== (s.life && s.life.day));
+function wakeCentre(){
+  const s = G(), o = s && s.onb;
+  if (!o || o.v !== 2 || !o.centre || o.step === "done" || !dormant(s, o) || !s.life) return;
+  o.centreDay = s.life.day;
+  if (s.life.att && typeof s.life.att === "object" && !s.life.att.settled) s.life.att.excused = true;
+  RUN.cur = undefined; RUN.dirty = true;
+  persist();
 }
 const seen = k => { const o = OB(); return !!(o && o.seen[k]); };
 function mark(k, v = true){ const o = OB(); if (!o || o.seen[k]) return false; o.seen[k] = v; persist(); RUN.dirty = true; return true; }
@@ -74,7 +86,7 @@ function mark(k, v = true){ const o = OB(); if (!o || o.seen[k]) return false; o
 export function active(){
   const s = G(), o = s && s.onb;
   // (and for the moment the first training ends: its last word is still the first day's, RUN.closing)
-  return !!(o && o.v === 2 && (o.step !== "done" || RUN.closing) && o.step !== "intro" && s.flags && s.flags.FirstTimeIntroductionCompleted);
+  return !!(o && o.v === 2 && (o.step !== "done" || RUN.closing) && o.step !== "intro" && s.flags && s.flags.FirstTimeIntroductionCompleted && !dormant(s, o));
 }
 
 /* ---------- on screen ---------- */
@@ -507,9 +519,10 @@ const STEPS = [
     done:() => seen("onPitch"),
     end(){ speak(ASSIST, `Team training is out here, ${hours()}, Monday to Friday unless there's a game.`); }},
 
-  // (a day with no session on, or none left: nobody out there to meet)
+  // (a day with no session on, or none left: nobody out there to meet. Only judged at the training centre: away from
+  // it, on the way back after a reload, the step waits for you to be there)
   {id:"G3", zone:"ground", objective:() => "Say hello to the lads", at:() => { const m = nearestMate(); return m ? {x:m.x, z:m.z, zone:"ground", outdoor:true} : null; },
-    skip:() => !squadOut(),
+    skip:() => LIFE.zone === "ground" && !squadDue(),
     start(){ guideTo("pitch"); },
     tick(){ const m = nearestMate(); if (m && m.d < 4) mark("metLads"); },
     done:() => seen("metLads"),
@@ -612,7 +625,8 @@ function squadBodies(){
   for (const ac of T.actors) for (const h of ac.kind === "pair" ? ac.P : [ac.P]) if (h && h.g && h.g.visible) out.push(h.g.position);
   return out;
 }
-const squadOut = () => LIFE.zone === "ground" && typeof sessionOn === "function" && sessionOn() && squadBodies().length > 0;
+// the squad is out there today or will still be this session (its bodies may not be drawn for a frame or two yet)
+const squadDue = () => typeof sessionOn === "function" && sessionOn() && !!GROUND.session && !GROUND.session.left;
 function nearestMate(){
   let best = null;
   for (const p of squadBodies()){ const d = Math.hypot(p.x - P.x, p.z - P.z); if (!best || d < best.d) best = {x:p.x, z:p.z, d}; }
@@ -846,6 +860,7 @@ function finishHome(){
 export function onEvent(ev, d = {}){
   const s = G(); if (!s || !s.flags) return;
   if (ev === "aim"){ RUN.aim = {label:d.label || null}; return; }
+  if (ev === "zone" && d.zone === "ground") wakeCentre();
   if (ev === "zone" && d.zone === "ground" && !active()){ earlyWord(); return; }
   if (!active()) return;
   switch (ev){
@@ -903,12 +918,13 @@ function laterStep(){
 /* ---------- day one's rules ---------- */
 // holding E on the bed (a whole day asleep) is not for today
 export function refuse(what){
-  if (what === "sleepDay" && active()) return "Not today. The club expects you.";
+  // (not for a career whose first day was long ago and only the training centre's tour is left, S.onb.centre)
+  if (what === "sleepDay" && active() && !OB().centre) return "Not today. The club expects you.";
   return null;
 }
 // the training-centre bus before the ride would get you there for the start: shut, with when it opens
 export function busGate(from, to){
-  if (to !== "ground" || !active() || !trainingToday()) return null;
+  if (to !== "ground" || !active() || OB().centre || !trainingToday()) return null;
   const gate = busGateAt(from);
   return LIFE.min < gate ? `From ${time(gate)} today. The club wants you there at ${time(SESS().start)}.` : null;
 }
@@ -955,14 +971,16 @@ export function fdZone(zone){
   GUIDE.h = null; GUIDE.to = null; GUIDE.path = []; GUIDE.done = false; GUIDE.home = false;
   RUN.started.delete("G1"); for (const id of ["G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9"]) RUN.started.delete(id);
   if ((zone || LIFE.zone) === "ground"){
+    wakeCentre();
     lockerPlate();
     if (active()) tourSpots();
   }
 }
 export function fdTick(dt){
   const s = G(); if (!s || !s.flags || !H) return;
+  OB();
   if (!active()){
-    if (RUN.cur !== null && RUN.cur !== undefined){ RUN.cur = null; goal(null); hint(null); focus(null); markerOff(); }
+    if ((RUN.cur !== null && RUN.cur !== undefined) || GOAL.text){ RUN.cur = null; goal(null); hint(null); focus(null); markerOff(); }
     // (a word said after the first day, the coach's when you are in early, still has its box)
     if (SAY.cur || SAY.q.length){ if (!paused()) PLAY.t += dt; sayStep(paused() ? 0 : dt, paused()); sayPlace(); }
     focusStep(); return;

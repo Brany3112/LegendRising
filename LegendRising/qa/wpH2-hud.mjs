@@ -44,13 +44,18 @@ try {
         L.stepN(110);
         L.renderer().render(L.scene(), L.cam);
       });
+      // (the lines fade in on the page's own clock: read and shot once they are fully up)
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => { const L = window.__life; L.stepN(2); L.renderer().render(L.scene(), L.cam); });
       await page.screenshot({path: `qa/out/wpH2-hud-${w}x${h}.png`, timeout: 180000});
       const r = await page.evaluate(() => {
         const box = e => { if (!e) return null; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 ? {l: b.left, t: b.top, r: b.right, b: b.bottom} : null; };
         const q = s => box(document.querySelector(s));
         const marks = [...document.querySelectorAll("#lifeCompass .cp-mk")].filter(e => +getComputedStyle(e).opacity > .05).map(box).filter(Boolean);
+        const op = s => { const e = document.querySelector(s); return e ? +getComputedStyle(e).opacity : 0; };
         return {W: innerWidth, H: innerHeight, compass: q("#lifeCompass"), clock: q("#lifeRoot .hud-clock"), ctx: q("#lifeRoot .hud-ctx"), money: q("#lifeRoot .hud-money"), needs: q("#lifeRoot .hud-needs"),
-          goal: q("#onbGoal.on"), say: q("#onbSay.on"), hint: q("#onbHint.on"), inv: q("#lifeInv"), marks};
+          goal: q("#onbGoal.on"), say: q("#onbSay.on"), hint: q("#onbHint.on"), inv: q("#lifeInv"), marks,
+          opacity: {goal: op("#onbGoal"), say: op("#onbSay"), hint: op("#onbHint")}};
       });
       out.sizes[`${w}x${h}`] = r;
       const hit = (a, b, m = 2) => a && b && a.l < b.r - m && b.l < a.r - m && a.t < b.b - m && b.t < a.b - m;
@@ -60,9 +65,13 @@ try {
       const bad = pairs.filter(([a, b]) => hit(r[a], r[b])).map(p => p.join("/"));
       // the compass's markers: clear of the bars, the objective and the line
       for (const m of r.marks) for (const k of ["needs", "goal", "say", "clock", "money"]) if (hit(m, r[k])) bad.push(`marker/${k}`);
+      // and of each other
+      r.marks.forEach((m, i) => r.marks.slice(i + 1).forEach(o => { if (hit(m, o, 0)) bad.push("marker/marker"); }));
+      // (and the lines are really there: faded in, not just laid out)
+      const faint = ["goal", "say", "hint"].filter(k => !(r.opacity[k] > .9));
       const missing = ["compass", "clock", "money", "needs", "goal", "say", "hint", "inv"].filter(k => !r[k]);
       const off = ["compass", "clock", "money", "needs", "goal", "say", "hint", "inv"].filter(k => r[k] && !on(r[k]));
-      check(`${w}x${h}: the clock, money, bars, compass, objective, line, how-to and pockets all show, on screen, none over another`, !bad.length && !missing.length && !off.length, {bad: [...new Set(bad)], missing, off});
+      check(`${w}x${h}: the clock, money, bars, compass, objective, line, how-to and pockets all show, on screen, none over another`, !bad.length && !missing.length && !off.length && !faint.length, {bad: [...new Set(bad)], missing, off, faint, opacity: r.opacity, marks: r.marks.length});
       errors.push(...page.errors);
     } finally { await close(); }
   }

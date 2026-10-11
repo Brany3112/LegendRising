@@ -124,30 +124,54 @@ try {
   check(S2.k && Math.abs(S2.k.tx - S2.ret.x) < .02 && Math.abs(S2.k.ty - S2.ret.y) < .02 && Math.abs(S2.k.tz - S2.ret.z) < .02, "the shot is aimed where the reticle was at the release", S2);
   check(S2.k && S2.steps <= 11, "contact at most 11 steps after the release with the ball at the feet", S2.steps);
 
-  // ---- 3. the wind-up: the charge, the body's kicking foot drawn back, the arc; held past full: tremble, red, rising
-  const S3 = await page.evaluate(() => {
-    const S = window.__s, F = window.__fp, L = window.__life;
+  // ---- 3. the wind-up: the charge, the body's kicking leg cocked in view, the arc; held past full: tremble, red, rising
+  const S3 = await page.evaluate(async () => {
+    const S = window.__s, F = window.__fp, L = window.__life, THREE = await import("./vendor/three.module.js");
     S.setup({});
-    const V = F.FS.V, h = V && V.fp;
-    const footBack = () => {
-      // the right foot bone's place along your facing, relative to the hips (+ ahead)
+    const V = F.FS.V, h = V && V.fp, T = THREE.Vector3;
+    // the right leg: the boot's place along your facing relative to the knee (+ ahead), the knee's height, and whether
+    // you see the knee and the boot: inside the picture, and the first thing of your own body a ray from the eye meets
+    const ray = new THREE.Raycaster();
+    const meshes = () => { const out = []; h.g.traverse(o => { if (o.isMesh && o.visible) out.push(o); }); return out; };
+    const leg = () => {
       if (!h) return null;
       h.g.updateMatrixWorld(true);
-      const f = h.bones[18].getWorldPosition(new h.bones[18].position.constructor()), p = h.bones[1].getWorldPosition(new h.bones[1].position.constructor());
-      const yaw = L.P.yaw; return (f.x - p.x)*-Math.sin(yaw) + (f.z - p.z)*-Math.cos(yaw);
+      const at = i => h.bones[i].getWorldPosition(new T());
+      const knee = at(17), foot = at(18), yaw = L.P.yaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+      const cam = L.cam; cam.updateMatrixWorld(true);
+      const seen = p => {
+        const q = p.clone().project(cam), inView = q.z < 1 && Math.abs(q.x) < .98 && q.y > -.98 && q.y < .98;
+        let clear = null;
+        if (inView && ray.set){
+          const d = p.clone().sub(cam.position), dist = d.length(); ray.set(cam.position, d.normalize()); ray.near = .05; ray.far = dist + .3;
+          const hit = ray.intersectObjects(meshes(), false)[0]; clear = !hit || hit.distance > dist - .2;
+        }
+        return {inView, clear, sy: +((1 - q.y)*360).toFixed(0)};
+      };
+      return {back: (foot.x - knee.x)*fx + (foot.z - knee.z)*fz, kneeY: knee.y, knee: seen(knee), foot: seen(foot)};
     };
-    const f0 = footBack();
+    const l0 = leg();
     S.btn(0, true); S.steps(30);
-    const mid = {p: F.ctrl.wind.p, k: F.MC.wind.k, foot: footBack(), arc: +getComputedStyle(document.querySelector("#fpHud .fp-arcg")).opacity, ret: +document.querySelector("#fpHud .fp-ret").style.opacity};
+    const mid = {p: F.ctrl.wind.p, k: F.MC.wind.k, leg: leg(), dip: F.MC.wind.dip, arc: +getComputedStyle(document.querySelector("#fpHud .fp-arcg")).opacity, ret: +document.querySelector("#fpHud .fp-ret").style.opacity,
+      retY: (() => { const m = /translate\([^,]+,\s*([-\d.]+)px/.exec(document.querySelector("#fpHud .fp-ret").style.transform || ""); return m ? +m[1] : null; })()};
     S.steps(60);
     const over = {over: F.ctrl.wind.over, red: document.querySelector("#fpHud .fp-ret-c").classList.contains("over"), y: F.ctrl.ret.y, lean: F.ctrl.ret.sp};
     const from = F.ms.events.length;
     S.btn(0, false);
     let k = null; for (let i = 0; i < 30 && !k; i++){ S.steps(1); k = S.kick(from); }
-    return {f0, mid, over, k: k && {ty: k.ty, shape: k.shape, intent: k.intent}, fp: !!h};
+    S.steps(40);
+    const after = {dip: F.MC.wind.dip};
+    // looking down at the ball
+    S.setup({pitch: -1.0}); S.btn(0, true); S.steps(40);
+    const down = leg();
+    S.btn(0, false); S.steps(40);
+    return {l0, mid, over, after, down, k: k && {ty: k.ty, shape: k.shape, intent: k.intent}, fp: !!h, ray: !!ray.set};
   });
-  check(S3.fp && S3.mid.p > .5 && S3.mid.k > .4, "holding the shot fills the charge and the drawn wind-up", S3.mid);
-  check(S3.fp && S3.f0 != null && S3.mid.foot < S3.f0 - .1, "the first-person body draws the kicking foot back as you wind up", {before: S3.f0, during: S3.mid.foot});
+  check(S3.fp && S3.mid.p > .5 && S3.mid.k > .4, "holding the shot fills the charge and the drawn wind-up", {p: S3.mid.p, k: S3.mid.k});
+  check(S3.fp && S3.l0 && S3.mid.leg.back < -.1 && S3.mid.leg.back < S3.l0.back - .05 && S3.mid.leg.kneeY > S3.l0.kneeY + .1, "the first-person body cocks the kicking leg: the knee comes up and the boot is drawn back behind it", {before: S3.l0, during: S3.mid.leg});
+  check(S3.ray && S3.mid.dip > .2 && S3.mid.retY != null && S3.mid.retY > 12 && S3.after.dip < .01, "looking at goal, the head goes down over the ball while you wind up, the reticle stays in the picture, and it comes back up", {dip: S3.mid.dip, retY: S3.mid.retY, after: S3.after});
+  check(S3.mid.leg.knee.inView && S3.mid.leg.knee.clear, "looking at goal, the cocked knee is in view, not hidden by your own body", S3.mid.leg);
+  check(S3.down.knee.inView && S3.down.knee.clear && S3.down.foot.inView && S3.down.foot.clear, "looking down at the ball, the knee and the drawn-back boot are both in view", S3.down);
   check(S3.mid.arc > .8 && S3.mid.ret > .8, "the power arc shows round the reticle while winding up", S3.mid);
   check(S3.over.over > .9 && S3.over.red && S3.k && /over/.test(S3.k.shape) && S3.k.ty > 1.6, "held past full: it trembles, turns red, you lean back and the shot rises", {over: S3.over, kick: S3.k});
 
@@ -244,8 +268,15 @@ try {
     for (let i = 0; i < 20; i++){ S.steps(1); minTs = Math.min(minTs, F.FP.timeScale); }
     const line = document.querySelector("#fpHud .fp-sline").textContent, lineOn = document.querySelector("#fpHud .fp-sline").classList.contains("in");
     const fo = {on: F.MC.follow.on, y: F.MC.follow.y, p: F.MC.follow.p};
-    S.steps(150);
-    const back = {ts: F.FP.timeScale, follow: F.MC.follow.on, yawSame: L.P.yaw === yaw0};
+    // the head comes back a small step a frame, never at once; and so does a turn still large when its time is up
+    const Fo = F.MC.follow, turn = () => Math.abs(Fo.y) + Math.abs(Fo.p);
+    let jump = 0, prev = turn();
+    for (let i = 0; i < 150; i++){ S.steps(1); jump = Math.max(jump, Math.abs(turn() - prev)); prev = turn(); }
+    const back = {ts: F.FP.timeScale, follow: F.MC.follow.on, yawSame: L.P.yaw === yaw0, jump, left: turn()};
+    Fo.on = true; Fo.t = 1.3 + .5 - .02; Fo.y = .6; Fo.p = -.3; Fo.yaw = L.P.yaw; Fo.pitch = L.P.pitch;
+    let bigJump = 0; prev = turn();
+    for (let i = 0; i < 90; i++){ S.steps(1); bigJump = Math.max(bigJump, Math.abs(turn() - prev)); prev = turn(); }
+    back.bigJump = bigJump; back.bigLeft = turn();
     // a big chance: 10 m out in front of goal, winding up
     S.setup({d: 10, ty: 1.0, tz: 1});
     S.btn(0, true); S.steps(20);
@@ -262,6 +293,7 @@ try {
   check(S7.lineOn && S7.line.length > 4 && !/\u2014/.test(S7.line), "a short line on how it was struck", S7.line);
   check(S7.strike >= .75 && S7.minTs < .5 && S7.minTs > 0 && S7.back.ts === 1, "a clean strike holds the world for a blink (hit-stop), never a pause", {strike: S7.strike, ts: S7.ts, min: S7.minTs, back: S7.back.ts});
   check(S7.fo.on && Math.abs(S7.fo.y) + Math.abs(S7.fo.p) > .005 && S7.back.yawSame && !S7.back.follow, "the head follows the ball, on top of the look (which does not move), and comes back", {follow: S7.fo, back: S7.back});
+  check(S7.back.jump < .045 && S7.back.left < 1e-3 && S7.back.bigJump < .045 && S7.back.bigLeft < 1e-3, "the head comes back a small step a frame, even from a large turn when its time is up (no jump)", S7.back);
   check(S7.big > 0 && S7.big < 1 && S7.after === 1 && S7.far === 1, "a big chance eases time a little while you wind up (never a pause)", {big: S7.big, after: S7.after, longRange: S7.far});
 
   // ---- 8. screenshots: each shot mid wind-up and at contact; the reticle under pressure and when tired; a pass, a cross
