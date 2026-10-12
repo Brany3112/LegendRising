@@ -80,11 +80,8 @@ import {THREE, W, lambertFor} from "./build.js";
 import {SCHED} from "./core/sched.js";
 import {qualityScales} from "./core/quality.js";
 import {TAU, D2R, clamp, lerp, sstep, wrap, kf, BN, PAR, BONE, B, ARM, LEG, NP, NQ, dims, restPos, restOffsets, R3, frameOf, legIK, armIK, plantHand, leanTo, PALM, UPV as _UPV,
-  eulerToQ, qEuler, qMul, qRot, qLog, qExp, qAngle, fkQ, newFK, solveLeg, ground, writeBones, LEGW} from "./rig.js";
+  eulerToQ, qEuler, qMul, qRot, qLog, qExp, qAngle, fkQ, newFK, solveLeg, ground, writeBones, LEGW, hypot} from "./rig.js";
 import {EV, gaitInit, gaitStep, gaitPose, gaitLegs, gaitPlace, footstep, touch} from "./gait.js";
-// (Math.hypot is some fifteen times slower than a square root in V8, and these are the hot paths of every body's
-// animation; nothing here comes near overflowing a square)
-const hypot = (x, y, z = 0, w = 0) => Math.sqrt(x*x + y*y + z*z + w*w);
 export {BONE, footstep, touch, gaitPlace};
 
 /* ---------- small maths ---------- */

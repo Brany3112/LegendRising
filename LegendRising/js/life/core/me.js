@@ -27,9 +27,9 @@
    first person; third person comes back after. */
 import {THREE} from "../build.js";
 import {human, animateHuman, BONE, EV, onHumanRemat} from "../human.js";
-import {fkQ, newFK, lerp, springTo} from "../rig.js";
+import {fkQ, newFK, lerp} from "../rig.js";
 import {bodyLook} from "../look.js";
-import {G, LIFE, P, B, ME, RT, FLAGS, FADE} from "./state.js";
+import {G, LIFE, P, B, ME, RT, FLAGS, FADE, spring} from "./state.js";
 import {camCast, camClear, camClearance, surfaceUnder, CG, SG} from "./collide.js";
 import {GR, LOCO} from "./move.js";
 import {modeFlags, tutOn, persist} from "./modes.js";
@@ -141,7 +141,7 @@ function bobStep(h, dt){
   if (!Gt){ BOB.x = BOB.y = 0; return; }
   const s = h.scale, v = P.speed, mv = sstep(.05, .5, v);
   if (BOB.mean == null){ BOB.mean = BOB.sy = Gt.hipDy*s; BOB.sv = 0; }
-  springTo(BOB, Gt.hipDy*s, 24, dt);
+  { const y = Gt.hipDy*s; BOB.sy -= y; spring(BOB, "sy", "sv", 24, dt); BOB.sy += y; }   // (state.js spring, about the pelvis now)
   const dy = BOB.sy;
   BOB.mean += (dy - BOB.mean)*(1 - Math.exp(-2.5*dt));
   const k = lerp(.35, .3, Gt.R), A = .006 + .0016*v;

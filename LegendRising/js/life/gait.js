@@ -26,10 +26,7 @@
      G.hipDy   the hips' height offset this frame (body units), G.hipLat its sideways sway (the first-person bob)
      G.ev      what happened in the last step: {mask, at, side} (EV bits) and G.falls [{side, t, x, z}] */
 import {WALK, RUN, stepLen, dutyOf, strideTime, gaitShape, phaseAdvance, RUN_ON, RUN_OFF, RUN_HOLD, WALK_HIP_DROP, WALK_PELVIS_YAW} from "./gaitcore.js";
-import {clamp, lerp, sstep, wrap, TAU, B, ARM, LEG, R3, qEuler, qMul, fkHips, solveLeg, newFK} from "./rig.js";
-// (Math.hypot is some fifteen times slower than a square root in V8, and these are the hot paths of every body's
-// animation; nothing here comes near overflowing a square)
-const hypot = (x, y, z = 0, w = 0) => Math.sqrt(x*x + y*y + z*z + w*w);
+import {clamp, lerp, sstep, wrap, TAU, B, ARM, LEG, R3, qEuler, qMul, fkHips, solveLeg, newFK, hypot} from "./rig.js";
 
 export const EV = {FOOTFALL:1, PLANT:2, TAKEOFF:4, CONTACT:8, RELEASE:16, LAND:32, END:64};
 
@@ -1021,8 +1018,11 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
       const ka = lite && G.R < .5 ? 0 : G.vs*NEED_AHEAD/sc, awx = G.mdx*ka, awz = G.mdz*ka;
       _ha[0] = hip[0] + awx*cy - awz*sy; _ha[1] = hip[1]; _ha[2] = hip[2] + awx*sy + awz*cy;
       const needA = G.state === "CYCLE" && ka > 0 && !ahead ? needFrom(t, _ha, L) : -1;
+      // (searched: the need and the ankle target are taken once, below, for the roll the rate leaves it)
+      let searched = false;
       if (need0 > 0 || needA > 0){
         const ha = needA > -1 ? _ha : null, n0 = Math.max(need0, needA);
+        searched = true;
         // (a foot turning on its ball keeps its heel up: no rocking back onto the heel while it turns)
         const lim = ahead ? (f.ballPivot > 0 ? lr : Math.min(lr, -DORSI)) : Math.max(lr, RISE[run ? 1 : 0]);
         if (needBoth(lim, f, fx, fz, hip, ha, t, L, D) < n0){
@@ -1030,12 +1030,11 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
           for (let k = 0; k < 6; k++){ const m = (lo + hi)/2; if (needBoth(m, f, fx, fz, hip, ha, t, L, D) > 0) lo = m; else hi = m; }
           rr = hi;
         } else rr = lr;
-        need0 = needAt(rr, f, fx, fz, hip, t, L, D);
       }
       // the foot rolls fast but never in one frame (what the rate leaves unreached, the hips take)
       const rate = run ? 14 : 12;
       rr = clamp(rr, f.roll - rate*dt, f.roll + rate*dt);
-      if (rr !== lr) need0 = needAt(rr, f, fx, fz, hip, t, L, D);
+      if (rr !== lr || searched) need0 = needAt(rr, f, fx, fz, hip, t, L, D);
       // (and how fast that need is growing: cycleStep lifts a trailing foot a frame before it runs out of reach)
       // (taken between two full solves only: the leg pass's own need, from the roll the last full solve left, is not the
       // same measure, and the step between the two read as the need racing up or down)

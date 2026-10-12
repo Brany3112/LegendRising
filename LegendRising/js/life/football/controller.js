@@ -526,14 +526,14 @@ function mySpot(){ const ms = FS.ms, me = ms.agents[ms.me]; return me ? {x: me.m
 
 // your own walk (off the pitch, before the hand-over, on the bench): W A S D through the FOOTBALL mover, the walls
 // having their say (collide.js moveBy), Shift to run, X to walk
-const OWN_IT = {dx: 0, dz: 0, gait: "jog", face: null, strafe: false, speedCap: Infinity};
+const OWN_IT = {dx: 0, dz: 0, gait: "jog", face: null, strafe: false, speedCap: Infinity}, OWN_FACE = {x: 0, z: 0};
 function ownWalk(dt, walls){
   const m = FS.own; if (!m) return;
   const f = (CTRL.held.w ? 1 : 0) - (CTRL.held.s ? 1 : 0), r = (CTRL.held.d ? 1 : 0) - (CTRL.held.a ? 1 : 0), len = Math.hypot(f, r);
   const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
   OWN_IT.dx = len ? (r*cos - f*sin)/len : 0; OWN_IT.dz = len ? (-r*sin - f*cos)/len : 0;
   OWN_IT.gait = CTRL.walk ? "walk" : CTRL.held.shift ? "sprint" : FS.state === "dressing" ? "walk" : "jog";
-  OWN_IT.face = {x: -sin, z: -cos}; OWN_IT.strafe = false; OWN_IT.speedCap = Infinity;
+  OWN_FACE.x = -sin; OWN_FACE.z = -cos; OWN_IT.face = OWN_FACE; OWN_IT.strafe = false; OWN_IT.speedCap = Infinity;
   if (m.x !== P.x || m.z !== P.z){ m.x = P.x; m.z = P.z; }
   const fac = stamFactors(FS.ownSt, 1, FS.ownFac);
   // the warm-up runs your legs while it has you (to the strip, the strides, the shuffles, a few steps to a spot)
@@ -546,7 +546,8 @@ function ownWalk(dt, walls){
 }
 // called and not going (MF-9): your legs take you to the fourth official, out of the dugout's mouth first and then
 // along the touchline, at a jog; your view turns the way you go
-const ENTRY_IT = {dx: 0, dz: 0, gait: "jog", face: null, strafe: false, speedCap: Infinity};
+// (its facing filled in place every frame, as the record itself is: no garbage on the hot path, DESIGN 3.9.6)
+const ENTRY_IT = {dx: 0, dz: 0, gait: "jog", face: {x: 0, z: 0}, strafe: false, speedCap: Infinity};
 function entryWalk(dt){
   if (!FS.autoWalk || FS.state !== "entering" || FS.atFourth || FS.seated) return null;
   const e = entrySpot();
@@ -555,7 +556,7 @@ function entryWalk(dt){
   const dx = tx - P.x, dz = tz - P.z, d = Math.hypot(dx, dz);
   ENTRY_IT.dx = d > 1e-6 ? dx/d : 0; ENTRY_IT.dz = d > 1e-6 ? dz/d : 0;
   ENTRY_IT.speedCap = Math.min(4, Math.sqrt(2*5*Math.max(0, Math.hypot(e.x - P.x, e.z - P.z))) + .05);
-  ENTRY_IT.face = {x: ENTRY_IT.dx, z: ENTRY_IT.dz};
+  ENTRY_IT.face.x = ENTRY_IT.dx; ENTRY_IT.face.z = ENTRY_IT.dz;
   if (d > .05) P.yaw = wrapA(P.yaw + wrapA(yawOf(dx, dz) - P.yaw)*(1 - Math.exp(-4*dt)));
   return ENTRY_IT;
 }

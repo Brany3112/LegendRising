@@ -7,9 +7,13 @@
 //      never goes for it (no 'chase' plan) in 8 seeds each, and you control it in at least 7 of 8. A team-mate standing
 //      on the lane of a slow, under-hit pass, 14 m short of you, does go for it (clearly first).
 //   2. ball-1: a first-time strike you queued on the pass (control.js plan.first) is still on your plan at the step you
-//      first meet the ball, in 12 of 12 runs (6 seeds, with and without control.js's own plan kept).
+//      first meet the ball, and is the strike you play there (a kick, not a control touch), in 12 of 12 runs (6 seeds,
+//      with and without control.js's own plan kept).
 //   3. ball-10: your "In behind!" call is offered to the carrier as a through ball when you stand 0.5 m onside, in 20 of
-//      20 seeds, and never when you stand 0.5 m past the second-last defender (0 of 20).
+//      20 seeds, and never when you stand 0.5 m past the second-last defender (0 of 20), for a passer who reads the line
+//      well (vision 96). For a typical passer (vision 50, his read of the line off by about 0.35 m, brain.js offErr) the
+//      call is offered for a run 0.5 m onside in at least 32 of 40 seeds and for one 0.5 m off in at most 8 of 40, and
+//      never for a run 1.5 m off (0 of 20).
 //
 //   node qa/tr2-passme.mjs      exits 1 on any failed check; writes qa/out/tr2-passme.json
 import fs from "node:fs";
@@ -102,13 +106,14 @@ for (const [lbl, at] of [["2.5 m off the lane", {x: -6, z: 2.5}], ["5 m off the 
     if (contact != null && firstAtContact) kept++;
   }
   check(kept === runs && runs === 12, "a first-time strike queued on a pass to you is still on your plan when you meet the ball (12 of 12)", {kept, runs, kicked, lost});
+  check(kicked === runs && runs === 12, "and it is the strike you play when you meet the ball, not a control touch (12 of 12)", {kicked, runs});
 }
 
 /* ---------- 3. ball-10: "In behind!" only when the passer sees you onside ---------- */
-function behindOffered(seed, margin){
+function behindOffered(seed, margin, vision = 96){
   // team 0 attacks +x: a carrier in the middle, you up front, two defenders on a line at x 20 (the second-last
   // opponent), their keeper behind them
-  const passer = rec(21, "CM", "CM", false, 70, {vision: 96});
+  const passer = rec(21, "CM", "CM", false, 70, {vision});
   const ms = drill(seed, [passer, rec(22, "ST", "ST", true)], [rec(31, "GK", "GK"), rec(32, "CB", "DF"), rec(33, "CB", "DF")], {offside: true});
   const [pa, me, gk, d1, d2] = ms.agents;
   put(pa, 5, 0, -Math.PI/2); put(gk, 50, 0, Math.PI/2); put(d1, 20, -9, Math.PI/2); put(d2, 20, 9, Math.PI/2);
@@ -125,6 +130,15 @@ function behindOffered(seed, margin){
   for (let s = 1; s <= 20; s++){ if (behindOffered(s, -0.5)) on++; if (behindOffered(s, 0.5)) off++; }
   check(on === 20, `"In behind!" with your run 0.5 m onside: offered to the carrier (${on} of 20)`, on);
   check(off === 0, `"In behind!" with your run 0.5 m past the second-last defender: never offered (${off} of 20)`, off);
+}
+{
+  // a typical passer (vision 50): he misreads a tight line now and then, as the plan's perceived line means, but not a
+  // clear one
+  let on = 0, off = 0, far = 0;
+  for (let s = 1; s <= 40; s++){ if (behindOffered(s, -0.5, 50)) on++; if (behindOffered(s, 0.5, 50)) off++; }
+  for (let s = 1; s <= 20; s++) if (behindOffered(s, 1.5, 50)) far++;
+  check(on >= 32 && off <= 8, `a typical passer (vision 50): "In behind!" 0.5 m onside offered in ${on} of 40, 0.5 m off in ${off} of 40`, {on, off});
+  check(far === 0, `a typical passer (vision 50): a run 1.5 m past the second-last defender is never offered (${far} of 20)`, far);
 }
 
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});

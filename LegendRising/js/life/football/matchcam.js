@@ -31,7 +31,6 @@ import {P, RT} from "../core/state.js";
 import {camPush, camPop, camKick} from "../core/camera.js";
 import {dirOf, wrapA} from "./pitchspec.js";
 import {EV} from "../human.js";
-import {springTo} from "../rig.js";
 import {CTRL} from "./control.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -180,7 +179,7 @@ function fpFrame(dt, cam){
     if (bob.mean == null){ bob.mean = bob.sy = (G.hipDy || 0)*s; bob.sv = 0; }
     // (P2-B, MV-2: the pelvis is a smooth curve now, about 4 cm a step at a brisk walk, read through a critically damped
     // spring as me.js's; its share is a little smaller so the wave stays inside its bound and under 2 mm a frame)
-    springTo(bob, (G.hipDy || 0)*s, 24, dt);
+    toward(bob, "sy", "sv", (G.hipDy || 0)*s, 24, dt);
     const dy = bob.sy;
     bob.mean += (dy - bob.mean)*(1 - Math.exp(-2.5*dt));
     const heavy = 1 + .45*FX.heavy, A = (.006 + .0016*v)*heavy, k = lerp(.35, .3, G.R || 0);

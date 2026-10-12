@@ -415,6 +415,12 @@ export function touchCheck(ms){
       a.act.tc = Math.min(a.act.tc, 0.05); a.act.adjust = false;
       return true;
     }
+    // (the player's own first-time action, control.js, not yet where he can strike it but still coming in to him: he
+    // waits for it this step rather than taking a control touch he never asked for; at its closest the strike goes as
+    // above, or he controls it below. The AI's first-time actions, brain.js, are as they were: the match's figures are
+    // calibrated on them)
+    const m = a.m, cx = m.x - b.p.x, cz = m.z - b.p.z;
+    if (a.isMe && !ms.meAI && (b.v.x - (m.vx || 0))*cx + (b.v.z - (m.vz || 0))*cz > 0.05) return false;
   }
   if (a.isGK && a.gk && inOwnBox(ms, a) && !a.gk.noHands && b.p.y < 2.2 && !(lastTeam === a.team && b.last.kind !== 'deflect' && b.last.kind !== 'block')){
     // a keeper in his box gathers it in his hands (gkbrain decides the hold)

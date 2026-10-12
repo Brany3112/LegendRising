@@ -11,21 +11,15 @@
    1.80 m frame (a body of height h is the group scaled by h). fkQ() gives every bone's body-space position and
    rotation as plain numbers (no THREE objects on the hot path). */
 import {THREE} from "./build.js";
-// (Math.hypot is some fifteen times slower than a square root in V8, and these are the hot paths of every body's
-// animation; nothing here comes near overflowing a square)
-const hypot = (x, y, z = 0, w = 0) => Math.sqrt(x*x + y*y + z*z + w*w);
 
 /* ---------- small maths ---------- */
 export const TAU = Math.PI*2, D2R = Math.PI/180;
 export const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 export const lerp = (a, b, t) => a + (b - a)*t;
 export const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
-// a critically damped spring (no overshoot) taking o.sy toward y at stiffness w (1/s), its speed in o.sv; exact for any dt
-// (P2-B: the head bob reads the pelvis through it, core/me.js and football/matchcam.js)
-export function springTo(o, y, w, dt){
-  const e = Math.exp(-w*dt), j = (o.sv + w*(o.sy - y))*dt;
-  o.sy = y + (o.sy - y + j)*e; o.sv = (o.sv - w*j)*e;
-}
+// (Math.hypot is some fifteen times slower than a square root in V8, and these are the hot paths of every body's
+// animation; nothing here comes near overflowing a square. Shared by gait.js and human.js)
+export const hypot = (x, y, z = 0, w = 0) => Math.sqrt(x*x + y*y + z*z + w*w);
 export const wrap = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
 // eased keyframes: [[t, v], ...]
 export function kf(t, K){
@@ -414,9 +408,20 @@ export function writeBones(h, Q, list = ALLB){
     const i = list[j], b = bn[i], q = b.quaternion;
     // (straight into the quaternion: its setter would also work out the bone's Euler angles, which nothing reads, and
     // that costs more than the rest of this together)
-    q._x = Q[i*4]; q._y = Q[i*4 + 1]; q._z = Q[i*4 + 2]; q._w = Q[i*4 + 3];
-    if (i === 1) b.position.set(r[3] + Q[80], r[4] + Q[81], r[5] + Q[82]);
-    b.updateMatrix();
+    const x = Q[i*4], y = Q[i*4 + 1], z = Q[i*4 + 2], w = Q[i*4 + 3];
+    q._x = x; q._y = y; q._z = z; q._w = w;
+    const p = b.position;
+    if (i === 1){ p.x = r[3] + Q[80]; p.y = r[4] + Q[81]; p.z = r[5] + Q[82]; }
+    // (the bone's local matrix composed here, as Matrix4.compose does for a unit scale and no pivot, which no bone has:
+    // the same numbers without the call and the multiplications by one, for every bone of every body posed)
+    const sc = b.scale;
+    if (sc.x !== 1 || sc.y !== 1 || sc.z !== 1 || b.pivot){ b.updateMatrix(); continue; }
+    const te = b.matrix.elements, x2 = x + x, y2 = y + y, z2 = z + z, xx = x*x2, xy = x*y2, xz = x*z2, yy = y*y2, yz = y*z2, zz = z*z2, wx = w*x2, wy = w*y2, wz = w*z2;
+    te[0] = 1 - (yy + zz); te[1] = xy + wz; te[2] = xz - wy; te[3] = 0;
+    te[4] = xy - wz; te[5] = 1 - (xx + zz); te[6] = yz + wx; te[7] = 0;
+    te[8] = xz + wy; te[9] = yz - wx; te[10] = 1 - (xx + yy); te[11] = 0;
+    te[12] = p.x; te[13] = p.y; te[14] = p.z; te[15] = 1;
+    b.matrixWorldNeedsUpdate = true;
   }
 }
 export const LEGW = [1, 12, 13, 14, 15, 16, 17, 18, 19];

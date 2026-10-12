@@ -110,11 +110,14 @@ try {
         await key("w", r.d > .8); await key("Shift", r.d > 12);
       }
     } else await releaseAll();
-    const st = await page.evaluate(() => { const F = window.__fp; let n = 0; if (F.state === "live") n = F.stepN(10); window.__bot.frame(1); return n; });
+    // (the match plays on while you watch it from the bench, sent off or taken off: the real-input bot chases every
+    // ball and can collect a second yellow card, a way a real match goes too)
+    const st = await page.evaluate(() => { const F = window.__fp; let n = 0; if (F.state === "live" || F.state === "bench") n = F.stepN(10); window.__bot.frame(1); return n; });
     if (it % 200 === 0) console.log(`  ${Math.round((Date.now() - t0)/1000)} s: ${r.st} half ${r.half} minute ${r.min} score ${r.score} kicks ${kicks}`);
     last = r;
   }
   const after = await page.evaluate(() => ({mode: window.__life.modes.mode(), zone: window.__life.LIFE.zone, inMatch: !!S.life.inMatch, last: S.lastMatch || null, my: window.__ftMy || null}));
+  if (last && last.st === "bench") console.log("  (you watched the end of it from the bench)");
   await page.screenshot({path: `${OUTDIR}/after.png`, timeout: 120000});
   console.log("after", JSON.stringify(after));
   check(cards.ht === 1 && halves.has(2), "half time card clicked, second half played", {cards, halves: [...halves]});

@@ -320,7 +320,7 @@ export function startRestart(ms, kind, team, spot, opt = {}){
   const R0 = ms.restart = {kind, team, spot: {x: spot.x, z: spot.z}, taker: -1, fetcher: -1, ballFrom: 'game', spare: -1,
     ready: false, t0: ms.t, limit, stage: 'fetch', wall: [], noOff: kind === 'goalkick' || kind === 'throw' || kind === 'corner',
     first: !!opt.first, after: !!opt.after, placed: false, foul: opt.foul || null, offender: opt.offender != null ? opt.offender : -1,
-    taken: false, lowerT: 0, tTake: -1, carrier: -1, kickIn, nearT: 0, nagged: false};
+    taken: false, lowerT: 0, tTake: -1, carrier: -1, kickIn, nearT: 0, nagged: false, nagT: -1};
   R0.taker = pickTaker(ms, kind, team, spot);
   R0.special = kind === 'free' && hypot(ms.dirs[team]*ms.spec.hx - spot.x, spot.z) < 35;
   chooseSource(ms, R0);
@@ -827,14 +827,19 @@ export function restartStep(ms, h){
    tells him at ME_NAG s from the whistle ("Take it.": a 'nudge' event the match HUD shows). At ME_HAND s, whatever the
    stage (the ball still to be met, carried or placed by him), the restart is his nearest team-mate's (a keeper's only
    for a goal kick): a ball in the player's hands is put down where it is and fetched by the new taker; a ball resting on
-   the spot is left there for him to step up to. True when it was taken from him (this step is then the new taker's). */
+   the spot is left there for him to step up to. True when it was taken from him (this step is then the new taker's).
+   It is never taken from him without the warning first, and never sooner than ME_HAND - ME_NAG s after it: a ball a
+   ball boy or a team-mate is still fetching or serving at ME_NAG s is his to act on later, so he is told then (or at
+   ME_HAND s at the latest, whatever the stage) and has the same 13 s from there. */
 function meTooSlow(ms, R0, tk, el){
   const his = R0.stage !== 'fetch' && R0.stage !== 'serve' || R0.fetcher === tk.id;
-  if (his && el >= RULES.ME_NAG && !R0.nagged){
-    R0.nagged = true;
+  if (!R0.nagged && el >= RULES.ME_NAG && (his || el >= RULES.ME_HAND)){
+    R0.nagged = true; R0.nagT = el;
     logEv(ms, 'nudge', R0.team, tk.id, tk.m.x, tk.m.z, {what: 'take', rk: R0.kind});
   }
-  if (el < RULES.ME_HAND) return false;
+  // (a restart from a save made before nagT was kept: nagged then means told at ME_NAG)
+  const told = R0.nagged ? (R0.nagT >= 0 ? R0.nagT : RULES.ME_NAG) : Infinity;
+  if (el < Math.max(RULES.ME_HAND, told + RULES.ME_HAND - RULES.ME_NAG)) return false;
   const b = ms.ball;
   let alt = null, ad = Infinity;
   for (const a of ms.agents){
