@@ -13,33 +13,45 @@
 //   - the player's displacement per frame never exceeds vmax*dt + 0.01 outside a fade;
 //   - zero console and page errors.
 //
+//   - (P2-A) the half-time and full-time cards are pressed as a player presses them: the pointer held from the kick-off
+//     (a real click on the 3D view), each card's button seen (assertVisible: on top at its centre, not under the black
+//     cover, not black) and clicked with the real mouse at its on-screen box.
+//
 //   QA_PORT=8765 node qa/int-fullmatch.mjs      exits 1 on any failed check; writes qa/out/int-fullmatch.json
 import {openDay, checker} from "./wpF-lib.mjs";
+import {freeze, unfreeze} from "./lib.mjs";
+import {clickReal, assertVisible, lockPointer} from "./trlib.mjs";
 
 const {check, done} = checker("int-fullmatch");
 const T = await openDay({gfx: "low", role: "starter", before: 60});
 const {page} = T;
 let ok = false;
 const t0 = Date.now();
+const SEL = {ht: '.fp-overlay.ht button[data-ht="go"]', ft: '.fp-overlay.ft button[data-ft="go"]'};
 try {
   const s0 = await T.toKickoff();
   check(s0.state === "live", "the kick-off, you at your place", s0.state);
   await T.uncover();
+  await unfreeze(page); await page.waitForTimeout(800);
+  const lk = await lockPointer(page);
+  await freeze(page);
+  check(!!lk, "the pointer held from the kick-off (a real click on the 3D view)", lk);
   // The bot at the keys, through the match's own fixed steps (__fp.stepN: your input first, then the simulation, as
   // live play does them; no drawing), with one whole world frame (camera, view, HUD, the match day's phases) after
   // every 10 steps. It chases the ball; with it at your feet it shoots from within 25 m of goal (a held LMB let go)
-  // and passes it on otherwise (a tapped RMB); at a restart that is yours it turns to the field and taps RMB; it takes
-  // the half-time card's "Second half" and the full-time card's "Continue".
+  // and passes it on otherwise (a tapped RMB); at a restart that is yours it turns to the field and taps RMB. A card up
+  // stops it: the half-time card's "Second half" and the full-time card's "Continue" are pressed from outside, with the
+  // real mouse.
   const BOT = n => {
     const F = window.__fp, L = window.__life, B = window.__bot;
     const R = window.__fr || (window.__fr = {hold: 0, kicks: 0, frames: 0, steps: 0, restartT: 0});
     const out = {card: null};
     const ht = document.querySelector(".fp-overlay.ht button[data-ht=go]"), ft = document.querySelector(".fp-overlay.ft button[data-ft=go]");
-    if (ht){ ht.click(); out.card = "ht"; return out; }
+    if (ht){ out.card = "ht"; return out; }
     if (ft){
       // (what the match left on MT for the card, read before Continue hands the day back)
       window.__ftMy = typeof MT !== "undefined" && MT && MT.my ? {mins: MT.my.mins, touches: MT.my.touches, goals: MT.my.goals} : null;
-      ft.click(); out.card = "ft"; return out;
+      out.card = "ft"; return out;
     }
     const ms = F.ms;
     if (!ms || F.state !== "live"){ B.frame(1); R.frames++; return out; }
@@ -79,12 +91,26 @@ try {
       const out = [];
       for (let i = 0; i < 40; i++){ const x = window.__botStep(10); if (x.card){ out.push(x.card); break; } if (window.__life.modes.mode() === "life") break; }
       const ms = window.__fp.ms, R = window.__fr || {};
+      // (why you left the pitch, if you did: a card, an injury, a change)
+      if (ms && !window.__offWhy && window.__fp.state === "bench"){
+        const id = ms.agents.findIndex(a => a.isMe), me = ms.agents[id];
+        window.__offWhy = {min: Math.floor((ms.half - 1)*45 + ms.clock.sec/60), sentOff: !!(me && me.sentOff), injured: !!(me && me.injured), subbedOff: !!(me && me.subbedOff),
+          ev: ms.events.filter(e => e.agent === id && (e.kind === "card" || e.kind === "injury")).map(e => e.kind + ":" + (e.color || "")).concat(ms.events.filter(e => e.kind === "sub" && e.out === id).map(() => "sub"))};
+      }
       return {card: out, st: window.__fp.state, mode: window.__life.modes.mode(), half: ms ? ms.half : null, phase: ms ? ms.phase : null,
-        score: ms ? ms.score.slice() : null, min: ms && ms.clock ? Math.floor((ms.half - 1)*45 + (ms.clock.sec || 0)/60) : null, steps: R.steps, frames: R.frames};
+        score: ms ? ms.score.slice() : null, min: ms && ms.clock ? Math.floor((ms.half - 1)*45 + (ms.clock.sec || 0)/60) : null, steps: R.steps, frames: R.frames, off: window.__offWhy || null};
     });
-    for (const c of r.card) cards[c]++;
+    if (r.off && !last?.off) console.log("  you left the pitch:", JSON.stringify(r.off));
     if (r.half != null) halves.add(r.half);
-    if (r.card.length) await page.waitForTimeout(400);
+    for (const c of r.card){
+      // the card as a player meets it: seen, the pointer let go, the button clicked for real
+      const v = await assertVisible(page, SEL[c]);
+      const lock = await page.evaluate(() => document.pointerLockElement ? document.pointerLockElement.id : null);
+      check(v.ok && lock === null, `the ${c === "ht" ? "half-time" : "full-time"} card: its button seen and the pointer let go`, {why: v.why, top: v.top, lock});
+      await clickReal(page, SEL[c]);
+      cards[c]++;
+      await page.waitForTimeout(400);
+    }
     last = r;
     if (chunk % 20 === 0) console.log(`  ${Math.round((Date.now() - t0)/1000)} s: ${r.st} half ${r.half} ${r.phase} minute ${r.min} score ${r.score} steps ${r.steps} frames ${r.frames}`);
     if (r.mode === "life" && cards.ft) break;

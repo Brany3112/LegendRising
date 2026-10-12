@@ -49,6 +49,8 @@ export const RULES = Object.freeze({
                                              // longer than this without getting there walks the rest, at this speed at most
   BOX_EDGE: [18.5, 22],                      // at a set piece into the box, its edge counts: 18.5 m out, 22 m across
   FLYING: 10,                                // a dead ball in the air faster than this (m/s) is let go when a spare is to hand
+  ME_NAG: 12, ME_HAND: 25,                   // (P2-A, MF-3) a restart that is the player's waits on him: "Take it." at ME_NAG s,
+                                             // the nearest team-mate takes it at ME_HAND s
   DEAD_ROLL: 4.0                             // a dead ball rolls on against this (m/s2): the ball boys, the boards and the
                                              // players stop it (the grass's own value again once it is back in play)
 });
@@ -318,7 +320,7 @@ export function startRestart(ms, kind, team, spot, opt = {}){
   const R0 = ms.restart = {kind, team, spot: {x: spot.x, z: spot.z}, taker: -1, fetcher: -1, ballFrom: 'game', spare: -1,
     ready: false, t0: ms.t, limit, stage: 'fetch', wall: [], noOff: kind === 'goalkick' || kind === 'throw' || kind === 'corner',
     first: !!opt.first, after: !!opt.after, placed: false, foul: opt.foul || null, offender: opt.offender != null ? opt.offender : -1,
-    taken: false, lowerT: 0, tTake: -1, carrier: -1, kickIn, nearT: 0};
+    taken: false, lowerT: 0, tTake: -1, carrier: -1, kickIn, nearT: 0, nagged: false};
   R0.taker = pickTaker(ms, kind, team, spot);
   R0.special = kind === 'free' && hypot(ms.dirs[team]*ms.spec.hx - spot.x, spot.z) < 35;
   chooseSource(ms, R0);
@@ -594,6 +596,8 @@ export function restartStep(ms, h){
   }
   const el = ms.t - R0.t0;
   const sp = R0.spot;
+  // the player's own restart waits on him only so long (MF-3): taken from him, this step is the new taker's
+  if (tk.isMe && !ms.meAI && meTooSlow(ms, R0, tk, el)) return;
   // while somebody else gets the ball (or places it for him), the taker makes his way to the spot
   const away = (R0.stage === 'fetch' || R0.stage === 'serve') && R0.fetcher !== R0.taker || R0.carrier >= 0 && R0.carrier !== R0.taker;
   if (away && !(tk.isMe && !ms.meAI)){
@@ -790,9 +794,8 @@ export function restartStep(ms, h){
         if (!a.onPitch || a.role !== 'player' || a === tk || a.leaving || a.isGK || a.isMe && !ms.meAI) continue;
         if (a.set && hypot(a.m.x - a.set.x, a.m.z - a.set.z) > RULES.READY_D){ ready = false; break; }
       }
-      // the player as a taker: the AI does not take it for him (3.2.8: "Take it." at 12 s, a team-mate at 25 s)
+      // the player as a taker: the AI does not take it for him (3.2.8: "Take it." at 12 s, a team-mate at 25 s: meTooSlow)
       if (tk.isMe && !ms.meAI){
-        if (el >= 25){ const alt = pickTaker(ms, R0.kind, R0.team, R0.spot); if (alt >= 0 && alt !== tk.id){ R0.taker = alt; R0.stage = 'fetch'; R0.fetcher = alt; } }
         R0.ready = true;
         break;
       }
@@ -817,6 +820,38 @@ export function restartStep(ms, h){
       R0.ready = true;
       break;
   }
+}
+
+/* The player as a restart's taker (3.2.8; P2-A, MF-3): the AI never takes it for him, but nobody waits on him for ever.
+   Once it is his to act on (the ball on the spot for him, served to him, in his hands, or his to fetch), the referee
+   tells him at ME_NAG s from the whistle ("Take it.": a 'nudge' event the match HUD shows). At ME_HAND s, whatever the
+   stage (the ball still to be met, carried or placed by him), the restart is his nearest team-mate's (a keeper's only
+   for a goal kick): a ball in the player's hands is put down where it is and fetched by the new taker; a ball resting on
+   the spot is left there for him to step up to. True when it was taken from him (this step is then the new taker's). */
+function meTooSlow(ms, R0, tk, el){
+  const his = R0.stage !== 'fetch' && R0.stage !== 'serve' || R0.fetcher === tk.id;
+  if (his && el >= RULES.ME_NAG && !R0.nagged){
+    R0.nagged = true;
+    logEv(ms, 'nudge', R0.team, tk.id, tk.m.x, tk.m.z, {what: 'take', rk: R0.kind});
+  }
+  if (el < RULES.ME_HAND) return false;
+  const b = ms.ball;
+  let alt = null, ad = Infinity;
+  for (const a of ms.agents){
+    if (a.team !== R0.team || a === tk || a.isMe || !a.onPitch || a.role !== 'player' || a.sentOff || a.leaving || a.injured) continue;
+    if (a.isGK !== (R0.kind === 'goalkick')) continue;
+    const d = hypot(a.m.x - b.p.x, a.m.z - b.p.z);
+    if (d < ad){ ad = d; alt = a; }
+  }
+  if (!alt) return false;
+  logEv(ms, 'nudge', R0.team, tk.id, tk.m.x, tk.m.z, {what: 'handed', to: alt.id, rk: R0.kind});
+  R0.taker = alt.id; R0.ready = false; R0.shapeStep = -99; R0.nearT = 0; R0.carrier = -1;
+  if (b.state === 'held' && b.holder === tk.id){ ballRelease(b, null, {x: 0, y: 0, z: 0}, null); b.state = 'dead'; }
+  if (R0.placed && R0.kind !== 'throw' && (R0.stage === 'wait' || R0.stage === 'go') && hypot(b.p.x - R0.spot.x, b.p.z - R0.spot.z) < 0.4){
+    // on the spot already: he steps up to it (restartShape gives him the taker's spot at the next step)
+    R0.stage = 'wait'; R0.fetcher = alt.id;
+  } else { R0.stage = 'fetch'; R0.placed = false; chooseSource(ms, R0); }
+  return true;
 }
 
 // is the restart ready to be taken (taker at the ball, the others set, or the limit reached)
@@ -950,9 +985,11 @@ function shortHanded(ms, a){
     if (fwd){ fwd.slot = a.slot; fwd.slotLine = a.slotLine; fwd.baseX = a.baseX; }
   }
   if (a.isGK){
-    // somebody has to go in goal: the nearest defender
+    // somebody has to go in goal: a defender (the first of the back line), else any outfield man left; never the player,
+    // whose agent is his to move and who is never the keeper (spec 0; P2-A, GK-1)
     let d = null;
-    for (const o of ms.agents) if (o.team === a.team && o.onPitch && !o.leaving && !o.isGK && o.slotLine === 'DF' && (!d || o.id < d.id)) d = o;
+    for (const o of ms.agents) if (o.team === a.team && o.onPitch && !o.leaving && !o.isGK && !o.isMe && o.role === 'player' && o.slotLine === 'DF' && (!d || o.id < d.id)) d = o;
+    if (!d) for (const o of ms.agents) if (o.team === a.team && o.onPitch && !o.leaving && !o.isGK && !o.isMe && o.role === 'player' && !o.sentOff && (!d || o.id < d.id)) d = o;
     if (d){ d.isGK = true; d.slot = 'GK'; d.slotLine = 'GK'; d.at = Object.assign({}, d.at, {gk: {reflex: 35, dive: 35, handling: 35, posit: 35, distrib: d.at.passing}}); ms.gks[a.team] = d.id; }
   }
 }
@@ -1027,13 +1064,18 @@ function subStep(ms){
     if (!a){ p.stage = 'done'; continue; }
     // the man taking the restart, or bringing the ball for it, finishes that first
     const R0 = ms.restart, busy = !!R0 && !R0.taken && (a.id === R0.taker || a.id === R0.fetcher || a.id === R0.carrier) && !a.injured;
+    // the player coming on (3.4.2; P2-A, MF-9): the change waits until he stands by the fourth official (ms.meEntry.at,
+    // which the match day sets: his walk there is his own), so he steps on where the substitute enters; the man going
+    // off stays on until then, unless he is hurt. Without the match day's word (the harness, a match played out headless)
+    // the change goes ahead as before
+    const meWait = !!ms.meEntry && !ms.meEntry.at && !ms.meAI && !p.none && !!p.inPick && !!p.inPick.isMe;
     // (an injured man does not wait for a stoppage: he cannot play on)
-    if (p.stage === 'wait' && (dead && !busy || a.injured)){
+    if (p.stage === 'wait' && (dead && !busy && !meWait || a.injured)){
       p.stage = 'off';
       if (a.onPitch && !a.leaving) walkOff(ms, a);
       if (p.none) shortHanded(ms, a);
     }
-    if (p.stage === 'off' && !a.onPitch){
+    if (p.stage === 'off' && !a.onPitch && !meWait){
       // he is off: the substitute enters at the halfway line on the bench side (nobody when no change was left, or
       // nobody is left on the bench: his side plays a man short)
       const pick = p.none ? null : p.inPick || bestBench(ms, p.team, a);

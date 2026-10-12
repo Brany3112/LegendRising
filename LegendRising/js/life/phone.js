@@ -16,7 +16,11 @@
   // a first-person match or training session (world modes match and train, marked on the page by modes.js): Q, Tab and
   // the rest of the phone are not yours there (DESIGN 1.6: Tab is the overview, Q does nothing); the mode's own input
   // has those keys
-  const football = () => body.classList.contains("mode-match") || body.classList.contains("mode-train");
+  // (and the Training Mode sandbox, mode-trainsb: P2-A, ball-9 and INF-2)
+  const football = () => body.classList.contains("mode-match") || body.classList.contains("mode-train") || body.classList.contains("mode-trainsb");
+  // the phone and the hub are the career's: with no career loaded (the world walked without one, as Training Mode is)
+  // there is nothing to open, and Q never puts the street into the hub's state, which would hold your keys (INF-2)
+  const career = () => typeof S !== "undefined" && !!S;
   const OPEN_MS = 560, CLOSE_MS = 520;
 
   window.lifeMode = () => mode === "hub" ? "hub" : handOpen() ? "hand" : "street";
@@ -35,7 +39,7 @@
 
   /* ---------- Tab: the phone in your hand ---------- */
   window.lifeHand = function(){
-    if (!life() || busy || mode !== "street" || football()) return;
+    if (!life() || busy || mode !== "street" || football() || !career()) return;
     if (handOpen()){
       closePhone(); hint();
       if (window.lifeRelock) window.lifeRelock();
@@ -51,7 +55,7 @@
 
   /* ---------- Q: up to your face, and it becomes the hub ---------- */
   window.lifeHub = function(){
-    if (!life() || busy || mode === "hub" || football()) return;
+    if (!life() || busy || mode === "hub" || football() || !career()) return;
     busy = true; mode = "hub";
     if (handOpen()) closePhone();
     hint();
@@ -110,6 +114,8 @@
     // nothing comes up over a cinematic (intro.js): the camera is not yours until it hands it back
     if (window.lifeCine && window.lifeCine()){ if (k === "tab" || k === "q") e.preventDefault(); return; }
     if (football()) return;
+    // (no career: Tab and Q open nothing; Tab's own default, the page's focus, is kept off the 3D view)
+    if (!career() && mode !== "hub"){ if (k === "tab" || k === "q") e.preventDefault(); return; }
     if (k === "tab"){ e.preventDefault(); if (mode === "hub") return; window.lifeHand(); return; }
     if (k === "q"){ e.preventDefault(); mode === "hub" ? window.lifePutAway() : window.lifeHub(); return; }
     if (k === "escape" && mode === "hub"){

@@ -89,6 +89,19 @@ let full = null;
   check(JSON.stringify(S.skills) === before, "effSkills and matchConfig read the skills and never change them");
   check(eff.pace === Math.max(5, Math.round(70*(1 - 0.15))) && eff.composure === 54, "effective skills: nerves and tired legs off everything but composure", {pace: eff.pace, composure: eff.composure});
   check(cfg.seed === 99 && cfg.teams.length === 2 && cfg.teams[meTeam].players.some(p => p.isMe) && cfg.me.team === meTeam, "the configuration: both sides, the player in his side", {me: cfg.me.team});
+  // (P2-A, MV-10) every record carries the height its body is drawn at: the player's own look's, the AI players' from the
+  // match day's scaleOf (given its record and, for a starter, the seed view.js would use without a pid); 1 without one
+  {
+    S.player.look = {height: 1.04};
+    const seen = [];
+    const sc = B.matchConfig(MT.f, MT, {seed: 99, scaleOf: (rec, hint) => { seen.push(hint); return 0.9 + (rec.pid % 10)/50; }});
+    const all = sc.teams.flatMap(t => t.players.concat(t.bench)), me = all.find(p => p.isMe), ai = all.filter(p => !p.isMe);
+    check(me.scale === 1.04 && ai.every(p => Math.abs(p.scale - (0.9 + (p.pid % 10)/50)) < 1e-12) && seen.filter(h => h != null).length === 21,
+      "matchConfig gives every player record his drawn height: the player's look, the AI players' from scaleOf", {me: me.scale, n: ai.length, hints: seen.filter(h => h != null).length});
+    delete S.player.look;
+    const plain = B.matchConfig(MT.f, MT, {seed: 99}).teams.flatMap(t => t.players.concat(t.bench));
+    check(plain.every(p => p.scale === 1), "without scaleOf (a match nobody draws) and no look, every record's height is 1", plain.map(p => p.scale).slice(0, 4));
+  }
   const ms = createMatch(Object.assign(cfg, {meAI: true, htAuto: true}));
   const off = B.attach(ms, on);
   runHeadless(ms, 30*60);

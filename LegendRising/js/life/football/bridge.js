@@ -78,18 +78,33 @@ const archOfSlot = slot => slot === "GK" ? "GK" : has("archOf") ? archOf(slot) :
 const nameOf = p => p.me ? ((S.player && S.player.name) || "You") : has("pname") ? pname(p) : String(p.id);
 const footOf = foot => foot === "L" || foot === "Left" ? "Left" : foot === "B" || foot === "Both" ? "Both" : "Right";
 
-// one side's team record for the simulation
-function sideTeam(f, M, sideId, xi, isUs, kit){
+// the player's height (MV-10): his own look's (the whole-body scale his body is drawn at, look.js bodyLook, after the
+// same lookSane the body gets), so the simulation's agent is as tall as the body you see and the eye you look from
+function myHeight(){
+  const pl = S && S.player ? S.player.look : null;
+  if (!pl) return 1;
+  const L = has("lookSane") ? lookSane(pl, "player") : pl;
+  const h = L ? +L.height : NaN;
+  return h > 0 ? h : 1;
+}
+// one side's team record for the simulation. t: the side (0 home, 1 away); scaleOf(rec, seedHint) -> the height an AI
+// player's body is drawn at (the match day's, from view.js's look seeds; 1 when none is given: a match nobody draws)
+function sideTeam(f, M, sideId, xi, isUs, kit, t = 0, scaleOf = null){
   const slots = shapeOf(f, sideId);
   const meSlot = isUs && S.player ? S.player.teamPos : null;
   const slotOf = assignSlots(xi, slots, meSlot);
   const name = has("sideName") ? sideName(f, M.home === isUs ? "h" : "a") : (isUs ? M.nameUs : M.nameThem);
+  // (a record with no pid is seeded by its agent's id in view.js: the starters' ids follow their order, 11 a side; a
+  // starting keeper's look by 3 plus his side)
+  const height = (rec, hint) => rec.isMe ? myHeight() : scaleOf ? +scaleOf(rec, hint) || 1 : 1;
   const players = xi.map((p, i) => {
     const slot = slotOf[i] || "CM", me = !!p.me;
-    return {pid: p.id, name: me ? S.player.name : nameOf(p), number: p.no || i + 1, slot, arch: archOfSlot(slot), isGK: slot === "GK", isMe: me,
+    const rec = {pid: p.id, name: me ? S.player.name : nameOf(p), number: p.no || i + 1, slot, arch: archOfSlot(slot), isGK: slot === "GK", isMe: me,
       at: me ? attrsForPlayer(effSkills(), S.items || {}, S.traits || {}) : attrsForAI({id: p.id, ovr: p.ovr, pos: p.pos}),
       energy: me ? clamp(+S.energy || 0, 0, 100) : 100, fatigue: me ? clamp(+S.fatigue || 0, 0, 100) : 0,
       prefFoot: me ? footOf(S.player.foot) : "Right", items: me ? S.items || null : null};
+    rec.scale = height(rec, rec.isGK ? 3 + t : t*11 + i + 1);
+    return rec;
   });
   // the bench: a keeper and the best of the rest of the squad
   const inXI = new Set(xi.map(p => p.id));
@@ -99,8 +114,10 @@ function sideTeam(f, M, sideId, xi, isUs, kit){
   const rest = pool.filter(p => p.pos !== "GK").sort((a, b) => b.ovr - a.ovr).slice(0, BRIDGE.BENCH - (gk ? 1 : 0));
   const bench = (gk ? [gk] : []).concat(rest).map((p, i) => {
     const slot = SLOT_OF_POS[p.pos] || "CM";
-    return {pid: p.id, name: nameOf(p), number: p.no || 12 + i, slot, arch: archOfSlot(slot), isGK: slot === "GK",
+    const rec = {pid: p.id, name: nameOf(p), number: p.no || 12 + i, slot, arch: archOfSlot(slot), isGK: slot === "GK",
       isMe: !!p.me, at: p.me ? attrsForPlayer(effSkills(), S.items || {}, S.traits || {}) : attrsForAI({id: p.id, ovr: p.ovr, pos: p.pos}), energy: 100};
+    rec.scale = height(rec, null);
+    return rec;
   });
   return {name, short: String(name || "").slice(0, 3).toUpperCase(), kit: kit || null, formation: slots, players, bench,
     ovr: xi.reduce((s, p) => s + (+p.ovr || 0), 0)/Math.max(1, xi.length)};
@@ -120,7 +137,8 @@ function coachStyleFor(f, M){
 }
 
 // The simulation's configuration (1.4.16) from a fixture and the MT of match.js matchSetup. opts = {seed, resume
-// (S.life.inMatch of a checkpoint), visible, benchSide}. Home is team 0. The tempo and the half length come from
+// (S.life.inMatch of a checkpoint), visible, benchSide, scaleOf (the AI players' heights, P2-A MV-10)}. Every player
+// record carries its scale (sideTeam). Home is team 0. The tempo and the half length come from
 // S.speed, Standard when that setting is not calibrated yet (D3).
 export function matchConfig(f, M = MT, opts = {}){
   const speed = CALIBRATED[S.speed] ? S.speed : 2;
@@ -128,7 +146,8 @@ export function matchConfig(f, M = MT, opts = {}){
   const homeXI = M.home ? M.usXI : M.themXI, awayXI = M.home ? M.themXI : M.usXI;
   const homeId = M.home ? M.usId : M.themId, awayId = M.home ? M.themId : M.usId;
   const kits = M.home ? [M.myKit, M.oppKit] : [M.oppKit, M.myKit];
-  const teams = [sideTeam(f, M, homeId, homeXI, M.home, kits[0]), sideTeam(f, M, awayId, awayXI, !M.home, kits[1])];
+  const sc = typeof opts.scaleOf === "function" ? opts.scaleOf : null;
+  const teams = [sideTeam(f, M, homeId, homeXI, M.home, kits[0], 0, sc), sideTeam(f, M, awayId, awayXI, !M.home, kits[1], 1, sc)];
   const meP0 = teams[usTeam].players.find(p => p.isMe) || teams[usTeam].bench.find(p => p.isMe);
   // a substitute starts on the bench: the man in his slot plays until the call (sim.js benchMe)
   const role = M.role || "starter";

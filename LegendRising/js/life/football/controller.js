@@ -61,7 +61,7 @@ import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent,
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
 import {STADIUM, SPAWNS} from "./stadium.js";
 import {AUD} from "./audio.js";
-import {prebuildHumans} from "../human.js";
+import {prebuildHumans, lookFor} from "../human.js";
 import {runOne} from "./harness.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -74,6 +74,9 @@ export const DAY = Object.freeze({
   WALK_V: 1.4, WALK_MAX: 30, KO_WAIT: 25, KO_HALF_NAG: 15, CIRCLE: 9.15,
   HT_WALK: 2, HT_CARD: 60, FT_WALK: 2, CK_GAP: 60, SKIP_MS: 11, SKIP_CAP: 13, SKIP_MIN: 4, STALL0: 2, REPLAY: 6, MAX_STEPS: 4,
   FF: [1, 2, 4], FF_DRAW: 1/30, E_TAP: .35, E_HOLD: .8, ENTRY_NEAR: 3, CORRIDOR: {x: 1.1, zFront: -46, zBack: -64, gap: 1.25, mouth: -40.5},
+  // P2-A: by the fourth official within ENTRY_AT m; called and not going for CALL_WALK s, you head over (MF-9); the lock
+  // asked back after a card is waited for RELOCK s of real time before the match is held on the pause card (MF-1)
+  ENTRY_AT: 1.2, CALL_WALK: 15, RELOCK: .6,
   // A1.7: a shot wound up with at least BIG_XG of a chance eases the world to BIG_SCALE (released, it comes back over
   // BIG_OUT s); your clean contact holds the world for a blink (HIT: [strike quality from, time-scale, seconds])
   BIG_XG: FEEL.BIG_XG, BIG_SCALE: FEEL.BIG_SCALE, BIG_OUT: FEEL.BIG_OUT, HIT: FEEL.HIT
@@ -95,7 +98,11 @@ const FS = {
   own: null, ownPrm: null, ownSt: null, ownFac: {}, onPitch: false,
   walkers: null, koT: 0, ready: false, nagT: 0,
   benchSeat: null, skipping: null, called: false, entering: false,
-  ckT: -1e9, ckGoal: false, goalT: -1, replayQ: null, htT: 0, ftT: 0, R: null, done: false,
+  ckT: -1e9, ckGoal: null, ckNow: null, goalEv: null, goalT: -1, replayQ: null, htT: 0, ftT: 0, R: null, done: false,
+  // P2-A: the state the half-time whistle found you in (MF-7); the pointer a card let go of, its answer still to come, and
+  // the lock asked back after it (MF-1); the lock seen in this match; your height in it (MV-10); the walk to the fourth
+  // official (MF-9)
+  prevState: null, htCard: false, ftCard: false, freed: false, exitAsked: false, relockWait: false, lockUsed: false, meScale: 1, callT: 0, autoWalk: false,
   realT: 0, headless: false, pauseShown: false, lastMin: -1, board: -1, stepsLast: 0, stepCost: 0,
   frustum: new THREE.Frustum(), pm: new THREE.Matrix4(), dispScale: 1, eye: {x: 0, y: 1.68, z: 0},
   hints: [], lastHint: 0, offPip: null, lockLook: false, eHeld: 0, eDown: false, tabHeld: false, lateMin: 0, logT: 0,
@@ -111,7 +118,7 @@ const isTest = () => !!FS.test;
 // (nor while the warm-up has you: its own keys are the set's, A1.8)
 const FLAGS_MATCH = {clock: "own", movement: "own", targeting: s => !!(s && s.stadium) && !(FS.state === "bench" && FS.seated) && !(warmDriving() || WARM.phase === "call"), tunnel: false, closing: false,
   homeTick: false, compass: false, saves: "defer", tp: false, hud: "none", pauseOnUnlock: true, leaveOnZone: false};
-registerMode("match", {
+const MATCH_MODE = registerMode("match", {
   flags: FLAGS_MATCH,
   enter(){ document.body.classList.add("fp-match"); },
   exit(reason){ document.body.classList.remove("fp-match"); if (reason !== "done" && FS.state) teardown(); },
@@ -119,6 +126,16 @@ registerMode("match", {
   input(ev){ return input(ev); },
   lockLook(){ return FS.lockLook || playing(); }
 });
+// Half time, full time and the skip under its card are not play (P2-A, MF-2): the pointer let go there pauses nothing.
+// Their cards need the pointer (they let it go themselves), and their own timers (the half-time card's 60 s, the walk
+// off, the skip) run on, so the card's button is always a way out and nothing waits on a click that cannot come
+// (world.js reads the flag when the pointer lock changes). The let-go a card asked for itself pauses nothing either,
+// whenever the browser's answer comes (it can come after the card has gone: frames stepped in one go)
+Object.defineProperty(MATCH_MODE.flags, "pauseOnUnlock", {enumerable: true, configurable: true, get: () => !offPlay() && !FS.exitAsked});
+// the day's states that are not play: a card is up or about to be, or the skip runs under its card
+const offPlay = () => FS.state === "halftime" || FS.state === "fulltime" || FS.state === "leaving" || FS.state === "lateRun" || !!FS.skipping;
+// a card up that wants the mouse: half time and full time (the bench skip's card does not: you watch it)
+const mouseCard = () => FS.state === "halftime" && !!FS.htCard || FS.state === "fulltime" && !!FS.ftCard || FS.state === "leaving";
 
 // the keys of 1.6 have their browser defaults stopped while a match is on, and a key with Ctrl, Alt or Meta held does
 // nothing (D9). Captured before world.js sees the event; the right button, the wheel and the context menu too
@@ -128,6 +145,13 @@ function capture(e){
   // first-person training has the same plain keys (1.6): a key with a modifier held is nobody's action there either
   if (md === "train" && (e.type === "keydown" || e.type === "keyup")){ MOD.on = modKey(e); return; }
   if (md !== "match") return;
+  // a card that wants the mouse (half time, full time): the page's own keys and wheel work on it (Tab between its
+  // buttons, Enter on one, the wheel scrolls a long card), and nothing reaches the match (MF-4)
+  if (mouseCard()){
+    if (e.type === "contextmenu") e.preventDefault();
+    if (e.type === "keydown" || e.type === "keyup"){ MOD.on = false; if (FS.tabHeld){ FS.tabHeld = false; hudTab(false); } }
+    return;
+  }
   if (e.type === "keydown" || e.type === "keyup"){
     const k = (e.key || "").toLowerCase();
     if (KEYSET.has(k) || k === "tab") e.preventDefault();
@@ -199,7 +223,7 @@ function arrived(){
   const kits = M.home ? {home: M.myKit, away: M.oppKit} : {home: M.oppKit, away: M.myKit};
   const clubs = {home: M.home ? M.nameUs : M.nameThem, away: M.home ? M.nameThem : M.nameUs};
   build({tier: stad.tier, crowd: stad.crowd, cap: stad.cap, kits, clubs, at: "dressing", homeShare: M.home ? .8 : .2});
-  const cfg = matchConfig(f, M, {benchSide: -1, visible: visibleFn});
+  const cfg = matchConfig(f, M, {benchSide: -1, visible: visibleFn, scaleOf: heightOf});
   cfg.htAuto = false;
   startMatch(cfg, kits);
   // arriving after kick-off: the minutes gone by are played out headless behind the card, then the bench (3.4.1)
@@ -230,14 +254,23 @@ const _vp = new THREE.Vector3();
 // the match itself: the simulation, its listeners, the bodies (prebuilt behind the cover), the camera, the HUD
 function startMatch(cfg, kits){
   FS.cfg = cfg;
+  // (your own look on your own body; a test fixture of a career wears it too, in the home kit its side plays in, so what
+  // a test sees through your eyes is what a match shows: your first-person body under the eye)
+  const meRec = recOfMe(cfg);
+  const meLook = HOST ? HOST.look(kits && (FS.real && FS.M ? (FS.M.home ? kits.home : kits.away) : kits.home), meRec ? meRec.number : 9) : null;
+  // your height (MV-10): the body you are drawn as is the one the simulation moves, so reach, headers and your eye agree
+  if (meRec) meRec.scale = meLook && meLook.height ? +meLook.height : heightOf(meRec);
+  FS.meScale = meRec && meRec.scale ? meRec.scale : 1;
   const ms = FS.ms = createMatch(cfg);
   FS.evq.length = 0; FS.acc = 0; FS.ffRate = 1; FS.ffAch = 1; FS.ffSteps = FS.ffReal = 0; FS.recvSeq = -1; FS.drawAcc = FS.viewDt = 0; FS.timeScale = 1; FS.slow = null; FS.skipResume = null; FS.ckT = -1e9; FS.goalT = -1; FS.replayQ = null;
+  // (nothing of an earlier match carries over: a goal's replay, a checkpoint it owed, MF-8)
+  clearMatchFlags();
+  FS.prevState = null; FS.htCard = FS.ftCard = false; FS.freed = FS.exitAsked = false; relockWait(false); FS.lockUsed = !!document.pointerLockElement; FS.callT = 0; FS.autoWalk = false;
+  // your change off the bench waits for you by the fourth official (MF-9, rules.js subStep): the controller says when you are there
+  ms.meEntry = {at: false};
   FS.offs.push(on(ms, "*", ev => FS.evq.push(ev)));
   for (const k of ["bounce", "post", "bar", "net", "board"]) FS.offs.push(on(ms, k, d => ballSound(k, d)));
   if (FS.real) FS.offs.push(attach(ms, on));
-  // (your own look on your own body; a test fixture of a career wears it too, in the home kit its side plays in, so what
-  // a test sees through your eyes is what a match shows: your first-person body under the eye)
-  const meLook = HOST ? HOST.look(kits && (FS.real && FS.M ? (FS.M.home ? kits.home : kits.away) : kits.home), meNumber()) : null;
   const V = FS.V = viewInit(ms, RT.scene, kits, {meLook, meFPLook: meLook});
   V.me = ms.me;
   recInit(ms, 20, 12, V);
@@ -260,7 +293,29 @@ function startMatch(cfg, kits){
   FS.kits = kits;
   warmSetup();
 }
-const meNumber = () => { const ms = FS.ms; if (!ms) return 9; const a = ms.agents.find(x => x.isMe); if (a) return a.number; for (const t of [0, 1]) for (const p of ms.bench[t]) if (p.isMe) return p.number; return 9; };
+// your record in a configuration (in the XI, or on the bench)
+function recOfMe(cfg){
+  for (const T of cfg.teams || []) for (const p of (T.players || []).concat(T.bench || [])) if (p && p.isMe) return p;
+  return null;
+}
+/* The height a footballer's body is drawn at (MV-10): human.js scales a whole body by its look's height, and view.js
+   matchLooks gives every player his look from his record's pid (a keeper's from the goalkeeper's looks, everyone
+   else's from the footballers'), so the same seed here gives the same height, and the agent the simulation moves is
+   as tall as the body you see (reach, headers, the capsules). seedHint: the seed view.js gives a record without a pid
+   (its agent id plus one, a starting keeper 3 plus his side), known only for a starter before the match is made. */
+function heightOf(rec, seedHint = null){
+  if (!rec) return 1;
+  const pid = +rec.pid;
+  const seed = pid > 0 ? pid % 100000 : seedHint != null ? seedHint % 100000 : null;
+  if (seed == null) return 1;
+  try { const L = lookFor(rec.isGK ? "goalkeeper" : "footballer", seed, {sex: "m"}); return L && L.height ? +L.height : 1; }
+  catch(e){ console.error(e); return 1; }
+}
+/* The flags a match moment leaves behind for later (MF-8): a goal waiting for its replay at the restart, the checkpoint
+   owed for the kick-off after a goal or for a change. They are cleared when a match starts and ends and when the second
+   half starts (a goal on the half-time whistle is never replayed at the second half's kick-off, nor one at full time
+   in the next match). A reset of the match (P8-A) clears them too. */
+export function clearMatchFlags(){ FS.goalEv = null; FS.ckGoal = null; FS.ckNow = null; }
 function myAttrs(){
   const ms = FS.ms;
   const a = ms.me >= 0 ? ms.agents[ms.me] : ms.resumedMe != null ? ms.agents[ms.resumedMe] : null;
@@ -391,10 +446,9 @@ function koGate(dt){
   if (!me) return true;                                       // on the bench: nobody waits for you
   const dir = ms.dirs[me.team], own = P.x*dir <= .3, R0 = ms.restart, taker = !!R0 && R0.taker === me.id;
   if (Math.abs(P.z) > ms.spec.hz + .5 || Math.abs(P.x) > ms.spec.hx + .5) return false;   // still off the pitch
-  if (taker){
-    if (Math.hypot(P.x - ms.ball.p.x, P.z - ms.ball.p.z) < 1.6 && (FS.ready || FS.koT > DAY.KO_WAIT)) return true;
-    return false;
-  }
+  // the kick-off's taker at the ball; otherwise the rules below hold for him too, and once play starts the kick-off
+  // waits for him as any kick-off does ("Take it." at 12 s, a team-mate takes it at 25 s, rules.js, MF-3)
+  if (taker && Math.hypot(P.x - ms.ball.p.x, P.z - ms.ball.p.z) < 1.6 && (FS.ready || FS.koT > DAY.KO_WAIT)) return true;
   const inCircle = Math.hypot(P.x, P.z) < DAY.CIRCLE;
   if (own && !inCircle && (FS.ready || FS.koT > 3)) return true;
   if (own && FS.koT > DAY.KO_WAIT) return true;
@@ -483,16 +537,32 @@ function ownWalk(dt, walls){
   if (m.x !== P.x || m.z !== P.z){ m.x = P.x; m.z = P.z; }
   const fac = stamFactors(FS.ownSt, 1, FS.ownFac);
   // the warm-up runs your legs while it has you (to the strip, the strides, the shuffles, a few steps to a spot)
-  const wi = FS.onPitch ? null : warmIntent();
+  const wi = FS.onPitch ? null : warmIntent() || entryWalk(dt);
   moverStep(m, wi || OWN_IT, FS.ownPrm, fac, dt, walls ? ownCollide : null);
   stamStep(FS.ownSt, dt, effortOf(m.gait, m.speed, FS.ownPrm.run), {stamina: 50, eF: 1});
   P.x = m.x; P.z = m.z; P.vx = m.vx; P.vz = m.vz; P.speed = m.speed;
-  P.feet = 0; P.eye = CAM.EYE*(ME.scale || 1);
+  // (your eye at your height in this match, the same before and after the hand-over to your agent, MV-10)
+  P.feet = 0; P.eye = CAM.EYE*(FS.meScale || 1);
+}
+// called and not going (MF-9): your legs take you to the fourth official, out of the dugout's mouth first and then
+// along the touchline, at a jog; your view turns the way you go
+const ENTRY_IT = {dx: 0, dz: 0, gait: "jog", face: null, strafe: false, speedCap: Infinity};
+function entryWalk(dt){
+  if (!FS.autoWalk || FS.state !== "entering" || FS.atFourth || FS.seated) return null;
+  const e = entrySpot();
+  let tx = e.x, tz = e.z;
+  if (P.z < e.z - 1 && Math.abs(P.x - e.x) > 1.5){ tx = P.x; tz = e.z - .3; }
+  const dx = tx - P.x, dz = tz - P.z, d = Math.hypot(dx, dz);
+  ENTRY_IT.dx = d > 1e-6 ? dx/d : 0; ENTRY_IT.dz = d > 1e-6 ? dz/d : 0;
+  ENTRY_IT.speedCap = Math.min(4, Math.sqrt(2*5*Math.max(0, Math.hypot(e.x - P.x, e.z - P.z))) + .05);
+  ENTRY_IT.face = {x: ENTRY_IT.dx, z: ENTRY_IT.dz};
+  if (d > .05) P.yaw = wrapA(P.yaw + wrapA(yawOf(dx, dz) - P.yaw)*(1 - Math.exp(-4*dt)));
+  return ENTRY_IT;
 }
 const OCR = {dx: 0, dz: 0};
 function ownCollide(m, dx, dz){ P.x = m.x; P.z = m.z; moveBy(dx, dz); OCR.dx = P.x - m.x; OCR.dz = P.z - m.z; return OCR; }
 function placeOwn(p){
-  P.x = p.x; P.z = p.z; P.feet = 0; P.eye = CAM.EYE*(ME.scale || 1); P.vx = P.vz = 0; P.speed = 0;
+  P.x = p.x; P.z = p.z; P.feet = 0; P.eye = CAM.EYE*(FS.meScale || 1); P.vx = P.vz = 0; P.speed = 0;
   if (FS.own){ FS.own.x = p.x; FS.own.z = p.z; FS.own.vx = FS.own.vz = FS.own.speed = 0; FS.own.yaw = FS.own.heading = p.yaw || 0; }
   findInside();
 }
@@ -651,6 +721,12 @@ function events(){
         if (FS.real) FS.ckNow = true;
         break;
       case "added": hudNotice("info", `${ev.mins} added minute${ev.mins === 1 ? "" : "s"}`); break;
+      // a restart that is yours and waits on you (rules.js restartStep, MF-3): the referee's word at 12 s; at 25 s a
+      // team-mate takes it
+      case "nudge":
+        if (ev.agent === me && ev.what === "take") hudNotice("info", "Take it.");
+        else if (ev.agent === me && ev.what === "handed") hudNotice("info", `${name(ev.to)} takes it instead.`);
+        break;
       case "call": {
         const a = ms.agents[ev.agent];
         if (a && me >= 0 && a.team === ms.agents[me].team && a.id !== me && (ev.to == null || ev.to === me)){ hudCall(a.id, a.name); AUD.call(a.name, {x: a.m.x, y: 1.7, z: a.m.z}, a.id); }
@@ -727,9 +803,9 @@ function feel(){
 /* ---------- the HUD's frame ---------- */
 const _pv = new THREE.Vector3();
 function proj(x, y, z){
-  const cam = RT.cam, cv = RT.renderer && RT.renderer.domElement;
-  _pv.set(x, y, z).project(cam);
-  const w = cv ? cv.clientWidth : innerWidth, h = cv ? cv.clientHeight : innerHeight;
+  _pv.set(x, y, z).project(RT.cam);
+  // (the canvas's size as hud() read it once this frame: reading it here, for every point, forced a layout each time, perf-5)
+  const w = HUDS.w || innerWidth, h = HUDS.h || innerHeight;
   // (one record, filled in place: the HUD uses each point before it asks for the next)
   PJ.x = (_pv.x + 1)/2*w; PJ.y = (1 - _pv.y)/2*h; PJ.on = _pv.z < 1 && Math.abs(_pv.x) <= 1 && Math.abs(_pv.y) <= 1; PJ.front = _pv.z < 1;
   return PJ;
@@ -744,7 +820,12 @@ function hud(dt){
   HUDS.yaw = P.yaw; HUDS.cam.x = RT.cam.position.x; HUDS.cam.z = RT.cam.position.z;
   const slow = (FS.lastHint -= dt) <= 0;
   if (slow) FS.lastHint = .1;
-  if (me){
+  // half time, full time and the skip under its card are not play: no hint of live play shows over them (MF-11), the
+  // card says what there is to do
+  if (offPlay()){
+    HUDS.B = me ? me.st.B : FS.ownSt ? FS.ownSt.B : 100; HUDS.cap = me ? me.st.cap : FS.ownSt ? FS.ownSt.cap : 100;
+    HUDS.offPip = null; HUDS.offX = null; HUDS.sweet = HUDS.tick = null; HUDS.glyph = ""; HUDS.hold = null; HUDS.hints = OH.none;
+  } else if (me){
     HUDS.B = me.st.B; HUDS.cap = me.st.cap; HUDS.energy = me.energy; HUDS.cards = me.booked || 0; HUDS.red = !!me.sentOff;
     if (slow){ HUDS.hints = hintsFor(ms, me); HUDS.glyph = glyphFor(ms, me); offsideHud(ms, me, pipShown(), OFF); HUDS.offPip = OFF.pip; HUDS.offX = OFF.x; }
     sweetFor(ms, me);
@@ -846,17 +927,22 @@ function bench(dt, real){
   if (!FS.seated && !FS.onPitch) makeFP(FS.V);
   if (!FS.seated){
     ownWalk(dt, true);
-    // the call came: walk to the fourth official
+    // the call came: walk to the fourth official. The change waits for you there (rules.js subStep, MF-9); left a while
+    // without going, you head over by yourself (your own legs, the walls having their say)
     if (FS.called && FS.state === "entering"){
       const e = entrySpot(), d = Math.hypot(P.x - e.x, P.z - e.z);
-      if (d < .8 && !FS.atFourth){ FS.atFourth = true; note("Wait by the fourth official. You'll go on at the next stoppage."); }
+      if (d < DAY.ENTRY_AT && !FS.atFourth){ FS.atFourth = true; FS.autoWalk = false; note("Wait by the fourth official. You'll go on at the next stoppage."); }
+      else if (d > DAY.ENTRY_AT + .7 && FS.atFourth) FS.atFourth = false;
+      if (!FS.atFourth && !FS.autoWalk && (FS.callT += real) > DAY.CALL_WALK){ FS.autoWalk = true; note("The fourth official is waiting for you. You jog over."); }
     }
   }
   if (ms.callUp && !FS.called && cameOnAllowed()){
-    FS.called = true; FS.state = "entering"; FS.atFourth = false;
+    FS.called = true; FS.state = "entering"; FS.atFourth = false; FS.callT = 0; FS.autoWalk = false;
     hudNotice("sub", "Get ready, you're going on.");
     if (FS.seated){ standUp(); }
   }
+  // (the simulation holds your change until you stand by the fourth official)
+  if (ms.meEntry) ms.meEntry.at = !!(FS.called && FS.atFourth && !FS.seated);
   if (ms.phase === "halftime" && FS.state !== "halftime") startHalftime();
   else if ((ms.phase === "fulltime" || ms.phase === "over") && FS.state !== "fulltime") startFulltime();
 }
@@ -903,10 +989,11 @@ function onCameOn(){
   if (!me) return;
   if (FS.seated) standUp();
   const rx = ms.spec.runoff.hx, rz = ms.spec.runoff.hz;
-  // stood by the fourth official (or wherever you were within the run-off): the agent starts there
+  // stood by the fourth official (the change waited for you there, MF-9): the agent starts where you stand
   P.x = clamp(P.x, -rx, rx); P.z = clamp(P.z, -rz, rz);
   handover();
-  FS.state = "live"; FS.called = false; FS.atFourth = false;
+  FS.state = "live"; FS.called = false; FS.atFourth = false; FS.autoWalk = false; FS.callT = 0;
+  if (ms.meEntry) ms.meEntry.at = false;
   if (FS.V) FS.V.me = ms.me;
   // (the coach's "get over to the fourth official" and the wait note no longer hold)
   hudSayOff(); note("");
@@ -1127,14 +1214,16 @@ function warmLook(dt){
 /* ---------- half time (3.4.3) ---------- */
 function startHalftime(){
   if (FS.state === "halftime") return;
-  FS.prevState = FS.onPitch ? "live" : "bench";
+  // (called and walking to the fourth official at the whistle, you still are after the break, MF-7)
+  FS.prevState = FS.onPitch ? "live" : FS.state === "entering" ? "entering" : "bench";
   FS.state = "halftime"; FS.htT = 0; FS.htCard = false;
   controlReset();
 }
 function halftime(dt, real){
   const ms = FS.ms;
   FS.htT += real;
-  // the whistle, two seconds to walk off, then the dressing-room card
+  // the whistle, two seconds to walk off, then the dressing-room card. Its 60 s run with the mode's step, which goes on
+  // with the pointer let go (pauseOnUnlock is off at half time, MF-2): the card's button is a way out, and so is the time
   if (FS.onPitch) mirror();
   if (FS.htT < DAY.HT_WALK) return;
   if (!FS.htCard){
@@ -1147,6 +1236,34 @@ function halftime(dt, real){
   FS.htCardT += real;
   if (FS.htCardT >= DAY.HT_CARD) secondHalfGo();
   void ms;
+}
+// a card that wants the mouse is up (MF-1): the pointer is let go so the card can be clicked (under pointer lock every
+// click goes to the canvas, whatever is drawn over it), and the card's box takes the keyboard's focus, so Tab goes
+// through its buttons and Enter presses one. The click that closes it takes the pointer back (cardDone)
+function cardUp(o){
+  if (document.pointerLockElement){ FS.freed = true; FS.lockUsed = true; FS.exitAsked = true; document.exitPointerLock(); }
+  const box = o && o.querySelector(".fp-cardbox");
+  if (box && document.activeElement !== box && !box.contains(document.activeElement)) try { box.focus({preventScroll: true}); } catch(e){}
+}
+// the card is done (its button, or its time): the pointer it let go is asked back (a click is the gesture that allows it).
+// Granted, play goes on; refused or not granted in DAY.RELOCK s (the time ran out with nobody at the mouse), the match
+// waits on the pause card until a click takes the pointer back, as it does whenever the pointer is let go (SCHED task)
+function cardDone(){
+  // (a pointer the card let go, or one let go before it, Esc in the walk-off: a match played with the pointer takes it back)
+  const want = FS.freed || FS.lockUsed;
+  FS.freed = false;
+  if (!want || FS.relock === false || document.pointerLockElement) return;
+  relockWait(true);
+  if (HOST) HOST.relock(); else if (window.lifeRelock) window.lifeRelock();
+}
+// the wait for the lock asked back is real time on a timer, not the frames' dt, and it starts once the page is free again:
+// the browser answers between tasks, so frames stepped in one go (a skip's catch-up, a page stepping the match itself)
+// are no time it had to answer in
+let relockTimer = 0;
+function relockWait(on){
+  if (relockTimer){ clearTimeout(relockTimer); relockTimer = 0; }
+  FS.relockWait = !!on;
+  if (on) relockTimer = setTimeout(() => { relockTimer = setTimeout(() => { relockTimer = 0; FS.relockWait = false; }, DAY.RELOCK*1000); }, 0);
 }
 // a good dressing-room moment moves your Motivation (career.js motivationHalfTime, A1.8): once, as the card comes up
 function htMotivation(){
@@ -1165,7 +1282,7 @@ function showHalftimeCard(){
     const T = FS.cfg.teams;
     html = `<div class="eyebrow">Half time</div><h2>${esc(T[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(T[1].name)}</h2>`;
   }
-  const o = hudOverlay(`<div class="fp-box">${html}<div class="row gap8 center"><button class="btn" data-ht="go">Second half</button></div></div>`, "ht");
+  const o = hudOverlay(cardBox(html, `<button class="btn" data-ht="go">Second half</button>`), "ht");
   if (o){
     o.onclick = e => {
       const b = e.target.closest("button"); if (!b) return;
@@ -1173,7 +1290,11 @@ function showHalftimeCard(){
       if (b.dataset.drink){ const r = drink(b.dataset.drink); if (r && r.ok === false && r.why) note(r.why); showHalftimeCard(); }
     };
   }
+  cardUp(o);
 }
+// a card's box (MF-4): the body (it scrolls on its own when it is long) and the buttons in a footer that never scrolls
+// away, written first so that Tab reaches them first (fp.css shows the footer under the body, main action on the right)
+const cardBox = (body, buttons) => `<div class="fp-box fp-cardbox" tabindex="-1"><div class="fp-box-foot row gap8 center">${buttons}</div><div class="fp-box-body">${body}</div></div>`;
 function secondHalfGo(){
   if (FS.state !== "halftime") return;
   const ms = FS.ms;
@@ -1182,14 +1303,20 @@ function secondHalfGo(){
   hudClearCards();
   // ends changed, everyone on the kick-off spots behind the fade (sim.js secondHalf), you at yours
   if (ms.phase === "halftime") secondHalf(ms);
+  // nothing of the first half is played again in the second: the input made while the card was up (MF-5), a goal on the
+  // whistle waiting for its replay or its checkpoint (MF-8)
+  controlReset();
+  clearMatchFlags();
   const me = liveMe();
   if (me){ P.x = me.m.x; P.z = me.m.z; me.x0 = me.m.x; me.z0 = me.m.z; P.yaw = me.m.yaw; P.pitch = 0; }
   FS.acc = 0;
-  FS.state = FS.onPitch ? "live" : "bench";
+  // the state the whistle found you in: on the pitch, on the bench, or called and on your way to the fourth official (MF-7)
+  FS.state = FS.onPitch ? "live" : FS.prevState === "entering" && FS.called ? "entering" : "bench";
+  FS.prevState = null;
   if (FS.state === "bench" && FS.seated){ P.yaw = Math.PI; }
   if (FS.state === "bench" && FS.skipResume){ const k = FS.skipResume; FS.skipResume = null; startSkip(k); }
   else FS.skipResume = null;
-  if (HOST && FS.relock !== false) HOST.relock();
+  cardDone();
   revealAfterFrames(2).then(() => liftCover());
 }
 
@@ -1232,17 +1359,19 @@ function showFulltimeCard(){
     html = `<div class="eyebrow">Full time</div><h2>${esc(T[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(T[1].name)}</h2>`;
   }
   const press = !!(HOST && FS.real && HOST.pressOpen && HOST.pressOpen());
-  const o = hudOverlay(`<div class="fp-box">${html}<div class="row gap8 center">${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}<button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
+  // (Continue first in the footer's markup, so Tab reaches it first; it is drawn on the right, MF-4)
+  const o = hudOverlay(cardBox(html, `<button class="btn" data-ft="go">Continue</button>${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}`), "ft");
   if (o){
     o.onclick = e => {
       const b = e.target.closest("button"); if (!b) return;
       if (b.dataset.ft === "go"){ leave(); return; }
       // the interview (awards.js): its answers run their own onclick (A.press), then it is back to the card
-      if (b.dataset.ft === "press"){ hudOverlay(`<div class="fp-box">${HOST.press()}<div class="row gap8 center"><button class="btn ghost" data-ft="back">Back</button></div></div>`, "ft"); return; }
+      if (b.dataset.ft === "press"){ cardUp(hudOverlay(cardBox(HOST.press(), `<button class="btn ghost" data-ft="back">Back</button>`), "ft")); return; }
       if (b.dataset.ft === "back" || b.classList.contains("media")){ showFulltimeCard(); return; }
       if (b.dataset.clip != null) playHighlight(+b.dataset.clip);
     };
   }
+  cardUp(o);
 }
 // a highlight on the full-time card: the clip kept for it, played from the broadcast cameras
 function playHighlight(i){
@@ -1280,8 +1409,13 @@ function teardown(){
   if (FS.V){ viewDispose(FS.V); FS.V = null; }
   controlReset();
   CTRL.enabled = true;
+  // (the match's flags go with it, MF-8; a pause it held the world in is its own, and life never pauses on the pointer)
+  clearMatchFlags();
+  if (FLAGS.lockLost) FLAGS.lockLost = false;
   FS.ms = null; FS.state = null; FS.walkers = null; FS.skipping = null; FS.seated = false; FS.benchKept = null; FS.called = false; FS.onPitch = false;
   FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null;
+  FS.prevState = null; FS.htCard = FS.ftCard = false; FS.freed = FS.exitAsked = false; relockWait(false); FS.lockUsed = false; FS.atFourth = false; FS.autoWalk = false; FS.callT = 0;
+  FS.pauseShown = false;
   document.body.classList.remove("fp-match");
 }
 // FP.exit (tests, or a match that has to stop): no result, the mode left
@@ -1338,6 +1472,15 @@ function broadcastCams(end){
 function input(ev){
   if (!FS.state) return false;
   const st = FS.state;
+  // (the pointer's change has come: the let-go a card asked for is answered, the next one is the player's own)
+  if (ev.type === "lock") FS.exitAsked = false;
+  // half time and full time: Esc still skips a highlight being replayed; otherwise the card has the mouse and the keys
+  // (its buttons, Tab, Enter, the wheel) and nothing of it reaches the match: a click made on the card is never played
+  // as a tackle or a shot when play goes on (MF-5)
+  if (mouseCard() && ev.type !== "lock"){
+    if (ev.type === "keydown" && ev.key === "escape" && playing()) skip();
+    return true;
+  }
   if (ev.type === "keydown" || ev.type === "keyup"){
     const k = ev.key === " " ? "space" : ev.key, down = ev.type === "keydown";
     // a key with Ctrl, Alt or Meta held is nobody's action (D9); its release still lets go of what it held
@@ -1412,8 +1555,16 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&am
 SCHED.task({id: "fp-match", kind: "keep", run: dt => {
   if (mode() !== "match" || !FS.state) return;
   benchHold(dt);
+  // the pointer (MF-1, MF-2): asked back after a card, it is waited for a moment; play without it (a card that ran out
+  // its own time with nobody at the mouse, a lock refused, the pointer let go during a skip) is held on the pause card,
+  // as play is whenever the pointer is let go, until a click takes it back. A match never locked (the tests' own
+  // pages) is left as it is
+  const play = (FS.state === "live" || FS.state === "bench" || FS.state === "entering") && !FS.skipping;
+  if (document.pointerLockElement){ FS.lockUsed = true; FS.exitAsked = false; if (FS.relockWait) relockWait(false); }
+  else if (FS.relockWait){ /* (the lock asked back may still come) */ }
+  else if (play && FS.lockUsed && !FLAGS.lockLost && FS.relock !== false) FLAGS.lockLost = true;
   // paused (the pointer let go): the card; the simulation is not stepped (world.js skips the mode's step)
-  const paused = !!FLAGS.lockLost && (FS.state === "live" || FS.state === "bench" || FS.state === "entering") && !FS.skipping;
+  const paused = !!FLAGS.lockLost && play;
   if (paused !== FS.pauseShown){ FS.pauseShown = paused; hudOverlay(paused ? `<div class="fp-pausebox"><div class="fp-pause">Paused. Click to carry on.</div><div class="fp-box">${fpSettingsHTML()}</div></div>` : null, paused ? "dim pause" : ""); }
 }});
 
@@ -1452,7 +1603,7 @@ export function recoverCheck(){
   RECOVER.busy = true;
   const M = HOST.setup(f, {late: false, resume: r});
   M.role = r.role || M.role; M.late = !!r.late;
-  const cfg = matchConfig(f, M, {resume: r});
+  const cfg = matchConfig(f, M, {resume: r, scaleOf: heightOf});
   cfg.htAuto = true;
   const ms = RECOVER.ms = createMatch(cfg);
   const offs = [attach(ms, on)];
@@ -1475,15 +1626,17 @@ export function recoverCheck(){
     const R = out.R ? Object.assign({}, out.R, {around: out.around}) : null;
     const done = () => { hudOverlay(null); hudDispose(); FS.ms = null; FS.M = null; FS.f = null; FS.real = false; RECOVER.busy = false; RECOVER.done = true; HOST.afterRecover(f, out.R && out.R.fatigue || 0); };
     // (as the full-time card of a match played through: a man of the match is offered the press from it)
+    // (the same card as a match played through: Continue in a footer that never scrolls away, the pointer let go, MF-4)
     const show = () => {
       const press = !!(R && HOST.pressOpen && HOST.pressOpen());
-      const o = hudOverlay(`<div class="fp-box">${R ? HOST.ftCard(M, R) : ""}<div class="row gap8 center">${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}<button class="btn" data-ft="go">Continue</button></div></div>`, "ft");
+      const o = hudOverlay(cardBox(R ? HOST.ftCard(M, R) : "", `<button class="btn" data-ft="go">Continue</button>${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}`), "ft");
       if (o) o.onclick = e => {
         const b = e.target.closest("button"); if (!b) return;
         if (b.dataset.ft === "go") return done();
-        if (b.dataset.ft === "press") return void hudOverlay(`<div class="fp-box">${HOST.press()}<div class="row gap8 center"><button class="btn ghost" data-ft="back">Back</button></div></div>`, "ft");
+        if (b.dataset.ft === "press") return void cardUp(hudOverlay(cardBox(HOST.press(), `<button class="btn ghost" data-ft="back">Back</button>`), "ft"));
         if (b.dataset.ft === "back" || b.classList.contains("media")) show();
       };
+      cardUp(o);
     };
     show();
     RECOVER.finish = done;
@@ -1511,6 +1664,8 @@ function testConfig(name, o = {}){
   };
   const teams = [mk(0, o.ovr || 60), mk(1, o.ovr || 60)];
   if (o.me) Object.assign(teams[0].players.find(p => p.isMe).at, o.me);
+  // every player as tall as the body he is drawn as (MV-10; yours is your own look's, startMatch)
+  for (const T of teams) for (const p of T.players.concat(T.bench)) p.scale = heightOf(p);
   return {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[2]}), halfRealSec: HALF_REAL[2], tempo: Object.assign({}, TEMPO[2]),
     teams, me: {team: 0, slot: o.slot || "ST", prefFoot: "Right", chem: 50, trust: 50, traits: o.traits || {},
       // (the career's staminaF, career.js: 1.6 - 1.15 stamina/100, when the fixture gives you a stamina; else 1)
@@ -1667,6 +1822,8 @@ window.__fp = {
   ready(){ FS.ready = true; }, manager: () => manager(), headOut: () => headOut(), spot: () => FS.ms && FS.ms.me >= 0 ? mySpot() : null, skipToCall: () => startSkip("call"), skipFrame: () => skipFrame(), recover: () => recoverCheck(), RECOVER,
   harness: {runOne}, testInfo: () => FS.testInfo || null, sitDown: s => sitDown(s || "home"), leave: () => leave(),
   halftimeGo: () => secondHalfGo(),
+  // (P2-A) the flags a moment leaves for later (MF-8), whether a card has the mouse, where a substitute steps on
+  clearMatchFlags: () => clearMatchFlags(), mouseCard: () => mouseCard(), offPlay: () => offPlay(), entrySpot: () => FS.ms ? entrySpot() : null,
   // your stride's rhythm for a strike with this foot now (A1.7: control.js rhythmOf, a copy of its record)
   rhythm: (foot = "R") => { const me = liveMe(); return me ? Object.assign({}, rhythmOf(me, foot)) : null; },
   // the warm-up (A1.8, WP-W1): its session, the pool, the pure rules, the port it used (the stand-in in the tests)

@@ -14,8 +14,9 @@
 //
 //   QA_PORT=8770 node qa/wpF-match.mjs [--only offside,bench,halftime,late]    writes qa/out/wpF-match.json
 import path from "node:path";
-import {launch, career, freeze, OUT} from "./lib.mjs";
+import {launch, career, freeze, unfreeze, OUT} from "./lib.mjs";
 import {openDay, checker} from "./wpF-lib.mjs";
+import {clickReal, assertVisible, lockPointer} from "./trlib.mjs";
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const ONLY = arg("--only", "offside,bench,halftime,late").split(",");
@@ -157,32 +158,42 @@ if (ONLY.includes("bench")) try {
 } catch (e){ ok = false; console.log("FAILED bench", e.stack || e.message); check(false, "bench ran", String(e.message)); }
 
 /* ---------- half time ---------- */
+// (P2-A: the card is pressed as a player presses it: the pointer held from the kick-off by a real click on the 3D view,
+// the card's buttons seen, assertVisible, and clicked with the real mouse at their on-screen boxes)
 if (ONLY.includes("halftime")) try {
   const T = await openDay({gfx: "low", role: "starter", before: 60});
   await T.toKickoff();
-  const r = await T.page.evaluate(() => {
-    const F = window.__fp, L = window.__life, ms = F.ms;
+  await T.uncover();
+  await unfreeze(T.page); await T.page.waitForTimeout(800);
+  const lk = await lockPointer(T.page);
+  await freeze(T.page);
+  check(!!lk, "half time: the pointer held from the kick-off (a real click on the 3D view)", lk);
+  const W = '.fp-overlay.ht [data-drink="water"]', GO = '.fp-overlay.ht button[data-ht="go"]';
+  const up = await T.page.evaluate(() => {
+    const F = window.__fp, L = window.__life;
     S.inv.water = 2;
     F.headless(2699);
     for (let i = 0; i < 6000 && !(F.state === "halftime" && document.querySelector(".fp-overlay.ht")); i++) L.stepN(1);
-    const card = document.querySelector(".fp-overlay.ht");
-    const btn = card && card.querySelector('[data-drink="water"]');
-    const w0 = S.inv.water, e0 = S.energy;
-    if (btn) btn.click();
-    const w1 = S.inv.water, e1 = S.energy;
-    S.inv.water = 0;
-    // with none left: the button pressed again gives nothing (consume refuses), and the card drawn again has it disabled
-    const e2 = S.energy, h2 = S.hyd;
-    const b1 = document.querySelector('.fp-overlay.ht [data-drink="water"]');
-    if (b1) b1.click();
-    const card2 = document.querySelector(".fp-overlay.ht"), b2 = card2 && card2.querySelector('[data-drink="water"]');
-    const disabled = !!(b2 && b2.disabled);
-    const rr = consume("water");
-    return {state: F.state, card: !!card, btn: !!btn, w0, w1, e0, e1, disabled, refused: rr && rr.ok === false, e3: S.energy, e2, h3: S.hyd, h2};
+    return {card: !!document.querySelector(".fp-overlay.ht"), btn: !!document.querySelector('.fp-overlay.ht [data-drink="water"]'), w0: S.inv.water, e0: S.energy,
+      lock: document.pointerLockElement ? document.pointerLockElement.id : null};
   });
-  check(r.card && r.btn, "half time: the dressing-room card with the drinks you have", r);
-  check(r.w0 === 2 && r.w1 === 1, "choosing water decrements S.inv.water by 1 through consume()", {before: r.w0, after: r.w1});
-  check(r.disabled && r.refused && r.e3 === r.e2 && r.h3 === r.h2, "nothing is gained without an item", r);
+  const v = await assertVisible(T.page, W);
+  check(up.card && up.btn && v.ok && up.lock === null, "half time: the dressing-room card with the drinks you have, its water button seen, the pointer let go", {up, why: v.why, top: v.top});
+  await clickReal(T.page, W);
+  const a = await T.page.evaluate(() => ({w1: S.inv.water, e1: S.energy}));
+  // with none left: the button pressed again gives nothing (consume refuses), and the card drawn again has it disabled
+  const b = await T.page.evaluate(() => { S.inv.water = 0; window.__fp.FS.htCardT = 0; return {e2: S.energy, h2: S.hyd}; });
+  await clickReal(T.page, W);
+  const c = await T.page.evaluate(() => {
+    const b2 = document.querySelector('.fp-overlay.ht [data-drink="water"]'), rr = consume("water");
+    return {disabled: !!(b2 && b2.disabled), refused: rr && rr.ok === false, e3: S.energy, h3: S.hyd, state: window.__fp.state};
+  });
+  check(up.w0 === 2 && a.w1 === 1, "choosing water (a real click) decrements S.inv.water by 1 through consume()", {before: up.w0, after: a.w1});
+  check(c.disabled && c.refused && c.e3 === b.e2 && c.h3 === b.h2 && c.state === "halftime", "nothing is gained without an item", Object.assign({}, b, c));
+  const g = await assertVisible(T.page, GO);
+  await clickReal(T.page, GO);
+  const s2 = await T.page.evaluate(() => ({state: window.__fp.state, half: window.__fp.ms.half}));
+  check(g.ok && s2.state === "live" && s2.half === 2, "half time: Second half seen and pressed with the real mouse: the second half", {why: g.why, s2});
   if (T.page.errors.length) errs.push(...T.page.errors);
   await T.close();
 } catch (e){ ok = false; console.log("FAILED halftime", e.stack || e.message); check(false, "half time ran", String(e.message)); }
