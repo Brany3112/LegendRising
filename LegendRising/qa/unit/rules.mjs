@@ -437,6 +437,52 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   check(sit.length > 0 && minGap >= 20 - 1e-6, "a full match: scenario lines at most once per 20 real seconds", {lines: sit.length, minGap: r2(minGap)});
 }
 
+/* ---------- the player's own restart and his change (P2-A: MF-3, MF-9) ---------- */
+{
+  // the kick-off is yours (you the striker, your side kicking off) and you never step up to it: "Take it." at 12 s, then
+  // at 25 s it goes to your nearest team-mate (never you, never the keeper), who takes it
+  const cfg = configFor(4, {arch: 'ST'}); cfg.meAI = false; cfg.kickoffTeam = cfg.me.team;
+  const ms = createMatch(cfg);
+  const me = ms.agents[ms.me];
+  const R0 = ms.restart, take = [];
+  const tkMe = R0 && R0.taker === me.id;
+  let handed = null, live = null;
+  for (let k = 0; k < 60*45 && live == null; k++){
+    me.intent.dx = 0; me.intent.dz = 0;
+    const n0 = ms.events.length;
+    simStep(ms);
+    for (const e of ms.events.slice(n0)) if (e.kind === 'nudge'){ if (e.what === 'take') take.push(+(ms.t - R0.t0).toFixed(2)); else if (e.what === 'handed') handed = {t: +(ms.t - R0.t0).toFixed(2), to: e.to}; }
+    if (ms.phase === 'live') live = +(ms.t - R0.t0).toFixed(2);
+  }
+  const to = handed ? ms.agents[handed.to] : null;
+  check(tkMe, "the player is his side's kick-off taker (the striker, his side kicking off)", R0 && R0.taker);
+  check(take.length === 1 && Math.abs(take[0] - RULES.ME_NAG) < 0.05, "his kick-off waits on him: one 'Take it.' nudge at 12 s", take);
+  check(!!handed && Math.abs(handed.t - RULES.ME_HAND) < 0.05 && to && !to.isMe && !to.isGK && to.team === me.team, "at 25 s the kick-off goes to his nearest team-mate (not him, not the keeper)", handed);
+  check(live != null && live < RULES.ME_HAND + 10 && ms.restart === null || live != null && ms.restart && ms.restart.taken, "the team-mate takes it: play goes live", live);
+}
+{
+  // a planned change for the player (on at 10'): it waits for him by the fourth official, and he enters there
+  const cfg = configFor(6, {arch: 'CM'}); cfg.meAI = false; cfg.me = Object.assign({}, cfg.me, {role: 'sub'}); cfg.roleTimes = {subOn: 10};
+  const ms = createMatch(cfg);
+  ms.meEntry = {at: false};
+  const team = cfg.me.team;
+  let k = 0;
+  while (!ms.callUp && k++ < 60*60*10) simStep(ms);
+  const called = !!ms.callUp;
+  // the man going off stays on, and nobody comes on, while the player is still on his way (60 s of the match)
+  for (let i = 0; i < 60*60 && ms.phase !== 'over'; i++) simStep(ms);
+  const outA = called ? ms.agents[ms.callUp.out] : null;
+  const waited = called && evs(ms, 'sub').filter(e => e.team === team).length === 0 && outA && outA.onPitch && !outA.leaving;
+  check(called && waited, "the player's change waits while he is not yet by the fourth official", {called, out: outA && outA.id, onPitch: outA && outA.onPitch});
+  // he is there: at the next stoppage his man walks off, and he comes on at the halfway line on the bench side
+  ms.meEntry.at = true;
+  let sub = null;
+  for (let i = 0; i < 60*60*5 && !sub && ms.phase !== 'over'; i++){ simStep(ms); sub = evs(ms, 'sub').find(e => e.in === ms.me && ms.me >= 0) || null; }
+  const meA = ms.me >= 0 ? ms.agents[ms.me] : null, side = cfg.benchSide != null ? cfg.benchSide : 1;
+  check(!!sub && meA && meA.isMe && Math.abs(Math.abs(sub.x) - 2.5) < 0.01 && Math.abs(sub.z - side*(ms.spec.hz + 0.9)) < 0.01,
+    "by the fourth official, he comes on at the next stoppage, where a substitute enters (the fourth official's spot)", sub && {x: sub.x, z: sub.z});
+}
+
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});
 fs.writeFileSync(path.join(ROOT, "qa", "out", "unit-rules.json"), JSON.stringify(res, null, 1));
 console.log(`${res.checks.filter(c => c.pass).length}/${res.checks.length} checks pass`);

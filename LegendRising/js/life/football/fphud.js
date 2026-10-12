@@ -94,16 +94,21 @@ export function hudInit(cfg){
     <div class="fp-wu"><div class="fp-wu-head"><b class="fp-wu-name"></b><span class="fp-wu-n"></span></div><div class="fp-wu-how"></div><div class="fp-wu-bar"><i></i></div><div class="fp-wu-dots"></div></div>
     <div class="fp-wu-w"></div>
     <div class="fp-pops"></div>
-    <div class="fp-say"><b></b><span></span></div>
-    <div class="fp-overlay"></div>`;
+    <div class="fp-say"><b></b><span></span></div>`;
   host.appendChild(r);
+  // the cards (pause, half time, full time, the bench skip, an interrupted match) are not in the HUD's own layer: they
+  // sit over the whole page (fp.css #fpOverlay), above the black cover (#lifeFade) a card is shown over, so a card is
+  // always seen and can be clicked (MF-1)
+  const ov = document.createElement("div");
+  ov.id = "fpOverlay"; ov.className = "fp-overlay";
+  document.body.appendChild(ov);
   const q = s => r.querySelector(s);
   Object.assign(D.el, {vig:q(".fp-vig"), lines:q(".fp-lines"), bug:q(".fp-bug"), hs:q(".fp-hs"), as:q(".fp-as"), sh:q(".fp-sh"), sa:q(".fp-sa"),
     min:q(".fp-min"), add:q(".fp-add"), off:q(".fp-off"), bk:q(".fp-bk"), scen:q(".fp-scen"), cards:q(".fp-cards"), cross:q(".fp-cross"),
     arc:q(".fp-arc"), arcFill:q(".fp-arc-fill"), arcSweet:q(".fp-arc-sweet"), arcTick:q(".fp-arc-tick"), ring:q(".fp-ring"), ringWin:q(".fp-ring-win"),
     hold:q(".fp-hold"), ret:q(".fp-ret"), retC:q(".fp-ret-c"), arcBg:q(".fp-arc-bg"), arcG:q(".fp-arcg"), sline:q(".fp-sline"),
     contact:q(".fp-contact"), curl:q(".fp-curl"), glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
-    energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:q(".fp-overlay"),
+    energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:ov,
     warm:q(".fp-warm"), warmB:q(".fp-warm b"), warmS:q(".fp-warm span"), wu:q(".fp-wu"), wuName:q(".fp-wu-name"), wuN:q(".fp-wu-n"), wuHow:q(".fp-wu-how"),
     wuBar:q(".fp-wu-bar i"), wuDots:q(".fp-wu-dots"), wuW:q(".fp-wu-w"), pops:q(".fp-pops"), say:q(".fp-say"), sayB:q(".fp-say b"), sayS:q(".fp-say span")});
   const sides = [q(".fp-home i"), q(".fp-away i")];
@@ -134,6 +139,7 @@ export function applySettings(){
 }
 export function hudDispose(){
   if (D.root && D.root.parentNode) D.root.parentNode.removeChild(D.root);
+  const ov = D.el.overlay; if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
   if (D.desat){ D.desat = 0; const cv = RT.renderer && RT.renderer.domElement; if (cv) cv.style.filter = ""; }
   D.root = null; D.el = {}; D.txt = {}; D.cfg = null;
 }

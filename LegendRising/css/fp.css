@@ -157,8 +157,12 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-tab .fp-radar,.fp-radar-on .fp-radar{display:block}
 .fp-radar.big{left:50%;top:50%;bottom:auto;width:auto;height:40vh;aspect-ratio:105/68;transform:translate(-50%,-50%)}
 
-/* the cards over everything: pause, half time, full time, the bench skip, the interrupted match */
-.fp-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
+/* the cards over everything: pause, half time, full time, the bench skip, the interrupted match. The overlay is a
+   page-level layer of its own (fphud.js #fpOverlay), above the black cover (#lifeFade, z-index 90) that half time,
+   full time and the skip are shown over, and under the boot's black (.onb-black, 95), so a card is always seen and
+   clicked (P2-A, MF-1) */
+.fp-overlay{position:fixed;inset:0;z-index:92;display:none;align-items:center;justify-content:center;pointer-events:none;
+  color:var(--fp-ink);font-family:var(--fp-text)}
 .fp-overlay.on{display:flex}
 .fp-overlay.dim{background:rgba(4,8,14,.55)}
 .fp-overlay.card,.fp-overlay.ht,.fp-overlay.ft{pointer-events:auto;background:rgba(4,8,14,.7)}
@@ -171,6 +175,14 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-skip b{font-size:30px;font-variant-numeric:tabular-nums}.fp-skip span{color:var(--fp-muted);font-family:var(--fp-text);font-size:13px}
 .fp-skip .fp-skip-bar{width:220px;height:3px;background:rgba(255,255,255,.15);margin-top:4px}.fp-skip .fp-skip-bar i{display:block;height:100%;background:var(--fp-charge)}
 .fp-box .row{margin-top:12px}
+/* a card with buttons (half time, full time, the interview): the buttons in a footer that never scrolls away, the rest
+   in a body that scrolls on its own (the wheel and a drag both reach it). The footer comes first in the markup, so Tab
+   reaches the card's own action first, and is shown under the body; its buttons are written main action first and laid
+   out right to left (MF-4) */
+.fp-overlay .fp-box.fp-cardbox{display:flex;flex-direction:column;overflow:hidden;max-height:min(88vh,calc(100vh - 24px));outline:none}
+.fp-cardbox .fp-box-body{order:1;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding-right:4px}
+.fp-cardbox .fp-box-foot{order:2;flex:none;flex-direction:row-reverse;flex-wrap:wrap;margin-top:10px;padding-top:12px;border-top:1px solid var(--fp-line)}
+.fp-cardbox .fp-box-foot .btn:focus-visible{outline:2px solid var(--fp-ink);outline-offset:2px}
 .fp-set{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;align-items:center;text-align:left;font-size:13px;margin-top:10px}
 .fp-set-c{display:flex;align-items:center;gap:8px}.fp-set-v{min-width:5.5em;color:var(--fp-muted);font-variant-numeric:tabular-nums}
 .fp-set .seg.wrap{flex-wrap:wrap}

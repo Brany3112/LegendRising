@@ -80,6 +80,7 @@ export const BRAIN = Object.freeze({
   LONG: [0.5, 0.4, 30, 55],  // a long ball: from his own half, pressed beyond this, to the most advanced man 30 to 55 m away
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
   CALL_T: 2.5, CALL_COOL: 4, CALL_HALF: 20,
+  ME_FIRST: 1.0,             // (P2-A, AI-2) a pass to the player is left to him unless a team-mate gets to it this many s sooner
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
   TACKLE_RATE: [2.5, 0.5, 0.12],  // per second: a ball out of his feet, a shielded one, and the factor from behind
   SLIDE_RATE: 0.55,              // per second, chasing a ball out in front of the carrier
@@ -306,8 +307,14 @@ function reachLB(ms, a, reachY, react){
 const CAND = [];
 function ballPlans(ms, team){
   const b = ms.ball, ctl = ms.poss.ctl;
-  // whoever was already going for it has reacted: his new estimate carries no second reaction time
-  for (const a of ms.agents){ if (a.team !== team) continue; a.wasOn = false; if (a.plan && (a.plan.kind === 'chase' || a.plan.kind === 'receive' || a.plan.kind === 'intercept')){ a.wasOn = true; a.plan = null; } }
+  // whoever was already going for it has reacted: his new estimate carries no second reaction time. (The player's own
+  // plan is his: control.js keeps his 'receive' and the first-time strike queued on it, plan.first, to the contact;
+  // P2-A, ball-1)
+  for (const a of ms.agents){
+    if (a.team !== team || a.isMe && !ms.meAI) continue;
+    a.wasOn = false;
+    if (a.plan && (a.plan.kind === 'chase' || a.plan.kind === 'receive' || a.plan.kind === 'intercept')){ a.wasOn = true; a.plan = null; }
+  }
   if (ctl >= 0 || b.state !== 'free' || ms.phase !== 'live') return;
   const age = Math.max(0, ms.t - ms.predT);
   const pass = ms.chain.pass && !ms.chain.pass.res ? ms.chain.pass : null;
@@ -349,6 +356,14 @@ function ballPlans(ms, team){
   // the receiver: his own pass, unless a team-mate is much nearer to it
   let who = best[team], fr = bestR[team];
   if (recv && recv.team === team && recvR && (!who || recvR.t <= bestT[team] + 0.4)){ who = recv; fr = recvR; }
+  // a pass to the player (P2-A, AI-2): it is his to play, so his team-mates leave it to him (no chase, no header) while
+  // he can get to it on its way, unless one of them is clearly first, by ME_FIRST s or more. He gets no plan: his reach
+  // is worked out as the AI's would be (the receiver's own search, from where he is), only to know whether it is his
+  if (recv && recv.isMe && !ms.meAI && recv.team === team && recv.onPitch && !recv.sentOff){
+    const s = recv.scale || 1, mr = reachOf(ms, recv, 1.45*s, recv.react + age, Infinity);
+    const mates = Math.min(bestT[team], headT[team]);
+    if (mr && !(mates + BRAIN.ME_FIRST < mr.t)) return;
+  }
   const hd = heads[team];
   if (hd && headR[team] && (!fr || headR[team].t + 0.1 < fr.t)){
     const hr = headR[team];
@@ -463,12 +478,16 @@ function* carrierOptions(ms, a){
   const directMul = (tempo.directness || 1.25) + (style.directness || 0.5) - 0.5 + (tm.lateDirect || 0);
   const vision = at.vision;
   const offErr = 0.6*(1 - vision/120), offOn = lawOf(ms, 'offside');
+  // the player's "In behind!" call (below) is seen against the same perceived line as any run (P2-A, ball-10)
+  const caller = ms.call && ms.call.how === 'behind' && ms.t - ms.call.t < BRAIN.CALL_T && ms.call.point ? ms.call.agent : -1;
+  let callerOff = false;
   for (const o of ms.agents){
     if (o.team !== team || o === a || !o.onPitch || o.role !== 'player' || o.leaving || o.sentOff) continue;
     const om = o.m;
     if (o.isGK && !(u < L*0.3 && press > 0.4)) continue;
     // perceived offside: the receiver's margin seen with an error (nobody is offside when the law is not played)
     const seenOff = offOn && offsidePosition(ms, o, team).margin + offErr*gauss(ms.r) > RULES.OFF.eps && uOf(ms, team, om.x) > L/2;
+    if (o.id === caller) callerOff = seenOff;
     // a pass to his feet (a little ahead of where he is going)
     const tx = clamp(om.x + om.vx*0.35, -ms.spec.hx + 1, ms.spec.hx - 1), tz = clamp(om.z + om.vz*0.35, -ms.spec.hz + 1, ms.spec.hz - 1);
     const d = hypot(tx - m.x, tz - m.z);
@@ -515,16 +534,17 @@ function* carrierOptions(ms, a){
     }
     yield;
   }
-  // the player's own "In behind!" call: the look ground point as a through-ball option
-  if (ms.call && ms.call.how === 'behind' && ms.t - ms.call.t < BRAIN.CALL_T && ms.call.point){
-    const me = ms.agents[ms.call.agent];
+  // the player's own "In behind!" call: the look ground point as a through-ball option. Never to a caller the passer
+  // sees offside as it is played (the law judges where he is at the pass, not where he will be met), as for any run
+  if (caller >= 0 && !callerOff){
+    const me = ms.agents[caller];
     if (me && me.team === team && me !== a){
       const P = ms.call.point, dd = hypot(P.x - m.x, P.z - m.z);
       if (dd > 6 && dd < 45){
         const v0 = passSpeedFor(dd, BRAIN.THROUGH_ARRIVE, ms.ball.rollDecel);
         const pm = passModel(ms, org, P, 'through', v0, me);
         const V = passValue(ms, team, pm, P.x, P.z);
-        add({kind: 'through', V, recv: me.id, target: {x: P.x, y: R, z: P.z}, pOK: pm.pOK, isMe: true});
+        add({kind: 'through', V, recv: me.id, target: {x: P.x, y: R, z: P.z}, pOK: pm.pOK, isMe: true, call: true});
       }
     }
   }

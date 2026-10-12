@@ -98,7 +98,9 @@ export function createMatch(cfg){
     // set later by the brains, the rules and the runner; declared here so the match state keeps one shape (3.9.6)
     judgeSeen: 0, meInvSeen: 0, planSeq: -1, planStep: 0, planDue: 0, planFirst: 0, carrierEval: null, deadBall: false,
     goalEv: null, goalT: 0, htT: 0, ftT: 0, callUp: null, koMate: null, counterIds: null, koFirst: 0, resumedMe: null,
-    accum: 0, lastSteps: 0, onJump: null, gkCollect: null, liveRating: null, bodyList: null, handList: null
+    accum: 0, lastSteps: 0, onJump: null, gkCollect: null, liveRating: null, bodyList: null, handList: null,
+    // the match day's word that the player stands by the fourth official ({at}), or null (rules.js subStep, P2-A MF-9)
+    meEntry: null
   };
   ms.gkCollect = gkCollect;
   // the AI's lofted-flight tables (strike.js) are built on first use: build them here, never inside a step
@@ -335,8 +337,8 @@ export function simStep(ms, h = H){
   // the restart's procedure, then 3. the brains, the keepers and the officials
   if (ms.restart) restartStep(ms, h);
   brainStep(ms, h);
-  if (ms.gks[0] >= 0) gkStep(ms, agents[ms.gks[0]], h);
-  if (ms.gks[1] >= 0) gkStep(ms, agents[ms.gks[1]], h);
+  // (the keeper is always the AI's: never the player's own agent, whose intent is his, P2-A GK-1)
+  for (let t = 0; t < 2; t++){ const g = ms.gks[t] >= 0 ? agents[ms.gks[t]] : null; if (g && (!g.isMe || ms.meAI)) gkStep(ms, g, h); }
   officials(ms);
   // 4. the agents: actions, movement, stamina, the gait clock (footfalls give the dribble touches)
   for (let i = 0; i < n; i++){
