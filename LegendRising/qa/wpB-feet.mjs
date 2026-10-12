@@ -3,12 +3,15 @@
 //
 // A test body is driven along scripted root paths (as an owner would move it) on the training ground, and measured:
 //   1. a planted foot never moves: its contact point (the heel while it is rolled back on it, the ball of the foot
-//      while flat or rolled up onto it) moves under 3 mm in any stance at a constant speed, under 1 cm through speed
+//      while flat or rolled up onto it, the tips of the toes once it rolls on over them, gait.js TIP_R) moves under
+//      3 mm in any stance at a constant speed, under 1 cm through speed
 //      changes, starts, stops, turns and pivots (walk 1.5, 1.7, 2.0, jog 3.4, run 5.2, sprint 7.6 m/s; start, stop,
 //      run start, run stop, a 90 degree walking turn, a cut, backpedal, side steps);
 //   2. a swing lands softly: the ankle's horizontal speed over the last 5% of every swing is under 0.15 m/s (sampled
 //      at 240 Hz, so the last 5% of a swing is several samples);
-//   3. no bone turns more than 0.35 rad in one frame at 60 Hz;
+//   3. no bone turns more than 0.35 rad in one frame at 60 Hz; and at a lift-off (the frame a foot leaves the ground
+//      and the next) no bone of that leg turns more than 0.12 rad in a frame (P2-B, BUILD-PLAN TR-2: the tightened
+//      gate on the knee snap and foot pop at toe-off);
 //   4. walking at 1.4 to 2.0 m/s the hips drop at most 5 cm below their standing height;
 //   5. a 180 degree turn on the spot (the body turned at up to 12 rad/s, the mover's cap) takes at most 3 steps and
 //      0.9 s, the planted foot only ever turning on its ball;
@@ -37,6 +40,7 @@ const check = (pass, name, value) => {
 // one scenario in the page: {name, hz, tier, sheet, fp} -> measurements
 async function run(page, o){
   return page.evaluate(async ({name, hz, tier, sheet, fp}) => {
+    const TIP_R = .9;                                      // (gait.js: past this roll the foot turns on the tips of its toes)
     const H = await import("./js/life/human.js");
     const L = window.__life, scene = L.scene(), cam = L.cam, ren = L.renderer();
     if (L.ME.fp) L.ME.fp.g.visible = false; if (L.ME.tp) L.ME.tp.g.visible = false;
@@ -72,7 +76,9 @@ async function run(page, o){
     const N = Math.round(S.T/dt);
     const fw = [h.bones[B.ftL], h.bones[B.ftR]], tw = [h.bones[B.toL], h.bones[B.toR]];
     const stance = [null, null], air = [[], []], prevQ = h.bones.map(b => b.quaternion.clone());
-    const m = {drift:[], end:[], jump:0, jumpAt:null, hipsMin:1e9, falls:[], turnDone:null, slips0:h.gait.slips};
+    const m = {drift:[], end:[], jump:0, jumpAt:null, hipsMin:1e9, falls:[], turnDone:null, slips0:h.gait.slips, lift:0, liftAt:null, liftN:0};
+    const LEGB = [[B.thL, B.shL, B.ftL, B.toL], [B.thR, B.shR, B.ftR, B.toR]], liftF = [-9, -9], wasDown = [true, true];
+    let frame = 0;
     const shots = [], cw = 150, ch = fp ? 150 : 240, cols = 8, every = Math.max(1, Math.round(hz/12));
     const grid = sheet ? document.createElement("canvas") : null;
     if (grid){ grid.width = cw*cols; grid.height = ch*Math.ceil(N/every/cols); }
@@ -96,10 +102,11 @@ async function run(page, o){
         const f = G.feet[s];
         const ank = fw[s].getWorldPosition(pv.clone());
         const heel = pv.clone().set(0, -.085, -.078).applyMatrix4(fw[s].matrixWorld), ball = pv.clone().set(0, -.025, 0).applyMatrix4(tw[s].matrixWorld);
+        const tip = pv.clone().set(0, -.02, .07).applyMatrix4(tw[s].matrixWorld);
         if (f.down){
           let S0 = stance[s];
           if (!S0){
-            S0 = stance[s] = {heel:null, ball:null, max:0, t0:t};
+            S0 = stance[s] = {heel:null, ball:null, tip:null, max:0, t0:t};
             // the swing that just ended: its ankle's speed over its last 5% (by time; samples inside that window)
             const A = air[s];
             if (A.length > 4){
@@ -113,8 +120,9 @@ async function run(page, o){
           // remembered from the first frame it is on the ground; the heel forgotten while it is up, since a foot may
           // turn on its ball, and the ball while the toes are up)
           if (f.roll > 0) S0.heel = null; else if (!S0.heel) S0.heel = heel;
-          if (f.roll < 0) S0.ball = null; else if (!S0.ball) S0.ball = ball;
-          const ref = f.roll < 0 ? S0.heel : S0.ball, now = f.roll < 0 ? heel : ball;
+          if (f.roll < 0 || f.roll > TIP_R) S0.ball = null; else if (!S0.ball) S0.ball = ball;
+          if (f.roll <= TIP_R) S0.tip = null; else if (!S0.tip) S0.tip = tip;
+          const ref = f.roll < 0 ? S0.heel : f.roll > TIP_R ? S0.tip : S0.ball, now = f.roll < 0 ? heel : f.roll > TIP_R ? tip : ball;
           if (ref) S0.max = Math.max(S0.max, Math.hypot(now.x - ref.x, now.z - ref.z));
         } else {
           if (stance[s]){ m.drift.push({t:+stance[s].t0.toFixed(3), side:s, mm:+(stance[s].max*1000).toFixed(2)}); stance[s] = null; }
@@ -123,6 +131,14 @@ async function run(page, o){
       }
       if (h.ev.mask & H.EV.FOOTFALL) m.falls.push(+t.toFixed(3));
       const hy = h.bones[B.hips].getWorldPosition(pv.clone()).y; m.hipsMin = Math.min(m.hipsMin, hy);
+      // (a lift-off: the frame a foot leaves the ground and the next, at the game's frame rate)
+      if (hz === 60) for (let s = 0; s < 2; s++){
+        const down = G.feet[s].down;
+        if (wasDown[s] && !down){ liftF[s] = frame; m.liftN++; }
+        wasDown[s] = down;
+        if (frame - liftF[s] <= 1) for (const b of LEGB[s]){ const a = prevQ[b].angleTo(h.bones[b].quaternion); if (a > m.lift){ m.lift = a; m.liftAt = [+t.toFixed(3), b]; } }
+      }
+      frame++;
       for (let b = 1; b < 20; b++){ const a = prevQ[b].angleTo(h.bones[b].quaternion); if (a > m.jump){ m.jump = a; m.jumpAt = [+t.toFixed(3), b]; } prevQ[b].copy(h.bones[b].quaternion); }
       if (c.turn != null && m.turnDone == null && t > .5 && G.state === "STAND" && !G.feet[0].sw && !G.feet[1].sw){
         const dy = f => Math.abs(Math.atan2(Math.sin(yaw + f.s*.06 - f.yaw), Math.cos(yaw + f.s*.06 - f.yaw)));
@@ -143,7 +159,7 @@ async function run(page, o){
       }
     }
     scene.remove(h.g); h.dispose();
-    return {name, hz, drift:m.drift, end:m.end, jump:+m.jump.toFixed(3), jumpAt:m.jumpAt, hipsDrop:+(hips0 - m.hipsMin).toFixed(4), falls:m.falls,
+    return {name, hz, drift:m.drift, end:m.end, jump:+m.jump.toFixed(3), jumpAt:m.jumpAt, lift:+m.lift.toFixed(3), liftAt:m.liftAt, liftN:m.liftN, hipsDrop:+(hips0 - m.hipsMin).toFixed(4), falls:m.falls,
       turnDone:m.turnDone, slips:+((h.gait.slips - m.slips0)*1000).toFixed(1), png:grid ? grid.toDataURL("image/png") : null};
   }, o);
 }
@@ -169,6 +185,7 @@ try {
     const ends = r240.end.map(e => e.v), emax = Math.max(0, ...ends);
     check(ends.length > 0 && emax < .15 || (name === "turn180" && emax < .15), `${name}: swing lands at < 0.15 m/s over its last 5%`, {max: emax, swings: ends.length, worst: r240.end.filter(e => e.v >= .15).slice(0, 3)});
     check(r60.jump <= .35, `${name}: no bone turns more than 0.35 rad in a frame at 60 Hz`, {max: r60.jump, at: r60.jumpAt});
+    check(r60.lift <= .12, `${name}: at a lift-off no bone of that leg turns more than 0.12 rad in a frame at 60 Hz`, {max: r60.lift, at: r60.liftAt, lifts: r60.liftN});
     if (/^walk/.test(name)) check(r60.hipsDrop <= .05, `${name}: hips at most 5 cm below standing`, {dropM: r60.hipsDrop});
   }
   // the turn on the spot

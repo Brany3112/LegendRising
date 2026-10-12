@@ -99,8 +99,11 @@ const dutyG = (G, v, vb) => G.style === "shuffle" ? shufDuty(vb) : dutyOf(v, G.m
 // the body's travel per footfall for the gait's style (the clock's step); turning tightly the steps shorten (the
 // planted foot is left behind on the inside of the bend faster than along a straight)
 const turnK = G => 1 + clamp(Math.abs(G.headRate) - .5, 0, 4)*(G.mode === "R" ? .08 : .25);
-const stepOf = (G, v, sc) => G.style === "shuffle" ? v/shufCad(v/sc) : stepLen(v, G.mode, sc)/turnK(G);
-const strideOf = (G, v, sc) => G.style === "shuffle" ? 2/shufCad(v/sc) : strideTime(v, G.mode, sc)/turnK(G);
+// (stepping backwards the steps are shorter and quicker, about 0.77 of the table's: the leg reaches less far behind the
+// body than in front of it. P2-B: the clock runs at that rhythm, so a backpedal's feet come down on its footfalls)
+const BACK_STEP = .77;
+const stepOf = (G, v, sc) => G.style === "shuffle" ? v/shufCad(v/sc) : stepLen(v, G.mode, sc)*(G.style === "back" ? BACK_STEP : 1)/turnK(G);
+const strideOf = (G, v, sc) => G.style === "shuffle" ? 2/shufCad(v/sc) : strideTime(v, G.mode, sc)*(G.style === "back" ? BACK_STEP : 1)/turnK(G);
 
 // (every field a foot ever has, set here with its type: a body's feet keep one shape, so the leg pass reads them through
 // one hidden class, and a number field never boxes a new number (NaN stands for none where the code asks for none))
@@ -114,7 +117,7 @@ export function gaitInit(h){
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, falls:[], over:[null, null], via:[null, null], belt:0, ext:false,
     // (and the ones the steps fill in as they go, here from the start: one shape for every body's gait, NaN for none)
     accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
-    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0};
+    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0, stopW:0};
   return h.gait;
 }
 
@@ -555,7 +558,9 @@ export function gaitStep(h, dt, st){
   // MV-16: further round, the legs step across the body's line, the crossover, rather than the pelvis twisting against
   // the chest)
   const tw = .78 - (G.R > .5 ? .1 : walkYaw(G.vs/h.scale));
-  G.twist += ((G.style === "fwd" ? clamp(rel, -tw, tw) : G.style === "back" ? clamp(wrap(rel - Math.PI), -.5, .5) : 0) - G.twist)*(1 - Math.exp(-10*dt));
+  // (and never faster than 4 rad/s: from a backwards step into a forwards one the target swaps sides)
+  const twT = G.style === "fwd" ? clamp(rel, -tw, tw) : G.style === "back" ? clamp(wrap(rel - Math.PI), -.5, .5) : 0;
+  G.twist += clamp((twT - G.twist)*(1 - Math.exp(-10*dt)), -4*dt, 4*dt);
   // walk or run, effective at the next footfall; the posture eases over 0.45 s
   G.held = v > RUN_ON ? G.held + dt : 0;
   const want = G.mode === "R" ? (v < RUN_OFF ? "W" : "R") : (v > RUN_ON && G.held >= RUN_HOLD ? "R" : "W");
@@ -693,8 +698,6 @@ function cycleStep(h, dt, v, intent, st){
   const duty = dutyG(G, vv, v/sc), bM = reachSpan(G, D, vv/sc)[1], stopping = G.state === "STOP";
   for (let i = 0; i < 2; i++){
     const f = G.feet[i]; if (!f.down || f.tDown < .05) continue;
-    // (a foot that came down on its time floor before the clock's footfall for it stays down until that footfall)
-    if (f.early) continue;
     const local = localPhase(G, i);
     const other = G.feet[1 - i];
     // (running, where it will be 20 ms on, whatever the frame rate: at a sprint the body passes 15 cm in that time)
@@ -717,6 +720,10 @@ function cycleStep(h, dt, v, intent, st){
     // done, or the leg has run out of reach; lifted earlier by the planner's estimate it left on a bent knee while the
     // heel was still low, and the swing had to straighten the leg before it could fold it)
     const outOfReach = spent || (G.mode === "R" ? f.roll >= RUN_TOEOFF && local > .3*duty : behind > (bMf - .02)*sc && (local > .2 || f.tDown > .12));
+    // (a foot that came down on its time floor before the clock's footfall for it stays down until that footfall; not
+    // stopping, though, the body slowing to a halt may never bring the clock round to it, and not once it is about to
+    // slip)
+    if (f.early && !stopping && !spent) continue;
     if ((local >= duty && local < duty + .45) || outOfReach){
       if (stopping && G.final >= 0) continue;
       // walking never leaves the ground (P2-B, MV-3): a foot waits for the other to land before it lifts, however far
@@ -724,8 +731,9 @@ function cycleStep(h, dt, v, intent, st){
       // leg reaches; what it still cannot reach the heel rise and the hips' budget take up, as for any planted foot)
       // (a quick shuffle is a skip: it has its moment in the air, both feet up between the push and the landing)
       // (but a foot left far out of reach steps at once, as it would from a run: a clip the body has been carried on
-      // through leaves both feet behind it, P2-B MV-6)
-      if (G.mode === "W" && G.style !== "shuffle" && !other.down && !(f.need > hipBudget(G, vv/sc) + .03)) continue;
+      // through leaves both feet behind it, P2-B MV-6. And only walking forwards at a walk's pace: stepping backwards,
+      // and speeding up through a walk into a run, the steps go as the reach asks)
+      if (G.mode === "W" && G.style === "fwd" && G.vs < 2.2*sc && !other.down && !(f.need > hipBudget(G, vv/sc) + .03)) continue;
       // (the swing has the rest of the stride: a foot that leaves early by reach takes the longer swing)
       const d0 = Math.min(local, duty), T = clamp((1 - d0)*strideOf(G, vv, sc), tswMin(sc), tswMax(sc, G));
       liftOff(h, f, i, d0, T, "phase");
@@ -761,7 +769,7 @@ function cycleStep(h, dt, v, intent, st){
       // (a stop's last step coming down after the body has gone on after all: the clock ran on while it came down, and
       // would send the foot off again at once on most of a swing; it is set to this footfall instead, the other foot,
       // down behind, stepping next)
-      if (G.state === "CYCLE" && G.feet[1 - i].down) G.phi = i ? .5 : 0;
+      if (G.state === "CYCLE" && G.feet[1 - i].down){ G.phi = i ? .5 : 0; G.feet[0].early = G.feet[1].early = false; }
     }
   }
   // 5. stopping (3.5.5): the owner wants to stop and the body is slowing, or it has all but stopped
@@ -777,7 +785,9 @@ function cycleStep(h, dt, v, intent, st){
   }
   if (G.state === "STOP"){
     // going on after all: asked to and speeding up, or still well on the move with no last step under way
-    if ((intent > .25 && v > .5 && G.acc > 0) || (intent > .5 && v > 1.2 && G.final < 0)){ G.state = "CYCLE"; G.final = -1; G.rest = null; G.closed = false; return; }
+    // (speeding up read off the root's own acceleration too, barely smoothed, P2-B: a body turning right round comes
+    // through a halt and is away the other way before the smoothed one turns positive, its feet left planted under it)
+    if ((intent > .25 && v > .5 && (G.acc > 0 || G.accR > 1)) || (intent > .5 && v > 1.2 && G.final < 0)){ G.state = "CYCLE"; G.final = -1; G.rest = null; G.closed = false; return; }
     const vr = Math.min(v, G.v), dec = Math.max(3, -G.acc, -G.accR), dstop = vr*vr/(2*dec);
     G.rest = G.rest || {x:0, z:0};
     G.rest.x = G.rx + G.mdx*dstop; G.rest.z = G.rz + G.mdz*dstop;
@@ -926,7 +936,11 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
   }
   // how low the hips may come for the legs: walking the walk's budget (3.5.2); running only a little under their curve
   // (a running foot the body has left behind lifts, as it does; the hips do not dip after it)
-  const budget = lerp(walkDrop(v), curve + .015, G.R) + .04*(G.brakeW || 0);
+  // (stopping, the run's own budget, 0.07: the body slowing or turning back over a planted foot needs the hips lower to
+  // keep it, and a foot that slips there is worse than a dip)
+  // (eased in and out over a few tenths of a second, so the hips' floor never moves in a frame under a planted foot)
+  if (dt > 0) G.stopW += ((G.state === "CYCLE" ? 0 : 1) - G.stopW)*(1 - Math.exp(-6*dt));
+  const budget = lerp(walkDrop(v), lerp(curve + .015, Math.max(curve + .015, .07), G.stopW), G.R) + .04*(G.brakeW || 0);
   // how far the hips come down for a planted leg's own reach: walking (P2-B, MV-2 and MV-3) no more than 6 mm under
   // their curve, once the other foot is down: cycleStep lifts a trailing foot as soon as it would need more (the double
   // support lasts as long as the legs reach it, and the hips never plunge to hold a foot the body has already left

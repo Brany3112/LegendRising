@@ -74,8 +74,8 @@ export function moverParams(skills = {}, profile = "football", items = {}){
       // lands before the walk is up to speed and the last one where the body comes to rest (a run's start and its
       // firm brake are as they were). turnFirst: from standing, with the facing free (third person), the body turns
       // towards where it is going before it sets off: no speed beyond the walk's cos share while the wish is more than
-      // a quarter turn away
-      walkA: 3.2, walkBrake: 3.8, turnFirst: true,
+      // a quarter turn away, turning at turnFirstRate (a half turn in under half a second, the feet stepping round)
+      walkA: 3.2, walkBrake: 3.8, turnFirst: true, turnFirstRate: 7.5,
       sprintCone: 60*DEG, sprintBuild: 1.1, sprintFade: 2.5,
       cutAngle: 35*DEG, cutMin: 3.0, cutFloor: 0.3,
       faceRate: 12, staggerCap: 2.0, staggerT: 0.35, bounds: null};
@@ -230,12 +230,12 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
 
   // 5. body facing: the held facing when given, else the heading while moving; never faster than faceRate (NaN for
   // none: a local that is either null or a number holds every number it is given in a new heap box, 3.9.6)
-  let faceYaw = NaN;
+  let faceYaw = NaN, faceRate = prm.faceRate;
   if (it.face && (it.face.x || it.face.z)){ DR[0] = -it.face.x; DR[1] = -it.face.z; atan2Q(); faceYaw = DR[0]; }
   else if (!it.strafe && v > SNAP_V) faceYaw = m.heading;
-  else if (prm.turnFirst && has && !it.strafe) faceYaw = wishYaw;        // (standing, turning to set off)
+  else if (prm.turnFirst && has && !it.strafe){ faceYaw = wishYaw; faceRate = prm.turnFirstRate || faceRate; }   // (standing, turning to set off)
   if (faceYaw === faceYaw){
-    const e = wrapA(faceYaw - m.yaw), lim = prm.faceRate*h;
+    const e = wrapA(faceYaw - m.yaw), lim = faceRate*h;
     m.yaw = wrapA(m.yaw + clamp(e, -lim, lim));
   }
 
