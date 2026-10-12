@@ -10,6 +10,7 @@
 //   node qa/run.mjs nodash-release     qa/nodash.mjs over the whole repository: no em dash at all (DESIGN 4.11)
 //   node qa/run.mjs oldsave            qa/oldsave.mjs: the old-save round trip
 //   node qa/run.mjs integrity          lint, nodash and oldsave (DESIGN 4.11, on every merge)
+//   node qa/run.mjs tr2                every TR-2 acceptance suite (BUILD-PLAN Phase 2)
 //   node qa/run.mjs parity wp0a-cam    any qa/<name>.mjs (arguments after "--" go to every script)
 //
 // A script passes when it exits 0 (lib.mjs expect() throws, which exits 1). The summary goes to qa/out/run.json.
@@ -29,7 +30,10 @@ const suites = names.length ? names : ["unit", "lint", "nodash", "smoke"];
 const NAMED = {
   nodash: [["nodash.mjs", "--report"]],
   "nodash-release": [["nodash.mjs"]],
-  integrity: ["lint", "nodash", "oldsave"]
+  integrity: ["lint", "nodash", "oldsave"],
+  // Phase 2 of the Training Mode and football rework (TR-2): P2-A's and P2-B's acceptance, the integrator's real-input match
+  tr2: ["tr2-passme", "tr2-gkme", "tr2-halftime", "tr2-kickoff", "tr2-keys", "tr2-scale", "tr2-gait", "tr2-startstop",
+    "tr2-clipexit", "tr2-stop", "tr2-gkshuffle", "tr2-viewleak", "tr2-realmatch"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){

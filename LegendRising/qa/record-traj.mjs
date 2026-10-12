@@ -6,7 +6,8 @@
 // (20 s at I0; since WP-B's life body walks at the LIFE profile's 1.7 m/s, DESIGN 1.5.2, the scripts take longer and
 // the goldens re-recorded at the P1a integration give every segment its 25 s; re-recorded again at the P1a fixes for
 // the gait's reach lift-off and stop steps, DESIGN 3.5.3 to 3.5.5, and the camera's push off walls, 1.5.11; ground
-// re-recorded at the P2a fixes: on the training pitch you move with the FOOTBALL profile, 3.6.2):
+// re-recorded at the P2a fixes: on the training pitch you move with the FOOTBALL profile, 3.6.2; all three re-recorded
+// at the TR-2 merge for the P2-B walk rework, BUILD-PLAN P2-B MV-1 to MV-16):
 //   home   walk from the bed to the flat door, open it with E, run and sprint down the corridor, walk down two flights
 //          of stairs, run back along the floor below, a step to each side, a few steps backwards
 //   ground a lap of the training pitch at a run building into a sprint, then the shooting drill and one shot
