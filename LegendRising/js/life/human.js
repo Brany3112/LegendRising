@@ -82,6 +82,9 @@ import {qualityScales} from "./core/quality.js";
 import {TAU, D2R, clamp, lerp, sstep, wrap, kf, BN, PAR, BONE, B, ARM, LEG, NP, NQ, dims, restPos, restOffsets, R3, frameOf, legIK, armIK, plantHand, leanTo, PALM, UPV as _UPV,
   eulerToQ, qEuler, qMul, qRot, qLog, qExp, qAngle, fkQ, newFK, solveLeg, ground, writeBones, LEGW} from "./rig.js";
 import {EV, gaitInit, gaitStep, gaitPose, gaitLegs, gaitPlace, footstep, touch} from "./gait.js";
+// (Math.hypot is some fifteen times slower than a square root in V8, and these are the hot paths of every body's
+// animation; nothing here comes near overflowing a square)
+const hypot = (x, y, z = 0, w = 0) => Math.sqrt(x*x + y*y + z*z + w*w);
 export {BONE, footstep, touch, gaitPlace};
 
 /* ---------- small maths ---------- */
@@ -135,7 +138,7 @@ const ROOTW = wt(0);
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a, b) => [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
 const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+const norm = a => { const l = hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
 const addv = (a, b, k = 1) => [a[0] + b[0]*k, a[1] + b[1]*k, a[2] + b[2]*k];
 
 // a ring of points round c in the plane of U and V; prof(a) gives the offsets along U and V (angle 0 points along V)
@@ -157,11 +160,11 @@ function loft(G, R, o = {}){
   if (o.out) { const a = R[0].v[0], b = R[0].v[1], c = R[1].v[1]; flip = dot(cross(sub(b, a), sub(c, a)), o.out) < 0; found = true; }
   for (let i = 0; i < R.length - 1 && !found; i++) for (let k = 0; k < n - 1 && !found; k++){
     const a = R[i].v[k], b = R[i].v[k + 1], c = R[i + 1].v[k + 1], nn = cross(sub(b, a), sub(c, a));
-    if (Math.hypot(...nn) < 1e-7 || Math.abs(R[i].c[1] - R[i + 1].c[1]) + Math.hypot(R[i].c[0] - R[i + 1].c[0], R[i].c[2] - R[i + 1].c[2]) < 1e-3) continue;
+    if (hypot(...nn) < 1e-7 || Math.abs(R[i].c[1] - R[i + 1].c[1]) + hypot(R[i].c[0] - R[i + 1].c[0], R[i].c[2] - R[i + 1].c[2]) < 1e-3) continue;
     const ax = [(R[i].c[0] + R[i + 1].c[0])/2, (R[i].c[1] + R[i + 1].c[1])/2, (R[i].c[2] + R[i + 1].c[2])/2];
     const m = sub([(a[0] + b[0] + c[0])/3, (a[1] + b[1] + c[1])/3, (a[2] + b[2] + c[2])/3], ax);
     if (o.radial === "xz") m[1] = 0;
-    if (Math.hypot(...m) < 1e-4) continue;
+    if (hypot(...m) < 1e-4) continue;
     flip = dot(nn, m) < 0; found = true;
   }
   if (o.inside) flip = !flip;
@@ -206,7 +209,7 @@ function tube(G, pts, radii, n, ws, slot, sh = 1, tipCap = true){
   const R = [];
   for (let i = 0; i < pts.length; i++){
     const t = norm(sub(pts[Math.min(pts.length - 1, i + 1)], pts[Math.max(0, i - 1)]));
-    let U = norm(cross(t, [0, 0, 1])); if (Math.hypot(...cross(t, [0, 0, 1])) < .2) U = norm(cross(t, [1, 0, 0]));
+    let U = norm(cross(t, [0, 0, 1])); if (hypot(...cross(t, [0, 0, 1])) < .2) U = norm(cross(t, [1, 0, 0]));
     const V = cross(U, t), r = radii[i];
     R.push(ring(pts[i], U, V, a => [Math.sin(a)*r, Math.cos(a)*r], n, ws[i], {s:slot, sh}));
   }
@@ -296,7 +299,7 @@ function decal(G, hit, tris, side, lift, slot, wf, sh = 1){
     for (let f = 0; f < nf; f++){
       const i = f*9, ax = hit[i], ay = hit[i + 1], az = hit[i + 2], bx = hit[i + 3], by = hit[i + 4], bz = hit[i + 5], cx = hit[i + 6], cy = hit[i + 7], cz = hit[i + 8];
       if (Math.max(ax, bx, cx) < x0 || Math.min(ax, bx, cx) > x1 || Math.max(ay, by, cy) < y0 || Math.min(ay, by, cy) > y1) continue;
-      const n = cross([bx - ax, by - ay, bz - az], [cx - ax, cy - ay, cz - az]), nl = Math.hypot(n[0], n[1], n[2]);
+      const n = cross([bx - ax, by - ay, bz - az], [cx - ax, cy - ay, cz - az]), nl = hypot(n[0], n[1], n[2]);
       if (nl < 1e-12 || n[2]*side < .05*nl) continue;                        // only facets that face this way
       const P = clip2([t[0], t[1], t[2]], [ax, ay], [bx, by], [cx, cy]);
       if (P.length < 3) continue;
@@ -318,7 +321,7 @@ const fan = pts => { const c = pts.reduce((s, p) => [s[0] + p[0]/pts.length, s[1
 function stroke(pts, w){
   const T = [];
   for (let i = 0; i < pts.length - 1; i++){
-    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy/l*w/2, ny = dx/l*w/2;
+    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l = hypot(dx, dy) || 1, nx = -dy/l*w/2, ny = dx/l*w/2;
     const p = [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]];
     T.push([p[0], p[1], p[2]], [p[0], p[2], p[3]]);
     if (i){ const r = w*.5; T.push(...fan([0, 1, 2, 3, 4, 5].map(k => [a[0] + Math.cos(k/6*TAU)*r, a[1] + Math.sin(k/6*TAU)*r]))); }
@@ -940,7 +943,7 @@ function hair(G, D, F, look, hf, near){
    face and shoulders */
 function under(a, b, c, out){
   let n = cross(sub(b, a), sub(c, a)); if (dot(n, out) < 0) n = n.map(v => -v);
-  const l = Math.hypot(n[0], n[1], n[2]) || 1;
+  const l = hypot(n[0], n[1], n[2]) || 1;
   return 1 + 2.6*Math.max(0, -n[1]/l);
 }
 const p0y = (R, rows) => { let y = 0, n = 0; for (const p of R[rows].v) if (p){ y += p[1]; n++; } return n ? y/n : 0; };
@@ -1003,7 +1006,7 @@ function* shapeSteps(look, det, noHead){
     else {
       const ux = pos[a + 3] - pos[a], uy = pos[a + 4] - pos[a + 1], uz = pos[a + 5] - pos[a + 2], vx = pos[a + 6] - pos[a], vy = pos[a + 7] - pos[a + 1], vz = pos[a + 8] - pos[a + 2];
       nx = uy*vz - uz*vy; ny = uz*vx - ux*vz; nz = ux*vy - uy*vx;
-      const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+      const l = hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
     }
     for (let k = 0; k < 3; k++){ nor[a + k*3] = nx; nor[a + k*3 + 1] = ny; nor[a + k*3 + 2] = nz; }
   }
@@ -1165,8 +1168,9 @@ export function human(look = {}, opts = {}){
   const RO = restOffsets(rest);
   const h = {g, look, D, bones, skel, near, far, lod3m, num, isHuman:true, id:++HID,
     pose:new Float32Array(NQ), posePrev:new Float32Array(NQ), te:new Float32Array(NP), tq:new Float32Array(NQ), base:new Float32Array(3), baseOk:false,
-    lpSame:false, lpAt:new Float64Array(3),
+    lpSame:false, lpAt:new Float64Array(3), rt:new Float64Array(6), rtOk:false, drawn:new Float64Array(4),
     rest:RO.V, restA:RO.A, inz:{on:false, t:0, w:1, x:new Float64Array(63), v:new Float64Array(63)}, upper:{w:0, g:null, st:null},
+    inzL:{on:false, due:false, t:0, w:1, x:new Float64Array(27), v:new Float64Array(27)},
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, locks:[null, null], feetTmp:[null, null],
     bw:1, mode:"", at:0, t:r()*100, acc:0, accL:0, dtPrev:0, posed:0, sinceF:0, hid:false, gw:0, lod:1, seed:r(),
     stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1, stag:HID % 6, groundAt:null, stx:null, blendNext:0};
@@ -1319,7 +1323,7 @@ function hook(scene){
   scene.onBeforeRender = function(renderer, sc, camera, rt){
     prev.call(this, renderer, sc, camera, rt);
     camera.getWorldPosition(_cam); VIEW.x = _cam.x; VIEW.y = _cam.y; VIEW.z = _cam.z; VIEW.scene = sc;
-    { const e = camera.matrixWorld.elements, l = Math.hypot(e[8], e[10]) || 1; VIEW.fx = -e[8]/l; VIEW.fz = -e[10]/l; }
+    { const e = camera.matrixWorld.elements, l = hypot(e[8], e[10]) || 1; VIEW.fx = -e[8]/l; VIEW.fz = -e[10]/l; }
     if (FIRST.gen === W.ticks && FIRST.fns.length){ const fns = FIRST.fns; FIRST.fns = []; for (const fn of fns) try { fn(VIEW); } catch(err){ console.error(err); } }
     let n = 0;
     const bl = blobs();
@@ -1334,7 +1338,7 @@ function hook(scene){
       while (o.parent){ if (!o.visible) vis = false; o = o.parent; }
       if (o !== sc){ if (h.gen !== W.ticks) h.dispose(); continue; }
       if (!vis || !h.g.visible) continue;
-      const e = h.g.matrixWorld.elements, d = Math.hypot(e[12] - _cam.x, e[13] - _cam.y, e[14] - _cam.z);
+      const e = h.g.matrixWorld.elements, d = hypot(e[12] - _cam.x, e[13] - _cam.y, e[14] - _cam.z);
       if (h.far){
         let lv = h.lod;
         if (d < Ld.back) lv = 1;
@@ -1765,7 +1769,7 @@ const GAPB = [B.hips, B.spine, B.chest, B.uaL, B.uaR, B.thL, B.thR, B.shL, B.shR
 function poseGap(A, Q){
   let m = 0;
   for (let i = 0; i < GAPB.length; i++){ const b = GAPB[i]; m = Math.max(m, qAngle(A, b*4, Q, b*4)); }
-  return Math.max(m, 2*Math.hypot(Q[80] - A[80], Q[81] - A[81], Q[82] - A[82]));
+  return Math.max(m, 2*hypot(Q[80] - A[80], Q[81] - A[81], Q[82] - A[82]));
 }
 
 /* ---------- inertialisation ---------- */
@@ -1784,7 +1788,7 @@ function inertiaStart(h, Q, dur, still = false){
     if (vel){
       offsetOf(Pp, Q, i, _ql, 4);
       let vx = (I.x[i*3] - _ql[4])/dtp, vy = (I.x[i*3 + 1] - _ql[5])/dtp, vz = (I.x[i*3 + 2] - _ql[6])/dtp;
-      const vl = Math.hypot(vx, vy, vz); if (vl > 20){ vx *= 20/vl; vy *= 20/vl; vz *= 20/vl; }
+      const vl = hypot(vx, vy, vz); if (vl > 20){ vx *= 20/vl; vy *= 20/vl; vz *= 20/vl; }
       I.v[i*3] = vx; I.v[i*3 + 1] = vy; I.v[i*3 + 2] = vz;
     } else I.v[i*3] = I.v[i*3 + 1] = I.v[i*3 + 2] = 0;
   }
@@ -1807,6 +1811,48 @@ function inertiaApply(h, Q, dt){
   return a;
 }
 
+/* the legs' own blend back onto the feet after a clip (P2-B, MV-6): the gait's legs are solved after the pose's
+   inertialisation (they stand on its footprints), so a clip's last legs would give way to them in one frame. On the first
+   locomotion pose after a clip the difference of every leg bone and the hips' place from the last drawn pose is taken,
+   and dies away over LEG_IN seconds after the legs are solved (critically damped, as the pose's own): the feet go from
+   where the clip left them onto their footprints over that time instead of in a frame */
+const LEG_IN = .25, LEGB = [12, 13, 14, 15, 16, 17, 18, 19];
+function legBlend(h, Q, dt){
+  const I = h.inzL;
+  if (I.due){
+    I.due = false;
+    if (h.posed){
+      I.on = true; I.t = -dt; I.w = 4.74/LEG_IN;
+      for (let j = 0; j < LEGB.length; j++) offsetOf(h.pose, Q, LEGB[j], I.x, j*3);
+      for (let c = 0; c < 3; c++) I.x[24 + c] = h.pose[80 + c] - Q[80 + c];
+      // (and where the group has gone since that pose was drawn, taken back out: the clip's last frame is drawn where
+      // it was in the world, its planted feet with it, while its owner has already moved the group on)
+      if (h.posed){
+        const g = h.g, d = h.drawn, ry = g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), sc = h.scale || 1;
+        const dx = g.position.x - d[0], dz = g.position.z - d[2];
+        I.x[24] -= (dx*c - dz*sn)/sc; I.x[25] -= (g.position.y - d[1])/sc; I.x[26] -= (dx*sn + dz*c)/sc;
+      }
+    }
+  }
+  if (!I.on) return;
+  // (the first pose back on the feet is the clip's last one, the whole offset on; from there it dies away)
+  I.t += dt;
+  const w = I.w, t = I.t, e = Math.exp(-w*t), a = (1 + w*t)*e;
+  if (a < 2e-3){ I.on = false; return; }
+  for (let j = 0; j < LEGB.length; j++){
+    const o = j*3, x = I.x[o]*a, y = I.x[o + 1]*a, z = I.x[o + 2]*a;
+    qExp(x, y, z, _ql, 0); qMul(_ql, 0, Q, LEGB[j]*4, Q, LEGB[j]*4);
+    // (and while it lasts no leg bone turns faster than LEG_RATE from the pose last drawn: a body carried on through
+    // a clip can come out of it with both feet left behind, and the first steps it takes at once would whip a thigh)
+    if (dt > 0 && h.posed){
+      const k = LEGB[j]*4, P = h.pose, lim = LEG_RATE*dt;
+      const d = Math.abs(P[k]*Q[k] + P[k + 1]*Q[k + 1] + P[k + 2]*Q[k + 2] + P[k + 3]*Q[k + 3]), ang = 2*Math.acos(Math.min(1, d));
+      if (ang > lim){ _up4[0] = Q[k]; _up4[1] = Q[k + 1]; _up4[2] = Q[k + 2]; _up4[3] = Q[k + 3]; Q.set(P.subarray(k, k + 4), k); slerpInto(Q, k, _up4, lim/ang); }
+    }
+  }
+  for (let c = 0; c < 3; c++) Q[80 + c] += I.x[24 + c]*a;
+}
+const LEG_RATE = 12;
 /* ---------- the upper-body layer: a gesture over whatever the legs do (st.upper = {g, dir, w}) ----------
    The gesture is a registered mode "upper:<g>"; it is laid over the base pose bone by bone, the spine 0.3 of the way,
    the chest 0.7, the neck, head and arms all the way, times w. It comes on over 0.18 s and goes over 0.25 s. */
@@ -1831,7 +1877,7 @@ function slerpInto(Q, o, R, t){
   if (d < 0){ bx = -bx; by = -by; bz = -bz; bw = -bw; d = -d; }
   let k0 = 1 - t, k1 = t;
   if (d < .9995){ const th = Math.acos(d), s = Math.sin(th); k0 = Math.sin((1 - t)*th)/s; k1 = Math.sin(t*th)/s; }
-  const x = ax*k0 + bx*k1, y = ay*k0 + by*k1, z = az*k0 + bz*k1, ww = aw*k0 + bw*k1, l = Math.hypot(x, y, z, ww) || 1;
+  const x = ax*k0 + bx*k1, y = ay*k0 + by*k1, z = az*k0 + bz*k1, ww = aw*k0 + bw*k1, l = hypot(x, y, z, ww) || 1;
   Q[o] = x/l; Q[o + 1] = y/l; Q[o + 2] = z/l; Q[o + 3] = ww/l;
 }
 
@@ -1839,18 +1885,25 @@ function slerpInto(Q, o, R, t){
    A clip that declares plant channels keeps those feet where they stood when it began (world points), whatever its own
    legs say, in proportion to how planted it says they are: a blend into or out of it never slides them. */
 const _pw = [0, 0], _fq = new Float64Array(4);
+// (where the group was when the bones were last written: the pose was drawn there, P2-B MV-6)
+function drawnAt(h){ const g = h.g, d = h.drawn; d[0] = g.position.x; d[1] = g.position.y; d[2] = g.position.z; d[3] = g.rotation.y; }
 function drawnAnkles(h, Q, out){
   fkQ(h, Q, _FK);
-  const g = h.g, ry = g.rotation.y, c = Math.cos(ry), s = Math.sin(ry), sc = h.scale;
+  // (in the world as they were drawn: with the group as it was then, not where its owner has moved it since; a body on
+  // the move would have its feet put down a frame's travel ahead of where they were seen)
+  const g = h.g, d = h.posed ? h.drawn : null, gx = d ? d[0] : g.position.x, gy = d ? d[1] : g.position.y, gz = d ? d[2] : g.position.z;
+  const ry = d ? d[3] : g.rotation.y, c = Math.cos(ry), s = Math.sin(ry), sc = h.scale;
   for (let i = 0; i < 2; i++){
     const ft = LEG(i ? -1 : 1)[2], o = ft*7, x = _FK[o], y = _FK[o + 1], z = _FK[o + 2];
     qRot(_FK, o + 3, 0, 0, 1, _ql, 0);
     const p = out[i] || (out[i] = {});
-    p.x = g.position.x + (x*c + z*s)*sc; p.z = g.position.z + (-x*s + z*c)*sc; p.y = g.position.y + y*sc;
+    p.x = gx + (x*c + z*s)*sc; p.z = gz + (-x*s + z*c)*sc; p.y = gy + y*sc;
     p.yaw = ry + Math.atan2(_ql[0], _ql[2]);
+    // (its pitch: the heel up (positive) or the toes up, as the gait counts a foot's roll)
+    p.roll = -Math.asin(clamp(_ql[1], -1, 1));
     // (the knee's bend as drawn: the shin's turn about its hinge)
     const sh = LEG(i ? -1 : 1)[1]*4;
-    p.kf = 2*Math.atan2(Math.hypot(Q[sh], Q[sh + 1], Q[sh + 2]), Math.abs(Q[sh + 3]));
+    p.kf = 2*Math.atan2(hypot(Q[sh], Q[sh + 1], Q[sh + 2]), Math.abs(Q[sh + 3]));
   }
   return out;
 }
@@ -1893,6 +1946,14 @@ export function animateHuman(h, dt, state = "idle", o = null){
   if (PRESET[mode] != null) mode = "move";
   if (!MODES[mode]) mode = "move";
   dt = dt > 0 ? Math.min(dt, .5) : 0;
+  // (the root, in every mode: where the body really is, where it was a frame ago and how fast it goes; a clip's way
+  // back onto its feet starts the gait from it, P2-B MV-6. A jump of more than 12 m/s is a body put somewhere: no speed)
+  const rt = h.rt, rr = st.root, rx = rr ? rr.x : h.g.position.x, rz = rr ? rr.z : h.g.position.z;
+  if (!h.rtOk){ rt[0] = rt[2] = rx; rt[1] = rt[3] = rz; rt[4] = rt[5] = 0; h.rtOk = true; }
+  else if (dt > 0){
+    rt[2] = rt[0]; rt[3] = rt[1]; rt[4] = (rx - rt[0])/dt; rt[5] = (rz - rt[1])/dt; rt[0] = rx; rt[1] = rz;
+    if (rt[4]*rt[4] + rt[5]*rt[5] > 144){ rt[2] = rx; rt[3] = rz; rt[4] = rt[5] = 0; }
+  }
   const tier = o && o.tier ? o.tier : 0, fam = LOCO.has(mode), fn = MODES[mode];
   h.ev.mask = 0; h.ev.at = 0; h.ev.side = null;
   // a change of mode: what it starts from
@@ -1900,7 +1961,7 @@ export function animateHuman(h, dt, state = "idle", o = null){
   if (key !== h.mode){
     const wasLoco = h.mode === "loco";
     if (h.posed){
-      if (fam && !wasLoco) gaitPlace(h, drawnAnkles(h, h.pose, h.feetTmp));   // back on its feet from a clip: they stay where they are
+      if (fam && !wasLoco){ gaitPlace(h, drawnAnkles(h, h.pose, h.feetTmp), h.rt); h.inzL.due = true; }   // back on its feet from a clip: they stay where they are
       if (!fam && fn.plant) drawnAnkles(h, h.pose, h.locks);
     }
     h.blendNext = h.posed ? (st.blend || fn.blend || -1) : 0;
@@ -1946,12 +2007,14 @@ export function animateHuman(h, dt, state = "idle", o = null){
         return h.ev;
       }
       const Q = h.tq; Q.set(h.pose); Q[80] = h.base[0]; Q[81] = h.base[1]; Q[82] = h.base[2];
-      gaitLegs(h, Q, _FK, h.accL, true, true); h.accL = 0;
+      const ldt = h.accL;
+      gaitLegs(h, Q, _FK, h.accL, true, true); h.accL = 0; legBlend(h, Q, ldt);
       writeBones(h, Q, LEGW);
       let same = Math.abs(h.pose[80] - Q[80]) + Math.abs(h.pose[81] - Q[81]) + Math.abs(h.pose[82] - Q[82]) < 1e-7;
       for (let j = 0; j < LEGW.length; j++) for (let c = 0; c < 4; c++){ const k = LEGW[j]*4 + c; if (same && Math.abs(h.pose[k] - Q[k]) > 1e-7) same = false; h.pose[k] = Q[k]; }
       h.pose[80] = Q[80]; h.pose[81] = Q[81]; h.pose[82] = Q[82];
       h.lpSame = same; h.lpAt[0] = gx; h.lpAt[1] = gz; h.lpAt[2] = gr;
+      drawnAt(h);
     }
     ANIM.stats.lp++;
     return h.ev;
@@ -1985,13 +2048,14 @@ export function animateHuman(h, dt, state = "idle", o = null){
   // a body-space correction worked out from this pose (your first-person body keeping its neck below the eye)
   if (st.correct) st.correct(h, Q);
   // the constraints, after all blending
-  if (fam){ gaitLegs(h, Q, _FK, h.accL, lite); h.accL = 0; }
+  if (fam){ gaitLegs(h, Q, _FK, h.accL, lite); h.accL = 0; legBlend(h, Q, adt); }
   else {
     if (fn.plant){ fn.plant(h, st, _pw); plantLegs(h, Q, _pw); }
     if (fn.ground !== false && (fn.low || fn.ground === true || !lowPreset())) ground(h, Q, _FK, h.gw*(1 - left), lite);
   }
   writeBones(h, Q);
   h.posePrev.set(h.pose); h.pose.set(Q); h.dtPrev = adt; h.acc = 0; h.posed++; h.sinceF = 0;
+  drawnAt(h);
   // a body standing on both feet: the leg passes before its next full pose are skipped (above) until it moves, turns,
   // steps or the gait has news (in the middle of a blend too: its legs are on their footprints in this pose)
   if (fam && h.gait.state === "STAND" && !h.gait.feet[0].sw && !h.gait.feet[1].sw && !h.gait.ev.mask){
@@ -2151,7 +2215,7 @@ const CLASH_PREF = [0x1c1d21, 0xf2d53c, 0x2f9e44, 0xf07a1a, 0x7a3fb0, 0x1fa2c4, 
 const rgb8 = c => { const v = hex(c) ?? 0; return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
 export function clashFree(color, avoid = []){
   const av = (avoid || []).filter(c => c != null && c !== false).map(rgb8);
-  const far = c => { const p = rgb8(c); let m = Infinity; for (const a of av) m = Math.min(m, Math.hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2])); return m; };
+  const far = c => { const p = rgb8(c); let m = Infinity; for (const a of av) m = Math.min(m, hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2])); return m; };
   if (color != null && far(color) >= CLASH_MIN) return hex(color);
   let best = CLASH_PREF[0], bd = -1;
   for (const c of CLASH_PREF){ const d = far(c); if (d >= CLASH_MIN) return c; if (d > bd){ bd = d; best = c; } }

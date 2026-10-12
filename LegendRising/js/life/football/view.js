@@ -223,8 +223,17 @@ function liveSt(V, R, a, ms, dt){
     if (g.state === "set"){ R.clip = null; const c = R.gset || (R.gset = {mode:"gkset"}); return c; }
     if (!act && a.m.speed < 2.6 && (g.state === "ready" || g.state === "shuffle" || g.state === "reposition" || g.state === "hold" || g.state === "claim")){
       R.clip = null;
-      const c = R.gready || (R.gready = {mode:"gkready", focus:{x:0, z:0}, alert:0});
+      const c = R.gready || (R.gready = {mode:"gkready", focus:{x:0, z:0}, alert:0, g:"gkready", w:1});
       c.focus.x = ms.ball.p.x; c.focus.z = ms.ball.p.z; c.alert = g.state === "hold" ? 0 : .6;
+      // (P2-B, GK-2 and MV-7: on the move, above about 0.3 m/s, his legs are the gait's, stepping sideways (the shuffle:
+      // planted feet, no skating) or forwards and back as the way he goes asks, with the ready stance's upper body laid
+      // over them (gkmoves.js "upper:gkready"); nearly still, the whole ready stance)
+      R.gkMove = a.m.speed > (R.gkMove ? .2 : .3);
+      if (R.gkMove){
+        locoOf(loco, a); loco.upper = c;
+        if (loco.style === undefined){ const off = Math.abs(Math.atan2(Math.sin(a.m.heading - a.m.yaw), Math.cos(a.m.heading - a.m.yaw))); if (off > .7 && off < 2.45) loco.style = "shuffle"; }
+        return loco;
+      }
       return c;
     }
   }
@@ -302,8 +311,7 @@ function liveSt(V, R, a, ms, dt){
       if (a.m.speed < 2.5) return c;
     }
   }
-  loco.mode = "move"; loco.speed = a.m.speed;
-  loco.fatigue = a.st ? clamp(1 - (a.st.B || 0)/60, 0, 1)*.6 : 0;
+  locoOf(loco, a);
   // a call for the ball (the arm up), the assistant's flag (up and out)
   if (a.lastCall != null && ms.t - a.lastCall < .9) loco.upper = UP_CALL;
   else if (a.role === "ar" && V.flag && V.flag.agent === a.id && ms.t < V.flag.until) loco.upper = UP_FLAG;
@@ -311,6 +319,18 @@ function liveSt(V, R, a, ms, dt){
   return loco;
 }
 const UP_CALL = {g:"call", w:1}, UP_FLAG = {g:"point", w:1};
+/* locomotion from the agent's mover (P2-B, MV-8): its speed; the speed it is asked for (st.intent: the mover's target,
+   0 when nothing is asked of it: a stop starts from that, not from the legs guessing it from the slowing root); and a
+   backpedal when it goes backwards with its facing held (st.style: the gait's backwards steps from the first frame,
+   rather than once its smoothed heading has swung round) */
+function locoOf(st, a){
+  const m = a.m;
+  st.mode = "move"; st.speed = m.speed;
+  st.intent = m.target > 0 ? m.target : 0;
+  st.style = m.speed > .3 && Math.abs(Math.atan2(Math.sin(m.heading - m.yaw), Math.cos(m.heading - m.yaw))) > 2.1 ? "backpedal" : undefined;
+  st.fatigue = a.st ? clamp(1 - (a.st.B || 0)/60, 0, 1)*.6 : 0;
+  return st;
+}
 // a clip's state object, one per action (a new action, a new clip: st.id)
 function clipFor(R, key, ref){
   if (R.clip && R.clip.ref === ref && R.clip.key === key) return R.clip;
@@ -356,7 +376,7 @@ function recvFor(V, R, a, ms){
 }
 
 /* ---------- your first-person body (matchcam.js calls this after placing the eye) ---------- */
-const FPST = {mode:"move", speed:0, root:{x:0, z:0}, armsIn:0, fatigue:0, correct:null};
+const FPST = {mode:"move", speed:0, root:{x:0, z:0}, armsIn:0, fatigue:0, correct:null, intent:0, style:undefined};
 // x, z: where you stand; yaw: where you look; dt; armsIn (0..1), correct (the neck fix); returns the pose's events
 export function fpPose(V, x, z, yaw, dt, o = {}){
   // (the charge being wound up, control.js CTRL.wind: your body poses it from the next frame, liveSt)
@@ -375,7 +395,9 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     if (clip) st = clip;
   }
   if (st === FPST){
-    FPST.speed = a ? a.m.speed : o.speed || 0; FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn || 0; FPST.correct = o.correct || null;
+    if (a) locoOf(FPST, a);
+    else { FPST.speed = o.speed || 0; FPST.intent = FPST.speed; FPST.style = undefined; }
+    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn || 0; FPST.correct = o.correct || null;
     FPST.fatigue = a && a.st ? clamp(1 - a.st.B/60, 0, 1)*.6 : 0;
   }
   void s;
@@ -417,7 +439,9 @@ export function viewDispose(V){
   for (const R of V.rec){ if (!R) continue; SCHED.remove(R.actor); R.h.dispose(); }
   V.rec.length = 0;
   if (V.fp){ V.fp.dispose(); V.fp = null; }
-  for (const b of [V.ball].concat(V.extra)) if (b && b.mesh.parent) b.mesh.parent.remove(b.mesh);
+  // (each ball's geometry and material are its own, pitchmesh.js ballMesh: they go with the view, P2-B perf-2; the
+  // blob under it is shared and stays)
+  for (const b of [V.ball].concat(V.extra)) if (b){ if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); }
   for (const k of ["ringSpot", "ringRecv"]) if (V[k]){ V[k].geometry.dispose(); V[k].material.dispose(); if (V[k].parent) V[k].parent.remove(V[k]); V[k] = null; }
   V.extra.length = 0;
 }

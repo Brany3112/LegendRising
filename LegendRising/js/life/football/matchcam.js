@@ -31,6 +31,7 @@ import {P, RT} from "../core/state.js";
 import {camPush, camPop, camKick} from "../core/camera.js";
 import {dirOf, wrapA} from "./pitchspec.js";
 import {EV} from "../human.js";
+import {springTo} from "../rig.js";
 import {CTRL} from "./control.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -97,7 +98,7 @@ let SRC = null;
 export const MC = {
   fov:CAM.FOV, on:false, bench:false,
   // the bob (from the first-person body's pelvis)
-  bob:{mean:null, x:0, y:0, nods:0},
+  bob:{mean:null, sy:0, sv:0, x:0, y:0, nods:0},
   // the action springs: pitch (rad), dy, dz (m), roll; their targets and how long they are held
   act:{p:0, pv:0, y:0, yv:0, dz:0, dzv:0, r:0, rv:0, tp:0, ty:0, tdz:0, tr:0, hold:0},
   // the wind-up as drawn (eased toward control.js CTRL.wind), and the head following the ball after your strike
@@ -175,10 +176,14 @@ function fpFrame(dt, cam){
   // the breath is gone (A1.3); nothing standing still
   const bob = MC.bob, G = h && h.gait;
   if (G){
-    const dy = (G.hipDy || 0)*s, mv = sstep(.05, .5, v);
-    if (bob.mean == null) bob.mean = dy;
+    const mv = sstep(.05, .5, v);
+    if (bob.mean == null){ bob.mean = bob.sy = (G.hipDy || 0)*s; bob.sv = 0; }
+    // (P2-B, MV-2: the pelvis is a smooth curve now, about 4 cm a step at a brisk walk, read through a critically damped
+    // spring as me.js's; its share is a little smaller so the wave stays inside its bound and under 2 mm a frame)
+    springTo(bob, (G.hipDy || 0)*s, 24, dt);
+    const dy = bob.sy;
     bob.mean += (dy - bob.mean)*(1 - Math.exp(-2.5*dt));
-    const heavy = 1 + .45*FX.heavy, A = (.006 + .0016*v)*heavy, k = lerp(.45, .32, G.R || 0);
+    const heavy = 1 + .45*FX.heavy, A = (.006 + .0016*v)*heavy, k = lerp(.35, .3, G.R || 0);
     bob.y = clamp(k*(dy - bob.mean)*heavy, -A, A)*mv*(.35 + .65*motion);
     bob.x = clamp(-.35*(G.hipLat || 0)*s, -.006, .006)*mv*(.35 + .65*motion);
     if ((ev & EV.FOOTFALL) && v > .3){

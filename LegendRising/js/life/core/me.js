@@ -27,7 +27,7 @@
    first person; third person comes back after. */
 import {THREE} from "../build.js";
 import {human, animateHuman, BONE, EV, onHumanRemat} from "../human.js";
-import {fkQ, newFK, lerp} from "../rig.js";
+import {fkQ, newFK, lerp, springTo} from "../rig.js";
 import {bodyLook} from "../look.js";
 import {G, LIFE, P, B, ME, RT, FLAGS, FADE} from "./state.js";
 import {camCast, camClear, camClearance, surfaceUnder, CG, SG} from "./collide.js";
@@ -101,7 +101,12 @@ window.lifeLookChanged = () => { if (RT.scene && RT.renderer) meBuild(); };
 const _gs = {mode:"move", speed:0, intent:0, look:0, root:{x:0, z:0}, fac:null, armsIn:0, correct:null};
 function gaitState(look, armsIn = 0, correct = null){
   if (ME.act) return ME.act;
-  _gs.speed = P.speed; _gs.intent = LOCO.want; _gs.look = look; _gs.root.x = P.x; _gs.root.z = P.z; _gs.fac = LOCO.fac;
+  _gs.speed = P.speed; _gs.intent = LOCO.want; _gs.look = look; _gs.fac = LOCO.fac;
+  // (where the hips really are: the first-person body given way backwards in its own frame (neckFix, last frame's) is
+  // walking from there, and its feet are planned from there (P2-B): planned from the camera's spot ahead of them, the
+  // lead foot was put further than the leg reaches and the hips sat on the floor of their budget every step)
+  const back = correct === neckFix ? NECK.back : 0;
+  _gs.root.x = P.x + Math.sin(P.yaw)*back; _gs.root.z = P.z + Math.cos(P.yaw)*back;
   _gs.armsIn = armsIn; _gs.correct = correct;
   return _gs;
 }
@@ -109,6 +114,8 @@ function gaitState(look, armsIn = 0, correct = null){
    way in its own frame (down, back) before its legs are solved, so the camera never ends up inside it and the feet
    stay where they are */
 const _nfk = newFK();
+// (how far the body gave way backwards last frame, world metres, eased: gaitState plans the feet from there)
+const NECK = {back:0};
 function neckFix(h, Q){
   fkQ(h, Q, _nfk, 5);
   const s = h.scale, g = h.g, ry = g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), o = BONE.neck*7, cam = RT.cam.position;
@@ -118,19 +125,26 @@ function neckFix(h, Q){
   const wx = g.position.x + (nx*c + nz*sn)*s, wz = g.position.z + (-nx*sn + nz*c)*s;
   const ahead = (wx - cam.x)*-Math.sin(P.yaw) + (wz - cam.z)*-Math.cos(P.yaw) + .06*s;
   if (ahead > 0) Q[82] -= ahead/s;
+  NECK.back += (Math.max(0, ahead) - NECK.back)*.5;
 }
 /* the head bob (DESIGN 1.5.9) from the first-person body's pelvis: its height against its running mean, scaled by
-   lerp(0.45, 0.32, R) and held within 0.006 + 0.0016 v metres; its sideways sway times 0.35 within 6 mm; and on each
+   lerp(0.35, 0.3, R) and held within 0.006 + 0.0016 v metres; its sideways sway times 0.35 within 6 mm; and on each
    of that body's footfalls a nod of 0.15 degrees times min(1, v/8) (a kick into the camera's spring, stiffness 30).
-   Both fade out below 0.5 m/s: standing, the eye is still (an idle body shifting its weight does not move the view) */
-export const BOB = {mean:null, x:0, y:0, nods:0, lastN:-1};
+   Both fade out below 0.5 m/s: standing, the eye is still (an idle body shifting its weight does not move the view).
+   P2-B (MV-2): the pelvis is a smooth curve now, rising and falling about 4 cm a step at a brisk walk (gait.js), so the
+   bob is a smooth wave too; the bob reads that pelvis through a critically damped spring (stiffness 24 a second, no
+   overshoot), so a frame where a leg's reach takes the hips down a little faster is not a step in the view: under 2 mm
+   a frame. Its share is a little smaller than it was, so the wave stays inside its bound rather than being clipped */
+export const BOB = {mean:null, sy:0, sv:0, x:0, y:0, nods:0, lastN:-1};
 function bobStep(h, dt){
   const Gt = h.gait;
   if (!Gt){ BOB.x = BOB.y = 0; return; }
-  const s = h.scale, v = P.speed, dy = Gt.hipDy*s, mv = sstep(.05, .5, v);
-  if (BOB.mean == null) BOB.mean = dy;
+  const s = h.scale, v = P.speed, mv = sstep(.05, .5, v);
+  if (BOB.mean == null){ BOB.mean = BOB.sy = Gt.hipDy*s; BOB.sv = 0; }
+  springTo(BOB, Gt.hipDy*s, 24, dt);
+  const dy = BOB.sy;
   BOB.mean += (dy - BOB.mean)*(1 - Math.exp(-2.5*dt));
-  const k = lerp(.45, .32, Gt.R), A = .006 + .0016*v;
+  const k = lerp(.35, .3, Gt.R), A = .006 + .0016*v;
   BOB.y = clamp(k*(dy - BOB.mean), -A, A)*mv;
   BOB.x = clamp(-.35*Gt.hipLat*s, -.006, .006)*mv;
   if (h.ev.mask & EV.FOOTFALL){ BOB.nods++; BOB.lastN = Gt.n; if (v > .3) camKick({pitch:-.15*D2R*Math.min(1, v/8), w:30}); }
@@ -147,8 +161,12 @@ export function meStep(dt){
   // the first-person body stands where you stand (the camera is the head, ahead of the neck: see viewStep)
   fp.g.position.set(P.x + sin*sb + ME.px, P.eye - P.eyeH + P.drillY, P.z + cos*sb + ME.pz); fp.g.rotation.y = P.yaw + Math.PI;
   if (tp){
-    // third person: the body turns to face the way you are going, quickly but never in one frame
-    if (going){ const d = wrapA(mv - ME.yaw), k = d*(1 - Math.exp(-11*dt)); ME.yaw = wrapA(ME.yaw + clamp(k, -9*dt, 9*dt)); }
+    /* third person: the body faces the way the mover faces it (P2-B, MV-12): turning to where you go at the mover's own
+       rate, and from standing turning first, on the spot, before it walks off (move.js, the LIFE profile's turnFirst).
+       It is drawn exactly where the gait's feet are planned for, so starting off away from where it faces never shows
+       a backpedal or a side step and a thigh flicking round */
+    if (LOCO.m) ME.yaw = LOCO.m.yaw;
+    else if (going){ const d = wrapA(mv - ME.yaw), k = d*(1 - Math.exp(-11*dt)); ME.yaw = wrapA(ME.yaw + clamp(k, -9*dt, 9*dt)); }
     // the head turns to where the camera looks, as far as a neck goes, and lets go when you look back at yourself
     const rel = wrapA(P.yaw - ME.yaw), lk = clamp(rel, -1.1, 1.1)*(1 - sstep(1.7, 2.3, Math.abs(rel)));
     ME.look += (lk - ME.look)*(1 - Math.exp(-6*dt));

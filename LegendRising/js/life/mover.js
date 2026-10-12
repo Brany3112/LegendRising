@@ -34,7 +34,9 @@ export function createMover({x = 0, z = 0, yaw = 0} = {}){
   return {x, z, vx: 0, vz: 0, speed: 0, yaw /* body facing */, heading: yaw /* velocity direction */, cut: 0, plant: 0,
     stagger: 0,
     // additions to the 1.4.6 shape: what the last step did, for gaitHint, stamina and the animation
-    gait: 'stand', acc: 0, turnRate: 0, sprintB: 0, target: 0};
+    gait: 'stand', acc: 0, turnRate: 0, sprintB: 0, target: 0,
+    // (LIFE only, P2-B: the brake of a stop that began at a walk, 1, or not, -1; 0 when not braking)
+    wb: 0};
 }
 
 // The numbers of a profile for a set of skills (1..99; missing ones count as 50) and items ({grip}).
@@ -68,6 +70,12 @@ export function moverParams(skills = {}, profile = "football", items = {}){
       walk: 1.7, jog: run, run, sprint, vmax: sprint,
       back: Infinity, strafe: Infinity, backMul: 0.8, strafeMul: 0.8,
       a0: 9.0, brake: 12, plant: 12, aLat: 14, wMax: 12,
+      // P2-B (MV-11): a walk gets going and pulls up at a walking pace, 3.8 m/s squared either way, so the first step
+      // lands before the walk is up to speed and the last one where the body comes to rest (a run's start and its
+      // firm brake are as they were). turnFirst: from standing, with the facing free (third person), the body turns
+      // towards where it is going before it sets off: no speed beyond the walk's cos share while the wish is more than
+      // a quarter turn away, turning at turnFirstRate (a half turn in under half a second, the feet stepping round)
+      walkA: 3.2, walkBrake: 3.8, turnFirst: true, turnFirstRate: 7.5,
       sprintCone: 60*DEG, sprintBuild: 1.1, sprintFade: 2.5,
       cutAngle: 35*DEG, cutMin: 3.0, cutFloor: 0.3,
       faceRate: 12, staggerCap: 2.0, staggerT: 0.35, bounds: null};
@@ -149,6 +157,14 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
     else if (alpha > 60*DEG) vt = Math.min(vt*prm.strafeMul, prm.strafe);
   }
   if (it.speedCap != null && it.speedCap < vt) vt = Math.max(0, it.speedCap);
+  // turning before setting off (LIFE, facing free: third person, P2-B MV-12): from standing, no more of the target than
+  // the facing's cos share past 60 degrees allows (none while the wish is 60 degrees or more off the way the body faces),
+  // so the body turns on the spot in steps and walks off forwards, never backing or sidling away first. Once moving the
+  // heading turns at the turn rate and the facing follows it, as before
+  if (prm.turnFirst && has && !held && v0 <= SNAP_V){
+    DR[0] = wrapA(wishYaw - m.yaw); cosQ();
+    vt *= clamp((DR[0] - 0.5)/0.5, 0, 1);
+  }
   // 6. stagger (the caller sets m.stagger = prm.staggerT after a lost shoulder duel): the speed is capped at
   // staggerCap (2.0 m/s) for staggerT (0.35 s), from the first step of it. The lost duel is the impact that takes the
   // speed (D21: the simulation sets the timing); the stumble on the body is the animation's 'stagger' state, which
@@ -178,14 +194,24 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
   // animation's stop planner (3.5.5) works out from the same numbers. A stagger caps the speed outright.
   let v = v0;
   m.plant = 0;
+  // (a walk, LIFE: up to a walking target from a walking speed, a constant walkA; and down from one, walkBrake, held
+  // for the whole of a stop that began at a walk (m.wb), so a run's stop keeps its firm brake all the way down)
+  const walking = prm.walkA > 0 && vt <= prm.walk + 1e-9 && v0 <= prm.walk + 1e-9;
+  if (prm.walkA > 0){
+    if (!(v0 > vt) || planting) m.wb = 0;
+    else if (!m.wb) m.wb = walking && !staggered ? 1 : -1;
+  }
   if (v < vt){
-    const vmax = Math.max(vt, sprintSpeed(prm, fac)), k = prm.a0*fac.accel/vmax;
-    const s0 = 1 - v/vmax;
-    DR[0] = s0; DR[1] = 0.2; powQ();
-    const sg = Math.max(0, DR[0] - 0.2*k*h), sg2 = sg*sg;
-    v = Math.min(vt, vmax*(1 - sg*(sg2*sg2)));          // sg^5 multiplied out as pow() does it (the same bits)
+    if (walking) v = Math.min(vt, v + prm.walkA*fac.accel*h);
+    else {
+      const vmax = Math.max(vt, sprintSpeed(prm, fac)), k = prm.a0*fac.accel/vmax;
+      const s0 = 1 - v/vmax;
+      DR[0] = s0; DR[1] = 0.2; powQ();
+      const sg = Math.max(0, DR[0] - 0.2*k*h), sg2 = sg*sg;
+      v = Math.min(vt, vmax*(1 - sg*(sg2*sg2)));          // sg^5 multiplied out as pow() does it (the same bits)
+    }
   } else if (v > vt){
-    const rate = planting ? prm.plant : prm.brake;
+    const rate = planting ? prm.plant : m.wb > 0 ? prm.walkBrake : prm.brake;
     v = staggered && v > prm.staggerCap ? prm.staggerCap : Math.max(vt, v - rate*h);
     if (planting) m.plant = rate;
   }
@@ -204,11 +230,12 @@ export function moverStep(m, intent, prm, fac, h, collide = null){
 
   // 5. body facing: the held facing when given, else the heading while moving; never faster than faceRate (NaN for
   // none: a local that is either null or a number holds every number it is given in a new heap box, 3.9.6)
-  let faceYaw = NaN;
+  let faceYaw = NaN, faceRate = prm.faceRate;
   if (it.face && (it.face.x || it.face.z)){ DR[0] = -it.face.x; DR[1] = -it.face.z; atan2Q(); faceYaw = DR[0]; }
   else if (!it.strafe && v > SNAP_V) faceYaw = m.heading;
+  else if (prm.turnFirst && has && !it.strafe){ faceYaw = wishYaw; faceRate = prm.turnFirstRate || faceRate; }   // (standing, turning to set off)
   if (faceYaw === faceYaw){
-    const e = wrapA(faceYaw - m.yaw), lim = prm.faceRate*h;
+    const e = wrapA(faceYaw - m.yaw), lim = faceRate*h;
     m.yaw = wrapA(m.yaw + clamp(e, -lim, lim));
   }
 
