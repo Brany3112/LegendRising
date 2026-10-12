@@ -1017,8 +1017,8 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
       // (ahead or behind along the foot's own length: a foot turned across the body rolls about its own axis)
       const ahead = (t.x - hip[0])*Math.sin(fyl) + (t.z - hip[2])*Math.cos(fyl) > 0;
       // (only for a foot behind: one just come down ahead is reached from where the hips are, not from where they will
-      // be a moment on, which at a run is already past it; and not for a far body's lite solve, where it would not show)
-      const ka = lite ? 0 : G.vs*NEED_AHEAD/sc, awx = G.mdx*ka, awz = G.mdz*ka;
+      // be a moment on, which at a run is already past it; nor in a far body's lite solve at a walk, where it would not show)
+      const ka = lite && G.R < .5 ? 0 : G.vs*NEED_AHEAD/sc, awx = G.mdx*ka, awz = G.mdz*ka;
       _ha[0] = hip[0] + awx*cy - awz*sy; _ha[1] = hip[1]; _ha[2] = hip[2] + awx*sy + awz*cy;
       const needA = G.state === "CYCLE" && ka > 0 && !ahead ? needFrom(t, _ha, L) : -1;
       if (need0 > 0 || needA > 0){
