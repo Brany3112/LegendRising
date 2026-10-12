@@ -87,10 +87,15 @@ const _ar = [0, 0], _ar2 = [0, 0];
 
 // stance half-width (body units) for a foot at walk-to-run blend R
 const halfW = (D, R) => D.hipX - .012 - .03*R;
-/* side steps (3.5.2): 3.2 to 4.0 steps a second, the feet never crossing. Each foot travels 2 v / cadence a step, and
-   a leg reaches only so far sideways, so a shuffle is a slow gait: above SHUF_MAX the hips turn into the way of travel
-   and the legs walk or run across it (the upper body keeps facing where it looks) */
-const SHUF_MAX = .9, shufCad = v => clamp(3.2 + .8*v, 3.2, 4.0);
+/* side steps (3.5.2, P2-B MV-16): 3.2 to 5 steps a second (v body units a second), the feet never crossing. Each foot
+   travels 2 v / cadence a step, and a leg reaches only so far sideways: the faster the shuffle, the shorter each foot's
+   time on the ground (shufDuty: 0.6 of the stride slowly, a skip with a moment in the air at 2 m/s) and the lower the
+   hips (postureY: a leg reaches further sideways from lower hips). Up to SHUF_MAX; faster, the hips turn into the way
+   of travel (by at most 0.8 rad, 3.5.9) and the legs run across it, a crossover (the upper body keeps facing where it
+   looks) */
+const SHUF_MAX = 2.0, shufCad = v => clamp(3 + v, 3.2, 5), shufDuty = v => clamp(.65 - .15*v, .38, .6);
+// the share of the stride a foot is down, for the gait's style (v as the caller has it, vb in body units a second)
+const dutyG = (G, v, vb) => G.style === "shuffle" ? shufDuty(vb) : dutyOf(v, G.mode);
 // the body's travel per footfall for the gait's style (the clock's step); turning tightly the steps shorten (the
 // planted foot is left behind on the inside of the bend faster than along a straight)
 const turnK = G => 1 + clamp(Math.abs(G.headRate) - .5, 0, 4)*(G.mode === "R" ? .08 : .25);
@@ -133,19 +138,37 @@ function groundFor(h, x, z, yaw, yRef){
    sees it) comes in over POST_IN rather than in the first frame, so a clip that ends on straight legs hands over
    without the knees folding in one frame */
 const POST_IN = .15;
-export function gaitPlace(h, from = null){
+export function gaitPlace(h, from = null, rt = null){
   const G = h.gait || gaitInit(h), g = h.g, sc = h.scale, ry = g.rotation.y, D = h.D;
-  const rx = G.rootX === G.rootX ? G.rootX : g.position.x, rz = G.rootZ === G.rootZ ? G.rootZ : g.position.z;
+  // (the root: rt, where it was a frame ago and how fast it goes now [x, z, x a frame ago, z a frame ago, vx, vz] (a
+  // clip's way back onto its feet, human.js, P2-B MV-6: the first step of the gait then measures the root's real motion,
+  // not the whole of what it did during the clip, nor nothing), else the last the gait saw of it, or the group)
+  const rx = rt ? rt[2] : G.rootX === G.rootX ? G.rootX : g.position.x, rz = rt ? rt[3] : G.rootZ === G.rootZ ? G.rootZ : g.position.z;
   const lx = Math.cos(ry), lz = -Math.sin(ry), w = halfW(D, 0)*sc;
   for (let i = 0; i < 2; i++){
     const f = G.feet[i], s = f.s;
     f.down = true; f.sw = null; f.roll = 0; f.tDown = 1; f.slip = 0; f.early = false;
-    if (from && from[i]){ f.x = from[i].x; f.z = from[i].z; f.yaw = from[i].yaw != null ? from[i].yaw : ry; if (from[i].kf === from[i].kf && from[i].kf != null) f.kf = from[i].kf; }
+    if (from && from[i]){
+      const fr = from[i];
+      f.yaw = fr.yaw != null ? fr.yaw : ry; if (fr.kf === fr.kf && fr.kf != null) f.kf = fr.kf;
+      // (P2-B, MV-6: the footprint under the ankle as it was drawn, the foot pitched as it was (on its toes, or flat),
+      // so the gait's first pose has the ankle where the clip left it; a footprint is the heel's point, behind it)
+      const r = fr.roll === fr.roll && fr.roll != null ? clamp(fr.roll, -DORSI, RISE[0]) : 0;
+      f.roll = r; ankleRel(r, D.ankY, _ar);
+      f.x = fr.x - Math.sin(f.yaw)*_ar[0]*sc; f.z = fr.z - Math.cos(f.yaw)*_ar[0]*sc;
+      // (as if it had just come down there: its pitch eases into the stance's own roll over the stance's first frames)
+      f.rollLand = r; f.tDown = .05;
+    }
     else { f.x = rx + lx*s*w; f.z = rz + lz*s*w; f.yaw = ry + s*.06; }
     f.y = groundFor(h, f.x, f.z, f.yaw, g.position.y);
   }
   G.rx = rx; G.rz = rz; G.ry = ry; G.vx = G.vz = G.vs = G.v = G.acc = 0; G.headRate = G.yawRate = 0;
-  G.head = ry; G.mdx = Math.sin(ry); G.mdz = Math.cos(ry);
+  G.head = ry; G.mdx = Math.sin(ry); G.mdz = Math.cos(ry); G.vRaw0 = NaN; G.accR = 0;
+  // (going on at the speed the root has: the legs' first steps plan for it, rather than for a body standing still)
+  if (rt){
+    G.vx = rt[4]; G.vz = rt[5]; G.vs = G.v = Math.hypot(G.vx, G.vz); G.vRaw0 = G.v;
+    if (G.vs > .08){ G.head = Math.atan2(G.vx, G.vz); G.mdx = Math.sin(G.head); G.mdz = Math.cos(G.head); }
+  }
   G.state = "STAND"; G.phi = 0; G.mode = "W"; G.held = 0; G.R = 0; G.init = true; G.intentT = 0; G.pivotT = G.settleT = 0;
   G.hipY = NaN; G.final = -1; G.rest = null; G.over[0] = G.over[1] = null; G.via[0] = G.via[1] = null;
   G.postIn = from ? 0 : 1;
@@ -168,7 +191,7 @@ export function touch(h, {side = null, ball, dir = null, strength = 1} = {}){
     const f = G.feet[i], s = i ? "R" : "L";
     if (side && side !== s && side !== f.s) continue;
     // seconds until u = .7 of this foot's next (or current) swing
-    const base = i ? .5 : 0, duty = f.sw ? f.sw.duty : dutyOf(v, G.mode);
+    const base = i ? .5 : 0, duty = f.sw ? f.sw.duty : dutyG(G, v, v/h.scale);
     let local = G.phi - base; local -= Math.floor(local);
     let ph;
     if (f.sw && f.sw.u < .7) ph = (duty + .7*(1 - duty)) - local;
@@ -214,7 +237,7 @@ function walkDrop(v){
 }
 const hipBudget = (G, v) => lerp(walkDrop(v), .07, G.R);
 // the hips' height for the posture (body units, before reach): standing tall walking, lower running
-function postureY(G, D, v){ return lerp(-.012, RUN_HIPS(v), G.R) - (G.style === "shuffle" ? .03 : 0) - (G.jockey ? .07 : 0); }
+function postureY(G, D, v){ return lerp(-.012, RUN_HIPS(v), G.R) - (G.style === "shuffle" ? .03 + .05*sstep(.8, 2, v) : 0) - (G.jockey ? .07 : 0); }
 
 // the root's position after travelling dist along its path (turning at the measured rate), and its heading there
 const _pr = {x:0, z:0, h:0};
@@ -240,16 +263,19 @@ function planLanding(h, f, i, rem, out){
     const lx = Math.cos(ry), lz = -Math.sin(ry), w = halfW(D, 0)*sc;
     out.x = G.rest.x + lx*s*w; out.z = G.rest.z + lz*s*w; out.yaw = ry + s*.06; out.roll = -.12; return out;
   }
-  const p = predict(G, rem), step = stepOf(G, Math.max(v, .3), sc), duty = dutyOf(Math.max(v, .3), G.mode);
+  const p = predict(G, rem), step = stepOf(G, Math.max(v, .3), sc), duty = dutyG(G, Math.max(v, .3), v/sc);
   const fx = Math.sin(p.h), fz = Math.cos(p.h);
   let ax, az, yaw, along, lat, roll;
   const tYaw = ry + G.yawRate*Math.min(.5, rem/Math.max(v, .3));          // where the body will face at touchdown
   if (G.style === "shuffle"){
-    // side steps: the feet along the line of travel, never crossing (3.5.2): closed to W2 after the trailing foot's
-    // step, open by the stride after the leading one's
+    // side steps: the feet along the line of travel, never crossing (3.5.2). P2-B (MV-16): each foot's time on the
+    // ground carries the body c along it; the two feet's stances are centred S/2 either side of the body, S at least a
+    // closed stance and wide enough that the closing foot comes down clear of where the leading one has just left. The
+    // leading foot lands (S + c)/2 out and leaves from under its hip; the closing one lands (S - c)/2 in and leaves as
+    // far out on its own side: neither reaches further from its hip than the other, at any speed
     const lead = Math.sin(p.h)*Math.cos(tYaw) - Math.cos(p.h)*Math.sin(tYaw) > 0 ? (s > 0) : (s < 0);   // travelling to this foot's side
-    const W2 = lerp(.38, .45, clamp(v/sc, 0, 1))*sc, L = 2*step;
-    along = lead ? (W2 + L)/2 : -W2/2; lat = 0; yaw = tYaw + s*.05; roll = -.04;
+    const L = 2*step, c = duty*L, S = Math.max(.3*sc, L/2 + .15*sc);
+    along = lead ? (S + c)/2 : -(S - c)/2; lat = 0; yaw = tYaw + s*.05; roll = -.04;
     ax = p.x + fx*along; az = p.z + fz*along;
   } else {
     const back = G.style === "back";
@@ -289,7 +315,10 @@ function planLanding(h, f, i, rem, out){
       wide = clamp(lr - (halfW(D, G.R) - D.hipX) - .14, 0, .35)*sc;
       const rr = along + .1*sc; along = Math.sqrt(Math.max(0, rr*rr - wide*wide));
     }
-    lat = s*halfW(D, G.R)*sc + s*wide;
+    // (running across the body's facing, the crossover, P2-B MV-16: the hips turn only part of the way, so the legs pass
+    // each other across the line of travel; their footprints are set a little wider apart for it, so the feet clear)
+    const xo = back ? 0 : .05*sc*sstep(.9, 1.4, Math.abs(wrap(p.h - tYaw)));
+    lat = s*halfW(D, G.R)*sc + s*wide + s*xo;
     yaw = back ? tYaw : p.h;
     // a foot turns at most 0.6 rad a step walking, 0.35 running (3.5.4)
     const lim = lerp(.6, .35, G.R), dy = wrap(yaw - f.yaw);
@@ -519,9 +548,14 @@ export function gaitStep(h, dt, st){
   const rel = wrap(G.head - ry), ar = Math.abs(rel);
   G.jockey = st.style === "jockey";
   const side = ar >= 60*Math.PI/180 && ar <= 120*Math.PI/180 && G.vs/sc < (G.style === "shuffle" ? SHUF_MAX + .15 : SHUF_MAX - .1);
-  const style = st.style === "jockey" ? "shuffle" : st.style && st.style !== "normal" ? st.style : ar > 120*Math.PI/180 ? "back" : side ? "shuffle" : "fwd";
+  // (st.style "backpedal", human.js's name for it, is the gait's "back")
+  const style = st.style === "jockey" ? "shuffle" : st.style === "backpedal" ? "back" : st.style && st.style !== "normal" ? st.style : ar > 120*Math.PI/180 ? "back" : side ? "shuffle" : "fwd";
   if (v > .2 || G.state === "STAND") G.style = style;
-  G.twist += ((G.style === "fwd" ? clamp(rel, -1.1, 1.1) : G.style === "back" ? clamp(wrap(rel - Math.PI), -.5, .5) : 0) - G.twist)*(1 - Math.exp(-10*dt));
+  // (the hips turn into the way of travel by at most 0.8 rad with their own swing to and fro on top, DESIGN 3.5.9, P2-B
+  // MV-16: further round, the legs step across the body's line, the crossover, rather than the pelvis twisting against
+  // the chest)
+  const tw = .78 - (G.R > .5 ? .1 : walkYaw(G.vs/h.scale));
+  G.twist += ((G.style === "fwd" ? clamp(rel, -tw, tw) : G.style === "back" ? clamp(wrap(rel - Math.PI), -.5, .5) : 0) - G.twist)*(1 - Math.exp(-10*dt));
   // walk or run, effective at the next footfall; the posture eases over 0.45 s
   G.held = v > RUN_ON ? G.held + dt : 0;
   const want = G.mode === "R" ? (v < RUN_OFF ? "W" : "R") : (v > RUN_ON && G.held >= RUN_HOLD ? "R" : "W");
@@ -656,7 +690,7 @@ function cycleStep(h, dt, v, intent, st){
   let dph = G.phi - phi0; dph -= Math.floor(dph);
   G.phRate = G.phRate !== G.phRate ? dph/dt : G.phRate + (dph/dt - G.phRate)*(1 - Math.exp(-10*dt));
   // 3. lift-offs: a planted foot whose share of the stride is over, or that the body has left behind beyond reach
-  const duty = dutyOf(vv, G.mode), bM = reachSpan(G, D, vv/sc)[1], stopping = G.state === "STOP";
+  const duty = dutyG(G, vv, v/sc), bM = reachSpan(G, D, vv/sc)[1], stopping = G.state === "STOP";
   for (let i = 0; i < 2; i++){
     const f = G.feet[i]; if (!f.down || f.tDown < .05) continue;
     // (a foot that came down on its time floor before the clock's footfall for it stays down until that footfall)
@@ -688,7 +722,10 @@ function cycleStep(h, dt, v, intent, st){
       // walking never leaves the ground (P2-B, MV-3): a foot waits for the other to land before it lifts, however far
       // the body has gone over it (the hips' curve is lowest just then, in the middle of the double support, so the
       // leg reaches; what it still cannot reach the heel rise and the hips' budget take up, as for any planted foot)
-      if (G.mode === "W" && !other.down) continue;
+      // (a quick shuffle is a skip: it has its moment in the air, both feet up between the push and the landing)
+      // (but a foot left far out of reach steps at once, as it would from a run: a clip the body has been carried on
+      // through leaves both feet behind it, P2-B MV-6)
+      if (G.mode === "W" && G.style !== "shuffle" && !other.down && !(f.need > hipBudget(G, vv/sc) + .03)) continue;
       // (the swing has the rest of the stride: a foot that leaves early by reach takes the longer swing)
       const d0 = Math.min(local, duty), T = clamp((1 - d0)*strideOf(G, vv, sc), tswMin(sc), tswMax(sc, G));
       liftOff(h, f, i, d0, T, "phase");
@@ -814,7 +851,7 @@ export function gaitPose(h, T, st, fac = null, dt = 0){
   const mv = G.mvA;
   // the hard stop's brace (3.5.5), eased in and out
   G.brakeW = G.brakeW !== G.brakeW || !(dt > 0) ? (G.brakeT > 0 ? 1 : 0) : G.brakeW + ((G.brakeT > 0 ? 1 : 0) - G.brakeW)*(1 - Math.exp(-12*dt));
-  const pL = G.phi, duty = dutyOf(Math.max(v, .3), G.mode), cL = Math.cos(TAU*pL), mid = Math.cos(TAU*(pL - duty/2));
+  const pL = G.phi, duty = dutyG(G, Math.max(v, .3), v), cL = Math.cos(TAU*pL), mid = Math.cos(TAU*(pL - duty/2));
   const lk = fac && Number.isFinite(fac.lean) ? fac.lean : 1,          // (stamina factors not worked out yet: a fresh body)
     tired = clamp(+st.fatigue || 0, 0, 1);
   // pelvis: turns with the legs (the walk's budget), rolls onto the stance side and sways over it walking
@@ -907,7 +944,7 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
       // stance: the roll from the heel strike to foot-flat, then the heel rising as the body passes and as the reach asks
       let r;
       if (G.state === "CYCLE"){
-        const p = localPhase(G, i), d = dutyOf(Math.max(v, .3), G.mode), u = p < d ? p/d : 1;
+        const p = localPhase(G, i), d = dutyG(G, Math.max(v, .3), v), u = p < d ? p/d : 1;
         r = (f.rollLand || 0)*(1 - sstep(0, lerp(.1, .06, G.R), f.tDown)) + (G.style === "shuffle" ? .15 : run ? 1.0 : .78)*Math.pow(clamp((u - (run ? .3 : .55))/(run ? .7 : .45), 0, 1), 1.5);
       } else {
         r = f.roll*Math.exp(-8*dt);

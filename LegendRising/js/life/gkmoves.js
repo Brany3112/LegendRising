@@ -23,6 +23,8 @@
    'gkdistribute' {kind: 'throw' | 'roll' | 'punt' | 'dropkick', dir, power}: throw 0.9 s (release 0.55), roll 0.8 s
                   (release 0.45), punt and drop kick (the ball dropped at 0.20, the volley path after); a goal kick is
                   moves.js's strike.
+   'upper:gkready' {focus, alert}: the ready stance's chest, head and hands as an upper-body layer (st.upper) over the
+                  gait's legs, for a keeper on the move (P2-B, GK-2: view.js).
    Exports: GKM (timings), gkDiveTimes(plan, st) (the phases of a dive), gkReadyPose. */
 import {THREE} from "./build.js";
 import {clamp, lerp, sstep, kf, wrap, B, ARM, LEG, R3, frameOf, legIK, armIK} from "./rig.js";
@@ -72,6 +74,15 @@ function gkready(h, T, st, dt){
   gkReadyPose(h, T, focusYaw(h, st), b);
   h.gw = 0;
   if (h.mv && h.mv.key !== "gkready") h.mv.key = "gkready";
+}
+/* the ready stance's upper body as a layer over the gait (P2-B, GK-2 and MV-7: view.js lays it over his side steps when
+   he moves): the chest and head to the focus, the hands up in front at (+-0.28, 0.92, 0.32); the legs are the gait's */
+function upGkready(h, T, st){
+  setBT(h);
+  const yaw = focusYaw(h, st);
+  R3(T, B.spine, .2, yaw*.25, 0); R3(T, B.chest, .08, yaw*.25, 0);
+  R3(T, B.neck, -.22, yaw*.15, 0); R3(T, B.head, -.18, yaw*.2, 0);
+  for (let s = 1; s >= -1; s -= 2) armIK(h, T, s, s*.28, .92, .32, s*1.1, -.35, [.8, -.3, -.6]);
 }
 /* the split step: a 0.05 m hop over 0.18 s that lands 0.60 wide (EV.LAND: set), then held */
 function gkset(h, T, st, dt){
@@ -503,4 +514,5 @@ export const GK_MODES = {
   gktip:registerMode("gktip", gktip, {blend:.12, plant, low:true}),
   gkdistribute:registerMode("gkdistribute", gkdistribute, {blend:.2, plant})
 };
+registerMode("upper:gkready", upGkready);
 GK_MODES.gkdive.events = gkEvents;

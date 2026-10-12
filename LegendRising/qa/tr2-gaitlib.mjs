@@ -21,7 +21,7 @@ import {stepLen} from "../js/life/gaitcore.js";
 // (self-contained: page.evaluate sends its source)
 async function pageDrive(o){
   const H = await import("./js/life/human.js"), Mv = await import("./js/life/mover.js"), St = await import("./js/life/stamina.js");
-  await import("./js/life/moves.js");
+  await import("./js/life/moves.js"); await import("./js/life/gkmoves.js");
   const L = window.__life, scene = L.scene(), cam = L.cam, ren = L.renderer();
   if (L.ME.fp) L.ME.fp.g.visible = false; if (L.ME.tp) L.ME.tp.g.visible = false;
   const B = H.BONE, V = new (cam.position.constructor)(), Q0 = new (cam.quaternion.constructor)();
@@ -78,7 +78,7 @@ async function pageDrive(o){
     h.g.updateMatrixWorld(true);
     const G = h.gait;
     const row = {t:+t.toFixed(4), v:+m.speed.toFixed(4), tgt:+m.target.toFixed(3), x:+m.x.toFixed(5), z:+m.z.toFixed(5), yaw:+(m.yaw + Math.PI).toFixed(5), head:+(m.heading + Math.PI).toFixed(5),
-      seg:si, st:G ? G.state : "", mode:G ? G.mode : "", sty:G ? G.style : "", fall:(ev.mask & H.EV.FOOTFALL) ? (ev.side || "?") : "", fat:(ev.mask & H.EV.FOOTFALL) ? +(ev.at || 0).toFixed(5) : 0, gn:G ? G.n : 0, phi:G ? +G.phi.toFixed(4) : 0, slips:G ? +(G.slips*1000).toFixed(2) : 0, legs:[]};
+      seg:si, st:G ? G.state : "", mode:G ? G.mode : "", sty:G ? G.style : "", fall:(ev.mask & H.EV.FOOTFALL) ? (ev.side || "?") : "", fat:(ev.mask & H.EV.FOOTFALL) ? +(ev.at || 0).toFixed(5) : 0, gn:G ? G.n : 0, phi:G ? +G.phi.toFixed(4) : 0, slips:G ? +(G.slips*1000).toFixed(2) : 0, brake:G && G.brakeT > 0 ? 1 : 0, final:G ? G.final : -1, legs:[]};
     for (let s = 0; s < 2; s++){
       const f = G.feet[s], ft = s ? B.ftR : B.ftL, to = s ? B.toR : B.toL, shn = s ? B.shR : B.shL;
       const q = h.bones[shn].quaternion, knee = 2*Math.acos(Math.min(1, Math.abs(q.w)));

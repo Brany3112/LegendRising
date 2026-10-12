@@ -1165,8 +1165,9 @@ export function human(look = {}, opts = {}){
   const RO = restOffsets(rest);
   const h = {g, look, D, bones, skel, near, far, lod3m, num, isHuman:true, id:++HID,
     pose:new Float32Array(NQ), posePrev:new Float32Array(NQ), te:new Float32Array(NP), tq:new Float32Array(NQ), base:new Float32Array(3), baseOk:false,
-    lpSame:false, lpAt:new Float64Array(3),
+    lpSame:false, lpAt:new Float64Array(3), rt:new Float64Array(6), rtOk:false, drawn:new Float64Array(4),
     rest:RO.V, restA:RO.A, inz:{on:false, t:0, w:1, x:new Float64Array(63), v:new Float64Array(63)}, upper:{w:0, g:null, st:null},
+    inzL:{on:false, due:false, t:0, w:1, x:new Float64Array(27), v:new Float64Array(27)},
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, locks:[null, null], feetTmp:[null, null],
     bw:1, mode:"", at:0, t:r()*100, acc:0, accL:0, dtPrev:0, posed:0, sinceF:0, hid:false, gw:0, lod:1, seed:r(),
     stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1, stag:HID % 6, groundAt:null, stx:null, blendNext:0};
@@ -1807,6 +1808,48 @@ function inertiaApply(h, Q, dt){
   return a;
 }
 
+/* the legs' own blend back onto the feet after a clip (P2-B, MV-6): the gait's legs are solved after the pose's
+   inertialisation (they stand on its footprints), so a clip's last legs would give way to them in one frame. On the first
+   locomotion pose after a clip the difference of every leg bone and the hips' place from the last drawn pose is taken,
+   and dies away over LEG_IN seconds after the legs are solved (critically damped, as the pose's own): the feet go from
+   where the clip left them onto their footprints over that time instead of in a frame */
+const LEG_IN = .25, LEGB = [12, 13, 14, 15, 16, 17, 18, 19];
+function legBlend(h, Q, dt){
+  const I = h.inzL;
+  if (I.due){
+    I.due = false;
+    if (h.posed){
+      I.on = true; I.t = -dt; I.w = 4.74/LEG_IN;
+      for (let j = 0; j < LEGB.length; j++) offsetOf(h.pose, Q, LEGB[j], I.x, j*3);
+      for (let c = 0; c < 3; c++) I.x[24 + c] = h.pose[80 + c] - Q[80 + c];
+      // (and where the group has gone since that pose was drawn, taken back out: the clip's last frame is drawn where
+      // it was in the world, its planted feet with it, while its owner has already moved the group on)
+      if (h.posed){
+        const g = h.g, d = h.drawn, ry = g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), sc = h.scale || 1;
+        const dx = g.position.x - d[0], dz = g.position.z - d[2];
+        I.x[24] -= (dx*c - dz*sn)/sc; I.x[25] -= (g.position.y - d[1])/sc; I.x[26] -= (dx*sn + dz*c)/sc;
+      }
+    }
+  }
+  if (!I.on) return;
+  // (the first pose back on the feet is the clip's last one, the whole offset on; from there it dies away)
+  I.t += dt;
+  const w = I.w, t = I.t, e = Math.exp(-w*t), a = (1 + w*t)*e;
+  if (a < 2e-3){ I.on = false; return; }
+  for (let j = 0; j < LEGB.length; j++){
+    const o = j*3, x = I.x[o]*a, y = I.x[o + 1]*a, z = I.x[o + 2]*a;
+    qExp(x, y, z, _ql, 0); qMul(_ql, 0, Q, LEGB[j]*4, Q, LEGB[j]*4);
+    // (and while it lasts no leg bone turns faster than LEG_RATE from the pose last drawn: a body carried on through
+    // a clip can come out of it with both feet left behind, and the first steps it takes at once would whip a thigh)
+    if (dt > 0 && h.posed){
+      const k = LEGB[j]*4, P = h.pose, lim = LEG_RATE*dt;
+      const d = Math.abs(P[k]*Q[k] + P[k + 1]*Q[k + 1] + P[k + 2]*Q[k + 2] + P[k + 3]*Q[k + 3]), ang = 2*Math.acos(Math.min(1, d));
+      if (ang > lim){ _up4[0] = Q[k]; _up4[1] = Q[k + 1]; _up4[2] = Q[k + 2]; _up4[3] = Q[k + 3]; Q.set(P.subarray(k, k + 4), k); slerpInto(Q, k, _up4, lim/ang); }
+    }
+  }
+  for (let c = 0; c < 3; c++) Q[80 + c] += I.x[24 + c]*a;
+}
+const LEG_RATE = 12;
 /* ---------- the upper-body layer: a gesture over whatever the legs do (st.upper = {g, dir, w}) ----------
    The gesture is a registered mode "upper:<g>"; it is laid over the base pose bone by bone, the spine 0.3 of the way,
    the chest 0.7, the neck, head and arms all the way, times w. It comes on over 0.18 s and goes over 0.25 s. */
@@ -1839,15 +1882,22 @@ function slerpInto(Q, o, R, t){
    A clip that declares plant channels keeps those feet where they stood when it began (world points), whatever its own
    legs say, in proportion to how planted it says they are: a blend into or out of it never slides them. */
 const _pw = [0, 0], _fq = new Float64Array(4);
+// (where the group was when the bones were last written: the pose was drawn there, P2-B MV-6)
+function drawnAt(h){ const g = h.g, d = h.drawn; d[0] = g.position.x; d[1] = g.position.y; d[2] = g.position.z; d[3] = g.rotation.y; }
 function drawnAnkles(h, Q, out){
   fkQ(h, Q, _FK);
-  const g = h.g, ry = g.rotation.y, c = Math.cos(ry), s = Math.sin(ry), sc = h.scale;
+  // (in the world as they were drawn: with the group as it was then, not where its owner has moved it since; a body on
+  // the move would have its feet put down a frame's travel ahead of where they were seen)
+  const g = h.g, d = h.posed ? h.drawn : null, gx = d ? d[0] : g.position.x, gy = d ? d[1] : g.position.y, gz = d ? d[2] : g.position.z;
+  const ry = d ? d[3] : g.rotation.y, c = Math.cos(ry), s = Math.sin(ry), sc = h.scale;
   for (let i = 0; i < 2; i++){
     const ft = LEG(i ? -1 : 1)[2], o = ft*7, x = _FK[o], y = _FK[o + 1], z = _FK[o + 2];
     qRot(_FK, o + 3, 0, 0, 1, _ql, 0);
     const p = out[i] || (out[i] = {});
-    p.x = g.position.x + (x*c + z*s)*sc; p.z = g.position.z + (-x*s + z*c)*sc; p.y = g.position.y + y*sc;
+    p.x = gx + (x*c + z*s)*sc; p.z = gz + (-x*s + z*c)*sc; p.y = gy + y*sc;
     p.yaw = ry + Math.atan2(_ql[0], _ql[2]);
+    // (its pitch: the heel up (positive) or the toes up, as the gait counts a foot's roll)
+    p.roll = -Math.asin(clamp(_ql[1], -1, 1));
     // (the knee's bend as drawn: the shin's turn about its hinge)
     const sh = LEG(i ? -1 : 1)[1]*4;
     p.kf = 2*Math.atan2(Math.hypot(Q[sh], Q[sh + 1], Q[sh + 2]), Math.abs(Q[sh + 3]));
@@ -1893,6 +1943,14 @@ export function animateHuman(h, dt, state = "idle", o = null){
   if (PRESET[mode] != null) mode = "move";
   if (!MODES[mode]) mode = "move";
   dt = dt > 0 ? Math.min(dt, .5) : 0;
+  // (the root, in every mode: where the body really is, where it was a frame ago and how fast it goes; a clip's way
+  // back onto its feet starts the gait from it, P2-B MV-6. A jump of more than 12 m/s is a body put somewhere: no speed)
+  const rt = h.rt, rr = st.root, rx = rr ? rr.x : h.g.position.x, rz = rr ? rr.z : h.g.position.z;
+  if (!h.rtOk){ rt[0] = rt[2] = rx; rt[1] = rt[3] = rz; rt[4] = rt[5] = 0; h.rtOk = true; }
+  else if (dt > 0){
+    rt[2] = rt[0]; rt[3] = rt[1]; rt[4] = (rx - rt[0])/dt; rt[5] = (rz - rt[1])/dt; rt[0] = rx; rt[1] = rz;
+    if (rt[4]*rt[4] + rt[5]*rt[5] > 144){ rt[2] = rx; rt[3] = rz; rt[4] = rt[5] = 0; }
+  }
   const tier = o && o.tier ? o.tier : 0, fam = LOCO.has(mode), fn = MODES[mode];
   h.ev.mask = 0; h.ev.at = 0; h.ev.side = null;
   // a change of mode: what it starts from
@@ -1900,7 +1958,7 @@ export function animateHuman(h, dt, state = "idle", o = null){
   if (key !== h.mode){
     const wasLoco = h.mode === "loco";
     if (h.posed){
-      if (fam && !wasLoco) gaitPlace(h, drawnAnkles(h, h.pose, h.feetTmp));   // back on its feet from a clip: they stay where they are
+      if (fam && !wasLoco){ gaitPlace(h, drawnAnkles(h, h.pose, h.feetTmp), h.rt); h.inzL.due = true; }   // back on its feet from a clip: they stay where they are
       if (!fam && fn.plant) drawnAnkles(h, h.pose, h.locks);
     }
     h.blendNext = h.posed ? (st.blend || fn.blend || -1) : 0;
@@ -1946,12 +2004,14 @@ export function animateHuman(h, dt, state = "idle", o = null){
         return h.ev;
       }
       const Q = h.tq; Q.set(h.pose); Q[80] = h.base[0]; Q[81] = h.base[1]; Q[82] = h.base[2];
-      gaitLegs(h, Q, _FK, h.accL, true, true); h.accL = 0;
+      const ldt = h.accL;
+      gaitLegs(h, Q, _FK, h.accL, true, true); h.accL = 0; legBlend(h, Q, ldt);
       writeBones(h, Q, LEGW);
       let same = Math.abs(h.pose[80] - Q[80]) + Math.abs(h.pose[81] - Q[81]) + Math.abs(h.pose[82] - Q[82]) < 1e-7;
       for (let j = 0; j < LEGW.length; j++) for (let c = 0; c < 4; c++){ const k = LEGW[j]*4 + c; if (same && Math.abs(h.pose[k] - Q[k]) > 1e-7) same = false; h.pose[k] = Q[k]; }
       h.pose[80] = Q[80]; h.pose[81] = Q[81]; h.pose[82] = Q[82];
       h.lpSame = same; h.lpAt[0] = gx; h.lpAt[1] = gz; h.lpAt[2] = gr;
+      drawnAt(h);
     }
     ANIM.stats.lp++;
     return h.ev;
@@ -1985,13 +2045,14 @@ export function animateHuman(h, dt, state = "idle", o = null){
   // a body-space correction worked out from this pose (your first-person body keeping its neck below the eye)
   if (st.correct) st.correct(h, Q);
   // the constraints, after all blending
-  if (fam){ gaitLegs(h, Q, _FK, h.accL, lite); h.accL = 0; }
+  if (fam){ gaitLegs(h, Q, _FK, h.accL, lite); h.accL = 0; legBlend(h, Q, adt); }
   else {
     if (fn.plant){ fn.plant(h, st, _pw); plantLegs(h, Q, _pw); }
     if (fn.ground !== false && (fn.low || fn.ground === true || !lowPreset())) ground(h, Q, _FK, h.gw*(1 - left), lite);
   }
   writeBones(h, Q);
   h.posePrev.set(h.pose); h.pose.set(Q); h.dtPrev = adt; h.acc = 0; h.posed++; h.sinceF = 0;
+  drawnAt(h);
   // a body standing on both feet: the leg passes before its next full pose are skipped (above) until it moves, turns,
   // steps or the gait has news (in the middle of a blend too: its legs are on their footprints in this pose)
   if (fam && h.gait.state === "STAND" && !h.gait.feet[0].sw && !h.gait.feet[1].sw && !h.gait.ev.mask){
