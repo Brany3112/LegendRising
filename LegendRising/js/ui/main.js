@@ -505,8 +505,9 @@ function renderHubInner(){
   // an honour won while the week was simulating gets its moment as soon as you are back on the hub
   if (typeof HONOUR_QUEUE === "object" && HONOUR_QUEUE.length) setTimeout(() => showNextHonour(), 260);
   // a match mirror left behind by a first-person match that stopped without a result is let go (a match in progress
-  // keeps its own; quickMatch and full time clear theirs)
-  if (MT && !(window.FP && window.FP.state)) MT = null;
+  // keeps its own, and so does one being played out after a crash, which runs with no FP.state; quickMatch and full
+  // time clear theirs)
+  if (MT && !(window.FP && (window.FP.state || window.FP.recovering))) MT = null;
   if (ensureClub()) return screenOffers();          // a free agent picks a club before anything else
   if (S.offerSet) return screenOffers();
   setPhoneVisible(true);
@@ -936,11 +937,14 @@ function playedForYou(f){
   setTimeout(() => { const c = document.querySelector(".ft-card"); if (c && typeof odoRun === "function") odoRun(c); }, 260);
   return true;
 }
-// New Game without a 3D world
+// New Game without a 3D world: opened as a file (3.4.6's line), or served properly to a browser that gives no WebGL 2,
+// which gets told what is missing and what to try instead
+const NOWORLD_GL = "Your browser didn't give the game WebGL 2, and the 3D world needs it. Turn on hardware acceleration in your browser's settings, or open the game in an up to date Chrome, Edge or Firefox.";
 function screenNoWorld(){
   setPhoneVisible(false);
+  const line = location.protocol === "file:" ? "This build has to be served over http(s) to play." : NOWORLD_GL;
   render(`<section class="page center"><div class="page-inner"><h1>Legend Rising</h1>
-    <p class="lede">This build has to be served over http(s) to play.</p>
+    <p class="lede">${line}</p>
     <div class="row gap10 center"><button class="btn" onclick="screenTitle()">Back</button></div></div></section>`, "noworld");
 }
 const A = {

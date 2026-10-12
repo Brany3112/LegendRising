@@ -8,8 +8,8 @@
 //      travel, then the dressing room in the stadium).
 //   3. A.playFixture from inside the world: straight into the first-person match day.
 //   4. No 3D world (WebGL 2 missing): "Play match" plays the fixture out for him (quickMatch); its full-time card says
-//      so, the world has the result, MT is let go, Continue goes back to the hub; New Game says the build has to be
-//      served over http(s).
+//      so, the world has the result, MT is let go, Continue goes back to the hub; New Game, on a page served over
+//      http(s), names the missing WebGL 2 and what to try (the http(s) line is for a page opened as a file).
 //   5. A world that was expected and never loaded (js/life/world.js fails) and a browser that gives no WebGL context:
 //      Continue on an old save draws the hub with its Play match button, and Play match plays the fixture out at
 //      once (no wait for a world that is not coming); the card shows no shot, corner or card counts it never had, and
@@ -110,7 +110,8 @@ const state = page => page.evaluate(() => ({fp: window.FP && window.FP.state, zo
     // New Game without a 3D world
     await page.evaluate(() => A.newGame(2));
     const ng = await page.evaluate(() => ({text: document.getElementById("app").textContent, screen: LAST_SCREEN}));
-    check(ng.screen === "noworld" && ng.text.includes("This build has to be served over http(s) to play."), "New Game without a 3D world says the build has to be served over http(s)", ng.screen);
+    check(ng.screen === "noworld" && /didn't give the game WebGL 2/.test(ng.text) && /hardware acceleration/.test(ng.text) && !/served over http/.test(ng.text),
+      "New Game over http(s) without WebGL 2 says WebGL 2 is missing and what to try, not that the page needs serving", {screen: ng.screen, text: ng.text.slice(0, 240)});
     await page.evaluate(() => { const b = [...document.querySelectorAll("#app button")].find(x => /Back/.test(x.textContent)); b.click(); });
     const t = await page.evaluate(() => LAST_SCREEN);
     check(t === "title", "its Back button returns to the title screen", t);
@@ -149,8 +150,12 @@ for (const how of [{abort: /js\/life\/world\.js/, name: "world.js fails to load"
     const rep0 = await page.evaluate(() => meP().rep);
     await page.evaluate(() => document.querySelector("#sheetRoot button.opt.media").click());
     await page.waitForTimeout(500);
-    const after = await page.evaluate(r0 => ({rep: meP().rep - r0, screen: LAST_SCREEN, done: S.pressDone === S.lastMatch.gw}), rep0);
+    const after = await page.evaluate(r0 => ({rep: meP().rep - r0, screen: LAST_SCREEN, done: S.pressDone === S.lastMatch.gw, res: S.lastMatch.res,
+      news: (S.news.find(n => /speaks after|cause a stir/.test(n.title || "")) || {}).title || null}), rep0);
     check(after.rep > 0 && after.done && after.screen === "hub", `${how.name}: an answer is given once, adds reputation and goes back to the hub`, after);
+    // (the first answer never backfires: the headline names the result, a man of the match can come from a draw or a defeat)
+    const word = {W: "the win", D: "the draw", L: "the defeat"}[after.res];
+    check(!!word && after.news && after.news.endsWith(`speaks after ${word}`), `${how.name}: the news after the press names the result (${after.res})`, after.news);
     const errs = page.errors.filter(e => !/Failed to load|ERR_FAILED|Error creating WebGL context|WebGLRenderer/.test(e));
     check(errs.length === 0, `${how.name}: no other console or page errors`, errs);
   } finally { await close(); }

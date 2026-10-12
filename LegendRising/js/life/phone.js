@@ -1,10 +1,10 @@
 "use strict";
 /* ============ LIFE: the phone ============
    Three places to be:
-   · the street  — walking about in first person
-   · in hand     — Tab pulls the game's own phone out of your pocket. The keypad phone works with the
+   · the street: walking about in first person
+   · in hand: Tab pulls the game's own phone out of your pocket. The keypad phone works with the
                    arrow keys and you can keep walking; the smartphone frees the mouse and you stand still.
-   · the hub     — Q (or the Hub item on the phone) brings the phone up to your face and it becomes the
+   · the hub: Q (or the Hub item on the phone) brings the phone up to your face and it becomes the
                    full hub. The phone button bottom right puts it back in your pocket. */
 (function(){
   let mode = "street", busy = false;
@@ -13,6 +13,10 @@
   const lp = () => document.getElementById("lifePhone");
   const handOpen = () => typeof PH !== "undefined" && PH.open;
   const smart = () => typeof S !== "undefined" && S && S.phone === "smart";
+  // a first-person match or training session (world modes match and train, marked on the page by modes.js): Q, Tab and
+  // the rest of the phone are not yours there (DESIGN 1.6: Tab is the overview, Q does nothing); the mode's own input
+  // has those keys
+  const football = () => body.classList.contains("mode-match") || body.classList.contains("mode-train");
   const OPEN_MS = 560, CLOSE_MS = 520;
 
   window.lifeMode = () => mode === "hub" ? "hub" : handOpen() ? "hand" : "street";
@@ -31,7 +35,7 @@
 
   /* ---------- Tab: the phone in your hand ---------- */
   window.lifeHand = function(){
-    if (!life() || busy || mode !== "street") return;
+    if (!life() || busy || mode !== "street" || football()) return;
     if (handOpen()){
       closePhone(); hint();
       if (window.lifeRelock) window.lifeRelock();
@@ -47,7 +51,7 @@
 
   /* ---------- Q: up to your face, and it becomes the hub ---------- */
   window.lifeHub = function(){
-    if (!life() || busy || mode === "hub") return;
+    if (!life() || busy || mode === "hub" || football()) return;
     busy = true; mode = "hub";
     if (handOpen()) closePhone();
     hint();
@@ -105,6 +109,7 @@
     const k = e.key.toLowerCase();
     // nothing comes up over a cinematic (intro.js): the camera is not yours until it hands it back
     if (window.lifeCine && window.lifeCine()){ if (k === "tab" || k === "q") e.preventDefault(); return; }
+    if (football()) return;
     if (k === "tab"){ e.preventDefault(); if (mode === "hub") return; window.lifeHand(); return; }
     if (k === "q"){ e.preventDefault(); mode === "hub" ? window.lifePutAway() : window.lifeHub(); return; }
     if (k === "escape" && mode === "hub"){

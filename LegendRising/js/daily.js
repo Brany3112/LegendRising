@@ -594,8 +594,14 @@ function missedMatches(dayEnded){
     const s = fixtureSlot(f);
     if (s.wd !== S.life.wd) continue;
     if (!dayEnded && S.life.min < s.min + MATCH_LEN) continue;
-    const me = meP(), excused = me.inj > 0 || (S.ban || 0) > 0;
+    // (a match he was playing in the retired 2D engine when an old save was written: career.js resume excuses it)
+    const cut = !!(S.life.excused && S.life.excused === f.key);
+    const me = meP(), excused = me.inj > 0 || (S.ban || 0) > 0 || cut;
     try { simFixture(f); } catch(e){ console.error(e); }
+    if (cut){
+      delete S.life.excused;
+      addNews("you", `${S.player.name}'s unfinished match goes ahead without him`, `${sideName(f, "h")} v ${sideName(f, "a")} was played without him. His last save was made halfway through it, before the update, so it couldn't be picked up again. Nobody holds that against him.`, "me");
+    }
     if (!excused){
       trustAdd(MISS_MATCH); chemAdd(MISS_MATCH_CHEM);
       if (typeof motivationMissedMatch === "function") motivationMissedMatch();

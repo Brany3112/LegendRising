@@ -15,6 +15,12 @@
 //      1 ms, the striking face at the ball;
 //   4. walking with it held, the support foot re-steps under the body and does not slide while it is down; above
 //      WIND.V windHold gives nothing and windUpper the upper body's wind-up, on the stride's legs;
+//   4b. let go without a strike (the charge dropped standing, dropped into a jog, held while speeding up past the
+//      line, standing at tier T1) and the striking foot changing in the middle of it: no bone turns more than 0.35 rad
+//      in a frame from the hold until locomotion has the legs again (the cocked leg is let down in the clip, never put
+//      onto a footprint in one frame); standing, it is put down over several frames (the kicking foot moves no more
+//      than 0.15 m in one, and the clip still has the body when it is down), and a change of foot puts one leg down
+//      before the other comes up (no frame over 0.25 rad);
 //   5. the in-game path (with view.js passing the charge, the hook this package asks for): your agent in a training
 //      drill winding up is posed by the held clip in your eyes and in third person (skipped, and said so, while view.js
 //      does not call windHold);
@@ -120,6 +126,50 @@ try {
       out.run = {hold: run, upper: up && {g: up.g, w: up.w}, layer: h.upper.w, jumpR};
       K.clear();
     }
+    // let go without a strike: the hold, then the charge dropped (or the speed over the line with it held), until well
+    // after locomotion has the legs again
+    const exit = (speedAfter, tier, cancel) => {
+      K.clear();
+      const h = K.body("footballer", 3); h.g.position.set(0, 0, 0); h.g.rotation.y = Math.PI/2;
+      const loco = {mode: "move", speed: 0};
+      for (let i = 0; i < 40; i++) H.animateHuman(h, dt, loco, {tier});
+      const wind = {p: 0, over: 0, side: "R", kind: "shot"}, rec = {}, up = {};
+      for (let f = 0; f < 60; f++){ wind.p = Math.min(1, f/50); H.animateHuman(h, dt, M.windHold(wind, 0, rec, dt) || loco, {tier}); }
+      let x = 0, prevQ = K.boneQ(h), foot = at(h, H.BONE.ftR), jump = 0, jat = null, footMax = 0, held = 0;
+      for (let f = 0; f < 40; f++){
+        const v = speedAfter*Math.min(1, (f + 1)/6);
+        x += v*dt; h.g.position.x = x;
+        if (cancel) wind.p = 0;
+        let st = M.windHold(wind, v, rec, dt);
+        if (st) held++;
+        else { loco.speed = v; loco.upper = M.windUpper(wind, v, up); st = loco; }
+        H.animateHuman(h, dt, st, {tier});
+        const j = K.boneJump(h, prevQ); prevQ = K.boneQ(h);
+        if (j.m > jump){ jump = j.m; jat = [f, j.at, st.mode]; }
+        const fp = at(h, H.BONE.ftR); footMax = Math.max(footMax, fp.distanceTo(foot) - v*dt); foot = fp;
+      }
+      K.clear();
+      return {jump: +jump.toFixed(3), jat, foot: +footMax.toFixed(3), held};
+    };
+    out.exits = {standing: exit(0, 0, true), intoJog: exit(2.5, 0, true), heldRun: exit(3.5, 0, false), standingT1: exit(0, 1, true)};
+    // the striking foot changing in the middle of it (control.js footNow follows the ball across)
+    {
+      const h = K.body("footballer", 3); h.g.position.set(0, 0, 0); h.g.rotation.y = Math.PI/2;
+      for (let i = 0; i < 40; i++) H.animateHuman(h, dt, {mode: "move", speed: 0}, {tier: 0});
+      const wind = {p: 0, over: 0, side: "R", kind: "shot"}, rec = {};
+      const loco = {mode: "move", speed: 0};
+      let prevQ = K.boneQ(h), jump = 0, jat = null, ids = new Set();
+      for (let f = 0; f < 110; f++){
+        wind.p = Math.min(1, f/50); if (f >= 50) wind.side = "L";
+        const st = M.windHold(wind, 0, rec, dt) || loco; if (st.id) ids.add(st.id);
+        H.animateHuman(h, dt, st, {tier: 0});
+        const j = K.boneJump(h, prevQ); prevQ = K.boneQ(h);
+        if (f >= 50 && j.m > jump){ jump = j.m; jat = [f, j.at]; }
+      }
+      const kneeL = at(h, H.BONE.shL).y, kneeR = at(h, H.BONE.shR).y;
+      out.swap = {jump: +jump.toFixed(3), jat, ids: ids.size, cocked: kneeL > kneeR + .1 ? "L" : kneeR > kneeL + .1 ? "R" : "-"};
+      K.clear();
+    }
     return out;
   });
   for (const k of ["Rshot", "Lshot", "Rpass", "Lpass"]){
@@ -136,6 +186,9 @@ try {
   check(r.Rshot.lean > .03 && r.Lshot.lean > .03, "held past full, the chest leans back (the head goes back over the hips)", [r.Rshot.lean, r.Lshot.lean]);
   check(r.walk.steps >= 2 && r.walk.slide < .01 && r.walk.jump <= .35, "walking with it held: the support foot re-steps and never slides while down", r.walk);
   check(r.run.hold === null && r.run.upper && r.run.upper.g === "windup" && r.run.layer > .5 && r.run.jumpR <= .35, "on the run: the stride keeps the legs, the wind-up is the upper body's", r.run);
+  for (const [k, v] of Object.entries(r.exits)) check(v.jump <= .35 && v.held >= 1 && v.held < 40, `let go without a strike (${k}): the clip lets the leg down, no bone over 0.35 rad in a frame into locomotion`, v);
+  for (const k of ["standing", "standingT1"]) check(r.exits[k].foot <= .15 && r.exits[k].held >= 10, `let go standing (${k}): the leg is put down over several frames, not stamped`, r.exits[k]);
+  check(r.swap.jump <= .25 && r.swap.ids === 1 && r.swap.cocked === "L", "a change of striking foot mid-hold: one leg down, then the other up, in the same clip", r.swap);
 
   // ---- contact sheets: the wind-up filling and held, from the side, the front, behind and through the eyes
   const urls = await K.page.evaluate(async () => {

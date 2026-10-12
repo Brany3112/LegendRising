@@ -162,6 +162,8 @@ export const FP = {
   get state(){ return FS.state; }, get ms(){ return FS.ms; }, get V(){ return FS.V; },
   get ffRate(){ return FS.ffRate; }, set ffRate(v){ FS.ffRate = DAY.FF.includes(+v) ? +v : 1; },
   get timeScale(){ return FS.timeScale; },
+  // a match left half played being played out after a load (recoverCheck): in progress, with FP.state null
+  get recovering(){ return RECOVER.busy; },
   enter(f, o = {}){ return enter(f, o); },
   exit(){ abort(); },
   skipToCall(){ startSkip("call"); }, skipToEnd(){ startSkip("end"); },

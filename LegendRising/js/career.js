@@ -172,6 +172,9 @@ function resume(data){
   refreshWorldNames();
   if (!S.startSeason) S.startSeason = W.season;
   // older saves: new fields
+  // (a save from the middle of a 2D match: the retired engine held his real skills in S.skillsBase while it ran, as
+  // the old dream did before S.tutDone was set. That match can't be picked up again, see below)
+  const mid2D = !!(S.skillsBase && S.tutDone);
   if (S.skillsBase){ S.skills = S.skillsBase; delete S.skillsBase; }
   if (S.skills.composure == null) S.skills.composure = 28;
   if (S.skills.tackling == null) S.skills.tackling = 24;      // careers made before defending existed
@@ -202,6 +205,9 @@ function resume(data){
   motivationMigrate();              // Motivation (addendum A1.8): 60 for a career from before it
   coachStylesEnsure();              // and a coach's style on every club
   dailyEnsure();                    // the daily-life fields (and S.player.owned, S.home), new skills for older careers
+  // the 2D match he was in the middle of goes ahead without him, and he isn't blamed for missing it (daily.js
+  // missedMatches reads S.life.excused)
+  if (mid2D && S.life){ try { const f = todaysFixture(); if (f) S.life.excused = f.key; } catch(e){ console.error(e); } }
   // the first day's progress in the step runner's terms (DESIGN 3.7.7, ui/main.js): every way a career is loaded
   // (Continue, the city, an import, a cloud restore) comes through here
   if (typeof onbMigrate === "function") onbMigrate();

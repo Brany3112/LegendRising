@@ -108,6 +108,10 @@ for (const name of FIX){
     check("Motivation migrated (60 for a save from before it) and a coach style on every club",
       (hadM ? a18.m === doc.save.S.player.motivation : a18.m === 60) && a18.styles ? [] : [`motivation ${a18.m}, styles ${a18.styles}`]);
     const day0 = await page.evaluate(() => ({day: S.life.day, zone: window.__life.LIFE.zone}));
+    // a save from the middle of a 2D match (career.js resume): that fixture can't be picked up again, so it is excused,
+    // and over the day it goes ahead without him with no missed-match penalty and a news line saying why
+    const cut = name === "midmatch" ? await page.evaluate(() => ({key: S.life.excused || null, news: S.news.slice(0, 30).map(n => JSON.stringify(n))})) : null;
+    if (cut) check("the 2D match he was in the middle of is excused", cut.key ? [] : ["S.life.excused not set"]);
     // 2 and 3. the world runs, then a day
     if (name === "onboarding"){
       const n = await page.evaluate(() => window.__life.presented);
@@ -118,6 +122,15 @@ for (const name of FIX){
       await page.waitForFunction(inWorld, n + 10, {timeout: 180000});
     }
     const played = await page.evaluate(`(${stable})(S)`);
+    if (cut && cut.key){
+      const after = await page.evaluate(c => ({done: !!W.done[c.key], excused: S.life.excused || null, titles: S.news.slice(0, 30).filter(n => !c.news.includes(JSON.stringify(n))).map(n => n.title)}), cut);
+      const bad = [];
+      if (!after.done) bad.push("the fixture was not played");
+      if (after.excused) bad.push("S.life.excused still set");
+      if (after.titles.some(t => /misses the match/.test(t))) bad.push("a missed-match penalty: " + JSON.stringify(after.titles));
+      if (!after.titles.some(t => /unfinished match/.test(t))) bad.push("no news line about the unfinished match: " + JSON.stringify(after.titles));
+      check("the unfinished 2D match goes ahead without him, with no missed-match penalty", bad);
+    }
     const day1 = await page.evaluate(() => ({day: S.life.day, zone: window.__life.LIFE.zone}));
     if (name !== "onboarding") check("a day went by", day1.day === day0.day + 1 ? [] : [`day ${day0.day} -> ${day1.day}`]);
     compare(name === "onboarding" ? "after playing on" : "after a day", played);

@@ -221,7 +221,7 @@ function cabinetSheet(){
 }
 
 /* ============ GOALS WORTH TALKING ABOUT ============ */
-/* how special a goal was. Distance first — it is the thing everyone argues about — then how it
+/* how special a goal was. Distance first (it is the thing everyone argues about), then how it
    was struck, and whether it was built rather than simply finished. */
 function goalScore(sh, gaveBack, frame){
   if (!sh || sh.pen) return 0;                   // a penalty is never goal of the month
@@ -285,7 +285,7 @@ function goalOfMonth(w){
   const g = S.goalM; S.goalM = null;
   if (!g || !myClub()) return;
   const lg = W.leagues[myLg()];
-  // what the rest of the division managed this month — a better league produces better goals
+  // what the rest of the division managed this month: a better league produces better goals
   const bar = rnd(52, 118)*(1 + (4 - clamp(lg ? lg.t : 4, 1, 4))*.14);
   if (g.s < bar){
     if (g.s > bar*.8) addNews("award", `${S.player.name} makes the shortlist`, `That ${g.d}-metre strike was in the running for goal of the month.`, "me");
@@ -350,7 +350,9 @@ function pressSay(i){
   const gain = Math.max(6, Math.round((16 + me.rep*.016)*l.rep*styleMul()*(back ? .55 : 1)));
   me.rep += gain; me.wrep += Math.round(gain*.22);
   trustAdd(back ? l.trust - 8 : l.trust);
-  addNews("you", back ? `${S.player.name}'s words cause a stir` : `${S.player.name} speaks after the win`,
+  // (the man of the match can come from a draw or a defeat: the headline says which)
+  const after = {W:"the win", D:"the draw", L:"the defeat"}[lm.res] || "the match";
+  addNews("you", back ? `${S.player.name}'s words cause a stir` : `${S.player.name} speaks after ${after}`,
     `“${l.say}”${back ? " It has not gone down well." : ""}`, "me");
   socialEvent("match", `Man of the match vs ${lm.opp}`);
   // (from the first-person full-time card the hub is drawn when you leave the ground)

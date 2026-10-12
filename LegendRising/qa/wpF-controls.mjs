@@ -11,6 +11,7 @@
 //   - per-frame camera rotation from kicks <= 0.6 degrees, total offset <= 3 degrees;
 //   - no mouse input for 10 s while dribbling: P.pitch unchanged exactly (no auto pitch);
 //   - every key of 1.6 dispatched as a KeyboardEvent has defaultPrevented === true; keys with Ctrl or Alt do nothing;
+//     Q and Tab bring up neither the hub nor the phone;
 //   - receiving: the mean first-touch resting distance from 12 m/s passes is >= 1.1 m at control 30 and <= 0.5 m at 90
 //     (how far the ball rolls on from where it was touched, cushioned standing: 1.5.3).
 //
@@ -160,10 +161,13 @@ try {
     }
     // and through the match's own input, as the router would give it
     window.__fp.input({type: "keydown", key: "x", ctrlKey: true}); window.__fp.input({type: "keydown", key: "3", altKey: true});
-    return {notPrevented, walk: [walk0, C.walk], contact: [contact0, C.contact]};
+    // (Q and Tab went by above: in a match they never bring the phone or the hub up, phone.js)
+    const phone = {mode: window.lifeMode ? window.lifeMode() : null, hub: !!(window.lifeHubOut && window.lifeHubOut()), shown: !!document.querySelector("#lifePhone.show"), fp: window.__fp.state};
+    return {notPrevented, walk: [walk0, C.walk], contact: [contact0, C.contact], phone};
   });
   check(S6.notPrevented.length === 0, "every key of 1.6 dispatched as a KeyboardEvent has defaultPrevented === true", S6.notPrevented);
   check(S6.walk[0] === S6.walk[1] && S6.contact[0] === S6.contact[1], "key events with Ctrl or Alt held trigger no action", S6);
+  check(S6.phone.mode === "street" && !S6.phone.hub && !S6.phone.shown && S6.phone.fp, "Q and Tab in a match bring up neither the hub nor the phone (1.6)", S6.phone);
 
   // ---- 7. receiving: the first touch's resting distance from 12 m/s passes, by Ball Control
   const S7 = await page.evaluate(() => {

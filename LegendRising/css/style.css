@@ -1308,16 +1308,26 @@ body.life.hand .lf-keys,body.life.hub-out .lf-keys,body.life.hub-out .lf-feed,bo
      pockets while an objective holds this place) */
   .lf-note{bottom:auto;top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 176px);width:max-content;max-width:min(520px,calc(100vw - 32px))}
   .lf-keys{display:none}
-  .dr-card{max-width:calc(100vw - 2*130px)}
+  /* the drill's card centred in the room between the clock and the need bars, not over either of them */
+  .dr-card{left:calc(var(--hud-pad) + env(safe-area-inset-left,0px) + 168px);right:calc(var(--hud-pad) + env(safe-area-inset-right,0px) + 264px);
+    transform:none;margin-inline:auto;width:fit-content;min-width:0;max-width:none}
 }
 /* (a centre notice and a note can be up together: the notice keeps its place, the note goes down above the pockets) */
 @media (max-width:900px){ #lifeRoot:has(> #lifeCenter > .lfc.in) > .lf-note{top:auto;bottom:calc(var(--hud-pad) + env(safe-area-inset-bottom,0px) + 104px)} }
-/* a phone upright: the drill's card under the need bars, which hang down the right side, and a centre notice under it */
-@media (max-width:640px){ .dr-card{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 172px);min-width:0;max-width:calc(100vw - 24px);width:calc(100vw - 24px)}
-  body.drillview #lifeRoot .lf-center{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 272px)} }
+/* a phone upright: the drill's card under the need bars, which hang down the right side */
+@media (max-width:640px){ .dr-card{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 172px);left:50%;right:auto;transform:translateX(-50%);margin:0;
+    min-width:0;max-width:calc(100vw - 24px);width:calc(100vw - 24px)} }
+/* while a drill's card is up, a centre notice (a level up from the same shot as the drill's result) keeps clear of the
+   card, the result and the aim in the middle of the screen: just above where the result comes up; a phone upright has
+   the card there, so under the aim and the use prompt; a short screen has no room in the middle, so in the left column under the clock,
+   and the result comes up off the aim. It stays put whether a result is showing or not, so it never jumps about */
+#lifeRoot:has(> #lifeDrill.on) > .lf-center{top:auto;bottom:calc(67% + 6px)}
+@media (max-width:640px){ #lifeRoot:has(> #lifeDrill.on) > .lf-center{top:calc(50% + 96px);bottom:auto} }
+@media (max-height:560px){ .dr-result{top:26%}
+  #lifeRoot:has(> #lifeDrill.on) > .lf-center{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 76px);bottom:auto;
+  left:calc(var(--hud-pad) + env(safe-area-inset-left,0px));transform:none;width:min(260px,32vw);justify-items:start} }
 
 @media (max-height:560px){ .lf-center{top:16%} .lf-prompt{top:calc(50% + 28px)} .lf-busy{top:58%} }
-@media (max-height:560px){ body.drillview #lifeRoot .lf-center{top:calc(var(--hud-pad) + env(safe-area-inset-top,0px) + 96px)} }   /* (under the drill's card) */
 /* short landscape screens (a phone on its side): the look editor's stage takes the row it is given, and the day
    summary tightens up with its buttons always in reach */
 @media (max-height:520px){
@@ -1571,6 +1581,8 @@ body.building #lifeCanvas{cursor:crosshair}
 /* crowded (js/life/compass.js): a farther marker with no room for its words in either row shows as its icon alone */
 .cp-mk.slim b,.cp-mk.slim span{display:none}
 body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass{opacity:0}
+/* (and while a drill's card is up, which sits where the compass is) */
+#lifeRoot:has(> #lifeDrill.on) > #lifeCompass{opacity:0}
 /* the objective and the match bar sit under the compass and its two rows of markers (js/life/compass.js ROWS) */
 .onb-goal{top:calc(var(--hud-pad) + 126px)}
 .lf-match{top:calc(var(--hud-pad) + 126px)}

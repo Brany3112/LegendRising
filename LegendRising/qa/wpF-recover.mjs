@@ -3,7 +3,8 @@
 //
 // Play to minute 30, let a dead-ball checkpoint be written, close the page, reopen and Continue: the remainder runs
 // headless; the final score is at least the checkpoint score for both sides; the player's minutes equal the checkpoint
-// minute; no missed-match penalty; S.life.inMatch is cleared and the fixture is done.
+// minute; no missed-match penalty; S.life.inMatch is cleared and the fixture is done. The hub drawn while it is played
+// out (Q over the card) leaves the match's mirror alone, so it still finishes.
 //
 //   QA_PORT=8770 node qa/wpF-recover.mjs        exits 1 on any failed check; writes qa/out/wpF-recover.json
 import {openDay, checker} from "./wpF-lib.mjs";
@@ -43,8 +44,18 @@ try {
   await freeze(page2);
   const pre = await page2.evaluate(() => ({inMatch: !!S.life.inMatch, sec: S.life.inMatch ? S.life.inMatch.sec : null}));
   check(pre.inMatch, "the save holds the match in progress", pre);
-  // the first quiet second: the card, the rest played out headless, 10 ms a frame
-  let res = null;
+  // the first quiet second: the card, the rest played out headless, 10 ms a frame; once it is under way the hub is
+  // drawn once (Q over the card: phone.js lifeHub draws it), which must leave the match's mirror alone
+  let res = null, hubDrawn = null;
+  for (let i = 0; i < 400 && !hubDrawn; i++){
+    hubDrawn = await page2.evaluate(() => {
+      window.__life.stepN(1);
+      if (!window.__fp.RECOVER.busy) return null;
+      renderHub();
+      return {mt: typeof MT !== "undefined" && !!MT, recovering: !!window.FP.recovering};
+    });
+  }
+  check(!!hubDrawn && hubDrawn.mt && hubDrawn.recovering, "the hub drawn while it is played out keeps the match's mirror (MT)", hubDrawn);
   for (let i = 0; i < 4000 && !res; i++){
     res = await page2.evaluate(() => {
       window.__life.stepN(4);
