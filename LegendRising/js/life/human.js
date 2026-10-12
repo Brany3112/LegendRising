@@ -82,6 +82,9 @@ import {qualityScales} from "./core/quality.js";
 import {TAU, D2R, clamp, lerp, sstep, wrap, kf, BN, PAR, BONE, B, ARM, LEG, NP, NQ, dims, restPos, restOffsets, R3, frameOf, legIK, armIK, plantHand, leanTo, PALM, UPV as _UPV,
   eulerToQ, qEuler, qMul, qRot, qLog, qExp, qAngle, fkQ, newFK, solveLeg, ground, writeBones, LEGW} from "./rig.js";
 import {EV, gaitInit, gaitStep, gaitPose, gaitLegs, gaitPlace, footstep, touch} from "./gait.js";
+// (Math.hypot is some fifteen times slower than a square root in V8, and these are the hot paths of every body's
+// animation; nothing here comes near overflowing a square)
+const hypot = (x, y, z = 0, w = 0) => Math.sqrt(x*x + y*y + z*z + w*w);
 export {BONE, footstep, touch, gaitPlace};
 
 /* ---------- small maths ---------- */
@@ -135,7 +138,7 @@ const ROOTW = wt(0);
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a, b) => [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
 const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+const norm = a => { const l = hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
 const addv = (a, b, k = 1) => [a[0] + b[0]*k, a[1] + b[1]*k, a[2] + b[2]*k];
 
 // a ring of points round c in the plane of U and V; prof(a) gives the offsets along U and V (angle 0 points along V)
@@ -157,11 +160,11 @@ function loft(G, R, o = {}){
   if (o.out) { const a = R[0].v[0], b = R[0].v[1], c = R[1].v[1]; flip = dot(cross(sub(b, a), sub(c, a)), o.out) < 0; found = true; }
   for (let i = 0; i < R.length - 1 && !found; i++) for (let k = 0; k < n - 1 && !found; k++){
     const a = R[i].v[k], b = R[i].v[k + 1], c = R[i + 1].v[k + 1], nn = cross(sub(b, a), sub(c, a));
-    if (Math.hypot(...nn) < 1e-7 || Math.abs(R[i].c[1] - R[i + 1].c[1]) + Math.hypot(R[i].c[0] - R[i + 1].c[0], R[i].c[2] - R[i + 1].c[2]) < 1e-3) continue;
+    if (hypot(...nn) < 1e-7 || Math.abs(R[i].c[1] - R[i + 1].c[1]) + hypot(R[i].c[0] - R[i + 1].c[0], R[i].c[2] - R[i + 1].c[2]) < 1e-3) continue;
     const ax = [(R[i].c[0] + R[i + 1].c[0])/2, (R[i].c[1] + R[i + 1].c[1])/2, (R[i].c[2] + R[i + 1].c[2])/2];
     const m = sub([(a[0] + b[0] + c[0])/3, (a[1] + b[1] + c[1])/3, (a[2] + b[2] + c[2])/3], ax);
     if (o.radial === "xz") m[1] = 0;
-    if (Math.hypot(...m) < 1e-4) continue;
+    if (hypot(...m) < 1e-4) continue;
     flip = dot(nn, m) < 0; found = true;
   }
   if (o.inside) flip = !flip;
@@ -206,7 +209,7 @@ function tube(G, pts, radii, n, ws, slot, sh = 1, tipCap = true){
   const R = [];
   for (let i = 0; i < pts.length; i++){
     const t = norm(sub(pts[Math.min(pts.length - 1, i + 1)], pts[Math.max(0, i - 1)]));
-    let U = norm(cross(t, [0, 0, 1])); if (Math.hypot(...cross(t, [0, 0, 1])) < .2) U = norm(cross(t, [1, 0, 0]));
+    let U = norm(cross(t, [0, 0, 1])); if (hypot(...cross(t, [0, 0, 1])) < .2) U = norm(cross(t, [1, 0, 0]));
     const V = cross(U, t), r = radii[i];
     R.push(ring(pts[i], U, V, a => [Math.sin(a)*r, Math.cos(a)*r], n, ws[i], {s:slot, sh}));
   }
@@ -296,7 +299,7 @@ function decal(G, hit, tris, side, lift, slot, wf, sh = 1){
     for (let f = 0; f < nf; f++){
       const i = f*9, ax = hit[i], ay = hit[i + 1], az = hit[i + 2], bx = hit[i + 3], by = hit[i + 4], bz = hit[i + 5], cx = hit[i + 6], cy = hit[i + 7], cz = hit[i + 8];
       if (Math.max(ax, bx, cx) < x0 || Math.min(ax, bx, cx) > x1 || Math.max(ay, by, cy) < y0 || Math.min(ay, by, cy) > y1) continue;
-      const n = cross([bx - ax, by - ay, bz - az], [cx - ax, cy - ay, cz - az]), nl = Math.hypot(n[0], n[1], n[2]);
+      const n = cross([bx - ax, by - ay, bz - az], [cx - ax, cy - ay, cz - az]), nl = hypot(n[0], n[1], n[2]);
       if (nl < 1e-12 || n[2]*side < .05*nl) continue;                        // only facets that face this way
       const P = clip2([t[0], t[1], t[2]], [ax, ay], [bx, by], [cx, cy]);
       if (P.length < 3) continue;
@@ -318,7 +321,7 @@ const fan = pts => { const c = pts.reduce((s, p) => [s[0] + p[0]/pts.length, s[1
 function stroke(pts, w){
   const T = [];
   for (let i = 0; i < pts.length - 1; i++){
-    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy/l*w/2, ny = dx/l*w/2;
+    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l = hypot(dx, dy) || 1, nx = -dy/l*w/2, ny = dx/l*w/2;
     const p = [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]];
     T.push([p[0], p[1], p[2]], [p[0], p[2], p[3]]);
     if (i){ const r = w*.5; T.push(...fan([0, 1, 2, 3, 4, 5].map(k => [a[0] + Math.cos(k/6*TAU)*r, a[1] + Math.sin(k/6*TAU)*r]))); }
@@ -940,7 +943,7 @@ function hair(G, D, F, look, hf, near){
    face and shoulders */
 function under(a, b, c, out){
   let n = cross(sub(b, a), sub(c, a)); if (dot(n, out) < 0) n = n.map(v => -v);
-  const l = Math.hypot(n[0], n[1], n[2]) || 1;
+  const l = hypot(n[0], n[1], n[2]) || 1;
   return 1 + 2.6*Math.max(0, -n[1]/l);
 }
 const p0y = (R, rows) => { let y = 0, n = 0; for (const p of R[rows].v) if (p){ y += p[1]; n++; } return n ? y/n : 0; };
@@ -1003,7 +1006,7 @@ function* shapeSteps(look, det, noHead){
     else {
       const ux = pos[a + 3] - pos[a], uy = pos[a + 4] - pos[a + 1], uz = pos[a + 5] - pos[a + 2], vx = pos[a + 6] - pos[a], vy = pos[a + 7] - pos[a + 1], vz = pos[a + 8] - pos[a + 2];
       nx = uy*vz - uz*vy; ny = uz*vx - ux*vz; nz = ux*vy - uy*vx;
-      const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+      const l = hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
     }
     for (let k = 0; k < 3; k++){ nor[a + k*3] = nx; nor[a + k*3 + 1] = ny; nor[a + k*3 + 2] = nz; }
   }
@@ -1320,7 +1323,7 @@ function hook(scene){
   scene.onBeforeRender = function(renderer, sc, camera, rt){
     prev.call(this, renderer, sc, camera, rt);
     camera.getWorldPosition(_cam); VIEW.x = _cam.x; VIEW.y = _cam.y; VIEW.z = _cam.z; VIEW.scene = sc;
-    { const e = camera.matrixWorld.elements, l = Math.hypot(e[8], e[10]) || 1; VIEW.fx = -e[8]/l; VIEW.fz = -e[10]/l; }
+    { const e = camera.matrixWorld.elements, l = hypot(e[8], e[10]) || 1; VIEW.fx = -e[8]/l; VIEW.fz = -e[10]/l; }
     if (FIRST.gen === W.ticks && FIRST.fns.length){ const fns = FIRST.fns; FIRST.fns = []; for (const fn of fns) try { fn(VIEW); } catch(err){ console.error(err); } }
     let n = 0;
     const bl = blobs();
@@ -1335,7 +1338,7 @@ function hook(scene){
       while (o.parent){ if (!o.visible) vis = false; o = o.parent; }
       if (o !== sc){ if (h.gen !== W.ticks) h.dispose(); continue; }
       if (!vis || !h.g.visible) continue;
-      const e = h.g.matrixWorld.elements, d = Math.hypot(e[12] - _cam.x, e[13] - _cam.y, e[14] - _cam.z);
+      const e = h.g.matrixWorld.elements, d = hypot(e[12] - _cam.x, e[13] - _cam.y, e[14] - _cam.z);
       if (h.far){
         let lv = h.lod;
         if (d < Ld.back) lv = 1;
@@ -1766,7 +1769,7 @@ const GAPB = [B.hips, B.spine, B.chest, B.uaL, B.uaR, B.thL, B.thR, B.shL, B.shR
 function poseGap(A, Q){
   let m = 0;
   for (let i = 0; i < GAPB.length; i++){ const b = GAPB[i]; m = Math.max(m, qAngle(A, b*4, Q, b*4)); }
-  return Math.max(m, 2*Math.hypot(Q[80] - A[80], Q[81] - A[81], Q[82] - A[82]));
+  return Math.max(m, 2*hypot(Q[80] - A[80], Q[81] - A[81], Q[82] - A[82]));
 }
 
 /* ---------- inertialisation ---------- */
@@ -1785,7 +1788,7 @@ function inertiaStart(h, Q, dur, still = false){
     if (vel){
       offsetOf(Pp, Q, i, _ql, 4);
       let vx = (I.x[i*3] - _ql[4])/dtp, vy = (I.x[i*3 + 1] - _ql[5])/dtp, vz = (I.x[i*3 + 2] - _ql[6])/dtp;
-      const vl = Math.hypot(vx, vy, vz); if (vl > 20){ vx *= 20/vl; vy *= 20/vl; vz *= 20/vl; }
+      const vl = hypot(vx, vy, vz); if (vl > 20){ vx *= 20/vl; vy *= 20/vl; vz *= 20/vl; }
       I.v[i*3] = vx; I.v[i*3 + 1] = vy; I.v[i*3 + 2] = vz;
     } else I.v[i*3] = I.v[i*3 + 1] = I.v[i*3 + 2] = 0;
   }
@@ -1874,7 +1877,7 @@ function slerpInto(Q, o, R, t){
   if (d < 0){ bx = -bx; by = -by; bz = -bz; bw = -bw; d = -d; }
   let k0 = 1 - t, k1 = t;
   if (d < .9995){ const th = Math.acos(d), s = Math.sin(th); k0 = Math.sin((1 - t)*th)/s; k1 = Math.sin(t*th)/s; }
-  const x = ax*k0 + bx*k1, y = ay*k0 + by*k1, z = az*k0 + bz*k1, ww = aw*k0 + bw*k1, l = Math.hypot(x, y, z, ww) || 1;
+  const x = ax*k0 + bx*k1, y = ay*k0 + by*k1, z = az*k0 + bz*k1, ww = aw*k0 + bw*k1, l = hypot(x, y, z, ww) || 1;
   Q[o] = x/l; Q[o + 1] = y/l; Q[o + 2] = z/l; Q[o + 3] = ww/l;
 }
 
@@ -1900,7 +1903,7 @@ function drawnAnkles(h, Q, out){
     p.roll = -Math.asin(clamp(_ql[1], -1, 1));
     // (the knee's bend as drawn: the shin's turn about its hinge)
     const sh = LEG(i ? -1 : 1)[1]*4;
-    p.kf = 2*Math.atan2(Math.hypot(Q[sh], Q[sh + 1], Q[sh + 2]), Math.abs(Q[sh + 3]));
+    p.kf = 2*Math.atan2(hypot(Q[sh], Q[sh + 1], Q[sh + 2]), Math.abs(Q[sh + 3]));
   }
   return out;
 }
@@ -2212,7 +2215,7 @@ const CLASH_PREF = [0x1c1d21, 0xf2d53c, 0x2f9e44, 0xf07a1a, 0x7a3fb0, 0x1fa2c4, 
 const rgb8 = c => { const v = hex(c) ?? 0; return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
 export function clashFree(color, avoid = []){
   const av = (avoid || []).filter(c => c != null && c !== false).map(rgb8);
-  const far = c => { const p = rgb8(c); let m = Infinity; for (const a of av) m = Math.min(m, Math.hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2])); return m; };
+  const far = c => { const p = rgb8(c); let m = Infinity; for (const a of av) m = Math.min(m, hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2])); return m; };
   if (color != null && far(color) >= CLASH_MIN) return hex(color);
   let best = CLASH_PREF[0], bd = -1;
   for (const c of CLASH_PREF){ const d = far(c); if (d >= CLASH_MIN) return c; if (d > bd){ bd = d; best = c; } }

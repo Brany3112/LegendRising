@@ -11,6 +11,9 @@
    1.80 m frame (a body of height h is the group scaled by h). fkQ() gives every bone's body-space position and
    rotation as plain numbers (no THREE objects on the hot path). */
 import {THREE} from "./build.js";
+// (Math.hypot is some fifteen times slower than a square root in V8, and these are the hot paths of every body's
+// animation; nothing here comes near overflowing a square)
+const hypot = (x, y, z = 0, w = 0) => Math.sqrt(x*x + y*y + z*z + w*w);
 
 /* ---------- small maths ---------- */
 export const TAU = Math.PI*2, D2R = Math.PI/180;
@@ -240,14 +243,14 @@ export function qY(out, o, a){ out[o] = 0; out[o + 1] = Math.sin(a/2); out[o + 2
 export function qLog(q, qi, out, o){
   let x = q[qi], y = q[qi + 1], z = q[qi + 2], w = q[qi + 3];
   if (w < 0){ x = -x; y = -y; z = -z; w = -w; }
-  const s = Math.hypot(x, y, z);
+  const s = hypot(x, y, z);
   if (s < 1e-9){ out[o] = 2*x; out[o + 1] = 2*y; out[o + 2] = 2*z; return; }
   const k = 2*Math.atan2(s, w)/s;
   out[o] = x*k; out[o + 1] = y*k; out[o + 2] = z*k;
 }
 // exp map: the quaternion of a rotation vector, into out at o
 export function qExp(rx, ry, rz, out, o){
-  const a = Math.hypot(rx, ry, rz);
+  const a = hypot(rx, ry, rz);
   if (a < 1e-9){ out[o] = rx/2; out[o + 1] = ry/2; out[o + 2] = rz/2; out[o + 3] = 1; return; }
   const s = Math.sin(a/2)/a;
   out[o] = rx*s; out[o + 1] = ry*s; out[o + 2] = rz*s; out[o + 3] = Math.cos(a/2);
@@ -295,7 +298,7 @@ export function solveLeg(h, Q, F, s, x, y, z, fq, fi, toe = 0, pole = null){
   qRot(F, 10, A[th*3], A[th*3 + 1], A[th*3 + 2], w, 0);
   const hx = F[7] + w[0], hy = F[8] + w[1], hz = F[9] + w[2];
   let vx = x - hx, vy = y - hy, vz = z - hz;
-  let d = Math.hypot(vx, vy, vz);
+  let d = hypot(vx, vy, vz);
   if (d < 1e-6){ vx = 0; vy = -1; vz = 0; d = 1; }
   const ux = vx/d, uy = vy/d, uz = vz/d, dc = softReach(d, L1, L2);
   const k = Math.PI - Math.acos(clamp((L1*L1 + L2*L2 - dc*dc)/(2*L1*L2), -1, 1));
@@ -305,15 +308,15 @@ export function solveLeg(h, Q, F, s, x, y, z, fq, fi, toe = 0, pole = null){
   if (pole){ px = pole[0]; py = pole[1]; pz = pole[2]; }
   else { qRot(fq, fi, 0, 0, 1, w, 3); px = w[3] + s*.06; py = w[4]*.3; pz = w[5]; }
   let pd = px*ux + py*uy + pz*uz; px -= ux*pd; py -= uy*pd; pz -= uz*pd;
-  let pl = Math.hypot(px, py, pz);
-  if (pl < 1e-6){ px = 0; py = 0; pz = 1; pd = uz; px -= ux*pd; py -= uy*pd; pz -= uz*pd; pl = Math.hypot(px, py, pz) || 1; }
+  let pl = hypot(px, py, pz);
+  if (pl < 1e-6){ px = 0; py = 0; pz = 1; pd = uz; px -= ux*pd; py -= uy*pd; pz -= uz*pd; pl = hypot(px, py, pz) || 1; }
   px /= pl; py /= pl; pz /= pl;
   // the thigh: from the hip-ankle line towards the knee's way by the triangle's angle at the hip
   const tx = ux*ca + px*sa, ty = uy*ca + py*sa, tz = uz*ca + pz*sa;
   // its frame: -Y down the bone, +Z the way the knee points (the shin folds back, to -Z), X = Y x Z
   const Yx = -tx, Yy = -ty, Yz = -tz;
   let zd = px*tx + py*ty + pz*tz, Zx = px - tx*zd, Zy = py - ty*zd, Zz = pz - tz*zd;
-  const zl = Math.hypot(Zx, Zy, Zz) || 1; Zx /= zl; Zy /= zl; Zz /= zl;
+  const zl = hypot(Zx, Zy, Zz) || 1; Zx /= zl; Zy /= zl; Zz /= zl;
   const Xx = Yy*Zz - Yz*Zy, Xy = Yz*Zx - Yx*Zz, Xz = Yx*Zy - Yy*Zx;
   qBasis(w, 6, Xx, Xy, Xz, Yx, Yy, Yz, Zx, Zy, Zz);                   // the thigh in body space
   qMulInv(F, 10, w, 6, Q, th*4);                                     // ... in the hips' frame
@@ -330,19 +333,19 @@ export function solveArm(h, Q, F, s, x, y, z, twist = 0, wrist = 0, pole = POLE)
   // the target in the chest's frame, from the shoulder
   qRotInv(F, C + 3, x - F[C], y - F[C + 1], z - F[C + 2], w, 0);
   let vx = w[0] - A[ua*3], vy = w[1] - A[ua*3 + 1], vz = w[2] - A[ua*3 + 2];
-  let d = Math.hypot(vx, vy, vz); if (d < 1e-6){ vx = 0; vy = -1; vz = 0; d = 1; }
+  let d = hypot(vx, vy, vz); if (d < 1e-6){ vx = 0; vy = -1; vz = 0; d = 1; }
   const dc = softReach(d, L1, L2); vx *= dc/d; vy *= dc/d; vz *= dc/d; d = dc;
   const ux = vx/d, uy = vy/d, uz = vz/d;
   let px = s*pole[0], py = pole[1], pz = pole[2], pd = px*ux + py*uy + pz*uz; px -= ux*pd; py -= uy*pd; pz -= uz*pd;
-  let pl = Math.hypot(px, py, pz);
-  if (pl < 1e-6){ px = 0; py = 0; pz = -1; pd = -uz; px -= ux*pd; py -= uy*pd; pz -= uz*pd; pl = Math.hypot(px, py, pz) || 1; }
+  let pl = hypot(px, py, pz);
+  if (pl < 1e-6){ px = 0; py = 0; pz = -1; pd = -uz; px -= ux*pd; py -= uy*pd; pz -= uz*pd; pl = hypot(px, py, pz) || 1; }
   px /= pl; py /= pl; pz /= pl;
   const ca = clamp((L1*L1 + d*d - L2*L2)/(2*L1*d), -1, 1), sa = Math.sqrt(1 - ca*ca);
   const ex = (ux*ca + px*sa)*L1, ey = (uy*ca + py*sa)*L1, ez = (uz*ca + pz*sa)*L1;      // the elbow
-  const el = Math.hypot(ex, ey, ez) || 1, Yx = -ex/el, Yy = -ey/el, Yz = -ez/el;
+  const el = hypot(ex, ey, ez) || 1, Yx = -ex/el, Yy = -ey/el, Yz = -ez/el;
   let Zx = vx - ex, Zy = vy - ey, Zz = vz - ez, zd = Zx*Yx + Zy*Yy + Zz*Yz; Zx -= Yx*zd; Zy -= Yy*zd; Zz -= Yz*zd;
-  let zl = Math.hypot(Zx, Zy, Zz);
-  if (zl < 1e-6){ Zx = -px; Zy = -py; Zz = -pz; zd = Zx*Yx + Zy*Yy + Zz*Yz; Zx -= Yx*zd; Zy -= Yy*zd; Zz -= Yz*zd; zl = Math.hypot(Zx, Zy, Zz) || 1; }
+  let zl = hypot(Zx, Zy, Zz);
+  if (zl < 1e-6){ Zx = -px; Zy = -py; Zz = -pz; zd = Zx*Yx + Zy*Yy + Zz*Yz; Zx -= Yx*zd; Zy -= Yy*zd; Zz -= Yz*zd; zl = hypot(Zx, Zy, Zz) || 1; }
   Zx /= zl; Zy /= zl; Zz /= zl;
   const Xx = Yy*Zz - Yz*Zy, Xy = Yz*Zx - Yx*Zz, Xz = Yx*Zy - Yy*Zx;
   qBasis(Q, ua*4, Xx, Xy, Xz, Yx, Yy, Yz, Zx, Zy, Zz);
