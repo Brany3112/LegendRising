@@ -10,7 +10,7 @@
    rides your body's own pelvis and footfalls (me.js), not a clock of its own.
    WP-L (Stage 3) removed the development flag that put back the movement this replaced (DESIGN 2.5 WP-L, 0.2). */
 import {W} from "../build.js";
-import {G, P, B, E, FLAGS, LIFE, keys, spring} from "./state.js";
+import {G, P, B, E, FLAGS, LIFE, ME, keys, spring} from "./state.js";
 import {moveBy} from "./collide.js";
 import {hud} from "./hud.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
@@ -76,7 +76,9 @@ export function moveInput(lk){
 // how fast a sprint left over from the other profile eases off (m/s per second; body() LOCO.ease)
 const EASE = 1.5;
 export const LOCO = {m:null, prm:null, prof:null, spd:NaN, acc:NaN, drb:NaN, ease:false, st:null, fac:{}, want:0, px:NaN, pz:NaN, capT:0,
-  intent:{dx:0, dz:0, gait:"walk", face:{x:0, z:-1}, strafe:false, speedCap:Infinity}};
+  intent:{dx:0, dz:0, gait:"walk", face:null, strafe:false, speedCap:Infinity}};
+// (the facing the keys hold in first person: where you look)
+const FACE = {x:0, z:-1};
 const skillOf = k => {
   const s = G();
   try { if (typeof effSkill === "function"){ const v = +effSkill(k); if (Number.isFinite(v)) return v; } } catch(e){}
@@ -126,7 +128,11 @@ export function body(dt, f, r, len, run){
   it.dx = len ? r*cos - f*sin : 0; it.dz = len ? -r*sin - f*cos : 0;
   it.gait = run ? (f > .5 ? "sprint" : "run") : drill ? "run" : "walk";
   it.speedCap = drill ? GAIT.drill : Infinity;
-  it.face.x = -sin; it.face.z = -cos;
+  /* first person you face where you look (the facing held: sideways and backwards are side steps and a backpedal);
+     third person (P2-B, MV-12) the body faces where it goes, turning to it at the mover's own rate, and from standing
+     it turns before it sets off (the LIFE profile's turnFirst): the third-person body is drawn facing the mover's yaw */
+  const tp = !!ME.tpShown && !drill;
+  FACE.x = -sin; FACE.z = -cos; it.face = tp ? null : FACE;
   const ox = P.x, oz = P.z;
   const v0 = m.speed;
   moverStep(m, it, LOCO.prm, fac, dt, collide);

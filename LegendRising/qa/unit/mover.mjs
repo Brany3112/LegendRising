@@ -96,7 +96,8 @@ function cut(pace, deg = 90){
   for (const [profile, gait] of [["football", "walk"], ["football", "jog"], ["football", "run"], ["football", "sprint"], ["life", "walk"], ["life", "run"]]){
     const prm = moverParams({pace: 50, dribbling: 50}, profile), m = createMover({yaw: EAST});
     const vt = gaitSpeed(prm, FRESH, gait), vmax = prm.vmax, k = prm.a0/vmax;
-    const tForm = (1 - Math.pow(1 - 0.95*vt/vmax, 0.2))/(0.2*k);
+    // (the LIFE walk, P2-B MV-11: a constant walkA from standing, so its first step lands before it is up to speed)
+    const tForm = profile === "life" && gait === "walk" ? 0.95*vt/prm.walkA : (1 - Math.pow(1 - 0.95*vt/vmax, 0.2))/(0.2*k);
     let t = 0;
     while (m.speed < 0.95*vt - 1e-12 && t < 10){ moverStep(m, {dx: 1, dz: 0, gait}, prm, FRESH, H); t += H; }
     // the stepped time is the first whole step at or past the formula's time
@@ -136,12 +137,14 @@ function cut(pace, deg = 90){
   for (const [profile, gait] of [["football", "sprint"], ["football", "jog"], ["football", "walk"], ["life", "walk"], ["life", "run"]]){
     const prm = moverParams({pace: 50}, profile), m = createMover({yaw: EAST});
     for (let i = 0; i < 600; i++) moverStep(m, {dx: 1, dz: 0, gait}, prm, FRESH, H);
-    const v0 = m.speed, x0 = m.x, tWant = v0/prm.brake, dWant = v0*v0/(2*prm.brake);
+    // (the LIFE walk pulls up at its own walkBrake, P2-B MV-11; a run keeps the firm brake all the way down)
+    const rate = profile === "life" && gait === "walk" ? prm.walkBrake : prm.brake;
+    const v0 = m.speed, x0 = m.x, tWant = v0/rate, dWant = v0*v0/(2*rate);
     let t = 0, steady = true;
     while (m.speed > 0 && t < 5){
       const v = m.speed;
       moverStep(m, {dx: 0, dz: 0}, prm, FRESH, H); t += H;
-      if (m.speed > 0 && Math.abs((v - m.speed) - prm.brake*H) > 1e-9) steady = false;
+      if (m.speed > 0 && Math.abs((v - m.speed) - rate*H) > 1e-9) steady = false;
     }
     const d = m.x - x0;
     if (!steady || t < tWant - 1e-9 || t > tWant + H + 1e-9 || Math.abs(d - dWant) > v0*H) ok = false;
@@ -378,6 +381,47 @@ function cut(pace, deg = 90){
   const walk = createMover({yaw: EAST});
   let tw = 0; while (walk.speed < 0.95*1.7 && tw < 3){ moverStep(walk, {dx: 1, dz: 0, gait: 'walk', face: fwd}, prm, FRESH, H); tw += H; }
   check(tw > 0.1 && tw < 0.6, "life: a walk is up to speed in a fraction of a second, not instantly", r3(tw));
+}
+
+// P2-B (MV-11): a LIFE walk sets off and pulls up at a walking pace (no more than 4 m/s squared either way), so the
+// body never glides ahead of its first step or past its last one; a run's stop keeps the firm brake all the way down
+{
+  const prm = moverParams({pace: 50}, "life"), m = createMover({yaw: EAST});
+  let aMax = 0, t95 = null, t = 0;
+  for (let i = 0; i < 60; i++){ const v = m.speed; moverStep(m, {dx: 1, dz: 0, gait: 'walk'}, prm, FRESH, H); t += H; aMax = Math.max(aMax, (m.speed - v)/H); if (t95 == null && m.speed >= 0.95*prm.walk) t95 = t; }
+  let bMax = 0, tb = 0; const x0 = m.x;
+  while (m.speed > 0 && tb < 3){ const v = m.speed; moverStep(m, {dx: 0, dz: 0}, prm, FRESH, H); bMax = Math.max(bMax, (v - m.speed)/H); tb += H; }
+  check(aMax <= 4 + 1e-9 && bMax <= 4 + 1e-9 && t95 > 0.35 && tb < 0.5, "life: a walk starts and stops at no more than 4 m/s squared", {accel: r3(aMax), brake: r3(bMax), t95: r3(t95), stop: r3(tb), stopM: r3(m.x - x0)});
+  const r = createMover({yaw: EAST});
+  for (let i = 0; i < 300; i++) moverStep(r, {dx: 1, dz: 0, gait: 'run'}, prm, FRESH, H);
+  let firm = true;
+  while (r.speed > 0){ const v = r.speed; moverStep(r, {dx: 0, dz: 0}, prm, FRESH, H); if (r.speed > 0 && Math.abs((v - r.speed) - prm.brake*H) > 1e-9) firm = false; }
+  check(firm, "life: a run's stop brakes at 12 m/s squared all the way down, through walking speeds too");
+}
+// P2-B (MV-12): from standing with the facing free (third person) the body turns towards its way before it sets off:
+// it does not move while the wish is 60 degrees or more off its facing, and it never moves more than 60 degrees off it
+{
+  const prm = moverParams({pace: 50}, "life"), rows = [];
+  let ok = true;
+  for (const deg of [90, 135, 180]){
+    const m = createMover({yaw: EAST}), wish = wrapA(EAST + deg*Math.PI/180), d = dirOf(wish);
+    let still = 0, worst = 0;
+    for (let i = 0; i < 90; i++){
+      const x = m.x, z = m.z, off = Math.abs(wrapA(wish - m.yaw));
+      moverStep(m, {dx: d.x, dz: d.z, gait: 'walk', face: null}, prm, FRESH, H);
+      const mx = m.x - x, mz = m.z - z, ml = Math.hypot(mx, mz);
+      if (off >= Math.PI/3 - 1e-9 && ml > 1e-9) ok = false;
+      if (ml > 1e-9){ const f = dirOf(m.yaw); worst = Math.max(worst, Math.acos(Math.max(-1, Math.min(1, (mx*f.x + mz*f.z)/ml)))); }
+      else still++;
+    }
+    if (worst > Math.PI/3 + 1e-6 || !(m.speed > 1)) ok = false;
+    rows.push({deg, stillFrames: still, worstDeg: r3(worst*180/Math.PI), v: r3(m.speed)});
+  }
+  check(ok, "life, facing free: from standing the body turns before it walks off, never more than 60 degrees off its facing", rows);
+  // with the facing held (first person) the wish is taken at once, as before: a backpedal is a backpedal
+  const m = createMover({yaw: EAST});
+  moverStep(m, {dx: -1, dz: 0, gait: 'walk', face: dirOf(EAST)}, prm, FRESH, H);
+  check(m.speed > 0 && m.x < 0, "life, facing held: a wish behind is a backpedal at once", r3(m.speed));
 }
 
 // timeToPoint agrees with stepping the mover
