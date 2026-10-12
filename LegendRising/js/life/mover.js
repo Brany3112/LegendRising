@@ -75,7 +75,7 @@ export function moverParams(skills = {}, profile = "football", items = {}){
       // firm brake are as they were). turnFirst: from standing, with the facing free (third person), the body turns
       // towards where it is going before it sets off: no speed beyond the walk's cos share while the wish is more than
       // a quarter turn away
-      walkA: 3.8, walkBrake: 3.8, turnFirst: true,
+      walkA: 3.2, walkBrake: 3.8, turnFirst: true,
       sprintCone: 60*DEG, sprintBuild: 1.1, sprintFade: 2.5,
       cutAngle: 35*DEG, cutMin: 3.0, cutFloor: 0.3,
       faceRate: 12, staggerCap: 2.0, staggerT: 0.35, bounds: null};

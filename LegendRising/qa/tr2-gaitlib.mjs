@@ -25,7 +25,8 @@ async function pageDrive(o){
   const L = window.__life, scene = L.scene(), cam = L.cam, ren = L.renderer();
   if (L.ME.fp) L.ME.fp.g.visible = false; if (L.ME.tp) L.ME.tp.g.visible = false;
   const B = H.BONE, V = new (cam.position.constructor)(), Q0 = new (cam.quaternion.constructor)();
-  const look = H.lookFor(o.role || "footballer", o.seed || 11, {kit:["#c0392b", "#ffffff"], number:8, training:true, height:o.scale || 1});
+  // (o.me: your own body, as the career made it: its build and height)
+  const look = o.me ? (await import("./js/life/look.js")).bodyLook(S.player.look, "training") : H.lookFor(o.role || "footballer", o.seed || 11, {kit:["#c0392b", "#ffffff"], number:8, training:true, height:o.scale || 1});
   const h = H.human(look); scene.add(h.g);
   const dt = 1/o.hz, prof = o.prof || "football";
   const prm = Mv.moverParams({sprintSpeed:o.pace || 50, acceleration:o.pace || 50, dribbling:50}, prof);

@@ -128,9 +128,12 @@ function neckFix(h, Q){
   NECK.back += (Math.max(0, ahead) - NECK.back)*.5;
 }
 /* the head bob (DESIGN 1.5.9) from the first-person body's pelvis: its height against its running mean, scaled by
-   lerp(0.45, 0.32, R) and held within 0.006 + 0.0016 v metres; its sideways sway times 0.35 within 6 mm; and on each
+   lerp(0.35, 0.3, R) and held within 0.006 + 0.0016 v metres; its sideways sway times 0.35 within 6 mm; and on each
    of that body's footfalls a nod of 0.15 degrees times min(1, v/8) (a kick into the camera's spring, stiffness 30).
-   Both fade out below 0.5 m/s: standing, the eye is still (an idle body shifting its weight does not move the view) */
+   Both fade out below 0.5 m/s: standing, the eye is still (an idle body shifting its weight does not move the view).
+   P2-B (MV-2): the pelvis is a smooth curve now, rising and falling about 4 cm a step at a brisk walk (gait.js), so the
+   bob is a smooth wave too, under 2 mm a frame; its share is a little smaller than it was, so the wave stays inside
+   its bound rather than being clipped flat at every step */
 export const BOB = {mean:null, x:0, y:0, nods:0, lastN:-1};
 function bobStep(h, dt){
   const Gt = h.gait;
@@ -138,7 +141,7 @@ function bobStep(h, dt){
   const s = h.scale, v = P.speed, dy = Gt.hipDy*s, mv = sstep(.05, .5, v);
   if (BOB.mean == null) BOB.mean = dy;
   BOB.mean += (dy - BOB.mean)*(1 - Math.exp(-2.5*dt));
-  const k = lerp(.45, .32, Gt.R), A = .006 + .0016*v;
+  const k = lerp(.35, .3, Gt.R), A = .006 + .0016*v;
   BOB.y = clamp(k*(dy - BOB.mean), -A, A)*mv;
   BOB.x = clamp(-.35*Gt.hipLat*s, -.006, .006)*mv;
   if (h.ev.mask & EV.FOOTFALL){ BOB.nods++; BOB.lastN = Gt.n; if (v > .3) camKick({pitch:-.15*D2R*Math.min(1, v/8), w:30}); }

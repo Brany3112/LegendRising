@@ -107,7 +107,7 @@ export function gaitInit(h){
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, falls:[], over:[null, null], via:[null, null], belt:0, ext:false,
     // (and the ones the steps fill in as they go, here from the start: one shape for every body's gait, NaN for none)
     accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
-    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0};
+    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0};
   return h.gait;
 }
 
@@ -226,7 +226,11 @@ function predict(G, dist){
 /* where foot f should land when its swing ends: (x, z, yaw, roll) into out. rem: the distance the root will have
    travelled by then (the clock's remaining share of the stride times its length) */
 function planLanding(h, f, i, rem, out){
-  const G = h.gait, D = h.D, sc = h.scale, v = G.vs, s = f.s, ry = h.g.rotation.y;
+  const G = h.gait, D = h.D, sc = h.scale, s = f.s, ry = h.g.rotation.y;
+  // (the first step of a start (P2-B, MV-3 and MV-11): planned for the speed the body will have when it lands, not
+  // the little it has as it lifts: a start step put down for a standing body left that foot so far behind once the
+  // body was up to a walk that it slid or the next step came off the ground before the other had landed)
+  const v = G.start > 0 && f.sw && G.acc > 0 ? Math.min(G.vs + G.acc*Math.max(0, f.sw.T - f.sw.t), Math.max(G.vs, G.iv)) : G.vs;
   const ov = G.over[i];
   if (ov){ out.x = ov.x; out.z = ov.z; out.yaw = ov.yaw; out.roll = G.R > .5 ? -.05 : -.22; return out; }
   // stopping: beside the rest point, square to the way the body faces
@@ -271,7 +275,7 @@ function planLanding(h, f, i, rem, out){
     }
     along = lerp(aW, aR, G.R);
     if (back) along *= .8;
-    if (G.start > 0) along *= .55;                                       // the first step is a short one
+    if (G.start > 0) along *= .75;                                       // the first step is a short one
     // the plant of a hard stop: well ahead, as far as the leg reaches with the hips braced low (they come down 0.08)
     if (G.brakeT > 0 && G.state === "STOP" && v > 4) along = Math.min(clamp(.45 + .03*(v - 4), .45, .6)*sc, aR + .07*sc);
     // a cut (3.5.5): the outside foot plants wide, on the new heading: 0.35 m out from the stance line as the design
@@ -506,6 +510,7 @@ export function gaitStep(h, dt, st){
   }
   G.yawRate += (clamp(wrap(ry - G.ry)/dt, -15, 15) - G.yawRate)*(1 - Math.exp(-12*dt)); G.ry = ry;
   const v = G.vs, intent = st.intent != null ? +st.intent : st.speed != null ? +st.speed : v;
+  G.iv = intent;
   // the style of stepping (3.5.2): along the way the body faces, sideways, or backwards
   const rel = wrap(G.head - ry), ar = Math.abs(rel);
   G.jockey = st.style === "jockey";
@@ -978,8 +983,9 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
   }
   // the hips: their curve, lower where the reach needs it, never below the budget (what is left slips the planted foot
   // and is counted). No rate limits up or down: the curve and the needs are smooth in time, so the hips are too
+  // (the budget met softly, its last BUDGET_K eased in: the hips come down onto their floor, never stopping on it)
   let short = 0;
-  if (drop > budget){ short = drop - budget; drop = budget; }
+  if (drop > budget - BUDGET_K){ const raw = drop; drop = budget - BUDGET_K*Math.exp(-(raw - budget + BUDGET_K)/BUDGET_K); short = raw - drop; }
   const hy = Q[81] - drop;
   G.hipY = hy;
   G.hipDy = hy; G.hipLat = Q[80];
@@ -1058,7 +1064,7 @@ function reseat(h, f, t, gx, gz, cy, sy){
 const KNEE_RATE = 18;
 // the larger of the hips' curve and a leg's need, with no corner where one takes over (it is never below either; where
 // they meet it is HIP_K/2 lower than both: a little more bend in the knee)
-const HIP_K = .006, NEED_AHEAD = .06;
+const HIP_K = .006, NEED_AHEAD = .06, BUDGET_K = .008;
 const hipMax = (a, b) => (a + b + Math.sqrt((a - b)*(a - b) + HIP_K*HIP_K))/2;
 function kneeFlex(D, d){ const l1 = D.hipY - D.kneeY, l2 = D.kneeY - D.ankY, c = clamp((l1*l1 + l2*l2 - d*d)/(2*l1*l2), -1, 1); return Math.PI - Math.acos(c); }
 // the hip joint of leg s in body space (from F: the hips' position and rotation)

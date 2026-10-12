@@ -178,7 +178,9 @@ function fpFrame(dt, cam){
     const dy = (G.hipDy || 0)*s, mv = sstep(.05, .5, v);
     if (bob.mean == null) bob.mean = dy;
     bob.mean += (dy - bob.mean)*(1 - Math.exp(-2.5*dt));
-    const heavy = 1 + .45*FX.heavy, A = (.006 + .0016*v)*heavy, k = lerp(.45, .32, G.R || 0);
+    // (P2-B, MV-2: the pelvis is a smooth curve now, about 4 cm a step at a brisk walk; its share is a little smaller so
+    // the wave stays inside its bound and under 2 mm a frame, as me.js's)
+    const heavy = 1 + .45*FX.heavy, A = (.006 + .0016*v)*heavy, k = lerp(.35, .3, G.R || 0);
     bob.y = clamp(k*(dy - bob.mean)*heavy, -A, A)*mv*(.35 + .65*motion);
     bob.x = clamp(-.35*(G.hipLat || 0)*s, -.006, .006)*mv*(.35 + .65*motion);
     if ((ev & EV.FOOTFALL) && v > .3){
