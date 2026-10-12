@@ -1848,6 +1848,9 @@ function drawnAnkles(h, Q, out){
     const p = out[i] || (out[i] = {});
     p.x = g.position.x + (x*c + z*s)*sc; p.z = g.position.z + (-x*s + z*c)*sc; p.y = g.position.y + y*sc;
     p.yaw = ry + Math.atan2(_ql[0], _ql[2]);
+    // (the knee's bend as drawn: the shin's turn about its hinge)
+    const sh = LEG(i ? -1 : 1)[1]*4;
+    p.kf = 2*Math.atan2(Math.hypot(Q[sh], Q[sh + 1], Q[sh + 2]), Math.abs(Q[sh + 3]));
   }
   return out;
 }
@@ -1902,6 +1905,9 @@ export function animateHuman(h, dt, state = "idle", o = null){
     }
     h.blendNext = h.posed ? (st.blend || fn.blend || -1) : 0;
     h.mode = key; h.at = 0; h.lpSame = false;
+    // (the legs' own time starts again with locomotion: a clip runs no leg pass, so what accL holds is the clip's whole
+    // length, and the first pose back on the feet would take it as one step, with none of its rates limiting anything)
+    if (fam) h.accL = 0;
   }
   h.at += dt; h.t += dt; h.acc += dt; h.accL += dt;
   if (fam){

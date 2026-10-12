@@ -651,30 +651,56 @@ const ACRO_EV = {
    has the feet: startFeet reads them), so the swing goes on from the wind-up. Walking with it held, the support foot
    re-steps under the body; above WIND.V the stride keeps the legs and the wind-up is the upper body's (st.upper
    {g: 'windup', w, side}, windUpper). The camera is never pitched for you by any of it (D22): matchcam.js only dips
-   the view within its action springs.
+   the view within its action springs. Let go any other way (the charge dropped, a stride adjust before the strike, the
+   body sped up past the line with it still held), the same clip lets the leg down: the charge eases to nothing over
+   WIND.REL and only then does locomotion take the legs back (windHold), so the cocked foot is never put onto a
+   footprint in one frame. A change of striking foot in the middle of it puts the cocked leg down first and then
+   cocks the other one, the arms changing over as it does.
    WIND: the cocked leg at a full charge (radians, about the hips' axes: +X the body's left, +Y up, +Z forward): the thigh
    flexed up in front (THIGH), taken out to the side (ABD) after a turn out about its own length (ROT), the knee
    (KNEE), the foot (FOOT); the hips' opening (HIPS), the support arm out (ARM), the lean back held past full (LEAN);
    the hips' drop over the bending support knee (DROP); V: the speed (m/s) above which the stride keeps the legs;
    STEP: the support foot re-steps when it is this far from under its hip (m), taking STEP_T seconds; SWING: let go,
    the strike begins this long (clip seconds) before its contact (the backswing is done: strikeBegin's C.tau0), the
-   leg whipping through in its joints from the cocked pose to the one that meets the ball. */
+   leg whipping through in its joints from the cocked pose to the one that meets the ball; REL: let go without a strike,
+   how long the clip goes on letting the leg down (s: the charge as drawn eases out at 24/s, so whatever it was, at
+   most SWAP of it is left by then); SWAP: the charge as drawn below which a change of striking foot changes the legs
+   over; LIFT: the charge as drawn by which the kicking foot is wholly off its footprint (below it the leg is between
+   standing on it and the joints' own pose); STAND: the hips' height with nothing drawn (body units), the gait's own
+   standing posture, so the legs stand on the same knees as when the gait has them and the hand-over either way is a
+   knee's bend apart at most. */
 export const WIND = Object.freeze({THIGH: -1.3, ABD: .45, ROT: -.6, KNEE: 2.1, FOOT: .4, HIPS: .2, ARM: .95, LEAN: .14, DROP: .015,
-  V: 1.3, STEP: .16, STEP_T: .2, PASS: .6, BLEND: .15, SWING: .13});
+  V: 1.3, STEP: .16, STEP_T: .2, PASS: .6, BLEND: .15, SWING: .13, REL: .15, SWAP: .03, LIFT: .2, STAND: -.01});
 const HOLD_SPEC = {dur:1e9, contact:1e9, pre:0, events:null, begin:null};
-const _Qh = new THREE.Quaternion(), _Qx = new THREE.Quaternion(), _Ax = new THREE.Vector3();
+const _Qh = new THREE.Quaternion(), _Qx = new THREE.Quaternion(), _Ax = new THREE.Vector3(), _KL = new Float64Array(12);
 function strikeHold(h, T, st, dt){
   const C = clock(h, "strike", st, HOLD_SPEC);
   setBT(h);
-  const d = C.data, D = h.D, sc = BT.sc;
-  const kickS = st.side === "L" || st.side === 1 ? 1 : -1, supS = -kickS, iK = kickS > 0 ? 0 : 1, iS = 1 - iK;
+  const d = C.data, D = h.D, sc = BT.sc, adt = Math.max(0, dt);
+  const sideNow = st.side === "L" || st.side === 1 ? 1 : -1;
   const F = C.feet || startFeet(h, C);
-  if (!d.held){ d.held = true; startFeet(h, C); d.k = 0; d.over = 0; d.step = null; d.hip0 = h.posed ? [h.pose[80], h.pose[81], h.pose[82]] : [0, 0, 0]; }
+  if (!d.held){ d.held = true; startFeet(h, C); d.k = 0; d.over = 0; d.step = null; d.hip0 = h.posed ? [h.pose[80], h.pose[81], h.pose[82]] : [0, 0, 0]; d.side = sideNow; d.ks = sideNow; }
+  // the striking foot changed in the middle of it (the ball rolled across to the other foot): the cocked leg comes down
+  // onto its footprint first (the charge as drawn eased out), then the legs change over, the one that was the support
+  // standing where it is until the charge lifts it; a support foot in the middle of a re-step lands first. The new
+  // support foot is held where the other one came down, the plant pass coming in over 0.05 s
+  const swap = sideNow !== d.side;
+  if (swap && d.k < WIND.SWAP && !d.step){
+    const Fo = F[d.side > 0 ? 1 : 0];
+    d.side = sideNow; d.landAt = C.lastT; d.kr = {x:Fo.x, z:Fo.z, wy:BT.ry + Fo.yaw};
+  }
+  const kickS = d.side, supS = -kickS, iK = kickS > 0 ? 0 : 1, iS = 1 - iK;
   const Fs = F[iS], Fk = F[iK];
-  // the charge as drawn: eased in as it fills, out fast when it drops
-  const want = clamp(+st.hold || 0, 0, 1)*(kindOf(st.kind) === "side" ? WIND.PASS : 1), adt = Math.max(0, dt);
+  // (the kicking foot's footprint: where it stood as the hold began, then under its hip once it is up, for it to come
+  // down onto)
+  if (!d.kr) d.kr = {x:Fk.x, z:Fk.z, wy:BT.ry + Fk.yaw};
+  // the charge as drawn: eased in as it fills, out fast when it drops (to nothing while the legs change over, and
+  // while the clip lets the leg down after a let-go without a strike: st.hold 0)
+  const want = sideNow !== d.side ? 0 : clamp(+st.hold || 0, 0, 1)*(kindOf(st.kind) === "side" ? WIND.PASS : 1);
   d.k += (want - d.k)*(1 - Math.exp(-(want > d.k ? 14 : 24)*adt));
-  d.over += (clamp(+st.over || 0, 0, 1) - d.over)*(1 - Math.exp(-10*adt));
+  d.over += ((sideNow !== d.side ? 0 : clamp(+st.over || 0, 0, 1)) - d.over)*(1 - Math.exp(-10*adt));
+  // (the arms change over with the legs, eased: ks goes from one side's sign to the other's)
+  d.ks += (kickS - d.ks)*(1 - Math.exp(-14*adt));
   const k = d.k, groundY = BT.gy + D.ankY*sc;
   // --- the support foot: planted; when the body has moved off it (a walk with the charge held) or turned well away
   // from it, a short step puts it back under its hip
@@ -694,28 +720,48 @@ function strikeHold(h, T, st, dt){
   {
     // (the hips start where the pose before had them and come to the wind-up's over a quarter of a second)
     const e = sstep(0, .25, C.lastT);
-    T[60] = lerp(d.hip0[0], clamp(_b3.x*.35, -.1, .1)*k, e); T[61] = lerp(d.hip0[1], -WIND.DROP*k, e); T[62] = lerp(d.hip0[2], 0, e);
+    T[60] = lerp(d.hip0[0], clamp(_b3.x*.35, -.1, .1)*k, e); T[61] = lerp(d.hip0[1], WIND.STAND - WIND.DROP*k, e); T[62] = lerp(d.hip0[2], 0, e);
   }
   R3(T, B.hips, .03*k, -kickS*WIND.HIPS*k, kickS*.05*k);
   R3(T, B.spine, .04 - .5*WIND.LEAN*d.over, kickS*WIND.HIPS*.4*k, 0); R3(T, B.chest, .03 - WIND.LEAN*d.over, kickS*WIND.HIPS*.3*k, 0);
   R3(T, B.neck, .1 + .05*k, 0, 0); R3(T, B.head, .12 + .08*k, 0, 0);
-  armPose(T, supS, .2 + WIND.ARM*k, .1 + .25*k, .4);
-  armPose(T, kickS, .2 + .15*k, -.15 - .3*k, .5);
+  // (each arm between the support side's pose, out and forward, and the kicking side's, back: u 1 is the support side's)
+  for (let s = -1; s <= 1; s += 2){
+    const u = (1 - s*d.ks)/2;
+    armPose(T, s, lerp(.2 + .15*k, .2 + WIND.ARM*k, u), lerp(-.15 - .3*k, .1 + .25*k, u), lerp(.5, .4, u));
+  }
   // --- the support leg onto its foot
   kneeBlend(Fs, C.tau, false);
   legW(h, T, supS, Fs.x, Fs.y, Fs.z, Fs.yaw, Fs.pitch, Fs.roll, 0, 1);
-  // --- the kicking leg, cocked: written as turns of its own joints (no foot target to solve to: it is in the air)
-  const [th, sh, ft] = LEG(kickS);
+  // --- the kicking leg, cocked: written as turns of its own joints (no foot target to solve to: it is in the air); as
+  // the charge begins (u below 1) it comes up off its footprint, the leg between standing on it (solved onto it, the
+  // way the support leg is) and the joints' own pose, and let go it comes back down onto one the same way, so with
+  // nothing drawn the body stands on both feet just as the gait stands it
+  const [th, sh, ft, to] = LEG(kickS), u = sstep(0, WIND.LIFT, k);
+  // (on the move it keeps to its place under the hip all the way down, so it is not left behind as the body goes on)
+  if (u > .5 || Math.hypot(C.vx, C.vz) > 1){ toW(kickS*(D.hipX + .02), 0, .02, _w3); d.kr.x = _w3.x; d.kr.z = _w3.z; d.kr.wy = BT.ry; }
+  const kyaw = wrap(d.kr.wy - BT.ry);
+  if (u < 1){
+    legW(h, T, kickS, d.kr.x, groundY, d.kr.z, kyaw, 0, 0, 0, 1);
+    for (let j = 0; j < 4; j++){ const b = [th, sh, ft, to][j]; _KL[j*3] = T[b*3]; _KL[j*3 + 1] = T[b*3 + 1]; _KL[j*3 + 2] = T[b*3 + 2]; }
+  }
   _Qh.setFromAxisAngle(_Ax.set(0, 1, 0), kickS*WIND.ROT*k);
   _Qx.setFromAxisAngle(_Ax.set(1, 0, 0), WIND.THIGH*k); _Qh.premultiply(_Qx);
   _Qx.setFromAxisAngle(_Ax.set(0, 0, 1), kickS*WIND.ABD*k); _Qh.premultiply(_Qx);
   _E.setFromQuaternion(_Qh, "XYZ"); R3(T, th, _E.x, _E.y, _E.z);
-  R3(T, sh, WIND.KNEE*k, 0, 0); R3(T, ft, WIND.FOOT*k, 0, 0); R3(T, LEG(kickS)[3], 0, 0, 0);
+  R3(T, sh, WIND.KNEE*k, 0, 0); R3(T, ft, WIND.FOOT*k, 0, 0); R3(T, to, 0, 0, 0);
+  if (u < 1) for (let j = 0; j < 4; j++){
+    const b = [th, sh, ft, to][j];
+    _E.set(_KL[j*3], _KL[j*3 + 1], _KL[j*3 + 2], "XYZ"); _Qx.setFromEuler(_E);
+    _E.set(T[b*3], T[b*3 + 1], T[b*3 + 2], "XYZ"); _Qh.setFromEuler(_E);
+    _Qx.slerp(_Qh, u); _E.setFromQuaternion(_Qx, "XYZ"); R3(T, b, _E.x, _E.y, _E.z);
+  }
   rateLegs(h, T, C, adt);
-  // the kicking foot where the pose has it (its lock follows it; the plant pass leaves it free), so the release's
-  // own clip starts from it
+  // the kicking foot where the pose has it (its lock follows it; the plant pass holds it only as it stands on its
+  // footprint), so the release's own clip starts from it
   frameOf(h, T, ft, _M); _V.setFromMatrixPosition(_M); toW(_V.x, _V.y, _V.z, _w3);
-  Fk.x = _w3.x; Fk.y = _w3.y; Fk.z = _w3.z; Fk.down = false; Fk.w = 0; Fk.hold = false;
+  Fk.x = _w3.x; Fk.y = _w3.y; Fk.z = _w3.z; Fk.down = u < .05; Fk.w = 1 - u; Fk.hold = false;
+  if (u < .5) Fk.yaw = kyaw;
   // the support leg is the pose's own, solved onto its foot under the joints' speed limit (the plant pass solving it
   // again at once, with a knee of its own, would turn it faster than a joint may in a frame); once the clip has
   // settled, 0.1 to 0.3 s in, and again just after a re-step lands, the plant pass comes in to hold it exactly where it
@@ -725,7 +771,9 @@ function strikeHold(h, T, st, dt){
   lockFeet(h, C);
   h.ev.reachErr = 0;
   h.gw = 0;
-  h.heldAt = h.t; h.heldSide = kickS;
+  // (a strike let go from it starts from the cocked leg only while the leg is being held cocked: not while the clip is
+  // letting it down, nor while the legs change over)
+  if (want > 0){ h.heldAt = h.t; h.heldSide = kickS; } else h.heldAt = null;
 }
 // the upper body of a wind-up on the run (st.upper {g: 'windup', w (the charge), side}): the support arm out, the hips
 // and chest opening; the legs are the stride's
@@ -736,18 +784,33 @@ function upWindup(h, T, st){
 }
 /* the state a body winding up is posed with (view.js, for your agent; null when nothing is held): wind = control.js
    CTRL.wind {p, over, side, kind}; speed: the agent's (m/s); out: the body's own record for it, kept between calls
-   (a new wind-up gets a new id, so its clip starts afresh). Above WIND.V it is null: windUpper gives the upper body's */
+   (a new wind-up gets a new id, so its clip starts afresh); dt: the time since the last call (s, a 60 Hz frame when not
+   given); cut: an action has taken over from the hold (the strike that lets it go, a tackle, a header), so nothing is
+   let down. Above WIND.V it is null: windUpper gives the upper body's. Let go without a strike (the charge gone, or the
+   speed over the line with it held), it is the same clip with no charge for WIND.REL more (out.hold 0), the leg coming
+   down, and on the run the upper body's wind-up laid over it (out.upper) as the stride's will be; then null */
 let HOLD_N = 0;
-export function windHold(wind, speed, out){
+export function windHold(wind, speed, out, dt = 1/60, cut = false){
   const on = !!(wind && (wind.kind === "shot" || wind.kind === "pass") && wind.p > 0);
+  if (cut){ out.held = false; out.still = false; out.upper = null; return null; }
   // (with a little hysteresis: held standing, it stays the clip's up to WIND.V + 0.4 m/s, so a speed about the line never
   // flips the body between the two)
   out.still = on && speed <= WIND.V + (out.still ? .4 : 0);
-  if (!on || !out.still){ if (!on) out.held = false; return null; }
-  if (!out.held){ out.held = true; out.id = "hold" + (++HOLD_N); }
-  out.mode = "strike"; out.kind = wind.kind === "pass" ? "side" : "instep"; out.side = wind.side === "L" ? "L" : "R";
-  out.hold = clamp(+wind.p || 0, 0, 1); out.over = clamp(+wind.over || 0, 0, 1); out.blend = WIND.BLEND; out.tc = undefined;
-  return out;
+  if (on && out.still){
+    if (!out.held){ out.held = true; out.id = "hold" + (++HOLD_N); }
+    out.rel = 0; out.upper = null;
+    out.mode = "strike"; out.kind = wind.kind === "pass" ? "side" : "instep"; out.side = wind.side === "L" ? "L" : "R";
+    out.hold = clamp(+wind.p || 0, 0, 1); out.over = clamp(+wind.over || 0, 0, 1); out.blend = WIND.BLEND; out.tc = undefined;
+    return out;
+  }
+  // let go without a strike: the leg let down in the clip before locomotion has it
+  if (out.held && out.rel < WIND.REL){
+    out.rel += Math.max(0, +dt || 0); out.hold = 0; out.over = 0;
+    out.upper = on ? windUpper(wind, speed, out.up || (out.up = {})) : null;
+    return out;
+  }
+  out.held = false; out.upper = null;
+  return null;
 }
 export function windUpper(wind, speed, out){
   if (!(wind && (wind.kind === "shot" || wind.kind === "pass") && wind.p > 0) || !(speed > WIND.V)) return null;

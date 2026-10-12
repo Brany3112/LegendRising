@@ -230,8 +230,15 @@ function liveSt(V, R, a, ms, dt){
   }
   if (act && act !== R.actRef){ R.actRef = act; R.clip = null; }
   // your wind-up (A1.7): standing or walking, the strike clip held at its backswing (moves.js windHold), the same
-  // clip in your eyes, from outside and in a replay; on the run the stride keeps the legs (windUpper, below)
-  if (a.isMe && !act){ const w = windHold(V.wind, a.m.speed, R.hold || (R.hold = {})); if (w){ R.clip = w; return w; } if (R.clip === R.hold) R.clip = null; }
+  // clip in your eyes, from outside and in a replay; on the run the stride keeps the legs (windUpper, below). Let go
+  // into a stride adjust (the ball out of reach), the same clip lets the leg down while you step to it; any other
+  // action (the strike from the hold, a tackle, a header) takes over from the hold at once
+  if (a.isMe){
+    const adj = !!(act && act.kind === "kick" && act.adjust && !act.done);
+    const w = windHold(act ? null : V.wind, a.m.speed, R.hold || (R.hold = {}), dt, !!act && !adj);
+    if (w){ R.clip = w; return w; }
+    if (R.clip === R.hold) R.clip = null;
+  }
   if (act){
     switch (act.kind){
       case "kick": {

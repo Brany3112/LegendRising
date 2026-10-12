@@ -81,7 +81,7 @@ export function gaitInit(h){
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, falls:[], over:[null, null], via:[null, null], belt:0, ext:false,
     // (and the ones the steps fill in as they go, here from the start: one shape for every body's gait, NaN for none)
     accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
-    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN};
+    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1};
   return h.gait;
 }
 
@@ -99,7 +99,12 @@ function groundFor(h, x, z, yaw, yRef){
 
 /* ---------- placing the feet afresh (a new body, a teleport, the end of a clip) ----------
    Under the body at its stance width, facing its way, both planted; the clock at a left touchdown. from: the body's
-   current drawn feet (world points) when there is a pose to keep, else under the root */
+   current drawn feet (world points, with kf: the knee's bend as drawn) when there is a pose to keep, else under the
+   root. Kept from a pose, the legs go on from it: the knee of a foot that swings at once bends on from the drawn one
+   under the knee's own rate, and the posture's height (gaitLegs adds it after the blend from the clip, which never
+   sees it) comes in over POST_IN rather than in the first frame, so a clip that ends on straight legs hands over
+   without the knees folding in one frame */
+const POST_IN = .15;
 export function gaitPlace(h, from = null){
   const G = h.gait || gaitInit(h), g = h.g, sc = h.scale, ry = g.rotation.y, D = h.D;
   const rx = G.rootX === G.rootX ? G.rootX : g.position.x, rz = G.rootZ === G.rootZ ? G.rootZ : g.position.z;
@@ -107,7 +112,7 @@ export function gaitPlace(h, from = null){
   for (let i = 0; i < 2; i++){
     const f = G.feet[i], s = f.s;
     f.down = true; f.sw = null; f.roll = 0; f.tDown = 1; f.slip = 0;
-    if (from && from[i]){ f.x = from[i].x; f.z = from[i].z; f.yaw = from[i].yaw != null ? from[i].yaw : ry; }
+    if (from && from[i]){ f.x = from[i].x; f.z = from[i].z; f.yaw = from[i].yaw != null ? from[i].yaw : ry; if (from[i].kf === from[i].kf && from[i].kf != null) f.kf = from[i].kf; }
     else { f.x = rx + lx*s*w; f.z = rz + lz*s*w; f.yaw = ry + s*.06; }
     f.y = groundFor(h, f.x, f.z, f.yaw, g.position.y);
   }
@@ -115,6 +120,7 @@ export function gaitPlace(h, from = null){
   G.head = ry; G.mdx = Math.sin(ry); G.mdz = Math.cos(ry);
   G.state = "STAND"; G.phi = 0; G.mode = "W"; G.held = 0; G.R = 0; G.init = true; G.intentT = 0; G.pivotT = G.settleT = 0;
   G.hipY = NaN; G.final = -1; G.rest = null; G.over[0] = G.over[1] = null; G.via[0] = G.via[1] = null;
+  G.postIn = from ? 0 : 1;
 }
 
 /* ---------- overrides: a planned footprint (strike run-ups, stops), a dribble touch ---------- */
@@ -773,6 +779,8 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
     post -= (.012 + .002*v)*comp*G.R*mv;
   }
   post -= .08*(G.brakeW || 0);
+  // (just back on its feet from a clip: the posture eased in, see gaitPlace)
+  if (G.postIn < 1){ post *= sstep(0, 1, G.postIn); if (dt > 0) G.postIn = Math.min(1, G.postIn + dt/POST_IN); }
   Q[81] += post;
   const floor = Q[81] - hipBudget(G, v) - .04*(G.brakeW || 0);
   // every foot's target, in body space
