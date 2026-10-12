@@ -27,7 +27,7 @@
    first person; third person comes back after. */
 import {THREE} from "../build.js";
 import {human, animateHuman, BONE, EV, onHumanRemat} from "../human.js";
-import {fkQ, newFK, lerp} from "../rig.js";
+import {fkQ, newFK, lerp, springTo} from "../rig.js";
 import {bodyLook} from "../look.js";
 import {G, LIFE, P, B, ME, RT, FLAGS, FADE} from "./state.js";
 import {camCast, camClear, camClearance, surfaceUnder, CG, SG} from "./collide.js";
@@ -132,14 +132,17 @@ function neckFix(h, Q){
    of that body's footfalls a nod of 0.15 degrees times min(1, v/8) (a kick into the camera's spring, stiffness 30).
    Both fade out below 0.5 m/s: standing, the eye is still (an idle body shifting its weight does not move the view).
    P2-B (MV-2): the pelvis is a smooth curve now, rising and falling about 4 cm a step at a brisk walk (gait.js), so the
-   bob is a smooth wave too, under 2 mm a frame; its share is a little smaller than it was, so the wave stays inside
-   its bound rather than being clipped flat at every step */
-export const BOB = {mean:null, x:0, y:0, nods:0, lastN:-1};
+   bob is a smooth wave too; the bob reads that pelvis through a critically damped spring (stiffness 24 a second, no
+   overshoot), so a frame where a leg's reach takes the hips down a little faster is not a step in the view: under 2 mm
+   a frame. Its share is a little smaller than it was, so the wave stays inside its bound rather than being clipped */
+export const BOB = {mean:null, sy:0, sv:0, x:0, y:0, nods:0, lastN:-1};
 function bobStep(h, dt){
   const Gt = h.gait;
   if (!Gt){ BOB.x = BOB.y = 0; return; }
-  const s = h.scale, v = P.speed, dy = Gt.hipDy*s, mv = sstep(.05, .5, v);
-  if (BOB.mean == null) BOB.mean = dy;
+  const s = h.scale, v = P.speed, mv = sstep(.05, .5, v);
+  if (BOB.mean == null){ BOB.mean = BOB.sy = Gt.hipDy*s; BOB.sv = 0; }
+  springTo(BOB, Gt.hipDy*s, 24, dt);
+  const dy = BOB.sy;
   BOB.mean += (dy - BOB.mean)*(1 - Math.exp(-2.5*dt));
   const k = lerp(.35, .3, Gt.R), A = .006 + .0016*v;
   BOB.y = clamp(k*(dy - BOB.mean), -A, A)*mv;

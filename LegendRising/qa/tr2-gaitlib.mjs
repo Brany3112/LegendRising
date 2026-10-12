@@ -78,7 +78,7 @@ async function pageDrive(o){
     h.g.updateMatrixWorld(true);
     const G = h.gait;
     const row = {t:+t.toFixed(4), v:+m.speed.toFixed(4), tgt:+m.target.toFixed(3), x:+m.x.toFixed(5), z:+m.z.toFixed(5), yaw:+(m.yaw + Math.PI).toFixed(5), head:+(m.heading + Math.PI).toFixed(5),
-      seg:si, st:G ? G.state : "", mode:G ? G.mode : "", sty:G ? G.style : "", fall:(ev.mask & H.EV.FOOTFALL) ? (ev.side || "?") : "", gn:G ? G.n : 0, legs:[]};
+      seg:si, st:G ? G.state : "", mode:G ? G.mode : "", sty:G ? G.style : "", fall:(ev.mask & H.EV.FOOTFALL) ? (ev.side || "?") : "", fat:(ev.mask & H.EV.FOOTFALL) ? +(ev.at || 0).toFixed(5) : 0, gn:G ? G.n : 0, phi:G ? +G.phi.toFixed(4) : 0, slips:G ? +(G.slips*1000).toFixed(2) : 0, legs:[]};
     for (let s = 0; s < 2; s++){
       const f = G.feet[s], ft = s ? B.ftR : B.ftL, to = s ? B.toR : B.toL, shn = s ? B.shR : B.shL;
       const q = h.bones[shn].quaternion, knee = 2*Math.acos(Math.min(1, Math.abs(q.w)));
@@ -86,7 +86,7 @@ async function pageDrive(o){
       row.legs.push({d:f.down ? 1 : 0, k:f.sw ? f.sw.kind : "", u:f.sw ? +f.sw.u.toFixed(4) : -1, knee:+knee.toFixed(5), roll:+f.roll.toFixed(4),
         heel:[+heel.x.toFixed(5), +heel.y.toFixed(5), +heel.z.toFixed(5)], ball:[+ball.x.toFixed(5), +ball.y.toFixed(5), +ball.z.toFixed(5)],
         tip:[+tip.x.toFixed(5), +tip.y.toFixed(5), +tip.z.toFixed(5)], ank:[+ank.x.toFixed(5), +ank.y.toFixed(5), +ank.z.toFixed(5)],
-        fp:[+f.x.toFixed(5), +f.z.toFixed(5)], need:+(f.need || 0).toFixed(4), spare:f.spare == null ? null : +f.spare.toFixed(4)});
+        fp:[+f.x.toFixed(5), +f.z.toFixed(5)], need:+(f.need || 0).toFixed(4), e:f.early ? 1 : 0, T:f.sw ? +f.sw.T.toFixed(3) : 0, spare:f.spare == null ? null : +f.spare.toFixed(4)});
     }
     const hp = h.bones[B.hips].getWorldPosition(V);
     row.hipY = +hp.y.toFixed(5);
@@ -188,8 +188,9 @@ export function metrics(rows, {t0 = 0, t1 = Infinity, scale = 1, hz = 60} = {}){
   for (const r of R) top = Math.max(top, r.hipY);
   for (let i = 1; i < R.length - 1; i++) hipAcc = Math.max(hipAcc, Math.abs(R[i + 1].hipY - 2*R[i].hipY + R[i - 1].hipY)*1000);
   const pinned = R.filter(r => r.hipY >= top - .001).length/R.length;
-  // touchdowns: the footfall rows of the clock (phase swings landing)
-  const falls = R.filter(r => r.fall === "L" || r.fall === "R").map(r => ({s: r.fall, t: r.t}));
+  // touchdowns: the footfall rows of the clock (phase swings landing), at the time inside the frame they landed (ev.at),
+  // so a 30 Hz frame's length does not round the intervals
+  const falls = R.filter(r => r.fall === "L" || r.fall === "R").map(r => ({s: r.fall, t: r.t + (r.fat || 0)}));
   const LR = [], RL = [];
   for (let i = 1; i < falls.length; i++){ const d = falls[i].t - falls[i - 1].t; if (falls[i - 1].s === "L" && falls[i].s === "R") LR.push(d); else if (falls[i - 1].s === "R" && falls[i].s === "L") RL.push(d); }
   const mean = a => a.length ? a.reduce((s, v) => s + v, 0)/a.length : NaN;

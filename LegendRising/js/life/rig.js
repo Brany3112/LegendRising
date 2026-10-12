@@ -17,6 +17,12 @@ export const TAU = Math.PI*2, D2R = Math.PI/180;
 export const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 export const lerp = (a, b, t) => a + (b - a)*t;
 export const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
+// a critically damped spring (no overshoot) taking o.sy toward y at stiffness w (1/s), its speed in o.sv; exact for any dt
+// (P2-B: the head bob reads the pelvis through it, core/me.js and football/matchcam.js)
+export function springTo(o, y, w, dt){
+  const e = Math.exp(-w*dt), j = (o.sv + w*(o.sy - y))*dt;
+  o.sy = y + (o.sy - y + j)*e; o.sv = (o.sv - w*j)*e;
+}
 export const wrap = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
 // eased keyframes: [[t, v], ...]
 export function kf(t, K){
