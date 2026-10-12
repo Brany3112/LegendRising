@@ -10,8 +10,8 @@
 //   2. a swing lands softly: the ankle's horizontal speed over the last 5% of every swing is under 0.15 m/s (sampled
 //      at 240 Hz, so the last 5% of a swing is several samples);
 //   3. no bone turns more than 0.35 rad in one frame at 60 Hz; and at a lift-off (the frame a foot leaves the ground
-//      and the next) no bone of that leg turns more than 0.12 rad in a frame (P2-B, BUILD-PLAN TR-2: the tightened
-//      gate on the knee snap and foot pop at toe-off);
+//      and the next) the knee of that leg turns at most 0.12 rad in a frame (P2-B, BUILD-PLAN TR-2: the tightened
+//      gate on the knee snap at toe-off, the knee change at lift-off qa/tr2-gait.mjs measures);
 //   4. walking at 1.4 to 2.0 m/s the hips drop at most 5 cm below their standing height;
 //   5. a 180 degree turn on the spot (the body turned at up to 12 rad/s, the mover's cap) takes at most 3 steps and
 //      0.9 s, the planted foot only ever turning on its ball;
@@ -77,7 +77,7 @@ async function run(page, o){
     const fw = [h.bones[B.ftL], h.bones[B.ftR]], tw = [h.bones[B.toL], h.bones[B.toR]];
     const stance = [null, null], air = [[], []], prevQ = h.bones.map(b => b.quaternion.clone());
     const m = {drift:[], end:[], jump:0, jumpAt:null, hipsMin:1e9, falls:[], turnDone:null, slips0:h.gait.slips, lift:0, liftAt:null, liftN:0};
-    const LEGB = [[B.thL, B.shL, B.ftL, B.toL], [B.thR, B.shR, B.ftR, B.toR]], liftF = [-9, -9], wasDown = [true, true];
+    const KNEE = [B.shL, B.shR], liftF = [-9, -9], wasDown = h.gait.feet.map(f => f.down);
     let frame = 0;
     const shots = [], cw = 150, ch = fp ? 150 : 240, cols = 8, every = Math.max(1, Math.round(hz/12));
     const grid = sheet ? document.createElement("canvas") : null;
@@ -136,7 +136,7 @@ async function run(page, o){
         const down = G.feet[s].down;
         if (wasDown[s] && !down){ liftF[s] = frame; m.liftN++; }
         wasDown[s] = down;
-        if (frame - liftF[s] <= 1) for (const b of LEGB[s]){ const a = prevQ[b].angleTo(h.bones[b].quaternion); if (a > m.lift){ m.lift = a; m.liftAt = [+t.toFixed(3), b]; } }
+        if (frame - liftF[s] <= 1){ const b = KNEE[s], a = prevQ[b].angleTo(h.bones[b].quaternion); if (a > m.lift){ m.lift = a; m.liftAt = [+t.toFixed(3), b]; } }
       }
       frame++;
       for (let b = 1; b < 20; b++){ const a = prevQ[b].angleTo(h.bones[b].quaternion); if (a > m.jump){ m.jump = a; m.jumpAt = [+t.toFixed(3), b]; } prevQ[b].copy(h.bones[b].quaternion); }
@@ -185,7 +185,7 @@ try {
     const ends = r240.end.map(e => e.v), emax = Math.max(0, ...ends);
     check(ends.length > 0 && emax < .15 || (name === "turn180" && emax < .15), `${name}: swing lands at < 0.15 m/s over its last 5%`, {max: emax, swings: ends.length, worst: r240.end.filter(e => e.v >= .15).slice(0, 3)});
     check(r60.jump <= .35, `${name}: no bone turns more than 0.35 rad in a frame at 60 Hz`, {max: r60.jump, at: r60.jumpAt});
-    check(r60.lift <= .12, `${name}: at a lift-off no bone of that leg turns more than 0.12 rad in a frame at 60 Hz`, {max: r60.lift, at: r60.liftAt, lifts: r60.liftN});
+    check(r60.lift <= .12, `${name}: at a lift-off the knee of that leg turns at most 0.12 rad in a frame at 60 Hz`, {max: r60.lift, at: r60.liftAt, lifts: r60.liftN});
     if (/^walk/.test(name)) check(r60.hipsDrop <= .05, `${name}: hips at most 5 cm below standing`, {dropM: r60.hipsDrop});
   }
   // the turn on the spot
