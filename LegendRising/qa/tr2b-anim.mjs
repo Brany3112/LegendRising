@@ -129,7 +129,7 @@ try {
   if (!ONLY || ONLY.includes("receive")){
     const seen = new Set();
     for (const [want, y] of [["foot", .11], ["foot", .3], ["thigh", .65], ["thigh", .85], ["chest", 1.15], ["chest", 1.3]]){
-      const r = await page.evaluate(([want, y]) => {
+      const r = await page.evaluate(([want, y, snapIt]) => {
         const T = window.__t, ms = T.enter("receive"), F = window.__fp, me = F.me(), L = window.__life;
         const mate = ms.agents[5];
         for (const a of ms.agents) if (a !== me && a.role === "player" && !a.isGK) a.onPitch = false;
@@ -140,6 +140,8 @@ try {
         T.ball(ms, -D, 0, v, 0, y, vy);
         ms.ball.last.agent = mate.id; ms.ball.last.team = me.team; ms.ball.last.t = ms.t; ms.poss.ctl = -1; ms.poss.team = me.team;
         const V = F.FS.V, R = V.rec[me.id];
+        // (your whole body posed as it is seen from outside, for the contact sheet: a replay's view of you)
+        if (snapIt){ V.fpOn = false; if (V.fp) V.fp.g.visible = false; }
         // (a clip left from the fixture's own set-up, the ball put at your feet on the centre spot, is not this one)
         if (R.clip && R.clip.mode === "receive") R.clip = null;
         let got = null;
@@ -148,7 +150,7 @@ try {
           if (R.clip && R.clip.mode === "receive") got = {part: R.clip.part, zpart: R.clip.zpart, d: R.clip.dStart, r: R.clip.rStart, y: R.clip.ball.y, tc: R.clip.tc, zp: T.Z.part(R.clip.ball.y, me.scale || 1)};
         }
         return {want, y0: y, got};
-      }, [want, y]);
+      }, [want, y, y === .11 || y === .65 || y === 1.15]);
       const g = r.got;
       check(g && g.d <= g.r + 1e-9, `receive at ${r.y0} m: the clip starts with the ball inside the control radius`, g);
       const fits = g && (g.zp === "foot" ? g.part === "inside" || g.part === "sole" : g.part === g.zp);
@@ -158,10 +160,14 @@ try {
         // the control at this height, at the moment of the touch, from beside
         await page.evaluate(() => {
           const T = window.__t, F = window.__fp, L = window.__life, me = F.me(), V = F.FS.V, R = V.rec[me.id];
-          for (let n = 0; n < 40; n++){ L.stepN(1); const C = R.h.mv; if (C && C.key === "receive" && C.contactDone) break; }
-          V.fpOn = false; R.h.g.visible = true; if (V.fp) V.fp.g.visible = false;
+          // (to the touch: the ball at its nearest to you, the part on it)
+          const b = F.ms.ball; let last = Infinity;
+          for (let n = 0; n < 60; n++){ V.fpOn = false; L.stepN(1); const d = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z); if (d > last + 1e-3 || F.ms.poss.ctl === me.id) break; last = d; }
+          V.fpOn = false;
+          R.h.g.visible = true; if (V.fp) V.fp.g.visible = false;
           const g = R.h.g.position; T.look(g.x, g.z, .5, 1.2, 3.0, .7); T.draw();
-        });
+          return {fpOn: V.fpOn, hidden: R.hidden, vis: R.h.g.visible, mode: R.h.mode, g: [g.x, g.y, g.z], me: [me.m.x, me.m.z], inScene: !!R.h.g.parent, mv: R.h.mv && R.h.mv.key};
+        }).then(d => console.log("recvsnap", JSON.stringify(d)));
         await snap(page, `tr2b-anim-receive-${g.zp}`);
       }
     }

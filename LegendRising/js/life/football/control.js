@@ -543,11 +543,13 @@ export function controlStep(ms, me, h, opts = {}){
   // carry out for anyone (actions.js: the speed held down, the ball on the far foot, the body between it and the man)
   const shieldKey = !!CTRL.held.c || (KEYLOCK.ctrl && ctrlShields()), b0 = ms.ball;
   const soon = b0.state === "free" && ms.poss.ctl < 0 && Math.hypot(b0.p.x - me.m.x, b0.p.z - me.m.z) < CN.SHIELD_NEAR;
+  const wasShield = CTRL.shield;
   I.shield = CTRL.shield = shieldKey && ctx !== "restart" && (ms.poss.ctl === me.id || soon);
   // (no sprint while shielding: the engine holds you to SH_SPEED of your jog, the legs go at that pace)
   const shieldGait = I.shield;
   if (CTRL.shield){
-    use("shield");
+    // (a hint shortens after five uses: one use a shield, not one a step)
+    if (!wasShield) use("shield");
     // (the first time you shield with C outside full screen: the one-time tip that Ctrl does it too in full screen)
     if (!CTRL.tipAsked){ CTRL.tipAsked = true; if (tipFSDue()) CTRL.tipFS = true; }
   }
