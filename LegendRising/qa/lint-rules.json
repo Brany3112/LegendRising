@@ -7,14 +7,15 @@
     "pattern or patterns: JavaScript regular expressions (flag u), matched line by line. allowLine: a match on a line that also matches this is allowed. allowIn: a match inside a function with one of these names is allowed. marker: a match on a line carrying this text (in a comment) is allowed.",
     "merged: the packages the integrator has merged so far. A rule is active exactly when the package in its activatedBy is in this list (qa/unit/qatools.mjs checks it), so at each stage merge the integrator adds the packages and flips their rules on together."
   ],
-  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1", "WP-K", "WP-F", "WP-I", "WP-F2", "WP-H2", "WP-W2", "WP-W1", "WP-L", "WP-D3", "WP-T2", "WP-QA", "P2-A", "P2-B"],
+  "merged": ["WP-0B", "WP-0C", "WP-0D", "WP-0A", "WP-A", "WP-B", "WP-C", "WP-D", "WP-E", "WP-G", "WP-H", "WP-T1", "WP-K", "WP-F", "WP-I", "WP-F2", "WP-H2", "WP-W2", "WP-W1", "WP-L", "WP-D3", "WP-T2", "WP-QA", "P2-A", "P2-B", "P2b-A", "P2b-B"],
   "pure": [
     "js/life/mover.js", "js/life/stamina.js", "js/life/gaitcore.js",
     "js/life/football/rng.js", "js/life/football/pitchspec.js", "js/life/football/detmath.js", "js/life/football/ball.js", "js/life/football/strike.js",
     "js/life/football/touch.js", "js/life/football/agent.js", "js/life/football/attrs.js", "js/life/football/tactics.js",
     "js/life/football/brain.js", "js/life/football/gkplan.js", "js/life/football/gkbrain.js", "js/life/football/rules.js",
     "js/life/football/actions.js", "js/life/football/events.js", "js/life/football/judge.js", "js/life/football/sim.js",
-    "js/life/football/harness.js", "js/life/football/trainspec.js"
+    "js/life/football/harness.js", "js/life/football/trainspec.js",
+    "js/life/football/tune.js", "js/life/football/zone.js", "js/life/football/duel.js"
   ],
   "rules": [
     {

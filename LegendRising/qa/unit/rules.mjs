@@ -316,6 +316,8 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
     let n = 0;
     while (ms.t < 40 && n++ < 10000) simStep(ms);
     while (ms.phase !== 'live' && n++ < 20000) simStep(ms);
+    // the ball went out over their goal line near the corner flag, as a corner does (not wherever play happened to be)
+    ms.ball.p.x = 53.5; ms.ball.p.y = 0.11; ms.ball.p.z = 30; ms.ball.v.x = ms.ball.v.y = ms.ball.v.z = 0;
     ms.ball.last.team = 1;
     const R0 = startRestart(ms, 'corner', 0, {x: 52.1, z: 33.6}), first = ms.agents[R0.taker];
     first.m.x = -45; first.m.z = -30; first.m.vx = first.m.vz = 0;
