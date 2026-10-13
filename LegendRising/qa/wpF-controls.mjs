@@ -1,5 +1,5 @@
 // qa/wpF-controls.mjs: the match controls and the camera (DESIGN 2.4 WP-F acceptance; 1.5.2, 1.5.3, 1.5.9, 1.6).
-// Owner: WP-F (Stage P2).
+// Owner: WP-F (Stage P2); P2b-B (TR-2b) owns it in Phase 2b (the C and V keys).
 //
 // On the test fixtures of the real simulation (__fp.enter("test:<name>")), with the inputs the bot sends through
 // __fp.input (the same path the router gives the keys and the mouse):
@@ -12,8 +12,10 @@
 //   - no mouse input for 10 s while dribbling: P.pitch unchanged exactly (no auto pitch);
 //   - every key of 1.6 dispatched as a KeyboardEvent has defaultPrevented === true; keys with Ctrl or Alt do nothing;
 //     Q and Tab bring up neither the hub nor the phone;
-//   - receiving: the mean first-touch resting distance from 12 m/s passes is >= 1.1 m at control 30 and <= 0.5 m at 90
-//     (how far the ball rolls on from where it was touched, cushioned standing: 1.5.3).
+//   - receiving: from 12 m/s passes the first touch leaves the ball further from you at control 30 than at 90, within
+//     the spec's touch distances (TRAINING-SPEC 3: 0.6 + 0.8 (1 - q) m, P2b-A; it replaced 1.5.3's numbers);
+//   - (P2b-B) C held with the ball is the shield (intent.shield), not the shoulder check; V held is the shoulder check.
+//     The real-key version of these, Ctrl in a locked full screen included, is qa/tr2b-shield.mjs.
 //
 //   QA_PORT=8770 node qa/wpF-controls.mjs        exits 1 on any failed check; writes qa/out/wpF-controls.json
 import {launch, career, freeze} from "./lib.mjs";
@@ -190,14 +192,32 @@ try {
           if (!touched){ const e = ms.events.find(e => e.id >= from && e.kind === "touch" && e.agent === me.id); if (e){ touched = {x: e.x, z: e.z}; vIn = e.vIn; } }
           else if (Math.hypot(b.v.x, b.v.z) < .05) break;
         }
-        if (touched) ds.push({d: Math.hypot(b.p.x - touched.x, b.p.z - touched.z), vIn});
+        if (touched) ds.push({d: Math.hypot(b.p.x - touched.x, b.p.z - touched.z), body: Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), vIn});
       }
-      res[ctrl] = {n: ds.length, mean: ds.reduce((s, x) => s + x.d, 0)/Math.max(1, ds.length), vIn: ds.length ? ds[0].vIn : null};
+      res[ctrl] = {n: ds.length, mean: ds.reduce((s, x) => s + x.d, 0)/Math.max(1, ds.length), body: ds.reduce((s, x) => s + x.body, 0)/Math.max(1, ds.length), vIn: ds.length ? ds[0].vIn : null};
     }
     return res;
   });
-  check(S7[30].n >= 8 && S7[30].mean >= 1.1, "first touch from 12 m/s passes at control 30 rests >= 1.1 m away (mean)", S7[30]);
-  check(S7[90].n >= 8 && S7[90].mean <= .5, "first touch from 12 m/s passes at control 90 rests <= 0.5 m away (mean)", S7[90]);
+  // (TRAINING-SPEC 3, P2b-A: the first touch leaves the ball touchDist(q) = 0.6 + 0.8 (1 - q) m ahead of the receiver, so
+  // a poorer control knocks it further from him; the old 1.5.3 numbers measured the roll from the touch itself)
+  check(S7[30].n >= 8 && S7[90].n >= 8 && S7[30].body > S7[90].body + .1, "first touch from 12 m/s passes: at control 30 the ball rests further from you than at 90 (mean)", {c30: S7[30], c90: S7[90]});
+  check(S7[90].body >= .3 && S7[30].body <= 1.9, "first touch from 12 m/s passes: the ball rests within the touch distances of the spec (0.6 to 1.4 m, give or take its roll)", {c30: +S7[30].body.toFixed(2), c90: +S7[90].body.toFixed(2)});
+  // ---- 8. (P2b-B) C is the shield, V the shoulder check
+  const S8 = await page.evaluate(() => {
+    // (a plain key let go first: the Ctrl and Alt presses of section 6 left the modifier flag of their last event)
+    window.dispatchEvent(new KeyboardEvent("keyup", {key: "x", bubbles: true, cancelable: true}));
+    const T = window.__t, ms = T.enter("stamina"), F = window.__fp, me = F.me(), C = F.ctrl;
+    T.key("c", true); T.steps(3);
+    const c = {shield: !!me.intent.shield, scan: !!C.scan};
+    T.key("c", false); T.steps(2);
+    const off = !!me.intent.shield;
+    T.key("v", true); T.steps(3);
+    const v = {shield: !!me.intent.shield, scan: !!C.scan};
+    T.key("v", false); T.steps(20);
+    return {c, off, v, after: !!C.scan};
+  });
+  check(S8.c.shield && !S8.c.scan && !S8.off, "C held with the ball: the shield, not the shoulder check; let go, no shield", S8);
+  check(S8.v.scan && !S8.v.shield && !S8.after, "V held: the shoulder check (and it turns back when let go)", S8);
   check(page.errors.length === 0, "zero console and page errors", page.errors.slice(0, 5));
   ok = true;
 } catch (e){ console.log("FAILED", e.stack || e.message); check(false, "the run finished", String(e.message)); }

@@ -12,7 +12,13 @@
    has it, spinning as it does; the spare balls on their cones while the simulation keeps them there.
    Your own body: the whole of you is the agent's body (hidden in your eyes, seen in a replay); in your eyes a headless
    first-person body with your face's skin and the kit, so looking down shows your legs, your boots and the ball.
-   A replay (replay.js) hands this view snapshots instead of the live state: the same bodies, posed from the record. */
+   A replay (replay.js) hands this view snapshots instead of the live state: the same bodies, posed from the record.
+   P2b-B (TR-2b, TRAINING-SPEC 3): the poses follow the simulation's contact. A tackle reaches with the foot on the
+   ball's side to the contact point the simulation has (act.contact, else where the ball will be at the contact), as
+   far as the simulation's reach (duel.js standReach, the poke's further); a slide runs at the act's own carried speed,
+   along its own way, slowed by the grass; a receive starts when the ball comes inside the control radius (zone.js R)
+   and uses the foot, the thigh or the chest by the ball's real height (zone.js part); a shielding body carries the
+   shield's upper body (moves.js upper:shield). */
 import {THREE} from "../build.js";
 import {human, animateHuman, lookFor, EV} from "../human.js";
 import {SCHED} from "../core/sched.js";
@@ -22,6 +28,8 @@ import {predAt} from "./actions.js";
 import {kindOf, windHold, windUpper} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
+import {R as zoneR, part as zonePart} from "./zone.js";
+import {standReach, pokeReach, slideDecel} from "./duel.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -266,13 +274,27 @@ function liveSt(V, R, a, ms, dt){
       }
       case "tackle": {
         const c = clipFor(R, "tackle", act);
-        c.mode = "tackle"; c.kind = act.sub === "poke" ? "poke" : "stand"; c.side = "R";
-        c.target = c.target || {x:ms.ball.p.x, z:ms.ball.p.z}; c.tc = Math.max(0, act.tEff - act.t - alpha*H);
+        c.mode = "tackle"; c.kind = act.sub === "poke" ? "poke" : "stand";
+        c.tc = Math.max(0, tackleTc(act) - act.t - alpha*H);
+        // the foot goes to the contact: the simulation's point when it has one, else the ball where it will be at the
+        // contact (followed until then: a carrier who touches it on is followed), on the ball's side of the body
+        contactOf(ms, a, act, c.tc, c.target || (c.target = {x:0, y:0, z:0}));
+        c.side = act.side === "L" || act.side === "R" ? act.side : sideOf(a, c.target);
+        const tk = a.at ? a.at.tackling : 50;
+        // (how far the foot may go from the body: the simulation's reach, metres from the body to the ball's centre)
+        c.reach = act.reach > 0 ? act.reach : c.kind === "poke" ? pokeReach(tk) : standReach(tk);
         return c;
       }
       case "slide": {
         const c = clipFor(R, "slide", act);
-        c.mode = "tackle"; c.kind = "slide"; c.side = "R"; c.v0 = act.prof ? act.prof.v0 : 5; c.tc = Math.max(0, act.tEff - act.t);
+        c.mode = "tackle"; c.kind = "slide";
+        // the slide at its own carried speed, along its own way, slowed by the grass (the simulation's numbers)
+        c.v0 = act.v0 > 0 ? act.v0 : act.prof ? act.prof.v0 : 5;
+        c.decel = act.prof && act.prof.decel > 0 ? act.prof.decel : slideDecel();
+        c.dir = act.dir || null; c.dur = act.dur > 0 ? act.dur : 1.9;
+        c.tc = Math.max(0, tackleTc(act) - act.t - alpha*H);
+        contactOf(ms, a, act, c.tc, c.target || (c.target = {x:0, y:0, z:0}));
+        c.side = act.side === "L" || act.side === "R" ? act.side : sideOf(a, c.target);
         // the clip slides the body along its own curve from where the slide began: the group stays there
         c.groupAt = {x:act.x0, z:act.z0};
         return c;
@@ -312,13 +334,29 @@ function liveSt(V, R, a, ms, dt){
     }
   }
   locoOf(loco, a);
-  // a call for the ball (the arm up), the assistant's flag (up and out)
-  if (a.lastCall != null && ms.t - a.lastCall < .9) loco.upper = UP_CALL;
+  // a call for the ball (the arm up), the assistant's flag (up and out); shielding the ball (P2b-B): the shield's upper
+  // body, the arms out and back to feel the man behind, over whatever the legs do
+  if (shielding(a)) loco.upper = UP_SHIELD;
+  else if (a.lastCall != null && ms.t - a.lastCall < .9) loco.upper = UP_CALL;
   else if (a.role === "ar" && V.flag && V.flag.agent === a.id && ms.t < V.flag.until) loco.upper = UP_FLAG;
   else if (a.isMe) loco.upper = windUpper(V.wind, a.m.speed, R.windUp || (R.windUp = {}));
   return loco;
 }
-const UP_CALL = {g:"call", w:1}, UP_FLAG = {g:"point", w:1};
+const UP_CALL = {g:"call", w:1}, UP_FLAG = {g:"point", w:1}, UP_SHIELD = {g:"shield", w:1};
+// is this body shielding the ball now: the engine's resolved shield (actions.js a.shield.on) when it has one, else its
+// intent (the AI's or yours); never in the middle of an action
+const shielding = a => !a.act && (a.shield ? !!a.shield.on : !!(a.intent && a.intent.shield));
+// a tackle's or a slide's contact time (seconds into it): the simulation's act.tc, else its tEff
+const tackleTc = act => act.tc != null ? act.tc : act.tEff != null ? act.tEff : .3;
+// where the tackling foot meets the ball: act.contact (the simulation's), else the ball predicted at the contact
+function contactOf(ms, a, act, tcl, out){
+  const C = act.contact;
+  if (C && C.x != null){ out.x = C.x; out.y = C.y != null ? C.y : .11; out.z = C.z; return out; }
+  predAt(ms, tcl, PB); out.x = PB.x; out.y = PB.y; out.z = PB.z;
+  return out;
+}
+// the side of the body a point is on ('R' or 'L', the strike clips' convention: control.js resolveAction)
+function sideOf(a, p){ const f = dirOf(a.m.yaw); return (p.x - a.m.x)*-f.z + (p.z - a.m.z)*f.x >= 0 ? "R" : "L"; }
 /* locomotion from the agent's mover (P2-B, MV-8): its speed; the speed it is asked for (st.intent: the mover's target,
    0 when nothing is asked of it: a stop starts from that, not from the legs guessing it from the slowing root); and a
    backpedal when it goes backwards with its facing held (st.style: the gait's backwards steps from the first frame,
@@ -355,19 +393,29 @@ function outcomeOf(V, a, g){
   if (g.diveT < g.plan.tc) return "catch";
   return "miss";
 }
-// a first touch about to happen: the ball comes within reach in under 0.35 s and he is the one to take it
+// a first touch about to happen: the ball comes inside his control radius (zone.js R: the radius the simulation takes
+// it in, for the ball as it will be then, from where his run takes him) in under 0.35 s and he is the one to take it;
+// the part by the ball's real height there (zone.js part: under 0.4 m the foot, the thigh to 0.95 m, the chest to 1.4 m;
+// above that it is a header, not a touch)
+const RA = {m:{x:0, z:0, yaw:0, vx:0, vz:0, speed:0}, at:null, scale:1, fac:null, y:0, st:null}, RBALL = {p:{x:0, y:0, z:0}, v:{x:0, y:0, z:0}};
 function recvFor(V, R, a, ms){
   const p = a.plan, mine = a.isMe || (p && (p.kind === "receive" || p.kind === "chase" || p.kind === "intercept")) || (ms.kick && ms.kick.ev && ms.kick.ev.recv === a.id);
   if (!mine) return null;
   if (R.clip && R.clip.mode === "receive" && ms.t < R.clip.until) return R.clip;
+  // (the body as it will be: his run carried on; the ball as it will be, with its velocity now)
+  const M = RA.m; RA.at = a.at; RA.scale = a.scale || 1; RA.fac = a.fac; RA.st = a.st; RA.y = 0;
+  M.yaw = a.m.yaw; M.vx = a.m.vx; M.vz = a.m.vz; M.speed = a.m.speed;
+  const bv = ms.ball.v; RBALL.v.x = bv.x; RBALL.v.y = bv.y; RBALL.v.z = bv.z;
   for (let i = 1; i <= 10; i++){
     const t = i*.035;
     predAt(ms, t, PB);
-    const d = Math.hypot(PB.x - a.m.x - a.m.vx*t, PB.z - a.m.z - a.m.vz*t);
-    if (d < .75 && PB.y < 1.5){
+    M.x = a.m.x + a.m.vx*t; M.z = a.m.z + a.m.vz*t;
+    RBALL.p.x = PB.x; RBALL.p.y = PB.y; RBALL.p.z = PB.z;
+    const d = Math.hypot(PB.x - M.x, PB.z - M.z), part0 = zonePart(PB.y, RA.scale);
+    if (part0 !== "head" && d < zoneR(RA, RBALL, ms)){
       const f = dirOf(a.m.yaw), lat = (PB.x - a.m.x)*-f.z + (PB.z - a.m.z)*f.x;
-      const part = PB.y > .95 ? "chest" : PB.y > .45 ? "thigh" : PB.y < .16 && Math.hypot(ms.ball.v.x, ms.ball.v.z) < 3 ? "sole" : "inside";
-      R.clip = {key:"receive", ref:ms.predSeq, id:++CLIP_N, mode:"receive", part, side:lat >= 0 ? "R" : "L", ball:{x:PB.x, y:PB.y, z:PB.z}, tc:t,
+      const part = part0 === "chest" ? "chest" : part0 === "thigh" ? "thigh" : PB.y < .16 && Math.hypot(ms.ball.v.x, ms.ball.v.z) < 3 ? "sole" : "inside";
+      R.clip = {key:"receive", ref:ms.predSeq, id:++CLIP_N, mode:"receive", part, zpart:part0, side:lat >= 0 ? "R" : "L", ball:{x:PB.x, y:PB.y, z:PB.z}, tc:t, dStart:d, rStart:zoneR(RA, RBALL, ms),
         ballV:{x:ms.ball.v.x, y:ms.ball.v.y, z:ms.ball.v.z}, cushion:.7, until:ms.t + t + .35};
       return R.clip;
     }
@@ -399,6 +447,8 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     else { FPST.speed = o.speed || 0; FPST.intent = FPST.speed; FPST.style = undefined; }
     FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn || 0; FPST.correct = o.correct || null;
     FPST.fatigue = a && a.st ? clamp(1 - a.st.B/60, 0, 1)*.6 : 0;
+    // (shielding: your arms come out wide and back, at the edges of your view, P2b-B)
+    FPST.upper = a && shielding(a) ? UP_SHIELD : null;
   }
   void s;
   return animateHuman(h, dt, st).mask;
