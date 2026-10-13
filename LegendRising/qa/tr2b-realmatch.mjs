@@ -82,7 +82,7 @@ try {
       let od = 1e9; for (const x of ms.agents){ if (x.team !== me.team && x.team >= 0 && x.onPitch){ const q = Math.hypot(x.m.x - me.m.x, x.m.z - me.m.z); if (q < od) od = q; } }
       const C = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
       o.od = od; o.cd = C && C.team !== me.team ? Math.hypot(C.m.x - me.m.x, C.m.z - me.m.z) : null; o.spd = me.m.speed;
-      o.sh = !!(me.shield && me.shield.on) || !!me.intent.shield; o.myAct = me.act ? me.act.kind : null;
+      o.sh = !!(me.shield && me.shield.on) || !!me.intent.shield; o.shOn = !!(me.shield && me.shield.on); o.myAct = me.act ? me.act.kind : null;
       if (C && C.team !== me.team){ o.cx = C.m.x; o.cz = C.m.z; }
       if (myRestart){ P.yaw = Math.atan2(-(gx - b.x), -(-b.z)); P.pitch = -.25; o.act = "restart"; }
       else if (mine && od < 2.2 && dg >= 25){ P.yaw = Math.atan2(-(gx - P.x), -(0 - P.z)); P.pitch = -.2; o.act = "shield"; }
@@ -114,7 +114,8 @@ try {
       await snap(r.myAct === "tackle" ? "tackle-standing" : "tackle-slide");
     }
     prevAct = r.myAct;
-    if (r.sh){ use.shieldOn++; if (use.shieldOn === 20) await snap("shield"); }
+    // (the shield shot: the engine's shield on, the man on you within a stride, the ball yours)
+    if (r.sh){ use.shieldOn++; if (r.shOn && r.od < 1.4 && r.act === "shield") await snap("shield"); }
     if (r.act !== "shield" && held.has("c")){ await key("c", false); }
     if (r.st === "live" && r.act){
       if (r.act === "shield"){
