@@ -1,6 +1,7 @@
 // qa/unit/touch.mjs: js/life/football/touch.js under plain node.
-// Owner: WP-C, contract DESIGN 1.4.12; numbers 1.5.3; behaviour 3.1.4 (fouls 3.2.9); acceptance 2.3 WP-C (first touch
-// resting distances) and the touch items of QA 4.3 and 4.4.
+// Owner: WP-C, then P2b-A (TRAINING-SPEC section 3: the control radius R as the reach, the first touch's q and touch
+// distance in the receiver's frame, the standing reach, the T - C logistic, the slide on its own momentum). Contract
+// DESIGN 1.4.12 and BUILD-PLAN Phase 2b; numbers 1.5.3 and tune.js; behaviour 3.1.4 (fouls 3.2.9).
 //
 //   node qa/unit/touch.mjs      exits 1 on any failed check; writes qa/out/unit-touch.json
 import fs from "node:fs";
@@ -8,6 +9,8 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {TOUCH, TACKLE, reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleSweep, tackleOutcome, slideProfile,
   slideDistance, headerContact, classifyContact} from "../../js/life/football/touch.js";
+import {q as qOf, touchDist} from "../../js/life/football/zone.js";
+import {standReach} from "../../js/life/football/duel.js";
 import {BALL, createBall, createBallWorld, ballStep, ballKick} from "../../js/life/football/ball.js";
 import {dirOf} from "../../js/life/football/pitchspec.js";
 import {mulberry32, truncSd} from "../../js/life/football/rng.js";
@@ -24,6 +27,27 @@ const DEG = Math.PI/180, H = 1/60, R = BALL.R;
 const sd = a => { const m = a.reduce((s, x) => s + x, 0)/a.length; return Math.sqrt(a.reduce((s, x) => s + (x - m)*(x - m), 0)/(a.length - 1)); };
 const FACE_MX = Math.PI/2;    // yaw facing -X (dirOf(pi/2) = (-1, 0))
 
+// where a touched ball comes to rest, measured ahead of a standing body (its distance from him)
+function restAt(ballPos, v, body, roll = 1.1){
+  const b = createBall({x: ballPos.x, y: ballPos.y, z: ballPos.z, rollDecel: roll});
+  ballKick(b, v, null, {});
+  const w = createBallWorld({});
+  for (let i = 0; i < 900; i++){ ballStep(b, w, H); if (b.grounded && b.v.x === 0 && b.v.z === 0) break; }
+  return Math.hypot(b.p.x - body.x, b.p.z - body.z);
+}
+// the farthest lead a touched ball gets over a body running on at its velocity along dir
+function leadAfter(ballPos, v, body, dir, roll = 1.1){
+  const b = createBall({x: ballPos.x, y: ballPos.y, z: ballPos.z, rollDecel: roll});
+  ballKick(b, v, null, {});
+  const w = createBallWorld({});
+  let lead = -9;
+  for (let i = 1; i < 300; i++){
+    ballStep(b, w, H);
+    const l = (b.p.x - body.x - body.vx*i*H)*dir.x + (b.p.z - body.z - body.vz*i*H)*dir.z;
+    if (l > lead) lead = l;
+  }
+  return lead;
+}
 // how far a touched ball rolls from where it was touched
 function restAfter(ballPos, v, roll = 1.1){
   const b = createBall({x: ballPos.x, y: ballPos.y, z: ballPos.z, rollDecel: roll});
@@ -33,57 +57,66 @@ function restAfter(ballPos, v, roll = 1.1){
   return Math.hypot(b.p.x - ballPos.x, b.p.z - ballPos.z);
 }
 
-/* ---------- reach envelopes ---------- */
+/* ---------- reach: the control radius R of spec 3 (zone.js) ---------- */
 {
-  const a = {x: 0, z: 0, yaw: FACE_MX, at: {dribbling: 50}};
-  const at = (x, y, z, ag = a) => reachEnvelope(ag, {p: {x, y, z}});
-  check(at(-0.3, R, 0).part === 'sole' && at(-0.6, R, 0).part === 'foot' && at(-0.3, 0.8, 0).part === 'thigh' && at(-0.3, 1.2, 0).part === 'chest' && at(-0.3, 1.8, 0).part === 'head',
-    "reach parts by height: sole, foot, thigh, chest, head");
-  check(at(-0.95, R, 0) === null && at(-0.8, 0.8, 0) === null && at(-0.3, 1.45, 0) === null && at(-0.3, 2.3, 0) === null, "a ball outside every envelope stays loose (null)");
-  const foot = d => reachEnvelope({x: 0, z: 0, yaw: FACE_MX, at: {dribbling: d}}, {p: {x: -0.95, y: R, z: 0}});
-  check(foot(99) && foot(99).part === 'foot' && foot(30) === null, "the foot reaches 0.75 + 0.003 dribbling m (0.95 m at 99, not at 30)");
-  check(at(-0.5, R, 0.3).side === 'L' && at(-0.5, R, -0.3).side === 'R', "facing -X the ball at +Z is on his left, at -Z on his right");
-  const jumper = {x: 0, z: 0, yaw: FACE_MX, y: 0.5, at: {}};
-  check(at(-0.3, 2.3, 0, jumper).part === 'head', "a jump lifts the head envelope with it");
-  const tall = {x: 0, z: 0, yaw: FACE_MX, scale: 1.1, at: {}};
-  check(at(-0.3, 1.45, 0, tall).part === 'chest' && at(-0.3, 1.45, 0) === null, "heights scale with the body (1.1: chest up to 1.54 m)");
+  const at = {ctrl: 50, agility: 50, composure: 50, balance: 50};
+  const a = {x: 0, z: 0, yaw: FACE_MX, at};
+  const at_ = (x, y, z, ag = a, v) => reachEnvelope(ag, {p: {x, y, z}, v: v || {x: 0, y: 0, z: 0}});
+  const c = (0.55*50 + 0.2*50 + 0.15*50 + 0.1*50)/99, Rw = 0.9*(0.6 + 0.8*c);
+  check(at_(-0.3, R, 0).part === 'foot' && at_(-0.3, 0.7, 0).part === 'thigh' && at_(-0.3, 1.2, 0).part === 'chest' && at_(-0.3, 1.8, 0).part === 'head',
+    "the part from the real ball height: foot under 0.4 m, thigh, chest to 1.4 m, a header above");
+  check(at_(-(Rw - 0.01), R, 0) && !at_(-(Rw + 0.01), R, 0) && Math.abs(at_(-0.5, R, 0).R - Rw) < 1e-9, "a ball ahead is in reach up to R = 0.9 (0.6 + 0.8 c)", r4(Rw));
+  check(at_(0.4*Rw - 0.01, R, 0) && !at_(0.4*Rw + 0.02, R, 0), "facing matters: a ball behind him only within 0.4 R (no longer 'foot' at a metre)", r4(0.4*Rw));
+  check(at_(-0.3, 2.3, 0) === null && at_(-1.0, 0.8, 0) === null, "a ball outside every envelope stays loose (null): over the head, beyond the thigh's reach");
+  check(at_(-0.95, R, 0) === null, "a ball beyond R stays loose (null)");
+  const fast = at_(-(Rw - 0.05), R, 0, a, {x: 24, y: 0, z: 0});
+  check(fast === null, "a fast ball shrinks the radius (fSpeed: 24 m/s against vc ~13)");
+  const jumper = {x: 0, z: 0, yaw: FACE_MX, y: 0.5, at};
+  check(at_(-0.3, 2.3, 0, jumper).part === 'head', "a jump lifts the head envelope with it");
+  const tall = {x: 0, z: 0, yaw: FACE_MX, scale: 1.1, at};
+  check(at_(-0.3, 1.5, 0, tall).part === 'chest' && at_(-0.3, 1.5, 0).part === 'head', "heights scale with the body (1.1: chest up to 1.54 m)");
+  check(at_(-0.5, R, 0.3).side === 'L' && at_(-0.5, R, -0.3).side === 'R', "facing -X the ball at +Z is on his left, at -Z on his right");
 }
 
-/* ---------- first touch (1.5.3 expected) ---------- */
+/* ---------- first touch (spec 3: q and the touch distance, in the receiver's frame) ---------- */
 {
-  const r = mulberry32(12);
-  for (const [ctrl, lo, hi] of [[90, 0.3, 0.5], [50, 0.8, 1.3], [30, 1.3, 1.9]]){
-    const agent = {x: 0, z: 0, yaw: FACE_MX, at: {ctrl}};
+  const at = ctrl => ({ctrl, agility: 50, composure: 50, balance: 50});
+  // standing, a 12 m/s pass from the front met 0.5 m out: the ball rests touchDist(q) in front of him
+  for (const ctrl of [90, 50, 30]){
+    const agent = {x: 0, z: 0, yaw: FACE_MX, vx: 0, vz: 0, at: at(ctrl)};
     const ball = {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}, rollDecel: 1.1};
-    const ft = firstTouch(agent, ball, {dir: null}, {pressure01: 0, bF: 1}, r);
-    const d = restAfter(ball.p, ft.v);
-    check(d >= lo && d <= hi && ft.part === 'foot', `a 12 m/s ground pass cushioned standing by control ${ctrl} rests ${lo} to ${hi} m away`, {rest: r4(d), absorb: r4(ft.absorb)});
+    const ft = firstTouch(agent, ball, {dir: null}, {pressure01: 0, bF: 1}, mulberry32(12));
+    const wantQ = qOf(at(ctrl), 12, 0, 1), d = restAt(ball.p, ft.v, agent);
+    check(Math.abs(ft.q - wantQ) < 1e-12 && Math.abs(ft.dist/touchDist(ft.q) - 1) <= 0.15*2.5*(1 - ft.q) + 1e-9 && Math.abs(d - ft.dist) < 0.08 && ft.part === 'foot',
+      `a 12 m/s pass met standing by control ${ctrl}: q from zone.q, the ball rests touchDist(q) ahead`, {q: r4(ft.q), touch: r4(ft.dist), rest: r4(d)});
   }
-  // the absorb terms
-  const ab = (o, ctx = {}) => firstTouch(Object.assign({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 50}}, o), {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}}, {dir: null}, Object.assign({bF: 1}, ctx), mulberry32(1)).absorb;
-  const base = 0.05 + 0.13*Math.pow(0.5, 1.2) + 0.01*2;
-  check(Math.abs(ab({}) - base) < 1e-12, "absorb = 0.05 + 0.13(1 - ctrl/100)^1.2 + 0.01 max(0, |vIn| - 10) + ...", r4(ab({})));
-  check(Math.abs(ab({}, {pressure01: 1}) - base - 0.12) < 1e-12 && Math.abs(ab({}, {bF: 0}) - base - 0.08) < 1e-12, "  + 0.12 under full pressure, + 0.08 out of breath");
-  const chest = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 50}}, {p: {x: -0.3, y: 1.2, z: 0}, v: {x: 12, y: -1, z: 0}}, {dir: null}, {bF: 1}, mulberry32(1));
-  check(chest.part === 'chest' && Math.abs(chest.absorb - (0.05 + 0.13*Math.pow(0.5, 1.2) + 0.01*Math.max(0, Math.hypot(12, 1) - 10) + 0.08)) < 1e-12 && chest.bounce, "  + 0.08 on the chest, and the ball drops from there (bounce)", r4(chest.absorb));
-  const hard = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 0}}, {p: {x: -0.5, y: R, z: 0}, v: {x: 39, y: 0, z: 0}}, {dir: null}, {pressure01: 1, bF: 0}, mulberry32(1));
-  check(hard.absorb === TOUCH.ABSORB_MAX && hard.heavy, "absorb is capped at 0.6; a touch that leaves the ball over 1.5 m is heavy");
-  const soft = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 90}}, {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}}, {dir: null}, {bF: 1}, mulberry32(1));
-  check(!soft.heavy && soft.quality > 0.8, "a good cushion is not heavy and scores high quality", r4(soft.quality));
-  // a 9 m/s tapped pass is receivable by a control-50 receiver (QA 4.4)
-  const recv = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 50}}, {p: {x: -0.5, y: R, z: 0}, v: {x: 9, y: 0, z: 0}}, {dir: null}, {bF: 1}, mulberry32(4));
-  const dr = restAfter({x: -0.5, y: R, z: 0}, recv.v);
-  check(dr < 1.3, "a pass arriving at 9 m/s rests within 1.3 m of a control-50 receiver", r4(dr));
-  // direction error: sigma (1 - ctrl/110) x 0.35 x |vIn|/15, truncated at 2.5
+  // q falls with pressure and breath, and with the ball's speed over vc; a lower q is a longer touch
+  const q0 = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(50)}, {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}}, {}, {pressure01: 0, bF: 1}, mulberry32(1)).q;
+  const qp = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(50)}, {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}}, {}, {pressure01: 1, bF: 1}, mulberry32(1)).q;
+  const qb = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(50)}, {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}}, {}, {pressure01: 0, bF: 0}, mulberry32(1)).q;
+  const qv = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(50)}, {p: {x: -0.5, y: R, z: 0}, v: {x: 24, y: 0, z: 0}}, {}, {pressure01: 0, bF: 1}, mulberry32(1)).q;
+  check(Math.abs(q0 - qp - 0.2) < 1e-9 && Math.abs(q0 - qb - 0.1) < 1e-9 && qv < q0, "q: -0.2 under full pressure, -0.1 out of breath, -0.04 a m/s over vc", [r4(q0), r4(qp), r4(qb), r4(qv)]);
+  // the speed is the ball's against him: the same pass met on the run is easier
+  const run = {x: 0, z: 0, yaw: -FACE_MX, vx: 7, vz: 0, at: at(50)};
+  const fr = firstTouch(run, {p: {x: 0.4, y: R, z: 0}, v: {x: 14, y: 0, z: 0}}, {dir: {x: 1, z: 0}}, {bF: 1}, mulberry32(3));
+  check(Math.abs(fr.vRel - 7) < 1e-9 && fr.q === qOf(at(50), 7, 0, 1), "a pass from behind at 14 m/s to a man running at 7: q from the 7 m/s it closes at", {vRel: fr.vRel, q: r4(fr.q)});
+  // receiving on the move: the ball is carried at his speed, its lead over him peaking at the touch distance
+  const lead = leadAfter({x: 0.4, y: R, z: 0}, fr.v, {x: 0, z: 0, vx: 7, vz: 0}, {x: 1, z: 0});
+  check(fr.v.x > 7 && Math.abs(lead - fr.dist) < 0.08, "a man running at 7 m/s: the touch is carried at his speed and leads him by touchDist(q)", {vx: r4(fr.v.x), lead: r4(lead), touch: r4(fr.dist)});
+  // the way: the keys (intent.dir), else his facing
+  const side = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(99)}, {p: {x: -0.4, y: R, z: 0}, v: {x: 3, y: 0, z: 0}}, {dir: {x: 0, z: 1}}, {bF: 1}, mulberry32(2));
+  check(side.v.z > 0.5 && Math.abs(side.v.x) < 0.3*side.v.z, "the touch goes the way he means (the keys)", {vx: r4(side.v.x), vz: r4(side.v.z)});
+  // the chest and the thigh: the ball drops off them
+  const chest = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(50)}, {p: {x: -0.3, y: 1.2, z: 0}, v: {x: 10, y: -1, z: 0}}, {}, {bF: 1}, mulberry32(1));
+  const thigh = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(50)}, {p: {x: -0.3, y: 0.7, z: 0}, v: {x: 10, y: -1, z: 0}}, {}, {bF: 1}, mulberry32(1));
+  check(chest.part === 'chest' && chest.bounce && chest.v.y > 0 && thigh.part === 'thigh' && thigh.v.y > 0, "on the chest or the thigh the ball drops from there");
+  const heavy = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(10)}, {p: {x: -0.4, y: R, z: 0}, v: {x: 30, y: 0, z: 0}}, {}, {pressure01: 1, bF: 0}, mulberry32(1));
+  check(heavy.heavy && heavy.q === 0, "q under 0.3 is a heavy touch (0 here)", r4(heavy.q));
+  // direction error: sigma (1 - ctrl/110) x 0.35 x vRel/15, truncated at 2.5
   const r2 = mulberry32(77), errs = [];
-  for (let i = 0; i < 2000; i++) errs.push(firstTouch({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 50}}, {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}}, {dir: null}, {bF: 1}, r2).angErr);
+  for (let i = 0; i < 2000; i++) errs.push(firstTouch({x: 0, z: 0, yaw: FACE_MX, at: at(50)}, {p: {x: -0.5, y: R, z: 0}, v: {x: 12, y: 0, z: 0}}, {}, {bF: 1}, r2).angErr);
   const sig = (1 - 50/110)*0.35*12/15;
-  check(Math.abs(sd(errs)/(sig*truncSd(2.5)) - 1) < 0.06 && errs.every(e => Math.abs(e) <= 2.5*sig + 1e-12), "the first touch's direction error has sigma (1 - ctrl/110) 0.35 |vIn|/15, never beyond 2.5 sigma", {sd: r4(sd(errs)), sigma: r4(sig)});
-  // a push along WASD: 1 to 3 m/s on top of the cushion
-  const push = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 99}}, {p: {x: -0.5, y: R, z: 0}, v: {x: 2, y: 0, z: 0}}, {dir: {x: 0, z: 1}, push: 1}, {bF: 1}, mulberry32(2));
-  check(Math.abs(push.v.z - 3) < 0.05 && push.push === 3, "a full push adds 3 m/s along the WASD direction", r4(push.v.z));
-  const push0 = firstTouch({x: 0, z: 0, yaw: FACE_MX, at: {ctrl: 99}}, {p: {x: -0.5, y: R, z: 0}, v: {x: 2, y: 0, z: 0}}, {dir: {x: 0, z: 1}, push: 0}, {bF: 1}, mulberry32(2));
-  check(Math.abs(push0.v.z - 1) < 0.05, "  the lightest push adds 1 m/s", r4(push0.v.z));
+  check(Math.abs(sd(errs)/(sig*truncSd(2.5)) - 1) < 0.06 && errs.every(e => Math.abs(e) <= 2.5*sig + 1e-12), "the first touch's direction error has sigma (1 - ctrl/110) 0.35 vRel/15, never beyond 2.5 sigma", {sd: r4(sd(errs)), sigma: r4(sig)});
 }
 
 /* ---------- dribbling ---------- */
@@ -129,61 +162,60 @@ function restAfter(ballPos, v, roll = 1.1){
   check(okAt(-0.8, 0) && !okAt(-1.0, 0) && !okAt(0.5, 0) && !okAt(-0.3, -0.5), "a dribble touch needs the ball within 0.9 m and 50 degrees ahead");
 }
 
-/* ---------- tackles ---------- */
+/* ---------- tackles (spec 3: reach, the T - C logistic, timing, angle, the slide) ---------- */
 {
-  const p = slideProfile(50);
-  check(Math.abs(p.travel - 3.3) < 1e-12 && p.tStop <= 1.1 && Math.abs(slideDistance(p, 5) - 3.3) < 1e-9 && p.ground === 0.8, "a slide travels 2.8 + 0.01 tackling m at 6 m/s squared, within its 1.1 s commitment, then 0.8 s on the ground", {tStop: r4(p.tStop), v0: r4(p.v0)});
-  // the standing sweep: inactive in the wind-up, active 0.25 s, through the aim point halfway, out to full reach
+  const p = slideProfile(6, 8);
+  check(Math.abs(p.v0 - 6) < 1e-12 && Math.abs(p.travel - 36/(2*0.55*9.81)) < 1e-9 && Math.abs(p.reach - (1.6 + 0.9*6/8)) < 1e-12 && Math.abs(slideDistance(p, 9) - p.travel) < 1e-9,
+    "a slide carries its run-in (6 m/s), slows on grass friction (mu 0.55) and reaches 1.6 + 0.9 v/vTop", {travel: r4(p.travel), reach: r4(p.reach), tActive: r4(p.tActive)});
+  check(slideProfile(8, 8).travel > slideProfile(5, 8).travel && slideProfile(1, 8).v0 === 2, "a faster run-in slides further; a slide is at least a 2 m/s lunge");
+  // the standing sweep: inactive in the wind-up, active 0.25 s, through the aim point halfway, out to the reach
   const tk = {x: 0, z: 0, yaw: -FACE_MX, at: {tackling: 60}};      // facing +X
-  const tgt = {x: 0.8, z: 0};
+  const tgt = {x: 0.6, z: 0};
   const at = t => tackleSweep(tk, 'stand', t, tgt);
   const mid = at(0.12 + 0.125), end = at(0.12 + 0.25), early = at(0.06);
-  check(!early.active && early.phase === 'wind' && mid.active && Math.hypot(mid.foot.x - 0.8, mid.foot.z) < 1e-9, "a standing tackle winds up for 0.12 s, then its foot passes through the aimed point halfway through", {mid: [r4(mid.foot.x), r4(mid.foot.z)]});
-  const reach = 1.05 + 0.003*60, endD = Math.hypot(end.foot.x, end.foot.z), endA = Math.atan2(Math.abs(end.foot.z), end.foot.x)/DEG;
-  check(Math.abs(endD - reach) < 1e-9 && Math.abs(endA - 25) < 1e-6 && end.foot.r === 0.12, "  it sweeps a 50 degree cone out to 1.05 + 0.003 tackling m with a 0.12 m foot", {reach: r4(endD), angle: r4(endA)});
+  check(!early.active && early.phase === 'wind' && mid.active && Math.hypot(mid.foot.x - 0.6, mid.foot.z) < 1e-9, "a standing tackle winds up for 0.12 s, then its foot passes through the aimed point halfway through", {mid: [r4(mid.foot.x), r4(mid.foot.z)]});
+  const reach = standReach(60), endD = Math.hypot(end.foot.x, end.foot.z), endA = Math.atan2(Math.abs(end.foot.z), end.foot.x)/DEG;
+  check(Math.abs(endD + TACKLE.FOOT_R + R - reach) < 1e-9 && Math.abs(endA - 25) < 1e-6 && end.foot.r === 0.12 && Math.abs(end.reach - reach) < 1e-9,
+    "  it sweeps a 50 degree cone out to the reach 0.95 + 0.25 tackling/99 m (to the ball's centre) with a 0.12 m foot", {reach: r4(reach), foot: r4(endD), angle: r4(endA)});
   check(at(0.5).phase === 'recover' || at(0.5).phase === 'done', "  then it recovers");
-  const sl = tackleSweep({x: 0, z: 0, yaw: -FACE_MX, at: {tackling: 50}}, 'slide', 0, {dx: 1, dz: 0});
-  const sl2 = tackleSweep({x: 0, z: 0, yaw: -FACE_MX, at: {tackling: 50}}, 'slide', p.tStop, {dx: 1, dz: 0});
-  check(Math.abs(sl.foot.x - 0.9) < 1e-9 && Math.abs(Math.abs(sl.foot.z - sl2.foot.z) - 1.3) < 1e-9, "a slide's foot leads the body by 0.9 m and sweeps 1.3 m across");
+  const sp = slideProfile(7.5, 7.5);
+  const sl = tackleSweep({x: 0, z: 0, yaw: -FACE_MX, at: {tackling: 50}}, 'slide', 0, {dx: 1, dz: 0}, sp);
+  const sl2 = tackleSweep({x: 0, z: 0, yaw: -FACE_MX, at: {tackling: 50}}, 'slide', sp.tActive, {dx: 1, dz: 0}, sp);
+  check(Math.abs(sl.foot.x - 0.9) < 1e-9 && Math.abs(Math.abs(sl.foot.z - sl2.foot.z) - 1.3) < 1e-9, "a slide's foot leads the body by 0.9 m and sweeps 1.3 m across while it is in reach");
 
-  // outcomes by what the foot meets first
   const r = mulberry32(21);
-  const carrier = {x: 0, z: 0, yaw: -FACE_MX, at: {dribbling: 50}};   // facing +X, away from a tackler at -X
-  const front = {x: 0, z: 0, yaw: FACE_MX, at: {dribbling: 50}};      // facing -X, toward him
-  const won = tackleOutcome({x: -1.6, z: 0, yaw: -FACE_MX, at: {tackling: 70}}, front, {p: {x: -0.55, y: R, z: 0}, v: {x: 0, y: 0, z: 0}},
-    {kind: 'stand', target: {x: -0.55, z: 0}}, {}, r);
-  check(won.result === 'won' && won.tBall > 0 && Math.hypot(won.impulse.x, won.impulse.z) >= 3, "a block tackle through the ball in front of the carrier wins it", {result: won.result, tBall: r4(won.tBall)});
+  const carrier = {x: 0, z: 0, yaw: -FACE_MX, at: {dribbling: 50, ctrl: 50, agility: 50}};   // facing +X, away from a tackler at -X
+  const front = {x: 0, z: 0, yaw: FACE_MX, at: {dribbling: 50, ctrl: 50, agility: 50}};      // facing -X, toward him
+  const won = tackleOutcome({x: -1.25, z: 0, yaw: -FACE_MX, at: {tackling: 99, power: 99, interception: 99}}, front, {p: {x: -0.55, y: R, z: 0}, v: {x: 0, y: 0, z: 0}},
+    {kind: 'stand', target: {x: -0.55, z: 0}}, {}, mulberry32(3));
+  check(won.tBall > 0 && won.timing === 1 && won.angle === 1 && won.p > 0.8 && (won.result === 'won' || won.ridden), "a block tackle through the ball in front of the carrier meets it first, on time, from the front", {result: won.result, p: r4(won.p)});
   const foul = tackleOutcome({x: -1.0, z: 0, yaw: -FACE_MX, vx: 3, vz: 0, at: {tackling: 60}}, carrier, {p: {x: 0.6, y: R, z: 0}, v: {x: 0, y: 0, z: 0}},
     {kind: 'stand', target: {x: 0.6, z: 0}}, {}, r);
   const sev = Math.min(1, 0.25 + 0.06*foul.closing + 0.3*foul.fromBehind);
   check(foul.result === 'foul' && foul.tLeg >= 0 && Math.abs(foul.severity - sev) < 1e-9 && foul.fromBehind === 1 && foul.severity >= 0.55,
-    "a tackle from behind through the carrier's legs to the ball is a foul with severity 0.25 + 0.06 closing + 0.3 from behind", {severity: r4(foul.severity), closing: r4(foul.closing)});
-  // the slide's leading foot crosses z = 0 (his legs) as it reaches x = 0, and passes wide of the ball further on
-  const slideFoul = tackleOutcome({x: -1.5, z: -0.53, yaw: -FACE_MX, at: {tackling: 50}}, carrier, {p: {x: 1.2, y: R, z: 0}, v: {x: 0, y: 0, z: 0}},
-    {kind: 'slide', target: {dx: 1, dz: 0}}, {}, r);
-  const sevS = Math.min(1, 0.25 + 0.06*slideFoul.closing + 0.3*slideFoul.fromBehind + 0.25);
-  check(slideFoul.result === 'foul' && Math.abs(slideFoul.severity - sevS) < 1e-9 && slideFoul.severity > 0.85, "a slide through the man from behind adds 0.25 to the severity", {severity: r4(slideFoul.severity), closing: r4(slideFoul.closing)});
+    "a tackle from behind through the carrier's legs to the ball is a foul with severity 0.25 + 0.06 closing + 0.3 from behind (the leg-first geometry kept)", {severity: r4(foul.severity), closing: r4(foul.closing)});
   const miss = tackleOutcome({x: -4, z: 0, yaw: -FACE_MX, at: {tackling: 60}}, carrier, {p: {x: 0.6, y: R, z: 0}, v: {x: 0, y: 0, z: 0}},
     {kind: 'stand', target: {x: 0.6, z: 0}}, {}, r);
-  check(miss.result === 'miss' && miss.impulse === null, "a tackle out of reach misses");
-  // a slide that takes the ball cleanly
-  const sw = tackleOutcome({x: -3, z: 0.6, yaw: -FACE_MX, at: {tackling: 80}}, {x: 0, z: 1.6, yaw: 0, at: {dribbling: 40}}, {p: {x: 0, y: R, z: 0.6}, v: {x: 0, y: 0, z: 0}},
-    {kind: 'slide', target: {dx: 1, dz: 0}}, {}, r);
-  check(sw.result === 'won' || sw.result === 'poke', "a slide that reaches the ball away from the man takes it", sw.result);
-  // a strong dribbler keeps a toe on more of the clean tackles; the same seed gives the same outcome
-  const rate = drib => {
-    const rr = mulberry32(5); let p = 0;
-    for (let i = 0; i < 400; i++){
-      const o = tackleOutcome({x: -1.6, z: 0, yaw: -FACE_MX, at: {tackling: 50}}, {x: 0, z: 0, yaw: FACE_MX, at: {dribbling: drib}},
+  check(miss.result === 'miss' && miss.impulse === null && miss.tBall < 0, "a tackle out of reach misses");
+  // a loose ball (no carrier): ball first takes it
+  const loose = tackleOutcome({x: 0, z: 0, yaw: -FACE_MX, at: {tackling: 50}}, null, {p: {x: 0.6, y: R, z: 0}, v: {x: 0, y: 0, z: 0}}, {kind: 'stand', target: {x: 0.6, z: 0}}, {}, mulberry32(5));
+  check(loose.result === 'won' || loose.result === 'poke', "a tackle on a loose ball takes it when the foot gets there", loose.result);
+  // the win roll: the T - C logistic times timing and angle
+  const rate = (tAt, cAt) => {
+    const rr = mulberry32(5); let w = 0, pp = 0;
+    for (let i = 0; i < 2000; i++){
+      const o = tackleOutcome({x: -1.25, z: 0, yaw: -FACE_MX, at: tAt}, {x: 0, z: 0, yaw: FACE_MX, at: cAt},
         {p: {x: -0.55, y: R, z: 0}, v: {x: 0, y: 0, z: 0}}, {kind: 'stand', target: {x: -0.55, z: 0}}, {}, rr);
-      if (o.result === 'poke') p++;
+      if (o.result === 'won' || o.result === 'poke') w++;
+      pp = o.p;
     }
-    return p/400;
+    return {rate: w/2000, p: pp};
   };
-  const lo = rate(20), hi = rate(95);
-  check(hi > lo + 0.1 && Math.abs(lo - 0.03) < 0.03 && Math.abs(hi - 0.325) < 0.07, "a strong dribbler keeps a toe on it more often (poke chance 0.1 + 0.005(dribbling - tackling))", {drib20: lo, drib95: hi});
-  const A = tackleOutcome({x: -1.6, z: 0, yaw: -FACE_MX, at: {tackling: 70}}, front, {p: {x: -0.55, y: R, z: 0}, v: {x: 0, y: 0, z: 0}}, {kind: 'stand', target: {x: -0.55, z: 0}}, {}, mulberry32(9));
-  const B = tackleOutcome({x: -1.6, z: 0, yaw: -FACE_MX, at: {tackling: 70}}, front, {p: {x: -0.55, y: R, z: 0}, v: {x: 0, y: 0, z: 0}}, {kind: 'stand', target: {x: -0.55, z: 0}}, {}, mulberry32(9));
+  const strong = rate({tackling: 90, power: 80, interception: 80}, {ctrl: 40, agility: 40}), weak = rate({tackling: 30, power: 40, interception: 40}, {ctrl: 85, agility: 85});
+  check(Math.abs(strong.rate - strong.p) < 0.03 && Math.abs(weak.rate - weak.p) < 0.03 && strong.rate > weak.rate + 0.4, "the tackle wins at pTackleWin(T, C, timing, angle) (a strong tackler against a poor dribbler, and the other way)",
+    {strong, weak});
+  const A = tackleOutcome({x: -1.25, z: 0, yaw: -FACE_MX, at: {tackling: 70}}, front, {p: {x: -0.55, y: R, z: 0}, v: {x: 0, y: 0, z: 0}}, {kind: 'stand', target: {x: -0.55, z: 0}}, {}, mulberry32(9));
+  const B = tackleOutcome({x: -1.25, z: 0, yaw: -FACE_MX, at: {tackling: 70}}, front, {p: {x: -0.55, y: R, z: 0}, v: {x: 0, y: 0, z: 0}}, {kind: 'stand', target: {x: -0.55, z: 0}}, {}, mulberry32(9));
   check(JSON.stringify(A) === JSON.stringify(B), "the same seed gives the same tackle");
 }
 
@@ -217,15 +249,20 @@ function restAfter(ballPos, v, roll = 1.1){
   check(Math.abs(yawTo - want2) < 1e-9 && hp.v.y > 0, "a header pass goes toward its target (heading 110: no error)", r4(yawTo/DEG));
 }
 
-/* ---------- unplanned contact ---------- */
+/* ---------- unplanned contact (thresholds from vc) ---------- */
 {
-  const ag = {x: 0, z: 0, at: {ctrl: 50, interception: 50}};
+  const at = {ctrl: 50, agility: 50, composure: 50, balance: 50, interception: 50};
+  const vc = 8 + 10*(0.55*50 + 0.2*50 + 0.15*50 + 0.1*50)/99;
+  const ag = {x: 0, z: 0, at};
   const ball = s => ({v: {x: s, y: 0, z: 0}});
-  check(classifyContact(ag, ball(12), 'receive') === 'control' && classifyContact(ag, ball(24.5), 'receive') === 'deflect', "the intended receiver controls a ball under 18 + 0.12 ctrl (24 m/s at 50)");
-  check(classifyContact(ag, ball(13.9), 'intercept') === 'control' && classifyContact(ag, ball(14.1), 'intercept') === 'deflect', "interception by positioning: under 8 + 0.12 interception is controlled (14 m/s at 50)");
+  check(classifyContact(ag, ball(vc + 9.9), 'receive') === 'control' && classifyContact(ag, ball(vc + 10.1), 'receive') === 'deflect', "the intended receiver controls a ball under vc + 10 m/s", r4(vc));
+  check(classifyContact(ag, ball(vc - 0.1), 'intercept') === 'control' && classifyContact(ag, ball(vc + 0.1), 'intercept') === 'deflect' &&
+    classifyContact(ag, ball(vc + 3.9), {plan: 'intercept', going: true}) === 'control', "interception by positioning: under vc is controlled (4 m/s more when he was going for it)");
   check(classifyContact(Object.assign({state: 'jockey'}, ag), ball(20), null) === 'block' && classifyContact(ag, ball(20), {stance: 'tackle'}) === 'block' &&
     classifyContact(Object.assign({state: 'tackle'}, ag), ball(20), 'intercept') === 'block', "an agent in a block, tackle or jockey stance blocks a ball he cannot control");
   check(classifyContact(ag, ball(5), null) === 'deflect' && classifyContact(ag, ball(5), {receiver: true}) === 'control', "anyone else deflects it; {receiver: true} is the intended receiver");
+  const run = {m: {x: 0, z: 0, vx: 8, vz: 0, yaw: 0}, at};
+  check(classifyContact(run, {p: {x: 0.5, y: R, z: 0}, v: {x: vc + 5, y: 0, z: 0}}, 'intercept') === 'control', "the speed read is the ball's against his body (a man running with it)");
 }
 
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});

@@ -3,7 +3,8 @@
 // the shoulder-to-shoulder separation that keeps bodies apart (and staggers the one that loses a heavy duel), and the
 // reach heights the ball prediction is read against.
 // Owner: WP-E (match simulation). Contract DESIGN 1.4.13 (Agent, capsules, separate); constants 1.5.2 (stagger);
-// behaviour 3.2.1 step 5 and 3.2.5 (duels).
+// behaviour 3.2.1 step 5 and 3.2.5 (duels). P2b-A (Training Mode and football rework, Phase 2b; TRAINING-SPEC 3) adds
+// intent.shield and the possession fields (shield, chal, recoverT, duelOn/duelT, chalOn/chalRoll, pushT/pushOn, zLB/zIn/zD).
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Lengths in metres, pitch-local
 // frame of DESIGN 1.1 (x along the length, z across, yaw 0 faces -Z).
@@ -45,7 +46,8 @@ export function createAgent(o){
     y: 0, vy: 0,
     look: {yaw: o.yaw || 0, pitch: 0},
     at, energy, energy0: energy, fatigue: o.fatigue || 0,
-    intent: {dx: 0, dz: 0, gait: 'jog', face: null, strafe: false, speedCap: Infinity, action: null},
+    // (shield: the intent to shield the ball, P2b-A contract: control.js writes it for the player, brain.js for the AI)
+    intent: {dx: 0, dz: 0, gait: 'jog', face: null, strafe: false, speedCap: Infinity, action: null, shield: false},
     act: null,
     state: role === 'player' ? 'idle' : 'idle', stateT: 0, cooldown: 0,
     onPitch: o.onPitch !== false, booked: 0, sentOff: false, injured: false,
@@ -69,6 +71,11 @@ export function createAgent(o){
     tgtSet: false, ctlT: undefined, hold: null, lastChoice: undefined, pendKick: null, nudgeT: undefined, invT: undefined,
     noTouch: undefined, roll: 0, marker: undefined, leaving: false, exit: null, subbedOff: false, penSide: undefined,
     koMate: undefined,
+    // P2b-A (spec 3): the shield's resolved state (actions.js shieldStep), the open shield challenge on him ({by, t,
+    // open}: sim.js), the time he is up again after a slide, the 50/50 engagement he is in (the controller's id and when
+    // it was rolled), the shield challenge he is making (the shielder's id, when he rolled it), his time pushing a
+    // shielder from behind, and the race's lower bound (zone.js)
+    shield: null, chal: null, recoverT: 0, duelOn: -1, duelT: -99, chalOn: -1, chalRoll: -99, pushT: 0, pushOn: -1, zLB: 0, zIn: false, zD: 0,
     // the agent's own facing vector for faceTo() in the per-step code (one object reused, not a new one a step)
     faceV: {x: 0, z: 0}
   };

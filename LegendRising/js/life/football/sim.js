@@ -3,8 +3,9 @@
 // keepers, every body's action, movement, stamina and gait, separation, the ball, the referee, then the events to
 // whoever listens (the bridge, the view, the HUD, the audio). Nothing is pre-rolled and nothing directs it: the score,
 // the stats, the ratings and the highlights are what happened in it. The same seed and inputs give the same match.
-// Owner: WP-E. Contract DESIGN 1.4.13 (createMatch, simStep, advance, runHeadless, on, MatchState, cfg); step order
-// 3.2.1; clock and tempo 3.2.10; timings 1.5.5.
+// Owner: WP-E, then P2b-A (TRAINING-SPEC section 3: shield challenges resolved once per engagement, pushing a
+// shielder from behind). Contract DESIGN 1.4.13 (createMatch, simStep, advance, runHeadless, on, MatchState, cfg) and
+// BUILD-PLAN Phase 2b (items 7 and 7a); step order 3.2.1; clock and tempo 3.2.10; timings 1.5.5.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (ms.r = mulberry32(cfg.seed)).
 //
@@ -34,9 +35,14 @@ import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
 import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul, liveRoll, lawsOf} from "./rules.js";
 import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, bodyContact, steer, standStill} from "./actions.js";
-import {createChain, logEv, chainWood, countersAll, rateAgent, minuteOf, onSec, dribbleWatch} from "./events.js";
+import {createChain, logEv, chainWood, chainTouch, countersAll, rateAgent, minuteOf, onSec, dribbleWatch} from "./events.js";
+import {ballKick} from "./ball.js";
+import {onTouch} from "./rules.js";
+import {TUNE} from "./tune.js";
+import {ratings, canPlay, breathOf} from "./zone.js";
+import {pShieldLoss, shieldAngle, fatigueFactor} from "./duel.js";
 import {judgeDecision} from "./judge.js";
-import {hypot, sin, cos} from "./detmath.js";
+import {hypot, sin, cos, asin} from "./detmath.js";
 import {flightTime} from "./strike.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -100,7 +106,9 @@ export function createMatch(cfg){
     goalEv: null, goalT: 0, htT: 0, ftT: 0, callUp: null, koMate: null, counterIds: null, koFirst: 0, resumedMe: null,
     accum: 0, lastSteps: 0, onJump: null, gkCollect: null, liveRating: null, bodyList: null, handList: null,
     // the match day's word that the player stands by the fourth official ({at}), or null (rules.js subStep, P2-A MF-9)
-    meEntry: null
+    meEntry: null,
+    // the race's per-step cache (zone.js arrivals)
+    zone: null, lapseT: -9, lapseBy: -1
   };
   ms.gkCollect = gkCollect;
   // the AI's lofted-flight tables (strike.js) are built on first use: build them here, never inside a step
@@ -350,6 +358,11 @@ export function simStep(ms, h = H){
   ms.bumps.length = 0;
   separate(agents, h, ms.bumps);
   if (ms.phase === 'live' && ms.bumps.length) chargeFouls(ms);
+  // a shielder (P2b-A): the challenges on him, one roll each, and the pushing from behind
+  if (ms.phase === 'live' && ms.poss.ctl >= 0){
+    const c = agents[ms.poss.ctl];
+    if (c && c.shield && c.shield.on){ shieldChallenges(ms, c); if (ms.phase === 'live' && ms.poss.ctl === c.id) pushFouls(ms, c, h); }
+  }
   // 6. the ball: who plays it before it moves, then its step
   if (ms.phase === 'live'){ controlCheck(ms); touchCheck(ms); }
   const bl = ms.bodyList; bl.length = 0;
@@ -603,6 +616,84 @@ function chargeFouls(ms){
     const sev = clamp(0.25 + 0.06*close + 0.3*fromBehind, 0, 1)*CHARGE.BODY_SEV;
     foul(ms, o, v, sev, v.m.x, v.m.z, {charge: true, down: false});
     if (ms.phase !== 'live') return;
+  }
+}
+
+/* ---------- the shield (spec 3, P2b-A) ---------- */
+
+// Shield challenges (spec 3, the Gate G0 reading). An opponent within CHAL_R of the shielding carrier (centre to
+// centre), closing toward the ball's side of him at CHAL_V or more, is trying to take it off him without a tackle. Each
+// engagement is resolved once: p(defender wins) = duel.pShieldLoss(S, D, shieldAngle(from the shielder's facing),
+// fatigueFactor(the challenger's breath, the shielder's)), the seeded ms.r. No new roll for that pair until contact
+// breaks (beyond CHAL_R + 0.3 m) and CHAL_GAP has passed since the last. A won challenge pokes the ball loose by contact:
+// a kick from the challenger's foot out to his side of the shielder (no position change), and the race decides who
+// gets it; a lost one leaves the carrier in control. a.chal = {by, t, open, n, won, p}; a 'shieldChal' event each roll.
+const SC1 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, SC2 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0};
+export function shieldChallenges(ms, a){
+  const b = ms.ball;
+  if (b.state !== 'free') return;
+  const fx = -sin(a.m.yaw), fz = -cos(a.m.yaw), R0 = TUNE.CHAL_R.value, R2 = R0 + 0.3;
+  for (const o of ms.agents){
+    if (o.team === a.team || o.team < 0 || !o.onPitch || o.role !== 'player') continue;
+    const dx = o.m.x - a.m.x, dz = o.m.z - a.m.z;
+    const far = dx > R2 || dx < -R2 || dz > R2 || dz < -R2;
+    const d = far ? Infinity : hypot(dx, dz);
+    if (o.chalOn === a.id && d > R2){ o.chalOn = -1; if (a.chal && a.chal.by === o.id) a.chal.open = false; }
+    if (!(d <= R0) || o.chalOn === a.id || ms.t - o.chalRoll < TUNE.CHAL_GAP.value || !canPlay(ms, o)) continue;
+    // closing toward the ball's side of him: his speed against the shielder's, along the way from him to the ball
+    const ux = b.p.x - o.m.x, uz = b.p.z - o.m.z, ul = hypot(ux, uz) || 1;
+    const close = ((o.m.vx - a.m.vx)*ux + (o.m.vz - a.m.vz)*uz)/ul;
+    if (close < TUNE.CHAL_V.value) continue;
+    o.chalOn = a.id; o.chalRoll = ms.t;
+    const S = ratings(a.at, SC1).S, D = ratings(o.at, SC2).D;
+    const cosr = clamp((dx*fx + dz*fz)/(d || 1), -1, 1), rel = Math.PI/2 - asin(cosr);
+    const ang = shieldAngle(rel), fat = fatigueFactor(breathOf(o), breathOf(a));
+    const p = pShieldLoss(S, D, ang, fat);
+    const won = ms.r() < p;
+    const ch = a.chal || (a.chal = {by: -1, t: 0, open: false, n: 0, won: false, p: 0});
+    ch.by = o.id; ch.t = ms.t; ch.open = true; ch.n++; ch.won = won; ch.p = p;
+    logEv(ms, 'shieldChal', o.team, o.id, b.p.x, b.p.z, {on: a.id, p: Math.round(p*1000)/1000, won, S: Math.round(S*10)/10, D: Math.round(D*10)/10,
+      angle: Math.round(ang*100)/100, fatigue: Math.round(fat*1000)/1000});
+    if (!won) continue;
+    // a won challenge is a tackle won (the ball knocked away from him: the counters and the ratings read it so)
+    logEv(ms, 'tackle', o.team, o.id, o.m.x, o.m.z, {on: a.id, result: 'poke', won: true, type: 'shield', p: Math.round(p*1000)/1000});
+    // poked loose: out to his side of the shielder, from his foot
+    const nx = dx/(d || 1), nz = dz/(d || 1);
+    let lx = -nz, lz = nx;
+    if ((b.p.x - a.m.x)*lx + (b.p.z - a.m.z)*lz < 0){ lx = -lx; lz = -lz; }
+    const sp = TUNE.CHAL_POKE.value, kx = 0.8*lx + 0.6*nx, kz = 0.8*lz + 0.6*nz, kl = hypot(kx, kz) || 1;
+    // (the man who lost it is off balance for a moment: DUEL_LOCK, as the loser of a 50/50)
+    clearCtl(ms); a.drib = null; a.noTouch = Math.max(a.noTouch || 0, ms.t + TUNE.DUEL_LOCK.value);
+    ballKick(b, {x: kx/kl*sp, y: 0, z: kz/kl*sp}, null, {agent: o.id, team: o.team, kind: 'tackle', t: ms.t});
+    const tev = logEv(ms, 'touch', o.team, o.id, b.p.x, b.p.z, {how: 'tackle', quality: 0.5, challenge: true});
+    chainTouch(ms, o, 'tackle', tev);
+    onTouch(ms, o, 'tackle', tev);
+    refreshPred(ms);
+    return;
+  }
+}
+
+// Pushing a shielder from behind (spec 3): an opponent in contact with him (within CHAL_R + 0.2 m) in his back half
+// fouls him at a rate that grows with the time he has been there, up to PUSH_RATE fouls a second (times how squarely
+// from behind) after PUSH_T seconds; from the side there is no such chance. A push, not a tackle: the charge's severity.
+export function pushFouls(ms, a, h){
+  const fx = -sin(a.m.yaw), fz = -cos(a.m.yaw), R1 = TUNE.CHAL_R.value + 0.2;
+  for (const o of ms.agents){
+    if (o.team === a.team || o.team < 0 || !o.onPitch || o.role !== 'player') continue;
+    const dx = o.m.x - a.m.x, dz = o.m.z - a.m.z;
+    const d = dx > R1 || dx < -R1 || dz > R1 || dz < -R1 ? Infinity : hypot(dx, dz);
+    const c = d < Infinity ? (dx*fx + dz*fz)/(d || 1) : 0;
+    const fromBehind = c > -0.2 ? 0 : c < -0.7 ? 1 : ((-0.2 - c)/0.5)*((-0.2 - c)/0.5)*(3 - 2*(-0.2 - c)/0.5);
+    if (!(d <= R1) || fromBehind <= 0){ if (o.pushOn === a.id){ o.pushOn = -1; o.pushT = 0; } continue; }
+    if (o.pushOn !== a.id){ o.pushOn = a.id; o.pushT = 0; }
+    o.pushT += h;
+    const rate = TUNE.PUSH_RATE.value*fromBehind*Math.min(1, o.pushT/TUNE.PUSH_T.value);
+    if (ms.r() < rate*h){
+      const sev = clamp(0.25 + 0.3*fromBehind, 0, 1)*CHARGE.BODY_SEV;
+      foul(ms, o, a, sev, a.m.x, a.m.z, {charge: true, push: true, down: false});
+      o.pushT = 0; o.pushOn = -1;
+      if (ms.phase !== 'live') return;
+    }
   }
 }
 
