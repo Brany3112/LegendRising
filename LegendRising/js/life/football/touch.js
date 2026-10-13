@@ -27,10 +27,10 @@ const {R, KD, G} = BALL;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
 
-// 1.5.3 and 3.1.4 numbers in one place. (FOOT and FOOT_K are the old fixed foot reach: brain.js's pass model still
-// reads them until P2b-B moves it onto zone.R; the touches themselves use the control radius R of zone.js.)
+// 1.5.3 and 3.1.4 numbers in one place. (The reach of a touch is the control radius R of zone.js; FOOT_Y is the
+// highest ball a dribble touch plays.)
 export const TOUCH = Object.freeze({
-  FOOT: 0.75, FOOT_K: 0.003, FOOT_Y: 0.6,
+  FOOT_Y: 0.6,
   HEAD: 0.55, HEAD_Y: [1.4, 2.1],                 // head: from the top of the body's control (1.4 m) to 2.1 m (plus the jump)
   BODY_POP: {chest: 0.6, thigh: 0.3},             // the ball drops off the chest and the thigh at this upward speed
   HEAVY: 1.5,                                     // metres: a dribble touch's heavy test (dribbleTouch)
@@ -329,7 +329,8 @@ const RTA = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, RTC = {c: 0, vc: 0, S: 0, D: 
 // - The ball first: a late or from-behind tackle may go through the man (p = TF_BEHIND fromBehind + TF_LATE lateness:
 //   'foul'); otherwise it wins with p = clamp(logistic((T - C)/8) x timing x angle, 0.05, 0.92) (duel.pTackleWin): 'won'
 //   ('poke' when only the edge of the ball was met), else the carrier rides it ('miss', ridden). timing is the foot's
-//   contact against the ball's closest approach to the tackler (dt, 1 within 0.08 s, 0.3 from 0.3 s); angle is from the
+//   contact against the ball's closest approach to the point the sweep is aimed through (dt, + late, - early; 1 within
+//   0.08 s, 0.3 from 0.3 s; only late raises the foul chance); angle is from the
 //   carrier's facing (front 1.0, side 0.9, behind 0.5).
 // - Nothing met: 'miss'.
 // A loose ball (carrier null) has no legs and no rating against it: a ball-first tackle takes it.
@@ -356,6 +357,11 @@ export function tackleOutcome(tackler, carrier, ball, sweep, ctx, r){
   const dt = 1/240;
   let tBall = -1, tLeg = -1, minBall = Infinity, fvx = 0, fvz = 0, closing = 0, contact = null;
   let px0 = 0, pz0 = 0, have = false;
+  // the point the foot is aimed through: where it is at the middle of its active window (the sweep's aim)
+  // (a standing tackle or a poke aimed at a point: that point; a slide, or one aimed along a way: the foot at mid-sweep)
+  const tAim = kind === 'slide' ? prof.tActive*0.5 : K.wind + K.active/2;
+  let ax = NaN, az = NaN;
+  if (kind !== 'slide' && tg.x != null){ ax = tg.x; az = tg.z; }
   for (let t = t0; t <= tEnd + 1e-9; t += dt){
     const tau = t - t0;
     let bx = tm.x, bz = tm.z;
@@ -363,6 +369,7 @@ export function tackleOutcome(tackler, carrier, ball, sweep, ctx, r){
     else { bx += tv.x*tau; bz += tv.z*tau; }
     footAt(kind, bx, bz, d.x, d.z, side, t, tk, d.aim, FT, prof);
     const fx = FT.x, fz = FT.z, fy = FT.y;
+    if (ax !== ax && t >= tAim - 1e-9){ ax = fx; az = fz; }
     const vfx = have ? (fx - px0)/dt : 0, vfz = have ? (fz - pz0)/dt : 0;
     px0 = fx; pz0 = fz; have = true;
     if (!FT.active) continue;
@@ -393,16 +400,19 @@ export function tackleOutcome(tackler, carrier, ball, sweep, ctx, r){
     const cosr = clamp((ax*cf.x + az*cf.z)/al, -1, 1);
     fromBehind = sstep(-0.2, -0.7, cosr); rel = acos(cosr);
   }
-  // the timing: the foot's contact against the moment the ball is closest to the tackler (their relative motion; a
-  // ball not moving against him is met on time)
+  // the timing (spec 3: "the foot reaches the ball within +-0.08 s of its closest point"): when the foot comes through
+  // the point the sweep is aimed at (its place at mid-sweep) against when the ball is closest to that point. A tackle
+  // aimed where the ball will be as the foot comes through is on time, whatever the ball's speed (a carrier walking onto
+  // the foot included); one aimed where the ball was is late (dt > 0: the ball had gone by), one aimed where it has yet
+  // to get to is early (dt < 0). Only a tackle that meets the ball has a timing; a ball that is not moving is on time.
   let dtT = 0;
   if (tBall >= 0){
-    const bvx = prof ? d.x*prof.v0 : tv.x, bvz = prof ? d.z*prof.v0 : tv.z;
-    const rvx = BV.x - bvx, rvz = BV.z - bvz, rv2 = rvx*rvx + rvz*rvz;
-    if (rv2 > 0.09){
-      const rpx = P.x - tm.x, rpz = P.z - tm.z;
-      const tStar = clamp(-(rpx*rvx + rpz*rvz)/rv2, -2, 2);      // (before the tackle began: it is late by that much more)
-      dtT = (tBall - t0) - tStar;
+    let tA = tAim - t0;
+    if (ax !== ax || t0 > tAim){ ax = contact.x; az = contact.z; tA = tBall - t0; }      // (begun past mid-sweep: the contact itself)
+    const vb2 = BV.x*BV.x + BV.z*BV.z;
+    if (vb2 > 0.09){
+      const tStar = clamp(((ax - P.x)*BV.x + (az - P.z)*BV.z)/vb2, -2, 2);   // (from now; before now: it was already late)
+      dtT = tA - tStar;
     }
   }
   const timing = timingFactor(dtT), angle = cm ? angleFactor(rel) : 1;

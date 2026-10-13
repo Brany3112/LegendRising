@@ -8,7 +8,7 @@
 //   - standing tackles and pokes from the front and either side: at the clip's contact the tackling foot (its inside,
 //     the toe for a poke) is within 0.12 m of the contact point (act.contact, the simulation's);
 //   - the tackling leg is the one on the ball's side of the tackler (act.side, and the side the ball is on);
-//   - a slide carries the act's own speed (the clip's v0 is the act's) and its foot is near the contact too;
+//   - a slide carries the act's own speed (the clip's v0 is the act's) and its foot is within 0.12 m of the contact too;
 //   - receives at the foot, thigh and chest heights: the receive clip starts with the ball inside the control radius
 //     (zone.js R, for the ball where it is met) and its part is the one zone.js part gives for the real height;
 //   - a contact sheet of the shield pose (third person from three sides, and first person), the controls at each
@@ -120,7 +120,7 @@ try {
     });
     for (const r of T2){
       check(r.v0 > 0 && Math.abs((r.clipV0 || 0) - r.v0) < 1e-9, `slide at ${r.run} m/s: the clip runs at the act's own speed`, {act: r.v0, clip: r.clipV0});
-      check(r.at && r.at.d <= .25, `slide at ${r.run} m/s (${r.outcome}): the tackling foot comes onto the contact point (within 0.25 m at the contact)`, r.at);
+      check(r.at && r.at.d <= .12, `slide at ${r.run} m/s (${r.outcome}): the tackling foot is within 0.12 m of the contact point at the contact`, r.at);
     }
     check(T2.length > 1 && T2[0].v0 > T2[1].v0, "a faster run-in gives a faster slide", T2.map(r => r.v0));
   }

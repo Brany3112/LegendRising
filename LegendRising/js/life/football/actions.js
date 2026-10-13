@@ -20,7 +20,7 @@ import {reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleOutcome, 
 import {stamAction, stamShield} from "../stamina.js";
 import {TUNE} from "./tune.js";
 import {ratings, canPlay, arrivalOf, breathOf, ghosted, GHOST_T} from "./zone.js";
-import {p5050, fatigueFactor, slideStep, recovery, standReach} from "./duel.js";
+import {p5050, fatigueFactor, slideStep, recovery, standReach, shieldAngle} from "./duel.js";
 import {logEv, chainKick, chainControl, chainKeep, chainTouch} from "./events.js";
 import {onKick, onTouch, setCtl, clearCtl, foul, restartTaken} from "./rules.js";
 import {xgAt, decisionRecord} from "./judge.js";
@@ -28,7 +28,7 @@ import {jumpHeight} from "./agent.js";
 import {jumpRoot} from "./gkplan.js";
 import {sprintSpeed} from "../mover.js";
 import {dirOf, yawOf, wrapA, inBox} from "./pitchspec.js";
-import {sin, cos, hypot, atan2} from "./detmath.js";
+import {sin, cos, hypot, atan2, acos} from "./detmath.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const DEG = Math.PI/180, R = BALL.R, G = 9.81;
@@ -557,7 +557,10 @@ function contest(ms){
   if (!C || !C.onPitch){ clearCtl(ms); return false; }
   const d = hypot(b.p.x - C.m.x, b.p.z - C.m.z);
   if (b.p.y > 1.8 || d > TUNE.CTL_FAR.value){ clearCtl(ms); C.drib = null; return false; }
-  const eC = envAhead(C, b), inC = !!eC && eC.part !== 'head', dC = inC ? eC.dist : d;
+  // (a controller already swinging at it, the ball in his strike window, is playing it: his strike is his touch, and a
+  // man who would take it off him first has to win it at his feet)
+  const striking = !!C.act && C.act.kind === 'kick' && !C.act.done && canStrike(C, b).ok;
+  const eC = envAhead(C, b), inC = striking || !!eC && eC.part !== 'head', dC = eC && eC.part !== 'head' ? eC.dist : d;
   // the nearest opponent with the ball inside his radius; an engagement whose contact has broken is closed
   let opp = null, od = Infinity;
   const box = d + 3;
@@ -574,13 +577,20 @@ function contest(ms){
     // one roll per engagement
     if (opp.duelOn === C.id && ms.t - opp.duelT < TUNE.CHAL_GAP.value) return false;
     opp.duelOn = C.id; opp.duelT = ms.t;
-    const w = duel5050(ms, opp, C, 0, 1, 'feet');
+    // (a controller who shields: the shield's angle factor from the challenger's side of him, as for a shield challenge)
+    let ang = 1;
+    if (C.shield && C.shield.on){
+      const f = dirOf(C.m.yaw), ox = opp.m.x - C.m.x, oz = opp.m.z - C.m.z, ol = hypot(ox, oz) || 1;
+      ang = shieldAngle(acos(clamp((ox*f.x + oz*f.z)/ol, -1, 1)));
+    }
+    const w = duel5050(ms, opp, C, 0, ang, 'feet');
     if (w === opp){
       clearCtl(ms); C.drib = null;
       const how = wouldPlay(ms, opp) || 'control';
       return playIt(ms, opp, how === 'gk' || how === 'first' ? 'control' : how, od);
     }
-    // he keeps it, and takes it away from the man: a short touch from him, on the controller's way
+    // he keeps it: swinging at it, his strike goes on; else he takes it away from the man, a short touch on his way
+    if (striking) return false;
     const ux = b.p.x - opp.m.x, uz = b.p.z - opp.m.z, ul = hypot(ux, uz) || 1;
     ballKick(b, {x: (C.m.vx || 0) + 2.2*ux/ul, y: 0, z: (C.m.vz || 0) + 2.2*uz/ul}, null, {agent: C.id, team: C.team, kind: 'dribble', t: ms.t});
     logEv(ms, 'touch', C.team, C.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, kept: true});
@@ -682,7 +692,8 @@ const RS1 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, RS2 = {c: 0, vc: 0, S: 0, D: 
 // carries it out (the back to him, the ball on the far foot) instead of a walk to a spot beside the ball.
 export function wantsShield(ms, a){
   if (a.intent.shield) return true;
-  return (!a.isMe || ms.meAI) && !a.drib && a.state === 'shield';
+  // (a kick he has chosen and is setting up is not a shield: the ball goes onto his foot, not to his far side)
+  return (!a.isMe || ms.meAI) && !a.drib && !a.pendKick && a.state === 'shield';
 }
 export function shieldStep(ms, a, h){
   const I = a.intent, b = ms.ball;
@@ -771,7 +782,7 @@ export function startTackle(ms, a, kind, carrier, timingErr = 0){
     }
     if (rival){
       const ra = ratings(a.at, RD1), ro = ratings(rival.at, RD2);
-      const p = p5050(ra.T + ra.C, ro.S + ro.C, 1, fatigueFactor(breathOf(a), breathOf(rival)));
+      const p = p5050(ra.S + ra.C, ro.S + ro.C, 1, fatigueFactor(breathOf(a), breathOf(rival)));   // (G0: X = S + C for each side)
       out.duel = {other: rival.id, p};
       if (!(ms.r() < p)){ out.result = 'miss'; out.ridden = true; out.impulse = null; }
     }

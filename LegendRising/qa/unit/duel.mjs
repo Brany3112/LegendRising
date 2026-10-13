@@ -76,6 +76,7 @@ const PI = Math.PI;
   check(angleFactor(0) === 1.0 && near(angleFactor(PI/2), 0.9) && near(angleFactor(PI), 0.5), "tackle angle: front 1.0, side 0.9, behind 0.5");
   check(near(shieldAngle(PI), 0.6) && near(shieldAngle(PI/2), 1.0) && near(shieldAngle(3*PI/4), 0.8), "shield angle: behind 0.6, side 1.0 (0.8 between)");
   check(lateness(0.05) === 0 && near(lateness(0.3), 1) && pTackleFoul(1, 0.3) > pTackleFoul(0, 0) && pTackleFoul(0, 0) === 0, "late or from behind raises the tackle's foul chance");
+  check(lateness(-0.3) === 0 && pTackleFoul(0, -0.3) === 0, "an early foot (dt < 0) is not late: no foul chance from it");
 }
 
 /* ---------- fatigue (G0) ---------- */

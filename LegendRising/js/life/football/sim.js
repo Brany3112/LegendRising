@@ -10,8 +10,9 @@
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (ms.r = mulberry32(cfg.seed)).
 //
 // LEVEL, the one calibration knob of live play outside the tempo table (DESIGN D28): at kick-off every AI player of
-// each side has his attributes moved LEVEL (0.74) of the way from his side's mean overall toward the middle of the two
-// sides' (with cfg.ovr; attrs.js levelled). Without it a side 10 overall higher wins about 80% of the time (79% of the
+// each side has his attributes moved LEVEL (0.82; 0.74 before the TR-2b possession rework, whose tackles and duels
+// turn on the ratings more) of the way from his side's mean overall toward the middle of the two sides' (with cfg.ovr;
+// attrs.js levelled). Without it a side 10 overall higher wins about 80% of the time (79% of the
 // 46 such matches in a 300-match harness run with LEVEL 0), against the 55 to 62% that 2.3 WP-E asks for, because over
 // a whole simulated match every small edge in pace, passing and finishing compounds. It is frozen at kick-off like the
 // tempo, the same rule for both sides, never changes during a match and directs nothing. The player himself is never
@@ -57,7 +58,7 @@ export const TEMPO = Object.freeze({
 // The levelling of a match (calibration, 2.3 WP-E: a side 10 overall higher wins 55 to 62%): the AI players of each
 // side play this share of the gap between the two sides' mean overalls nearer the middle. The player himself plays
 // with his own numbers.
-export const LEVEL = 0.74;
+export const LEVEL = 0.82;
 // half length in real seconds by S.speed (1.5.5): Standard 600, Long 900, Short 360; which are calibrated
 export const HALF_REAL = Object.freeze({2: 600, 1: 900, 4: 360});
 export const CALIBRATED = Object.freeze({2: true, 1: false, 4: false});
@@ -625,7 +626,7 @@ function chargeFouls(ms){
 // centre), closing toward the ball's side of him at CHAL_V or more, is trying to take it off him without a tackle. Each
 // engagement is resolved once: p(defender wins) = duel.pShieldLoss(S, D, shieldAngle(from the shielder's facing),
 // fatigueFactor(the challenger's breath, the shielder's)), the seeded ms.r. No new roll for that pair until contact
-// breaks (beyond CHAL_R + 0.3 m) and CHAL_GAP has passed since the last. A won challenge pokes the ball loose by contact:
+// breaks (beyond CHAL_R + 0.3 m) or CHAL_GAP has passed since the last (G0, P2b-A item 7a). A won challenge pokes the ball loose by contact:
 // a kick from the challenger's foot out to his side of the shielder (no position change), and the race decides who
 // gets it; a lost one leaves the carrier in control. a.chal = {by, t, open, n, won, p}; a 'shieldChal' event each roll.
 const SC1 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, SC2 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0};
@@ -639,7 +640,8 @@ export function shieldChallenges(ms, a){
     const far = dx > R2 || dx < -R2 || dz > R2 || dz < -R2;
     const d = far ? Infinity : hypot(dx, dz);
     if (o.chalOn === a.id && d > R2){ o.chalOn = -1; if (a.chal && a.chal.by === o.id) a.chal.open = false; }
-    if (!(d <= R0) || o.chalOn === a.id || ms.t - o.chalRoll < TUNE.CHAL_GAP.value || !canPlay(ms, o)) continue;
+    // (one roll per engagement: the same man rolls again once contact has broken, or once CHAL_GAP has passed)
+    if (!(d <= R0) || o.chalOn === a.id && ms.t - o.chalRoll < TUNE.CHAL_GAP.value || !canPlay(ms, o)) continue;
     // closing toward the ball's side of him: his speed against the shielder's, along the way from him to the ball
     const ux = b.p.x - o.m.x, uz = b.p.z - o.m.z, ul = hypot(ux, uz) || 1;
     const close = ((o.m.vx - a.m.vx)*ux + (o.m.vz - a.m.vz)*uz)/ul;

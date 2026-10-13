@@ -1480,7 +1480,12 @@ function tackle(h, T, st, dt){
   // the contact point is followed until the foot gets there (a ball the carrier touches on is followed), then kept
   if (tau < ct && st.target){ d.tx = st.target.x; d.ty = st.target.y != null ? st.target.y : BR; d.tz = st.target.z; }
   const F = C.feet;
-  if (kind === "slide") return slidePose(h, T, C, d, s, tau, false, dur, ct);
+  // (a slide whose contact comes sooner than the clip can be sped up to: the foot is guided on to it at the clip time
+  // the real contact falls on, not at the table's)
+  if (kind === "slide"){
+    const ctS = C.legacy || !isFinite(C.tcAt) ? ct : C.contactDone ? C.contact - C.reachErr : Math.min(ct, C.tau + C.rate*Math.max(0, C.tcAt - C.lastT));
+    return slidePose(h, T, C, d, s, tau, false, dur, ctS);
+  }
   // standing, poke, block: the face of the foot that meets the ball on the contact point (the inside for a standing
   // tackle, turned out across the ball's way; the toe for a poke; the block's inside, square)
   const part = kind === "poke" ? "toe" : "inside";
@@ -1552,9 +1557,17 @@ function slidePose(h, T, C, d, s, tau, knees, dur = 1.9, ct = .35){
   const wc = d.tx != null && up <= 0 ? sstep(ct - .2, ct - .02, tau)*(1 - sstep(ct + .12, ct + .35, tau))*down : 0;
   if (wc > 0){
     ankleFor(h, "laces", -m, d.tx, Math.max(d.ty, BR*.6), d.tz, 0, -.2, 0, _w3);
-    // (as far as the leg reaches from where the slide has the hip: the rest is the slide's own carry)
-    const tw = _tmpT(T); frameOf(h, tw, tR[0], _M); _V.setFromMatrixPosition(_M); toB(_w3.x, _w3.y, _w3.z, _b4);
-    const ex = _b4.x - _V.x, ey = _b4.y - _V.y, ez = _b4.z - _V.z, el = Math.hypot(ex, ey, ez), Lm = LEG_REACH*(D.hipY - D.ankY);
+    // (as far as the leg reaches from where the slide has the hip; a contact a little beyond it brings the hip on
+    // toward it, up to 0.3 m, as a slider stretches into the ball; anything further is the slide's own carry)
+    let tw = _tmpT(T); frameOf(h, tw, tR[0], _M); _V.setFromMatrixPosition(_M); toB(_w3.x, _w3.y, _w3.z, _b4);
+    let ex = _b4.x - _V.x, ey = _b4.y - _V.y, ez = _b4.z - _V.z, el = Math.hypot(ex, ey, ez);
+    const Lm = LEG_REACH*(D.hipY - D.ankY), hl = Math.hypot(ex, ez);
+    if (el > Lm && hl > 1e-6){
+      const sh = Math.min(el - Lm, .3)*wc;
+      T[60] += ex/hl*sh; T[62] += ez/hl*sh;
+      tw = _tmpT(T); frameOf(h, tw, tR[0], _M); _V.setFromMatrixPosition(_M);
+      ex = _b4.x - _V.x; ey = _b4.y - _V.y; ez = _b4.z - _V.z; el = Math.hypot(ex, ey, ez);
+    }
     if (el > Lm){ const k = Lm/el; _b4.x = _V.x + ex*k; _b4.y = _V.y + ey*k; _b4.z = _V.z + ez*k; }
     legIK(h, tw, -m, _b4.x, _b4.y, _b4.z, 0);
     for (const b of tR) for (let c = 0; c < 3; c++) T[b*3 + c] = lerp(T[b*3 + c], tw[b*3 + c], wc);

@@ -82,14 +82,15 @@ function cell(tAt, cAt, opt = {}){
 
 /* ---------- 3. late against on time ---------- */
 {
-  // the ball rolls across in front of him at 0.8 m/s (toward the side his sweep ends on), 0.55 m out; the tackle aims where it will be at mid-sweep. On
-  // time: that is the ball's closest point to him; late: the ball was closest 0.3 s before. A carrier runs 1.4 m behind it.
+  // the ball rolls across in front of him at 0.8 m/s (toward the side his sweep ends on), 0.55 m out. On time: the
+  // tackle is aimed where the ball will be at mid-sweep (the foot and the ball get to that point together). Late: it is
+  // aimed where the ball was lateBy s before (the ball has gone by when the foot gets there). A carrier runs 1.4 m behind.
   const v = -0.8, X = 0.55, tMid = TACKLE.stand.wind + TACKLE.stand.active/2;
   const run = (lateBy, seed) => {
     const r = mulberry32(seed);
     const tk = {x: 0, z: 0, yaw: FX, vx: 0, vz: 0, at: atWith({tackling: 60})};
-    const zc = v*lateBy;                     // where the ball is at mid-sweep: past its closest point by lateBy s, or at it
-    const z0 = zc - v*tMid;
+    const z0 = -v*tMid*0.5;                  // (the ball crosses his front during the sweep)
+    const zMid = z0 + v*tMid, zc = zMid - v*lateBy;
     let fouls = 0, dts = [];
     for (let i = 0; i < N; i++){
       const ca = {x: X, z: z0 + 1.4, yaw: 0, vx: 0, vz: v, at: atWith({})};
@@ -97,15 +98,35 @@ function cell(tAt, cAt, opt = {}){
       if (o.result === 'foul') fouls++;
       if (o.tBall >= 0) dts.push(o.dt);
     }
-    const mdt = dts.reduce((s, x) => s + Math.abs(x), 0)/Math.max(1, dts.length);
-    return {fouls: fouls/N, meanAbsDt: r3(mdt), contacts: dts.length, lateBy};
+    const mdt = dts.reduce((s, x) => s + x, 0)/Math.max(1, dts.length);
+    return {fouls: fouls/N, meanDt: r3(mdt), contacts: dts.length, lateBy};
   };
-  // (the foot meets a ball coming across it a little before mid-sweep: the scenario whose measured timing error is
-  // nearest 0.3 s is the late one)
-  let on = null, late = null;
-  for (let k = 0; k <= 0.3; k += 0.02){ const x = run(k, 5); if (x.contacts > N/2 && (!on || x.meanAbsDt < on.meanAbsDt)) on = x; }
-  for (let k = 0.05; k <= 0.5; k += 0.05){ const x = run(k, 5); if (x.contacts > N/2 && (!late || Math.abs(x.meanAbsDt - 0.3) < Math.abs(late.meanAbsDt - 0.3))) late = x; }
-  check(on.meanAbsDt <= 0.08 && Math.abs(late.meanAbsDt - 0.3) <= 0.06 && late.fouls > on.fouls + 0.1, "a late tackle (|dt| 0.3 s) gives more fouls than one on time (|dt| <= 0.08 s)", {on, late});
+  // (the scenario whose measured lateness is nearest 0.3 s is the late one)
+  const on = run(0, 5);
+  let late = null;
+  for (let k = 0.1; k <= 0.6; k += 0.05){ const x = run(k, 5); if (x.contacts > N/2 && (!late || Math.abs(x.meanDt - 0.3) < Math.abs(late.meanDt - 0.3))) late = x; }
+  check(on.contacts > N/2 && Math.abs(on.meanDt) <= 0.08 && late && Math.abs(late.meanDt - 0.3) <= 0.06 && late.fouls > on.fouls + 0.1,
+    "a late tackle (dt +0.3 s) gives more fouls than one on time (|dt| <= 0.08 s)", {on, late});
+
+  // a carrier walking or jogging straight at him, the tackle aimed where the ball will be at mid-sweep (as the engine
+  // aims it): on time (timing 1), and no late-tackle fouls from the front
+  const rows = [];
+  let ok = true;
+  for (const vc of [0.5, 2, 3.5]){
+    const r = mulberry32(31);
+    const tk = {x: 0, z: 0, yaw: FX, vx: 0, vz: 0, at: atWith({tackling: 60})};
+    const bx0 = 0.9 + vc*tMid, bxMid = 0.9;
+    let fouls = 0, tim = 0, n = 0;
+    for (let i = 0; i < N; i++){
+      const ca = {x: bx0 + 0.45, z: 0, yaw: FMX, vx: -vc, vz: 0, at: atWith({})};
+      const o = tackleOutcome(tk, ca, {p: {x: bx0, y: R, z: 0}, v: {x: -vc, y: 0, z: 0}}, {kind: 'stand', target: {x: bxMid, z: 0}}, {}, r);
+      if (o.tBall < 0) continue;
+      n++; tim += o.timing; if (o.result === 'foul') fouls++;
+    }
+    rows.push({v: vc, contacts: n, timing: r3(tim/Math.max(1, n)), fouls: r3(fouls/Math.max(1, n))});
+    if (!(n > N/2 && tim/n >= 0.95 && fouls/n <= 0.02)) ok = false;
+  }
+  check(ok, "a carrier coming straight at him, the foot aimed at the ball's mid-sweep place: on time, no late fouls", rows);
 }
 
 /* ---------- 4. contact physics, in the real simulation ---------- */

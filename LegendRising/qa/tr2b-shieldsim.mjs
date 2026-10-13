@@ -120,9 +120,9 @@ const toward = (a, x, z, v) => { const dx = x - a.m.x, dz = z - a.m.z, d = Math.
 
 /* ---------- 3. the challenges ---------- */
 // one engagement: the defender comes in at the side (or from behind) at 2 m/s toward the ball's side of him, already at
-// the edge of contact range (so the shielder has not yet turned his back on him), then leans on him for CHAL_GAP + 0.4 s.
-// Returns {won, rolls, jump, loose}
-function engage(seed, S, D, side, breath = null){
+// the edge of contact range (so the shielder has not yet turned his back on him), then leans on him for dur s (by
+// default just under CHAL_GAP: one engagement). Returns {won, rolls, jump, loose, times (of each roll)}
+function engage(seed, S, D, side, breath = null, dur = TUNE.CHAL_GAP.value - 0.05){
   const {ms, me, o} = setup(seed, S, D);
   tuneSet('PUSH_RATE', 0);              // (the pushing is item 2's)
   if (breath != null){ me.st.B = breath; me.st.cap = Math.max(me.st.cap, breath); }
@@ -136,8 +136,8 @@ function engage(seed, S, D, side, breath = null){
   { const bx = ms.ball.p.x - o.m.x, bz = ms.ball.p.z - o.m.z, bl = Math.hypot(bx, bz); o.m.vx = 2*bx/bl; o.m.vz = 2*bz/bl; o.m.speed = 2; o.m.heading = Math.atan2(-bx, -bz); }
   refreshPred(ms);
   let rolls = 0, won = null, jump = 0, loose = null;
-  const from = ms.events.length;
-  for (let i = 0; i < Math.round((TUNE.CHAL_GAP.value + 0.4)/H); i++){
+  const from = ms.events.length, times = [];
+  for (let i = 0; i < Math.round(dur/H); i++){
     stand(me);
     toward(o, ms.ball.p.x, ms.ball.p.z, 2.0);
     const bx = ms.ball.p.x, bz = ms.ball.p.z, n0 = ms.events.length;
@@ -145,7 +145,7 @@ function engage(seed, S, D, side, breath = null){
     for (let k = n0; k < ms.events.length; k++){
       const e = ms.events[k];
       if (e.kind !== 'shieldChal') continue;
-      rolls++;
+      rolls++; times.push(e.t);
       if (won == null){ won = e.won; if (e.won) loose = ms.poss.ctl !== me.id; }
     }
     if (won) jump = Math.max(jump, Math.hypot(ms.ball.p.x - bx, ms.ball.p.z - bz));
@@ -153,7 +153,7 @@ function engage(seed, S, D, side, breath = null){
   }
   tuneReset();
   const ev = ms.events.slice(from).find(e => e.kind === 'shieldChal');
-  return {won, rolls, jump, loose, p: ev ? ev.p : null, angle: ev ? ev.angle : null, fatigue: ev ? ev.fatigue : null};
+  return {won, rolls, jump, loose, times, p: ev ? ev.p : null, angle: ev ? ev.angle : null, fatigue: ev ? ev.fatigue : null};
 }
 function cellOf(S, D, side, breath = null, base = 0){
   let w = 0, n = 0, bad = 0, maxJump = 0, notLoose = 0, p = null, angle = null, fat = null;
@@ -194,6 +194,19 @@ function cellOf(S, D, side, breath = null, base = 0){
   check(tired.rate > fresh.rate && Math.abs(tired.rate - wantT) <= 0.05 && Math.abs(fresh.rate - wantF) <= 0.05, "at D = S a shielder at breath 0.2 loses more often than one at breath 1.0, by fatigueFactor",
     {tired: tired.rate, wantTired: r3(wantT), fresh: fresh.rate, wantFresh: r3(wantF), fatigue: tired.fatigue});
   check(oneRoll && lo.bad === 0 && hi.bad === 0, "exactly one roll per engagement (none inside CHAL_GAP)");
+  // a challenger who loses and stays leaning on him rolls again once CHAL_GAP has passed (G0: contact breaks OR the gap
+  // passes), never sooner: 3 s glued at contact, a defender who all but always loses (D - S = -60)
+  {
+    let minGap = Infinity, rolls = 0, runs = 0;
+    for (let s = 1; s <= 40; s++){
+      const e = engage(13000 + s, 80, 20, true, null, 3);
+      if (e.won !== false) continue;
+      runs++; rolls += e.rolls;
+      for (let k = 1; k < e.times.length; k++) minGap = Math.min(minGap, e.times[k] - e.times[k - 1]);
+    }
+    const per = runs ? rolls/runs : 0;
+    check(runs > 20 && per >= 2.5 && minGap >= TUNE.CHAL_GAP.value - 1e-6, "glued at contact after a lost roll he rolls again each CHAL_GAP, never sooner", {runs, rollsPer3s: r3(per), minGap: r3(minGap)});
+  }
   check(notLoose === 0 && jumps <= 0.1, "a won challenge leaves the ball loose, with no jump above 0.1 m in a step", {notLoose, maxStep: jumps});
 }
 

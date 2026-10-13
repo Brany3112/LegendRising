@@ -161,12 +161,13 @@ export function canPlay(ms, a){
 // age goes in as firstReach's reaction time, so a sample is his only when he can be there by it from where he is now,
 // and the part of the path the ball has already run is nobody's).
 const FA = {m: null, prm: null, fac: null, react: 0, reachY: 1.4, reach: 0.9};
+const NO_ANGLE = Object.freeze({angle: false});   // (one option record: nothing allocated in a step)
 export function arrivalOf(ms, a, tMax){
   const ball = ms.ball, r0 = R(a, ball, ms);
   if (r0 > 0 && GM.dist <= r0) return 0;
   // (his reach as he faces now, against where the ball is: a man running away from the ball, or with it behind him,
   // gets less of it than one who faces it; the lower bound below takes the full reach)
-  const reach = r0 > 0 ? r0 : R(a, ball, ms, {angle: false});
+  const reach = r0 > 0 ? r0 : R(a, ball, ms, NO_ANGLE);
   const age = Math.max(0, ms.t - (ms.predT || 0)), T = tMax == null ? TUNE.RACE_HORIZON.value : tMax;
   const n = ms.predN || 0;
   if (n <= 0) return Infinity;
@@ -220,7 +221,7 @@ export function arrivals(ms, opt){
 // within his radius of (no turn, no braking)
 function lowerBound(ms, a){
   const P = ms.pred, n = ms.predN || 0, m = a.m, prm = a.prm, fac = a.fac;
-  const reach = R(a, ms.ball, ms, {angle: false});
+  const reach = R(a, ms.ball, ms, NO_ANGLE);
   if (GM.dist <= reach) return 0;
   if (n <= 0) return Infinity;
   const age = Math.max(0, ms.t - (ms.predT || 0));

@@ -62,7 +62,7 @@ try {
   let halves = new Set(), cards = {ht: 0, ft: 0}, kicks = 0, restartN = 0, holdN = 0, last = null;
   // the TR-2b controls: shields held (and steps seen shielding), tackle and slide presses, and the acts they started
   const use = {shieldPress: 0, shieldOn: 0, tacklePress: 0, slidePress: 0, tackleAct: 0, slideAct: 0}, shot = {};
-  let shieldN = 0, pressN = 0, prevAct = null;
+  let shieldN = 0, pressN = 0, prevAct = null, slideTry = 0, lastSlide = -99;
   // (shot from the page's own frames: let it draw for a moment, then hold it again)
   const snap = async (name) => { if (shot[name]) return; shot[name] = true; await unfreeze(page); await page.waitForTimeout(120); await page.screenshot({path: `${OUTDIR}/${name}.png`, timeout: 120000}); await freeze(page); console.log("  shot", name); };
   for (let it = 0; it < 40000; it++){
@@ -73,7 +73,7 @@ try {
       const mode = L.modes.mode();
       if (!ms || F.state !== "live") return {st: F.state, mode, half: ms ? ms.half : null};
       const me = F.me();
-      const o = {st: F.state, mode, half: ms.half, min: Math.floor((ms.half - 1)*45 + ms.clock.sec/60), score: ms.score.slice()};
+      const o = {st: F.state, mode, half: ms.half, min: Math.floor((ms.half - 1)*45 + ms.clock.sec/60), score: ms.score.slice(), t: ms.t};
       if (!me || !me.onPitch) return o;
       const b = ms.ball.p, gx = ms.dirs[me.team]*ms.spec.hx, dg = Math.hypot(gx - me.m.x, me.m.z);
       const mine = ms.poss.ctl === me.id, myRestart = ms.restart && ms.restart.taker === me.id;
@@ -128,11 +128,14 @@ try {
         if (++shieldN > 40){ await key("c", false); await page.mouse.down({button: "right"}); await page.mouse.up({button: "right"}); kicks++; shieldN = 0; }
       } else if (r.act === "press"){
         if (lmb){ await page.mouse.up({button: "left"}); lmb = 0; }
-        await key("w", r.cd > .9); await key("Shift", r.cd > 3);
+        // (sprint in: every other closing run is a slide, so he stays at a run until the slide's range)
+        const slideRun = slideTry % 2 === 0;
+        await key("w", r.cd > .9); await key("Shift", r.cd > (slideRun ? 1.7 : 3));
         pressN++;
-        // close enough: a standing tackle with the left button; at a run from a little further, now and then a slide (F)
-        if (r.cd < 1.5 && !r.myAct && pressN % 3 === 0){ await page.mouse.down({button: "left"}); await page.mouse.up({button: "left"}); use.tacklePress++; }
-        else if (r.cd < 3.2 && r.cd > 1.6 && r.spd > 5 && !r.myAct && pressN % 7 === 0){ await page.keyboard.press("f"); use.slidePress++; }
+        // close enough: a standing tackle with the left button; at a run from a little further, a slide (F) now and
+        // then (at most one each 4 s of match, so the match still has its standing tackles)
+        if (r.cd < 1.5 && !r.myAct && pressN % 3 === 0){ await page.mouse.down({button: "left"}); await page.mouse.up({button: "left"}); use.tacklePress++; slideTry++; }
+        else if (slideRun && r.cd < 3.0 && r.cd > 1.8 && r.spd > 4.5 && !r.myAct && r.t - lastSlide > 4){ await page.keyboard.press("f"); use.slidePress++; lastSlide = r.t; slideTry++; }
       } else if (r.act === "restart"){
         await key("w", false); if (lmb){ await page.mouse.up({button: "left"}); lmb = 0; kicks++; }
         if (++restartN > 4){ await page.mouse.down({button: "right"}); await page.mouse.up({button: "right"}); restartN = 0; kicks++; }
@@ -163,7 +166,7 @@ try {
   console.log("TR-2b controls", JSON.stringify(use));
   check(use.shieldPress > 0 && use.shieldOn > 0, "C held with a man on you shields the ball (the engine's shield on)", use);
   check(use.tacklePress > 0 && use.tackleAct > 0, "the left button near the man on the ball made a standing tackle", use);
-  check(use.slidePress === 0 || use.slideAct > 0 || use.slidePress < 3, "F at a run made a slide (when pressed in reach)", use);
+  check(use.slidePress > 0 && use.slideAct > 0, "F pressed at a run, in reach, made a slide", use);
   check(after.mode === "life" && after.zone === "ground" && !after.inMatch && after.last, "back at the ground, match recorded", after);
   check(page.errors.length === 0, "zero console and page errors", page.errors.slice(0, 5));
   ok = true;

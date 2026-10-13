@@ -332,11 +332,25 @@ export function contextOf(ms, me){
   const b = ms.ball;
   if (ms.poss.ctl === me.id) return "attack";
   // a loose ball near you is yours to play (DESIGN 3.1.7: "the loose ball within 2.5 m"); a ball an opponent has at his
-  // feet is not loose, however near: that is defending, and LMB is the tackle
-  if (b.state === "free" && ms.poss.ctl < 0 && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) < CN.ATTACK_LOOSE) return "attack";
+  // feet is not loose, however near: that is defending, and LMB is the tackle. A loose ball that is not your side's,
+  // with a man of theirs nearer it than you, is a 50/50 you are defending: LMB goes in on the ball (P2b-B item 1)
+  if (b.state === "free" && ms.poss.ctl < 0){
+    const d = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z);
+    // (a wind-up already going stays a strike)
+    if (d < CN.ATTACK_LOOSE) return !CTRL.charge && ms.poss.team !== me.team && rivalNearer(ms, me, b, d) ? "defend" : "attack";
+  }
   if (ms.poss.team === me.team) return "attack";
   if (ms.poss.team === 1 - me.team) return "defend";
   return "free";
+}
+
+// is a man of the other side nearer the loose ball than you (d) are?
+function rivalNearer(ms, me, b, d){
+  for (const o of ms.agents){
+    if (o.team === me.team || o.team < 0 || !o.onPitch || o.role !== "player") continue;
+    if (Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z) < d) return true;
+  }
+  return false;
 }
 
 /* ---------- the pass cone (1.5.3) ---------- */
@@ -653,7 +667,7 @@ function slide(ms, me, ctx){
   const loose = !c && b.state === "free" && b.p.y < .4;
   const contest = loose && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z) < 3);
   if (ctx !== "defend" && !(contest && !CTRL.charge)) return;
-  if (me.act){ noteWhy(ms, "busy"); return; }
+  if (me.act){ noteWhy(ms, "busy"); CTRL.note.slide = true; return; }
   if (me.m.speed <= CN.SLIDE_V){ noteWhy(ms, "slow"); return; }
   const reach = slideReach(me.m.speed, sprintSpeed(me.prm, me.fac)) + CN.SLIDE_SLACK, far = () => { noteWhy(ms, "far"); CTRL.note.slide = true; };
   if (c && c.team !== me.team){
@@ -847,15 +861,17 @@ export function offsideHud(ms, me, show, out){
 // the hints for this moment (1.5.10): up to three [key, verb], shortened to the key after 5 uses
 // a press that came to nothing a moment ago (a tackle out of reach, a slide from a jog): why, on its key, first
 const NOTES = {far:["LMB", "too far away to tackle"], slow:["F", "get up to speed to slide"], busy:["LMB", "not yet, you're still recovering"]};
-const NOTES_SLIDE = {far:["F", "too far away to slide"]};
+const NOTES_SLIDE = {far:["F", "too far away to slide"], busy:["F", "not yet, you're still getting up"]};
 export function hintsFor(ms, me){
   const out = [], ctx = CTRL.ctx, short = k => (CTRL.uses[k] || 0) >= 5;
-  const add = (key, verb, k) => out.push({key, verb:short(k) ? "" : verb});
+  // (while a note stands on a key, that key shows only the note: never "too far away to tackle" and "tackle" at once)
+  let noteKey = null;
+  const add = (key, verb, k) => { if (key !== noteKey) out.push({key, verb:short(k) ? "" : verb}); };
   if (!me || !me.onPitch) return out;
   const N = CTRL.note;
   if (N && ms.t - N.t < CN.NOTE_T && ms.t >= N.t){
-    const n = (N.k === "far" && N.slide ? NOTES_SLIDE.far : null) || NOTES[N.k];
-    if (n) out.push({key:n[0], verb:n[1]});
+    const n = (N.slide ? NOTES_SLIDE[N.k] : null) || NOTES[N.k];
+    if (n){ out.push({key:n[0], verb:n[1]}); noteKey = n[0]; }
   } else if (N) CTRL.note = null;
   // a man close to you with the ball yours: the shield (C held, or Ctrl in a locked full screen)
   const pressed = ms.poss.ctl === me.id && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z) < 3);
@@ -878,7 +894,9 @@ export function hintsFor(ms, me){
     else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); add("V", "hold to look over your shoulder", "scan"); }
   } else if (ctx === "defend"){
     const c = ms.agents[ms.poss.ctl];
+    const b = ms.ball;
     if (c && Math.hypot(c.m.x - me.m.x, c.m.z - me.m.z) < CN.TACKLE_D + .6) add("LMB", "tackle", "tackle");
+    else if (!c && b.state === "free" && b.p.y < .5 && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) < standReach(me.at.tackling || 50) + CN.TACKLE_SLACK + .6) add("LMB", "go in for the ball", "tackle");
     add("RMB", "jockey", "jockey");
     if (me.m.speed > CN.SLIDE_V) add("F", "slide", "slide");
   } else { add("R", "call for it", "call"); add("Space", "jump", "header"); add("V", "hold to look over your shoulder", "scan"); }

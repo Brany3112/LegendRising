@@ -103,6 +103,7 @@ let nan = 0, samples = 0, firstWins = 0, gapsBad = 0, duels = 0;
 for (const seed of SEEDS){
   const ms = createMatch(configFor(seed, {}));
   let locked = 0, loose = 0, pend = null, seen = 0;
+  const v3 = {steps: 0, why: {}, pend: [], unplayed: 0};
   while (ms.phase !== 'over'){
     const ctl0 = ms.poss.ctl, bp0 = {x: ms.ball.p.x, y: ms.ball.p.y, z: ms.ball.p.z}, st0 = ms.ball.state, t0 = ms.t, bv0 = {x: ms.ball.v.x, y: ms.ball.v.y, z: ms.ball.v.z};
     // who could play it as the step began (the timers that keep a man off the ball run down only after the ball's turn,
@@ -127,11 +128,20 @@ for (const seed of SEEDS){
         if (going && gap > TUNE.DUEL_WIN.value + 1e-9 && !ms.agents[a0.id].isGK && !(o0 && ms.agents[o0.id].isGK)){ const A0 = ms.agents[a0.id]; pend = {team: a0.team, gap, t: ms.t, who: a0.id, t0: a0.t, plan: A0.plan && A0.plan.kind, gk: A0.isGK, lk: ms.ball.last.kind, lt: ms.ball.last.team, opp: o0 ? o0.t : null, bv: Math.hypot(ms.ball.v.x, ms.ball.v.z), by: ms.ball.p.y}; }
       }
     }
+    // the verifier's v3 lockSteps, as fp/p1/verify-ball/v3-match.mjs counts it (before the step: an opponent not in an
+    // action with the ball in his radius at foot height, nearer it than the controller), with why he did not play it
+    let v3o = null, engineSeen = null;
+    if (ms.phase === 'live' && ms.ball.state === 'free' && ctl0 >= 0){
+      const C = ms.agents[ctl0], b = ms.ball, dc = Math.hypot(b.p.x - C.m.x, b.p.z - C.m.z);
+      for (const o of ms.agents){
+        if (!o.onPitch || o.role !== 'player' || o.team === C.team || o.team < 0 || o.act) continue;
+        const e = reachEnvelope(o, b);
+        if (e && (e.part === 'foot' || e.part === 'sole') && e.dist < dc){ v3o = o; break; }
+      }
+    }
     const n0 = ms.events.length;
     simStep(ms);
     const evs = ms.events.slice(n0);
-    for (const a of ms.agents) if (a.onPitch && !(Number.isFinite(a.m.x) && Number.isFinite(a.m.z))) nan++;
-    if (!(Number.isFinite(ms.ball.p.x) && Number.isFinite(ms.ball.p.y) && Number.isFinite(ms.ball.p.z))) nan++;
     // who played it next
     if (pend){
       const t = evs.find(e => (e.kind === 'touch' && e.how !== 'deflect' && !e.body) || e.kind === 'kick' || e.kind === 'tackle' || e.kind === 'save' || e.kind === 'catch');
@@ -150,22 +160,58 @@ for (const seed of SEEDS){
       b.p.x = bp0.x; b.p.y = bp0.y; b.p.z = bp0.z;
       if (!touched){ b.v.x = bv0.x; b.v.y = bv0.y; b.v.z = bv0.z; }
       const seen = played ? [] : nearerInR(ms, could, t0);
+      engineSeen = seen;
       b.p.x = bx; b.p.y = by; b.p.z = bz; b.v.x = vx; b.v.y = vy; b.v.z = vz;
       if (!played && seen.some(id => !(ms.agents[id].duelOn === ctl0 && t0 - ms.agents[id].duelT < TUNE.CHAL_GAP.value))){
         locked++;
         if (process.env.RACE_DEBUG){ const C = ms.agents[ctl0], b = ms.ball; const id = seen[0], o = ms.agents[id]; console.log("locked", seed, ms.t.toFixed(2), "C", ctl0, Math.hypot(b.p.x - C.m.x, b.p.z - C.m.z).toFixed(2), JSON.stringify(reachEnvelope(C, b)), "o", id, Math.hypot(b.p.x - o.m.x, b.p.z - o.m.z).toFixed(2), JSON.stringify(reachEnvelope(o, b)), "duelOn", o.duelOn, (ms.t - o.duelT).toFixed(2), "b", b.p.y.toFixed(2), Math.hypot(b.v.x, b.v.z).toFixed(1), "evs", evs.map(e => e.kind).join(",")); }
       }
     }
+    if (v3o){
+      v3.steps++;
+      const o = v3o, C = ms.agents[ctl0];
+      // the reason, in the engine's own terms: a contest he has just lost or had his roll in (G0: one roll for each
+      // engagement; the loser of a 50/50 or a tackle cannot touch it for DUEL_LOCK), a body that cannot play (down,
+      // staggered, getting up), a body of the other side on the line, or the engine's look a step on from the probe's
+      // (the men move before the ball is decided: he plays it in this step or the next)
+      let why;
+      if (t0 < (o.noTouch || 0)) why = 'lostContest';
+      else if (o.duelOn === ctl0 && t0 - o.duelT < TUNE.CHAL_GAP.value || o.chalOn === ctl0 && t0 - o.chalRoll < TUNE.CHAL_GAP.value) why = 'rolledThisEngagement';
+      else if (!canPlay(ms, o) || t0 < (o.recoverT || 0)) why = 'cannotPlay';
+      else if (blockedOf(ms, o, ms.ball)) why = 'bodyOnLine';
+      else if (engineSeen && !engineSeen.includes(o.id)) why = 'notNearerOrBlockedAtEngineLook';
+      else why = 'pending';
+      v3.why[why] = (v3.why[why] || 0) + 1;
+      if (why === 'pending') v3.pend.push({id: o.id, t: t0, n: 2, ctl: ctl0});
+    }
+    // a pending one must be played by him (or the ball be his side's, or loose) within the next two steps
+    for (let i = v3.pend.length - 1; i >= 0; i--){
+      const P = v3.pend[i];
+      if (evs.some(e => e.agent === P.id && (e.kind === 'touch' || e.kind === 'duel' || e.kind === 'tackle' || e.kind === 'shieldChal' || e.kind === 'kick')) || ms.poss.ctl !== P.ctl){ v3.pend.splice(i, 1); continue; }
+      if (--P.n <= 0){
+        v3.unplayed++; v3.pend.splice(i, 1);
+        if (process.env.RACE_DEBUG){ const o = ms.agents[P.id], C = ms.agents[P.ctl], b = ms.ball, e = reachEnvelope(o, b), eC = reachEnvelope(C, b);
+          console.log("v3 unplayed", seed, P.t.toFixed(2), "o", P.id, "d", Math.hypot(b.p.x - o.m.x, b.p.z - o.m.z).toFixed(2), e && e.R.toFixed(2), "C", P.ctl, Math.hypot(b.p.x - C.m.x, b.p.z - C.m.z).toFixed(2), eC && eC.R.toFixed(2), "shield", !!(C.shield && C.shield.on), "act", C.act && C.act.kind, "oact", o.act && o.act.kind, "duelOn", o.duelOn, "chalOn", o.chalOn, "by", b.p.y.toFixed(2), "bv", Math.hypot(b.v.x, b.v.z).toFixed(1), "last", b.last.kind, b.last.agent); }
+      }
+    }
+    for (const a of ms.agents) if (a.onPitch && !(Number.isFinite(a.m.x) && Number.isFinite(a.m.z))) nan++;
+    if (!(Number.isFinite(ms.ball.p.x) && Number.isFinite(ms.ball.p.y) && Number.isFinite(ms.ball.p.z))) nan++;
     for (; seen < ms.events.length; seen++){
       const e = ms.events[seen];
       if (e.kind === 'duel'){ duels++; if (!(e.gap <= TUNE.DUEL_WIN.value + 1e-9)) gapsBad++; }
     }
   }
-  per.push({seed, locked, inspector: loose, duels: ms.events.filter(e => e.kind === 'duel').length});
+  per.push({seed, locked, inspector: loose, duels: ms.events.filter(e => e.kind === 'duel').length, v3: v3.steps, v3why: v3.why, v3unplayed: v3.unplayed});
 }
 check(samples >= 200 && firstWins/samples >= 0.95, "with the first arrival more than 0.15 s ahead of the other side's, that side plays it next (95% or more)", {samples, share: r3(firstWins/samples)});
 check(duels > 0 && gapsBad === 0, "50/50s happen only inside the window (every duel's arrival gap is at most 0.15 s)", {duels, outside: gapsBad});
 check(per.every(p => p.locked === 0), "no locked steps (an opponent nearer the ball with it in his radius who cannot play it): 0 in every match", per.map(p => ({seed: p.seed, locked: p.locked})));
+// the verifier's own v3 metric: reported in full, with the reason for each step; every step must have one of the engine's
+// reasons (a contest just lost or rolled, a body that cannot play, a body on the line, not nearer or blocked once the men
+// have moved, where the engine looks) or be played by him within the next two steps (the probe looks before the men
+// move, the engine after)
+console.log("  v3 lockSteps (the verifier's metric, before the step): " + JSON.stringify(per.map(p => ({seed: p.seed, v3: p.v3, why: p.v3why}))));
+check(per.every(p => p.v3unplayed === 0), "the verifier's v3 locked steps: each one is a contest he has just lost or rolled in, a body that cannot play, a body on the line, or played by him within two steps", per.map(p => ({seed: p.seed, v3: p.v3, unexplained: p.v3unplayed})));
 const s7 = per.find(p => p.seed === 7), s8 = per.find(p => p.seed === 8);
 if (s7 && s8) check(s7.inspector < 888 && s8.inspector < 1335, "the inspector's looser count falls (seed 7 under 888, seed 8 under 1335)", {seed7: s7.inspector, seed8: s8.inspector});
 check(nan === 0, "no NaN anywhere", {nan});

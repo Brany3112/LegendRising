@@ -67,9 +67,10 @@ export function angleFactor(rel){
   return a <= HALF ? F + (S - F)*a/HALF : S + (B - S)*(a - HALF)/HALF;
 }
 // the late-or-behind foul chance of a tackle that reached the ball: TF_BEHIND x fromBehind (0..1) + TF_LATE x lateness,
-// where lateness runs 0 at 0.08 s off the moment to 1 at 0.3 s
+// where lateness runs 0 at 0.08 s after the moment to 1 at 0.3 s after it. Only late counts (spec 3: "behind or late
+// raises foul chance"): a foot in early (dt < 0) meets the ball before the man
 export function lateness(dt){
-  const a = Math.abs(+dt || 0), ok = TUNE.TM_OK.value, bad = Math.max(ok + 1e-6, TUNE.TM_BAD.value);
+  const a = Math.max(0, +dt || 0), ok = TUNE.TM_OK.value, bad = Math.max(ok + 1e-6, TUNE.TM_BAD.value);
   return clamp((a - ok)/(bad - ok), 0, 1);
 }
 export function pTackleFoul(fromBehind, dt){

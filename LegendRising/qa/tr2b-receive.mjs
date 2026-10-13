@@ -117,7 +117,7 @@ for (const move of ['sprint', 'jog', 'lateral']) for (const from of ['behind', '
       const want = r.a0 != null && r.a0 > r.td ? r.a0 : r.td, err = Math.abs(r.peak - want);
       if (err <= 0.3) tdOk++;
       worst = Math.max(worst, err);
-      pairs.push([r.q, r.peak]);
+      pairs.push([r.q, r.peak, want, r.td]);
     }
   }
   cells.push({move, from, speed, ctrl, kept: kept/n, touch: tdN ? tdOk/tdN : null, worstTouchErr: r3(worst), n});
@@ -131,11 +131,15 @@ check(tdAll >= 0.9 && cells.every(c => c.ctrl < 50 || c.touch == null || c.touch
 // monotonic: the touch's measured length in q bins
 {
   const bins = [[0, 0.35], [0.35, 0.55], [0.55, 0.75], [0.75, 1.01]].map(([lo, hi]) => {
-    const xs = pairs.filter(([qq]) => qq >= lo && qq < hi).map(p => p[1]);
-    return {q: `${lo}-${Math.min(1, hi)}`, n: xs.length, meanTouch: xs.length ? r3(xs.reduce((s, x) => s + x, 0)/xs.length) : null, want: r3(touchDist((lo + Math.min(1, hi))/2))};
+    const ps = pairs.filter(([qq]) => qq >= lo && qq < hi), mean = k => r3(ps.reduce((s, p) => s + p[k], 0)/ps.length);
+    // want: the runs' own touch distances (touchDist(q) with its length error; a ball met further out than that on the
+    // run is carried on from where he met it), and touchDist at the bin's mean q
+    return {q: `${lo}-${Math.min(1, hi)}`, n: ps.length, meanQ: ps.length ? mean(0) : null, meanTouch: ps.length ? mean(1) : null, want: ps.length ? mean(2) : null,
+      touchDistOfMeanQ: ps.length ? r3(touchDist(mean(0))) : null, meanL: ps.length ? mean(3) : null};
   }).filter(b => b.n >= 10);
   const mono = bins.every((b, i) => i === 0 || b.meanTouch < bins[i - 1].meanTouch);
   check(bins.length >= 3 && mono, "a lower q gives a longer touch (the touch's length falls as q rises)", bins);
+  check(bins.every(b => Math.abs(b.meanTouch - b.want) <= 0.12), "in every q bin the mean touch is the runs' own touch distance within 0.12 m", bins.map(b => ({q: b.q, meanTouch: b.meanTouch, want: b.want})));
 }
 check(nan === 0, "no NaN anywhere", {runs: all, nan});
 

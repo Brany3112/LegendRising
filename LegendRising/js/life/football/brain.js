@@ -77,9 +77,9 @@ export const BRAIN = Object.freeze({
   DRIB_DIRS: 7, DRIB_LEN: 6, DRIB_K: 0.9,
   HOLD_K: 0.6, SHIELD_ENG: 1.3,   // (P2b-B) challenges a presser gets in on a shield held to the next decision, at pressure 1
   CLEAR: [26, 0.4, 0.72],     // a clearance: within 26 m of his goal line, pressed above 0.4, worth 0.72 of keeping it there
-  SAFETY: [18, 0.45, 6, 0.02],   // out of play for safety: within 18 m of his goal line, pressed, 6 m off the middle; a corner costs 0.02
+  SAFETY: [18, 0.45, 6, 0.01],   // out of play for safety: within 18 m of his goal line, pressed, 6 m off the middle; a corner costs 0.01
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
-  CROSS_T: 0.1, CROSS_V: 0.65, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
+  CROSS_T: 0.1, CROSS_V: 1.3, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
   CROSS_RUN: 0.5,            // a runner counts for a cross zone he reaches within the flight plus this
   CROSS_FROM: [24, 20],      // a cross is on within 24 m of the goal line and 20 m of the touchline
   CROSS_DEEP: 0.2,           // a cross from 24 m off the goal line is worth this share of one from 10 m or nearer

@@ -98,12 +98,22 @@ try {
     const t1 = await tr();
     await page.keyboard.up("d"); await page.keyboard.down("Shift"); await step(2);
     const t2 = await tr();
-    await page.keyboard.up("Shift"); await lift(["Control"]); await step(2);
+    await page.keyboard.up("Shift");
+    // Space and R with Ctrl still down: they reach the drill's controls (R held a moment: its call goes on the release)
+    const trq = async () => page.evaluate(() => { const TR = window.__train, C = TR.CTRL || window.__fp.ctrl; return {held: Object.assign({}, C.held), queue: C.queue.map(q => q.k), last: C.last}; });
+    await page.keyboard.down("r"); await step(1);
+    const t2r = await trq();
+    await page.keyboard.up("r");
+    await page.keyboard.down("Space");
+    const t2s = await trq();
+    await page.keyboard.up("Space"); await step(2);
+    await lift(["Control"]); await step(2);
     await page.keyboard.down("Alt"); await page.keyboard.down("d"); await step(3);
     const t3 = await tr();
     await page.keyboard.up("d"); await page.keyboard.up("Alt"); await step(2);
     check(t1.held.d && (Math.abs(t1.dx) + Math.abs(t1.dz) > .5), "a drill (mode 'train'): with Ctrl held in a locked full screen, D moves you", t1);
     check(t2.held.shift, "a drill: with Ctrl held, Shift sets the sprint key", t2.held.shift);
+    check(t2r.held.r && (t2s.held.space || t2s.queue.includes("space")), "a drill: with Ctrl held, R and Space register", {heldR: !!t2r.held.r, space: !!t2s.held.space, queue: t2s.queue});
     check(!t3.held.d, "a drill: Alt+D is still dropped", t3.held.d);
     // out of full screen and out of the drill again
     await page.evaluate(async () => { await document.exitFullscreen().catch(() => {}); });
@@ -124,6 +134,13 @@ try {
   await hold(["c"], 20);
   const s1 = await page.evaluate(() => window.__t.st());
   check(s1.shield && s1.ctrlShield, "C held with the ball yours: intent.shield is set", {shield: s1.shield, ctrl: s1.ctrlShield});
+  // (the first shield on this device: the full-screen tip comes up on the HUD; let the page draw a few frames of it)
+  await unfreeze(page); await page.waitForTimeout(400); await freeze(page);
+  const tip0 = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll("#fpHud .fp-card")].filter(c => /full screen/i.test(c.textContent));
+    const vis = cards.filter(c => { const r = c.getBoundingClientRect(), cs = getComputedStyle(c); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && +cs.opacity > 0.05; });
+    return {seen: vis.length > 0, text: vis.length ? vis[0].textContent : null};
+  });
   // (the defender stays on your back, 1.2 m behind you away from the ball, every step: he leans on you without taking
   // it, so what is measured is your own shield)
   await page.keyboard.down("w"); await page.keyboard.down("Shift");
@@ -170,7 +187,7 @@ try {
 
   // ---- 4. the tip: shown once, on the first shield (it was the C shield above)
   const tip1 = await page.evaluate(() => ({seen: [...document.querySelectorAll("#fpHud .fp-card b")].some(b => /full screen/i.test(b.textContent)), stored: localStorage.getItem("freyaFootball.tipFS")}));
-  check(tip1.stored === "1", "the full-screen tip has been shown once (stored on this device)", tip1);
+  check(tip0.seen && tip1.stored === "1", "the full-screen tip came up on the HUD at the first shield (and is stored on this device)", {seen: tip0.seen, text: tip0.text, stored: tip1.stored});
 
   // ---- 5. full screen with the keyboard lock (stubbed): Ctrl shields, and you can move while you hold it
   const fs1 = await fsOn();

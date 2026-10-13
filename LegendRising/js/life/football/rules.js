@@ -44,6 +44,7 @@ export const RULES = Object.freeze({
                                              // it to the man nearest it (3.2.8: the AI takes it from where everyone is)
   SUBS: 5,
   THROW_FB: 10,                              // a full-back takes his side's throw-in when within this much of the winger's distance
+  CORNER_FROM: 40,                           // a corner's best crosser takes it when within this many metres of the flag (else the best one nearer)
   SERVE_MEET: 1.2,                           // seconds a served ball costs beyond its flight: meeting it and carrying it in
   NEAR_SLOW: 1.5, NEAR_T: 0.6, NEAR_V: 1.2,  // a man this near the ball he is fetching (or the spot he is carrying it to) for
                                              // longer than this without getting there walks the rest, at this speed at most
@@ -346,8 +347,11 @@ function pickTaker(ms, kind, team, spot){
   if (!ag.length) return -1;
   const near = list => { let best = null, bd = Infinity; for (const a of list){ const d = hypot(a.m.x - spot.x, a.m.z - spot.z); if (d < bd){ bd = d; best = a; } } return best; };
   const me = ms.me >= 0 ? ms.agents[ms.me] : null, trust = ms.cfg.me ? ms.cfg.me.trust || 0 : 0;
-  const best = (key, need) => {
-    const out = ag.filter(a => !a.isGK);
+  // (maxD: only men within that distance of the spot, when there are any: a designated taker on the far side of the
+  // pitch would take longer to get there than the restart's limit allows)
+  const best = (key, need, maxD = Infinity) => {
+    let out = ag.filter(a => !a.isGK);
+    if (maxD < Infinity){ const nearBy = out.filter(a => hypot(a.m.x - spot.x, a.m.z - spot.z) <= maxD); if (nearBy.length) out = nearBy; }
     let top = null, tv = -1;
     for (const a of out){ const v = key(a.at); if (v > tv){ tv = v; top = a; } }
     if (me && me.team === team && out.includes(me)){
@@ -372,7 +376,7 @@ function pickTaker(ms, kind, team, spot){
     // the player takes it when he is his side's nearest man to it and within 10 m (3.2.8), and so does the harness's
     // stand-in for him (DESIGN 3.2.12: a winger's throw-ins beyond the oracle's rate are counted apart instead)
     if (me && me.team === team && me === no && hypot(me.m.x - spot.x, me.m.z - spot.z) < 10) t = me;
-  } else if (kind === 'corner') t = best(at => at.curve + at.accuracy, 40);
+  } else if (kind === 'corner') t = best(at => at.curve + at.accuracy, 40, RULES.CORNER_FROM);
   else if (kind === 'penalty') t = best(at => at.accuracy + at.composure, 50);
   else if (kind === 'free'){
     const dir = ms.dirs[team], d = hypot(dir*ms.spec.hx - spot.x, spot.z);
