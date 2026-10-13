@@ -27,7 +27,7 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {configFor} from "./harness.mjs";
 import {createMatch, simStep} from "../js/life/football/sim.js";
-import {arrivals, canPlay, ratings} from "../js/life/football/zone.js";
+import {arrivals, canPlay, ratings, GHOST_T} from "../js/life/football/zone.js";
 import {reachEnvelope} from "../js/life/football/touch.js";
 import {p5050} from "../js/life/football/duel.js";
 import {TUNE} from "../js/life/football/tune.js";
@@ -82,14 +82,15 @@ function envOf(a, b){
   return e;
 }
 // the opponents of the controller who have the ball inside their radius and are nearer it than he is
-function nearerInR(ms, could){
+// (t: the time the engine decided at, the step's start: ms.t moves on only at the end of simStep)
+function nearerInR(ms, could, t){
   const c = ms.poss.ctl, b = ms.ball, out = [];
   if (c < 0 || b.state !== 'free' || ms.phase !== 'live') return out;
   const C = ms.agents[c], eC = envOf(C, b), dC = eC && eC.part !== 'head' ? eC.dist : Math.hypot(b.p.x - C.m.x, b.p.z - C.m.z);
   for (const o of ms.agents){
     if (o.team === C.team || o.team < 0 || !canPlay(ms, o) || could && !could.has(o.id)) continue;
     const L = b.last;
-    if (o.id === L.agent && ms.t - L.t < 0.3 && L.kind !== 'dribble' && L.kind !== 'control') continue;
+    if (o.id === L.agent && t - L.t < GHOST_T && L.kind !== 'dribble' && L.kind !== 'control') continue;
     const e = envOf(o, b);
     if (!e || e.part === 'head' || e.dist >= dC || blockedOf(ms, o, b)) continue;
     out.push(o.id);
@@ -103,7 +104,7 @@ for (const seed of SEEDS){
   const ms = createMatch(configFor(seed, {}));
   let locked = 0, loose = 0, pend = null, seen = 0;
   while (ms.phase !== 'over'){
-    const ctl0 = ms.poss.ctl, bp0 = {x: ms.ball.p.x, y: ms.ball.p.y, z: ms.ball.p.z}, st0 = ms.ball.state;
+    const ctl0 = ms.poss.ctl, bp0 = {x: ms.ball.p.x, y: ms.ball.p.y, z: ms.ball.p.z}, st0 = ms.ball.state, t0 = ms.t, bv0 = {x: ms.ball.v.x, y: ms.ball.v.y, z: ms.ball.v.z};
     // who could play it as the step began (the timers that keep a man off the ball run down only after the ball's turn,
     // and a tackle begun in the step is his go at it)
     const could = new Set();
@@ -141,11 +142,16 @@ for (const seed of SEEDS){
     // has had no roll at it
     if (ctl0 >= 0 && ms.poss.ctl === ctl0 && st0 === 'free'){
       const played = evs.some(e => e.kind === 'duel' || e.kind === 'tackle' || e.kind === 'shieldChal' || e.kind === 'touch' && e.agent !== ctl0);
-      const b = ms.ball, bx = b.p.x, by = b.p.y, bz = b.p.z;
+      // (the ball as the engine saw it: where it was before its own step, and how fast: the look-ahead reads its velocity,
+      // which is the step's start value unless the controller's own dribble touch in the men's turn set a new one, as
+      // near the one the ball ends the step with as one step of drag makes it)
+      const touched = evs.some(e => e.kind === 'touch' && e.agent === ctl0);
+      const b = ms.ball, bx = b.p.x, by = b.p.y, bz = b.p.z, vx = b.v.x, vy = b.v.y, vz = b.v.z;
       b.p.x = bp0.x; b.p.y = bp0.y; b.p.z = bp0.z;
-      const seen = played ? [] : nearerInR(ms, could);
-      b.p.x = bx; b.p.y = by; b.p.z = bz;
-      if (!played && seen.some(id => !(ms.agents[id].duelOn === ctl0 && ms.t - ms.agents[id].duelT < TUNE.CHAL_GAP.value))){
+      if (!touched){ b.v.x = bv0.x; b.v.y = bv0.y; b.v.z = bv0.z; }
+      const seen = played ? [] : nearerInR(ms, could, t0);
+      b.p.x = bx; b.p.y = by; b.p.z = bz; b.v.x = vx; b.v.y = vy; b.v.z = vz;
+      if (!played && seen.some(id => !(ms.agents[id].duelOn === ctl0 && t0 - ms.agents[id].duelT < TUNE.CHAL_GAP.value))){
         locked++;
         if (process.env.RACE_DEBUG){ const C = ms.agents[ctl0], b = ms.ball; const id = seen[0], o = ms.agents[id]; console.log("locked", seed, ms.t.toFixed(2), "C", ctl0, Math.hypot(b.p.x - C.m.x, b.p.z - C.m.z).toFixed(2), JSON.stringify(reachEnvelope(C, b)), "o", id, Math.hypot(b.p.x - o.m.x, b.p.z - o.m.z).toFixed(2), JSON.stringify(reachEnvelope(o, b)), "duelOn", o.duelOn, (ms.t - o.duelT).toFixed(2), "b", b.p.y.toFixed(2), Math.hypot(b.v.x, b.v.z).toFixed(1), "evs", evs.map(e => e.kind).join(",")); }
       }

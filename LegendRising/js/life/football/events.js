@@ -392,28 +392,29 @@ const ARCHS = ['ST', 'W', 'AM', 'CM', 'DF'];
 export const RATE = {
   // R0 per archetype (keepers too): the harness refits it so that each archetype's starters average 6.5, so the
   // player's trust from his ratings does not depend on the position he plays
-  R0: {ST: 6.07, W: 6.19, AM: 6.28, CM: 6.29, DF: 6.18, GK: 6.37},
+  R0: {ST: 6.02, W: 6.26, AM: 6.17, CM: 6.49, DF: 6.47, GK: 6.36},
   W: {
     pc: {ST: .015, W: .015, AM: .02, CM: .02, DF: .015}, pf: -.05, kp: .15, sot: .10, soff: -.04, bcm: -.25, drb: .12,
     dis: -.08, tkl: {ST: .22, W: .22, AM: .25, CM: .34, DF: .42}, int: {ST: .10, W: .10, AM: .10, CM: .12, DF: .14},
     aw: {ST: .06, W: .06, AM: .06, CM: .06, DF: .10}, al: {ST: -.04, W: -.04, AM: -.04, CM: -.04, DF: -.08}, fouls: -.08,
     offs: -.05, beaten: {ST: -.12, W: -.12, AM: -.12, CM: -.12, DF: -.18}, err: -.5
   },
-  // E: medians per 90 of the harness's starters (node qa/harness.mjs --n 1000 --fit-ratings), committed by WP-E
+  // E: medians per 90 of the harness's starters (node qa/harness.mjs --n 1000 --fit-ratings), committed by WP-E and refit
+  // at the TR-2b merge for the new possession engine (with R0 and K)
   E: {
-    pc: {ST: 6, W: 12, AM: 8, CM: 10, DF: 13},
+    pc: {ST: 8, W: 13, AM: 10, CM: 11, DF: 11},
     pf: {ST: 2, W: 4, AM: 2, CM: 2, DF: 3},
     kp: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
     sot: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
-    soff: {ST: 1.13, W: 0, AM: 1, CM: 0, DF: 0},
-    drb: {ST: 0, W: 1, AM: 0, CM: 0, DF: 0},
-    dis: {ST: 1.03, W: 2, AM: 1, CM: 1.02, DF: 1.05},
-    tkl: {ST: 0, W: 0, AM: 1, CM: 1, DF: 1},
-    int: {ST: 1.02, W: 2, AM: 1, CM: 1, DF: 1},
+    soff: {ST: 1.03, W: 0, AM: 1, CM: 0, DF: 0},
+    drb: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
+    dis: {ST: 3, W: 4, AM: 4, CM: 4, DF: 4},
+    tkl: {ST: 1, W: 2, AM: 1.07, CM: 2, DF: 2},
+    int: {ST: 1, W: 1.07, AM: 1, CM: 2, DF: 1},
     aw: {ST: 0, W: 0, AM: 1, CM: 0, DF: 0},
     al: {ST: 0, W: 0, AM: 1, CM: 0, DF: 0},
-    fouls: {ST: 0, W: 1, AM: 1, CM: 1, DF: 1},
-    offs: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
+    fouls: {ST: 0, W: 0, AM: 1, CM: 1, DF: 1},
+    offs: {ST: 1, W: 0, AM: 0, CM: 0, DF: 0},
     beaten: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0},
     bcm: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0}, err: {ST: 0, W: 0, AM: 0, CM: 0, DF: 0}, saves: {GK: 3.0}
   },
@@ -423,7 +424,7 @@ export const RATE = {
   // K: the spread. Everything after R0 is scaled by it; the harness fits it with R0 so that the starters' ratings
   // spread SPREAD about 6.5 (the 2.3 WP-E band is 0.55 to 0.9: the weights above on this simulation's counters alone
   // spread them about 1.0)
-  K: 0.76, SPREAD: 0.75
+  K: 0.701, SPREAD: 0.75
 };
 const wOf = (k, arch) => { const w = RATE.W[k]; return typeof w === 'number' ? w : w[arch === 'GK' ? 'DF' : arch]; };
 const eOf = (k, arch) => { const e = RATE.E[k]; if (!e) return 0; return typeof e === 'number' ? e : (e[arch === 'GK' ? 'DF' : arch] || 0); };

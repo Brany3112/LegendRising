@@ -331,7 +331,9 @@ export function contextOf(ms, me){
   if (R0 && !R0.taken && R0.taker === me.id) return "restart";
   const b = ms.ball;
   if (ms.poss.ctl === me.id) return "attack";
-  if (b.state === "free" && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) < CN.ATTACK_LOOSE) return "attack";
+  // a loose ball near you is yours to play (DESIGN 3.1.7: "the loose ball within 2.5 m"); a ball an opponent has at his
+  // feet is not loose, however near: that is defending, and LMB is the tackle
+  if (b.state === "free" && ms.poss.ctl < 0 && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) < CN.ATTACK_LOOSE) return "attack";
   if (ms.poss.team === me.team) return "attack";
   if (ms.poss.team === 1 - me.team) return "defend";
   return "free";

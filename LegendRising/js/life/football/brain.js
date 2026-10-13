@@ -850,13 +850,16 @@ function carrierMove(ms, a){
     if (dd < od){ od = dd; ox = o.m.x; oz = o.m.z; }
   }
   a.intent.shield = a.hold === 'shield';
+  // a ball his touch left out of his reach is anyone's nearer it (P2b-A, ball-3: no stickiness), so he goes to it at a
+  // jog and only settles to a walk once it is at his feet
+  const far = bd > 0.8, gait = far ? 'jog' : 'walk';
   if (od < 3){
     const ux = b.p.x - ox, uz = b.p.z - oz, ul = hypot(ux, uz) || 1;
     a.state = 'shield';
-    steer(a, b.p.x - ux/ul*0.45, b.p.z - uz/ul*0.45, 'walk', 0.12, {x: ux/ul, z: uz/ul}, 2.0);
+    steer(a, b.p.x - ux/ul*0.45, b.p.z - uz/ul*0.45, gait, 0.12, {x: ux/ul, z: uz/ul}, far ? 4.0 : 2.0);
   } else {
     const dir = ms.dirs[a.team];
-    steer(a, b.p.x - dir*0.5, b.p.z, 'walk', 0.15, {x: dir, z: 0}, 2.5);
+    steer(a, b.p.x - dir*0.5, b.p.z, gait, 0.15, {x: dir, z: 0}, far ? 4.0 : 2.5);
   }
 }
 

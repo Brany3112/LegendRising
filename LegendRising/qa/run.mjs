@@ -35,8 +35,8 @@ const NAMED = {
   // Phase 2 of the Training Mode and football rework (TR-2): P2-A's and P2-B's acceptance, the integrator's real-input match
   tr2: ["tr2-passme", "tr2-gkme", "tr2-halftime", "tr2-kickoff", "tr2-keys", "tr2-scale", "tr2-gait", "tr2-startstop",
     "tr2-clipexit", "tr2-stop", "tr2-gkshuffle", "tr2-viewleak", "tr2-realmatch"],
-  // Phase 2b (TR-2b): P2b-A's engine suites, P2b-B's input, animation and AI suites
-  tr2b: ["tr2b-race", "tr2b-receive", "tr2b-tackle", "tr2b-shieldsim", "tr2b-shield", "tr2b-anim", "tr2b-ai"]
+  // Phase 2b (TR-2b): P2b-A's engine suites, P2b-B's input, animation and AI suites, the integrator's real-input match
+  tr2b: ["tr2b-race", "tr2b-receive", "tr2b-tackle", "tr2b-shieldsim", "tr2b-shield", "tr2b-anim", "tr2b-ai", "tr2b-realmatch"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){
