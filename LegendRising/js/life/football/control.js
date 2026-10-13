@@ -11,6 +11,9 @@
 
    The keys are plain (no Ctrl, no Alt): a key pressed with a modifier does nothing, and every key of 1.6 has its
    browser default stopped while a match is on. The settings are this device's (localStorage freyaFootball.ctrl).
+   The one exception (P2b-B, TRAINING-SPEC 0 and 3): C held shields the ball, and in full screen with the keyboard
+   locked (core/keylock.js) Ctrl shields too; only then does a press made with Ctrl held count, so you can turn, sprint
+   and pass while you hold it. The shoulder check moved from C to V (held).
 
    First-person striking (addendum A1.7, WP-F2; it wins over D10's "the reticle never sways"): everything comes from
    what you see. The reticle sits on the point you look at (the goal mouth for a shot, the grass for a pass or a
@@ -30,6 +33,10 @@ import {stepLen} from "../gaitcore.js";
 import {passModel, callFor} from "./brain.js";
 import {restartReady, offsidePosition, RULES} from "./rules.js";
 import {rollSpeedFor} from "./ball.js";
+import {standReach, slideReach} from "./duel.js";
+import {TUNE} from "./tune.js";
+import {KEYLOCK, ctrlShields, tipFSDue} from "../core/keylock.js";
+import {sprintSpeed} from "../mover.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const DEG = Math.PI/180;
@@ -79,7 +86,7 @@ export const windingShot = (ms, me) => { const ch = CTRL.charge; return !!(me &&
 export const CN = Object.freeze({
   SHOT_FULL: .85, OVERHIT: .92, TAP: .18, PASS_FULL: .8, PASS_MIN: 4,
   CONE: 25*DEG, CONE_NEAR: 35*DEG, CONE_NEAR_D: 15, HYST: 6*DEG, THROUGH_D: 8,
-  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, CALL_HOLD: .4, CALL_COOL: 4, DRIB_BEND: 12*DEG,
+  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, TACKLE_SLACK: .35, SLIDE_SLACK: .8, SHIELD_NEAR: 2.2, NOTE_T: 1.6, CALL_HOLD: .4, CALL_COOL: 4, DRIB_BEND: 12*DEG,
   SCAN_MAX: 110*DEG, SCAN_BACK: .15, HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5,
   SMALL: .55,                 // the small touch: the next dribble touch at this share of its length (A1.1)
   RING: Object.freeze({W0: .07, W1: .16})   // the timing ring of a volley (A1.5): the sweet window in seconds, at volleying 0 and 99
@@ -105,11 +112,13 @@ export const techniqueOf = at => clamp(.4*(at.aero || 0) + .3*(at.curve || 50) +
 export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", " ", "space", "r", "e", "tab", "escape", "h", "1", "2", "3", "q", "v", "g", "b"]);
 
 /* ---------- the state (1.4.17) ----------
-   ctx: what your buttons mean now; walk: the X toggle; scan: a shoulder check (C held: the look turns, the body keeps
-   its way); charge: what is filling (a shot, a pass, a throw, a header's jump); contact: Low -1, Normal 0, High 1 (kept
+   ctx: what your buttons mean now; walk: the X toggle; scan: a shoulder check (V held: the look turns, the body keeps
+   its way); shield: C held (or Ctrl in a locked full screen) with the ball yours or about to be (P2b-B); note: a press
+   that came to nothing, and why (the hint says it); tipFS: the one-time full-screen tip is due (fphud.js shows it);
+   charge: what is filling (a shot, a pass, a throw, a header's jump); contact: Low -1, Normal 0, High 1 (kept
    until changed); finesse: F held; target: the team-mate the pass cone has (agent), whether the crosshair makes it a
    through ball, and the point; call: your last call; uses: how often each hint has been acted on (they shorten) */
-export const CTRL = {ctx:"free", walk:false, scan:null, charge:null, contact:0, finesse:false,
+export const CTRL = {ctx:"free", walk:false, scan:null, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
   target:{agent:-1, through:false, point:null}, call:{t:-99, kind:null}, uses:{},
   // additions: held keys, the buttons, what was released for the next step, the ring of a volley, the last action
   held:{}, lmb:false, rmb:false, lmbT:0, rmbT:0, rHeld:0, rDone:false, queue:[], ring:null, last:null, jockey:false, small:false,
@@ -124,8 +133,9 @@ export const CTRL = {ctx:"free", walk:false, scan:null, charge:null, contact:0, 
 /* ---------- input (router events, and the bots' through __fp.input) ---------- */
 // a key pressed with Ctrl, Alt or Meta held: set by controller.js's capture listener for the same browser event
 export const MOD = {on:false};
-// the event itself was pressed with Ctrl, Alt or Meta held (the guard's one test, D9)
-export function modKey(ev){ if (ev.ctrlKey || ev.altKey || ev.metaKey) return true; return false; }
+// the event itself was pressed with Ctrl, Alt or Meta held (the guard's one test, D9). In full screen with the keyboard
+// locked Ctrl is the shield key (core/keylock.js), so a press made while it is held is yours; Alt and Meta never are
+export function modKey(ev){ if (ev.altKey || ev.metaKey || (ev.ctrlKey && !ctrlShields())) return true; return false; }
 // a key event that is nobody's action: a modifier on it, or held for the browser event it came from (MOD)
 export const modded = ev => modKey(ev) || ((ev.type === "keydown" || ev.type === "keyup") && MOD.on);
 // ev = {type: 'keydown'|'keyup'|'down'|'up'|'move'|'wheel', key, button, dx, dy, deltaY, repeat, ctrlKey?, altKey?}
@@ -144,7 +154,7 @@ export function controlInput(ev){
       CTRL.held[k] = true;
       if (k === "x") CTRL.walk = !CTRL.walk;
       else if (k === "1" || k === "2" || k === "3"){ CTRL.contact = +k - 2; use("contact"); }
-      else if (k === "c") CTRL.queue.push({k:"scan"});
+      else if (k === "v") CTRL.queue.push({k:"scan"});
       else if (k === "f") CTRL.queue.push({k:"f"});
       else if (k === "space") CTRL.queue.push({k:"space"});
       else if (k === "r"){ CTRL.rHeld = 0; CTRL.rDone = false; }
@@ -152,7 +162,7 @@ export function controlInput(ev){
     case "keyup":
       if (ev.prevent) ev.prevent();
       if (k === "r" && CTRL.held.r && !CTRL.rDone && !md) CTRL.queue.push({k:"rtap"});
-      if (k === "c") CTRL.queue.push({k:"unscan"});
+      if (k === "v") CTRL.queue.push({k:"unscan"});
       CTRL.held[k] = false;
       return true;
     case "down":
@@ -186,7 +196,7 @@ export function look(dx, dy){
 // let go of everything (a cut, a pause, the end of play)
 export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
-  CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false;
+  CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
   CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null;
   CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
 }
@@ -197,7 +207,7 @@ export function controlRelease(){
   for (const k in CTRL.held) CTRL.held[k] = false;
   if (CTRL.lmb || CTRL.rmb){ CTRL.lmb = CTRL.rmb = false; CTRL.charge = null; }
   if (CTRL.scan) CTRL.queue.push({k:"unscan"});
-  CTRL.rHeld = 0; CTRL.rDone = true; CTRL.jockey = false; MOD.on = false;
+  CTRL.rHeld = 0; CTRL.rDone = true; CTRL.jockey = false; CTRL.shield = false; MOD.on = false;
 }
 if (typeof addEventListener === "function") addEventListener("blur", () => controlRelease());
 
@@ -479,7 +489,7 @@ const ACT = {x:0, y:0, z:0}, TGT = {x:0, y:0, z:0};
 const CHG = {kind:"shot", t:0, p:0}, RNG = {kind:"volley", tc:0, w:0};
 // opts = {traits, live: false while play is stopped for you (walk-out, a cut), restart: what the restart allows}
 export function controlStep(ms, me, h, opts = {}){
-  if (!me || !me.onPitch || !CTRL.enabled){ CTRL.queue.length = 0; CTRL.ret.on = false; CTRL.wind.p = 0; CTRL.wind.kind = null; return; }
+  if (!me || !me.onPitch || !CTRL.enabled){ CTRL.queue.length = 0; CTRL.ret.on = false; CTRL.wind.p = 0; CTRL.wind.kind = null; CTRL.shield = false; if (me) me.intent.shield = false; return; }
   const I = me.intent;
   eyeOf(me);
   aimPoint(ms, me, CTRL.aim); groundPoint(CTRL.ground);
@@ -520,14 +530,28 @@ export function controlStep(ms, me, h, opts = {}){
       case "scan": CTRL.scan = {yaw0:P.yaw}; use("scan"); break;
       case "unscan": if (CTRL.scan){ CTRL.scanBack = {from:P.yaw, to:CTRL.scan.yaw0, t:0}; CTRL.scan = null; } break;
       case "rtap": call(ms, me, "here"); break;
-      case "f":
-        if (ctx === "defend" && me.m.speed > CN.SLIDE_V && !me.act){ I.action = {kind:"slide"}; use("slide"); CTRL.last = "slide"; }
-        break;
+      case "f": slide(ms, me, ctx); break;
       case "space": space(ms, me); break;
       case "ldown": if (ctx === "defend") tackle(ms, me); break;
       case "lup": if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
       case "rup": if (ctx !== "defend") strike(ms, me, isThrow(ms, me) ? "throw" : "pass", q.t, opts); break;
     }
+  }
+
+  // ---- the shield (P2b-B; TRAINING-SPEC 3): C held, or Ctrl in full screen with the keyboard locked, while the ball
+  // is yours or about to be (loose and within reach of a stride or two, nobody on it). The intent is the engine's to
+  // carry out for anyone (actions.js: the speed held down, the ball on the far foot, the body between it and the man)
+  const shieldKey = !!CTRL.held.c || (KEYLOCK.ctrl && ctrlShields()), b0 = ms.ball;
+  const soon = b0.state === "free" && ms.poss.ctl < 0 && Math.hypot(b0.p.x - me.m.x, b0.p.z - me.m.z) < CN.SHIELD_NEAR;
+  const wasShield = CTRL.shield;
+  I.shield = CTRL.shield = shieldKey && ctx !== "restart" && (ms.poss.ctl === me.id || soon);
+  // (no sprint while shielding: the engine holds you to SH_SPEED of your jog, the legs go at that pace)
+  const shieldGait = I.shield;
+  if (CTRL.shield){
+    // (a hint shortens after five uses: one use a shield, not one a step)
+    if (!wasShield) use("shield");
+    // (the first time you shield with C outside full screen: the one-time tip that Ctrl does it too in full screen)
+    if (!CTRL.tipAsked){ CTRL.tipAsked = true; if (tipFSDue()) CTRL.tipFS = true; }
   }
 
   // ---- where you go
@@ -538,7 +562,7 @@ export function controlStep(ms, me, h, opts = {}){
   I.face = I.face || {x:0, z:0}; I.face.x = -sin; I.face.z = -cos;
   I.strafe = false; I.speedCap = Infinity;
   const dball = Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z);
-  I.gait = CTRL.walk ? "walk" : CTRL.held.shift ? "sprint" : "jog";
+  I.gait = CTRL.walk ? "walk" : CTRL.held.shift && !shieldGait ? "sprint" : "jog";
   if (ctx === "restart"){ I.gait = dball > 8 && !CTRL.walk ? "jog" : "walk"; }
   // jockeying (RMB held defending): side-on, at most 3.2 m/s, facing the man on the ball
   CTRL.jockey = ctx === "defend" && CTRL.rmb;
@@ -574,6 +598,9 @@ export function controlStep(ms, me, h, opts = {}){
       }
       // (setting off from standing, the first touch is weighed for the first strides: 2 m/s)
       d.speed = d.start ? 2 : I.gait === "walk" ? me.prm.walk : I.gait === "sprint" ? .8*me.prm.sprint : me.prm.jog;
+      // (shielding, the touches are weighed for the shield's own pace, the engine's cap: a touch weighed for a sprint
+      // would run away from a man held to a walk, P2b-B)
+      if (I.shield) d.speed = Math.min(d.speed, (TUNE.SH_SPEED ? TUNE.SH_SPEED.value : .6)*me.prm.jog);
     } else if (me.drib) me.drib = null;
   }
   // a ball on its way to you: you take it (the first touch pushes it the way you are going), or a first-time strike
@@ -599,13 +626,42 @@ function call(ms, me, how){
   use("call");
 }
 
-// LMB defending: a standing tackle on the man on the ball within 1.6 m (else a lunge is pointless: the hint says so)
+// a press that could not become anything: the hint says why for a moment (hintsFor), rather than the press vanishing
+function noteWhy(ms, k){ CTRL.last = k; CTRL.note = {k, t:ms.t}; }
+// LMB defending: a standing tackle on the man on the ball within 1.6 m, or, with nobody on it, on the loose ball
+// itself when it is within your standing reach (duel.js standReach) and a little; else the hint says it is too far
 function tackle(ms, me){
-  const c = ms.agents[ms.poss.ctl];
-  if (!c || c.team === me.team || me.act) return;
-  if (Math.hypot(c.m.x - me.m.x, c.m.z - me.m.z) > CN.TACKLE_D){ CTRL.last = "far"; return; }
-  me.intent.action = {kind:"tackle", sub:"stand"};
-  CTRL.last = "tackle"; use("tackle");
+  if (me.act){ noteWhy(ms, "busy"); return; }
+  const c = ms.agents[ms.poss.ctl], b = ms.ball;
+  if (c && c.team !== me.team){
+    if (Math.hypot(c.m.x - me.m.x, c.m.z - me.m.z) > CN.TACKLE_D){ noteWhy(ms, "far"); return; }
+    me.intent.action = {kind:"tackle", sub:"stand", target:c.id};
+  } else if (!c && b.state === "free" && b.p.y < .5){
+    if (Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) > standReach(me.at.tackling || 50) + CN.TACKLE_SLACK){ noteWhy(ms, "far"); return; }
+    me.intent.action = {kind:"tackle", sub:"stand", target:"ball"};
+  } else { noteWhy(ms, "far"); return; }
+  CTRL.last = "tackle"; CTRL.note = null; use("tackle");
+}
+// F at a run: a slide at the man on the ball (defending), or at a loose ball you are racing someone for (a 50/50:
+// nobody on it, an opponent nearer it than 3 m), within the slide's reach at your speed (duel.js slideReach). Too slow,
+// too far or nothing to slide at while defending: the hint says so. Attacking, F is otherwise the finesse and the
+// small touch (held), and a press of it means nothing on its own
+function slide(ms, me, ctx){
+  const c = ms.agents[ms.poss.ctl], b = ms.ball;
+  const loose = !c && b.state === "free" && b.p.y < .4;
+  const contest = loose && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z) < 3);
+  if (ctx !== "defend" && !(contest && !CTRL.charge)) return;
+  if (me.act){ noteWhy(ms, "busy"); return; }
+  if (me.m.speed <= CN.SLIDE_V){ noteWhy(ms, "slow"); return; }
+  const reach = slideReach(me.m.speed, sprintSpeed(me.prm, me.fac)) + CN.SLIDE_SLACK, far = () => { noteWhy(ms, "far"); CTRL.note.slide = true; };
+  if (c && c.team !== me.team){
+    if (Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) > reach) return far();
+    me.intent.action = {kind:"slide", target:c.id};
+  } else if (loose){
+    if (Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) > reach) return far();
+    me.intent.action = {kind:"slide", target:"ball"};
+  } else return far();
+  use("slide"); CTRL.last = "slide"; CTRL.note = null;
 }
 
 const RES_SPACE = {kind:"ground", tc:0, side:"R", h:0, x:0, y:0, z:0, mirrored:false, face:0};
@@ -787,10 +843,20 @@ export function offsideHud(ms, me, show, out){
   return out;
 }
 // the hints for this moment (1.5.10): up to three [key, verb], shortened to the key after 5 uses
+// a press that came to nothing a moment ago (a tackle out of reach, a slide from a jog): why, on its key, first
+const NOTES = {far:["LMB", "too far away to tackle"], slow:["F", "get up to speed to slide"], busy:["LMB", "not yet, you're still recovering"]};
+const NOTES_SLIDE = {far:["F", "too far away to slide"]};
 export function hintsFor(ms, me){
   const out = [], ctx = CTRL.ctx, short = k => (CTRL.uses[k] || 0) >= 5;
   const add = (key, verb, k) => out.push({key, verb:short(k) ? "" : verb});
   if (!me || !me.onPitch) return out;
+  const N = CTRL.note;
+  if (N && ms.t - N.t < CN.NOTE_T && ms.t >= N.t){
+    const n = (N.k === "far" && N.slide ? NOTES_SLIDE.far : null) || NOTES[N.k];
+    if (n) out.push({key:n[0], verb:n[1]});
+  } else if (N) CTRL.note = null;
+  // a man close to you with the ball yours: the shield (C held, or Ctrl in a locked full screen)
+  const pressed = ms.poss.ctl === me.id && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z) < 3);
   if (ctx === "restart"){
     const R0 = ms.restart;
     if (R0 && R0.kind === "throw") add("RMB", restartReady(ms) ? "hold and release to throw" : "walk to the ball", "throw");
@@ -801,16 +867,18 @@ export function hintsFor(ms, me){
       // (A1.7: the wind-up, the release on your plant, the shape through it)
       if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go as your foot plants", "release"); add("Mouse", "sweep to curl, lift to chip", "shape"); }
       else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
+      else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
+      else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
       else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Mouse", "sweep through it to curl", "shape"); }
     }
     else if (CTRL.resolve && CTRL.resolve.kind === "header") add("Space", "head it", "header");
     else if (CTRL.resolve && CTRL.resolve.kind !== "ground") add("LMB", "volley it", "shoot");
-    else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); }
+    else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); add("V", "hold to look over your shoulder", "scan"); }
   } else if (ctx === "defend"){
     const c = ms.agents[ms.poss.ctl];
     if (c && Math.hypot(c.m.x - me.m.x, c.m.z - me.m.z) < CN.TACKLE_D + .6) add("LMB", "tackle", "tackle");
     add("RMB", "jockey", "jockey");
     if (me.m.speed > CN.SLIDE_V) add("F", "slide", "slide");
-  } else { add("R", "call for it", "call"); add("Space", "jump", "header"); }
+  } else { add("R", "call for it", "call"); add("Space", "jump", "header"); add("V", "hold to look over your shoulder", "scan"); }
   return out.slice(0, 3);
 }

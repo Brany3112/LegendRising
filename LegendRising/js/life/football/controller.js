@@ -53,6 +53,7 @@ import {startAction} from "./actions.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv, makeFP} from "./view.js";
+import {ctrlShields} from "../core/keylock.js";
 import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
 import {hudInit, hudFrame, hudNotice, hudClearCards, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff} from "./fphud.js";
@@ -155,9 +156,10 @@ function capture(e){
   if (e.type === "keydown" || e.type === "keyup"){
     const k = (e.key || "").toLowerCase();
     if (KEYSET.has(k) || k === "tab") e.preventDefault();
-    // (a key with a modifier held: only its default is stopped; control.js ignores it while MOD.on)
+    // (a key with a modifier held: only its default is stopped; control.js ignores it while MOD.on. In full screen with
+    // the keyboard locked Ctrl is the shield key, core/keylock.js: a press made with it held is yours, P2b-B)
     MOD.on = false;
-    if (e.ctrlKey || e.altKey || e.metaKey) return void (MOD.on = true);
+    if (e.altKey || e.metaKey || (e.ctrlKey && !ctrlShields())) return void (MOD.on = true);
     // (Tab held through the warm-up finishes it instead of opening the overview)
     if (e.type === "keydown" && k === "tab" && !e.repeat){ FS.tabHeld = true; hudTab(!(warmDriving() && !FS.onPitch)); }
     if (e.type === "keyup" && k === "tab"){ FS.tabHeld = false; hudTab(false); }

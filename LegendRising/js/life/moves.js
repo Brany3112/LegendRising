@@ -33,7 +33,8 @@
              nothing fires while it is held, and the strike that lets it go starts from it.
    'receive' {part: 'inside' | 'sole' | 'thigh' | 'chest', side, ball, tc, cushion, dir}
    'header'  {jump (0..1), take: 'stand' | 'jump' | 'dive', ball, dir, tc}
-   'tackle'  {kind: 'stand' | 'poke' | 'slide' | 'block', side, target {x, z}, tc}
+   'tackle'  {kind: 'stand' | 'poke' | 'slide' | 'block', side, target {x, y, z} (the contact), tc, reach; a slide's
+             v0, decel, dir {x, z} and dur (P2b-B)}
    'throwin' {run}            'celebrate' {style: 'armsUp' | 'fistPump' | 'kneeSlide' | 'runArmsOut'}
    'getup'   {from: 'front' | 'back' | 'side', side}       'tired' (standing, hands on the thighs: st.fatigue > 0.7)
    upper gestures for st.upper: 'call', 'point', 'appeal', 'shield', 'armsOut', 'windup' (and the fatigue overlay,
@@ -239,7 +240,9 @@ function startFeet(h, C){
   if (h.posed) fkQ(h, h.pose, _FKs);
   for (let i = 0; i < 2; i++){
     const L = h.locks[i], f = F[i], s = i ? -1 : 1;
-    if (L && h.posed){ f.x = L.x; f.y = L.y; f.z = L.z; f.yaw = wrap((L.yaw != null ? L.yaw : BT.ry) - BT.ry); }
+    // (a footprint left far from the body, one put somewhere else since it was last posed, is not where the foot is:
+    // the stance under the body is, P2b-B)
+    if (L && h.posed && Math.hypot(L.x - BT.gx, L.z - BT.gz) < 1.6*BT.sc){ f.x = L.x; f.y = L.y; f.z = L.z; f.yaw = wrap((L.yaw != null ? L.yaw : BT.ry) - BT.ry); }
     else { toW(s*(h.D.hipX + .02), h.D.ankY, 0, _w3); f.x = _w3.x; f.y = _w3.y; f.z = _w3.z; f.yaw = 0; }
     f.x0 = f.x; f.y0 = f.y; f.z0 = f.z; f.pitch = 0; f.roll = 0; f.w = 1; f.down = true; f.kb = 1; f.kt = C.tau; f.landT = null; f.wasDown = true;
     if (h.posed){
@@ -1304,10 +1307,11 @@ function receive(h, T, st, dt){
     }
     lookAt(h, T, d.bx, d.by, d.bz);
   } else if (part === "thigh"){
-    // the thigh comes up under the ball and drops away with it
-    const lift = kf(tau, [[0, 0], [ct, 1], [ct + .15, .7], [dur, 0]]);
+    // the thigh comes up under the ball and drops away with it: as high as the ball is (P2b-B: the thigh band of the
+    // control zone, 0.4 to 0.95 m, zone.js part), the knee higher for a ball at the top of it
+    const lift = kf(tau, [[0, 0], [ct, 1], [ct + .15, .7], [dur, 0]]), hb = clamp((d.by - d.gy)/sc - .4, 0, .6)/.55;
     toB(d.kx0, d.ky0, d.kz0, _b3);
-    toW(_b3.x, D.ankY + .18*lift, _b3.z + .22*lift, _w3);
+    toW(_b3.x, D.ankY + (.1 + .14*hb)*lift, _b3.z + (.14 + .16*hb)*lift, _w3);
     Fk.x = _w3.x; Fk.y = _w3.y; Fk.z = _w3.z; Fk.yaw = 0; Fk.pitch = .6*lift; Fk.roll = 0;
     lookAt(h, T, d.bx, d.by, d.bz);
   } else {
@@ -1441,54 +1445,90 @@ function diveHeader(h, T, C, d, hp, st){
 }
 
 /* ====================================================================================================
-   TACKLES (3.5.7): standing 0.70 / 0.30 (reach up to 1.0 m from the hip), poke 0.50 / 0.18 (1.15 m), the slide on
-   slideRoot (from at least 4 m/s, 6 m/s squared; the get-up chained at 1.0 s with a hand plant, standing by +0.9 s),
-   the block 0.60 (a leg across the ball's way).
+   TACKLES (3.5.7; P2b-B, TRAINING-SPEC 3): the tackling foot is put on the real contact point. st.target {x, y, z} is
+   where the simulation has the foot meet the ball (act.contact), st.side the ball's side of the body (that leg
+   tackles), st.reach the simulation's reach (duel.js standReach, the poke's further): the foot never goes further from
+   the body than the simulation lets it, and the body lunges for it (the hips lowered and carried toward the ball, the
+   support foot stepping in when the lunge is long) so the leg is never stretched past its length. Standing 0.70 / 0.30,
+   poke 0.50 / 0.18, the block 0.60. The slide runs on slideRoot at the act's own carried speed (st.v0), along its own
+   way (st.dir), slowed by the grass (st.decel), the tackling leg out along the grass on the ball's side and guided to
+   the contact; down until the get-up, which ends with the act (st.dur: the slide, then the recovery by Agility).
    ==================================================================================================== */
 const TACK = {stand:{dur:.70, contact:.30}, poke:{dur:.50, contact:.18}, slide:{dur:1.9, contact:.35}, block:{dur:.60, contact:.25}};
+// the clip's length: a slide's is the act's own (its slide and the recovery), the others the table's
+const tackDur = (kind, st) => kind === "slide" && st && st.dur > .8 ? +st.dur : TACK[kind].dur;
+// how far a leg reaches, hip joint to ankle, straight (a share of its length: never locked straight)
+const LEG_REACH = .97;
 function tackle(h, T, st, dt){
-  const kind = TACK[st.kind] ? st.kind : st.t != null ? "slide" : "stand", K0 = TACK[kind];
-  _spec.dur = K0.dur; _spec.contact = K0.contact; _spec.pre = 0; _spec.begin = null; _spec.events = kind === "slide" ? [[EV.LAND, .2]] : RECV_EV;
+  const kind = TACK[st.kind] ? st.kind : st.t != null ? "slide" : "stand", K0 = TACK[kind], dur = tackDur(kind, st);
+  _spec.dur = dur; _spec.contact = K0.contact; _spec.pre = 0; _spec.begin = null; _spec.events = kind === "slide" ? [[EV.LAND, .2]] : RECV_EV;
   const C = clock(h, "tackle", st, _spec);
   setBT(h);
   const D = h.D, sc = BT.sc, d = C.data, tau = C.tau, ct = K0.contact, s = st.side === "L" || st.side === 1 ? 1 : -1, i = s > 0 ? 0 : 1;
   if (!d.id){
     d.id = 1; startFeet(h, C); d.gy = BT.gy;
-    const tg = st.target || (() => { toW(s*.15, 0, kind === "poke" ? 1.0 : .85, _w3); return {x:_w3.x, z:_w3.z}; })();
-    d.tx = tg.x; d.tz = tg.z;
+    const tg = st.target || (() => { toW(s*.15, 0, kind === "poke" ? 1.0 : .85, _w3); return {x:_w3.x, y:BR, z:_w3.z}; })();
+    d.tx = tg.x; d.ty = tg.y != null ? tg.y : BR; d.tz = tg.z;
     d.f0 = C.feet.map(f => ({x:f.x, y:f.y, z:f.z, yaw:f.yaw}));
     d.root0 = {x:BT.gx, z:BT.gz};
-    d.slide = kind === "slide" ? {x:BT.gx, z:BT.gz, dx:Math.sin(BT.ry), dz:Math.cos(BT.ry), v0:Math.max(4, st.v0 || 5), decel:6} : null;
+    if (kind === "slide"){
+      // the slide's way: the act's (st.dir, world), else the way the body faces
+      const dl = st.dir ? Math.hypot(st.dir.x, st.dir.z) : 0;
+      d.slide = {x:BT.gx, z:BT.gz, dx:dl > 1e-6 ? st.dir.x/dl : Math.sin(BT.ry), dz:dl > 1e-6 ? st.dir.z/dl : Math.cos(BT.ry), v0:Math.max(1.5, st.v0 || 5), decel:st.decel > 0 ? st.decel : 6};
+    } else d.slide = null;
   }
+  // the contact point is followed until the foot gets there (a ball the carrier touches on is followed), then kept
+  if (tau < ct && st.target){ d.tx = st.target.x; d.ty = st.target.y != null ? st.target.y : BR; d.tz = st.target.z; }
   const F = C.feet;
-  if (kind === "slide") return slidePose(h, T, C, d, s, tau, false);
-  // standing, poke, block: the support foot stays, the tackling foot reaches to the target (or across the ball's way)
-  const reach = kind === "poke" ? 1.15 : 1.0;
-  toB(d.tx, d.gy, d.tz, _b3);
-  const hipX = s*D.hipX, dx = _b3.x - hipX, dz = _b3.z, dl = Math.hypot(dx, dz), k = dl > reach ? reach/dl : 1;
-  toW(hipX + dx*k, D.ankY + (kind === "block" ? .08 : .02), dz*k, _w3);
-  const u = kf(tau, [[0, 0], [ct, 1], [ct + (kind === "poke" ? .1 : .18), 1], [K0.dur, 0]]);
-  const f0 = d.f0[i], Fk = F[i], Fs = F[1 - i];
+  if (kind === "slide") return slidePose(h, T, C, d, s, tau, false, dur, ct);
+  // standing, poke, block: the face of the foot that meets the ball on the contact point (the inside for a standing
+  // tackle, turned out across the ball's way; the toe for a poke; the block's inside, square)
+  const part = kind === "poke" ? "toe" : "inside";
+  const fyaw = kind === "block" ? s*-1.2 : kind === "poke" ? 0 : s*-.9, fpitch = kind === "poke" ? .5 : .1;
+  // (no further from the body than the simulation's reach: its reach is from the body to the ball's centre)
+  let cx = d.tx, cz = d.tz;
+  const reach = st.reach > 0 ? +st.reach : kind === "poke" ? 1.15 : 1.05;
+  { const rx = cx - BT.gx, rz = cz - BT.gz, rl = Math.hypot(rx, rz); if (rl > reach){ cx = BT.gx + rx/rl*reach; cz = BT.gz + rz/rl*reach; } }
+  ankleFor(h, part, s, cx, Math.max(d.ty, BR*.6), cz, fyaw, fpitch, 0, _w3);
+  _w3.y = Math.max(_w3.y, d.gy + D.ankY*sc*.8);
+  const u = kf(tau, [[0, 0], [ct, 1], [ct + (kind === "poke" ? .1 : .18), 1], [dur, 0]]);
+  // the lunge: how far the hip joint has to come (lowered first, then carried toward the ball) for the leg to reach
+  toB(_w3.x, _w3.y, _w3.z, _b3);
+  const Lmax = LEG_REACH*(D.hipY - D.ankY), hx = _b3.x - s*D.hipX, hz = _b3.z, hd = Math.hypot(hx, hz);
+  const need = y => Math.max(0, hd - Math.sqrt(Math.max(0, Lmax*Lmax - (D.hipY - y - _b3.y)*(D.hipY - y - _b3.y))));
+  let drop = .12;
+  if (need(drop) > 0) drop = Math.min(.32, drop + need(drop)*.6);
+  const shift = Math.min(.55, need(drop)*1.04), sx = hd > 1e-6 ? hx/hd*shift : 0, sz = hd > 1e-6 ? hz/hd*shift : 0;
+  const f0 = d.f0[i], Fk = F[i], Fs = F[1 - i], f1 = d.f0[1 - i];
   Fk.x = lerp(f0.x, _w3.x, u); Fk.z = lerp(f0.z, _w3.z, u); Fk.y = lerp(f0.y, _w3.y, u) + .06*sc*bump(clamp(tau/ct, 0, 1));
-  Fk.yaw = kind === "block" ? s*-1.2*u : kind === "poke" ? 0 : s*-.9*u; Fk.pitch = kind === "poke" ? .5*u : .1*u; Fk.roll = 0;
-  const f1 = d.f0[1 - i]; Fs.x = f1.x; Fs.y = f1.y; Fs.z = f1.z; Fs.yaw = f1.yaw; Fs.pitch = 0; Fs.roll = 0;
-  // the body lowers and leans into it, the arms out for balance
-  T[61] = -.12*u; T[60] = -s*.05*u; T[62] = -.05*u;
-  R3(T, B.hips, .15*u, s*.2*u, -s*.08*u); R3(T, B.spine, .2*u); R3(T, B.chest, .05); R3(T, B.neck, .1); R3(T, B.head, .2);
+  Fk.yaw = fyaw*u; Fk.pitch = fpitch*u; Fk.roll = 0;
+  // the support foot steps in behind the lunge (as far as the hips are carried, before the contact), so the support
+  // leg stays under the body; with no lunge it stays where it is
+  const step = shift*sstep(0, ct*.8, tau)*(1 - sstep(ct + .2, dur, tau));
+  toW(shift > 1e-6 ? sx/shift*step : 0, 0, shift > 1e-6 ? sz/shift*step : 0, _a3);
+  const ox = _a3.x - BT.gx, oz = _a3.z - BT.gz;
+  Fs.x = f1.x + ox; Fs.y = f1.y + (shift > .05 ? .05*sc*bump(clamp(tau/(ct*.8), 0, 1)) : 0); Fs.z = f1.z + oz; Fs.yaw = f1.yaw; Fs.pitch = 0; Fs.roll = 0;
+  // the body lowers, carries over the support leg toward the ball and leans into it, the arms out for balance
+  T[61] = -drop*u; T[60] = (sx - s*.05)*u; T[62] = (sz - .05)*u;
+  R3(T, B.hips, .15*u, s*.2*u, -s*.08*u); R3(T, B.spine, .2*u + .25*shift*u); R3(T, B.chest, .05); R3(T, B.neck, .1); R3(T, B.head, .2);
   armPose(T, 1, .3 + .6*u, .2, .5); armPose(T, -1, .3 + .6*u, .2, .5);
   lookAt(h, T, d.tx, d.gy + .1, d.tz);
   for (let j = 0; j < 2; j++){ const f = F[j]; legW(h, T, j ? -1 : 1, f.x, f.y, f.z, f.yaw, f.pitch, f.roll); f.w = 1; }
   lockFeet(h, C);
   h.gw = 0;
 }
-/* the slide (and the knee slide of a celebration, upright): the body along slideRoot, down on the hip, the sliding leg
-   out along the grass, the trailing knee folded, a hand back to the grass; the get-up chained at 1.0 s */
-function slidePose(h, T, C, d, s, tau, knees){
+const _a3 = {x:0, y:0, z:0};
+/* the slide (and the knee slide of a celebration, upright): the body along slideRoot, down on the hip, the tackling leg
+   out along the grass (the ball's side: the right leg as drawn, mirrored for the left), the trailing knee folded, a
+   hand back to the grass; the tackling foot guided onto the contact around the contact time; the get-up over the last
+   0.9 s of the act */
+function slidePose(h, T, C, d, s, tau, knees, dur = 1.9, ct = .35){
   const D = h.D, sc = BT.sc, S = d.slide;
   const R = slideRoot(S, tau, _sr);
   toB(R.x, d.gy, R.z, _b3);                                   // where the slide has got to, from the group
-  const down = knees ? sstep(0, .25, tau) : kf(tau, [[0, 0], [.2, 1], [1.0, 1], [1.4, .55], [1.9, 0]]);
-  const up = knees ? 0 : sstep(1.0, 1.9, tau);
+  const tUp = Math.max(.6, dur - .9), tEnd = Math.max(tUp + .5, dur);
+  const down = knees ? sstep(0, .25, tau) : kf(tau, [[0, 0], [.2, 1], [tUp, 1], [tUp + .4, .55], [tEnd, 0]]);
+  const up = knees ? 0 : sstep(tUp, tEnd, tau);
   if (knees){
     // on both knees, upright, arms out (the celebration)
     T[60] = _b3.x; T[62] = _b3.z; T[61] = -(.42*down);
@@ -1497,15 +1537,28 @@ function slidePose(h, T, C, d, s, tau, knees){
     armPose(T, 1, lerp(.3, 1.4, down), lerp(0, .3, down), .2); armPose(T, -1, lerp(.3, 1.4, down), lerp(0, .3, down), .2);
     C.feet[0].w = C.feet[1].w = 0; lockFeet(h, C); h.gw = down; return;
   }
-  T[60] = _b3.x + .03*down; T[62] = _b3.z + .05*down; T[61] = -.72*down;
-  R3(T, B.hips, -.5*down, .2*down, -.35*down);
-  R3(T, B.spine, .14*down + .3*up, -.15*down, .2*down); R3(T, B.chest, .06*down, -.1*down, .1*down); R3(T, B.neck, .15*down, 0, .1*down); R3(T, B.head, .2*down, 0, .05*down);
-  const tR = LEG(-1), tL = LEG(1);
-  R3(T, tR[0], lerp(0, -1.1, down), 0, lerp(0, .06, down)); R3(T, tR[1], lerp(.1, .12, down)); R3(T, tR[2], lerp(0, -.25, down)); R3(T, tR[3], 0);
-  R3(T, tL[0], lerp(0, -1.15, down), lerp(0, 1.45, down), 0); R3(T, tL[1], lerp(.1, 1.95, down)); R3(T, tL[2], lerp(0, .35, down)); R3(T, tL[3], 0);
+  // (m: 1 with the right leg out, the pose as drawn; -1 mirrors it for the left)
+  const m = -s;
+  T[60] = _b3.x + m*.03*down; T[62] = _b3.z + .05*down; T[61] = -.72*down;
+  R3(T, B.hips, -.5*down, m*.2*down, m*-.35*down);
+  R3(T, B.spine, .14*down + .3*up, m*-.15*down, m*.2*down); R3(T, B.chest, .06*down, m*-.1*down, m*.1*down); R3(T, B.neck, .15*down, 0, m*.1*down); R3(T, B.head, .2*down, 0, m*.05*down);
+  const tR = LEG(-m), tL = LEG(m);
+  R3(T, tR[0], lerp(0, -1.1, down), 0, m*lerp(0, .06, down)); R3(T, tR[1], lerp(.1, .12, down)); R3(T, tR[2], lerp(0, -.25, down)); R3(T, tR[3], 0);
+  R3(T, tL[0], lerp(0, -1.15, down), m*lerp(0, 1.45, down), 0); R3(T, tL[1], lerp(.1, 1.95, down)); R3(T, tL[2], lerp(0, .35, down)); R3(T, tL[3], 0);
   // a hand back to the grass, the other up for balance; through the get-up the hand pushes off
-  R3(T, ARM(1)[0], lerp(.05, .55, down), 0, lerp(.1, .55, down)); R3(T, ARM(1)[1], lerp(-.15, -.2, down)); R3(T, ARM(1)[2], -.4*down);
-  R3(T, ARM(-1)[0], lerp(.05, -1.25, down), 0, lerp(-.1, -.55, down)); R3(T, ARM(-1)[1], lerp(-.15, -.6, down));
+  R3(T, ARM(m)[0], lerp(.05, .55, down), 0, m*lerp(.1, .55, down)); R3(T, ARM(m)[1], lerp(-.15, -.2, down)); R3(T, ARM(m)[2], -.4*down);
+  R3(T, ARM(-m)[0], lerp(.05, -1.25, down), 0, m*lerp(-.1, -.55, down)); R3(T, ARM(-m)[1], lerp(-.15, -.6, down));
+  // the tackling foot onto the contact: its laces meet the ball as the slide gets there (eased in before, out after)
+  const wc = d.tx != null && up <= 0 ? sstep(ct - .2, ct - .02, tau)*(1 - sstep(ct + .12, ct + .35, tau))*down : 0;
+  if (wc > 0){
+    ankleFor(h, "laces", -m, d.tx, Math.max(d.ty, BR*.6), d.tz, 0, -.2, 0, _w3);
+    // (as far as the leg reaches from where the slide has the hip: the rest is the slide's own carry)
+    const tw = _tmpT(T); frameOf(h, tw, tR[0], _M); _V.setFromMatrixPosition(_M); toB(_w3.x, _w3.y, _w3.z, _b4);
+    const ex = _b4.x - _V.x, ey = _b4.y - _V.y, ez = _b4.z - _V.z, el = Math.hypot(ex, ey, ez), Lm = LEG_REACH*(D.hipY - D.ankY);
+    if (el > Lm){ const k = Lm/el; _b4.x = _V.x + ex*k; _b4.y = _V.y + ey*k; _b4.z = _V.z + ez*k; }
+    legIK(h, tw, -m, _b4.x, _b4.y, _b4.z, 0);
+    for (const b of tR) for (let c = 0; c < 3; c++) T[b*3 + c] = lerp(T[b*3 + c], tw[b*3 + c], wc);
+  }
   if (up > 0){
     // standing again: the legs come under the body onto the ground where it stopped
     for (let j = 0; j < 2; j++){ const s2 = j ? -1 : 1; legIK(h, _tmpT(T), s2, s2*(D.hipX + .03), D.ankY, _b3.z + (j ? -.05 : .1), 0); }
@@ -1646,7 +1699,9 @@ function tired(h, T, st, dt){
 function upCall(h, T, st){ const t = h.t; R3(T, B.chest, -.04); R3(T, B.head, -.15); armPose(T, -1, .25, 2.6 + .1*Math.sin(t*5), .3); R3(T, ARM(-1)[2], .4); armPose(T, 1, .2, .2, .4); }
 function upPoint(h, T, st){ armPose(T, -1, .2, 1.5, .05); R3(T, B.chest, 0, -.15, 0); armPose(T, 1, .15, .1, .4); }
 function upAppeal(h, T, st){ armPose(T, -1, .15, 2.9, .05); R3(T, ARM(-1)[2], .2); armPose(T, 1, .2, .15, .5); R3(T, B.head, -.1, .2, 0); }
-function upShield(h, T, st){ R3(T, B.spine, .15, 0, 0); R3(T, B.chest, .1, .3, 0); armPose(T, 1, .9, .3, .5); armPose(T, -1, .5, .1, .7); }
+// shielding (P2b-B): bent at the hips, the chest up, both arms out wide and a little back to feel for the man behind
+// and keep him there, the head down over the ball
+function upShield(h, T, st){ R3(T, B.spine, .24, 0, 0); R3(T, B.chest, -.06, 0, 0); R3(T, B.neck, .12); R3(T, B.head, .3); armPose(T, 1, 1.25, -.5, .75); armPose(T, -1, 1.25, -.5, .75); }
 function upArmsOut(h, T, st){ armPose(T, 1, 1.35, .1, .2); armPose(T, -1, 1.35, .1, .2); }
 
 /* ---------- the camera channels (3.5.9: h.camFx, applied through camKick, never into P.yaw / P.pitch) ---------- */
@@ -1664,7 +1719,7 @@ const SPECS = {
   strike: st => strikeSpec(st),
   receive: st => { const R0 = RECV[st.part] || RECV.inside; _spec.dur = R0.dur; _spec.contact = R0.contact; _spec.pre = 0; _spec.begin = null; _spec.events = RECV_EV; return _spec; },
   header: st => { const hp = headerPlan(st); _spec.dur = hp.dur; _spec.contact = hp.contact; _spec.pre = 0; _spec.begin = null; _spec.events = hp.take === "jump" ? [[EV.TAKEOFF, hp.tLoad], [EV.LAND, hp.land]] : hp.take === "dive" ? [[EV.TAKEOFF, hp.tLoad], [EV.LAND, hp.contact + .25]] : RECV_EV; return _spec; },
-  tackle: st => { const K0 = TACK[st.kind] || TACK.stand; _spec.dur = K0.dur; _spec.contact = K0.contact; _spec.pre = 0; _spec.begin = null; _spec.events = st.kind === "slide" ? [[EV.LAND, .2]] : RECV_EV; return _spec; },
+  tackle: st => { const K0 = TACK[st.kind] || TACK.stand; _spec.dur = tackDur(TACK[st.kind] ? st.kind : "stand", st); _spec.contact = K0.contact; _spec.pre = 0; _spec.begin = null; _spec.events = st.kind === "slide" ? [[EV.LAND, .2]] : RECV_EV; return _spec; },
   throwin: st => { _spec.dur = 1.0; _spec.contact = .62; _spec.pre = 0; _spec.begin = null; _spec.events = null; return _spec; }
 };
 export function moveEvents(h, st){

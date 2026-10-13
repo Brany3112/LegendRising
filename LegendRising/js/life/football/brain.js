@@ -6,12 +6,15 @@
 // preference of his team-mates for him when he is a good onside option; there is no director.
 // Owner: WP-E. Contract DESIGN 1.4.14 (brainStep, decideCarrier, decideOffBall, passModel, playerPreference); behaviour
 // 3.2.3 to 3.2.5, 3.2.8 (set pieces); cadence 1.5.6; preference 3.2.4.
+// P2b-B (TR-2b, TRAINING-SPEC section 3): the shield is valued with the shield formula (S against the presser's D,
+// duel.js pShieldLoss) and carried out (intent.shield, the back to the presser); the presser answers a shield with a
+// shield challenge or a tackle (pShieldLoss against pTackleWin); tackles reach duel.js standReach; loose balls and 50/50s
+// are challenged; the pass model's defender reach is the control zone's R and the receiver's control its q (zone.js).
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (choices draw from ms.r).
 
 import {firstReach, rollTime, rollTimeQ, RQT, BALL} from "./ball.js";
 import {flightTime} from "./strike.js";
-import {TOUCH} from "./touch.js";
 import {gauss} from "./rng.js";
 import {timeToPointQ, TT, sprintSpeed} from "../mover.js";
 import {xT, SLOT_POS, teamToPitch, depthOf} from "./tactics.js";
@@ -20,9 +23,11 @@ import {offsidePosition, RULES, lawOf} from "./rules.js";
 import {logEv} from "./events.js";
 import {decisionRecord} from "./judge.js";
 import {steer, standStill, faceTo, startKick, startTackle, startHeader, startThrow, passSpeedFor, loftSpeedFor, pressureOn,
-  canStrike, nudge, predAt} from "./actions.js";
+  canStrike, nudge, predAt, startAction} from "./actions.js";
 import {jumpHeight} from "./agent.js";
-import {exp, hypot, sin, cos} from "./detmath.js";
+import {exp, hypot, sin, cos, atan2, pow} from "./detmath.js";
+import {R as zoneR, q as zoneQ, ratings, breathOf} from "./zone.js";
+import {pShieldLoss, pTackleWin, shieldAngle, angleFactor, fatigueFactor, standReach, slideReach} from "./duel.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const DEG = Math.PI/180, R = BALL.R;
@@ -65,11 +70,12 @@ export const BRAIN = Object.freeze({
   CARRIER0: 0.35, CARRIER_K: 0.002, PRESSED: 0.6,
   TEMP: 0.35,                // softmax temperature 0.35 (1 - decision/120)
   LANE_N: 8,                 // samples along a ground pass
-  RECV_CTRL: [0.55, 0.45, 0.25, 0.2, 1], LOFT_CTRL: 0.72, LOB_MIN: 24,
+  RECV_CTRL: [0.31, 0.7, 0, 0.2, 1], LOFT_CTRL: 0.72, LOB_MIN: 24,   // (P2b-B) receiver control = 0.31 + 0.7 q (zone.js q, his
+                             // pressure and breath in it), within 0.2 and 1
   PASS_MIN: 4, PASS_MAX: 52,
   THROUGH_ARRIVE: 8, THROUGH_ITERS: 5,
   DRIB_DIRS: 7, DRIB_LEN: 6, DRIB_K: 0.9,
-  HOLD_K: 0.6, SHIELD_LOSE: 0.45,
+  HOLD_K: 0.6, SHIELD_ENG: 1.3,   // (P2b-B) challenges a presser gets in on a shield held to the next decision, at pressure 1
   CLEAR: [26, 0.4, 0.72],     // a clearance: within 26 m of his goal line, pressed above 0.4, worth 0.72 of keeping it there
   SAFETY: [18, 0.45, 6, 0.02],   // out of play for safety: within 18 m of his goal line, pressed, 6 m off the middle; a corner costs 0.02
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
@@ -84,6 +90,11 @@ export const BRAIN = Object.freeze({
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
   TACKLE_RATE: [2.5, 0.5, 0.12],  // per second: a ball out of his feet, a shielded one, and the factor from behind
   SLIDE_RATE: 0.55,              // per second, chasing a ball out in front of the carrier
+  // (P2b-B) a shielding carrier: within CHAL_NEAR m the presser picks a shield challenge or a tackle (by pShieldLoss
+  // against pTackleWin), keeps the choice CHAL_KEEP s, and leans in for a challenge at CHAL_V m/s toward the ball's side.
+  // A loose ball or a 50/50 an opponent is about to take (within LOOSE_OPP m of it, nearer than him): a standing
+  // challenge on the ball at LOOSE_RATE a second within his reach, a slide at SLIDE_RATE at speed within its reach
+  CHAL_NEAR: 2.6, CHAL_KEEP: 1.0, CHAL_V: 2.4, LOOSE_OPP: 1.0, LOOSE_RATE: 1.0,
   COVER: 7, MARK: 1.8, MARK_LOOSE: 3.5, ZONE_PULL: 0.55,
   RUN_HOLD: 0.3, RUN_DEPTH: [7, 16],
   ENGAGED: 3.0,              // an opponent this close to where a pass leaves is already on the ball: no reaction time
@@ -159,9 +170,10 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
     const off = hypot(px, pz);
     const vTop = sprintSpeed(o.prm, o.fac);
     if (off - 1.2 > vTop*(out.tArrive + 0.3)) continue;
-    // his reach: the foot's envelope (touch.js), a keeper's dive; a ball passing inside it is his with no reaction at
-    // all (actions.touchCheck takes it the step it gets there)
-    const reach = o.isGK ? 1.6 : TOUCH.FOOT + TOUCH.FOOT_K*(o.at.dribbling || 50);
+    // his reach: the control zone's R (zone.js, TRAINING-SPEC 3: his control, the ball's speed and height as it comes
+    // past him at the lane's nearest point, his facing to it, his breath), a keeper's dive; a ball passing inside it is
+    // his with no reaction at all (actions.touchCheck takes it the step it gets there)
+    const reach = o.isGK ? 1.6 : laneReach(ms, o, from, ux, uz, along, v0, ground, roll);
     // a man already on the passer (within ENGAGED m of where the ball leaves) is moving to it: no reaction time for
     // the first metres of its way
     const engaged = hypot(om.x - from.x, om.z - from.z) < BRAIN.ENGAGED;
@@ -198,10 +210,12 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   if (recv){
     const pr = pressureOn(ms, recv);
     const C = BRAIN.RECV_CTRL;
-    rc = clamp(C[0] + C[1]*recv.at.ctrl/100 - C[2]*pr, C[3], C[4]);
-    // a ball too fast to control on arrival, or one that dies before it gets there
+    // his touch quality on it (zone.js q: his control rating, the ball's speed on arrival over his comfortable speed vc,
+    // the pressure on him and his breath), the same q the first touch is played with
     const vEnd = ground ? Math.max(0, v0 - 1.1*tArrive0) : v0*0.7;
-    if (vEnd > 18 + 0.12*recv.at.ctrl) rc *= 0.6;
+    const qq = zoneQ(recv, vEnd, pr, breathOf(recv));
+    rc = clamp(C[0] + C[1]*qq - C[2]*pr, C[3], C[4]);
+    if (ms.onRecv) ms.onRecv(recv, qq, rc, ground);
     // a dropping ball is harder to bring down than one along the grass, and one he cannot get under bounces on
     if (!ground){ rc *= BRAIN.LOFT_CTRL; if (tMeet > tArrive + 0.4) rc *= 0.75; }
     if (!Number.isFinite(tArrive)) rc = 0;
@@ -210,6 +224,24 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   out.pLane = sigmoid((margin - 0.05)/0.12);
   out.pOK = out.pLane*rc;
   return out;
+}
+
+// an opponent's reach at a pass's lane (P2b-B): the control zone's R for the ball as it comes past him, at the lane's
+// point nearest him (along), with the height and speed it has there (a ground pass rolling, a lofted one coming down)
+const LB = {p: {x: 0, y: 0, z: 0}, v: {x: 0, y: 0, z: 0}};
+function laneReach(ms, o, from, ux, uz, along, v0, ground, roll){
+  let v = v0*0.7;
+  if (ground){ RQT[0] = v0; RQT[1] = Math.max(0.01, along); RQT[2] = roll; RQT[3] = 1; rollTimeQ(); const t = RQT[0]; v = Number.isFinite(t) ? Math.max(0, v0 - roll*t) : 0; }
+  LB.p.x = from.x + ux*along; LB.p.y = R; LB.p.z = from.z + uz*along;
+  LB.v.x = ux*v; LB.v.y = 0; LB.v.z = uz*v;
+  const r = zoneR(o, LB, ms);
+  if (ms.onReach) ms.onReach(o, LB, r);
+  return r;
+}
+// the angle (radians, 0 to PI) between a man's facing and the way to a point: 0 in front of him, PI behind
+function relAngle(a, x, z){
+  const f = a.m.yaw, fx = -sin(f), fz = -cos(f), dx = x - a.m.x, dz = z - a.m.z;
+  return Math.abs(atan2(fx*dz - fz*dx, fx*dx + fz*dz));
 }
 
 // The value of a pass (3.2.3): pOK x xT(arrival) - (1 - pOK) x 0.6 x xT for the opponents where it is lost. Lost in the
@@ -646,10 +678,15 @@ function* carrierOptions(ms, a){
   for (const o of opts) if (o.V > vmax) vmax = o.V;
   if (vmax < BRAIN.HOLD_K*here){
     // holding it costs nothing unpressed; shielding it under pressure is worth what keeping it is, less the chance he
-    // is robbed where he stands (the presser's tackle rate against a shielded ball over the next half second)
+    // is robbed where he stands: the man on him wins a challenge with the shield formula (TRAINING-SPEC 3, duel.js
+    // pShieldLoss: his D against this carrier's S, from behind once the carrier has turned his back to him, their
+    // breath), and he gets SHIELD_ENG x the pressure challenges in while the shield is held (P2b-B; ball-4 and AI-1:
+    // it read a Strength nobody had)
     if (press > 0.5){
-      const pLose = clamp(BRAIN.SHIELD_LOSE*press*(1 + (50 - at.strength)/150), 0, 0.7);
-      add({kind: 'shield', V: here*BRAIN.HOLD_K*(1 - pLose) - pLose*loseHere});
+      const op = nearestOpp(ms, a);
+      const pL = op ? pShieldLoss(ratings(at, RT1).S, ratings(op.at, RT2).D, shieldAngle(Math.PI), fatigueFactor(breathOf(op), breathOf(a))) : 0;
+      const pLose = 1 - pow(1 - pL, BRAIN.SHIELD_ENG*press);
+      add({kind: 'shield', V: here*BRAIN.HOLD_K*(1 - pLose) - pLose*loseHere, pLose});
     } else add({kind: 'hold', V: here*BRAIN.HOLD_K});
   }
   if (ms.deadBall){ for (let i = opts.length - 1; i >= 0; i--) if (opts[i].kind === 'dribble' || opts[i].kind === 'hold' || opts[i].kind === 'shield') opts.splice(i, 1); }
@@ -680,11 +717,26 @@ function* carrierOptions(ms, a){
   return chosen;
 }
 
+// (rating records filled in place: nothing allocated in a step)
+const RT1 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, RT2 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0};
+// the nearest opponent on the pitch to a man (an outfield player or a keeper), or null
+function nearestOpp(ms, a){
+  let best = null, bd = Infinity;
+  for (const o of ms.agents){
+    if (o.team === a.team || o.team < 0 || !o.onPitch || o.role !== 'player') continue;
+    const d = hypot(o.m.x - a.m.x, o.m.z - a.m.z);
+    if (d < bd){ bd = d; best = o; }
+  }
+  return best;
+}
+
 // carry out the carrier's choice
 function carrierAct(ms, a, o){
   const dir = ms.dirs[a.team], gx = dir*ms.spec.hx, r = ms.r, at = a.at;
   a.lastChoice = o.kind;
   a.pendKick = null;
+  // the shield is his choice until the next one (carrierMove and actions.js carry it out)
+  a.intent.shield = o.kind === 'shield';
   const startKick = kickWhenReady;
   switch (o.kind){
     case 'shot': {
@@ -788,13 +840,16 @@ function carrierMove(ms, a){
     }
     return;
   }
-  // holding or shielding: stand at the ball, body between it and the nearest opponent
+  // holding or shielding: stand at the ball, body between it and the nearest opponent (state 'shield' with a man within
+  // 3 m: the engine's shield stance, actions.js shieldStep). The shield he chose under pressure is also his intent
+  // (P2b-B): the presser answers it with a shield challenge or a tackle (pressMove)
   let ox = 0, oz = 0, od = Infinity;
   for (const o of ms.agents){
     if (o.team === a.team || o.team < 0 || !o.onPitch) continue;
     const dd = hypot(o.m.x - b.p.x, o.m.z - b.p.z);
     if (dd < od){ od = dd; ox = o.m.x; oz = o.m.z; }
   }
+  a.intent.shield = a.hold === 'shield';
   if (od < 3){
     const ux = b.p.x - ox, uz = b.p.z - oz, ul = hypot(ux, uz) || 1;
     a.state = 'shield';
@@ -1040,10 +1095,31 @@ function pressMove(ms, a, carrier){
   const face = faceTo(a, b.p.x, b.p.z, a.faceV);
   if (dc > 3.5){ steer(a, tx, tz, dc > 8 ? 'sprint' : 'run', 0.3, null); a.state = 'run'; }
   else { steer(a, tx, tz, 'run', 0.15, face, BRAIN.JOCKEY_V, true); a.state = 'jockey'; }
-  // the tackle: the ball out of the carrier's feet, within his reach
+  // a shielding carrier (P2b-B, TRAINING-SPEC 3): he decides, once for a while, between a shield challenge (leaning in
+  // to the ball's side of him, which sim.js resolves with pShieldLoss) and a tackle (pTackleWin with the carrier's
+  // shield rating S in place of his control), weighed by the two chances from where he stands
+  const shielded = !!(carrier.intent && carrier.intent.shield) && dc < BRAIN.CHAL_NEAR;
+  if (shielded && !a.act){
+    let P = a.press;
+    if (!P || P.on !== carrier.id || ms.t > P.until){
+      const rc = ratings(carrier.at, RT1), ra = ratings(a.at, RT2), rel = relAngle(carrier, m.x, m.z);
+      const pS = pShieldLoss(rc.S, ra.D, shieldAngle(rel), fatigueFactor(breathOf(a), breathOf(carrier)));
+      const pT = pTackleWin(ra.T, rc.S, 1, angleFactor(rel));
+      P = a.press = {on: carrier.id, until: ms.t + BRAIN.CHAL_KEEP, kind: ms.r()*(pS + pT) < pS ? 'challenge' : 'tackle', pS, pT};
+      if (ms.onPress) ms.onPress(a, carrier, {choice: P.kind, pS, pT});
+    }
+    if (P.kind === 'challenge'){
+      // into him on the ball's side: toward the ball past his hip, at a lean (the contact is the simulation's)
+      const bx = b.p.x - cm.x, bz = b.p.z - cm.z, bl = hypot(bx, bz) || 1;
+      steer(a, cm.x + bx/bl*0.35, cm.z + bz/bl*0.35, 'run', 0.02, faceTo(a, b.p.x, b.p.z, a.faceV), BRAIN.CHAL_V);
+      a.state = 'jockey';
+      return;
+    }
+  } else if (a.press && a.press.on === carrier.id && !shielded) a.press = null;
+  // the tackle: the ball out of the carrier's feet, within his standing reach (TRAINING-SPEC 3, duel.js standReach)
   if (a.act || ms.t < (a.cool.tackle || 0)) return;
   const db = hypot(b.p.x - m.x, b.p.z - m.z), cbd = hypot(b.p.x - cm.x, b.p.z - cm.z);
-  const reach = 1.05 + 0.003*a.at.tackling;
+  const reach = standReach(a.at.tackling);
   if (db < reach + 0.15 && dc < BRAIN.TACKLE_D + 0.4 && b.p.y < 0.5){
     // exposure: how far the ball is from the carrier's feet compared with from the tackler's. A jockeying defender
     // goes in at a rate per second: often for a ball out of the carrier's feet, rarely when it is shielded, and hardly
@@ -1057,7 +1133,8 @@ function pressMove(ms, a, carrier){
     const rate = (exposed ? BRAIN.TACKLE_RATE[0] : BRAIN.TACKLE_RATE[1])*(behind ? BRAIN.TACKLE_RATE[2] : 1)*(0.6 + a.at.tackling/100)*care*pref;
     if (ms.r() < rate/60){
       const err = 0.12*(1 - a.at.tackling/110)*gauss(ms.r);
-      const kind = db > 1.0 && !behind ? 'poke' : 'stand';
+      const kind = db > reach - 0.05 && !behind ? 'poke' : 'stand';
+      if (ms.onTackle) ms.onTackle(a, carrier, {reach, kind, shielded});
       startTackle(ms, a, kind, carrier, err);
       return;
     }
@@ -1074,6 +1151,35 @@ function pressMove(ms, a, carrier){
       startTackle(ms, a, 'slide', carrier, err);
     }
   }
+}
+
+// A loose ball or a 50/50 (P2b-B, TRAINING-SPEC 3): nobody has it and an opponent is about to (within LOOSE_OPP m of
+// it and nearer it than this man). Within his standing reach he goes in on the ball itself; at speed, with the ball in
+// front and within the slide's reach for his speed, he may slide for it. The challenge is the engine's (actions.js
+// startAction with target 'ball', resolved by the duel)
+function looseChallenge(ms, a){
+  const b = ms.ball, m = a.m;
+  if (a.act || ms.poss.ctl >= 0 || b.state !== 'free' || b.p.y > 0.5 || ms.t < (a.cool.tackle || 0)) return;
+  const db = hypot(b.p.x - m.x, b.p.z - m.z);
+  const sReach = m.speed > BRAIN.SLIDE_V ? slideReach(m.speed, a.prm.sprint) : 0, reach = standReach(a.at.tackling);
+  if (db > Math.max(reach + 0.1, sReach)) return;
+  let opp = null, od = BRAIN.LOOSE_OPP;
+  for (const o of ms.agents){
+    if (o.team === a.team || o.team < 0 || !o.onPitch || o.role !== 'player' || o.isGK) continue;
+    const d = hypot(o.m.x - b.p.x, o.m.z - b.p.z);
+    if (d < od && d < db){ od = d; opp = o; }
+  }
+  if (!opp) return;
+  let kind = null;
+  if (db <= reach + 0.1){ if (ms.r() < BRAIN.LOOSE_RATE/60) kind = 'tackle'; }
+  else if (sReach > 0 && !a.booked){
+    const toBall = ((b.p.x - m.x)*m.vx + (b.p.z - m.z)*m.vz)/(db*m.speed || 1);
+    if (toBall > 0.85 && ms.r() < BRAIN.SLIDE_RATE/60) kind = 'slide';
+  }
+  if (!kind) return;
+  if (kind === 'tackle' && ms.onTackle) ms.onTackle(a, opp, {reach, kind: 'stand', loose: true});
+  const act = startAction(ms, a, kind === 'slide' ? {kind: 'slide', target: 'ball'} : {kind: 'tackle', sub: 'stand', target: 'ball'});
+  if (act && ms.onLoose) ms.onLoose(a, kind, opp);
 }
 
 /* ---------- set pieces (3.2.8) ---------- */
@@ -1448,6 +1554,8 @@ export function brainStep(ms, h){
   for (let i = 0; i < n; i++){
     const a = ms.agents[i];
     if (!a.onPitch || a.role !== 'player' || a.isGK || !isAI(ms, a)) continue;
+    // (a shield is the carrier's: the ball gone, so is the shield)
+    if (a !== c && a.intent.shield) a.intent.shield = false;
     if (a.leaving){ steer(a, a.exit.x, a.exit.z, 'jog', 0.1); continue; }
     if (gkHold && a.team !== gkHold.team){
       const dx = a.m.x - gkHold.m.x, dz = a.m.z - gkHold.m.z, d = hypot(dx, dz);
@@ -1472,6 +1580,7 @@ export function brainStep(ms, h){
       const gait = need > a.prm.run*0.9 || p.kind !== 'receive' && d > 3 ? 'sprint' : need > a.prm.jog*0.8 ? 'run' : 'jog';
       steer(a, p.x, p.z, gait, 0.2, d < 3 ? face : null);
       a.state = 'run';
+      if (p.kind !== 'receive') looseChallenge(ms, a);
       continue;
     }
     if (p && p.kind === 'header'){

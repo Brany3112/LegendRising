@@ -15,7 +15,8 @@
                    past full. After your strike a short line under it says how you struck it
      lower left    the stamina: a bright breath fill over the darker cap (the late match), faint while full, brighter
                    while it drains, a heartbeat when low; the energy line under it
-     bottom right  the hints (a key and a verb, three at most; a key alone after five uses; H hides them)
+     bottom right  the hints (a key and a verb, three at most; a key alone after five uses; H hides them): the shield
+                   (C) when a man is on you, the shoulder check (V), and why a press came to nothing (P2b-B)
      top centre    the scenario line; event cards (a goal, offside, a card) just under it
      edges         team-mates' calls (a chevron, or a tick at the edge when he is off screen), the ball when it is
                    off screen and near, the speed lines and the fatigue vignette
@@ -33,6 +34,7 @@ import {RT} from "../core/state.js";
 import {FX} from "./matchcam.js";
 import {minuteOf} from "./events.js";
 import {wrapA, yawOf} from "./pitchspec.js";
+import {tipFSDue, tipFSShown} from "../core/keylock.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
@@ -291,6 +293,12 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   if (slow){
     const hs = (s.hints || []).slice(0, 3).map(h => `<div><kbd>${esc(h.key)}</kbd>${h.verb ? `<span>${esc(h.verb)}</span>` : ""}</div>`).join("");
     putH("hints", E.hints, hs);
+  }
+  // the one-time full-screen tip (P2b-B): asked for by control.js the first time you shield; shown once on this device
+  // (core/keylock.js keeps that it was, in its own localStorage key) and never while you are in full screen already
+  if (s.ctrl && s.ctrl.tipFS){
+    s.ctrl.tipFS = false;
+    if (tipFSDue()){ tipFSShown(); hudNotice("info", "Tip: play in full screen", "C shields the ball. In full screen, Ctrl does too."); }
   }
   // the scenario line fades after 4 s
   if (D.scenT > 0 && now - D.scenT > 4000){ E.scen.classList.remove("in"); D.scenT = 0; }
