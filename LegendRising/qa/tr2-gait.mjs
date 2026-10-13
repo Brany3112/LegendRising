@@ -15,7 +15,8 @@
 // In the game, first person, walking: the camera's bob moves <= 2 mm a frame, with no one-frame rebound over 2 mm.
 // Lateral (MV-16), first person (the facing held), sideways at 1.0, 2.0 and 3.0 m/s: the hips turn <= 0.8 rad from
 // the body; at 1.0 and 2.0 each swing foot travels within 35 degrees of the body's sideways axis; planted drift <= 2 mm;
-// the feet stay >= 0.08 m apart; a contact sheet at each speed.
+// the feet stay >= 0.08 m apart; at 1.0 and 2.0 the ankles open to <= 0.8 m (a shuffle, not a straddle); a contact
+// sheet at each speed.
 //
 //   QA_PORT=8841 node qa/tr2-gait.mjs [--quick] [--sheets]   exits 1 on any failed check; writes qa/out/tr2-gait.json
 //   (--quick: scale 1.0 only; --sheets: walk, jog and sprint contact sheets from the side and from the eye too)
@@ -78,13 +79,14 @@ try {
     const r = await drive(page, {hz: 60, scale: 1, prof: "football", segs: [{T: 3.4, dir: 90, gait: "jog", cap: v, face: "start"}], sheet: {every: 4, max: 40, ang: Math.PI/2, dist: 3, camY: 1.5}, sheetName: `tr2-gait-side${v}`});
     const t0 = 1.4, R = r.rows.filter(x => x.t >= t0);
     const m = metrics(r.rows, {t0, t1: 3.4, scale: r.scale});
-    let twist = 0, minGap = Infinity;
+    let twist = 0, minGap = Infinity, span = 0;
     const travel = [];
     const lift = [null, null];
     for (let i = 0; i < R.length; i++){
       const row = R[i];
       twist = Math.max(twist, Math.abs(row.twist));
       const A = row.legs[0], B = row.legs[1];
+      span = Math.max(span, Math.hypot(A.ank[0] - B.ank[0], A.ank[2] - B.ank[2]));
       for (const p of [A.heel, A.ball, A.ank, A.tip]) for (const q of [B.heel, B.ball, B.ank, B.tip]) minGap = Math.min(minGap, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]));
       for (let s = 0; s < 2; s++){
         const l = row.legs[s], prev = i ? R[i - 1].legs[s] : null;
@@ -99,12 +101,14 @@ try {
       }
     }
     const worst = Math.max(0, ...travel);
-    res.runs[`side${v}`] = {...m, twist: +twist.toFixed(3), minGap: +minGap.toFixed(3), travelDeg: travel, sheet: r.sheetFile};
+    res.runs[`side${v}`] = {...m, twist: +twist.toFixed(3), minGap: +minGap.toFixed(3), span: +span.toFixed(3), travelDeg: travel, sheet: r.sheetFile};
     console.log("     sheet", r.sheetFile);
     check(twist <= .8, `side ${v} m/s: hips turn <= 0.8 rad from the body`, +twist.toFixed(3));
     if (v <= 2) check(travel.length >= 3 && worst <= 35, `side ${v} m/s: each swing foot travels within 35 degrees of the sideways axis`, {worst, steps: travel.length});
     check(m.driftMm <= 2, `side ${v} m/s: planted drift <= 2 mm`, {driftMm: m.driftMm, slipsMm: r.slips});
     check(minGap >= .08, `side ${v} m/s: the feet stay at least 0.08 m apart`, +minGap.toFixed(3));
+    // (a compact defender's shuffle, not a straddle: the ankles never more than 0.8 m apart at the body's scale 1)
+    if (v <= 2) check(span <= .8, `side ${v} m/s: the stance opens to at most 0.8 m`, +span.toFixed(3));
   }
   // the camera's bob in the game, first person, walking (LIFE off the pitch and FOOTBALL on it)
   const bob = await page.evaluate(async () => {

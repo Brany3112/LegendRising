@@ -87,13 +87,14 @@ const _ar = [0, 0], _ar2 = [0, 0];
 
 // stance half-width (body units) for a foot at walk-to-run blend R
 const halfW = (D, R) => D.hipX - .012 - .03*R;
-/* side steps (3.5.2, P2-B MV-16): 3.2 to 5 steps a second (v body units a second), the feet never crossing. Each foot
-   travels 2 v / cadence a step, and a leg reaches only so far sideways: the faster the shuffle, the shorter each foot's
-   time on the ground (shufDuty: 0.6 of the stride slowly, a skip with a moment in the air at 2 m/s) and the lower the
+/* side steps (3.5.2, P2-B MV-16): 3.2 to 6 steps a second (v body units a second), the feet never crossing. Each foot
+   travels 2 v / cadence a step, so above 1 the steps quicken faster than the speed (a quick shuffle is quick feet, not
+   a wider straddle: at 2 the ankles open to about 0.75 at most, tr2-gait), and a leg reaches only so far sideways: the
+   faster the shuffle, the shorter each foot's time on the ground (shufDuty: 0.6 of the stride slowly, a skip with a moment in the air at 2 m/s) and the lower the
    hips (postureY: a leg reaches further sideways from lower hips). Up to SHUF_MAX; faster, the hips turn into the way
    of travel (by at most 0.8 rad, 3.5.9) and the legs run across it, a crossover (the upper body keeps facing where it
    looks) */
-const SHUF_MAX = 2.0, shufCad = v => clamp(3 + v, 3.2, 5), shufDuty = v => clamp(.65 - .15*v, .38, .6);
+const SHUF_MAX = 2.0, shufCad = v => clamp(3 + v + Math.max(0, v - 1), 3.2, 6), shufDuty = v => clamp(.65 - .15*v, .38, .6);
 // the share of the stride a foot is down, for the gait's style (v as the caller has it, vb in body units a second)
 const dutyG = (G, v, vb) => G.style === "shuffle" ? shufDuty(vb) : dutyOf(v, G.mode);
 // the body's travel per footfall for the gait's style (the clock's step); turning tightly the steps shorten (the
@@ -277,7 +278,7 @@ function planLanding(h, f, i, rem, out){
     // leading foot lands (S + c)/2 out and leaves from under its hip; the closing one lands (S - c)/2 in and leaves as
     // far out on its own side: neither reaches further from its hip than the other, at any speed
     const lead = Math.sin(p.h)*Math.cos(tYaw) - Math.cos(p.h)*Math.sin(tYaw) > 0 ? (s > 0) : (s < 0);   // travelling to this foot's side
-    const L = 2*step, c = duty*L, S = Math.max(.3*sc, L/2 + .15*sc);
+    const L = 2*step, c = duty*L, S = Math.max(.3*sc, L/2 + .11*sc);
     along = lead ? (S + c)/2 : -(S - c)/2; lat = 0; yaw = tYaw + s*.05; roll = -.04;
     ax = p.x + fx*along; az = p.z + fz*along;
   } else {

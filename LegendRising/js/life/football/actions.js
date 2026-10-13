@@ -418,7 +418,9 @@ export function touchCheck(ms){
     // (the player's own first-time action, control.js, not yet where he can strike it but still coming in to him: he
     // waits for it this step rather than taking a control touch he never asked for; at its closest the strike goes as
     // above, or he controls it below. The AI's first-time actions, brain.js, are as they were: the match's figures are
-    // calibrated on them)
+    // calibrated on them. Cross-package edit approved by the TR-2 integrator (fix round 1, Phase 2 has no actions.js
+    // owner); handed to P2b-A, whose first-to-ball race and control zone (ball-2, ball-3) keep or replace this wait and
+    // keep tr2-passme's "a strike, not a control touch" check green)
     const m = a.m, cx = m.x - b.p.x, cz = m.z - b.p.z;
     if (a.isMe && !ms.meAI && (b.v.x - (m.vx || 0))*cx + (b.v.z - (m.vz || 0))*cz > 0.05) return false;
   }
