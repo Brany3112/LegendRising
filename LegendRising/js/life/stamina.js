@@ -1,7 +1,8 @@
 // js/life/stamina.js: short-term stamina (breath, B) for any body: sprint drain, recovery, action costs, the factors
 // that make a tired player slower, heavier and less precise, and the career energy and fatigue a match costs.
-// Owner: WP-0D (pure foundations), then WP-B, then WP-F2 (addendum A1.6: the late-match cap, the capped sprint).
-// Contract DESIGN 1.4.7; numbers 1.5.2; use 3.1.6.
+// Owner: WP-0D (pure foundations), then WP-B, then WP-F2 (addendum A1.6: the late-match cap, the capped sprint), then
+// P2b-A (TRAINING-SPEC section 3: the shield's breath, stamShield). Contract DESIGN 1.4.7 and BUILD-PLAN Phase 2b; numbers
+// 1.5.2; use 3.1.6.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no randomness. The pool is never saved; the long-term
 // numbers (S.energy, S.fatigue, the stamina skill) come in through arguments.
@@ -51,7 +52,8 @@ export function stamCap(energy, fatigue){
 export function createStam({stamina = 50, energy = 100, fatigue = 0} = {}){
   const cap = stamCap(energy, fatigue);
   return {B: cap, cap, recoverDelay: 0, sprintT: 0, sprintFrac: 0, stamina,
-    acc: {t: 0, sprint: 0, drain: 0}};          // running totals (seconds, seconds sprinting, breath drained)
+    acc: {t: 0, sprint: 0, drain: 0, shield: 0, shieldT: 0}};   // running totals (seconds, seconds sprinting, breath
+                                                                 // drained; breath and seconds spent shielding)
 }
 // a new cap when energy or fatigue changes (a match minute, a meal); the breath never exceeds it
 export function stamSetCap(st, energy, fatigue){
@@ -114,6 +116,26 @@ export function stamAction(st, kind){
     st.recoverDelay = Math.max(st.recoverDelay, STAM.DELAY);
     if (st.acc) st.acc.drain += before - st.B;
   }
+  return c;
+}
+
+// The shield's breath (spec 3, P2b-A): holding off a defender costs SHIELD.B0 a second, and SHIELD.K more a second for
+// every point his challenge rating D is over the shielder's S (nothing extra when he is weaker): shieldRate(D - S). It is
+// spent over the step (h seconds) on top of the running effort, and the breath does not recover while he shields.
+// gap: D - S (-Infinity or null: no defender near, the base cost only); b0 and k default to SHIELD's (the engine passes
+// its tunables, tune.js SH_B0 and SH_BK). Returns the breath spent. Not shielding costs nothing: it is never called.
+export const SHIELD = Object.freeze({B0: 0.5, K: 0.06});
+export function shieldRate(gap, b0 = SHIELD.B0, k = SHIELD.K){
+  const g = gap == null || !Number.isFinite(+gap) ? 0 : Math.max(0, +gap);
+  return Math.max(0, b0) + Math.max(0, k)*g;
+}
+export function stamShield(st, h, gap, b0 = SHIELD.B0, k = SHIELD.K){
+  if (!st || !(h > 0)) return 0;
+  const before = st.B;
+  st.B = Math.max(0, st.B - shieldRate(gap, b0, k)*h);
+  st.recoverDelay = Math.max(st.recoverDelay, h*1.01);
+  const c = before - st.B;
+  if (st.acc){ st.acc.drain += c; st.acc.shield = (st.acc.shield || 0) + c; st.acc.shieldT = (st.acc.shieldT || 0) + h; }
   return c;
 }
 

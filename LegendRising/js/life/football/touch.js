@@ -1,7 +1,10 @@
 // js/life/football/touch.js: the body meeting the ball. Which part of a player can reach it, the first touch (how much
 // of the incoming pace the control kills and where the rest goes), the dribble touch on a footfall, the tackle's foot
 // sweep and what it meets first, the header, and how an unplanned contact is read (control, deflection or block).
-// Owner: WP-C (ball, strike and touch models). Contract DESIGN 1.4.12; numbers 1.5.3; behaviour 3.1.4 (fouls 3.2.9).
+// Owner: WP-C (ball, strike and touch models), then P2b-A (TRAINING-SPEC section 3: the control radius R of zone.js is
+// the reach, the first touch is the spec's q and touch distance in the receiver's own frame, the tackle's reach, its
+// win chance with timing and angle, the slide's carried momentum and friction). Contract DESIGN 1.4.12 and BUILD-PLAN
+// Phase 2b; numbers 1.5.3 and tune.js; behaviour 3.1.4 (fouls 3.2.9).
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Randomness comes from r (rng.js).
 // Every function returns velocities and decisions; the caller applies them with ballKick (ball.js), so a touch is a
@@ -14,38 +17,42 @@
 import {BALL, rollDistance} from "./ball.js";
 import {truncNormal} from "./rng.js";
 import {dirOf, yawOf} from "./pitchspec.js";
-import {sin, cos, pow, atan2, atan, asin, acos, hypot} from "./detmath.js";
+import {sin, cos, atan2, atan, asin, acos, hypot} from "./detmath.js";
+import {TUNE} from "./tune.js";
+import {ratings, radius, part as partOf, geom, q as qOf, touchDist, breathOf} from "./zone.js";
+import {pTackleWin, timingFactor, angleFactor, pTackleFoul, standReach, pokeReach, slideReach, slideDecel} from "./duel.js";
 
 const DEG = Math.PI/180;
 const {R, KD, G} = BALL;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
 
-// 1.5.3 and 3.1.4 numbers in one place
+// 1.5.3 and 3.1.4 numbers in one place. (FOOT and FOOT_K are the old fixed foot reach: brain.js's pass model still
+// reads them until P2b-B moves it onto zone.R; the touches themselves use the control radius R of zone.js.)
 export const TOUCH = Object.freeze({
-  FOOT: 0.75, FOOT_K: 0.003, FOOT_Y: 0.6,         // foot reach 0.75 + 0.003 dribbling with the ball under 0.6 m
-  SOLE: 0.45, SOLE_Y: 0.15,                       // sole: within 0.45 m, ball under 0.15 m
-  BODY: 0.6, THIGH_Y: [0.6, 0.95], CHEST_Y: [0.95, 1.4],   // thigh or chest within 0.6 m at 0.6 to 1.4 m
-  HEAD: 0.55, HEAD_Y: [1.5, 2.1],                 // head 1.5 to 2.1 m (plus the jump)
-  ABSORB_MIN: 0.04, ABSORB_MAX: 0.6, BODY_ABSORB: 0.08,
-  PUSH: [1, 3],                                   // a first touch pushes 1 to 3 m/s along WASD
-  HEAVY: 1.5,                                     // metres: a touch that leaves the ball further than this is heavy
+  FOOT: 0.75, FOOT_K: 0.003, FOOT_Y: 0.6,
+  HEAD: 0.55, HEAD_Y: [1.4, 2.1],                 // head: from the top of the body's control (1.4 m) to 2.1 m (plus the jump)
+  BODY_POP: {chest: 0.6, thigh: 0.3},             // the ball drops off the chest and the thigh at this upward speed
+  HEAVY: 1.5,                                     // metres: a dribble touch's heavy test (dribbleTouch)
   DRIB_REACH: 0.9, DRIB_CONE: 50*DEG, WEAK_SIDE: 0.25,
   SMALL: 0.55, HEAVY_K: 1.12, TOUCH_AT: 0.45, // the small touch's share of the lead; a touch this much longer than the norm (poor Ball
                                             // Control, at a run) pops off the grass (A1.1)
   CADENCE: [[3, 1], [6, 2], [Infinity, 3]],       // every stride under 3 m/s, every 2nd to 6, every 3rd above
   HEADER_R: 0.17, HEADER_RK: 0.0015,
-  CONTROL: {intercept: [8, 0.12], receive: [18, 0.12]}   // control thresholds (m/s): base + k x skill
+  LEN_ERR: 0.15                                   // a first touch's length error: 15% x (1 - q) (sigma)
 });
 
-// the tackles of 1.5.3: standing (wind-up 0.12 s, active 0.25 s, reach 1.05 + 0.003 tackling in a 50 degree cone),
-// a toe poke (a shorter, straight jab), and the slide (travel 2.8 + 0.01 tackling at 6 m/s squared, sweep 1.3 m,
-// commitment 1.1 s, 0.8 s on the ground)
+// the tackles of 1.5.3 and spec 3: standing (wind-up 0.12 s, active 0.25 s, the reach of duel.standReach to the ball's
+// centre in a 50 degree cone), a toe poke (a shorter, straight jab reaching POKE_DR further) and the slide (from the
+// approach speed, slowed by grass friction mu g, the foot leading the body by 0.9 m and sweeping 1.3 m across while it
+// is within duel.slideReach of where it began; then the body slides on to a stop and gets up after duel.recovery)
 export const TACKLE = Object.freeze({
   FOOT_R: 0.12, LEG_R: 0.16, LEG_TOP: 0.85, NEAR_T: 0.08,
-  stand: {wind: 0.12, active: 0.25, reach: 1.05, reachK: 0.003, cone: 50*DEG, rest: 0.35},
-  poke: {wind: 0.08, active: 0.18, reach: 1.15, reachK: 0.003, cone: 0, rest: 0.3},
-  slide: {travel: 2.8, travelK: 0.01, decel: 6, sweep: 1.3, lead: 0.9, commit: 1.1, ground: 0.8}
+  stand: {wind: 0.12, active: 0.25, cone: 50*DEG, rest: 0.35},
+  poke: {wind: 0.08, active: 0.18, cone: 0, rest: 0.3},
+  slide: {sweep: 1.3, lead: 0.9, ground: 0.8},
+  IMP: {k: 0.6, add: 1.5, min: 2.0, max: 5.9, spread: 0.2, poke: [1.5, 3]}   // a won tackle's ball: 0.6 x the foot's speed
+                                                                             // + 1.5 m/s (2 to 5.9), a 0.2 rad spread
 });
 
 /* ---------- reading an agent ---------- */
@@ -70,84 +77,38 @@ function footOf(a){
   const f = a.foot || a.prefFoot || (a.at && a.at.foot) || 'R';
   return f === 'Left' || f === 'L' ? 'L' : f === 'Both' || f === 'B' ? 'B' : 'R';
 }
+// the agent's attribute record with any ctx skill over it (tests pass flat agents with ctx skills)
+function atOf(a, ctx){
+  if (!ctx || ctx.ctrl == null) return a && a.at || {};
+  return Object.assign({}, a && a.at || {}, {ctrl: +ctx.ctrl});
+}
 
 /* ---------- reach ---------- */
 
-// Which part of the agent can play the ball now (3.1.4), or null: a ball outside every envelope stays loose.
-// Heights scale with the agent's height (scale) and are measured from his root (y, raised by a jump). side is the side
-// of his body the ball is on; dist the horizontal distance from his centre.
-export function reachEnvelope(agent, ball){
-  const m = posOf(agent), P = ball.p || ball, T = TOUCH;
-  const sc = agent.scale || 1, root = +agent.y || 0;
-  const dx = P.x - m.x, dz = P.z - m.z, dist = hypot(dx, dz), y = P.y - root;
-  const f = dirOf(yawOfAgent(agent)), lat = dx*(-f.z) + dz*f.x;
-  const side = lat >= 0 ? 'R' : 'L';
-  const drib = skillOf(agent, null, 'dribbling');
-  if (y < T.SOLE_Y*sc && dist <= T.SOLE) return {part: 'sole', side, dist};
-  if (y < T.FOOT_Y*sc && dist <= T.FOOT + T.FOOT_K*drib) return {part: 'foot', side, dist};
-  if (dist <= T.BODY){
-    if (y >= T.THIGH_Y[0]*sc && y < T.THIGH_Y[1]*sc) return {part: 'thigh', side, dist};
-    if (y >= T.CHEST_Y[0]*sc && y <= T.CHEST_Y[1]*sc) return {part: 'chest', side, dist};
+// Which part of the agent can play the ball now (spec 3), or null: a ball outside his control radius R stays loose.
+// R = 0.9 (0.6 + 0.8 c) fSpeed fHeight fAngle fFatigue (zone.js), so the facing matters (a ball behind him is played
+// only much closer) and so does the ball's speed against his. The part comes from the ball's real height: under 0.4 m
+// the foot, then the thigh, the chest to 1.4 m; above that only the head (a header's own envelope, 0.55 m, up to
+// 2.1 m plus the jump). Heights scale with the agent's height and are measured from his root (y, raised by a jump).
+// side is the side of his body the ball is on; dist the horizontal distance from his centre; R the radius used.
+// opt (optional): {breath} (else the agent's own), {angle: false} leaves the facing out, {speed: false} the ball's speed
+// (a leg stretched to block a ball too fast to control).
+const GE = {dist: 0, y: 0, cosA: 1, side: 'R', vrel: 0}, RTT = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0};
+export function reachEnvelope(agent, ball, opt){
+  const g = geom(agent, ball, GE), sc = agent.scale || 1;
+  const pt = partOf(g.y, sc);
+  if (pt === 'head'){
+    if (g.dist <= TOUCH.HEAD && g.y >= TOUCH.HEAD_Y[0]*sc && g.y <= TOUCH.HEAD_Y[1]*sc) return {part: 'head', side: g.side, dist: g.dist, R: TOUCH.HEAD};
+    return null;
   }
-  if (dist <= T.HEAD && y >= T.HEAD_Y[0]*sc && y <= T.HEAD_Y[1]*sc) return {part: 'head', side, dist};
+  const rt = ratings(agent.at, RTT);
+  const breath = opt && opt.breath != null ? opt.breath : breathOf(agent);
+  const r = radius(rt.c, opt && opt.speed === false ? 0 : g.vrel, rt.vc, g.y, sc, opt && opt.angle === false ? 1 : g.cosA, breath);
+  if (g.dist <= r) return {part: pt, side: g.side, dist: g.dist, R: r};
   return null;
 }
 
 /* ---------- first touch ---------- */
-
-// The first touch (1.5.3, 3.1.4). intent = {dir: {x, z} | null (cushion), push: 0..1}; ctx = {ctrl, pressure01, bF,
-// vIn} (vIn: the ball's velocity or speed at contact, else its own; optional rollDecel for the heavy test). absorb =
-// clamp(0.05 + 0.13(1 - ctrl/100)^1.2 + 0.01 max(0, |vIn| - 10) + 0.12 pressure + 0.08(1 - bF), 0.04, 0.6), +0.08 on
-// the chest or thigh (and a cushioning head). The ball leaves
-// along its incoming direction at |vIn| x absorb plus a push of 1 to 3 m/s along intent.dir, turned by a direction error
-// of sigma (1 - ctrl/110) x 0.35 x |vIn|/15 rad. heavy: what the control failed to kill would roll more than 1.5 m.
-// Returns {v, quality, heavy, bounce} plus part, absorb, angErr and rest (metres the uncontrolled part rolls).
-export function firstTouch(agent, ball, intent, ctx, r){
-  intent = intent || {}; ctx = ctx || {};
-  const T = TOUCH, B = ball.v ? ball : {v: {x: 0, y: 0, z: 0}, p: ball};
-  const vIn = ctx.vIn == null ? B.v : ctx.vIn;
-  let vix, viy, viz;
-  if (typeof vIn === 'number'){ const hv = hypot(B.v.x, B.v.z) || 1; vix = vIn*B.v.x/hv; viy = 0; viz = vIn*B.v.z/hv; }
-  else { vix = +vIn.x || 0; viy = +vIn.y || 0; viz = +vIn.z || 0; }
-  const sp = hypot(vix, viy, viz), hs = hypot(vix, viz);
-  const ctrl = clamp(skillOf(agent, ctx, 'ctrl'), 0, 100);
-  const press = clamp(+ctx.pressure01 || 0, 0, 1), bF = ctx.bF != null ? clamp(+ctx.bF, 0, 1) : 1;
-  const env = ball.p ? reachEnvelope(agent, ball) : null;
-  const part = env ? env.part : 'foot';
-  let absorb = clamp(0.05 + 0.13*pow(1 - ctrl/100, 1.2) + 0.01*Math.max(0, sp - 10) + 0.12*press + 0.08*(1 - bF),
-    T.ABSORB_MIN, T.ABSORB_MAX);
-  if (part === 'chest' || part === 'thigh' || part === 'head') absorb = Math.min(T.ABSORB_MAX + T.BODY_ABSORB, absorb + T.BODY_ABSORB);
-  // the cushion keeps a little of the ball's own line; with no line (a ball dropping straight down) his facing
-  let cx, cz;
-  if (hs > 0.05){ cx = vix/hs; cz = viz/hs; } else { const f = dirOf(yawOfAgent(agent)); cx = f.x; cz = f.z; }
-  const keep = sp*absorb;
-  let ox = cx*keep, oz = cz*keep;
-  const dir = intent.dir;
-  const dl = dir ? hypot(dir.x || 0, dir.z || 0) : 0;
-  let push = 0;
-  if (dl > 1e-6){
-    push = T.PUSH[0] + (T.PUSH[1] - T.PUSH[0])*clamp(intent.push != null ? +intent.push : 0.5, 0, 1);
-    ox += push*dir.x/dl; oz += push*dir.z/dl;
-  }
-  const sig = (1 - ctrl/110)*0.35*sp/15;
-  const angErr = sig > 0 ? truncNormal(r, sig, 2.5) : 0;
-  const c = cos(angErr), s = sin(angErr);
-  const vx = ox*c - oz*s, vz = ox*s + oz*c;
-  const airborne = ball.p ? ball.p.y > R + 0.05 : false;
-  const vy = part === 'chest' ? 0.6 : part === 'thigh' ? 0.3 : 0;
-  const rest = rollDistance(keep, 0, ctx.rollDecel != null ? +ctx.rollDecel : (ball.rollDecel || 1.1));
-  const heavy = rest > T.HEAVY;
-  const quality = clamp(1 - (absorb - T.ABSORB_MIN)/(T.ABSORB_MAX - T.ABSORB_MIN) - Math.abs(angErr)/0.6, 0, 1);
-  return {v: {x: vx, y: vy, z: vz}, quality, heavy, bounce: airborne || vy > 0, part, absorb, angErr, rest, push};
-}
-
-/* ---------- dribbling ---------- */
-
-// how many strides a dribbler at speed v takes between touches (1.5.3 cadence)
-export function dribbleCadence(v){
-  for (const [vmax, every] of TOUCH.CADENCE) if (v < vmax) return every;
-  return 3;
-}
 
 // the gap a ball rolling from u0 opens on a runner at a steady v before he catches up with it (its farthest lead),
 // under the ground roll of ball.js: the ball's lead grows while it is faster than him
@@ -157,6 +118,72 @@ function maxGap(u0, v, rd){
   const tStar = (atan(u0*A) - atan(v*A))/c;          // when the ball has slowed to his speed
   const xb = rollDistance(u0, v, rd);
   return xb - v*tStar;
+}
+// the kick speed whose lead over a runner at v peaks at gap metres (bisection on the monotonic gap)
+function speedForGap(gap, v, rd){
+  if (!(gap > 0)) return v;
+  let lo = v, hi = v + 2 + Math.sqrt(2*(rd + KD*(v + 6)*(v + 6))*gap)*2;
+  while (maxGap(hi, v, rd) < gap && hi < 40) hi *= 1.5;
+  for (let i = 0; i < 40; i++){ const mid = (lo + hi)/2; if (maxGap(mid, v, rd) < gap) lo = mid; else hi = mid; }
+  return Math.min(BALL.VMAX, (lo + hi)/2);
+}
+
+// The first touch (spec 3), in the receiver's own frame. intent = {dir: {x, z} | null, push: 0..1}; ctx = {ctrl,
+// pressure01, bF, rollDecel, q}. The quality q = clamp(1.2 c - 0.04 max(0, v - vc) - 0.2 pressure - 0.1 (1 - breath),
+// 0, 1) (zone.q) with v the ball's speed relative to his body; the touch leaves the ball touchDist(q) = 0.6 + 0.8 (1 - q)
+// metres ahead of him along the way he means to go (intent.dir: the keys or the AI's plan; else his facing), carried at
+// his running speed along it (and with his sideways speed, so it stays in front of him): the kick is the one whose lead
+// over him, running on, peaks at that distance (from where the ball is now). A poorer touch is longer (with a length
+// error of 15% (1 - q)) and wider (the direction error sigma (1 - ctrl/110) 0.35 v/15 rad, truncated at 2.5 sigma).
+// The part is the real ball height's (foot, thigh, chest; a ball off the chest or thigh drops from there). heavy: q
+// under TUNE.HEAVY_Q. Returns {v, quality (q), heavy, bounce, part, q, dist (the touch distance), angErr, push, vRel}.
+export function firstTouch(agent, ball, intent, ctx, r){
+  intent = intent || {}; ctx = ctx || {};
+  const T = TOUCH, B = ball.v ? ball : {v: {x: 0, y: 0, z: 0}, p: ball};
+  const m = posOf(agent), pv = velOf(agent);
+  const vIn = ctx.vIn == null ? B.v : ctx.vIn;
+  let vix, viy, viz;
+  if (typeof vIn === 'number'){ const hv = hypot(B.v.x, B.v.z) || 1; vix = vIn*B.v.x/hv; viy = 0; viz = vIn*B.v.z/hv; }
+  else { vix = +vIn.x || 0; viy = +vIn.y || 0; viz = +vIn.z || 0; }
+  const vRel = hypot(vix - pv.x, viy, viz - pv.z);
+  const at = atOf(agent, ctx);
+  const ctrl = clamp(at.ctrl != null ? +at.ctrl : 50, 0, 100);
+  const press = clamp(+ctx.pressure01 || 0, 0, 1), bF = ctx.bF != null ? clamp(+ctx.bF, 0, 1) : 1;
+  const qq = ctx.q != null ? clamp(+ctx.q, 0, 1) : qOf(at, vRel, press, bF);
+  const P = ball.p || ball, sc = agent.scale || 1;
+  const y = P.y - (+agent.y || 0);
+  const pt = partOf(y, sc), part = pt === 'head' ? 'chest' : pt;
+  // the way: the keys or the plan, else the facing
+  let dx = intent.dir ? +intent.dir.x || 0 : 0, dz = intent.dir ? +intent.dir.z || 0 : 0;
+  const dl = hypot(dx, dz);
+  if (dl > 1e-6){ dx /= dl; dz /= dl; } else { const f = dirOf(yawOfAgent(agent)); dx = f.x; dz = f.z; }
+  // his speed along the way and across it
+  const along = Math.max(0, pv.x*dx + pv.z*dz), crossX = pv.x - (pv.x*dx + pv.z*dz)*dx, crossZ = pv.z - (pv.x*dx + pv.z*dz)*dz;
+  const rd = ctx.rollDecel != null ? +ctx.rollDecel : (ball.rollDecel || 1.1);
+  const lenErr = truncNormal(r, T.LEN_ERR*(1 - qq), 2.5);
+  const L = touchDist(qq)*Math.max(0.5, 1 + lenErr);
+  const ahead0 = (P.x - m.x)*dx + (P.z - m.z)*dz;
+  // met further out than the touch distance: a man standing (or barely moving) cushions it back toward him to rest at
+  // it; a man on the run cannot pull it in closer than where he met it, so it is carried on with him from there
+  const u0 = L - ahead0 >= 0 ? speedForGap(L - ahead0, along, rd) : along < 0.5 ? -Math.sqrt(2*rd*(ahead0 - L)) : along;
+  const sig = (1 - ctrl/110)*0.35*vRel/15;
+  const angErr = sig > 0 ? truncNormal(r, sig, 2.5) : 0;
+  const c = cos(angErr), s = sin(angErr);
+  const kx = dx*c - dz*s, kz = dx*s + dz*c;
+  const vy = T.BODY_POP[part] || 0;
+  const airborne = P.y > R + 0.05;
+  const heavy = qq < TUNE.HEAVY_Q.value;
+  const pushK = clamp(intent.push != null ? +intent.push : 0.5, 0, 1);
+  return {v: {x: kx*u0 + crossX, y: vy, z: kz*u0 + crossZ}, quality: qq, q: qq, heavy, bounce: airborne || vy > 0, part, dist: L, angErr,
+    push: dl > 1e-6 ? pushK : 0, vRel, dir: {x: dx, z: dz}, ahead0};
+}
+
+/* ---------- dribbling ---------- */
+
+// how many strides a dribbler at speed v takes between touches (1.5.3 cadence)
+export function dribbleCadence(v){
+  for (const [vmax, every] of TOUCH.CADENCE) if (v < vmax) return every;
+  return 3;
 }
 
 // A dribble touch on a touch-foot footfall (1.5.3, 3.1.4): the ball is kicked along dir so that its lead over the
@@ -207,12 +234,19 @@ export const ctrlLead = ctrl => clamp(1 - 0.016*((ctrl == null || !Number.isFini
 
 /* ---------- tackles ---------- */
 
-// the slide's numbers for a tackling skill: the body travels `travel` metres decelerating at 6 m/s squared from v0, so
-// it stops at tStop; it is committed for 1.1 s and on the ground for 0.8 s after it stops
-export function slideProfile(tackling = 50){
-  const SL = TACKLE.slide, travel = SL.travel + SL.travelK*clamp(+tackling || 0, 0, 99);
-  const v0 = Math.sqrt(2*SL.decel*travel), tStop = v0/SL.decel;
-  return {travel, v0, tStop, commit: SL.commit, ground: SL.ground, decel: SL.decel};
+// The slide (spec 3): it starts at the approach speed v0 (its momentum carried, never less than a lunge's 2 m/s) and
+// the grass slows it at mu g, so the body travels v0^2/(2 mu g) m and stops at tStop; the foot leads it by 0.9 m and can
+// win the ball while it is within reach = 1.6 + 0.9 v0/vTop m of where the slide began (tActive). Then he gets up
+// (ground: duel.recovery from his agility, longer after a miss, set by the caller; 0.8 s by default).
+// slideProfile(v0, vTop): v0 the speed he goes into it at, vTop his top speed (both default to a 7.5 m/s sprint).
+export function slideProfile(v0In = 7.5, vTop = 7.5){
+  const top = Math.max(0.1, +vTop || 7.5), v0 = Math.max(2, +v0In || 0);
+  const decel = slideDecel(), tStop = v0/decel, travel = v0*v0/(2*decel);
+  const reach = slideReach(v0, top), lead = TACKLE.slide.lead;
+  // the time the leading foot passes the reach: body travel = reach - lead
+  const sAct = Math.max(0, reach - lead);
+  const tActive = sAct >= travel ? tStop : (v0 - Math.sqrt(Math.max(0, v0*v0 - 2*decel*sAct)))/decel;
+  return {travel, v0, tStop, tActive: Math.max(0.05, tActive), reach, decel, ground: TACKLE.slide.ground, commit: tStop};
 }
 // how far the sliding body has gone after t seconds
 export function slideDistance(prof, t){
@@ -233,22 +267,26 @@ function tackleDir(tackler, target, out){
   return out;
 }
 
+// the reach of the foot's centre for a standing tackle or a poke: the spec's reach is to the ball's centre, so the foot
+// (radius 0.12) meets a ball (radius 0.11) at the reach when its centre is that much short of it
+const footReach = (kind, tackling) => (kind === 'poke' ? pokeReach(tackling) : standReach(tackling)) - (TACKLE.FOOT_R + R);
+
 const TD = {x: 0, z: 0, aim: Infinity};
 // the foot at time t of a tackle from a body at (px, pz) along (dx, dz); side +1 sweeps from the right, -1 from the
 // left. A standing tackle extends toward the aim point and sweeps across the cone so that it passes through the aim
-// point halfway through the active window; a poke jabs straight at it.
-function footAt(kind, px, pz, dx, dz, side, t, tackling, aim, out){
+// point halfway through the active window; a poke jabs straight at it. A slide's foot leads the body (prof).
+function footAt(kind, px, pz, dx, dz, side, t, tackling, aim, out, prof){
   const rx = -dz, rz = dx, FR = TACKLE.FOOT_R;
   out.r = FR; out.y = FR;
   if (kind === 'slide'){
-    const SL = TACKLE.slide, prof = slideProfile(tackling), u = clamp(t/prof.tStop, 0, 1);
+    const SL = TACKLE.slide, p = prof || slideProfile(), u = clamp(t/p.tActive, 0, 1);
     const lat = side*(SL.sweep/2)*(1 - 2*u);
     out.x = px + dx*SL.lead + rx*lat; out.z = pz + dz*SL.lead + rz*lat;
-    out.active = t >= 0 && t <= prof.tStop; out.phase = t <= prof.tStop ? 'active' : t <= prof.tStop + SL.ground ? 'ground' : 'done';
-    out.reach = SL.lead;
+    out.active = t >= 0 && t <= p.tActive; out.phase = t <= p.tStop ? (t <= p.tActive ? 'active' : 'slide') : t <= p.tStop + SL.ground ? 'ground' : 'done';
+    out.reach = p.reach;
     return out;
   }
-  const K = kind === 'poke' ? TACKLE.poke : TACKLE.stand, reach = K.reach + K.reachK*clamp(+tackling || 0, 0, 99);
+  const K = kind === 'poke' ? TACKLE.poke : TACKLE.stand, reach = footReach(kind, tackling);
   const far = clamp(aim, K.rest, reach);
   let ext, ang;
   if (t < K.wind){ ext = K.rest; ang = side*K.cone/2; out.active = false; out.phase = 'wind'; }
@@ -264,54 +302,66 @@ function footAt(kind, px, pz, dx, dz, side, t, tackling, aim, out){
   }
   const c = cos(ang), s = sin(ang);
   out.x = px + ext*(c*dx + s*rx); out.z = pz + ext*(c*dz + s*rz);
-  out.reach = reach;
+  out.reach = reach + TACKLE.FOOT_R + R;
   return out;
 }
 
-// The tackling foot at time t (seconds since the tackle began) for kind 'stand' | 'poke' | 'slide' (1.5.3, 3.1.4): a
+// The tackling foot at time t (seconds since the tackle began) for kind 'stand' | 'poke' | 'slide' (1.5.3, spec 3): a
 // sphere of radius 0.12 at ground level. target: {x, z} (the ball or the carrier at the start; the foot passes through
 // it halfway through the active window when it is within reach) or {dx, dz} (a fixed direction, full reach). For a
-// slide the body itself moves (slideProfile, slideDistance); the foot leads it by 0.9 m and sweeps 1.3 m across.
-// Returns {foot: {x, y, z, r}} plus active, phase ('wind'|'active'|'recover'|'ground'|'done') and reach.
-export function tackleSweep(tackler, kind, t, target){
+// slide the body itself moves (slideProfile, slideDistance; prof, or a slide at top speed); the foot leads it by 0.9 m
+// and sweeps 1.3 m across. Returns {foot: {x, y, z, r}} plus active, phase and reach (to the ball's centre).
+export function tackleSweep(tackler, kind, t, target, prof){
   const m = posOf(tackler), d = tackleDir(tackler, target, TD), side = footOf(tackler) === 'L' ? -1 : 1;
   const tk = skillOf(tackler, null, 'tackling');
-  const o = footAt(kind, m.x, m.z, d.x, d.z, side, t, tk, d.aim, {x: 0, y: 0, z: 0, r: 0, active: false, phase: '', reach: 0});
+  const o = footAt(kind, m.x, m.z, d.x, d.z, side, t, tk, d.aim, {x: 0, y: 0, z: 0, r: 0, active: false, phase: '', reach: 0}, prof);
   return {foot: {x: o.x, y: o.y, z: o.z, r: o.r}, active: o.active, phase: o.phase, reach: o.reach};
 }
 
 const FT = {x: 0, y: 0, z: 0, r: 0, active: false, phase: '', reach: 0};
-// What the tackle meets first (3.1.4): the foot of tackleSweep walked through its active window from sweep.t (time
-// into the tackle now, default 0) at 240 Hz, the ball and the carrier carried on at their velocities, the tackler
-// moving with his own (or along the slide). sweep = {kind, target, t}; ctx = {tackling, dribbling (the carrier's)}.
-// Ball first gives 'won', or 'poke' when only its edge is met or a strong dribbler keeps a toe on it (chance
-// clamp(0.1 + 0.005(dribbling - tackling), 0.03, 0.35)); the carrier's leg capsule first, or his legs within 0.08 s of
-// a touch that only grazed the ball, gives 'foul' with severity clamp(0.25 + 0.06 closing + 0.3 fromBehind + 0.25
-// slide, 0, 1) (3.2.9; closing is the tackler's speed toward the carrier at the contact); nothing gives 'miss'. impulse:
-// the ball's new velocity for 'won' and 'poke', the carrier's knock for 'foul', null for 'miss'. Also returns tBall and
-// tLeg (seconds into the tackle, -1 for none), fromBehind and closing.
+const RTA = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, RTC = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0};
+// What the tackle meets first and whether it wins (1.5.3, 3.1.4, spec 3): the foot of tackleSweep walked through its
+// active window from sweep.t (time into the tackle now, default 0) at 240 Hz, the ball and the carrier carried on at
+// their velocities, the tackler moving with his own (or along the slide, sweep.prof). sweep = {kind, target, t, prof};
+// ctx = {tackling (the tackler's), shield (the carrier shields: his S replaces C)}.
+// - The carrier's leg capsule first, or his legs within 0.08 s of a touch that only grazed the ball: 'foul' (severity
+//   clamp(0.25 + 0.06 closing + 0.3 fromBehind + 0.25 slide, 0, 1), 3.2.9). The leg-first geometry is kept as it was.
+// - The ball first: a late or from-behind tackle may go through the man (p = TF_BEHIND fromBehind + TF_LATE lateness:
+//   'foul'); otherwise it wins with p = clamp(logistic((T - C)/8) x timing x angle, 0.05, 0.92) (duel.pTackleWin): 'won'
+//   ('poke' when only the edge of the ball was met), else the carrier rides it ('miss', ridden). timing is the foot's
+//   contact against the ball's closest approach to the tackler (dt, 1 within 0.08 s, 0.3 from 0.3 s); angle is from the
+//   carrier's facing (front 1.0, side 0.9, behind 0.5).
+// - Nothing met: 'miss'.
+// A loose ball (carrier null) has no legs and no rating against it: a ball-first tackle takes it.
+// impulse: the ball's new velocity for 'won' and 'poke' (along the foot's own way at contact, from its speed: 0.6 x foot
+// speed + 1.5 m/s, 2 to 5.9, a 0.2 rad spread), the carrier's knock for 'foul', null otherwise. Also returns tBall and
+// tLeg (seconds into the tackle, -1 for none), fromBehind, closing, dt (the timing error), p (the win chance), timing
+// and angle.
 export function tackleOutcome(tackler, carrier, ball, sweep, ctx, r){
   ctx = ctx || {}; sweep = sweep || {};
   const kind = sweep.kind || 'stand', t0 = Math.max(0, +sweep.t || 0);
-  const tm = posOf(tackler), cm = posOf(carrier), P = ball.p || ball, BV = ball.v || {x: 0, y: 0, z: 0};
+  const tm = posOf(tackler), cm = carrier ? posOf(carrier) : null, P = ball.p || ball, BV = ball.v || {x: 0, y: 0, z: 0};
   const tk = clamp(skillOf(tackler, ctx, 'tackling'), 0, 99);
-  const drib = clamp(ctx.dribbling != null ? +ctx.dribbling : skillOf(carrier, null, 'dribbling'), 0, 99);
-  const d = tackleDir(tackler, sweep.target || {x: P.x, z: P.z}, {x: 0, z: 0, aim: Infinity}), side = footOf(tackler) === 'L' ? -1 : 1;
-  const tv = velOf(tackler), cv = velOf(carrier);
-  const prof = kind === 'slide' ? slideProfile(tk) : null;
+  const tv = velOf(tackler), cv = carrier ? velOf(carrier) : {x: 0, z: 0};
+  // a standing tackle or a poke aims from where his body will be as the foot comes through (he is still moving), so
+  // the foot passes through the aimed point at mid-sweep
+  const tg = sweep.target || {x: P.x, z: P.z}, Kd = kind === 'poke' ? TACKLE.poke : TACKLE.stand, tMid = Kd.wind + Kd.active/2;
+  const from = kind !== 'slide' && tg.x != null ? {x: tm.x + tv.x*tMid, z: tm.z + tv.z*tMid, yaw: yawOfAgent(tackler)} : tackler;
+  const d = tackleDir(from, tg, {x: 0, z: 0, aim: Infinity}), side = footOf(tackler) === 'L' ? -1 : 1;
+  const prof = kind === 'slide' ? (sweep.prof || slideProfile(hypot(tv.x, tv.z), sweep.vTop || 7.5)) : null;
   const K = kind === 'poke' ? TACKLE.poke : TACKLE.stand;
-  const tEnd = kind === 'slide' ? prof.tStop : K.wind + K.active;
-  const sc = carrier.scale || 1, legTop = TACKLE.LEG_TOP*sc + (+carrier.y || 0);
+  const tEnd = kind === 'slide' ? prof.tActive : K.wind + K.active;
+  const sc = carrier ? carrier.scale || 1 : 1, legTop = TACKLE.LEG_TOP*sc + (carrier ? +carrier.y || 0 : 0);
   const rb = TACKLE.FOOT_R + R, rl = TACKLE.FOOT_R + TACKLE.LEG_R*sc;
   const dt = 1/240;
-  let tBall = -1, tLeg = -1, minBall = Infinity, fvx = 0, fvz = 0, closing = 0;
+  let tBall = -1, tLeg = -1, minBall = Infinity, fvx = 0, fvz = 0, closing = 0, contact = null;
   let px0 = 0, pz0 = 0, have = false;
   for (let t = t0; t <= tEnd + 1e-9; t += dt){
     const tau = t - t0;
     let bx = tm.x, bz = tm.z;
     if (prof){ const s = slideDistance(prof, t) - slideDistance(prof, t0); bx += d.x*s; bz += d.z*s; }
     else { bx += tv.x*tau; bz += tv.z*tau; }
-    footAt(kind, bx, bz, d.x, d.z, side, t, tk, d.aim, FT);
+    footAt(kind, bx, bz, d.x, d.z, side, t, tk, d.aim, FT, prof);
     const fx = FT.x, fz = FT.z, fy = FT.y;
     const vfx = have ? (fx - px0)/dt : 0, vfz = have ? (fz - pz0)/dt : 0;
     px0 = fx; pz0 = fz; have = true;
@@ -320,36 +370,76 @@ export function tackleOutcome(tackler, carrier, ball, sweep, ctx, r){
     const qx = P.x + BV.x*tau, qz = P.z + BV.z*tau, qy = Math.max(R, P.y + (+BV.y || 0)*tau - (P.y > R + 0.01 ? 0.5*G*tau*tau : 0));
     const db = hypot(qx - fx, qy - fy, qz - fz);
     if (db < minBall) minBall = db;
-    if (tBall < 0 && db <= rb){ tBall = t; fvx = vfx; fvz = vfz; }
+    if (tBall < 0 && db <= rb){ tBall = t; if (!contact) contact = {x: fx, y: fy, z: fz}; fvx = vfx; fvz = vfz; if (prof){ const vb = Math.max(0, prof.v0 - prof.decel*t); fvx += d.x*vb; fvz += d.z*vb; } else { fvx += tv.x; fvz += tv.z; } }
     // the carrier's legs; the tackler's body closing on him (for the severity)
-    const cx = cm.x + cv.x*tau, cz = cm.z + cv.z*tau, dl = hypot(cx - fx, cz - fz);
-    if (tLeg < 0 && fy <= legTop && dl <= rl){
-      tLeg = t;
-      const relx = (prof ? d.x*(prof.v0 - prof.decel*Math.min(t, prof.tStop)) : tv.x) - cv.x;
-      const relz = (prof ? d.z*(prof.v0 - prof.decel*Math.min(t, prof.tStop)) : tv.z) - cv.z;
-      const ux = (cx - fx)/(dl || 1), uz = (cz - fz)/(dl || 1);
-      closing = Math.max(0, relx*ux + relz*uz);
+    if (cm){
+      const cx = cm.x + cv.x*tau, cz = cm.z + cv.z*tau, dl = hypot(cx - fx, cz - fz);
+      if (tLeg < 0 && fy <= legTop && dl <= rl){
+        tLeg = t;
+        if (!contact) contact = {x: fx, y: fy, z: fz};
+        const relx = (prof ? d.x*(prof.v0 - prof.decel*Math.min(t, prof.tStop)) : tv.x) - cv.x;
+        const relz = (prof ? d.z*(prof.v0 - prof.decel*Math.min(t, prof.tStop)) : tv.z) - cv.z;
+        const ux = (cx - fx)/(dl || 1), uz = (cz - fz)/(dl || 1);
+        closing = Math.max(0, relx*ux + relz*uz);
+      }
     }
     if (tLeg >= 0 && (tBall < 0 || tLeg >= tBall)) break;            // the order is settled
     if (tBall >= 0 && t - tBall > TACKLE.NEAR_T) break;
   }
-  // from behind: the tackler comes from the back half of the carrier's facing
-  const cf = dirOf(yawOfAgent(carrier)), ax = tm.x - cm.x, az = tm.z - cm.z, al = hypot(ax, az) || 1;
-  const fromBehind = sstep(-0.2, -0.7, (ax*cf.x + az*cf.z)/al);
-  const out = {result: 'miss', severity: 0, impulse: null, tBall, tLeg, fromBehind, closing};
+  // from behind: the tackler comes from the back half of the carrier's facing; the angle from his facing
+  let fromBehind = 0, rel = 0;
+  if (cm){
+    const cf = dirOf(yawOfAgent(carrier)), ax = tm.x - cm.x, az = tm.z - cm.z, al = hypot(ax, az) || 1;
+    const cosr = clamp((ax*cf.x + az*cf.z)/al, -1, 1);
+    fromBehind = sstep(-0.2, -0.7, cosr); rel = acos(cosr);
+  }
+  // the timing: the foot's contact against the moment the ball is closest to the tackler (their relative motion; a
+  // ball not moving against him is met on time)
+  let dtT = 0;
+  if (tBall >= 0){
+    const bvx = prof ? d.x*prof.v0 : tv.x, bvz = prof ? d.z*prof.v0 : tv.z;
+    const rvx = BV.x - bvx, rvz = BV.z - bvz, rv2 = rvx*rvx + rvz*rvz;
+    if (rv2 > 0.09){
+      const rpx = P.x - tm.x, rpz = P.z - tm.z;
+      const tStar = clamp(-(rpx*rvx + rpz*rvz)/rv2, -2, 2);      // (before the tackle began: it is late by that much more)
+      dtT = (tBall - t0) - tStar;
+    }
+  }
+  const timing = timingFactor(dtT), angle = cm ? angleFactor(rel) : 1;
+  let p = 1;
+  if (carrier){
+    const rt = ratings(tackler.at || {tackling: tk}, RTA), rc = ratings(carrier.at, RTC);
+    const shield = ctx.shield != null ? !!ctx.shield : !!(carrier.shield && carrier.shield.on);
+    p = pTackleWin(rt.T, shield ? rc.S : rc.C, timing, angle);
+  }
+  const fl = hypot(fvx, fvz);
+  const out = {result: 'miss', severity: 0, impulse: null, tBall, tLeg, fromBehind, closing, dt: dtT, timing, angle, p, ridden: false, contact,
+    footDir: fl > 1e-6 ? {x: fvx/fl, z: fvz/fl} : {x: d.x, z: d.z}};
   const glancing = minBall > 0.17;
   const ballFirst = tBall >= 0 && (tLeg < 0 || tBall <= tLeg) && !(glancing && tLeg >= 0 && tLeg - tBall <= TACKLE.NEAR_T);
   if (ballFirst){
-    const keep = clamp(0.1 + 0.005*(drib - tk), 0.03, 0.35);
-    const poke = glancing || r() < keep;
-    // the ball goes where the foot was sweeping, with a seeded spread
-    let ux = fvx, uz = fvz, ul = hypot(ux, uz);
-    if (ul < 0.5){ ux = d.x; uz = d.z; ul = 1; }
-    const a = truncNormal(r, 0.35, 2.5), c = cos(a), s = sin(a);
-    const kx = (ux*c - uz*s)/ul, kz = (ux*s + uz*c)/ul;
-    const sp = poke ? 1.5 + 1.5*r() : 3 + 3*r() + (kind === 'slide' ? 2 : 0);
-    out.result = poke ? 'poke' : 'won';
-    out.impulse = {x: kx*sp, y: 0, z: kz*sp};
+    // late or from behind: through the man as well as the ball
+    if (cm && r() < pTackleFoul(fromBehind, dtT)){
+      out.result = 'foul'; out.late = true;
+      out.severity = clamp(0.25 + 0.06*closing + 0.3*fromBehind + 0.25*(kind === 'slide' ? 1 : 0), 0, 1);
+      const kx = cm.x - tm.x, kz = cm.z - tm.z, kl = hypot(kx, kz) || 1, mag = 1 + 0.15*closing;
+      out.impulse = {x: kx/kl*mag, y: 0, z: kz/kl*mag};
+      return out;
+    }
+    if (r() < p){
+      // the ball goes where the foot was going, at a speed from the foot's
+      const I = TACKLE.IMP;
+      let ux = fvx, uz = fvz, ul = hypot(ux, uz);
+      const fs = ul;
+      if (ul < 0.5){ ux = d.x; uz = d.z; ul = 1; }
+      const a = truncNormal(r, I.spread, 2.5), c = cos(a), s = sin(a);
+      const kx = (ux*c - uz*s)/ul, kz = (ux*s + uz*c)/ul;
+      const sp = glancing ? I.poke[0] + (I.poke[1] - I.poke[0])*r() : clamp(I.k*fs + I.add, I.min, I.max);
+      out.result = glancing ? 'poke' : 'won';
+      out.impulse = {x: kx*sp, y: 0, z: kz*sp};
+      return out;
+    }
+    out.ridden = true;
     return out;
   }
   if (tLeg >= 0){
@@ -399,24 +489,26 @@ export function headerContact(agent, ball, headPos, intent, ctx, r){
   return {v: {x: speed*c*d.x, y: speed*sin(pitch), z: speed*c*d.z}, quality, dist, err, speed};
 }
 
+
 /* ---------- unplanned contact ---------- */
 
-// How a ball meeting a body is read (3.1.4): 'control' for the intended receiver or an agent with a receive or
-// interception plan while the ball is slower than his control threshold (receive: 18 + 0.12 ctrl; interception by
-// positioning: 8 + 0.12 interception, 1.5.3), 'block' for an agent in a block, tackle or jockey stance, 'deflect'
-// otherwise. wanted: 'receive' | 'intercept' | 'block' | null, or {receiver, plan, stance}; the agent's own state
-// ('tackle', 'slide', 'jockey') also counts as a blocking stance.
+// How a ball meeting a body is read (3.1.4, spec 3): 'control' for the intended receiver or an agent with a receive or
+// interception plan while the ball (its speed against his body) is slow enough for him: a receiver up to RECV_DV over his
+// comfortable speed vc = 8 + 10 c, an interception up to vc (INT_DV more for a player going for it, wanted.going); 'block'
+// for an agent in a block, tackle or jockey stance; 'deflect' otherwise. wanted: 'receive' | 'intercept' | 'block' |
+// null, or {receiver, plan, stance, going}; the agent's own state ('tackle', 'slide', 'jockey') also counts as a
+// blocking stance.
+const RTK = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, GK0 = {dist: 0, y: 0, cosA: 1, side: 'R', vrel: 0};
 export function classifyContact(agent, ball, wanted){
-  const V = ball.v || ball, sp = hypot(V.x || 0, V.y || 0, V.z || 0);
+  const V = ball.v || ball;
+  const sp = ball.v && (agent.m || agent.vx != null) ? geom(agent, ball, GK0).vrel : hypot(V.x || 0, V.y || 0, V.z || 0);
   const w = wanted && typeof wanted === 'object' ? wanted : {plan: wanted || null};
   const plan = w.receiver ? 'receive' : w.plan;
-  const C = TOUCH.CONTROL;
+  const vc = ratings(agent.at, RTK).vc;
   if (plan === 'receive'){
-    const ctrl = skillOf(agent, null, 'ctrl');
-    if (sp < C.receive[0] + C.receive[1]*ctrl) return 'control';
+    if (sp < vc + TUNE.RECV_DV.value) return 'control';
   } else if (plan === 'intercept'){
-    const ic = skillOf(agent, null, 'interception');
-    if (sp < C.intercept[0] + C.intercept[1]*ic) return 'control';
+    if (sp < vc + (w.going ? TUNE.INT_DV.value : 0)) return 'control';
   }
   const st = w.stance || agent.state;
   if (st === 'block' || st === 'tackle' || st === 'slide' || st === 'jockey' || plan === 'block') return 'block';

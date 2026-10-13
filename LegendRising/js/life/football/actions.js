@@ -6,7 +6,10 @@
 // steering that turns a target into the mover's intent. Each touch is a real kick of the one ball (ball.js) and an
 // entry in the log (events.js).
 // Owner: WP-E, then WP-F2 (addendum A1.7: the player's strike on his plant, its rhythm and its body shape logged with
-// the kick). Contract DESIGN 1.4.14 (Action, actionStep, canStrike); numbers 1.5.3; behaviour 3.1.7.
+// the kick), then P2b-A (TRAINING-SPEC section 3: who plays the ball is decided by the race to it and the 50/50 duel,
+// control lapses when the ball leaves the controller's radius, the first touch is the spec's q, the shield, the slide
+// carried on its own momentum, tackles on a loose ball). Contract DESIGN 1.4.14 (Action, actionStep, canStrike) and
+// BUILD-PLAN Phase 2b; numbers 1.5.3 and tune.js; behaviour 3.1.7.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random.
 
@@ -14,12 +17,16 @@ import {ballKick, ballPredict, ballRelease, ballHold, BALL} from "./ball.js";
 import {planShot, solveStrike, idealPassSpeed, shotSpeed, presolve, presolveStep, presolveWarm, aimOf, devDraws} from "./strike.js";
 import {reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleOutcome, slideProfile, slideDistance, headerContact,
   classifyContact, TOUCH, TACKLE} from "./touch.js";
-import {stamAction} from "../stamina.js";
+import {stamAction, stamShield} from "../stamina.js";
+import {TUNE} from "./tune.js";
+import {ratings, canPlay, arrivalOf, breathOf, ghosted, GHOST_T} from "./zone.js";
+import {p5050, fatigueFactor, slideStep, recovery, standReach} from "./duel.js";
 import {logEv, chainKick, chainControl, chainKeep, chainTouch} from "./events.js";
 import {onKick, onTouch, setCtl, clearCtl, foul, restartTaken} from "./rules.js";
 import {xgAt, decisionRecord} from "./judge.js";
 import {jumpHeight} from "./agent.js";
 import {jumpRoot} from "./gkplan.js";
+import {sprintSpeed} from "../mover.js";
 import {dirOf, yawOf, wrapA, inBox} from "./pitchspec.js";
 import {sin, cos, hypot, atan2} from "./detmath.js";
 
@@ -34,14 +41,15 @@ export const ACT = Object.freeze({
   REACH0: 0.45, REACH1: 0.90, REACH_LAT: 0.5,   // the ball's place for a strike: 0.45 to 0.90 m ahead, within 0.5 m across
   TC_MAX: 0.18, ADJUST: 0.35, SCUFF_D: 1.3,     // contact within 0.18 s; a stride adjust of at most 0.35 s; a scuff up to 1.3 m
   FOLLOW: 0.28,                                 // follow-through after contact
-  GHOST: 0.3,                                   // the kicker cannot play his own kick again this soon
-  LOSE_CTL: 2.4,                                // control is lost when the ball is this far from the controller
+  GHOST: GHOST_T,                               // the kicker cannot play his own kick again this soon (zone.js)
+  LOSE_CTL: 2.4,                                // (the old fixed lapse distance; now TUNE.CTL_FAR, with the race: touchCheck)
   HEADER_LOAD: 0.18, HEADER_RECOVER: 0.25,
   THROW_DUR: 1.0, THROW_REL: 0.62, THROW_Y: 2.0,
   BLOCK_GLANCE: 0.7, BLOCK_BACK: [0.25, 0.45],     // most blocks glance on (turned), the rest come back off the shin at this share
   BLOCK_KEEP: [0.5, 0.85],                     // a leg block keeps this share of the ball's speed
   BLOCK_TURN: [45, 70], BLOCK_LOOP: 4,         // degrees a glance and a square block turn it, at most; a glance loops up to 4 m/s
-  SETTLE: [0.12, 0.25, 1.0],                   // the first decision after a reception: pressed, a heavy touch, settled on it
+  SETTLE: [0.12, 0.25, 0.45],                  // the first decision after a reception: pressed, a heavy touch, settled on it
+                                               // (P2b-A: 0.45 s, was 1.0, now the ball can be taken off a man who waits on it)
   AERIAL_FOUL: [1.1, 0.15, 0.25, 0.25],        // an aerial duel with the bodies within 1.1 m: a foul by the loser 15% of the time,
                                                // severity 0.25 to 0.5
   RHYTHM: [0.12, 0.06]                         // A1.7: a strike released out of the stride's rhythm (rhythm 1) adds this much plant
@@ -326,16 +334,20 @@ export function pressureOn(ms, a){
 
 /* ---------- receiving, interceptions and blocks (3.1.4, 3.1.7) ---------- */
 
-// The first touch: the ball in the agent's envelope and he wants it (the intended receiver, a chaser, an interceptor,
-// or a defender in its path with nothing queued). push: the WASD direction (player) or the AI's next direction.
+// The first touch: the ball in the agent's control radius and he wants it (the intended receiver, a chaser, an
+// interceptor, or a defender in its path with nothing queued). push: the WASD direction (player) or the AI's next
+// direction; with none, his facing. The touch is the spec's (touch.js firstTouch): its quality q from his control
+// rating, the ball's speed against his own, the pressure on him and his breath; the ball left touchDist(q) ahead of him
+// on his way, carried at his running speed (P2b-A, ball-1: receiving on the move).
 export function receive(ms, a, push = null, pushK = 0.5){
   const b = ms.ball, fac = a.fac || {};
   const vIn = hypot(b.v.x, b.v.y, b.v.z);
-  const ft = firstTouch(a, b, {dir: push, push: pushK}, {ctrl: a.at.ctrl, pressure01: pressureOn(ms, a), bF: fac.bF != null ? fac.bF : 1,
+  const ft = firstTouch(a, b, {dir: push, push: pushK}, {pressure01: pressureOn(ms, a), bF: fac.bF != null ? fac.bF : 1,
     rollDecel: b.rollDecel}, ms.r);
   ballKick(b, ft.v, null, {agent: a.id, team: a.team, kind: 'control', aero: 0, t: ms.t});
   const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'control', quality: Math.round(ft.quality*100)/100, heavy: ft.heavy,
-    part: ft.part, vIn: Math.round(vIn*10)/10});
+    part: ft.part, vIn: Math.round(vIn*10)/10, vRel: Math.round(ft.vRel*10)/10, td: Math.round(ft.dist*100)/100,
+    dx: Math.round(ft.dir.x*1000)/1000, dz: Math.round(ft.dir.z*1000)/1000, a0: Math.round(ft.ahead0*100)/100});
   chainControl(ms, a, 'control', ev);
   onTouch(ms, a, 'control', ev);
   setCtl(ms, a);
@@ -377,82 +389,228 @@ export function bodyContact(ms, a, part){
   return ev;
 }
 
-// Every step before the ball moves: does the ball enter somebody's reach who will play it? The intended receiver and
-// a chaser control it (or play the first-time action they planned); a defender in its path with nothing queued
-// controls it under 8 + 0.12 interception m/s and blocks it above; a team-mate with nothing queued takes it when he is
-// the nearest. The controller's own dribble touches come from his footfalls (dribbleFoot), not from here.
+/* ---------- who plays the ball: the race and the 50/50 (spec 3, P2b-A) ---------- */
+
+// Every step before the ball moves (ball-2, ball-3). A loose ball is played by whoever has it inside his control
+// radius R first (zone.js): the earliest arrival wins; when a player of the other side gets to it within DUEL_WIN
+// (0.15 s) of him, it is a 50/50 (duel.p5050 with each side's X = S + C, his breath against the other's, the seeded
+// ms.r), and the loser cannot touch it for DUEL_LOCK. A ball under somebody's control is his while it is inside his
+// radius, unless an opponent is nearer it with it inside his own: then they contest it, one 50/50 for the engagement.
+// Once it is outside the controller's radius (a heavy touch, a dribble run on too far) it is anyone's who gets there
+// before him, or with him: control lapses and the loose-ball race decides. What the winner does is as before: the
+// intended receiver and a chaser control it (or play the first-time action they planned); a defender in its path with
+// nothing queued controls it under his comfortable speed and blocks it above; a team-mate with nothing queued takes it
+// when it is slow enough for him. The controller's own dribble touches come from his footfalls (dribbleFoot).
 export function touchCheck(ms){
   const b = ms.ball;
   if (b.state !== 'free' || ms.phase !== 'live') return false;
-  // a ball under somebody's control is only taken off him by a tackle
-  if (ms.poss.ctl >= 0) return false;
-  const sp = hypot(b.v.x, b.v.y, b.v.z);
-  let best = null, bd = Infinity;
-  for (const a of ms.agents){
-    if (!a.onPitch || a.role !== 'player' || a.leaving) continue;
-    if (a.id === ms.poss.ctl) continue;
-    const m = a.m, dx = b.p.x - m.x, dz = b.p.z - m.z;
-    if (dx > 1.6 || dx < -1.6 || dz > 1.6 || dz < -1.6) continue;
-    if (a.id === b.last.agent && ms.t - b.last.t < ACT.GHOST) continue;
-    if (a.act && (a.act.kind === 'kick' && !a.act.done || a.act.kind === 'header' || a.act.kind === 'tackle' || a.act.kind === 'slide' || a.act.kind === 'throw')) continue;
-    if (a.isGK && a.gk && (a.gk.state === 'dive' || a.gk.state === 'hold')) continue;
-    if (a.m.stagger > 0.2 || a.state === 'ground' || ms.t < (a.noTouch || 0)) continue;
-    const env = envAhead(a, b);
-    if (!env || env.part === 'head') continue;
-    const d = env.dist;
-    if (d < bd){ bd = d; best = a; }
+  if (ms.poss.ctl >= 0){
+    if (contest(ms)) return true;
+    if (ms.poss.ctl >= 0) return false;
   }
-  if (!best) return false;
-  const a = best, plan = a.plan;
-  const wantsIt = plan && (plan.kind === 'receive' || plan.kind === 'chase' || plan.kind === 'intercept');
+  return looseBall(ms);
+}
+
+
+// What a body would do with the ball if it were his now: 'first' (the first-time strike he planned), 'gk' (a keeper
+// in his box gathers it), 'control', 'block', or null (a team-mate with nothing queued and a ball too fast for him).
+function wouldPlay(ms, a){
+  const b = ms.ball, plan = a.plan;
+  const wantsIt = !!plan && (plan.kind === 'receive' || plan.kind === 'chase' || plan.kind === 'intercept');
+  if (wantsIt && plan.first && plan.first.kind) return 'first';
   const lastTeam = b.last.team;
-  // a first-time action planned on arrival
-  if (wantsIt && plan.first && plan.first.kind){
+  if (a.isGK && a.gk && inOwnBox(ms, a) && !a.gk.noHands && b.p.y < 2.2 && !(lastTeam === a.team && b.last.kind !== 'deflect' && b.last.kind !== 'block') && ms.gkCollect) return 'gk';
+  if (lastTeam >= 0 && lastTeam !== a.team){
+    // an interception (1.5.3): controlled under his comfortable speed (a little more when he was going for it), blocked above
+    return classifyContact(a, b, {plan: 'intercept', going: wantsIt}) === 'control' ? 'control' : 'block';
+  }
+  if (classifyContact(a, b, 'receive') === 'control') return 'control';
+  return wantsIt ? 'block' : null;
+}
+
+// the ball played by a now, as wouldPlay said; false when he leaves it this step
+function playIt(ms, a, how, dist){
+  const b = ms.ball;
+  if (how === 'first'){
     const cs = canStrike(a, b);
-    if (cs.ok || bd < 0.9){
+    if (cs.ok || dist < 0.9){
+      const first = a.plan.first;
       a.plan = null;
-      startKick(ms, a, plan.first);
+      startKick(ms, a, first);
       a.act.tc = Math.min(a.act.tc, 0.05); a.act.adjust = false;
       return true;
     }
     // (the player's own first-time action, control.js, not yet where he can strike it but still coming in to him: he
     // waits for it this step rather than taking a control touch he never asked for; at its closest the strike goes as
     // above, or he controls it below. The AI's first-time actions, brain.js, are as they were: the match's figures are
-    // calibrated on them. Cross-package edit approved by the TR-2 integrator (fix round 1, Phase 2 has no actions.js
-    // owner); handed to P2b-A, whose first-to-ball race and control zone (ball-2, ball-3) keep or replace this wait and
-    // keep tr2-passme's "a strike, not a control touch" check green)
+    // calibrated on them. The TR-2 integrator's approved Phase 2 edit, kept by P2b-A: the race and the control radius
+    // decide that the ball is his to play; this wait decides how he plays it, and qa/tr2-passme.mjs checks it.)
     const m = a.m, cx = m.x - b.p.x, cz = m.z - b.p.z;
     if (a.isMe && !ms.meAI && (b.v.x - (m.vx || 0))*cx + (b.v.z - (m.vz || 0))*cz > 0.05) return false;
+    how = b.last.team >= 0 && b.last.team !== a.team ? (classifyContact(a, b, {plan: 'intercept', going: true}) === 'control' ? 'control' : 'block')
+      : classifyContact(a, b, 'receive') === 'control' ? 'control' : 'block';
   }
-  if (a.isGK && a.gk && inOwnBox(ms, a) && !a.gk.noHands && b.p.y < 2.2 && !(lastTeam === a.team && b.last.kind !== 'deflect' && b.last.kind !== 'block')){
-    // a keeper in his box gathers it in his hands (gkbrain decides the hold)
-    if (ms.gkCollect){ ms.gkCollect(ms, a); return true; }
-  }
-  const opp = lastTeam >= 0 && lastTeam !== a.team;
-  if (opp){
-    // interception by positioning (1.5.3): controlled under 8 + 0.12 interception, blocked above
-    const cls = classifyContact(a, b, wantsIt ? 'intercept' : 'intercept');
-    if (cls === 'control' || wantsIt && sp < 8 + 0.12*a.at.interception + 4){ receive(ms, a, a.plan && a.plan.push, 0.45); return true; }
-    block(ms, a);
-    return true;
-  }
-  // own side: the receiver, a chaser, or the nearest team-mate with nothing queued
-  const cls = classifyContact(a, b, 'receive');
-  if (cls === 'control'){ receive(ms, a, a.plan && a.plan.push, 0.5); return true; }
-  if (wantsIt){ block(ms, a); return true; }
+  if (how === 'gk'){ ms.gkCollect(ms, a); return true; }
+  if (how === 'control'){ receive(ms, a, a.plan && a.plan.push, b.last.team >= 0 && b.last.team !== a.team ? 0.45 : 0.5); return true; }
+  if (how === 'block'){ block(ms, a); return true; }
   return false;
 }
-// the reach envelope now, or where the ball will be later in this step: a ball dropping onto a man passes through his
-// chest band between two steps, and it is his to play (not a deflection off his body)
+
+// A 50/50 between a (the first to it) and o (the other side, inside the window): returns the winner. X = S + C for
+// each (zone.ratings), the fatigue factor a's breath against o's (G0), the seeded roll; the loser cannot touch the ball
+// for DUEL_LOCK. Logged as a 'duel' event {other, p, won, gap}. angle: the shield's angle factor when the controller
+// shields (from the challenger's side), else 1.
+const RD1 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, RD2 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0};
+export function duel5050(ms, a, o, gap = 0, angle = 1, kind = 'loose'){
+  const ra = ratings(a.at, RD1), ro = ratings(o.at, RD2);
+  const p = p5050(ra.S + ra.C, ro.S + ro.C, angle, fatigueFactor(breathOf(a), breathOf(o)));
+  const won = ms.r() < p, w = won ? a : o, l = won ? o : a;
+  l.noTouch = Math.max(l.noTouch || 0, ms.t + TUNE.DUEL_LOCK.value);
+  // whose ball it was: the controller it was contested at the feet of, or the one whose control has just lapsed to it
+  const holder = kind === 'feet' ? o : ms.lapseT === ms.t && (ms.lapseBy === a.id || ms.lapseBy === o.id) ? ms.agents[ms.lapseBy] : null;
+  logEv(ms, 'duel', a.team, a.id, ms.ball.p.x, ms.ball.p.z, {other: o.id, p: Math.round(p*1000)/1000, won: w.id, gap: Math.round(gap*1000)/1000, at: kind,
+    holder: holder ? holder.id : -1, xa: Math.round((ra.S + ra.C)*10)/10, xb: Math.round((ro.S + ro.C)*10)/10});
+  // the ball won off the man who had it is a tackle won (the event the counters, the commentary and the camera read)
+  if (holder && w !== holder && w.team !== holder.team)
+    logEv(ms, 'tackle', w.team, w.id, w.m.x, w.m.z, {on: holder.id, result: 'won', won: true, type: 'duel', p: Math.round((w === a ? p : 1 - p)*1000)/1000});
+  return w;
+}
+
+// Is the way from a to the ball blocked by a body of the other side (a man standing between them, within 0.3 m of the
+// line, in its middle stretch)? A ball he has within his radius but behind an opponent's body is not his to play: he
+// would have to go through the man (that is what a tackle or a shield challenge is for).
+const BODY_BLOCK = 0.3;
+function blocked(ms, a, b){
+  const lx = b.p.x - a.m.x, lz = b.p.z - a.m.z, L2 = lx*lx + lz*lz;
+  if (L2 < 0.09) return false;
+  for (const x of ms.agents){
+    if (x.team === a.team || x.team < 0 || !x.onPitch || x.role !== 'player') continue;
+    const ex = x.m.x - a.m.x, ez = x.m.z - a.m.z;
+    if (ex*ex + ez*ez > L2) continue;
+    const t = (ex*lx + ez*lz)/L2;
+    if (t <= 0.15 || t >= 0.9) continue;
+    const px = lx*t - ex, pz = lz*t - ez;
+    if (px*px + pz*pz < BODY_BLOCK*BODY_BLOCK) return true;
+  }
+  return false;
+}
+// the ball as his own last touch left it (a dribble or a control a moment ago), won back by him in the race: his again,
+// with no new touch (it is already going where he played it)
+function ownBall(ms, a){
+  const L = ms.ball.last;
+  return L.agent === a.id && (L.kind === 'dribble' || L.kind === 'control') && ms.t - L.t < 3;
+}
+function regain(ms, a){ setCtl(ms, a); a.ctlT = ms.t; return true; }
+
+// a loose ball: who has it inside his radius now, and who of the other side gets there inside the window
+const NEAR = [];
+function looseBall(ms){
+  const b = ms.ball, sp = hypot(b.v.x, b.v.y, b.v.z), win = TUNE.DUEL_WIN.value;
+  const box = 1.6 + 9*win + sp*win;
+  let first = null, fd = Infinity, fHow = null;
+  NEAR.length = 0;
+  for (const a of ms.agents){
+    if (a.team < 0) continue;
+    const dx = b.p.x - a.m.x, dz = b.p.z - a.m.z;
+    if (dx > box || dx < -box || dz > box || dz < -box) continue;
+    if (ghosted(ms, a) || !canPlay(ms, a)) continue;
+    const how = wouldPlay(ms, a);
+    if (!how) continue;
+    let env = envAhead(a, b);
+    if (env && env.part === 'head') env = null;
+    // a ball that comes inside his radius only at the end of this step is played next step, from inside it (where the
+    // foot meets it), not now from beyond it
+    if (env && env.later === 1 && env.dist > LATER_MIN) env = null;
+    // a ball too fast to control is still blocked by a leg stretched to it (the radius without its speed term)
+    if (!env && how === 'block'){ env = envAhead(a, b, BLK); if (env && env.part === 'head') env = null; }
+    if (env && blocked(ms, a, b)) env = null;
+    a.zIn = !!env; a.zD = env ? env.dist : Infinity;
+    NEAR.push(a);
+    if (env && env.dist < fd){ fd = env.dist; first = a; fHow = how; }
+  }
+  if (!first) return false;
+  // a keeper's hands in his box take it before any foot
+  if (fHow === 'gk') return playIt(ms, first, fHow, fd);
+  // the race: the first of the other side to get there, if it is inside the window
+  let rival = null, rt = Infinity;
+  for (const o of NEAR){
+    if (o.team === first.team) continue;
+    const t = o.zIn ? 0 : arrivalOf(ms, o, win);
+    if (t <= win && (t < rt || t === rt && rival && o.zD < rival.zD)){ rt = t; rival = o; }
+  }
+  if (!rival || wouldPlay(ms, rival) === 'gk') return fHow === 'control' && ownBall(ms, first) ? regain(ms, first) : playIt(ms, first, fHow, fd);
+  const w = duel5050(ms, first, rival, rt);
+  if (w === first) return fHow === 'control' && ownBall(ms, first) ? regain(ms, first) : playIt(ms, first, fHow, fd);
+  // the other man won it: he plays it now if it is in his reach, else it runs on to him
+  if (!rival.zIn) return true;
+  const rHow = wouldPlay(ms, rival);
+  return rHow === 'control' && ownBall(ms, rival) ? regain(ms, rival) : playIt(ms, rival, rHow, rival.zD);
+}
+
+// The controller's ball (ball-3: no more 2.4 m stickiness). Inside his radius it is his, unless an opponent nearer it
+// has it inside his own: one 50/50 per engagement (another only once contact breaks, or after CHAL_GAP); the controller
+// who wins it takes it away from him. Outside his radius: an opponent nearer it with it in reach makes it loose
+// (control lapses; the loose-ball race decides who plays it). Above 1.8 m, or further than CTL_FAR from him, it is
+// loose. Returns true when the ball was played.
+function contest(ms){
+  const b = ms.ball, C = ms.agents[ms.poss.ctl];
+  if (!C || !C.onPitch){ clearCtl(ms); return false; }
+  const d = hypot(b.p.x - C.m.x, b.p.z - C.m.z);
+  if (b.p.y > 1.8 || d > TUNE.CTL_FAR.value){ clearCtl(ms); C.drib = null; return false; }
+  const eC = envAhead(C, b), inC = !!eC && eC.part !== 'head', dC = inC ? eC.dist : d;
+  // the nearest opponent with the ball inside his radius; an engagement whose contact has broken is closed
+  let opp = null, od = Infinity;
+  const box = d + 3;
+  for (const o of ms.agents){
+    if (o.team === C.team || o.team < 0) continue;
+    const dx = b.p.x - o.m.x, dz = b.p.z - o.m.z;
+    if (dx > box || dx < -box || dz > box || dz < -box || !canPlay(ms, o) || ghosted(ms, o)){ if (o.duelOn === C.id) o.duelOn = -1; continue; }
+    const e = dx > 1.6 || dx < -1.6 || dz > 1.6 || dz < -1.6 ? null : envAhead(o, b);
+    if (!e || e.part === 'head' || blocked(ms, o, b)){ if (o.duelOn === C.id) o.duelOn = -1; continue; }
+    if (e.dist < od){ od = e.dist; opp = o; }
+  }
+  if (inC){
+    if (!opp || od >= dC) return false;
+    // one roll per engagement
+    if (opp.duelOn === C.id && ms.t - opp.duelT < TUNE.CHAL_GAP.value) return false;
+    opp.duelOn = C.id; opp.duelT = ms.t;
+    const w = duel5050(ms, opp, C, 0, 1, 'feet');
+    if (w === opp){
+      clearCtl(ms); C.drib = null;
+      const how = wouldPlay(ms, opp) || 'control';
+      return playIt(ms, opp, how === 'gk' || how === 'first' ? 'control' : how, od);
+    }
+    // he keeps it, and takes it away from the man: a short touch from him, on the controller's way
+    const ux = b.p.x - opp.m.x, uz = b.p.z - opp.m.z, ul = hypot(ux, uz) || 1;
+    ballKick(b, {x: (C.m.vx || 0) + 2.2*ux/ul, y: 0, z: (C.m.vz || 0) + 2.2*uz/ul}, null, {agent: C.id, team: C.team, kind: 'dribble', t: ms.t});
+    logEv(ms, 'touch', C.team, C.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, kept: true});
+    chainKeep(ms, C);
+    refreshPred(ms);
+    return true;
+  }
+  // outside his radius: an opponent nearer it, with it in reach, makes it loose, and the race decides it at once (his,
+  // or a 50/50 when the controller gets there inside the window). Until somebody can play it, it is the controller's
+  // (a ball a step outside his reach, with the man nearest it his own, is still his next touch): who would get there
+  // first is settled when he does (the brains do not chase a ball a man is dribbling)
+  if (opp && od < dC){ clearCtl(ms); C.drib = null; ms.lapseT = ms.t; ms.lapseBy = C.id; return false; }
+  return false;
+}
+
+// the control radius now, or where the ball will be later in this step: a ball dropping onto a man passes through his
+// chest band between two steps, and it is his to play (not a deflection off his body). opt: reachEnvelope's. later:
+// 0.5 or 1 when it is inside only that far into the step (a ball still inside at the step's end is played then)
 const BA = {p: {x: 0, y: 0, z: 0}, v: null};
-function envAhead(a, b, h = 1/60){
-  const env = reachEnvelope(a, b);
+const BLK = {speed: false}, HALVES = [1, 0.5];
+// (a ball that will be this close to him by the end of the step is played now: next step it would meet his legs)
+const LATER_MIN = 0.45;
+function envAhead(a, b, opt, h = 1/60){
+  const env = reachEnvelope(a, b, opt);
   if (env && env.part !== 'head') return env;
-  for (const f of [0.5, 1]){
+  for (const f of HALVES){
     const t = f*h;
     BA.p.x = b.p.x + b.v.x*t; BA.p.y = b.p.y + b.v.y*t - 0.5*G*t*t; BA.p.z = b.p.z + b.v.z*t; BA.v = b.v;
-    const e2 = reachEnvelope(a, BA);
-    if (e2 && e2.part !== 'head') return e2;
+    const e2 = reachEnvelope(a, BA, opt);
+    if (e2 && e2.part !== 'head'){ e2.later = f; return e2; }
   }
   return env;
 }
@@ -488,7 +646,14 @@ function dribbleKick(ms, a){
   // wide is brought back on the next one rather than drifting off his line (WP-F)
   const dl = hypot(d.dx, d.dz) || 1, ux = d.dx/dl, uz = d.dz/dl;
   const along = (b.p.x - a.m.x)*ux + (b.p.z - a.m.z)*uz + 3.0;
-  let kx = a.m.x + ux*along - b.p.x, kz = a.m.z + uz*along - b.p.z;
+  // shielding (P2b-A): the line is kept on his far side from the defender, so the ball runs on the far foot
+  let ox = 0, oz = 0;
+  const sh = a.shield && a.shield.on && a.shield.by >= 0 ? ms.agents[a.shield.by] : null;
+  if (sh){
+    const rx = -uz, rz = ux, side = (sh.m.x - a.m.x)*rx + (sh.m.z - a.m.z)*rz >= 0 ? -1 : 1;
+    ox = rx*side*SHIELD_LAT; oz = rz*side*SHIELD_LAT;
+  }
+  let kx = a.m.x + ox + ux*along - b.p.x, kz = a.m.z + oz + uz*along - b.p.z;
   const kl = hypot(kx, kz) || 1; kx /= kl; kz /= kl;
   const dt = dribbleTouch(a, b, {x: kx, z: kz}, vv, {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
     walk: vv < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small}, ms.r);
@@ -500,6 +665,60 @@ function dribbleKick(ms, a){
   return true;
 }
 function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
+const SHIELD_LAT = 0.3;     // a shielder's dribble runs this far to his far side of the line
+
+/* ---------- the shield (spec 3, P2b-A) ---------- */
+
+// The shield, for the man on the ball whose intent asks for it (a.intent.shield: control.js for the player, brain.js for
+// the AI): a.shield = {on, by (the defender he shields from, -1 for none), since, S, D, touchT}. While it is on he goes
+// at no more than SH_SPEED of his jog, turns his back to the defender (the body between the man and the ball), keeps
+// the ball on his far side (a soft touch to SH_BALL m beyond him from the defender, at most every 0.25 s), and it costs
+// breath (stamina.js stamShield: a base cost, more for each point the defender's D is over his S). A challenge on him is
+// resolved in sim.js (shieldChallenges), a tackle by the tackle formula with his S for C (touch.js tackleOutcome).
+const RS1 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, RS2 = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0};
+// Does he ask to shield? intent.shield (the player's controls; the AI's once brain.js sets it, P2b-B), or, for an AI
+// carrier until then, the brain's own shield stance: no dribble on, a.state 'shield' (carrierMove: holding the ball with
+// an opponent within 3 m). The stance has always meant to keep the body between the man and the ball; the engine now
+// carries it out (the back to him, the ball on the far foot) instead of a walk to a spot beside the ball.
+export function wantsShield(ms, a){
+  if (a.intent.shield) return true;
+  return (!a.isMe || ms.meAI) && !a.drib && a.state === 'shield';
+}
+export function shieldStep(ms, a, h){
+  const I = a.intent, b = ms.ball;
+  const on = wantsShield(ms, a) && ms.poss.ctl === a.id && b.state === 'free' && ms.phase === 'live' && !(a.act && !a.act.done);
+  if (!on){ if (a.shield) a.shield.on = false; return false; }
+  const sh = a.shield || (a.shield = {on: false, by: -1, since: 0, S: 0, D: 0, touchT: -9});
+  if (!sh.on){ sh.on = true; sh.since = ms.t; }
+  // the defender: the nearest opponent who can play within SH_NEAR
+  let o = null, od = TUNE.SH_NEAR.value;
+  for (const x of ms.agents){
+    if (x.team === a.team || x.team < 0 || !x.onPitch || x.role !== 'player') continue;
+    const dd = hypot(x.m.x - a.m.x, x.m.z - a.m.z);
+    if (dd < od){ od = dd; o = x; }
+  }
+  sh.by = o ? o.id : -1;
+  sh.S = ratings(a.at, RS1).S; sh.D = o ? ratings(o.at, RS2).D : 0;
+  I.speedCap = Math.min(I.speedCap, TUNE.SH_SPEED.value*a.prm.jog);
+  if (I.gait === 'sprint' || I.gait === 'run') I.gait = 'jog';
+  if (o){
+    const ux = a.m.x - o.m.x, uz = a.m.z - o.m.z, ul = hypot(ux, uz) || 1;
+    const f = a.faceV; f.x = ux/ul; f.z = uz/ul; I.face = f;
+    // the ball on the far side: a soft touch to the spot beyond him, rolling to rest there with his own speed on top
+    const sx = a.m.x + f.x*TUNE.SH_BALL.value, sz = a.m.z + f.z*TUNE.SH_BALL.value;
+    const ex = sx - b.p.x, ez = sz - b.p.z, ed = hypot(ex, ez), bd = hypot(b.p.x - a.m.x, b.p.z - a.m.z);
+    if (ed > 0.25 && bd < 1.3 && b.p.y < 0.5 && ms.t - sh.touchT > 0.25){
+      const v = Math.min(3, Math.sqrt(2*(b.rollDecel || 1.1)*ed));
+      ballKick(b, {x: (a.m.vx || 0) + ex/ed*v, y: 0, z: (a.m.vz || 0) + ez/ed*v}, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+      logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, shield: true});
+      chainKeep(ms, a);
+      refreshPred(ms);
+      sh.touchT = ms.t;
+    }
+  }
+  stamShield(a.st, h, o ? sh.D - sh.S : -Infinity, TUNE.SH_B0.value, TUNE.SH_BK.value);
+  return true;
+}
 const RB2 = {ahead: 0, lat: 0, dist: 0}, RB3 = {ahead: 0, lat: 0, dist: 0};
 const DRIB_CLOSE = 0.6, DRIB_FOOT_DT = 0.4;      // (a footfall comes about every 0.3 to 0.4 s at a jog)
 
@@ -513,37 +732,78 @@ export function nudge(ms, a, dx, dz, k = 1.4){
   refreshPred(ms);
 }
 
-/* ---------- tackles (3.1.4, 3.2.9) ---------- */
+/* ---------- tackles (3.1.4, 3.2.9, spec 3) ---------- */
 
-// Begin a tackle on the carrier: 'stand' (wind-up 0.12 s, active 0.25 s), 'poke' or 'slide' (committed 1.1 s, 0.8 s on
-// the ground). What the sweep meets first is decided at the start from the positions and velocities (touch.js), with
-// the AI's timing error (sigma 0.12 (1 - tackling/110) s) moving where it aims; it is applied when it happens.
+// Begin a tackle: 'stand' (wind-up 0.12 s, active 0.25 s), 'poke' or 'slide'. carrier: the man on the ball, or null
+// for a loose ball (ball-8: the tackle is aimed at where the ball will be when the foot gets there). What the sweep
+// meets first, and whether it wins (the T against C logistic with the timing and the angle), is decided at the start
+// from the positions and velocities (touch.js tackleOutcome), with the AI's timing error (sigma 0.12 (1 - tackling/110)
+// s) moving where it aims; it is applied when it happens. A loose ball another player of the other side also has in
+// reach is a 50/50 (duel.p5050). A slide carries the run-in: it starts at his speed along the way he runs (at least a
+// lunge's), slides to a stop on grass friction, and he gets up after duel.recovery (longer after a miss; P2b-A, ball-7).
+// The act carries {contact: {x, y, z} (where the foot meets the ball or the man), tc, side ('L' | 'R', the ball's side
+// of him), outcome, v0} for the animation (P2b-B).
 export function startTackle(ms, a, kind, carrier, timingErr = 0){
   const b = ms.ball;
-  const aimT = Math.max(0, timingErr);
-  const target = {x: b.p.x + b.v.x*aimT, z: b.p.z + b.v.z*aimT};
-  if (timingErr < 0){ target.x += b.v.x*timingErr*0.5; target.z += b.v.z*timingErr*0.5; }
-  const out = tackleOutcome(a, carrier, b, {kind, target, t: 0}, {tackling: a.at.tackling, dribbling: carrier.at.dribbling}, ms.r);
   const K = kind === 'slide' ? null : kind === 'poke' ? TACKLE.poke : TACKLE.stand;
-  const prof = kind === 'slide' ? slideProfile(a.at.tackling) : null;
-  const tEff = out.result === 'foul' ? out.tLeg : out.result === 'miss' ? (K ? K.wind + K.active : prof.tStop) : out.tBall;
-  const dur = kind === 'slide' ? prof.commit + prof.ground : (K.wind + K.active + 0.25);
+  // the slide's run-in
+  const vx = a.m.vx || 0, vz = a.m.vz || 0, v = hypot(vx, vz);
+  const prof = kind === 'slide' ? slideProfile(v, sprintSpeed(a.prm, a.fac || undefined)) : null;
+  // the foot goes for where the ball will be as it comes through (mid-sweep, or the slide's foot at its reach), off
+  // by the timing error
+  const tMid = (K ? K.wind + K.active/2 : prof.tActive*0.5) + timingErr;
+  const PA = predAt(ms, Math.max(0, tMid), {x: 0, y: 0, z: 0});
+  const target = {x: PA.x, z: PA.z};
+  // a slide goes the way he runs (his momentum), else toward the ball
+  let sweepTarget = target;
+  if (prof && v > 1.5) sweepTarget = {dx: vx/v, dz: vz/v};
+  const out = tackleOutcome(a, carrier, b, {kind, target: sweepTarget, t: 0, prof}, {tackling: a.at.tackling}, ms.r);
+  // a loose ball someone of theirs can also play: a 50/50 for it
+  let rival = null;
+  if (!carrier && (out.result === 'won' || out.result === 'poke')){
+    let rd = Infinity;
+    for (const o of ms.agents){
+      if (o.team === a.team || o.team < 0 || !canPlay(ms, o)) continue;
+      const dd = hypot(o.m.x - b.p.x, o.m.z - b.p.z);
+      if (dd > 3) continue;
+      const tt = arrivalOf(ms, o, Math.max(0.05, out.tBall + TUNE.DUEL_WIN.value));
+      if (tt <= out.tBall + TUNE.DUEL_WIN.value && dd < rd){ rd = dd; rival = o; }
+    }
+    if (rival){
+      const ra = ratings(a.at, RD1), ro = ratings(rival.at, RD2);
+      const p = p5050(ra.T + ra.C, ro.S + ro.C, 1, fatigueFactor(breathOf(a), breathOf(rival)));
+      out.duel = {other: rival.id, p};
+      if (!(ms.r() < p)){ out.result = 'miss'; out.ridden = true; out.impulse = null; }
+    }
+  }
+  const missed = !(out.result === 'won' || out.result === 'poke' || out.result === 'foul');
+  const tEff = out.result === 'foul' ? (out.tLeg >= 0 ? out.tLeg : out.tBall) : out.tBall >= 0 && !(out.result === 'miss' && !out.ridden) ? out.tBall : (K ? K.wind + K.active : prof.tActive);
+  const rec = prof ? recovery(a.at.agility, missed) : 0;
+  const dur = prof ? prof.tStop + rec : (K.wind + K.active + 0.25);
   const dx = target.x - a.m.x, dz = target.z - a.m.z, dl = hypot(dx, dz) || 1;
-  a.act = {kind: kind === 'slide' ? 'slide' : 'tackle', sub: kind, t: 0, dur, tEff: Math.max(0.02, tEff), out, on: carrier.id, done: false,
-    dir: {x: dx/dl, z: dz/dl}, x0: a.m.x, z0: a.m.z, prof, tc: Math.max(0.02, tEff)};
+  const f = dirOf(a.m.yaw), lat = (b.p.x - a.m.x)*(-f.z) + (b.p.z - a.m.z)*f.x;
+  const sdir = prof && v > 1.5 ? {x: vx/v, z: vz/v} : {x: dx/dl, z: dz/dl};
+  a.act = {kind: kind === 'slide' ? 'slide' : 'tackle', sub: kind, t: 0, dur, tEff: Math.max(0.02, tEff), out, on: carrier ? carrier.id : -1, done: false,
+    dir: sdir, x0: a.m.x, z0: a.m.z, prof, tc: Math.max(0.02, tEff), rec, missed,
+    contact: out.contact || {x: target.x, y: R, z: target.z}, d0: hypot(b.p.x - a.m.x, b.p.z - a.m.z), geo: out.tBall >= 0 ? (out.tLeg >= 0 && out.tLeg < out.tBall ? "leg" : "ball") : out.tLeg >= 0 ? "leg" : "none", side: lat >= 0 ? 'R' : 'L', outcome: out.result, v0: prof ? prof.v0 : 0,
+    sv: prof ? {x: a.m.x, z: a.m.z, vx: sdir.x*prof.v0, vz: sdir.z*prof.v0} : null};
   a.state = kind === 'slide' ? 'slide' : 'tackle'; a.stateT = 0;
   stamAction(a.st, kind === 'slide' ? 'slide' : 'tackle');
   a.cool.tackle = ms.t + dur + 0.4;
+  if (prof) a.recoverT = ms.t + dur;
   return a.act;
 }
 function tackleApply(ms, a, act){
   act.done = true;
-  const b = ms.ball, out = act.out, c = ms.agents[act.on];
+  const b = ms.ball, out = act.out, c = act.on >= 0 ? ms.agents[act.on] : null;
   let result = out.result;
   // the carrier may have touched the ball on since the tackle began: a ball no longer where the sweep goes is missed
   if ((result === 'won' || result === 'poke') && hypot(b.p.x - a.m.x, b.p.z - a.m.z) > (act.sub === 'slide' ? 2.2 : 1.5)) result = 'miss';
   if (result === 'foul' && (!c || hypot(c.m.x - a.m.x, c.m.z - a.m.z) > 2.2)) result = 'miss';
-  const ev = logEv(ms, 'tackle', a.team, a.id, a.m.x, a.m.z, {on: act.on, result, won: result === 'won', type: act.sub});
+  // (a loose ball the carrier has since lost to someone else is played as it lies: the race decides after)
+  const ev = logEv(ms, 'tackle', a.team, a.id, a.m.x, a.m.z, {on: act.on, result, won: result === 'won', type: act.sub,
+    p: Math.round((out.p != null ? out.p : 1)*1000)/1000, timing: Math.round((out.timing != null ? out.timing : 1)*100)/100,
+    dt: Math.round((out.dt || 0)*1000)/1000, ridden: !!out.ridden, late: !!out.late, loose: act.on < 0, d0: Math.round(act.d0*100)/100, geo: act.geo});
   if (result === 'won' || result === 'poke'){
     ballKick(b, out.impulse, null, {agent: a.id, team: a.team, kind: 'tackle', t: ms.t});
     const tev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'tackle', quality: result === 'won' ? 1 : 0.4});
@@ -737,6 +997,8 @@ function throwRelease(ms, a, act){
 export function actionStep(ms, a, h){
   const I = a.intent;
   if (I.action && !a.act){ startAction(ms, a, I.action); I.action = null; }
+  // the shield (P2b-A): its stance, its speed cap, the ball on the far foot and its breath
+  if (I.shield || a.state === 'shield' || a.shield && a.shield.on) shieldStep(ms, a, h);
   // setting off with the ball from standing (a.drib.start, the player's controls): the first stride plays it on, before
   // the body can run over it (the footfalls come half a stride later)
   if (!a.act && a.drib && a.drib.start && ms.poss.ctl === a.id && ms.phase === 'live' && ms.ball.state === 'free'){
@@ -791,12 +1053,13 @@ export function actionStep(ms, a, h){
       break;
     }
     case 'slide': {
-      // the body slides along the tackle's line (slideRoot's curve), then lies 0.8 s, then gets up
-      const p = act.prof, s = slideDistance(p, act.t), sPrev = slideDistance(p, Math.max(0, act.t - h));
-      const step = s - sPrev;
-      a.m.x += act.dir.x*step; a.m.z += act.dir.z*step;
-      a.m.vx = act.dir.x*Math.max(0, p.v0 - p.decel*act.t); a.m.vz = act.dir.z*Math.max(0, p.v0 - p.decel*act.t);
-      a.m.speed = hypot(a.m.vx, a.m.vz);
+      // the body slides on its own momentum, slowed by the grass (duel.slideStep: mu g), then lies until he is up
+      // again (duel.recovery: from his agility, longer after a miss)
+      const p = act.prof, sv = act.sv;
+      sv.x = a.m.x; sv.z = a.m.z;
+      slideStep(sv, h);
+      a.m.x = sv.x; a.m.z = sv.z; a.m.vx = sv.vx; a.m.vz = sv.vz;
+      a.m.speed = hypot(sv.vx, sv.vz);
       a.slideMoved = true;
       if (!act.done && act.t >= act.tEff) tackleApply(ms, a, act);
       a.state = act.t < p.tStop ? 'slide' : 'ground';
@@ -838,8 +1101,15 @@ export function startAction(ms, a, rq){
   switch (rq.kind){
     case 'shot': case 'pass': case 'through': case 'cross': case 'lob': case 'clear': case 'goalkick': case 'punt': case 'roll':
       return startKick(ms, a, rq);
-    case 'tackle': { const c = ms.agents[ms.poss.ctl]; if (c && c.team !== a.team) return startTackle(ms, a, rq.sub || 'stand', c, 0); return null; }
-    case 'slide': { const c = ms.agents[ms.poss.ctl] || null; if (c && c.team !== a.team) return startTackle(ms, a, 'slide', c, 0); return null; }
+    case 'tackle': case 'slide': {
+      // rq.target: an agent id (the man on the ball), 'ball' (a loose ball, ball-8), or none: the man on the ball if
+      // he is theirs, else the ball when nobody has it
+      const kind = rq.kind === 'slide' ? 'slide' : (rq.sub || 'stand'), tg = rq.target;
+      const c = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
+      if (tg !== 'ball' && c && c.team !== a.team && (tg == null || tg === c.id)) return startTackle(ms, a, kind, c, 0);
+      if ((tg === 'ball' || tg == null) && ms.poss.ctl < 0 && ms.ball.state === 'free') return startTackle(ms, a, kind, null, 0);
+      return null;
+    }
     case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1, !!rq.dive, rq.ballY != null ? rq.ballY : null);
     case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':
@@ -850,8 +1120,9 @@ export function startAction(ms, a, rq){
   }
 }
 
-// the ball held by a body follows the hands (keeper, a restart taker); a free ball near a controller that has run
-// away from him is no longer under his control
+// the ball held by a body follows the hands (keeper, a restart taker); a free ball that has run away from its
+// controller (above 1.8 m, or further than TUNE.CTL_FAR) is no longer under his control. Whether a ball nearer him is
+// still his is the race's (touchCheck's contest): this only clears the obvious cases before it
 export function controlCheck(ms){
   const c = ms.poss.ctl;
   if (c < 0) return;
@@ -859,7 +1130,7 @@ export function controlCheck(ms){
   if (!a || !a.onPitch){ clearCtl(ms); return; }
   if (b.state === 'held') return;
   const d = hypot(b.p.x - a.m.x, b.p.z - a.m.z);
-  if (d > ACT.LOSE_CTL || b.p.y > 1.8){ clearCtl(ms); a.drib = null; }
+  if (d > TUNE.CTL_FAR.value || b.p.y > 1.8){ clearCtl(ms); a.drib = null; }
 }
 
 export {ballHold};

@@ -1,12 +1,13 @@
 // qa/unit/stamina.mjs: js/life/stamina.js under plain node (and with the mover, for the speed factors).
-// Owner: WP-0D, contract DESIGN 1.4.7; numbers 1.5.2; acceptance 2.2 WP-0D and the stamina rows of 4.1.
+// Owner: WP-0D, then P2b-A (the shield's breath, stamShield). Contract DESIGN 1.4.7 and BUILD-PLAN Phase 2b; numbers
+// 1.5.2; acceptance 2.2 WP-0D and the stamina rows of 4.1.
 //
 //   node qa/unit/stamina.mjs    exits 1 on any failed check; writes qa/out/unit-stamina.json
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {STAM, createStam, stamCap, stamSetCap, stamStep, stamAction, stamFactors, effortOf, effF, ksOf, FRESH,
-  energyPerMatchMinute, matchIntensity, matchFatigue} from "../../js/life/stamina.js";
+  energyPerMatchMinute, matchIntensity, matchFatigue, SHIELD, shieldRate, stamShield} from "../../js/life/stamina.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../../js/life/mover.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -140,6 +141,21 @@ for (const stamina of [50, 99]){
   const z = createStam({});
   for (let i = 0; i < 1000; i++){ stamStep(z, i % 3 ? h : 0, ['stand', 'walk', 'jog', 'run', 'sprint'][i % 5], {}); if (!Number.isFinite(z.B) || z.B < 0 || z.B > z.cap) finite = false; }
   check(finite, "defaults: no NaN, breath within [0, cap]");
+}
+
+// the shield's breath (P2b-A, spec 3): a base cost a second, more for each point the defender's D is over the shielder's
+// S, nothing extra against a weaker one; it holds off the recovery while he shields; never below zero
+{
+  check(shieldRate(-20) === SHIELD.B0 && shieldRate(null) === SHIELD.B0 && Math.abs(shieldRate(20) - (SHIELD.B0 + 20*SHIELD.K)) < 1e-12 && shieldRate(10, 1, 0.1) === 2,
+    "shieldRate: B0 a second, + K a second for every point D is over S (none when he is the stronger)", [shieldRate(-20), shieldRate(20)]);
+  const st = createStam({stamina: 50});
+  st.B = 60;
+  let c = 0;
+  for (let i = 0; i < 60; i++){ c += stamShield(st, h, 20); stamStep(st, h, 'stand', {stamina: 50, eF: 1}); }
+  check(Math.abs(c - shieldRate(20)) < 1e-9 && Math.abs(st.B - (60 - shieldRate(20))) < 1e-9 && Math.abs(st.acc.shield - c) < 1e-12 && Math.abs(st.acc.shieldT - 1) < 1e-9,
+    "a second of shielding against D - S = +20 costs shieldRate(20) and holds off the standing recovery", {B: r2(st.B), cost: r2(c)});
+  const e0 = createStam({}); e0.B = 0.01;
+  check(stamShield(e0, 1, 50) <= 0.01 + 1e-12 && e0.B === 0, "the shield never takes the breath below zero");
 }
 
 // purity (DESIGN 1.2, P)

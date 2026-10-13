@@ -8,6 +8,7 @@
 // the player's id (rng.js hashStr), not a random draw.
 
 import {hashStr} from "./rng.js";
+import {TUNE} from "./tune.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const r1 = v => Math.round(v*10)/10;
@@ -47,7 +48,26 @@ export const SPEED_KEYS = Object.freeze(["acceleration", "sprintSpeed"]);
 // the attributes that are not career skills, from the ones that are (both paths use the same formulas):
 // ctrl (Ball Control) = 0.65 dribbling + 0.2 composure + 0.15 passing (+5 with the control boots), pacc = 0.65 passacc
 // + 0.35 passing, agility = (acceleration + dribbling)/2, vision and decision from passing, composure and the reading
-// of the game
+// of the game.
+//
+// The duel stats of TRAINING-SPEC section 3 (P2b-A, ball-4 and ATTR-1). The spec names seven stats; the game has four
+// of them and the other three are derived here from the real skills (the coefficients are tunables, tune.js MAP_*):
+//
+//   spec stat      the game's attribute
+//   BallControl    ctrl (derived above)
+//   Agility        agility (derived above)
+//   Composure      composure (a career skill)
+//   Tackling       tackling (a career skill)
+//   Strength       strength = 0.75 power + 0.25 jumping (Shot power is what the gym's strength sets train)
+//   Balance        balance = 0.4 agility + 0.3 ctrl + 0.3 power
+//   DefAwareness   defAware = 0.6 interception + 0.25 composure + 0.15 tackling
+//
+// levelled() and raised() derive them again with the rest. A record made before they existed (an old checkpoint, a
+// test's bare record) reads them through strengthOf, balanceOf and defAwareOf, which work them out the same way.
+const num = v => v == null || !Number.isFinite(+v) ? 50 : +v;
+export const strengthOf = a => a && a.strength != null ? +a.strength : clamp(TUNE.MAP_STR_POW.value*num(a && a.power) + TUNE.MAP_STR_JMP.value*num(a && a.jumping), 1, 99);
+export const balanceOf = a => a && a.balance != null ? +a.balance : clamp(TUNE.MAP_BAL_AGI.value*num(a && a.agility) + TUNE.MAP_BAL_CTL.value*num(a && a.ctrl) + TUNE.MAP_BAL_POW.value*num(a && a.power), 1, 99);
+export const defAwareOf = a => a && a.defAware != null ? +a.defAware : clamp(TUNE.MAP_DEF_INT.value*num(a && a.interception) + TUNE.MAP_DEF_CMP.value*num(a && a.composure) + TUNE.MAP_DEF_TKL.value*num(a && a.tackling), 1, 99);
 function derive(a, o = {}){
   if (a.acceleration == null) a.acceleration = a.pace;
   if (a.sprintSpeed == null) a.sprintSpeed = a.pace;
@@ -59,6 +79,8 @@ function derive(a, o = {}){
   const read = o.dec != null ? clamp(+o.dec, 0, 100) : 0.5*(a.composure + a.passing);
   a.vision = clamp(0.5*a.passing + 0.2*a.passacc + 0.3*a.composure, 1, 99);
   a.decision = clamp(0.6*(0.5*a.composure + 0.5*a.passing) + 0.4*read, 1, 99);
+  a.strength = null; a.balance = null; a.defAware = null;
+  a.strength = strengthOf(a); a.balance = balanceOf(a); a.defAware = defAwareOf(a);
   return a;
 }
 
