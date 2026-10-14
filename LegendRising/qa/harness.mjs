@@ -224,6 +224,7 @@ for (const c of checks) console.log(`${c.gate === "ok" ? "ok  " : c.gate} ${c.na
 if (!ACCEPTANCE) console.log(`(not the acceptance run, seeds 1 to 1000: "miss" is a band missed by less than two standard errors, reported and not gated)`);
 console.log(`me by archetype: ${JSON.stringify(Object.fromEntries(Object.entries(R.me).map(([k, m]) => [k, {n: m.n, touches: +m.touches.toFixed(1), touchesAll: +m.touchesAll.toFixed(1), shots: +m.shots.toFixed(2), def: +m.defActs.toFixed(1), gap: Math.round(m.gapP95), trust: +m.trust.toFixed(2), rating: +m.rating.toFixed(2), posDisc: +m.pd.toFixed(2), judged: +m.trustJ.toFixed(2)}])))}`);
 for (const [k, m] of Object.entries(R.me)) console.log(`  ${k} moments a match: ${JSON.stringify(m.moments)}`);
+console.log(`passes received because the player called (U10, apart from the preference share): ${fmt(R.callShare)} (${R.called})`);
 if (R.ratingBy) console.log(`starters' ratings by archetype: ${JSON.stringify(R.ratingBy)}`);
 if (R.assertSeeds && R.assertSeeds.length) console.log(`seeds with a failed assert: ${R.assertSeeds.join(", ")}`);
 console.log(`kicks: ${JSON.stringify(R.kinds)} controlled ${fmt(R.ctlSec)} s`);

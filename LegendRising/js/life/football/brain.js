@@ -24,7 +24,7 @@ import {logEv} from "./events.js";
 import {decisionRecord} from "./judge.js";
 import {steer, standStill, faceTo, startKick, startTackle, startHeader, startThrow, passSpeedFor, loftSpeedFor, pressureOn,
   canStrike, nudge, predAt, startAction} from "./actions.js";
-import {jumpHeight} from "./agent.js";
+import {jumpHeight, raiseHand} from "./agent.js";
 import {exp, hypot, sin, cos, atan2, pow} from "./detmath.js";
 import {R as zoneR, q as zoneQ, ratings, breathOf} from "./zone.js";
 import {pShieldLoss, pTackleWin, shieldAngle, angleFactor, fatigueFactor, standReach, slideReach} from "./duel.js";
@@ -1650,7 +1650,7 @@ export function brainStep(ms, h){
       steer(a, p.x, p.z, 'sprint', 0.15);
       if (!a.act && tLeft < 0.75 && tLeft > 0.12){
         const hd = p.hdr || {intent: 'clear'};
-        startHeader(ms, a, tLeft, hd.intent, hd.target, 1);
+        startHeader(ms, a, tLeft, hd.intent, hd.target, 1, false, p.y != null ? p.y : null);   // (U7) the leap sized to the ball, as the player's is
         a.act.recv = -1;
       }
       if (tLeft < -0.2) a.plan = null;
@@ -1718,7 +1718,7 @@ function mateCalls(ms, me){
   const best = opts[0].V;
   for (const x of opts.slice(0, 2)){
     if (x.V < 0.6*best || ms.t - (x.o.lastCall || -99) < BRAIN.CALL_COOL) continue;
-    x.o.lastCall = ms.t;
+    x.o.lastCall = ms.t; raiseHand(x.o, ms.t);
     logEv(ms, 'call', x.o.team, x.o.id, x.o.m.x, x.o.m.z, {how: 'here', to: me.id});
   }
 }
@@ -1748,7 +1748,7 @@ function aiMeCall(ms){
 // a call for the ball (the player's R, or the AI player's): the preference for 2.5 s, half within 20 s of the last
 export function callFor(ms, a, how = 'here', point = null){
   const k = ms.t - (a.lastCall || -99) < BRAIN.CALL_HALF ? 0.5 : 1;
-  a.lastCall = ms.t; a.calls++;
+  a.lastCall = ms.t; a.calls++; raiseHand(a, ms.t);
   ms.call = {agent: a.id, t: ms.t, k, how, point};
   ms.pref.calls++;
   // (U10) the man on the ball hears it now: his next look at his options comes at once, not on his own cadence

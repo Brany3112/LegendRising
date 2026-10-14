@@ -24,7 +24,7 @@ import {p5050, fatigueFactor, slideStep, recovery, standReach, shieldAngle} from
 import {logEv, chainKick, chainControl, chainKeep, chainTouch} from "./events.js";
 import {onKick, onTouch, setCtl, clearCtl, foul, restartTaken} from "./rules.js";
 import {xgAt, decisionRecord} from "./judge.js";
-import {jumpHeight} from "./agent.js";
+import {jumpHeight, raiseHand} from "./agent.js";
 import {jumpRoot} from "./gkplan.js";
 import {sprintSpeed} from "../mover.js";
 import {dirOf, yawOf, wrapA, inBox} from "./pitchspec.js";
@@ -1162,7 +1162,7 @@ export function startAction(ms, a, rq){
     case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':
       logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how: rq.how || 'here', px: rq.target ? rq.target.x : null, pz: rq.target ? rq.target.z : null});
-      a.lastCall = ms.t; a.calls++;
+      a.lastCall = ms.t; a.calls++; raiseHand(a, ms.t);
       return null;
     default: return null;
   }

@@ -166,6 +166,9 @@ try {
       out.excite = m.length ? m[0].material.uniforms.uExcite.value : null;
       out.goalEnd = m.length ? m[0].material.uniforms.uGoalEnd.value : null;
       out.time = m.length ? +m[0].material.uniforms.uTime.value.toFixed(3) : null;
+      // (on Low the crowd is drawn as blocks with no billboard material: since UF-B moved the bench people to real
+      // bodies, the bench billboard that used to carry these uniforms there is gone, so nothing on Low has them)
+      out.kind = c.stats().kind; out.uniforms = m.length;
       // three substitutes left on the home bench
       out.bench = c.setBench("home", 3);
       // the spare balls: one taken off its cone and put back
@@ -179,7 +182,7 @@ try {
       return out;
     });
     res.checks.api = a;
-    if (a.excite !== .9 || a.goalEnd !== 1 || !(a.time > 0)) fail("api", `crowd uniforms ${JSON.stringify(a)}`);
+    if (!(a.kind === "blocks" && a.uniforms === 0) && (a.excite !== .9 || a.goalEnd !== 1 || !(a.time > 0))) fail("api", `crowd uniforms ${JSON.stringify(a)}`);
     if (a.bench !== 3) fail("api", `bench ${a.bench}`);
     if (a.cones !== 17 || a.cones !== a.specCones || !a.take || a.takeAgain || !a.put) fail("api", `cones ${JSON.stringify(a)}`);
     if (!a.board) fail("api", "the scoreboard did not redraw");

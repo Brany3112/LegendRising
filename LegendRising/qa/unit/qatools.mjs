@@ -85,7 +85,9 @@ for (const a of b) { q(); }`);
     "motivation-writes": ["js/daily.js", "S.player.motivation += 2;\nS.player.motivation = 60;\nS.player.motivation--;", "if (S.player.motivation < 35) x();\nconst m = S.player.motivation;\nfunction motivationAdd(d){ S.player.motivation = clamp(S.player.motivation + d, 0, 100); }"],
     "inv-writes": ["js/ui/main.js", "S.inv[id]--;\nS.inv.drink = 0;\ndelete S.inv.x;", "if (!S.inv[id]) return;\nfunction consume(id){ S.inv[id]--; }"],
     "hours-literals": ["js/life/intro.js", "note(\"Training starts at 10:00 AM.\");", "note(`Training starts at ${fmtTime(SESSION.start)}.`); // 10:00 AM"],
-    "engine-names": ["css/style.css", "#pitch{display:block}", "#pitchlines{display:block}"]
+    "engine-names": ["css/style.css", "#pitch{display:block}", "#pitchlines{display:block}"],
+    "train-no-career-writes": ["js/life/train/runner.js", "saveNow();\npersist(S);\ntrustAdd(2);\nS.money += 5;\nlifeOnb.done = 1;", "const m = S && S.money;\nif (S.day === 3) x(); // saveNow() is not allowed\nnote(\"saveNow\");"],
+    "train-no-engine-copies": ["js/life/train/runner.js", "function simStep(ms){}\nconst ballStep = (b) => b;", "simStep(ms, 1/60);\nballStep(b, bw, 1/60); // function createMatch(){}"]
   };
   for (const r of cfg.rules){
     if (r.kind === "importmap"){ check(`rule ${r.id} is understood`, Array.isArray(r.files)); continue; }

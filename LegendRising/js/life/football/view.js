@@ -37,6 +37,7 @@ import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
 import {R as zoneR, part as zonePart} from "./zone.js";
 import {standReach, pokeReach, slideDecel} from "./duel.js";
+import {raiseHand} from "./agent.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -44,23 +45,26 @@ const CELEB = ["armsUp", "fistPump", "runArmsOut", "kneeSlide"];
 
 /* ---------- looks ---------- */
 // the kits of a match: {home:[shirt, shorts], away:[...]} from the configuration's teams; keepers and officials in
-// colours clear of both (clashFree through lookFor's avoid)
+// colours clear of both (clashFree through lookFor's avoid), or in the colours kitclash.js resolved for them (kits.gk,
+// kits.ref: UF-B, USER-ISSUES U11) when the configuration carries them
 export function matchLooks(ms, kits, meLook){
   const K = [kits.home || ["#2c66b8", "#ffffff"], kits.away || ["#c8463a", "#ffffff"]];
   const kitCols = [K[0][0], K[0][1], K[1][0], K[1][1]];
   const gk = [null, null];
+  const gkX = t => kits.gk && kits.gk[t] ? {outfit:{shirt:kits.gk[t], socks:kits.gk[t]}} : {};
+  const refX = kits.ref ? {kit:[kits.ref, "#16171a"], avoid:[]} : {};
   for (const t of [0, 1]){
     const id = ms.gks[t] >= 0 ? ms.gks[t] : t;
     const a = ms.agents[id] || {pid:t, number:1};
     const avoid = kitCols.concat(t === 1 && gk[0] ? [gk[0].outfit.shirt] : []);
-    gk[t] = lookFor("goalkeeper", (a.pid > 0 ? a.pid : 3 + t) % 100000, {kit:K[t], avoid, number:a.number || 1, sex:"m"});
+    gk[t] = lookFor("goalkeeper", (a.pid > 0 ? a.pid : 3 + t) % 100000, Object.assign({kit:K[t], avoid, number:a.number || 1, sex:"m"}, gkX(t)));
   }
   const offAvoid = kitCols.concat([gk[0].outfit.shirt, gk[1].outfit.shirt]);
   const of = (a, p) => {
-    if (a.role === "referee") return lookFor("referee", 22, {avoid:offAvoid, sex:"m"});
-    if (a.role === "ar") return lookFor("linesman", a.id, {avoid:offAvoid, sex:"m"});
+    if (a.role === "referee") return lookFor("referee", 22, Object.assign({avoid:offAvoid, sex:"m"}, refX));
+    if (a.role === "ar") return lookFor("linesman", a.id, Object.assign({avoid:offAvoid, sex:"m"}, refX));
     if (a.isMe && meLook) return meLook;
-    if (a.isGK || (p && p.isGK)) return lookFor("goalkeeper", ((a.pid > 0 ? a.pid : a.id) % 100000), {kit:K[a.team], avoid:offAvoid.concat([gk[1 - a.team].outfit.shirt]), number:a.number || 1, sex:"m"});
+    if (a.isGK || (p && p.isGK)) return lookFor("goalkeeper", ((a.pid > 0 ? a.pid : a.id) % 100000), Object.assign({kit:K[a.team], avoid:offAvoid.concat([gk[1 - a.team].outfit.shirt]), number:a.number || 1, sex:"m"}, gkX(a.team)));
     return lookFor("footballer", a.pid > 0 ? a.pid % 100000 : a.id + 1, {kit:K[a.team], number:a.number || 0, sex:"m"});
   };
   return {of, gk, K};
@@ -226,7 +230,9 @@ function animAgent(V, R, dt, tier){
   if (st.groupY != null) h.g.position.y = st.groupY;
   if (st.groupAt){ h.g.position.x = st.groupAt.x; h.g.position.z = st.groupAt.z; }
   const ev = animateHuman(h, dt, st, {tier:R.hidden ? 4 : tier});
-  if (R.clip && (ev.mask & EV.END)) R.clip = null;
+  // (a clip that has played to its end is not started again for the same act: a slide or a header is not replayed
+  // while its act lingers, UF-A U7)
+  if (R.clip && (ev.mask & EV.END)){ R.doneAct = R.clip.ref; R.clip = null; }
   R.lastEv = ev.mask;
 }
 /* ---------- the throw-in in the hands (UF-A, USER-ISSUES U6) ----------
@@ -259,11 +265,13 @@ function throwHold(V, R, a, ms){
   c.ball.x = p0.x + (b.x - p0.x)*al; c.ball.y = p0.y + (b.y - p0.y)*al; c.ball.z = p0.z + (b.z - p0.z)*al;
   return c;
 }
-/* the hand raised for the ball (UF-A, USER-ISSUES U10): every request for the pass (agent.js raiseHand, a.handUp) and
-   every call (a.lastCall) raises the caller's hand and drops it again (moves.js 'upper:hand', HAND.END seconds); fp:
-   your own first-person body's version, the hand up in front of your view */
+/* the hand raised for the ball (UF-A, USER-ISSUES U10): every request for the pass raises the caller's hand and drops
+   it again (moves.js 'upper:hand', HAND.END seconds). Every call goes through agent.js raiseHand (brain.js callFor and
+   the AI's calls, actions.js 'call', the controller's handRaise below), so a.handUp alone says where the gesture is,
+   and a second request while the hand is up keeps it up instead of starting it again from the bottom. fp: your own
+   first-person body's version, the hand up in front of your view */
 function handUp(R, a, ms, fp){
-  const k = ms.t - Math.max(a.handUp != null ? a.handUp : -99, a.lastCall != null ? a.lastCall : -99);
+  const k = ms.t - (a.handUp != null ? a.handUp : -99);
   if (!(k >= 0 && k < HAND.END)) return null;
   const key = fp ? "handFP" : "hand", c = R[key] || (R[key] = {g:"hand", w:1, k:0, fp});
   c.k = k;
@@ -336,7 +344,7 @@ function liveSt(V, R, a, ms, dt){
     if (w){ R.clip = w; return w; }
     if (R.clip === R.hold) R.clip = null;
   }
-  if (act){
+  if (act && act !== R.doneAct){
     switch (act.kind){
       case "kick": {
         if (act.adjust && !act.done) break;
@@ -569,6 +577,13 @@ function ring(V, key, p, r, w, color, op){
     V.scene.add(m);
   }
   m.visible = true; m.position.set(p.x, .025, p.z);
+}
+
+// a request for the ball from the controller (UF-B's handRaise, every R press, taken as a call or not): the caller's
+// hand goes up (agent.js raiseHand); the view draws it from a.handUp on his body and, with fp, in your own view
+export function handRaise(V, id, o = {}){
+  const ms = o.ms || (V && V.ms), a = ms && ms.agents ? ms.agents[id] : null;
+  if (a) raiseHand(a, o.t != null ? o.t : ms.t);
 }
 
 export function viewDispose(V){

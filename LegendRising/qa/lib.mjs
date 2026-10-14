@@ -210,6 +210,10 @@ export async function trainingStart(page, {kind = "full", timeout = 120000} = {}
       await page.mouse.click(box.x + box.width/2, box.y + box.height/2);
       via = "button";
       await page.waitForFunction(() => import("/js/life/train/sandbox.js").then(m => m.inTraining()), null, {timeout, polling: 250});
+      // (the button opens the hub over the cage, P3-B: a real Esc closes it, so the cage is played as it is reached)
+      await page.waitForFunction(() => !!window.__trainHub && window.__trainHub.hubOpen(), null, {timeout, polling: 250});
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !window.__trainHub.hubOpen(), null, {timeout, polling: 250});
     }
   }
   await page.evaluate(async kind => {

@@ -141,7 +141,7 @@ export function measure(ms){
     offsides: st.offsides[0] + st.offsides[1], fouls: st.fouls[0] + st.fouls[1], yellows: st.yellows[0] + st.yellows[1],
     reds: st.reds[0] + st.reds[1], possession: st.possSec.slice(), passes: st.passes[0] + st.passes[1], passesOk: st.passesOk[0] + st.passesOk[1],
     asserts: Object.assign({}, ms.asserts), restarts: ms.restartLog.length, seqs5: (ms.chain.seqs[0] + ms.chain.seqs[1])/2,
-    ovr: (ms.cfg.ovr || [0, 0]).slice(), pref: {decided: ms.pref.decided, received: ms.pref.received, calls: ms.pref.calls, capEvents: ms.pref.capEvents}};
+    ovr: (ms.cfg.ovr || [0, 0]).slice(), pref: {decided: ms.pref.decided, received: ms.pref.received, calls: ms.pref.calls, called: ms.pref.called || 0, capEvents: ms.pref.capEvents}};
   // saves and the shots on target they faced (a goal from a shot on target is one the keeper did not stop)
   let saves = 0, faced = 0;
   for (const ev of ms.events){
@@ -405,6 +405,9 @@ export function aggregate(list){
   R.trust = mean(allMe.map(m => m.me.trustD)); R.se.trust = seOf(allMe.map(m => m.me.trustD));
   const dec = list.reduce((a, m) => a + m.pref.decided, 0), rec = list.reduce((a, m) => a + m.pref.received, 0);
   R.prefShare = rec ? dec/rec : 0; R.se.prefShare = seP(R.prefShare, rec);
+  // (passes received because the player called for them, counted apart from the capped preference: UF-B, U10)
+  const cal = list.reduce((a, m) => a + (m.pref.called || 0), 0);
+  R.callShare = rec ? cal/rec : 0; R.called = cal;
   R.prefCaps = list.reduce((a, m) => a + (m.pref.capEvents || 0), 0);
   const thr = list.reduce((a, m) => a + m.through, 0), tho = list.reduce((a, m) => a + m.throughOff, 0);
   R.throughOff = thr ? tho/thr : 0; R.through = thr; R.se.throughOff = seP(R.throughOff, thr);

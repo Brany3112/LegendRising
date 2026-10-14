@@ -38,6 +38,7 @@ import {TUNE} from "./tune.js";
 import {arrivalOf, canPlay} from "./zone.js";
 import {KEYLOCK, ctrlShields, tipFSDue} from "../core/keylock.js";
 import {sprintSpeed} from "../mover.js";
+import {raiseHand} from "./agent.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const DEG = Math.PI/180;
@@ -647,6 +648,7 @@ function isThrow(ms, me){ const R0 = ms.restart; return !!(R0 && !R0.taken && R0
 // with it (CTRL.call.seq: the controller's hand raise). Defending, a held R stays the "Here!" it already was
 CTRL.callHook = null;
 function call(ms, me, how){
+  raiseHand(me, ms.t);                      // (U10) the hand goes up on every press, taken as a call or not
   if (CTRL.ctx === "defend" && how === "behind") return;
   const pt = how === "behind" ? {x:CTRL.ground.x, z:CTRL.ground.z} : null;
   callFor(ms, me, how, pt);

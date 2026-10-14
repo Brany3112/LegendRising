@@ -986,14 +986,13 @@ function bench(dt, real){
   else if ((ms.phase === "fulltime" || ms.phase === "over") && FS.state !== "fulltime") startFulltime();
 }
 const cameOnAllowed = () => !!FS.ms && FS.ms.me < 0;
-// your call for the ball (U10): the HUD's line, and the raised hand. The simulation already marks the call on your agent
-// (brain.js callFor: a.lastCall, which every body seen from outside answers with its arm up, view.js UP_CALL); the clip of
-// the hand going up and coming down, and the arm in your first-person view, is the view's (UF-A's handRaise), called by
-// that name when the view has it
+// your call for the ball (U10): the HUD's line, and the raised hand. Every R press raises it (view.js handRaise, which
+// is agent.js raiseHand on your agent), taken as a call or not; the view draws the hand going up and coming down on your
+// body and, in first person, in your own view
 function handRaise(how){
   hudCallMe(how);
   const ms = FS.ms;
-  if (FS.V && ms && typeof VIEWNS.handRaise === "function") VIEWNS.handRaise(FS.V, ms.me, {how, t: ms.t, fp: FS.V.fpOn});
+  if (FS.V && ms && typeof VIEWNS.handRaise === "function") VIEWNS.handRaise(FS.V, ms.me, {how, t: ms.t, fp: FS.V.fpOn, ms});
 }
 // where the view draws an agent (its body's place this frame), or null when it is not drawn
 function auraPos(id, out){

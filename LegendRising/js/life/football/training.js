@@ -48,12 +48,17 @@ import {startRestart} from "./rules.js";
 import {AUD} from "./audio.js";
 import {logEv, chainKick} from "./events.js";
 import * as TS from "./trainspec.js";
+import {resolveKits} from "./kitclash.js";
 import {CTRL, controlInput, controlStep} from "./control.js";
 import * as CT from "./control.js";
 import {viewInit, viewFrame, viewDispose} from "./view.js";
 import * as VW from "./view.js";
 import * as HUD from "./fphud.js";
 import * as CAM from "./matchcam.js";
+
+// the host's kits as worn: kitclash.js resolves a clash (training bibs against the club's own colours, say) and picks
+// the keepers' and the referee's colours (UF-B, USER-ISSUES U11), as controller.js does for a match
+const kitsOf = host => { const R = resolveKits(host.kits()); return {home:R.home, away:R.away, gk:R.gk, ref:R.ref}; };
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60, R = BALL.R;
@@ -239,7 +244,7 @@ function buildItem(item, who, opts = {}){
     const p = squad.find(q => q.pos === "GK") || nextSquad();
     add(oppTeam, Object.assign(playerRec(p, "GK"), {scale:who.keeper.scale || 1}), who.keeper);
   }
-  const kits = host.kits();
+  const kits = kitsOf(host);
   const rules = Object.assign({goals:TS.goalsLaw(spec), offside:!!item.offside, restarts:!!item.restarts, cards:false, subs:0, halfTime:false, stoppage:false}, opts.rules || {});
   const cfg = {seed:host.seed(item.kind + ":" + (opts.n || 0)), mode:item.mode, spec, halfRealSec:1e6, tempo:Object.assign({}, TEMPO[2]),
     teams, me:{team:myTeam, slot:meRec.slot, prefFoot:meRec.prefFoot, chem:meRec.chem, trust:meRec.trust, traits:meRec.traits, staminaF:meRec.staminaF, role:"starter"},
@@ -427,7 +432,7 @@ registerMode("train", {
     const sess = GROUND.session;
     const lookOf = a => { if (a.team !== T.myTeam && !a.isGK) return null; const b = T.bodies.get(a.id); return b && b.h && sess && sess.lookOf ? sess.lookOf(b.h) : null; };
     // (Training Mode's runner hands in pooled bodies and draws no officials, view.js)
-    T.V = viewInit(T.ms, g, T.kits || T.host.kits(), viewOpts(T, look, lookOf));
+    T.V = viewInit(T.ms, g, T.kits || kitsOf(T.host), viewOpts(T, look, lookOf));
     T.V.me = T.ms.me;
     // your eyes: match-fp (matchcam.js) over where your agent is, your first-person body under them
     CAM.camInit({me:() => T.me, view:() => T.V, eye:out => { out.x = P.x; out.z = P.z; out.y = P.eye; return out; },
@@ -436,7 +441,7 @@ registerMode("train", {
       pose:(x, z, yaw, dt) => VW.fpPose ? VW.fpPose(T.V, x - T.F.cx, z - T.F.cz, yaw, dt, {speed:T.me.m.speed, wind:CTRL.wind}) : 0,
       clip:() => { const R = T.V && T.V.rec[T.ms.me]; return !!(R && R.clip); }, after:() => {}});
     // the HUD: your breath, the power arc, the hints, the calls; a scorebug only where there is a score to keep
-    const k = T.kits || T.host.kits();
+    const k = T.kits || kitsOf(T.host);
     HUD.hudInit({home:{short:T.myTeam === 0 ? T.host.clubShort() : "BIB", kit:k.home}, away:{short:T.myTeam === 0 ? "BIB" : T.host.clubShort(), kit:k.away}, us:T.myTeam});
     const root = HUD.hudRoot ? HUD.hudRoot() : null, bug = root && root.querySelector("[data-part=score]");
     if (bug && !T.item.score) bug.style.display = "none";
@@ -736,7 +741,7 @@ export function startDrill(kind, host){
   if (D.feed.from) coachPrep(D.feed.from, D.spot);
   gather(run, item, r => {
     const T = buildItem(item, whoOf(r.spots), {n:0, host, ballAt:D.feed.at || D.feed.from, onEnd:t => drillEnd(run, t)});
-    T.rate = 0; T.kits = host.kits();
+    T.rate = 0; T.kits = kitsOf(host);
     T.script = drillScript(kind, D, run);
     run.T = T;
     enterMode("train", T);
@@ -918,7 +923,7 @@ function nextBlock(run){
   gather(run, Object.assign({}, B, {restarts:false}), r => {
     const item = r.item;
     const T = buildItem(item, whoOf(r.spots), {n:run.i, host:run.host, ballAt, onEnd:t => blockEnd(run, t)});
-    T.kits = run.host.kits();
+    T.kits = kitsOf(run.host);
     T.rate = B.mins/B.real;
     T.script = blockScript(B, run);
     run.T = T;
@@ -1008,7 +1013,7 @@ function nextLesson(run){
   hudSet({title:`Lesson ${L.n} · ${L.title}`, rep:run.tries, reps:TRAIN.TRIES, scores:run.ok}, {hint:L.line});
   gather(run, Object.assign({}, L, {restarts:false, kickoff:false, keeper:!!L.keeper && run.lent.some(b => b.role === "keeper")}), r => {
     const T = buildItem(r.item, whoOf(r.spots), {n:run.i*10 + run.tries, host:run.host, ballAt:L.feed ? L.feed.from : TS.toLocal(P.x - 10, P.z + 6), onEnd:t => lessonEnd(run, t)});
-    T.kits = run.host.kits();
+    T.kits = kitsOf(run.host);
     T.rate = 6/60;                     // the day goes on: six minutes of the clock a real minute while you learn
     T.script = lessonScript(L, run);
     run.T = T;
