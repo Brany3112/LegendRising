@@ -22,14 +22,17 @@
    P3-B (TR-3, TRAINING-SPEC 4 and 8, BUILD-PLAN P3-B items 5 and 6): Training's drills hand in pooled bodies
    (o.bodyOf(agent) and o.fpBody, train/pool.js), which viewDispose gives back instead of destroying, so a restart
    never builds a body; o.officials === false draws no referee and no assistants (a drill has none on the grass); the
-   ball is never drawn smaller than BALL_MIN_PX across, so it stays readable far off. */
+   ball is never drawn smaller than BALL_MIN_PX across, so it stays readable far off.
+   UF-A (TR-3 user fixes, USER-ISSUES U6 and U10): a throw-in's ball is drawn in the taker's hands from the moment he
+   holds it to the release (throwHeld, throwHold); a request for the ball raises the caller's hand and drops it again
+   (handUp: agent.js raiseHand and the calls), in your own view too. */
 import {THREE} from "../build.js";
 import {human, animateHuman, lookFor, EV} from "../human.js";
 import {SCHED} from "../core/sched.js";
 import {ballMesh} from "./pitchmesh.js";
 import {STADIUM} from "./stadium.js";
 import {predAt} from "./actions.js";
-import {kindOf, windHold, windUpper} from "../moves.js";
+import {kindOf, windHold, windUpper, heldBall, HAND} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
 import {R as zoneR, part as zonePart} from "./zone.js";
@@ -109,7 +112,7 @@ function bodyFor(V, a){
   R = V.rec[a.id] = {a, h, pooled:!!pooled, st:{mode:"move", speed:0}, clip:null, actRef:null, kind:"", recv:null, cel:null, x:a.m.x, z:a.m.z, actor:null, hidden:false, wpos:{x:0, y:0, z:0}};
   R.actor = SCHED.actor({id:"match-" + a.id, kind:"match", r:1.1,
     pos:() => { const p = R.pos || (R.pos = {x:0, y:0, z:0}), w = R.wpos; w.x = p.x + V.ox; w.y = p.y; w.z = p.z + V.oz; return w; },
-    active:() => !!(R.clip || (a.act && !a.act.done) || a.isMe || (a.gk && a.gk.plan)),
+    active:() => !!(R.clip || (a.act && !a.act.done) || a.isMe || (a.gk && a.gk.plan) || throwHeld(ms, a)),
     anim:(dt, tier) => animAgent(V, R, dt, tier)});
   R.pos = {x:a.m.x, y:0, z:a.m.z};
   if (a.isMe) makeFP(V);
@@ -163,6 +166,10 @@ export function viewFrame(V, ms, alpha, dt, cam){
   ballReadable(V, bm, cam);
   spin(V, dt);
   spares(V, ms);
+  // a throw-in's ball is drawn in the thrower's hands while he holds it (UF-A, U6: his body is posed before this, by
+  // its actor, so the hands are the ones drawn this frame; your own, first person, fpPose does after the camera)
+  const th = !V.src && ms.ball.state === "held" ? ms.agents[ms.ball.holder] : null, TR = th ? V.rec[th.id] : null;
+  if (TR && !TR.hidden) throwBall(V, TR, th, ms, TR.h, dt, "thw");
 }
 /* the ball never smaller on screen than BALL_MIN_PX across (TRAINING-SPEC 2, "ball readable"): far off, a real ball
    (22 cm) is under 3 px at 40 m in a 720-pixel-high view; beyond the distance where it would be, it is drawn a little
@@ -221,6 +228,46 @@ function animAgent(V, R, dt, tier){
   const ev = animateHuman(h, dt, st, {tier:R.hidden ? 4 : tier});
   if (R.clip && (ev.mask & EV.END)) R.clip = null;
   R.lastEv = ev.mask;
+}
+/* ---------- the throw-in in the hands (UF-A, USER-ISSUES U6) ----------
+   From the moment a throw-in's taker has the ball (rules.js holds it at his hands, overhead) until the release the
+   simulation's ball is held still; his body holds it there in both hands (moves.js 'upper:holdBall', then the throw-in
+   clip: overhead, back behind the head, through to the release) and the ball is drawn between his hands (moves.js
+   heldBall), so it is never seen floating ahead of him or flying before his hands are on it. At the release the clip's
+   hands are where the simulation lets it go, and from there the ball is the simulation's again */
+function throwHeld(ms, a){
+  const R0 = ms.restart, b = ms.ball;
+  if (b.state !== "held" || b.holder !== a.id || a.isGK) return false;
+  if (a.act && a.act.kind === "throw") return !a.act.done;
+  return !!(R0 && R0.kind === "throw" && !R0.taken);
+}
+// the drawn ball in the hands of body h (key: the record's own weight, its body's or your first-person one's): from the
+// simulation's ball onto the hands over THW_IN as they take it (the gesture reaching for it), in them from then
+const THW_IN = .25, _hb = {x:0, y:0, z:0};
+function throwBall(V, R, a, ms, h, dt, key){
+  if (!throwHeld(ms, a)){ R[key] = 0; return; }
+  R[key] = a.act ? 1 : Math.min(1, (R[key] || 0) + Math.max(0, dt || 0)/THW_IN);
+  if (!heldBall(h, _hb)) return;
+  const p = V.ball.mesh.position, w = R[key]*R[key]*(3 - 2*R[key]);
+  p.set(p.x + (_hb.x - p.x)*w, p.y + (_hb.y - p.y)*w, p.z + (_hb.z - p.z)*w);
+}
+// the upper body of a throw-in's taker holding the ball before his throw: both hands on it where it is
+// (the simulation's ball, between its last two steps as viewFrame draws it before it goes into the hands)
+function throwHold(V, R, a, ms){
+  if (a.act || !throwHeld(ms, a)) return null;
+  const c = R.thold || (R.thold = {g:"holdBall", w:1, ball:{x:0, y:0, z:0}}), b = ms.ball.p, p0 = V.ballPrev, al = V.alpha;
+  c.ball.x = p0.x + (b.x - p0.x)*al; c.ball.y = p0.y + (b.y - p0.y)*al; c.ball.z = p0.z + (b.z - p0.z)*al;
+  return c;
+}
+/* the hand raised for the ball (UF-A, USER-ISSUES U10): every request for the pass (agent.js raiseHand, a.handUp) and
+   every call (a.lastCall) raises the caller's hand and drops it again (moves.js 'upper:hand', HAND.END seconds); fp:
+   your own first-person body's version, the hand up in front of your view */
+function handUp(R, a, ms, fp){
+  const k = ms.t - Math.max(a.handUp != null ? a.handUp : -99, a.lastCall != null ? a.lastCall : -99);
+  if (!(k >= 0 && k < HAND.END)) return null;
+  const key = fp ? "handFP" : "hand", c = R[key] || (R[key] = {g:"hand", w:1, k:0, fp});
+  c.k = k;
+  return c;
 }
 // the pose of a body the controller walks (the walk-out) or seats (the dressing room)
 function preSt(R, Q){
@@ -367,15 +414,18 @@ function liveSt(V, R, a, ms, dt){
     }
   }
   locoOf(loco, a);
-  // a call for the ball (the arm up), the assistant's flag (up and out); shielding the ball (P2b-B): the shield's upper
-  // body, the arms out and back to feel the man behind, over whatever the legs do
-  if (shielding(a)) loco.upper = UP_SHIELD;
-  else if (a.lastCall != null && ms.t - a.lastCall < .9) loco.upper = UP_CALL;
+  // a call for the ball (the hand up and down again, UF-A U10), the assistant's flag (up and out); shielding the ball
+  // (P2b-B): the shield's upper body, the arms out and back to feel the man behind, over whatever the legs do; a
+  // throw-in's taker with the ball in his hands (UF-A U6)
+  const hand = handUp(R, a, ms, false), hold = throwHold(V, R, a, ms);
+  if (hold) loco.upper = hold;
+  else if (shielding(a)) loco.upper = UP_SHIELD;
+  else if (hand) loco.upper = hand;
   else if (a.role === "ar" && V.flag && V.flag.agent === a.id && ms.t < V.flag.until) loco.upper = UP_FLAG;
   else if (a.isMe) loco.upper = windUpper(V.wind, a.m.speed, R.windUp || (R.windUp = {}));
   return loco;
 }
-const UP_CALL = {g:"call", w:1}, UP_FLAG = {g:"point", w:1}, UP_SHIELD = {g:"shield", w:1};
+const UP_FLAG = {g:"point", w:1}, UP_SHIELD = {g:"shield", w:1};
 // is this body shielding the ball now: the engine's resolved shield (actions.js a.shield.on) when it has one, else its
 // intent (the AI's or yours); never in the middle of an action
 const shielding = a => !a.act && (a.shield ? !!a.shield.on : !!(a.intent && a.intent.shield));
@@ -480,11 +530,15 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     else { FPST.speed = o.speed || 0; FPST.intent = FPST.speed; FPST.style = undefined; }
     FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn || 0; FPST.correct = o.correct || null;
     FPST.fatigue = a && a.st ? clamp(1 - a.st.B/60, 0, 1)*.6 : 0;
-    // (shielding: your arms come out wide and back, at the edges of your view, P2b-B)
-    FPST.upper = a && shielding(a) ? UP_SHIELD : null;
+    // (shielding: your arms come out wide and back, at the edges of your view, P2b-B; the ball of your throw-in in your
+    // hands, and your hand up in front of you as you ask for the ball, UF-A U6 and U10)
+    const R = a ? V.rec[a.id] : null, hold = R ? throwHold(V, R, a, ms) : null, hand = R ? handUp(R, a, ms, true) : null;
+    FPST.upper = hold || (a && shielding(a) ? UP_SHIELD : hand);
   }
   void s;
-  return animateHuman(h, dt, st).mask;
+  const mask = animateHuman(h, dt, st).mask;
+  if (a && V.rec[a.id]) throwBall(V, V.rec[a.id], a, ms, h, dt, "thwFP");
+  return mask;
 }
 
 /* ---------- events the view keeps an eye on (controller.js wires them) ---------- */

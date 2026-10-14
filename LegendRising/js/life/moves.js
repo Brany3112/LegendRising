@@ -37,7 +37,8 @@
              v0, decel, dir {x, z} and dur (P2b-B)}
    'throwin' {run}            'celebrate' {style: 'armsUp' | 'fistPump' | 'kneeSlide' | 'runArmsOut'}
    'getup'   {from: 'front' | 'back' | 'side', side}       'tired' (standing, hands on the thighs: st.fatigue > 0.7)
-   upper gestures for st.upper: 'call', 'point', 'appeal', 'shield', 'armsOut', 'windup' (and the fatigue overlay,
+   upper gestures for st.upper: 'call', 'point', 'appeal', 'shield', 'armsOut', 'windup', 'hand' (a hand raised for
+   the ball and dropped again, UF-A U10), 'holdBall' (both hands on the ball, UF-A U6) (and the fatigue overlay,
    fatigueOver).
    Exports: planStrike, runupStep, strikeRoot (the rootSpeed curves the mover applies), moveEvents, KINDS, partPoint
    (a part of the foot or head in world space: what the tests measure), headerPlan, diveHeaderRoot, WIND, windHold,
@@ -1588,7 +1589,13 @@ function _tmpT(T){ _TT.set(T); return _TT; }
 /* ====================================================================================================
    THROW-IN (3.5.7): feet locked throughout, both hands on the ball 0.10 m behind the head, the arch -0.30 then the
    whip; 1.0 s, release at 0.62 (EV.RELEASE). The run-up variant drags the trailing toe.
+   UF-A (USER-ISSUES U6): the clip starts where the taker already holds the ball, overhead in both hands (THROW_HOLD,
+   where the simulation keeps a thrower's ball: rules.js handsOf, 0.28 m ahead at 2.0 m), takes it back behind the
+   head (the wind-up), and brings it through to that same point at the release, so the ball the simulation lets go
+   leaves the hands there; the hands come off it only after the release. heldBall(h) is the ball between the hands, for
+   the view to draw it there while it is held (the simulation's ball is still, held at THROW_HOLD).
    ==================================================================================================== */
+export const THROW_HOLD = {y:2.0, z:.28, w:.13};
 function throwin(h, T, st, dt){
   _spec.dur = 1.0; _spec.contact = .62; _spec.pre = 0; _spec.begin = null; _spec.events = null;
   const C = clock(h, "throwin", st, _spec);
@@ -1603,12 +1610,15 @@ function throwin(h, T, st, dt){
   const kneeB = kf(tau, [[0, 0], [.4, .08], [.62, .045], [1, .035]]);
   T[61] = -kneeB; T[62] = -.05*sstep(0, .45, tau) + .06*sstep(.5, .7, tau);
   R3(T, B.hips, arch*.3); R3(T, B.spine, arch*.6); R3(T, B.chest, arch*.5); R3(T, B.neck, -arch*.3); R3(T, B.head, -arch*.2);
-  // the ball: behind the head, then over it and away; both hands on it (0.10 m behind the head at the top)
-  const bz = kf(tau, [[0, .25], [.3, -.05], [.5, -.12], [.62, .25], [.75, .45], [1, .3]]);
-  const by = kf(tau, [[0, 1.45], [.3, 1.85], [.5, 1.82], [.62, 2.0], [.75, 1.6], [1, 1.2]]);
+  // the ball: held overhead, taken back behind the head (the wind-up), then over it and away; both hands on it (0.12 m
+  // behind the head at the top of the wind-up). At 0 and at the release the hands are at THROW_HOLD with the hips'
+  // offset of that moment taken back out, so the ball is where the simulation holds it and lets it go
+  const H0 = THROW_HOLD, kb = .045, kz = -.011;          // the knees' bend and the hips' shift at the release (below)
+  const bz = kf(tau, [[0, H0.z], [.3, -.12], [.5, -.27], [.62, H0.z - kz], [.75, .45], [1, .3]]);
+  const by = kf(tau, [[0, H0.y], [.3, 1.92], [.5, 1.88], [.62, H0.y + kb], [.75, 1.6], [1, 1.2]]);
   const off = tau < .62 ? 0 : sstep(.62, .72, tau);       // the hands come off the ball after the release
   for (let s = 1; s >= -1; s -= 2){
-    armIK(h, T, s, s*.1, by + T[61], bz + T[62] - (tau < .62 ? 0 : .1*off), -s*.4, -.2, [.6, -.1, -.5]);
+    armIK(h, T, s, s*(H0.w + .06*off), by + T[61], bz + T[62] - (tau < .62 ? 0 : .1*off), -s*.4, -.2, [.6, -.1, -.5]);
   }
   const F = C.feet;
   for (let j = 0; j < 2; j++){
@@ -1717,6 +1727,49 @@ function upAppeal(h, T, st){ armPose(T, -1, .15, 2.9, .05); R3(T, ARM(-1)[2], .2
 function upShield(h, T, st){ R3(T, B.spine, .24, 0, 0); R3(T, B.chest, -.06, 0, 0); R3(T, B.neck, .12); R3(T, B.head, .3); armPose(T, 1, 1.25, -.5, .75); armPose(T, -1, 1.25, -.5, .75); }
 function upArmsOut(h, T, st){ armPose(T, 1, 1.35, .1, .2); armPose(T, -1, 1.35, .1, .2); }
 
+/* ---------- UF-A: a hand raised for the ball (USER-ISSUES U10), the ball held in both hands (U6) ---------- */
+/* 'hand' {k (seconds since the call), fp}: the right hand goes up (HAND.UP), stays up a moment and comes back down by
+   HAND.END, the open palm out; the left arm goes on with whatever the legs do (the gesture's mask is the right arm and a
+   little of the chest). Your own first-person body (fp) raises it forward and up instead, so the hand comes into the top
+   right of your view for that moment */
+export const HAND = {UP:.2, HOLD:.5, END:.85};
+export const handLift = k => sstep(0, HAND.UP, k)*(1 - sstep(HAND.HOLD, HAND.END, k));
+function upHand(h, T, st){
+  const r = handLift(st.k || 0), fp = !!st.fp, ua = ARM(-1);
+  R3(T, B.chest, -.03*r, fp ? 0 : -.06*r, fp ? 0 : .04*r);
+  // (the shoulder raises the arm forward and up: 2.75 rad, all but straight up, seen from outside; 2.1 in your own eyes,
+  // the hand up in front of your face)
+  R3(T, ua[0], -(.12 + (fp ? 2.0 : 2.62)*r), 0, -(.16 + (fp ? .08 : .2)*r));
+  R3(T, ua[1], -(.3 - .15*r), 0, 0);
+  R3(T, ua[2], .25*r, 0, 0);
+}
+upHand.mask = [[B.chest, .3], [ARM(-1)[0], 1], [ARM(-1)[1], 1], [ARM(-1)[2], 1]];
+/* 'holdBall' {ball (world {x, y, z}: where the ball is)}: both hands on it, either side, the elbows out; a ball low down
+   (being picked up) is reached for with the back bent over it */
+const _hb = {x:0, y:0, z:0};
+function upHoldBall(h, T, st){
+  const b = st.ball; if (!b) return;
+  setBT(h); toB(b.x, b.y, b.z, _hb);
+  const low = clamp((1.15 - _hb.y)/.8, 0, 1);
+  R3(T, B.spine, .55*low, 0, 0); R3(T, B.chest, .3*low - .05*(1 - low), 0, 0); R3(T, B.neck, -.1*(1 - low)); R3(T, B.head, -.15*(1 - low) + .25*low);
+  for (let s = 1; s >= -1; s -= 2) armIK(h, T, s, _hb.x + s*THROW_HOLD.w, _hb.y, _hb.z, -s*.4, -.2, [.6, -.1, -.5]);
+}
+/* the ball held between the two hands of body h, as last posed (world point into out): the wrists' middle, carried on
+   along the forearms to the palms */
+const _FKh = newFK();
+export function heldBall(h, out){
+  if (!h.posed) return null;
+  fkQ(h, h.pose, _FKh, 12);
+  const L = ARM(1), R = ARM(-1), wl = L[2]*7, wr = R[2]*7, el = L[1]*7, er = R[1]*7;
+  let x = (_FKh[wl] + _FKh[wr])/2, y = (_FKh[wl + 1] + _FKh[wr + 1])/2, z = (_FKh[wl + 2] + _FKh[wr + 2])/2;
+  // (the palms are a few centimetres on from the wrists, along the forearms)
+  let fx = _FKh[wl] - _FKh[el] + _FKh[wr] - _FKh[er], fy = _FKh[wl + 1] - _FKh[el + 1] + _FKh[wr + 1] - _FKh[er + 1], fz = _FKh[wl + 2] - _FKh[el + 2] + _FKh[wr + 2] - _FKh[er + 2];
+  const fl = Math.hypot(fx, fy, fz) || 1; x += fx/fl*.05; y += fy/fl*.05; z += fz/fl*.05;
+  const d = h.drawn, c = Math.cos(d[3]), sn = Math.sin(d[3]), sc = h.scale || 1;
+  out.x = d[0] + (x*c + z*sn)*sc; out.y = d[1] + y*sc; out.z = d[2] + (-x*sn + z*c)*sc;
+  return out;
+}
+
 /* ---------- the camera channels (3.5.9: h.camFx, applied through camKick, never into P.yaw / P.pitch) ---------- */
 function camFx(h, pitch, dip, roll, nod = 0){
   const c = h.camFx || (h.camFx = {pitch:0, dip:0, roll:0, nod:0});
@@ -1762,6 +1815,7 @@ export const MOVE_MODES = {
 for (const k of ["strike", "receive", "header", "tackle", "throwin"]) MOVE_MODES[k].events = (h, st) => moveEvents(h, st);
 registerMode("upper:call", upCall); registerMode("upper:point", upPoint); registerMode("upper:appeal", upAppeal);
 registerMode("upper:shield", upShield); registerMode("upper:armsOut", upArmsOut); registerMode("upper:windup", upWindup);
+registerMode("upper:hand", upHand); registerMode("upper:holdBall", upHoldBall);
 
 /* the pieces the keeper's moves (gkmoves.js) share with these: one clip clock, one way of keeping feet, one head */
 export const KIT = {rateLimit, rateHips, clock, setBT, toB, toW, dirB, BT, startFeet, legW, footTo, lockFeet, plantOut, armPose, lookAt, camFx, ease, bump, herm};

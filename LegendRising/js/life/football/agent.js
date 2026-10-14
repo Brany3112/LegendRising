@@ -5,6 +5,7 @@
 // Owner: WP-E (match simulation). Contract DESIGN 1.4.13 (Agent, capsules, separate); constants 1.5.2 (stagger);
 // behaviour 3.2.1 step 5 and 3.2.5 (duels). P2b-A (Training Mode and football rework, Phase 2b; TRAINING-SPEC 3) adds
 // intent.shield and the possession fields (shield, chal, recoverT, duelOn/duelT, chalOn/chalRoll, pushT/pushOn, zLB/zIn/zD).
+// UF-A (TR-3 user fixes, USER-ISSUES U10) adds handUp and raiseHand (the hand raised for the ball).
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Lengths in metres, pitch-local
 // frame of DESIGN 1.1 (x along the length, z across, yaw 0 faces -Z).
@@ -64,6 +65,8 @@ export function createAgent(o){
     acc: {dist: 0, sprints: 0, sprintOn: false, oop: 0, oopFar: 0, drain: 0, mins: 0},
     touchFoot: 0, strides: 0, footN: 0, drib: null, ctl: false, plan: null, set: null, wall: false,
     perceived: 0, callT: -99, calls: 0, lastCall: -99, chalT: -99, gk: null, react: 0.2, cool: {tackle: 0, call: 0, header: 0},
+    // (UF-A, U10: when he last raised his hand for the ball, in simulation seconds: raiseHand)
+    handUp: -99,
     // what the match sets on an agent later, declared here so that every agent keeps one shape: the step reads these
     // for all 25 bodies, and agents that grew them in different orders turned every one of those reads into a slow,
     // allocating lookup (3.9.6). Each starts as what it read as before it was first set.
@@ -81,6 +84,27 @@ export function createAgent(o){
   };
   a.react = 0.25 - 0.0015*clamp(at.interception != null ? at.interception : 50, 0, 99);
   return a;
+}
+
+// UF-A (USER-ISSUES U10): the hand raised for the ball. Every request for the pass (the player's R, whether or not the
+// call itself is taken, and the AI's calls) raises the caller's hand at simulation time t; football/view.js plays the
+// raise and the drop from it (moves.js 'upper:hand': up in 0.2 s, held, down by 0.85 s), on his body for everyone to
+// see, in third person and in a replay, and in your own first-person view. A request while the hand is still up keeps
+// it up rather than starting it again from the bottom. Returns the time the gesture counts from.
+export const HAND_T = Object.freeze({UP: 0.2, HOLD: 0.5, END: 0.85});
+export function raiseHand(a, t){
+  if (!a || !(t >= 0)) return a ? a.handUp : -99;
+  const k = t - (a.handUp != null ? a.handUp : -99), H = HAND_T;
+  if (k >= 0 && k < H.UP){ /* on its way up: it goes on up */ }
+  else if (k >= H.UP && k <= H.HOLD) a.handUp = t - H.UP;                       // up: held up from now
+  else if (k > H.HOLD && k < H.END){
+    // on its way down: back up from the height it has come down to (the rise is a smoothstep over UP)
+    const u = (k - H.HOLD)/(H.END - H.HOLD), r = 1 - u*u*(3 - 2*u);
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 12; i++){ const m = (lo + hi)/2; if (m*m*(3 - 2*m) < r) lo = m; else hi = m; }
+    a.handUp = t - H.UP*(lo + hi)/2;
+  } else a.handUp = t;
+  return a.handUp;
 }
 
 // the body's capsules (1.4.13), scaled by its height: torso, legs and head, measured up from the root (a.y)
