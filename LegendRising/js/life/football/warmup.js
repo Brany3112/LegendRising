@@ -35,7 +35,7 @@ import {clamp, lerp, sstep, B, ARM, LEG, R3, legIK, armIK, frameOf, fkQ, newFK, 
 import {mulberry32, hashStr} from "./rng.js";
 import {createBall, createBallWorld, ballKick, ballHold, ballStep, rollSpeedFor} from "./ball.js";
 import {ballMesh} from "./pitchmesh.js";
-import {dirOf, wrapA} from "./pitchspec.js";
+import {dirOf, wrapA, yawOf} from "./pitchspec.js";
 import {raised} from "./attrs.js";
 import {AUD} from "./audio.js";
 import {STADIUM} from "./stadium.js";
@@ -98,6 +98,20 @@ export function pickSet(r, n, last = null){
     if (spare) out[out.length - 1] = spare;
   }
   return out.sort((a, b) => POOL[a].order - POOL[b].order || POOL_IDS.indexOf(a) - POOL_IDS.indexOf(b));
+}
+// the touchline fence (USER-ISSUES U3): nobody who is not on the field (the bench, the warm-up, the coaches, the staff,
+// you before you are on) ever stands on the pitch. A point inside the field of play grown by FENCE_M is pushed out
+// across the nearest line, so a body that is led toward the pitch stops at the line and slides along it. In place;
+// true when it moved the point. spec: the match's pitch (pitchspec.js makePitch: hx, hz)
+export const FENCE_M = .35;
+// is a point inside the fenced field (the field of play grown by FENCE_M)
+export function inFence(p, spec = STADIUM.spec, m = FENCE_M){ return !!(p && spec && spec.hx > 0 && Math.abs(p.x) < spec.hx + m && Math.abs(p.z) < spec.hz + m); }
+export function touchFence(p, spec = STADIUM.spec, m = FENCE_M){
+  if (!p || !spec || !(spec.hx > 0)) return false;
+  const ex = spec.hx + m, ez = spec.hz + m, ax = Math.abs(p.x), az = Math.abs(p.z);
+  if (ax >= ex || az >= ez) return false;
+  if (ex - ax < ez - az) p.x = (p.x < 0 ? -1 : 1)*ex; else p.z = (p.z < 0 ? -1 : 1)*ez;
+  return true;
 }
 // a rep's grade from its error against windows [perfect, good, ok] (the same units as err)
 export function grade(err, win){
@@ -587,10 +601,16 @@ function startExercise(i){
   const sx = C.side;
   const hx = clamp(P.x*sx, WU.STRIP.SPOT0, WU.STRIP.SPOT1)*sx;
   X.home = {x: hx, z: id === "swings" ? WU.STRIP.boardZ : WU.STRIP.z};
+  // the one-twos are played along the strip, never out onto the pitch (U3): the coach 5.5 m along it, toward its
+  // middle; (ux, uz) the way from you to him
+  if (id === "onetwo"){
+    const mid = (WU.STRIP.x0 + WU.STRIP.x1)/2, toward = Math.abs(hx) < mid ? sx : -sx;
+    X.coachAt = {x: X.home.x + toward*5.5, z: X.home.z}; X.ux = toward; X.uz = 0; X.shift = 0;
+    if (SESS.fit) SESS.fit.to = {x: X.coachAt.x, z: X.coachAt.z};
+  }
   X.face = faceOf(E.face, X);
   say("fit", pick(E.say));
   if (id === "juggle") ballStart(X);
-  if (id === "onetwo"){ X.coachAt = {x: X.home.x, z: X.home.z + 5.5}; X.shift = 0; if (SESS.fit) SESS.fit.to = {x: X.coachAt.x, z: X.coachAt.z}; }
   if (SESS.fit){ SESS.fit.leave = false; SESS.fit.state = "demo"; }
 }
 // the yaw an exercise faces: along the strip, at the pitch, at the boards, at the coach
@@ -598,7 +618,7 @@ function faceOf(kind, X){
   const sx = SESS.ctx.side;
   if (kind === "boards") return 0;
   if (kind === "pitch") return Math.PI;
-  if (kind === "coach") return Math.PI;
+  if (kind === "coach") return X && X.coachAt ? yawOf(X.coachAt.x - X.home.x, X.coachAt.z - X.home.z) : Math.PI;
   // along the strip, away from the halfway line
   return sx < 0 ? Math.PI/2 : -Math.PI/2;
 }
@@ -836,44 +856,44 @@ function ballEnd(){
 function oneTwoStep(X, dt){
   const F = SESS.fit; if (!F) return;
   X.st += dt;
-  const at = X.coachAt;
+  const at = X.coachAt, ux = X.ux != null ? X.ux : 0, uz = X.ux != null ? X.uz : 1, px = -uz, pz = ux;
   if (!SESS.ball){
     if (!SESS.bw) SESS.bw = createBallWorld({});
-    const b = createBall({x: F.pos.x, y: .11, z: F.pos.z - .45, rollDecel: 1.2});
+    const b = createBall({x: F.pos.x - ux*.45, y: .11, z: F.pos.z - uz*.45, rollDecel: 1.2});
     const m = ballMesh({shadow: true}); m.mesh.matrixAutoUpdate = true;
     const V = SESS.ctx.V(); if (V && V.scene) V.scene.add(m.mesh);
     SESS.ball = {b, m, acc: 0};
-    ballHold(b, {id: 1, x: F.pos.x, y: .11, z: F.pos.z - .45});
+    ballHold(b, {id: 1, x: F.pos.x - ux*.45, y: .11, z: F.pos.z - uz*.45});
   }
   const S0 = SESS.ball, b = S0.b;
   switch (X.stage){
     case "feed":
       // back on his spot with the ball at his feet, he plays it in to yours
-      toAt(F, at.x + X.shift, at.z);
-      if (b.state === "held") ballHold(b, {id: 1, x: F.pos.x, y: .11, z: F.pos.z - .45});
+      toAt(F, at.x + X.shift*px, at.z + X.shift*pz);
+      if (b.state === "held") ballHold(b, {id: 1, x: F.pos.x - ux*.45, y: .11, z: F.pos.z - uz*.45});
       // (his swing starts a moment before the ball goes: the clip runs to the contact, moves.js tc)
       if (X.st > .25 && F.arrived && !F.strike) F.strike = {tc: .3, after: .45, id: (F.sid = (F.sid || 0) + 1), ball: {x: b.p.x, y: .11, z: b.p.z}, dir: {x: X.home.x - b.p.x, z: X.home.z - b.p.z}};
       if (F.strike && F.strike.tc <= 0 && b.state === "held"){
-        const tx = X.home.x, tz = X.home.z + .45, dx = tx - b.p.x, dz = tz - b.p.z, d = Math.hypot(dx, dz) || 1, v = rollSpeedFor(d, 2.6, 1.2);
+        const tx = X.home.x + ux*.45, tz = X.home.z + uz*.45, dx = tx - b.p.x, dz = tz - b.p.z, d = Math.hypot(dx, dz) || 1, v = rollSpeedFor(d, 2.6, 1.2);
         b.state = "free";
         ballKick(b, {x: dx/d*v, y: 0, z: dz/d*v}, {x: 0, y: 0, z: 0}, {agent: -1, kind: "pass"});
         AUD.cue("kick", {x: b.p.x, y: .2, z: b.p.z}, .35);
         X.stage = "rolling"; X.st = 0;
-        // (he steps across as it rolls to you: the angle for the return)
-        X.shift = (X.shift > 0 ? -1 : 1)*(1.1 + .8*SESS.r());
+        // (he steps across as it rolls to you: the angle for the return; a short step, the strip is narrow)
+        X.shift = (X.shift > 0 ? -1 : 1)*(.6 + .4*SESS.r());
       }
       break;
     case "rolling":
-      toAt(F, at.x + X.shift, at.z);
+      toAt(F, at.x + X.shift*px, at.z + X.shift*pz);
       // it comes to your feet: you take it (a cushioned first touch: the ball stops at your boot)
-      if (Math.hypot(b.p.x - X.home.x, b.p.z - (X.home.z + .45)) < .45 || X.st > 3){
-        ballHold(b, {id: 0, x: X.home.x, y: .11, z: X.home.z + .45}); AUD.cue("bounce", {x: X.home.x, y: .1, z: X.home.z + .45}, .25);
+      if (Math.hypot(b.p.x - (X.home.x + ux*.45), b.p.z - (X.home.z + uz*.45)) < .45 || X.st > 3){
+        ballHold(b, {id: 0, x: X.home.x + ux*.45, y: .11, z: X.home.z + uz*.45}); AUD.cue("bounce", {x: X.home.x + ux*.45, y: .1, z: X.home.z + uz*.45}, .25);
         X.stage = "have"; X.st = 0; X.openAt = .3 + .6*SESS.r();
       }
       break;
     case "have":
       // he steps across, then opens his body to you
-      toAt(F, at.x + X.shift, at.z);
+      toAt(F, at.x + X.shift*px, at.z + X.shift*pz);
       if (X.st >= X.openAt && F.arrived){ X.stage = "open"; X.open = X.t; F.open = 1; }
       break;
     case "open":
@@ -881,9 +901,9 @@ function oneTwoStep(X, dt){
       break;
     case "back": {
       // he takes it (a pass gone astray he has to go and fetch)
-      const d = Math.hypot(b.p.x - F.pos.x, b.p.z - (F.pos.z - .45)), slow = Math.hypot(b.v.x, b.v.z) < .4;
-      if (slow && d > .6) toAt(F, b.p.x, b.p.z + .45);
-      if (d < .55 || (X.st > 4)){ ballHold(b, {id: 1, x: F.pos.x, y: .11, z: F.pos.z - .45}); X.stage = "feed"; X.st = 0; F.open = 0; }
+      const d = Math.hypot(b.p.x - (F.pos.x - ux*.45), b.p.z - (F.pos.z - uz*.45)), slow = Math.hypot(b.v.x, b.v.z) < .4;
+      if (slow && d > .6) toAt(F, b.p.x + ux*.45, b.p.z + uz*.45);
+      if (d < .55 || (X.st > 4)){ ballHold(b, {id: 1, x: F.pos.x - ux*.45, y: .11, z: F.pos.z - uz*.45}); X.stage = "feed"; X.st = 0; F.open = 0; }
       break;
     }
   }
@@ -907,7 +927,8 @@ function oneTwoKick(X, g){
   const b = S0.b, q = GRADE[g];
   // into his feet when it is clean; behind him or wide when it is not
   const miss = (1 - q)*(SESS.r() < .5 ? -1 : 1)*(1.0 + 1.4*SESS.r());
-  const tx = F.to.x + miss, tz = F.to.z - .45, dx = tx - b.p.x, dz = tz - b.p.z, d = Math.hypot(dx, dz) || 1, v = rollSpeedFor(d, 2.2 + 2.4*(1 - q), 1.2);
+  const ux = X.ux != null ? X.ux : 0, uz = X.ux != null ? X.uz : 1;
+  const tx = F.to.x - uz*miss - ux*.45, tz = F.to.z + ux*miss - uz*.45, dx = tx - b.p.x, dz = tz - b.p.z, d = Math.hypot(dx, dz) || 1, v = rollSpeedFor(d, 2.2 + 2.4*(1 - q), 1.2);
   b.state = "free";
   ballKick(b, {x: dx/d*v, y: 0, z: dz/d*v}, {x: 0, y: 0, z: 0}, {agent: 0, kind: "pass"});
   AUD.cue("kick", {x: b.p.x, y: .2, z: b.p.z}, .3 + .15*q);
@@ -943,7 +964,7 @@ function stepBodies(dt){
     // moving ones
     if (key === "fit" && SESS.phase === "drill" && SESS.X && SESS.X.id !== "onetwo"){
       const X = SESS.X, f = dirOf(X.face);
-      if (X.id === "strides" || X.id === "shuffle") toAt(o, X.home.x - SESS.ctx.side*4, WU.STRIP.z + 1.6);
+      if (X.id === "strides" || X.id === "shuffle") toAt(o, X.home.x - SESS.ctx.side*4, WU.STRIP.z + 1.3);
       else if (X.id === "swings") toAt(o, X.home.x + 1.5*SESS.ctx.side, WU.STRIP.boardZ);
       else toAt(o, X.home.x + f.x*3.1, X.home.z + f.z*3.1);
     }
@@ -964,6 +985,8 @@ function stepBodies(dt){
     // facing: you (the coaches talk to you), or the way the set faces
     const toMe = Math.atan2(-(P.x - o.pos.x), -(P.z - o.pos.z));
     if (!moving) o.yaw = turnTo(o.yaw, key === "fit" && SESS.phase === "drill" && SESS.X && SESS.X.id === "swings" ? 0 : toMe, 5*dt);
+    // (never onto the pitch, wherever he is led: U3)
+    touchFence(o.pos);
     g.position.set(o.pos.x, 0, o.pos.z); g.rotation.y = o.yaw + Math.PI;
     if (o.posW){ o.posW.x = o.pos.x; o.posW.z = o.pos.z; }
     o.st = bodySt(key, o, moving);

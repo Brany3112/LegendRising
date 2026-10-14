@@ -92,6 +92,8 @@ export function hudInit(cfg){
     <div class="fp-hints" data-part="hints"></div>
     <div class="fp-calls" data-part="calls"></div>
     <div class="fp-ballmark"></div>
+    <div class="fp-goal" style="${GOAL_CSS}"><b style="${GOAL_B}"></b><i style="${GOAL_I}"></i></div>
+    <div class="fp-goalc" style="${GOALC_CSS}"><i style="${GOALC_I}"></i><b style="${GOALC_B}"></b></div>
     <canvas class="fp-radar" width="210" height="140"></canvas>
     <div class="fp-wu"><div class="fp-wu-head"><b class="fp-wu-name"></b><span class="fp-wu-n"></span></div><div class="fp-wu-how"></div><div class="fp-wu-bar"><i></i></div><div class="fp-wu-dots"></div></div>
     <div class="fp-wu-w"></div>
@@ -112,6 +114,7 @@ export function hudInit(cfg){
     contact:q(".fp-contact"), curl:q(".fp-curl"), glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
     energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:ov,
     warm:q(".fp-warm"), warmB:q(".fp-warm b"), warmS:q(".fp-warm span"), wu:q(".fp-wu"), wuName:q(".fp-wu-name"), wuN:q(".fp-wu-n"), wuHow:q(".fp-wu-how"),
+    goal:q(".fp-goal"), goalB:q(".fp-goal b"), goalC:q(".fp-goalc"), goalCI:q(".fp-goalc i"), goalCB:q(".fp-goalc b"),
     wuBar:q(".fp-wu-bar i"), wuDots:q(".fp-wu-dots"), wuW:q(".fp-wu-w"), pops:q(".fp-pops"), say:q(".fp-say"), sayB:q(".fp-say b"), sayS:q(".fp-say span")});
   const sides = [q(".fp-home i"), q(".fp-away i")];
   sides[0].style.background = cfg.home.kit[0]; sides[1].style.background = cfg.away.kit[0];
@@ -175,6 +178,13 @@ export function hudScenario(text){
   if (now - D.lastScen < 20000) return;
   D.lastScen = now; D.scenT = now;
   D.el.scen.textContent = text; D.el.scen.classList.remove("in"); void D.el.scen.offsetWidth; D.el.scen.classList.add("in");
+}
+// your own call for the ball (R, U10): what you shouted, under the crosshair for a moment, so a press is seen to count
+export function hudCallMe(how){
+  if (!D.root) return;
+  const E = D.el;
+  put("sline", E.sline, how === "behind" ? "In behind!" : "Here!");
+  E.sline.classList.remove("in"); void E.sline.offsetWidth; E.sline.classList.add("in"); D.slineT = 1.1;
 }
 // a team-mate's call: his name over him (or a tick at the screen's edge on his bearing) for 1.5 s
 export function hudCall(agent, name){ if (D.root) D.calls.push({agent, name, until:performance.now() + 1500, el:null}); }
@@ -308,6 +318,8 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   callsFrame(s, now);
   // the ball off screen and within 30 m: a small glyph at the edge on its bearing
   ballMark(s);
+  // where you are sent (the fourth official when you are called on, U2): a tag over him, and a compass arrow
+  goalMark(s, dt);
   // the overview (Tab held) or the small radar (the setting)
   if (D.tab || SET.radar) radar(s, D.tab);
   // the warm-up (A1.8): its panel and guide, the pops, the lines, the Warm mark
@@ -385,6 +397,37 @@ function ballMark(s){
   D.txt.ball = 1;
   edgePlace(E.ball, s, b.x, b.z, "edge", p);
   E.ball.style.opacity = (.35 + .55*(1 - d/30)).toFixed(2);
+}
+// where you are sent (U2): s.goal = {x, y, z, label} or null. A tag with the name and a chevron over the spot while it
+// is on screen, and a compass at the top of the screen whose arrow turns to it (0 straight ahead) with the distance,
+// so the way there reads wherever you look. Styled inline: the HUD's stylesheet needs nothing new
+const GOAL_CSS = "position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;width:160px;margin:-46px 0 0 -80px;" +
+  "opacity:0;pointer-events:none;will-change:transform";
+const GOAL_B = "font:700 13px/1.2 'Barlow Condensed',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#fff;" +
+  "background:rgba(14,18,24,.72);border:1px solid rgba(200,240,96,.85);border-radius:3px;padding:2px 8px;white-space:nowrap";
+const GOAL_I = "width:0;height:0;margin-top:3px;border-left:8px solid transparent;border-right:8px solid transparent;border-top:10px solid #c8f060";
+const GOALC_CSS = "position:absolute;left:50%;top:64px;display:flex;align-items:center;gap:8px;transform:translateX(-50%);opacity:0;" +
+  "pointer-events:none;background:rgba(14,18,24,.6);border-radius:16px;padding:4px 12px 4px 6px";
+const GOALC_I = "display:block;width:20px;height:22px;background:#c8f060;clip-path:polygon(50% 0, 95% 100%, 50% 74%, 5% 100%);will-change:transform";
+const GOALC_B = "font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:.05em;color:#fff;white-space:nowrap";
+function goalMark(s, dt){
+  const E = D.el, g = s.goal;
+  if (!E.goal) return;
+  if (!g){
+    if (D.txt.goalOn){ D.txt.goalOn = 0; E.goal.style.opacity = "0"; E.goalC.style.opacity = "0"; }
+    return;
+  }
+  D.txt.goalOn = 1;
+  const d = Math.hypot(g.x - s.cam.x, g.z - s.cam.z);
+  put("goalB", E.goalB, g.label || "Here");
+  const p = s.proj ? s.proj(g.x, g.y != null ? g.y : 2.2, g.z) : null;
+  if (p && p.on){ E.goal.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`; E.goal.style.opacity = "1"; }
+  else E.goal.style.opacity = "0";
+  // the compass: the bearing from where you look (0 ahead, + to the left), the arrow turned to it
+  const b = wrapA(yawOf(g.x - s.cam.x, g.z - s.cam.z) - (s.yaw || 0));
+  E.goalCI.style.transform = `rotate(${(-b).toFixed(3)}rad)`;
+  put("goalCB", E.goalCB, `${g.label || "Here"}  ${d < 1.5 ? "here" : Math.round(d) + " m"}`);
+  E.goalC.style.opacity = "1";
 }
 // the top-down radar: dots, the ball and the offside line, a small corner one or the 40% overview
 function radar(s, big){

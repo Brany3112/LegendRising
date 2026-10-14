@@ -14,7 +14,7 @@
      attendance  0..1 of the seats; homeShare: the share of the fans in home colours (the rest are in the away stand)
      kits        {home:[shirt, ...], away:[shirt, ...]} (css colours, as kitOf/awayKit give them)
      preset      GFX.P (its crowd: {kind:"blocks"} on Low; {kind:"billboards", count} on Medium and High)
-     bench       [{x, y, z, side:"home"|"away"}]: the dugout seats, for the substitutes' impostors
+     bench       [{x, y, z, side:"home"|"away"}]: the dugout seats, for the substitutes (real seated bodies, U5)
    The fans: who sits where is seeded (the same seats fill for the same seed and attendance), thicker in the middle
    blocks and the lower rows when the ground is not full. On Low every row is a textured strip per seating block (one
    draw per stand); on Medium and High the rows nearest the pitch are instanced billboards (the preset's count of quads,
@@ -481,13 +481,24 @@ export function buildCrowd(scene, o = {}){
     }
     per.push({st, bb, strip, excite:.15, shade:st.roofed ? .82 : 1});
   }
-  // the substitutes on the benches: seated impostors in their club's training tops
-  let benchMesh = null; const benchSeats = {home:[], away:[]};
-  if (A.done && o.bench && o.bench.length){
-    const list = o.bench.map((b, i) => ({x:b.x, y:b.y, z:b.z, seed:rnd()*97.3, va:6 + (i % 2), vb:-1, ta:linRGB((b.side === "away" ? kits.away : kits.home)[0]), standing:false, side:b.side}));
-    benchMesh = bbMesh(list, false, "crowd-bench");
-    list.forEach((b, i) => benchSeats[b.side === "away" ? "away" : "home"].push(i));
-    if (benchMesh) per.push({st:{index:-1, id:"bench"}, bb:benchMesh, strip:null, excite:.1, shade:.85});
+  // the substitutes on the benches (USER-ISSUES U5): real people, not pictures. Each seat has a seated body in its
+  // club's training top (human.js: the near body close up, the far one and LOD3 further off, chosen by distance like
+  // everyone else's), posed once (the sit pose holds still: nothing to animate each frame). Four faces a bench, so a
+  // ground's sixteen seats build eight bodies' shapes, behind the travel card's cover
+  const benchSeats = {home:[], away:[]}, benchPeople = [];
+  if (o.bench && o.bench.length){
+    o.bench.forEach((b, i) => {
+      const side = b.side === "away" ? "away" : "home", kit = kits[side] || ["#2c66b8", "#ffffff"], k = benchSeats[side].length;
+      const look = lookFor("footballer", 9400 + (side === "away" ? 20 : 0) + (k % 4)*3, {kit:[kit[0], kit[1] || "#23272e"], training:true, sex:"m"});
+      const h = human(look, {cast:false});
+      h.g.name = "bench-sub";
+      // (the group on the dugout's floor, 5 cm over the seats' base line, under the middle of the seat, facing the pitch;
+      // the seat's top 0.40 m over the floor: the backside rests on it, the feet a stride ahead, hands on the thighs)
+      h.g.position.set(b.x, b.y + .05, b.z); h.g.rotation.y = 0;
+      animateHuman(h, 2, {mode:"sit", seat:.4});
+      scene.add(h.g);
+      benchSeats[side].push(benchPeople.length); benchPeople.push(h);
+    });
   }
   const _l = new THREE.Color();
   let qCrowd = 1;
@@ -513,12 +524,13 @@ export function buildCrowd(scene, o = {}){
     // n substitutes sitting on a bench ("home" or "away"); the others have gone to warm up or come on
     setBench(side, n){
       api.benchN[side === "away" ? "away" : "home"] = n;
-      if (!benchMesh) return 0;
-      const seats = benchSeats[side === "away" ? "away" : "home"], a = benchMesh.geometry.attributes.aSeat;
-      seats.forEach((i, k) => { const b = o.bench[i]; a.array[i*4 + 1] = k < n ? b.y : -50; });
-      a.needsUpdate = true;
+      const seats = benchSeats[side === "away" ? "away" : "home"];
+      if (!seats.length) return 0;
+      seats.forEach((i, k) => { benchPeople[i].g.visible = k < n; });
       return Math.min(n, seats.length);
     },
+    // the bodies on the benches (tests: they are real meshes)
+    benchPeople,
     // fewer billboards drawn (adaptive quality: 1 all of them, down to a third); the rows furthest back go first
     density(f){
       f = Math.max(.33, Math.min(1, +f || 1));
@@ -531,6 +543,8 @@ export function buildCrowd(scene, o = {}){
     dispose(){
       for (const m of meshes){ if (m.parent) m.parent.remove(m); m.geometry.dispose(); m.material.dispose(); }
       meshes.length = 0;
+      for (const h of benchPeople) h.dispose();
+      benchPeople.length = 0;
       if (stripTex) stripTex.dispose();
       if (standTex) standTex.dispose();
     }

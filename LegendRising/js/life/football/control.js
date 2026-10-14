@@ -87,7 +87,7 @@ export const windingShot = (ms, me) => { const ch = CTRL.charge; return !!(me &&
 export const CN = Object.freeze({
   SHOT_FULL: .85, OVERHIT: .92, TAP: .18, PASS_FULL: .8, PASS_MIN: 4,
   CONE: 25*DEG, CONE_NEAR: 35*DEG, CONE_NEAR_D: 15, HYST: 6*DEG, THROUGH_D: 8,
-  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, TACKLE_SLACK: .35, SLIDE_SLACK: .8, SHIELD_NEAR: 2.2, NOTE_T: 1.6, CALL_HOLD: .4, CALL_COOL: 4, DRIB_BEND: 12*DEG,
+  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, TACKLE_SLACK: .35, SLIDE_SLACK: .8, SHIELD_NEAR: 2.2, NOTE_T: 1.6, CALL_HOLD: .4, DRIB_BEND: 12*DEG,
   SCAN_MAX: 110*DEG, SCAN_BACK: .15, HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5, RACE_T: 1.5,
   SMALL: .55,                 // the small touch: the next dribble touch at this share of its length (A1.1)
   RING: Object.freeze({W0: .07, W1: .16})   // the timing ring of a volley (A1.5): the sweet window in seconds, at volleying 0 and 99
@@ -120,7 +120,7 @@ export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", "
    until changed); finesse: F held; target: the team-mate the pass cone has (agent), whether the crosshair makes it a
    through ball, and the point; call: your last call; uses: how often each hint has been acted on (they shorten) */
 export const CTRL = {ctx:"free", walk:false, scan:null, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
-  target:{agent:-1, through:false, point:null}, call:{t:-99, kind:null}, uses:{},
+  target:{agent:-1, through:false, point:null}, call:{t:-99, kind:null, seq:0, n:0}, uses:{},
   // additions: held keys, the buttons, what was released for the next step, the ring of a volley, the last action
   held:{}, lmb:false, rmb:false, lmbT:0, rmbT:0, rHeld:0, rDone:false, queue:[], ring:null, last:null, jockey:false, small:false,
   aim:{x:0, y:0, z:0, ok:false}, ground:{x:0, z:0}, resolve:null, ready:false, eHeld:0, enabled:true,
@@ -158,11 +158,13 @@ export function controlInput(ev){
       else if (k === "v") CTRL.queue.push({k:"scan"});
       else if (k === "f") CTRL.queue.push({k:"f"});
       else if (k === "space") CTRL.queue.push({k:"space"});
-      else if (k === "r"){ CTRL.rHeld = 0; CTRL.rDone = false; }
+      // R: the call registers on the press itself (U10): "Here!" at once, every time; held on to 0.4 s it becomes "In
+      // behind!" to the point under the crosshair. (It used to wait for the release, so a press whose key-up was
+      // lost to a cut or a reset, or a second press within 4 s, did nothing at all)
+      else if (k === "r"){ CTRL.rHeld = 0; CTRL.rDone = false; CTRL.queue.push({k:"rtap"}); }
       return true;
     case "keyup":
       if (ev.prevent) ev.prevent();
-      if (k === "r" && CTRL.held.r && !CTRL.rDone && !md) CTRL.queue.push({k:"rtap"});
       if (k === "v") CTRL.queue.push({k:"unscan"});
       CTRL.held[k] = false;
       return true;
@@ -640,13 +642,16 @@ export function controlStep(ms, me, h, opts = {}){
 // is this a throw-in you are taking, the ball in your hands
 function isThrow(ms, me){ const R0 = ms.restart; return !!(R0 && !R0.taken && R0.taker === me.id && R0.kind === "throw"); }
 
-// a call for the ball: "Here!" (tap, 4 s apart) or "In behind!" (held) to the point under the crosshair
+// a call for the ball (U10): "Here!" on every press of R, or "In behind!" (held) to the point under the crosshair.
+// Every press is a call the carrier hears (brain.js callFor: he weighs it at his very next look) and your arm goes up
+// with it (CTRL.call.seq: the controller's hand raise). Defending, a held R stays the "Here!" it already was
+CTRL.callHook = null;
 function call(ms, me, how){
-  if (how === "here" && ms.t - CTRL.call.t < CN.CALL_COOL) return;
   if (CTRL.ctx === "defend" && how === "behind") return;
   const pt = how === "behind" ? {x:CTRL.ground.x, z:CTRL.ground.z} : null;
   callFor(ms, me, how, pt);
-  CTRL.call.t = ms.t; CTRL.call.kind = how;
+  CTRL.call.t = ms.t; CTRL.call.kind = how; CTRL.call.seq++; CTRL.call.n++;
+  if (typeof CTRL.callHook === "function") CTRL.callHook(how);
   use("call");
 }
 
