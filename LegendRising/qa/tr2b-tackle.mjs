@@ -10,7 +10,10 @@
 //      follows his agility (duel.recovery);
 //   6. the standing reach: for tackling 20, 50 and 90 a standing tackle meets the ball at standReach - 0.05 m and never
 //      at standReach + 0.10 m; a poke reaches 0.10 m further;
-//   7. a tackle on a shielder follows logistic((T - S)/8) x timing x angle within 5 points, not (T - C).
+//   7. a tackle on a shielder follows logistic((T - S)/8) x timing x angle within 5 points, not (T - C);
+//   8. the player's own standing tackle (startAction from his controls) is timed by when he presses: in a real match,
+//      presses at the man on the ball made whenever he is within 1.6 m are not on time by construction (the engine
+//      does not aim his foot at where the ball will be), and a press once the ball is going away from him is late.
 //
 //   node qa/tr2b-tackle.mjs      exits 1 on any failed check; writes qa/out/tr2b-tackle.json
 import fs from "node:fs";
@@ -218,15 +221,57 @@ const pin = ms => { for (const a of ms.agents) if (a.role === 'player'){ a.brain
 {
   const rows = [];
   let ok = true;
-  for (const [tkl, str] of [[40, 80], [60, 50], [85, 35]]){
-    const tAt = atWith({tackling: tkl}), cAt = atWith({power: str, jumping: str, ctrl: 50});
+  // (cells where S and C differ and neither formula is clamped, so each cell tells (T - S) from (T - C): a strong
+  // shielder with poor control, a weak one with good control, and a strong one with average control)
+  for (const [tkl, str, ctl] of [[40, 80, 30], [50, 35, 70], [70, 80, 50]]){
+    const tAt = atWith({tackling: tkl}), cAt = atWith({power: str, jumping: str, ctrl: ctl});
     const T = ratings(tAt).T, rc = ratings(cAt), wantS = pTackleWin(T, rc.S, 1, 1), wantC = pTackleWin(T, rc.C, 1, 1);
     const c = cell(tAt, cAt, {seed: tkl + str, shield: true});
-    rows.push({TminusS: r3(T - rc.S), want: r3(wantS), notThis: r3(wantC), got: c.won});
+    rows.push({TminusS: r3(T - rc.S), TminusC: r3(T - rc.C), want: r3(wantS), notThis: r3(wantC), got: c.won});
     if (!(Math.abs(c.won - wantS) <= 0.05)) ok = false;
   }
-  const sep = rows.some(r => Math.abs(r.want - r.notThis) > 0.1);
+  const sep = rows.every(r => Math.abs(r.want - r.notThis) > 0.15 && r.want > 0.05 && r.want < 0.92 && r.notThis > 0.05 && r.notThis < 0.92);
   check(ok && sep, "a tackle on a shielder wins at logistic((T - S)/8) x timing x angle within 5 points (not T - C)", rows);
+}
+
+/* ---------- 8. the player's own press is timed by him ---------- */
+{
+  const {configFor} = await import("./harness.mjs");
+  const {startAction} = await import("../js/life/football/actions.js");
+  // a man of the side without the ball, as the player (his controls' press: isMe, not the AI), presses at the man on it
+  // now and then whenever he is within 1.6 m of him (the ball moving); what the tackle met and its timing are read off
+  // the act. A press with the ball already going away from him should not be an on-time contact: late, or nothing met
+  const r = mulberry32(99), rows = [];
+  let awayN = 0, awayOnTime = 0;
+  for (const seed of [1, 2, 3, 4]){
+    const ms = createMatch(configFor(seed, {}));
+    while (ms.phase !== 'over'){
+      if (ms.phase === 'live' && ms.poss.ctl >= 0 && ms.ball.state === 'free' && Math.hypot(ms.ball.v.x, ms.ball.v.z) > 0.6){
+        const c = ms.agents[ms.poss.ctl], b = ms.ball;
+        for (const a of ms.agents){
+          if (a.team === c.team || a.team < 0 || !a.onPitch || a.isGK || a.act || a.role !== 'player') continue;
+          if (Math.hypot(c.m.x - a.m.x, c.m.z - a.m.z) > 1.6 || r() > 0.2) continue;
+          // (the ball going away from him: its velocity against the way from him to it)
+          const away = (b.p.x - a.m.x)*(b.v.x - (a.m.vx || 0)) + (b.p.z - a.m.z)*(b.v.z - (a.m.vz || 0)) > 0.3;
+          const mA = ms.meAI, iM = a.isMe;
+          ms.meAI = false; a.isMe = true;
+          const act = startAction(ms, a, {kind: 'tackle', sub: 'stand', target: c.id});
+          ms.meAI = mA; a.isMe = iM;
+          if (act && act.out){
+            const hit = act.out.tBall >= 0;
+            if (away){ awayN++; if (hit && Math.abs(act.out.dt) <= 0.08) awayOnTime++; }
+            if (hit) rows.push({dt: act.out.dt, timing: act.out.timing, away});
+          }
+          break;
+        }
+      }
+      simStep(ms);
+    }
+  }
+  const onTime = rows.filter(x => x.timing >= 0.999).length/Math.max(1, rows.length);
+  check(rows.length >= 40 && onTime < 0.8 && awayN >= 20 && awayOnTime/awayN <= 0.2,
+    "the player's own press is timed by him: under 80% of the contacts on time (it was every one), and a press with the ball going away from him is an on-time contact 20% of the time or less",
+    {contacts: rows.length, onTimeShare: r3(onTime), meanAbsDt: r3(rows.reduce((s, x) => s + Math.abs(x.dt), 0)/Math.max(1, rows.length)), awayPresses: awayN, awayOnTimeShare: r3(awayOnTime/Math.max(1, awayN))});
 }
 
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});

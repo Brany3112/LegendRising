@@ -49,9 +49,11 @@ export function keylockSync(){
   return KEYLOCK;
 }
 
-// the one-time tip: due while it has never been shown on this device and the page is not already in full screen
+// the one-time tip: due while it has never been shown on this device and the page is not already in full screen, and
+// only in a browser that can lock the keyboard (elsewhere Ctrl never shields, full screen or not, so the tip would
+// promise something the browser cannot do)
 export function tipFSDue(){
-  if (KEYLOCK.fs) return false;
+  if (KEYLOCK.fs || !kb()) return false;
   try { return localStorage.getItem(TIP_FS_KEY) !== "1"; } catch(e){ return false; }
 }
 export function tipFSShown(){ try { localStorage.setItem(TIP_FS_KEY, "1"); } catch(e){} }

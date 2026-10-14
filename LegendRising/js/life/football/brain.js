@@ -52,13 +52,15 @@ export const BRAIN = Object.freeze({
   // instead (harness.js involvementShares, DESIGN 3.2.12), and he takes a throw-in when he is his side's nearest man
   // within 10 m, as the player does (rules.js pickTaker, 3.2.8). Everywhere else he is the AI: the same presser choice,
   // the same takers. The table is fitted on calibration seeds (qa/harness.mjs --from 20001, 30001, 40001), never on
-  // the acceptance run's 1 to 1000.
+  // the acceptance run's 1 to 1000. (TR-2b fix round 2 refit on seeds 50001 to 51300: ST tackle 1.3 to 1.0 and seek 8
+  // to 12, W up 8 to 13, AM tackle 1 to 0.9, CM shoot 1.3 to 1.6 and up 2 to 3, DF tackle 1 to 1.2, after the
+  // possession rework moved the forwards' defensive actions and touches up and the defenders' down)
   ME: {
-    ST: {shoot: 1.8, dribble: 1.2, tackle: 1.3, back: 3, seek: 8, up: 5, drop: 2},
-    W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 8, drop: 0},
-    AM: {shoot: 6, dribble: 1.8, tackle: 1, back: 1, seek: 3, up: 4, drop: 8},
-    CM: {shoot: 1.3, dribble: 1.2, tackle: 6.5, back: 1, seek: 2, up: 2, drop: 0},
-    DF: {shoot: 1, dribble: 1, tackle: 1, back: 1, seek: 12, up: 0, drop: 0}
+    ST: {shoot: 1.8, dribble: 1.2, tackle: 1.0, back: 3, seek: 12, up: 5, drop: 2},
+    W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 13, drop: 0},
+    AM: {shoot: 6, dribble: 1.8, tackle: 0.9, back: 1, seek: 3, up: 4, drop: 8},
+    CM: {shoot: 1.6, dribble: 1.2, tackle: 6.5, back: 1, seek: 2, up: 3, drop: 0},
+    DF: {shoot: 1, dribble: 1, tackle: 1.2, back: 1, seek: 12, up: 0, drop: 0}
   },
   ME_RANGE: 36, ME_DRIVE: 0.6,
   TAKE_ON: 3.0,              // a dribble at a man within this distance in front is a take-on: a burst past him
@@ -77,18 +79,18 @@ export const BRAIN = Object.freeze({
   DRIB_DIRS: 7, DRIB_LEN: 6, DRIB_K: 0.9,
   HOLD_K: 0.6, SHIELD_ENG: 1.3,   // (P2b-B) challenges a presser gets in on a shield held to the next decision, at pressure 1
   CLEAR: [26, 0.4, 0.72],     // a clearance: within 26 m of his goal line, pressed above 0.4, worth 0.72 of keeping it there
-  SAFETY: [18, 0.45, 6, 0.01],   // out of play for safety: within 18 m of his goal line, pressed, 6 m off the middle; a corner costs 0.01
+  SAFETY: [22, 0.4, 6, 0.005],   // out of play for safety: within 22 m of his goal line, pressed, 6 m off the middle; a corner costs 0.005
   POSS: 0.012,               // the worth of having the ball, anywhere (added to xT on both sides of a decision)
   CROSS_T: 0.1, CROSS_V: 1.3, CROSS_ZONE: [40, 30, 10, 14],   // a wide final-third position's crossing threat: from L - 40 over 30 m, |w - mid| from 10 over 14 m
   CROSS_RUN: 0.5,            // a runner counts for a cross zone he reaches within the flight plus this
-  CROSS_FROM: [24, 20],      // a cross is on within 24 m of the goal line and 20 m of the touchline
-  CROSS_DEEP: 0.2,           // a cross from 24 m off the goal line is worth this share of one from 10 m or nearer
+  CROSS_FROM: [28, 22],      // a cross is on within 28 m of the goal line and 22 m of the touchline (TR-2b refit: 24, 20)
+  CROSS_DEEP: 0.3,           // a cross from 28 m off the goal line is worth this share of one from 10 m or nearer (was 0.2)
   LONG: [0.5, 0.4, 30, 55],  // a long ball: from his own half, pressed beyond this, to the most advanced man 30 to 55 m away
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
   CALL_T: 2.5, CALL_COOL: 4, CALL_HALF: 20,
   ME_FIRST: 1.0,             // (P2-A, AI-2) a pass to the player is left to him unless a team-mate gets to it this many s sooner
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
-  TACKLE_RATE: [2.5, 0.5, 0.12],  // per second: a ball out of his feet, a shielded one, and the factor from behind
+  TACKLE_RATE: [2.5, 0.5, 0.16],  // per second: a ball out of his feet, a shielded one, and the factor from behind (TR-2b refit: 0.12)
   SLIDE_RATE: 0.55,              // per second, chasing a ball out in front of the carrier
   // (P2b-B) a shielding carrier: within CHAL_NEAR m the presser picks a shield challenge or a tackle (by pShieldLoss
   // against pTackleWin), keeps the choice CHAL_KEEP s, and leans in for a challenge at CHAL_V m/s toward the ball's side.

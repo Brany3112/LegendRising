@@ -35,9 +35,11 @@ const DEG = Math.PI/180, R = BALL.R, G = 9.81;
 
 // 1.5.3 and 3.1.7 numbers
 export const ACT = Object.freeze({
-  SAFETY: [22, 4.5, 13, 0.9, 3, 11, 8],   // a clearing header for safety: within 22 m of his goal line, an attacker within
-                                  // 4.5 m or the ball faster than 13 m/s, taken 90% of the time: aimed 3 m beyond his goal
-                                  // line, 11 to 19 m off the middle on the ball's side
+  SAFETY: [30, 6.5, 11, 1.0, 3, 11, 8],   // a clearing header for safety: within 30 m of his goal line, an attacker within
+                                  // 6.5 m or the ball faster than 11 m/s, taken every time: aimed 3 m beyond his goal
+                                  // line, 11 to 19 m off the middle on the ball's side (TR-2b refit, was 22 m, 4.5 m,
+                                  // 13 m/s, 90%: with the possession rework fewer balls went behind and the corners per
+                                  // match fell under the 2.3 WP-E band)
   REACH0: 0.45, REACH1: 0.90, REACH_LAT: 0.5,   // the ball's place for a strike: 0.45 to 0.90 m ahead, within 0.5 m across
   TC_MAX: 0.18, ADJUST: 0.35, SCUFF_D: 1.3,     // contact within 0.18 s; a stride adjust of at most 0.35 s; a scuff up to 1.3 m
   FOLLOW: 0.28,                                 // follow-through after contact
@@ -127,8 +129,10 @@ function relBall(a, b, out = RB){
 // window: the ball up to VOLLEY.H (VOLLEY.HI for the acrobatic ones) and, struck side-on, further across and less ahead.
 export const VOLLEY = Object.freeze({STYLES: new Set(['volley', 'sidevolley', 'scissor', 'bicycle']), H: 1.25, HI: 1.7, LAT: 1.05, AHEAD0: -0.15,
   WAIT: 1.2, WHIFF_H: 1.0});
-export function canStrike(a, ball, style){
-  const r = relBall(a, ball, {ahead: 0, lat: 0, dist: 0});
+// out: a record to fill in place (the engine's per-step checks pass one, so nothing is allocated); a new one by default
+const RBS = {ahead: 0, lat: 0, dist: 0};
+export function canStrike(a, ball, style, out){
+  const r = relBall(a, ball, RBS);
   const foot = footFor(a, r.lat), side = foot === 'R' ? 1 : -1;
   const s = a.scale || 1;
   const air = !!style && VOLLEY.STYLES.has(style), wide = air && style !== 'volley';
@@ -136,7 +140,9 @@ export function canStrike(a, ball, style){
   const ok = low && r.ahead >= (wide ? VOLLEY.AHEAD0 : ACT.REACH0*0.6) && r.ahead <= ACT.REACH1*s*(air ? 1.2 : 1) && Math.abs(r.lat) <= (wide ? VOLLEY.LAT : ACT.REACH_LAT);
   // the next swing: sooner when the ball is well placed, a little later at the edge of the window
   const tc = ok ? clamp(0.11 + 0.07*Math.abs(r.ahead - 0.65)/0.25, 0.10, ACT.TC_MAX) : ACT.TC_MAX;
-  return {ok, side, tc, foot, ahead: r.ahead, lat: r.lat, dist: r.dist};
+  const o = out || {ok: false, side: 0, tc: 0, foot: 'R', ahead: 0, lat: 0, dist: 0};
+  o.ok = ok; o.side = side; o.tc = tc; o.foot = foot; o.ahead = r.ahead; o.lat = r.lat; o.dist = r.dist;
+  return o;
 }
 
 // Begin a kick (shot, pass, through ball, cross, lob, clear, goal kick, punt). action = {kind, target: {x, y, z}, recv,
@@ -245,7 +251,12 @@ function kickPresolve(ms, a, act){
 function strikeContact(ms, a, act, scuff){
   const b = ms.ball, rq = act.action, at = a.at, fac = a.fac || {};
   const r = relBall(a, b, {ahead: 0, lat: 0, dist: 0});
-  if (r.dist > ACT.SCUFF_D || b.p.y - (a.y || 0) > (act.air ? VOLLEY.HI : VOLLEY.WHIFF_H) || b.state === 'held' && b.holder !== a.id){
+  // (a man who has lost the ball in his swing does not strike it: he lost a 50/50 or a tackle for it since the swing
+  // began (noTouch), or a man of the other side has it under his control now. The foot comes through on air)
+  // (in open play only: a dead ball at a restart is the taker's, whoever was last on it)
+  const lost = b.state === 'free' && ms.phase === 'live' && !(ms.restart && ms.restart.taker === a.id) &&
+    (ms.t < (a.noTouch || 0) || ms.poss.ctl >= 0 && ms.poss.ctl !== a.id && ms.agents[ms.poss.ctl].team !== a.team);
+  if (lost || r.dist > ACT.SCUFF_D || b.p.y - (a.y || 0) > (act.air ? VOLLEY.HI : VOLLEY.WHIFF_H) || b.state === 'held' && b.holder !== a.id){
     // the ball is gone: an air kick, still a kick in the log (never a silent cancel)
     const ev = logEv(ms, 'kick', a.team, a.id, a.m.x, a.m.z, {intent: rq.kind, recv: rq.recv != null ? rq.recv : -1, whiff: true, speed: 0});
     act.done = true; act.ev = ev;
@@ -269,7 +280,12 @@ function strikeContact(ms, a, act, scuff){
   const L = plan.launch;
   ballKick(b, L.v, L.w, {agent: a.id, team: a.team, kind: isShot ? 'shot' : kind, aero: at.aero, t: ms.t, knuck: L.knuck});
   stamAction(a.st, isShot ? 'shot' : 'pass');
-  if (ms.poss.ctl === a.id) clearCtl(ms);
+  // (the ball is struck away: nobody has it under control now, whoever had it)
+  if (ms.poss.ctl >= 0) clearCtl(ms);
+  // (a struck ball is a new ball: a man of the other side who lost a 50/50, a tackle or a shield challenge for the
+  // ball a moment ago is barred from playing that ball, DUEL_LOCK, not from blocking the shot or the pass struck after
+  // it; his body is in the way all the same)
+  for (const o of ms.agents) if (o.team !== a.team && o.noTouch > ms.t) o.noTouch = ms.t;
   a.drib = null;
   refreshPred(ms);
   const extra = {intent: kind === 'roll' ? 'roll' : kind, recv: rq.recv != null ? rq.recv : -1, speed: Math.round(hypot(L.v.x, L.v.y, L.v.z)*100)/100,
@@ -552,6 +568,7 @@ function looseBall(ms){
 // who wins it takes it away from him. Outside his radius: an opponent nearer it with it in reach makes it loose
 // (control lapses; the loose-ball race decides who plays it). Above 1.8 m, or further than CTL_FAR from him, it is
 // loose. Returns true when the ball was played.
+const CS_C = {ok: false, side: 0, tc: 0, foot: 'R', ahead: 0, lat: 0, dist: 0};
 function contest(ms){
   const b = ms.ball, C = ms.agents[ms.poss.ctl];
   if (!C || !C.onPitch){ clearCtl(ms); return false; }
@@ -559,7 +576,7 @@ function contest(ms){
   if (b.p.y > 1.8 || d > TUNE.CTL_FAR.value){ clearCtl(ms); C.drib = null; return false; }
   // (a controller already swinging at it, the ball in his strike window, is playing it: his strike is his touch, and a
   // man who would take it off him first has to win it at his feet)
-  const striking = !!C.act && C.act.kind === 'kick' && !C.act.done && canStrike(C, b).ok;
+  const striking = !!C.act && C.act.kind === 'kick' && !C.act.done && canStrike(C, b, C.act.action && C.act.action.style, CS_C).ok;
   const eC = envAhead(C, b), inC = striking || !!eC && eC.part !== 'head', dC = eC && eC.part !== 'head' ? eC.dist : d;
   // the nearest opponent with the ball inside his radius; an engagement whose contact has broken is closed
   let opp = null, od = Infinity;
@@ -754,8 +771,14 @@ export function nudge(ms, a, dx, dz, k = 1.4){
 // lunge's), slides to a stop on grass friction, and he gets up after duel.recovery (longer after a miss; P2b-A, ball-7).
 // The act carries {contact: {x, y, z} (where the foot meets the ball or the man), tc, side ('L' | 'R', the ball's side
 // of him), outcome, v0} for the animation (P2b-B).
+// timingErr null: the player's own press (control.js through startAction). His foot is not aimed by the engine at where
+// the ball will be: it goes to where the ball's path comes nearest his body as the foot comes through (where he puts his
+// foot in its way), so whether the ball is there when the foot is is down to when he pressed (tackleOutcome's timing:
+// on time when the ball is nearest that point at mid-sweep; late once it has gone by him, early while it is still far).
 export function startTackle(ms, a, kind, carrier, timingErr = 0){
   const b = ms.ball;
+  const own = timingErr == null;
+  if (own) timingErr = 0;
   const K = kind === 'slide' ? null : kind === 'poke' ? TACKLE.poke : TACKLE.stand;
   // the slide's run-in
   const vx = a.m.vx || 0, vz = a.m.vz || 0, v = hypot(vx, vz);
@@ -763,7 +786,7 @@ export function startTackle(ms, a, kind, carrier, timingErr = 0){
   // the foot goes for where the ball will be as it comes through (mid-sweep, or the slide's foot at its reach), off
   // by the timing error
   const tMid = (K ? K.wind + K.active/2 : prof.tActive*0.5) + timingErr;
-  const PA = predAt(ms, Math.max(0, tMid), {x: 0, y: 0, z: 0});
+  const PA = own && carrier ? pathAim(ms, a, tMid, {x: 0, y: 0, z: 0}) : predAt(ms, Math.max(0, tMid), {x: 0, y: 0, z: 0});
   const target = {x: PA.x, z: PA.z};
   // a slide goes the way he runs (his momentum), else toward the ball
   let sweepTarget = target;
@@ -803,6 +826,18 @@ export function startTackle(ms, a, kind, carrier, timingErr = 0){
   a.cool.tackle = ms.t + dur + 0.4;
   if (prof) a.recoverT = ms.t + dur;
   return a.act;
+}
+// the point of the ball's path (ms.pred, the next 1.5 s) nearest his body as the foot comes through (tMid from now)
+const PA2 = {x: 0, y: 0, z: 0};
+function pathAim(ms, a, tMid, out){
+  const bx = a.m.x + (a.m.vx || 0)*tMid, bz = a.m.z + (a.m.vz || 0)*tMid;
+  let best = Infinity;
+  for (let k = 0; k <= 45; k++){
+    predAt(ms, k/30, PA2);
+    const d = hypot(PA2.x - bx, PA2.z - bz);
+    if (d < best - 1e-6){ best = d; out.x = PA2.x; out.y = PA2.y; out.z = PA2.z; }
+  }
+  return out;
 }
 function tackleApply(ms, a, act){
   act.done = true;
@@ -1115,9 +1150,11 @@ export function startAction(ms, a, rq){
     case 'tackle': case 'slide': {
       // rq.target: an agent id (the man on the ball), 'ball' (a loose ball, ball-8), or none: the man on the ball if
       // he is theirs, else the ball when nobody has it
+      // (the player's press is timed by him: no aim from the engine, startTackle's own mode; the AI's challenges on a
+      // loose ball come through here too, aimed at the predicted ball)
       const kind = rq.kind === 'slide' ? 'slide' : (rq.sub || 'stand'), tg = rq.target;
       const c = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
-      if (tg !== 'ball' && c && c.team !== a.team && (tg == null || tg === c.id)) return startTackle(ms, a, kind, c, 0);
+      if (tg !== 'ball' && c && c.team !== a.team && (tg == null || tg === c.id)) return startTackle(ms, a, kind, c, a.isMe && !ms.meAI ? null : 0);
       if ((tg === 'ball' || tg == null) && ms.poss.ctl < 0 && ms.ball.state === 'free') return startTackle(ms, a, kind, null, 0);
       return null;
     }

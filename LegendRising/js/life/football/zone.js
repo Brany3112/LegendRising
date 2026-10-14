@@ -123,10 +123,11 @@ export function part(y, scale = 1){
 // record or c itself; v the ball's speed relative to him (m/s); pressure and breath 0 to 1
 export function q(a, v, pressure = 0, breath = 1){
   let c, vc;
-  if (typeof a === 'number'){ c = clamp(a, 0, 1); vc = TUNE.VC0.value + TUNE.VC1.value*c; }
+  // (a reading that is not a number counts as none: no speed, no pressure, a full breath, no control)
+  if (typeof a === 'number'){ c = clamp(a === a ? a : 0, 0, 1); vc = TUNE.VC0.value + TUNE.VC1.value*c; }
   else { const r = ratings(a && a.at ? a.at : a, RT); c = r.c; vc = r.vc; }
   return clamp(TUNE.Q_C.value*c - TUNE.Q_V.value*Math.max(0, (+v || 0) - vc) - TUNE.Q_P.value*clamp(+pressure || 0, 0, 1)
-    - TUNE.Q_B.value*(1 - clamp(breath == null ? 1 : +breath, 0, 1)), 0, 1);
+    - TUNE.Q_B.value*(1 - clamp(breath == null || +breath !== +breath ? 1 : +breath, 0, 1)), 0, 1);
 }
 // how far ahead a touch of quality q leaves the ball: 0.6 + 0.8 (1 - q) metres
 export const touchDist = qq => TUNE.TD_0.value + TUNE.TD_K.value*(1 - clamp(+qq || 0, 0, 1));

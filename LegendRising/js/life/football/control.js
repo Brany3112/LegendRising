@@ -35,6 +35,7 @@ import {restartReady, offsidePosition, RULES} from "./rules.js";
 import {rollSpeedFor} from "./ball.js";
 import {standReach, slideReach} from "./duel.js";
 import {TUNE} from "./tune.js";
+import {arrivalOf, canPlay} from "./zone.js";
 import {KEYLOCK, ctrlShields, tipFSDue} from "../core/keylock.js";
 import {sprintSpeed} from "../mover.js";
 
@@ -87,7 +88,7 @@ export const CN = Object.freeze({
   SHOT_FULL: .85, OVERHIT: .92, TAP: .18, PASS_FULL: .8, PASS_MIN: 4,
   CONE: 25*DEG, CONE_NEAR: 35*DEG, CONE_NEAR_D: 15, HYST: 6*DEG, THROUGH_D: 8,
   TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, TACKLE_SLACK: .35, SLIDE_SLACK: .8, SHIELD_NEAR: 2.2, NOTE_T: 1.6, CALL_HOLD: .4, CALL_COOL: 4, DRIB_BEND: 12*DEG,
-  SCAN_MAX: 110*DEG, SCAN_BACK: .15, HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5,
+  SCAN_MAX: 110*DEG, SCAN_BACK: .15, HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5, RACE_T: 1.5,
   SMALL: .55,                 // the small touch: the next dribble touch at this share of its length (A1.1)
   RING: Object.freeze({W0: .07, W1: .16})   // the timing ring of a volley (A1.5): the sweet window in seconds, at volleying 0 and 99
 });
@@ -344,11 +345,18 @@ export function contextOf(ms, me){
   return "free";
 }
 
-// is a man of the other side nearer the loose ball than you (d) are?
+// does a man of the other side get to the loose ball before you do? The race's own arrival times (zone.js arrivalOf:
+// the ball inside his radius, along its path, with his acceleration and turn), not the straight distance: a man the
+// ball is rolling away from is not first to it however near he stands. Level (both have it in reach now), the nearer.
+// Only men within a few metres of it are asked (d: your distance to it)
 function rivalNearer(ms, me, b, d){
+  const mine = canPlay(ms, me) ? arrivalOf(ms, me, CN.RACE_T) : Infinity;
   for (const o of ms.agents){
     if (o.team === me.team || o.team < 0 || !o.onPitch || o.role !== "player") continue;
-    if (Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z) < d) return true;
+    const od = Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z);
+    if (od > d + 4 || !canPlay(ms, o)) continue;
+    const t = arrivalOf(ms, o, mine < Infinity ? mine : CN.RACE_T);
+    if (t < mine || t === mine && t < Infinity && od < d) return true;
   }
   return false;
 }
@@ -667,7 +675,8 @@ function slide(ms, me, ctx){
   const loose = !c && b.state === "free" && b.p.y < .4;
   const contest = loose && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z) < 3);
   if (ctx !== "defend" && !(contest && !CTRL.charge)) return;
-  if (me.act){ noteWhy(ms, "busy"); CTRL.note.slide = true; return; }
+  // (down from a slide you are getting up; in any other move, a tackle, a strike or a header, you are finishing it)
+  if (me.act){ noteWhy(ms, "busy"); if (me.act.kind === "slide") CTRL.note.slide = true; else CTRL.note.key = "F"; return; }
   if (me.m.speed <= CN.SLIDE_V){ noteWhy(ms, "slow"); return; }
   const reach = slideReach(me.m.speed, sprintSpeed(me.prm, me.fac)) + CN.SLIDE_SLACK, far = () => { noteWhy(ms, "far"); CTRL.note.slide = true; };
   if (c && c.team !== me.team){
@@ -871,7 +880,7 @@ export function hintsFor(ms, me){
   const N = CTRL.note;
   if (N && ms.t - N.t < CN.NOTE_T && ms.t >= N.t){
     const n = (N.slide ? NOTES_SLIDE[N.k] : null) || NOTES[N.k];
-    if (n){ out.push({key:n[0], verb:n[1]}); noteKey = n[0]; }
+    if (n){ const key = N.key || n[0]; out.push({key, verb:n[1]}); noteKey = key; }
   } else if (N) CTRL.note = null;
   // a man close to you with the ball yours: the shield (C held, or Ctrl in a locked full screen)
   const pressed = ms.poss.ctl === me.id && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z) < 3);
