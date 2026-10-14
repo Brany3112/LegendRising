@@ -112,7 +112,7 @@ try {
       continue;
     }
     if (r.half != null) halves.add(r.half);
-    if (r.why && !use.offWhy){ use.offWhy = {why: r.why, note: r.note}; console.log("  off the pitch:", JSON.stringify(use.offWhy)); }
+    if (r.why && !r.why.onPitch && !use.offWhy){ use.offWhy = {why: r.why, note: r.note}; console.log("  off the pitch:", JSON.stringify(use.offWhy)); }
     if (r.mode === "life" && cards.ft) break;
     if (r.myAct !== prevAct && (r.myAct === "tackle" || r.myAct === "slide")){
       use[r.myAct + "Act"]++;
@@ -136,7 +136,8 @@ try {
       } else if (r.act === "press"){
         if (lmb){ await page.mouse.up({button: "left"}); lmb = 0; }
         // (sprint in: every other closing run is a slide, so he stays at a run until the slide's range)
-        const slideRun = slideTry % 2 === 0;
+        // (and every run once a few standing tackles have been made with no slide yet, so a match always gets its try)
+        const slideRun = slideTry % 2 === 0 || (use.slideAct === 0 && use.tacklePress >= 4);
         await key("w", r.cd > .9); await key("Shift", r.cd > (slideRun ? 1.7 : 3));
         pressN++;
         // close enough: a standing tackle with the left button; at a run from a little further, a slide (F) now and
