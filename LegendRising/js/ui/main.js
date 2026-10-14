@@ -4,7 +4,11 @@
    here, the dream's entry points gone), WP-H2 (Stage 2), WP-L (Stage 3: match routing). Contract: DESIGN 3.7.1 (New
    Game paints black at once and waits for window.lifeReady), 3.7.2 (creation and offers after the uncle's line,
    every line on them), 3.7.7 (deletions; the onboarding migration table, onbMigrate), 3.8.2 (the hub's drink goes
-   through consume), 1.3 (trust only through trustAdd). */
+   through consume), 1.3 (trust only through trustAdd).
+   P3-B (TR-3, TRAINING-SPEC 4, BUILD-PLAN P3-B item 1): the title's Training button (it loads js/life/train/index.js,
+   so a career never loads Training code), the title's key path (Enter or Space on a focused button is that button's,
+   never the start of a career; the title's start listener is off while Training runs), the sheet kind trainhub, a
+   clean title after any mode (INF-8), and Quit to title stops the play clock (INF-4). */
 let LAST_SCREEN = null;
 // settles once the 3D world module has loaded (js/life/world.js resolves it), so a new career can wait for it
 window.lifeReady = new Promise(r => { window.lifeReadyResolve = r; });
@@ -317,6 +321,10 @@ function onbMigrate(){
   if (!S.onb.centre && S.life && S.life.att && typeof S.life.att === "object") S.life.att.excused = true;
 }
 function screenTitle(){
+  // whatever mode the world was in is over (a drill, a match, Training): its exit runs, and none of its page classes
+  // stay behind (INF-8)
+  try { const M = window.__life && window.__life.modes; if (M && M.mode() !== "life") M.exitMode("title"); } catch(e){ console.error(e); }
+  for (const c of [...document.body.classList]) if (c.startsWith("mode-") || c === "drillview" || c === "fp-match") document.body.classList.remove(c);
   if (document.body.classList.contains("life")){
     if (window.stopLife) window.stopLife();
     if (window.lifeReset) window.lifeReset();
@@ -337,6 +345,7 @@ function screenTitle(){
       </svg>
       <div class="ts-sub">A game with a soul</div>
       <div class="ts-press">Click anywhere or press any key to start</div>
+      ${location.protocol !== "file:" ? `<button class="ts-train" data-keep onclick="A.training()">Training</button>` : ""}
       ${save}
     </div>
     <div class="ts-version">Version ${esc(window.FF_BUILD || "dev")}</div>
@@ -351,6 +360,9 @@ function screenTitle(){
 /* the title's entrance: the photo racks out of focus, the name is written by hand, lights up like a neon sign and
    flickers, the line under it pops in, then any key or click starts (a key or click before that finishes the entrance) */
 let TITLE_T = null;
+// the title's start listener, taken off (TITLE_OFF()) before Training: the title stays in the page under the 3D view,
+// and a key in the cage must never start the career. screenTitle puts it back
+let TITLE_OFF = null;
 function titleIntro(){
   const root = $(".ts"); if (!root) return;
   clearTimeout(TITLE_T);
@@ -370,12 +382,16 @@ function titleIntro(){
     if (LAST_SCREEN !== "title" || !document.body.contains(root)) return off();
     if (document.querySelector("#sheetRoot.open") || document.querySelector("#tutRoot.on")) return;
     if (e.type === "keydown" && (e.repeat || ["Tab", "Shift", "Control", "Alt", "Meta", "F5", "F11", "F12"].includes(e.key))) return;
+    // Enter or Space on a focused button (Training, full screen, Settings) is that button's press, not a start
+    if (e.type === "keydown" && (e.key === "Enter" || e.key === " ") && e.target && e.target.closest && e.target.closest("[data-keep], button, a, input, .cloud-corner")) return;
     if (e.type === "pointerdown" && e.target.closest("[data-keep], button, a, input, .cloud-corner")) return;
     if (!root.classList.contains("t-ready")){ clearTimeout(TITLE_T); finish(); return; }
     off();
     if (slotMeta(1)) A.continue(1); else A.newGame(1);
   };
-  const off = () => { removeEventListener("keydown", start, true); root.removeEventListener("pointerdown", start); };
+  const off = () => { removeEventListener("keydown", start, true); root.removeEventListener("pointerdown", start); if (TITLE_OFF === off) TITLE_OFF = null; };
+  if (TITLE_OFF) TITLE_OFF();
+  TITLE_OFF = off;
   addEventListener("keydown", start, true);
   root.addEventListener("pointerdown", start);
 }
@@ -717,6 +733,7 @@ function trainCost(){ return 14 - (carTier() >= 2 ? 3 : 0); }
 /* ---------- sheets (mall, staff, training, skills, menu) ---------- */
 function openSheet(kind){
   const r = $("#sheetRoot"); let body = "";
+  if (kind !== "trainhub" && r.classList.contains("open") && r.dataset.kind === "trainhub" && typeof window.trainHubClosed === "function") window.trainHubClosed();
   if (kind === "train"){
     body = `<h2>Training</h2><p class="muted">Pick a focus. With the matching coach you get +50% XP and a good chance of a free skill point.</p>
       <div class="grid2 tight">${Object.entries(TRAIN).map(([id, t]) => { const has = t.coach && S.staff[t.coach];
@@ -781,6 +798,9 @@ function openSheet(kind){
     }
   } else if (kind === "admin"){
     body = adminHTML();
+  } else if (kind === "trainhub"){
+    // Training's hub (js/life/train/hub.js writes it: the categories and their scenarios from the runner's registry)
+    body = typeof window.trainHubHTML === "function" ? window.trainHubHTML() : "";
   } else if (kind === "settings0"){
     body = `<h2>Settings</h2><div class="stack"><div><label>Graphics</label>${gfxSeg("A.gfx0")}</div>
       <button class="btn ghost" onclick="A.fullscreen()">⛶ Toggle full screen</button>
@@ -832,7 +852,10 @@ function openSheet(kind){
   requestAnimationFrame(() => r.classList.add("open"));
   r.dataset.kind = kind;
 }
-function closeSheet(){ const r = $("#sheetRoot"); if (!r) return; r.classList.remove("open"); setTimeout(() => { if (!r.classList.contains("open")) r.innerHTML = ""; }, 300); }
+function closeSheet(){ const r = $("#sheetRoot"); if (!r) return;
+  // (Training's hub hears it go: it uncovers the view and gives the pointer back, train/hub.js)
+  if (r.classList.contains("open") && r.dataset.kind === "trainhub" && typeof window.trainHubClosed === "function") window.trainHubClosed();
+  r.classList.remove("open"); setTimeout(() => { if (!r.classList.contains("open")) r.innerHTML = ""; }, 300); }
 function refreshSheet(){ const r = $("#sheetRoot"); if (r && r.classList.contains("open")) openSheet(r.dataset.kind); }
 
 function screenSeasonEnd(sum){
@@ -1296,7 +1319,19 @@ const A = {
     else go();
   },
   gfx(m){ setGfx(m); refreshSheet(); smRefresh && PH.open && S && S.phone === "smart" && smRefresh(); },
-  quit(){ saveNow(); closeSheet(); closePhone(); screenTitle(); },
+  quit(){ saveNow(); if (typeof stopPlayClock === "function") stopPlayClock(); closeSheet(); closePhone(); screenTitle(); },
+  /* Training Mode from the title (TRAINING-SPEC 4): no career is started or touched. The title's start listener goes
+     first, then the Training entry module is loaded (only now: a career never loads it) and opens the hub */
+  training(){
+    if (A._trainGo) return;
+    A._trainGo = true;
+    if (TITLE_OFF) TITLE_OFF();
+    closeSheet();
+    import("../life/train/index.js").then(m => m.enterTraining({kind:"full"})).catch(e => {
+      console.error(e); toast("Training couldn't start. Please try again.");
+      if (LAST_SCREEN === "title") titleIntro();
+    }).finally(() => { A._trainGo = false; });
+  },
   fullscreen(){
     const d = document;
     if (!d.fullscreenElement){ const el = d.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => Promise.reject())).call(el).catch(() => toast("Your browser blocked full screen. Press F11.")); }

@@ -5,7 +5,10 @@
 // An input bot plays the blocks through control.js: it chases a loose ball, passes to the nearest team-mate when it has
 // it, and shoots in the finishing block. Between blocks it is placed where it would have walked to. It plays the first
 // block, leaves the second with Esc, joins again (the second block comes next), and plays the session out.
-// Owner: WP-I (Stage P2).
+// Owner: WP-I (Stage P2); P3-B (TR-3) adds the coach's feed to the player (AI-2 follow-up, BUILD-PLAN P3-B acceptance):
+// in the passing drill (team-mates on the pitch), with a team-mate put 2.5 m and then 5 m off the line of the coach's
+// ball to the player, 8 feeds each: the feed is a chain pass whose receiver is the player, the team-mate gets no chase
+// plan for it unless he is clearly first (brain.js ME_FIRST), and the player gets it in at least 7 of 8.
 //
 //   node qa/wpI-session.mjs
 import {launch, career, freeze, snap, report, expect} from "./lib.mjs";
@@ -73,6 +76,65 @@ const PLAY = (opts) => {
   // (the block may have ended in those steps: then it is the walk to the next one)
   return TR.T === T ? {play:true, i:run.i, block:run.B && run.B.kind, t:T.t} : {walk:true, i:run.i};
 };
+
+{
+  // the coach's ball to the player is the player's (P3-B, AI-2 follow-up)
+  const {page, close} = await launch({gfx:"low", seed:21});
+  try {
+    await career(page, {zone:"ground", min:10*60 + 15, pos:"CM"});
+    await freeze(page);
+    const out = {2.5:[], 5:[]};
+    for (const off of [2.5, 5]){
+      for (let k = 0; k < 8; k++){
+        const r = await page.evaluate(async ({off, k}) => {
+          const L = window.__life, sleep = ms => new Promise(r => setTimeout(r, ms));
+          L.ctx.drill("pass");
+          for (let i = 0; i < 200 && !(window.__train && window.__train.RUN.cur); i++){ await sleep(20); L.stepN(1); }
+          const TR = window.__train; if (!TR || !TR.RUN.cur) return {error:"the drill did not start", note:(document.getElementById("lifeNote") || {}).textContent};
+          const run = TR.RUN.cur, it = run.item, TS = TR.TS;
+          // you in its ground, a little to one side each time (the feed's line changes with it)
+          const c = {x:(it.area.x0 + it.area.x1)/2 + (k - 3.5)*.8, z:(it.area.z0 + it.area.z1)/2};
+          const w = {x:c.x + TS.GP.cx, z:c.z + TS.GP.cz};
+          for (let i = 0; i < 900 && !TR.T; i++){ if (Math.hypot(L.P.x - w.x, L.P.z - w.z) > .5) L.place({x:w.x, z:w.z, y:0, yaw:0}); L.stepN(1); }
+          const T = TR.T; if (!T) return {error:"no item"};
+          const ms = T.ms, me = T.me;
+          // up to the coach's swing (the ball out of his bag): then the team-mate goes off the line, standing
+          for (let i = 0; i < 3000 && !(T.feed && T.feed.stage === "swing"); i++) L.stepN(1);
+          if (!T.feed) return {error:"no feed"};
+          const f = T.feed, from = f.from, to = f.to, dx = to.x - from.x, dz = to.z - from.z, Ln = Math.hypot(dx, dz) || 1;
+          const mate = ms.agents.find(a => a.team === me.team && a !== me && a.onPitch && a.role === "player" && !a.isGK && a.slot === "ST")
+            || ms.agents.find(a => a.team === me.team && a !== me && a.onPitch && a.role === "player" && !a.isGK);
+          const side = k % 2 ? 1 : -1, mx = from.x + dx*.55 - dz/Ln*off*side, mz = from.z + dz*.55 + dx/Ln*off*side;
+          mate.m.x = mate.x0 = mx; mate.m.z = mate.z0 = mz; mate.m.vx = mate.m.vz = 0; mate.m.speed = 0;
+          const ev0 = ms.events.length;
+          let feed = null, chase = 0, got = null;
+          for (let i = 0; i < 480 && !got; i++){
+            L.stepN(1);
+            if (!feed) feed = ms.events.slice(ev0).find(e => e.kind === "kick" && e.coach);
+            if (feed && mate.plan && (mate.plan.kind === "chase" || mate.plan.kind === "receive" || mate.plan.kind === "intercept")) chase++;
+            if (feed) got = ms.events.slice(ev0).find(e => e.kind === "touch" && (e.agent === me.id || e.agent === mate.id) && e.t >= feed.t);
+          }
+          const res = {feed:feed ? {agent:feed.agent, recv:feed.recv, intent:feed.intent} : null, me:me.id, chase, got:got ? (got.agent === me.id ? "me" : "mate") : "none"};
+          if (run.quit) run.quit();
+          for (let i = 0; i < 60 && TR.RUN.cur; i++) L.stepN(1);
+          L.stepN(30);
+          return res;
+        }, {off, k});
+        out[off].push(r);
+      }
+    }
+    res.coachFeed = out;
+    for (const off of [2.5, 5]){
+      const rs = out[off];
+      check(rs.every(r => !r.error), `coach feed (${off} m): every trial ran`, rs.filter(r => r.error));
+      check(rs.every(r => r.feed && r.feed.agent === -1 && r.feed.recv === r.me), `coach feed (${off} m): a chain pass to the player`, rs.map(r => r.feed));
+      check(rs.every(r => r.chase === 0 || r.got === "mate"), `coach feed (${off} m): the team-mate leaves it to the player`, rs.map(r => [r.chase, r.got]));
+      check(rs.filter(r => r.got === "me").length >= 7, `coach feed (${off} m): the player gets it in 7 of 8`, rs.map(r => r.got));
+    }
+    console.log("coach feed:", JSON.stringify(Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.map(r => r.got + (r.chase ? "/c" + r.chase : ""))]))));
+  } catch(e){ res.errors.push("coach feed: " + (e && e.stack || e)); }
+  finally { res.errors.push(...page.errors); await close(); }
+}
 
 {
   // a start at 15:45: refused with the line

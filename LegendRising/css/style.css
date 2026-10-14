@@ -1728,6 +1728,15 @@ body.cine #lifeCompass, body.building #lifeCompass, body.drillview #lifeCompass{
   font-size:clamp(1rem,2.4vw,1.6rem);color:#fff;opacity:0;text-shadow:0 2px 18px rgba(0,0,0,.6)}
 .ts.t-ready .ts-press{animation:tsPulse 2.2s ease-in-out infinite}
 @keyframes tsPulse{0%,100%{opacity:0}50%{opacity:1}}
+/* the title's Training button (P3-B, TRAINING-SPEC 4): the press line's face and size, as a glass pill under it */
+.ts-train{margin-top:18px;font-family:var(--display);font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  font-size:clamp(1rem,2.4vw,1.6rem);color:#fff;padding:.42em 1.3em;border-radius:999px;cursor:pointer;
+  background:rgba(8,13,22,.46);border:1px solid rgba(255,255,255,.22);text-shadow:0 2px 18px rgba(0,0,0,.6);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transform:translateY(8px);
+  transition:opacity .6s .1s,transform .6s .1s cubic-bezier(.2,.8,.2,1),background .2s,border-color .2s}
+.ts.t-ready .ts-train,.ts-train:focus-visible{opacity:1;transform:none}
+.ts-train:hover{background:rgba(255,59,92,.22);border-color:rgba(255,59,92,.6)}
+.ts-train:focus-visible{outline:2px solid #ff8fa3;outline-offset:3px}
 .ts-save{margin-top:22px;display:grid;gap:2px;justify-items:center;padding:10px 20px;border-radius:14px;opacity:0;transform:translateY(8px);
   background:rgba(8,13,22,.42);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   transition:opacity .6s .2s,transform .6s .2s cubic-bezier(.2,.8,.2,1);color:#c9d6e3;font-size:.86rem}
