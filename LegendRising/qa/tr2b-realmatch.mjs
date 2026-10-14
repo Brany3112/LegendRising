@@ -71,7 +71,13 @@ try {
       if (document.querySelector(".fp-overlay.ht button[data-ht=go]")) return {card: "ht"};
       if (document.querySelector(".fp-overlay.ft button[data-ft=go]")){ window.__ftMy = typeof MT !== "undefined" && MT && MT.my ? {mins: MT.my.mins, touches: MT.my.touches} : null; return {card: "ft"}; }
       const mode = L.modes.mode();
-      if (!ms || F.state !== "live") return {st: F.state, mode, half: ms ? ms.half : null};
+      if (!ms || F.state !== "live"){
+        // (why you are off the pitch, once: sent off, hurt, or taken off; logged for the record)
+        const a = ms && ms.agents[ms.me], n = document.getElementById("lifeNote");
+        const why = a ? {sentOff: !!a.sentOff, injured: !!a.injured, onPitch: !!a.onPitch,
+          ev: ms.events.filter(e => e.agent === a.id && /card|foul|injur|sub|off/.test(e.kind)).slice(-4).map(e => ({kind: e.kind, min: e.min, card: e.card, why: e.why}))} : null;
+        return {st: F.state, mode, half: ms ? ms.half : null, why, note: n ? n.textContent : ""};
+      }
       const me = F.me();
       const o = {st: F.state, mode, half: ms.half, min: Math.floor((ms.half - 1)*45 + ms.clock.sec/60), score: ms.score.slice(), t: ms.t};
       if (!me || !me.onPitch) return o;
@@ -81,7 +87,7 @@ try {
       // the nearest opponent to me, the man on the ball, and what my body is doing (for the shield and the tackles)
       let od = 1e9; for (const x of ms.agents){ if (x.team !== me.team && x.team >= 0 && x.onPitch){ const q = Math.hypot(x.m.x - me.m.x, x.m.z - me.m.z); if (q < od) od = q; } }
       const C = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
-      o.od = od; o.cd = C && C.team !== me.team ? Math.hypot(C.m.x - me.m.x, C.m.z - me.m.z) : null; o.spd = me.m.speed;
+      o.od = od; o.cd = C && C.team !== me.team ? Math.hypot(C.m.x - me.m.x, C.m.z - me.m.z) : null; o.spd = me.m.speed; o.booked = !!me.booked;
       o.sh = !!(me.shield && me.shield.on) || !!me.intent.shield; o.shOn = !!(me.shield && me.shield.on); o.myAct = me.act ? me.act.kind : null;
       if (C && C.team !== me.team){ o.cx = C.m.x; o.cz = C.m.z; }
       if (myRestart){ P.yaw = Math.atan2(-(gx - b.x), -(-b.z)); P.pitch = -.25; o.act = "restart"; }
@@ -106,6 +112,7 @@ try {
       continue;
     }
     if (r.half != null) halves.add(r.half);
+    if (r.why && !use.offWhy){ use.offWhy = {why: r.why, note: r.note}; console.log("  off the pitch:", JSON.stringify(use.offWhy)); }
     if (r.mode === "life" && cards.ft) break;
     if (r.myAct !== prevAct && (r.myAct === "tackle" || r.myAct === "slide")){
       use[r.myAct + "Act"]++;
@@ -134,8 +141,10 @@ try {
         pressN++;
         // close enough: a standing tackle with the left button; at a run from a little further, a slide (F) now and
         // then (at most one each 4 s of match, so the match still has its standing tackles)
-        if (r.cd < 1.5 && !r.myAct && pressN % 3 === 0){ await page.mouse.down({button: "left"}); await page.mouse.up({button: "left"}); use.tacklePress++; slideTry++; }
-        else if (slideRun && r.cd < 3.0 && r.cd > 1.8 && r.spd > 4.5 && !r.myAct && r.t - lastSlide > 4){ await page.keyboard.press("f"); use.slidePress++; lastSlide = r.t; slideTry++; }
+        // (once booked, he eases off the standing tackles as a player would, so a second yellow does not end his match
+        // before a slide has had its chance; the slide is still tried until one is made)
+        if (r.cd < 1.5 && !r.myAct && pressN % 3 === 0 && !r.booked){ await page.mouse.down({button: "left"}); await page.mouse.up({button: "left"}); use.tacklePress++; slideTry++; }
+        else if (slideRun && !(r.booked && use.slideAct > 0) && r.cd < 3.0 && r.cd > 1.8 && r.spd > 4.5 && !r.myAct && r.t - lastSlide > 4){ await page.keyboard.press("f"); use.slidePress++; lastSlide = r.t; slideTry++; }
       } else if (r.act === "restart"){
         await key("w", false); if (lmb){ await page.mouse.up({button: "left"}); lmb = 0; kicks++; }
         if (++restartN > 4){ await page.mouse.down({button: "right"}); await page.mouse.up({button: "right"}); restartN = 0; kicks++; }

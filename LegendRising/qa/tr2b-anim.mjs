@@ -104,9 +104,12 @@ try {
         const act = T.A.startAction(ms, def, {kind: "slide", target: me.id});
         if (!act){ out.push({run, error: "no act"}); continue; }
         const V = F.FS.V, R = V.rec[def.id];
-        let at = null;
+        let at = null, clipV0 = null;
         for (let n = 0; n < 150 && def.act; n++){
           L.stepN(1);
+          // (the slide's clip as it plays: since UF-A U7 a clip that has played to its end is not started again for an
+          // act that lingers, so after the act it is gone; its speed is read while it runs)
+          if (R.clip && R.clip.v0 != null) clipV0 = R.clip.v0;
           const C = R.h.mv;
           if (C && C.key === "tackle" && C.contactDone && !at && R.clip){
             const p = T.MV.partPoint(R.h, "laces", R.clip.side), c = act.contact || R.clip.target;
@@ -114,7 +117,7 @@ try {
             at = {d: +Math.hypot(p.x - c.x, p.z - c.z).toFixed(3), y: +p.y.toFixed(3), foot: [p.x, p.z].map(v => +v.toFixed(2)), c: [c.x, c.z].map(v => +v.toFixed(2)), body: [def.m.x, def.m.z].map(v => +v.toFixed(2)), chest: [hp.x, hp.z].map(v => +v.toFixed(2)), tau: +C.tau.toFixed(2), t: +def.act.t.toFixed(2), tc: act.tc, side: R.clip.side};
           }
         }
-        out.push({run, v0: act.v0, clipV0: R.clip ? R.clip.v0 : null, lastClip: R.h.mv && R.h.mv.key, outcome: act.outcome, at, dur: act.dur});
+        out.push({run, v0: act.v0, clipV0, lastClip: R.h.mv && R.h.mv.key, outcome: act.outcome, at, dur: act.dur});
       }
       return out;
     });
