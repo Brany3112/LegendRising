@@ -15,7 +15,9 @@ const {page} = T;
 let ok = false;
 const st = () => page.evaluate(() => {
   const F = window.__fp, FS = F.FS, P = window.__life.P, pr = document.getElementById("lifePrompt");
-  const shown = pr && getComputedStyle(pr).display !== "none" && +getComputedStyle(pr).opacity > .1 && pr.offsetParent !== null;
+  // (shown: the HUD's own on state, not the opacity mid-fade: on a loaded machine the fade-out a frame ago can still read
+  // above 0.1 while the frozen page steps)
+  const shown = pr && pr.classList.contains("on") && getComputedStyle(pr).display !== "none" && pr.offsetParent !== null;
   return {state: F.state, seated: !!FS.seated, P: [+P.x.toFixed(2), +P.z.toFixed(2)], prompt: shown ? pr.textContent.replace(/\s+/g, " ").trim() : ""};
 });
 // stand at a spot facing a point (the walk-up starts there), on your feet

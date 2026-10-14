@@ -8,19 +8,22 @@
    inside 1.6 m, and E opens that category in the hub). While a scenario plays, the other cones say to end or reset it
    first. When the cage is built again (another pitch: event train:cage) the cones and their spots are put at the new
    kind's anchors; the old spots went with the old place (build.js begin), so none is ever doubled. */
-import {W, spot, mat} from "../build.js";
+import {THREE, W, spot, mat} from "../build.js";
 import {note} from "../core/hud.js";
 import {coneMesh} from "../football/training.js";
 import {CAGE} from "./cage.js";
 import {CATEGORIES, RUN} from "./runner.js";
 import {openHub} from "./hub.js";
 
-// each category's colour (kept materials: a new place never disposes them)
+// each category's colour: the seven cones are one instanced mesh (one draw call, so the cage stays within its draw-call
+// budget on Low, BUILD-PLAN P3-A acceptance), each instance in its category's colour; the geometry is the drills' cone
+// (training.js coneMesh) and the material is kept (a new place never disposes it)
 const COLOURS = {setpieces:0xf2c230, attacking:0xe8452c, defending:0x2f7de1, receiving:0x3fbf6a, scenarios:0xa25be0, fullmatch:0xf07a1a, freeplay:0xe8e8e8};
-const MATS = {};
-const matOf = id => { if (!MATS[id]){ MATS[id] = mat({color:COLOURS[id] || 0xf07a1a, roughness:.6}); MATS[id].userData.keep = true; } return MATS[id]; };
+let MAT = null;
+const matOf = () => { if (!MAT){ MAT = mat({color:0xffffff, roughness:.6}); MAT.userData.keep = true; } return MAT; };
 export const CONE_R = 1.6, CONE_SCALE = 3;
-const CONES = {list:[], spots:[], kind:null};
+const CONES = {mesh:null, at:[], spots:[], kind:null};
+const M4 = new THREE.Matrix4(), COL = new THREE.Color();
 
 // what a cone does when you press E at it
 function use(cat){
@@ -32,26 +35,29 @@ function use(cat){
 export function placeCones(){
   clearCones();
   if (!CAGE || !CAGE.anchors || !W.scene) return 0;
-  for (const c of CATEGORIES){
-    for (const a of CAGE.anchors[c.id] || []){
-      const m = coneMesh(CONE_SCALE, matOf(c.id));
-      m.name = "train-cone-" + c.id;
-      m.position.set(a.x, 0, a.z); m.updateMatrix(); m.matrixAutoUpdate = false;
-      W.scene.add(m);
-      CONES.list.push(m);
-      const sp = spot({x:a.x, z:a.z, y:.6, r:CONE_R, near:true, train:true, cat:c.id, label:c.name, hint:"See what you can practise here", run:() => use(c)});
-      CONES.spots.push(sp);
-    }
-  }
-  CONES.kind = CAGE.kind;
-  return CONES.list.length;
+  for (const c of CATEGORIES) for (const a of CAGE.anchors[c.id] || []) CONES.at.push({cat:c, x:a.x, z:a.z});
+  if (!CONES.at.length) return 0;
+  const g = coneMesh(1).geometry, m = new THREE.InstancedMesh(g, matOf(), CONES.at.length);
+  m.name = "train-cones"; m.userData.keep = true; m.userData.noMerge = true; m.castShadow = false;
+  CONES.at.forEach((p, i) => {
+    M4.makeScale(CONE_SCALE, CONE_SCALE, CONE_SCALE).setPosition(p.x, 0, p.z); m.setMatrixAt(i, M4);
+    m.setColorAt(i, COL.setHex(COLOURS[p.cat.id] || 0xf07a1a));
+    const sp = spot({x:p.x, z:p.z, y:.6, r:CONE_R, near:true, train:true, cat:p.cat.id, label:p.cat.name, hint:"See what you can practise here", run:() => use(p.cat)});
+    CONES.spots.push(sp);
+  });
+  m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+  m.computeBoundingSphere(); m.matrixAutoUpdate = false; m.updateMatrix();
+  W.scene.add(m);
+  CONES.mesh = m; CONES.kind = CAGE.kind;
+  return CONES.at.length;
 }
 export function clearCones(){
-  for (const m of CONES.list) if (m.parent) m.parent.remove(m);
+  // (the instance buffers are this mesh's own: freed with it; the geometry and the material are shared and kept)
+  if (CONES.mesh){ if (CONES.mesh.parent) CONES.mesh.parent.remove(CONES.mesh); CONES.mesh.dispose(); CONES.mesh = null; }
   for (const sp of CONES.spots){ const i = W.spots.indexOf(sp); if (i >= 0) W.spots.splice(i, 1); }
-  CONES.list.length = 0; CONES.spots.length = 0; CONES.kind = null;
+  CONES.at.length = 0; CONES.spots.length = 0; CONES.kind = null;
 }
-export const cones = () => CONES.list.map((m, i) => ({cat:CONES.spots[i] ? CONES.spots[i].cat : null, x:m.position.x, z:m.position.z}));
+export const cones = () => CONES.at.map(p => ({cat:p.cat.id, x:p.x, z:p.z}));
 
 if (typeof addEventListener === "function"){
   // every build of the cage (the first one too): the cones at the new kind's anchors
