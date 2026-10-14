@@ -1,0 +1,35 @@
+/* ============ Training Mode ============
+   Owner: P3-B (TR-3, Training Mode Phase 3). Contract: BUILD-PLAN P3-B work items 2 and 7; TRAINING-SPEC 4 (a simple
+   hub, a small Training HUD that never covers the ball). */
+
+/* ---------- the hub (a sheet: js/life/train/hub.js) ---------- */
+.th h2{margin-bottom:.15em}
+.th-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:14px 0}
+.th-cat{display:grid;gap:4px;text-align:left;justify-items:start}
+.th-cat .pill{margin-top:4px}
+.th-run{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 12px;margin:10px 0;border-radius:12px;
+  background:rgba(63,191,106,.12);border:1px solid rgba(63,191,106,.35)}
+.th-list{display:grid;gap:8px;margin:14px 0}
+.th-sc{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:12px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.th-sc > div:first-child{display:grid;gap:2px}
+.th-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.th-none{margin:14px 0}
+.th-foot{display:flex;align-items:center;gap:10px;margin-top:8px}
+.th-foot .grow{flex:1}
+@media (max-width:600px){.th-sc{flex-direction:column;align-items:stretch}.th-btns{justify-content:flex-start}}
+
+/* ---------- the Training HUD (js/life/train/thud.js): a small card at the top edge, on the side away from the ball ---------- */
+#trainHud{position:fixed;top:calc(10px + env(safe-area-inset-top));z-index:30;max-width:250px;display:grid;gap:2px;
+  padding:7px 10px;border-radius:10px;background:rgba(8,13,22,.55);border:1px solid rgba(255,255,255,.12);color:#e7eef7;
+  font:500 .72rem/1.3 var(--body);pointer-events:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#trainHud.left{left:calc(10px + env(safe-area-inset-left))}
+#trainHud.right{right:calc(10px + env(safe-area-inset-right))}
+#trainHud .thud-name{font:700 .82rem/1.2 var(--display);letter-spacing:.04em;text-transform:uppercase}
+#trainHud .thud-row{color:#c9d6e3}
+#trainHud .thud-preset{color:rgba(201,214,227,.7)}
+#trainHud .thud-keys{color:rgba(231,238,247,.75);font-size:.66rem}
+#trainHud kbd{font:600 .62rem/1 var(--body);padding:1px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08)}
+#trainHud .thud-note{font-weight:700;margin-top:2px}
+#trainHud .thud-note.good{color:#9be8b3}
+#trainHud .thud-note.bad{color:#ffd27a}

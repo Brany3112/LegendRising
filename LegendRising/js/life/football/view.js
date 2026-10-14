@@ -18,7 +18,11 @@
    far as the simulation's reach (duel.js standReach, the poke's further); a slide runs at the act's own carried speed,
    along its own way, slowed by the grass; a receive starts when the ball comes inside the control radius (zone.js R)
    and uses the foot, the thigh or the chest by the ball's real height (zone.js part); a shielding body carries the
-   shield's upper body (moves.js upper:shield). */
+   shield's upper body (moves.js upper:shield).
+   P3-B (TR-3, TRAINING-SPEC 4 and 8, BUILD-PLAN P3-B items 5 and 6): Training's drills hand in pooled bodies
+   (o.bodyOf(agent) and o.fpBody, train/pool.js), which viewDispose gives back instead of destroying, so a restart
+   never builds a body; o.officials === false draws no referee and no assistants (a drill has none on the grass); the
+   ball is never drawn smaller than BALL_MIN_PX across, so it stays readable far off. */
 import {THREE} from "../build.js";
 import {human, animateHuman, lookFor, EV} from "../human.js";
 import {SCHED} from "../core/sched.js";
@@ -59,9 +63,9 @@ export function matchLooks(ms, kits, meLook){
   return {of, gk, K};
 }
 // every look a match will need, the substitutes' too (for prebuildHumans behind the travel card)
-export function looksOf(ms, kits, meLook){
+export function looksOf(ms, kits, meLook, o = {}){
   const L = matchLooks(ms, kits, meLook), out = [];
-  for (const a of ms.agents) if (a.role !== "off") out.push(a.isGK && ms.gks[a.team] === a.id ? L.gk[a.team] : L.of(a));
+  for (const a of ms.agents) if (a.role !== "off" && !(o.officials === false && a.team === -1)) out.push(a.isGK && ms.gks[a.team] === a.id ? L.gk[a.team] : L.of(a));
   for (const t of [0, 1]) for (const p of ms.bench[t]) out.push(L.of({team:t, pid:p.pid, id:p.pid, number:p.number, isMe:p.isMe, isGK:p.isGK, role:"player"}, p));
   return out;
 }
@@ -73,26 +77,36 @@ export function viewInit(ms, scene, kits, o = {}){
     clipN:0, goals:[], saves:new Map(), celebUntil:0, flagUntil:[0, 0], t:0, hideAll:false, offs:[],
     // where the view's group sits in the world (a training item's frame: o.frame {cx, cz}; a match is at the origin),
     // so the scheduler's tiers go by real distance; lookOf(agent): a look of the agent's own (a borrowed squad body)
-    ox:o.frame ? +o.frame.cx || 0 : 0, oz:o.frame ? +o.frame.cz || 0 : 0, lookOf:typeof o.lookOf === "function" ? o.lookOf : null};
+    ox:o.frame ? +o.frame.cx || 0 : 0, oz:o.frame ? +o.frame.cz || 0 : 0, lookOf:typeof o.lookOf === "function" ? o.lookOf : null,
+    // (P3-B) pooled bodies: bodyOf(agent) -> a human() body to use (given back by viewDispose), fpBody the rig in your
+    // eyes; officials false: no bodies for the referee and the assistants
+    bodyOf:typeof o.bodyOf === "function" ? o.bodyOf : null, fpBody:o.fpBody || null, officials:o.officials !== false};
   const b = ballMesh({shadow:true});
   b.mesh.matrixAutoUpdate = true;
   scene.add(b.mesh);
   V.ball = b;
   V.ballPrev = {x:ms.ball.p.x, y:ms.ball.p.y, z:ms.ball.p.z};
-  for (const a of ms.agents) if (a.role !== "off") bodyFor(V, a);
+  for (const a of ms.agents) if (drawn(V, a)) bodyFor(V, a);
   return V;
 }
-// one agent's body, made the first time it is needed (a substitute coming on)
+// does this agent get a body: not an empty slot, and not an official where the officials are not drawn (a drill)
+const drawn = (V, a) => a.role !== "off" && (V.officials || a.team !== -1);
+// one agent's body, made the first time it is needed (a substitute coming on), or taken from the pool handed in
 function bodyFor(V, a){
   let R = V.rec[a.id];
   if (R) return R;
   const ms = V.ms;
-  const own = V.lookOf ? V.lookOf(a) : null;
-  const look = own || (a.isGK && ms.gks[a.team] === a.id ? V.L.gk[a.team] : V.L.of(a));
-  const h = human(look, {cast:true});
+  const pooled = V.bodyOf ? V.bodyOf(a) : null;
+  let h = pooled;
+  if (!h){
+    const own = V.lookOf ? V.lookOf(a) : null;
+    const look = own || (a.isGK && ms.gks[a.team] === a.id ? V.L.gk[a.team] : V.L.of(a));
+    h = human(look, {cast:true});
+  }
   h.g.name = a.isMe ? "match-me" : "match-" + a.id;
+  h.g.visible = true;
   V.scene.add(h.g);
-  R = V.rec[a.id] = {a, h, st:{mode:"move", speed:0}, clip:null, actRef:null, kind:"", recv:null, cel:null, x:a.m.x, z:a.m.z, actor:null, hidden:false, wpos:{x:0, y:0, z:0}};
+  R = V.rec[a.id] = {a, h, pooled:!!pooled, st:{mode:"move", speed:0}, clip:null, actRef:null, kind:"", recv:null, cel:null, x:a.m.x, z:a.m.z, actor:null, hidden:false, wpos:{x:0, y:0, z:0}};
   R.actor = SCHED.actor({id:"match-" + a.id, kind:"match", r:1.1,
     pos:() => { const p = R.pos || (R.pos = {x:0, y:0, z:0}), w = R.wpos; w.x = p.x + V.ox; w.y = p.y; w.z = p.z + V.oz; return w; },
     active:() => !!(R.clip || (a.act && !a.act.done) || a.isMe || (a.gk && a.gk.plan)),
@@ -104,8 +118,11 @@ function bodyFor(V, a){
 // your first-person body (no head: the body ends at the shoulders), in the kit; also made by controller.js for a
 // substitute off the pitch (the warm-up, A1.8), who has no agent yet: the same body is taken over when he goes on
 export function makeFP(V){
-  if (!V || V.fp || !V.fpLook) return;
-  const h = human(V.fpLook, {noHead:true, lod:false, track:true});
+  if (!V || V.fp || (!V.fpLook && !V.fpBody)) return;
+  // (a pooled rig is the pool's: given back, not disposed, viewDispose)
+  const h = V.fpBody || human(V.fpLook, {noHead:true, lod:false, track:true});
+  V.fpPooled = h === V.fpBody;
+  h.g.visible = true;
   h.near.frustumCulled = false;
   h.g.name = "match-fp";
   V.scene.add(h.g);
@@ -118,7 +135,7 @@ export function makeFP(V){
 export function viewFrame(V, ms, alpha, dt, cam){
   V.alpha = alpha; V.t += dt;
   for (const a of ms.agents){
-    if (a.role === "off") continue;
+    if (!drawn(V, a)) continue;
     const R = V.rec[a.id] || bodyFor(V, a);
     const S = V.src ? V.src.agents[a.id] : null;
     // before the kick-off (the dressing room, the walk-out) a body may be somewhere the controller walks it (pre)
@@ -143,8 +160,24 @@ export function viewFrame(V, ms, alpha, dt, cam){
     bm.position.set(P0.x + (B.x - P0.x)*alpha, P0.y + (B.y - P0.y)*alpha, P0.z + (B.z - P0.z)*alpha);
   }
   bm.visible = !V.hideAll && !(V.src ? V.src.ballHidden : false);
+  ballReadable(V, bm, cam);
   spin(V, dt);
   spares(V, ms);
+}
+/* the ball never smaller on screen than BALL_MIN_PX across (TRAINING-SPEC 2, "ball readable"): far off, a real ball
+   (22 cm) is under 3 px at 40 m in a 720-pixel-high view; beyond the distance where it would be, it is drawn a little
+   larger, just enough. Its position and the simulation are untouched (only the mesh's scale) */
+export const BALL_MIN_PX = 3;
+function ballReadable(V, bm, cam){
+  let s = 1;
+  if (cam && cam.isPerspectiveCamera){
+    const hpx = V.viewH || (typeof innerHeight === "number" ? innerHeight : 720);
+    const gx = bm.position.x + V.ox - cam.position.x, gy = bm.position.y - cam.position.y, gz = bm.position.z + V.oz - cam.position.z;
+    const d = Math.hypot(gx, gy, gz), f = hpx/2/Math.tan(cam.fov*Math.PI/360);
+    const px = 2*.11*f/Math.max(d, .01);
+    if (px < BALL_MIN_PX) s = BALL_MIN_PX/px;
+  }
+  if (bm.scale.x !== s) bm.scale.setScalar(s);
 }
 // before each fixed step: where the ball was (for the interpolation)
 export function viewPreStep(V, ms){ const b = ms.ball.p; V.ballPrev.x = b.x; V.ballPrev.y = b.y; V.ballPrev.z = b.z; }
@@ -486,9 +519,10 @@ function ring(V, key, p, r, w, color, op){
 
 export function viewDispose(V){
   if (!V) return;
-  for (const R of V.rec){ if (!R) continue; SCHED.remove(R.actor); R.h.dispose(); }
+  // (a pooled body goes back to its pool: out of the scene, kept whole, P3-B)
+  for (const R of V.rec){ if (!R) continue; SCHED.remove(R.actor); if (R.pooled){ if (R.h.g.parent) R.h.g.parent.remove(R.h.g); R.h.g.visible = false; } else R.h.dispose(); }
   V.rec.length = 0;
-  if (V.fp){ V.fp.dispose(); V.fp = null; }
+  if (V.fp){ if (V.fpPooled){ if (V.fp.g.parent) V.fp.g.parent.remove(V.fp.g); V.fp.g.visible = false; } else V.fp.dispose(); V.fp = null; }
   // (each ball's geometry and material are its own, pitchmesh.js ballMesh: they go with the view, P2-B perf-2; the
   // blob under it is shared and stays)
   for (const b of [V.ball].concat(V.extra)) if (b){ if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); }

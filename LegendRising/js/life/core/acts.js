@@ -445,14 +445,15 @@ export const TRAIN_HOST = {
 function firstDaySay(who, text){ if (!fdActive()) return false; speak(who, text); return true; }
 let TRAINING = null, RUN_MOD = null;
 const RUNNING = () => !!(RUN_MOD && RUN_MOD.RUN.cur);
-// football/training.js, loaded once (it brings the match's controls, bodies and HUD with it)
+// football/training.js, loaded once (it brings the match's controls, bodies and HUD with it). TRAIN_HOST goes in with
+// each run (P3-B, INF-5): Training Mode's runner drives the same mode with a host of its own, never this one
 export function training(){
-  if (!TRAINING) TRAINING = import("../football/training.js").then(T => { T.trainHost(TRAIN_HOST); RUN_MOD = T; return T; }).catch(e => { TRAINING = null; throw e; });
+  if (!TRAINING) TRAINING = import("../football/training.js").then(T => { if (window.__train) window.__train.host = TRAIN_HOST; RUN_MOD = T; return T; }).catch(e => { TRAINING = null; throw e; });
   return TRAINING;
 }
 export function drill(kind){
   if (!trainCheck() || mode() !== "life") return;
-  training().then(T => { if (T.RUN.cur) return note("You're in the middle of something already."); T.startDrill(kind); }).catch(e => console.error(e));
+  training().then(T => { if (T.RUN.cur) return note("You're in the middle of something already."); T.startDrill(kind, TRAIN_HOST); }).catch(e => console.error(e));
 }
 /* the team session, once a day (DESIGN 3.8.8, 3.6.2: S.life.att.sess = {blocks, mins, done, score}): four blocks played
    on the simulation (training.js startSession); Esc keeps the blocks you finished and joining again carries on from
@@ -468,10 +469,10 @@ export function session(){
   if (left < SESSION_LAST) return note(`The session's nearly over. Join them tomorrow at ${clockText(SESSION.start)}.`);
   if (S.energy < 10) return note("You're too hungry to keep up. Eat something first. There's food in the gym fridge.");
   if (mode() !== "life") return;
-  training().then(T => T.startSession()).catch(e => console.error(e));
+  training().then(T => T.startSession(TRAIN_HOST)).catch(e => console.error(e));
 }
 // the first day's lessons (WP-H2's G9 calls it): resolves true when they are done
-export function startFirstTraining(){ return training().then(T => T.startFirstTraining()); }
+export function startFirstTraining(){ return training().then(T => T.startFirstTraining(TRAIN_HOST)); }
 window.lifeFirstTraining = startFirstTraining;
 
 /* the mode drill: a gym set (drills.js), driven through the host world.js gives it (the
