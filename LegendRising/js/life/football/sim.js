@@ -96,7 +96,7 @@ export function createMatch(cfg){
     stats: {shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0], yellows: [0, 0], reds: [0, 0], offsides: [0, 0],
       passes: [0, 0], passesOk: [0, 0], possSec: [0, 0], saves: [0, 0], goals: [0, 0]},
     subs: {used: [0, 0], plan: [], nextAt: [60, 60]}, stoppage: [0, 0],
-    pref: {decided: 0, received: 0, calls: 0, capped: false, capEvents: 0, log: []},
+    pref: {decided: 0, received: 0, calls: 0, called: 0, capped: false, capEvents: 0, log: []},
     checkpointDue: false,
     // additions
     tm: null, chain: createChain(), spares: [], kick: null, call: null, meAI: !!cfg.meAI, restartLog: [],

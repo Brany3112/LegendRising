@@ -928,7 +928,11 @@ export function buildStadium(ctx, o = {}){
   const on = o.on || {};
   if (on.ready) spot({x:0, y:1.2, z:-72.5, r:3, near:true, stadium:true, label:"Dressing room", hint:"Get ready", run:() => on.ready()});
   if (on.door) spot({x:0, y:1.2, z:-66, r:1.8, near:true, stadium:true, label:"Tunnel", hint:"Walk out", run:() => on.door()});
-  if (on.bench) for (const [side, x] of [["home", -10], ["away", 10]]) spot({x, y:.8, z:-37.3, r:2.6, near:true, stadium:true, label:"Bench", hint:"Sit down", run:() => on.bench(side)});
+  // the bench (U4): offered from the front, where a player walks up to it from the touchline, and from any side. The
+  // spot stands at the dugout's open front (a spot inside its shelter could only be seen from behind, through the
+  // back wall's thin side), and the whole shelter is its aim box: look at the dugout from wherever you are and sit
+  if (on.bench) for (const [side, x] of [["home", -10], ["away", 10]]) spot({x, y:.8, z:-36.15, r:2.6, near:true, stadium:true, label:"Bench", hint:"Sit down",
+    aim:[[x - 2.55, 0, -37.8], [x + 2.55, 2.35, -36.4]], when:on.benchOk ? () => on.benchOk(side) : undefined, run:() => on.bench(side)});
   if (on.leave) spot({x:0, y:1.2, z:-77.6, r:1.8, near:true, stadium:true, label:"Exit", hint:"Leave the ground", run:() => on.leave()});
   finishBatches();
   /* the sky: a stadium's own lights and shadows (DESIGN 3.3.4), its shadow box round the whole ground, and the

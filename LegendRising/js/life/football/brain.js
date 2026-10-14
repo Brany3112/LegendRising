@@ -88,6 +88,16 @@ export const BRAIN = Object.freeze({
   LONG: [0.5, 0.4, 30, 55],  // a long ball: from his own half, pressed beyond this, to the most advanced man 30 to 55 m away
   PREF_CAP: [-0.10, 0.25], PREF_GATE: 0.75, PREF_SHARE: 0.25, PREF_WIN: 600,
   CALL_T: 2.5, CALL_COOL: 4, CALL_HALF: 20,
+  // (U10) the player's call heard by the carrier: a pass to him that is on (its pOK from CALL_ON[0], fully from CALL_ON[1])
+  // gains CALL_ADD of the best option's worth while the call stands; never to a man seen offside, never a pass that is not on
+  CALL_ON: [0.5, 0.7], CALL_ADD: 0.2,
+  // (U9) where a shot is worth taking from: square on to goal (within SIGHT[0] m of the long axis, SIGHT[1] to SIGHT[2] m
+  // out) the shot is worth SIGHT[3] more than the bare xG says (the whole goal to aim at, the keeper unsighted through
+  // the bodies in front); from a wide angle beyond SIGHT[4] m out (more than SIGHT[0] m off the axis) SIGHT[5] of it
+  SIGHT: [11, 12, 28, 1.1, 22, 0.55],
+  // (U9) holding the shape in possession, an attacker or a midfielder with a man within SPACE[0] m of his place in it
+  // finds space: up to SPACE[1] m off his place, away from that man, never offside
+  SPACE: [4, 5],
   ME_FIRST: 1.0,             // (P2-A, AI-2) a pass to the player is left to him unless a team-mate gets to it this many s sooner
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
   TACKLE_RATE: [2.5, 0.5, 0.16],  // per second: a ball out of his feet, a shielded one, and the factor from behind (TR-2b refit: 0.12)
@@ -280,6 +290,18 @@ export function playerPreference(ms, carrier, V, best){
   const c = ms.call && ms.call.agent === me.id && ms.t - ms.call.t < BRAIN.CALL_T ? ms.call.k : 0;
   const p = clamp((chem - 50)/250 + (trust - 20)/400 + c*0.15*(0.6 + 0.4*chem/100), BRAIN.PREF_CAP[0], BRAIN.PREF_CAP[1]);
   return 1 + p;
+}
+// The player's call (R, U10) as the carrier weighs it: while it stands (CALL_T), a pass to him that is on (pOK at least
+// CALL_ON[0], fully at CALL_ON[1]) and not to a man he sees offside gains CALL_ADD of the best option's worth. Additive,
+// so a pass that is worth little is still worth little against a clear chance (he still shoots when he should), and a
+// pass that is not on gains nothing (no forced, impossible pass). The preference cap (prefCapUpdate) is about the
+// unasked bias of chemistry and trust; a call is the player asking, so it is heard every time
+export function callPull(ms, carrier, o, best){
+  const me = ms.me >= 0 ? ms.agents[ms.me] : null;
+  if (!me || !o || o.recv !== me.id || o.off || carrier.team !== me.team || carrier === me) return 0;
+  if (!(ms.call && ms.call.agent === me.id && ms.t - ms.call.t < BRAIN.CALL_T)) return 0;
+  const pOK = o.pOK != null ? o.pOK : 0, k = clamp((pOK - BRAIN.CALL_ON[0])/(BRAIN.CALL_ON[1] - BRAIN.CALL_ON[0]), 0, 1);
+  return k > 0 ? k*(ms.call.k || 1)*BRAIN.CALL_ADD*Math.max(Math.abs(best), BRAIN.POSS) : 0;
 }
 // the rolling cap: decided/received over the last 10 match minutes
 function prefCapUpdate(ms){
@@ -504,7 +526,10 @@ function* carrierOptions(ms, a){
   if (dGoal < (meShot ? BRAIN.ME_RANGE : 34)){
     const xg = xgAt(ms, team, m.x, m.z);
     const bias = (a.arch === 'DF' || a.arch === 'CM' ? 0.85 : 1)*(tempo.shotBias || 1)*(tm.lateShot || 1)*(meShot ? meT.shoot : 1);
-    const V = xg*(0.6 + 0.6*at.accuracy/100)*bias;
+    // (U9) square on, from the edge of the box and the D, a shot is the thing to do; from a wide angle at range it is not
+    const lat = Math.abs(m.z), S9 = BRAIN.SIGHT;
+    const sight = lat <= S9[0] && dGoal >= S9[1] && dGoal <= S9[2] ? S9[3] : lat > S9[0] && dGoal > S9[4] ? S9[5] : 1;
+    const V = xg*(0.6 + 0.6*at.accuracy/100)*bias*sight;
     add({kind: 'shot', V, xg});
   }
   // 2. passes, through balls and crosses to every team-mate
@@ -697,7 +722,12 @@ function* carrierOptions(ms, a){
   const T = BRAIN.TEMP*(1 - clamp(at.decision, 0, 119)/120);
   let best = -Infinity;
   for (const o of opts) if (o.V > best) best = o.V;
-  for (const o of opts) o.Vp = o.isMe && (o.kind === 'pass' || o.kind === 'through') && !o.off ? o.V*playerPreference(ms, a, o.V, best) : o.V;
+  // (Vb: with the bias of chemistry and trust only; Vp: with the player's call heard as well, U10)
+  for (const o of opts){
+    const toMe = o.isMe && (o.kind === 'pass' || o.kind === 'through' || o.kind === 'lob') && !o.off;
+    o.Vb = toMe ? o.V*playerPreference(ms, a, o.V, best) : o.V;
+    o.Vp = toMe ? o.Vb + callPull(ms, a, o, best) : o.Vb;
+  }
   const draw = ms.r();
   const pick = (key) => {
     let top = -Infinity;
@@ -713,8 +743,13 @@ function* carrierOptions(ms, a){
   // the QA harness's window on decisions (qa/harness.mjs --decisions); nothing in the game sets it
   if (ms.onDecide) ms.onDecide(a, opts, chosen, u, here, press);
   if (ms.me >= 0 && a.team === ms.agents[ms.me].team){
+    // a pass to the player that the values alone would not have made: by the bias (decided, the capped share of
+    // 3.2.4), or because he called for it (called: his own doing, counted apart, U10)
     const plain = pick('V');
-    if (plain !== chosen && chosen.isMe){ ms.pref.decided++; ms.pref.log.push({t: ms.t, k: 'd'}); }
+    if (plain !== chosen && chosen.isMe){
+      if (pick('Vb') === chosen){ ms.pref.decided++; ms.pref.log.push({t: ms.t, k: 'd'}); }
+      else ms.pref.called = (ms.pref.called || 0) + 1;
+    }
   }
   return chosen;
 }
@@ -947,6 +982,9 @@ export function decideOffBall(ms, a){
         && supportSpot(ms, a, carrier, anc, out)) return out;
       // the harness's stand-in for the player, a long spell without the ball: he comes to show for it, as a player does
       if (carrier !== a && meT && ms.t - (a.invT || 0) > meT.seek && supportSpot(ms, a, carrier, anc, out)) return out;
+      // (U9) free space: an attacker or a midfielder whose place in the shape has a man standing on it moves off him,
+      // a few metres away within reach of that place (the shape held, the space found)
+      if (carrier !== a && a.slotLine !== 'DF' && !a.isGK) spaceFrom(ms, a, out);
       // support: within 25 m of the carrier, open a lane if it is blocked
       const dc = hypot(carrier.m.x - m.x, carrier.m.z - m.z);
       if (dc < 25 && carrier !== a){
@@ -1018,6 +1056,25 @@ function supportRank(ms, a, c){
 // opponent), the lane to it from the carrier, how far he has to go, how far forward it is, and team-mates already there.
 // Writes out (x, z, gait, stop, face) and returns true, or false when he is too far from the carrier.
 const SUP_ANG = [0, 35, -35, 70, -70, 105, -105].map(d => d*DEG);
+// (U9) the nearest opponent to his target spot; within SPACE[0] m of it, the spot moves away from him by what is
+// missing, up to SPACE[1] m, and back onside if that took it beyond the line. In place on out
+function spaceFrom(ms, a, out){
+  let near = null, nd = BRAIN.SPACE[0];
+  for (const o of ms.agents){
+    if (o.team === a.team || o.team < 0 || !o.onPitch || o.isGK || o.role !== 'player') continue;
+    const d = hypot(o.m.x - out.x, o.m.z - out.z);
+    if (d < nd){ nd = d; near = o; }
+  }
+  if (!near) return;
+  const dx = out.x - near.m.x, dz = out.z - near.m.z, dl = hypot(dx, dz) || 1, k = Math.min(BRAIN.SPACE[1], BRAIN.SPACE[0] - nd + 1);
+  // (sideways and forward rather than back toward his own goal: the space a pass can find)
+  const dir = ms.dirs[a.team];
+  let ux = dx/dl, uz = dz/dl;
+  if (ux*dir < 0){ ux = 0; uz = uz >= 0 ? 1 : -1; }
+  out.x = clamp(out.x + ux*k, -ms.spec.hx + 1, ms.spec.hx - 1); out.z = clamp(out.z + uz*k, -ms.spec.hz + 1, ms.spec.hz - 1);
+  const tm = ms.tm[a.team], ou = uOf(ms, a.team, out.x);
+  if (ou > onsideU(ms, tm) - 0.3){ const p = teamToPitch(ms, a.team, onsideU(ms, tm) - 0.5, wOf(ms, a.team, out.z), PT); out.x = p.x; out.z = p.z; }
+}
 function supportSpot(ms, a, c, anc, out){
   const team = a.team, dir = ms.dirs[team], tm = ms.tm[team], hx = ms.spec.hx, hz = ms.spec.hz, S0 = BRAIN.SUPPORT;
   const cm = c.m;
@@ -1694,5 +1751,13 @@ export function callFor(ms, a, how = 'here', point = null){
   a.lastCall = ms.t; a.calls++;
   ms.call = {agent: a.id, t: ms.t, k, how, point};
   ms.pref.calls++;
+  // (U10) the man on the ball hears it now: his next look at his options comes at once, not on his own cadence
+  const c = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
+  // (a kick he has chosen and is still working the ball into his stride for, to somebody else, is thought again, as a
+  // pass whose lane closed is: pendingKick; one already being struck is not)
+  if (c && c !== a && c.team === a.team && c.brain){
+    if (c.pendKick && !c.act && c.pendKick.rq && c.pendKick.rq.recv !== a.id) c.pendKick = null;
+    c.brain.pending = true;
+  }
   logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how, px: point ? point.x : null, pz: point ? point.z : null});
 }

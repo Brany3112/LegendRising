@@ -56,14 +56,18 @@ import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksO
 import {ctrlShields} from "../core/keylock.js";
 import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
-import {hudInit, hudFrame, hudNotice, hudClearCards, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff} from "./fphud.js";
+import {hudInit, hudFrame, hudNotice, hudClearCards, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff, hudCallMe} from "./fphud.js";
 import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling,
-  warmCallDue, warmOn, warmTab, careerPort, localPort, boostedAttrs, pickSet, WARM_POOL, boostFor, callMinute, exerciseCount, exScore} from "./warmup.js";
+  warmCallDue, warmOn, warmTab, careerPort, localPort, boostedAttrs, pickSet, WARM_POOL, boostFor, callMinute, exerciseCount, exScore, touchFence, inFence} from "./warmup.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
 import {STADIUM, SPAWNS} from "./stadium.js";
 import {AUD} from "./audio.js";
-import {prebuildHumans, lookFor} from "../human.js";
+import {prebuildHumans, lookFor, human, animateHuman} from "../human.js";
 import {runOne} from "./harness.js";
+import {resolveKits} from "./kitclash.js";
+import {auraInit, auraFrame, auraDispose, AURA} from "./aura.js";
+// (the view as a namespace too: the hand-raise clip, U10, is looked up by name, so this module links with or without it)
+import * as VIEWNS from "./view.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -222,7 +226,10 @@ function enter(f, o){
 function arrived(){
   const f = FS.f, M = FS.M;
   const stad = M.stad || {tier: 2, crowd: 20000, cap: 28000};
-  const kits = M.home ? {home: M.myKit, away: M.oppKit} : {home: M.oppKit, away: M.myKit};
+  // two kits that read apart (U11, kitclash.js): the away side changes to its alternate, or a generated kit, and the
+  // keepers and the referee take colours clear of both; the side's kit as resolved is the one the match records
+  const kits = matchKits(M.home ? {home: M.myKit, away: M.oppKit} : {home: M.oppKit, away: M.myKit});
+  if (M.home) M.oppKit = kits.away; else M.myKit = kits.away;
   const clubs = {home: M.home ? M.nameUs : M.nameThem, away: M.home ? M.nameThem : M.nameUs};
   build({tier: stad.tier, crowd: stad.crowd, cap: stad.cap, kits, clubs, at: "dressing", homeShare: M.home ? .8 : .2});
   const cfg = matchConfig(f, M, {benchSide: -1, visible: visibleFn, scaleOf: heightOf});
@@ -240,10 +247,17 @@ function arrived(){
   }
   dressing();
 }
+// a match's kits from the two sides' own (USER-ISSUES U11): {home, away, gk: [home keeper, away keeper], ref, change}
+function matchKits(k){
+  const R = resolveKits(k);
+  return {home: R.home, away: R.away, gk: R.gk, ref: R.ref, change: R.awayChange};
+}
 function build({tier, crowd, cap, kits, clubs, at, homeShare}){
   const L = window.__life;
   L.enterZone("stadium", at, {tier, crowd, cap, kits, clubs, homeShare, subs: 7, on: {
-    ready: () => manager(), door: () => headOut(), bench: side => sitDown(side), leave: () => {}}});
+    ready: () => manager(), door: () => headOut(), bench: side => sitDown(side), leave: () => {},
+    // (the seat is offered only to a substitute on his feet and not yet called: U4)
+    benchOk: () => FS.state === "bench" && !FS.seated && !FS.called}});
   for (const k in CTRL.held) CTRL.held[k] = false;
   if (ME.fp) ME.fp.g.visible = false;
   if (ME.tp) ME.tp.g.visible = false;
@@ -293,6 +307,11 @@ function startMatch(cfg, kits){
   if (FS.real){ writeCheckpoint(true); }
   FS.lastMin = -1; FS.board = -1;
   FS.kits = kits;
+  fourthInit(kits);
+  // the team-mate you look at, lit with a soft red edge (U8)
+  auraInit(RT.scene);
+  // every call you make for the ball (R, U10): your hand goes up and comes down, and the HUD says what you shouted
+  CTRL.callHook = how => handRaise(how);
   warmSetup();
 }
 // your record in a configuration (in the XI, or on the bench)
@@ -540,7 +559,15 @@ function ownWalk(dt, walls){
   const fac = stamFactors(FS.ownSt, 1, FS.ownFac);
   // the warm-up runs your legs while it has you (to the strip, the strides, the shuffles, a few steps to a spot)
   const wi = FS.onPitch ? null : warmIntent() || entryWalk(dt);
+  // not on yet (the bench, the warm-up, the walk to the fourth official): the touchline is a fence (U3); you walk
+  // along it, never onto the pitch, until you are subbed on. (Taken off, sent off or hurt, you are on the pitch as you
+  // become a spectator: you walk off it freely, and once off it the fence holds you there)
+  const fenced = !!(FS.ms && !FS.onPitch && (FS.state === "bench" || FS.state === "entering")), outside = fenced && !inFence(m, FS.ms.spec);
   moverStep(m, wi || OWN_IT, FS.ownPrm, fac, dt, walls ? ownCollide : null);
+  if (outside){
+    const x0 = m.x;
+    if (touchFence(m, FS.ms.spec)){ if (m.x !== x0) m.vx = 0; else m.vz = 0; }
+  }
   stamStep(FS.ownSt, dt, effortOf(m.gait, m.speed, FS.ownPrm.run), {stamina: 50, eF: 1});
   P.x = m.x; P.z = m.z; P.vx = m.vx; P.vz = m.vz; P.speed = m.speed;
   // (your eye at your height in this match, the same before and after the hand-over to your agent, MV-10)
@@ -841,6 +868,8 @@ function hud(dt){
   }
   // the warm-up's panel and guide (off the pitch), the Warm mark (A1.8)
   HUDS.warm = FS.onPitch ? null : warmHud();
+  // called on and not there yet: the fourth official named over his head, the compass's arrow on him (U2)
+  HUDS.goal = goingOn() ? FOURTH.goal : null;
   HUDS.warmIcon = warmIcon();
   hudShow(!playing() && FS.state !== "travel");
   hudFrame(ms, me, CTRL, dt, HUDS);
@@ -849,6 +878,13 @@ function hud(dt){
   if (me && CTRL.rmb && CTRL.target.point && CTRL.ctx !== "defend") ring = CTRL.target.point;
   else if (me && ms.kick && ms.kick.ev && ms.kick.ev.recv === me.id && ms.ball.state === "free" && ms.poss.ctl !== me.id && ms.t - ms.kick.t < 4) ring = recvPoint(ms, me);
   if (FS.V) viewRecv(FS.V, ring);
+  // the team-mate under your look (U8): only while you play (not from the bench, not over a card or a replay)
+  auraFrame(dt, RT.cam, FS.ms, FS.onPitch && !offPlay() && !playing() ? me : null, auraPos);
+  // (the spot you stand on to go on, ringed on the grass while you are on your way; the walk-out's ring is the same one)
+  if (FS.V && (FS.state === "bench" || FS.state === "entering")){
+    const on = goingOn();
+    if (on || FOURTH.ring){ FOURTH.ring = on; viewRing(FS.V, on ? entrySpot() : null); }
+  }
 }
 // where a pass to you will be met: the first point on the ball's predicted path you can reach (ball.js firstReach, the
 // AI's own reach), worked out once per kick; the pass's target when the prediction has none
@@ -867,7 +903,7 @@ const pipShown = () => SET.offsidePip === "on" || (SET.offsidePip === "auto" && 
 // in place: written ten times a second at most)
 const OH = {walkout: [{key: "W", verb: "go to your position"}, {key: "E", verb: "ready"}], walkSub: [{key: "W", verb: "walk to the bench"}],
   seated: [{key: "E", verb: ""}, {key: "1 2 3", verb: ""}], bench: [{key: "E", verb: "sit down"}, {key: "W", verb: "walk"}],
-  entering: [{key: "W", verb: "walk to the fourth official"}], none: []};
+  entering: [{key: "W", verb: "walk to the fourth official at the halfway line"}], none: []};
 function offHints(){
   const st = FS.state;
   if (st === "walkout") return onTheTeamSheet() ? OH.walkout : OH.walkSub;
@@ -934,14 +970,14 @@ function bench(dt, real){
     // without going, you head over by yourself (your own legs, the walls having their say)
     if (FS.called && FS.state === "entering"){
       const e = entrySpot(), d = Math.hypot(P.x - e.x, P.z - e.z);
-      if (d < DAY.ENTRY_AT && !FS.atFourth){ FS.atFourth = true; FS.autoWalk = false; note("Wait by the fourth official. You'll go on at the next stoppage."); }
+      if (d < DAY.ENTRY_AT && !FS.atFourth){ FS.atFourth = true; FS.autoWalk = false; note("You're with the fourth official. You'll go on at the next stoppage."); }
       else if (d > DAY.ENTRY_AT + .7 && FS.atFourth) FS.atFourth = false;
-      if (!FS.atFourth && !FS.autoWalk && (FS.callT += real) > DAY.CALL_WALK){ FS.autoWalk = true; note("The fourth official is waiting for you. You jog over."); }
+      if (!FS.atFourth && !FS.autoWalk && (FS.callT += real) > DAY.CALL_WALK){ FS.autoWalk = true; note("The fourth official is waving you over. You jog across to him."); }
     }
   }
   if (ms.callUp && !FS.called && cameOnAllowed()){
     FS.called = true; FS.state = "entering"; FS.atFourth = false; FS.callT = 0; FS.autoWalk = false;
-    hudNotice("sub", "Get ready, you're going on.");
+    hudNotice("sub", "Get ready, you're going on.", "Report to the fourth official. He's waving you over by the halfway line.");
     if (FS.seated){ standUp(); }
   }
   // (the simulation holds your change until you stand by the fourth official)
@@ -950,6 +986,63 @@ function bench(dt, real){
   else if ((ms.phase === "fulltime" || ms.phase === "over") && FS.state !== "fulltime") startFulltime();
 }
 const cameOnAllowed = () => !!FS.ms && FS.ms.me < 0;
+// your call for the ball (U10): the HUD's line, and the raised hand. The simulation already marks the call on your agent
+// (brain.js callFor: a.lastCall, which every body seen from outside answers with its arm up, view.js UP_CALL); the clip of
+// the hand going up and coming down, and the arm in your first-person view, is the view's (UF-A's handRaise), called by
+// that name when the view has it
+function handRaise(how){
+  hudCallMe(how);
+  const ms = FS.ms;
+  if (FS.V && ms && typeof VIEWNS.handRaise === "function") VIEWNS.handRaise(FS.V, ms.me, {how, t: ms.t, fp: FS.V.fpOn});
+}
+// where the view draws an agent (its body's place this frame), or null when it is not drawn
+function auraPos(id, out){
+  const R = FS.V && FS.V.rec[id];
+  if (!R || R.hidden || !R.h || !R.h.g.visible) return null;
+  const g = R.h.g.position; out.x = g.x; out.y = g.y; out.z = g.z;
+  return out;
+}
+
+/* ---------- the fourth official (USER-ISSUES U2) ----------
+   A man in the officials' kit at the halfway touchline between the dugouts, by his desk, facing the play. When you are
+   called on he turns to you and waves you over; you report to him (the spot beside him, ringed on the grass, the HUD's
+   tag over his head and its compass arrow pointing to him) and he sends you on at the next stoppage. */
+const FOURTH = {h: null, actor: null, at: {x: 0, z: -35.45}, yaw: 0, st: {mode: "idle", upper: null}, wave: {g: "call", w: 1}, point: {g: "point", w: .8},
+  goal: {x: 0, y: 2.25, z: -35.45, label: "Fourth official"}, ring: false};
+const goingOn = () => !!(FS.ms && FS.called && FS.state === "entering" && !FS.atFourth && !FS.onPitch);
+function fourthInit(kits){
+  fourthDispose();
+  const V = FS.V; if (!V || !V.scene || !FS.ms) return;
+  FOURTH.at.z = FOURTH.goal.z = -(FS.ms.spec.hz + 1.45);
+  // (the officials' kit of this match, the one the view dresses the assistants in: he reads as one of them)
+  const look = V.L && V.L.of ? V.L.of({role: "ar", id: 44, team: -1}) : lookFor("linesman", 44, kits && kits.ref ? {sex: "m", kit: [kits.ref, "#16171a"], avoid: []} : {sex: "m"});
+  const h = FOURTH.h = human(look, {cast: true});
+  h.g.name = "fourth-official";
+  h.g.position.set(FOURTH.at.x, 0, FOURTH.at.z);
+  FOURTH.yaw = 0; h.g.rotation.y = 0;
+  V.scene.add(h.g);
+  FOURTH.actor = SCHED.actor({id: "fourth", kind: "match", r: 1.1, pos: () => FOURTH.posW || (FOURTH.posW = {x: FOURTH.at.x, y: 0, z: FOURTH.at.z}), active: () => true,
+    anim: (dt, tier) => { if (FOURTH.h) animateHuman(FOURTH.h, dt, fourthState(dt), {tier}); }});
+}
+// what he does this frame: faces the play; turned to you and waving you over while you are called and on your way;
+// pointing you on while you wait by him
+function fourthState(dt){
+  const h = FOURTH.h, st = FOURTH.st;
+  let want = 0;
+  st.upper = null;
+  if (FS.called && FS.state === "entering" && !FS.onPitch){
+    want = Math.atan2(P.x - FOURTH.at.x, P.z - FOURTH.at.z);
+    st.upper = FS.atFourth ? FOURTH.point : FOURTH.wave;
+  }
+  FOURTH.yaw += clamp(wrapA(want - FOURTH.yaw), -3*dt, 3*dt);
+  if (h) h.g.rotation.y = FOURTH.yaw;
+  return st;
+}
+function fourthDispose(){
+  if (FOURTH.actor){ SCHED.remove(FOURTH.actor); FOURTH.actor = null; }
+  if (FOURTH.h){ FOURTH.h.dispose(); FOURTH.h = null; }
+  FOURTH.ring = false;
+}
 // where a substitute steps on (rules.js enterSub: the halfway line on the bench side): beside the fourth official
 function entrySpot(){ const ms = FS.ms, t = FS.cfg.me ? FS.cfg.me.team : 0; return {x: (t === 0 ? -1 : 1)*2.5, z: -(ms.spec.hz + .9)}; }
 // E at the dugout: sit down (the bench camera); E again: stand
@@ -1072,7 +1165,7 @@ function skipFrame(){
       // standing by the fourth official, under the card's cover
       FS.called = true; FS.state = "entering"; unseat(); benchCam(false);
       const e = entrySpot(); placeOwn({x: e.x, z: e.z - .3, yaw: Math.PI}); P.yaw = Math.PI; FS.atFourth = true;
-      hudNotice("sub", "Get ready, you're going on.");
+      hudNotice("sub", "Get ready, you're going on.", "You're with the fourth official. You'll go on at the next stoppage.");
     }
     revealAfterFrames(2).then(() => liftCover());
   }
@@ -1409,6 +1502,9 @@ function teardown(){
   if (AUD.feelOff) AUD.feelOff();
   camDispose();
   hudDispose();
+  fourthDispose();
+  auraDispose();
+  CTRL.callHook = null;
   if (FS.V){ viewDispose(FS.V); FS.V = null; }
   controlReset();
   CTRL.enabled = true;
@@ -1682,7 +1778,8 @@ function enterTest(name, o){
   FS.test = name; FS.real = false; FS.f = null; FS.M = null; FS.R = null;
   enterMode("match");
   coverScreen();
-  const kits = {home: ["#2c66b8", "#ffffff"], away: ["#c8463a", "#ffffff"]};
+  // (o.kits: a fixture's own pair, resolved as a real match's are)
+  const kits = matchKits(o.kits || {home: ["#2c66b8", "#ffffff"], away: ["#c8463a", "#ffffff"]});
   build({tier: o.tier != null ? o.tier : 2, crowd: o.crowd != null ? o.crowd : 9000, cap: 28000, kits, clubs: {home: "Testers", away: "Rivals"}, at: "tunnelMouth", homeShare: .7});
   const cfg = testConfig(name.replace(/-.*$/, ""), o);
   // test:bench (A1.8): the warm-up's numbers for the test (the call's minute, the last match's set, the coach's style)
@@ -1820,6 +1917,8 @@ window.__fp = {
     return out;
   },
   input: ev => input(ev), get ctrl(){ return CTRL; }, get state(){ return FS.state; }, FS, FP, MC, FX, CN,
+  // (UF-B, USER-ISSUES U2, U8, U11: the fourth official, the look's aura, the match's kits as resolved)
+  FOURTH, AURA, get kits(){ return FS.kits; }, get stadium(){ return STADIUM; },
   hud: () => document.getElementById("fpHud"), checkpoint: () => writeCheckpoint(true),
   events: kind => FS.ms ? FS.ms.events.filter(e => !kind || e.kind === kind) : [],
   ready(){ FS.ready = true; }, manager: () => manager(), headOut: () => headOut(), spot: () => FS.ms && FS.ms.me >= 0 ? mySpot() : null, skipToCall: () => startSkip("call"), skipFrame: () => skipFrame(), recover: () => recoverCheck(), RECOVER,
