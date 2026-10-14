@@ -81,7 +81,7 @@ import {SCHED} from "./core/sched.js";
 import {qualityScales} from "./core/quality.js";
 import {TAU, D2R, clamp, lerp, sstep, wrap, kf, BN, PAR, BONE, B, ARM, LEG, NP, NQ, dims, restPos, restOffsets, R3, frameOf, legIK, armIK, plantHand, leanTo, PALM, UPV as _UPV,
   eulerToQ, qEuler, qMul, qRot, qLog, qExp, qAngle, fkQ, newFK, solveLeg, ground, writeBones, LEGW, hypot} from "./rig.js";
-import {EV, gaitInit, gaitStep, gaitPose, gaitLegs, gaitPlace, footstep, touch} from "./gait.js";
+import {EV, gaitInit, gaitStep, gaitPose, gaitTurn, gaitLegs, gaitPlace, footstep, touch} from "./gait.js";
 export {BONE, footstep, touch, gaitPlace};
 
 /* ---------- small maths ---------- */
@@ -1170,7 +1170,9 @@ export function human(look = {}, opts = {}){
     inzL:{on:false, due:false, t:0, w:1, x:new Float64Array(27), v:new Float64Array(27)},
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, locks:[null, null], feetTmp:[null, null],
     bw:1, mode:"", at:0, t:r()*100, acc:0, accL:0, dtPrev:0, posed:0, sinceF:0, hid:false, gw:0, lod:1, seed:r(),
-    stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1, stag:HID % 6, groundAt:null, stx:null, blendNext:0};
+    stance:.01 + r()*.03, fz:(r() - .5)*.08, arm:r(), gen:W.ticks, scale:look.height || 1, stag:HID % 6, groundAt:null, stx:null, blendNext:0,
+    // (a first-person body: it faces where you look, however fast the look turns: gait.js turns it round by its feet)
+    noHead, clipId:null};
   h.sinceF = h.stag;
   for (let i = 0; i < 20; i++) h.pose[i*4 + 3] = h.posePrev[i*4 + 3] = 1;
   g.scale.setScalar(h.scale); g.userData.human = h;
@@ -1431,6 +1433,8 @@ function loco(h, T, st, dt = 0){
     T[61] = (_A[61] + .004)*still;
   } else T[61] = 0;
   if (st.look != null && still < 1){ const k = 1 - still; T[B.neck*3 + 1] += st.look*.45*k; T[B.head*3 + 1] += st.look*.55*k; }
+  // the whole body turns: the pelvis where the feet have it, the chest and the head towards the facing (UF-A, U1)
+  gaitTurn(h, T);
 }
 const LOCO = new Set(["idle", "move", "stand"]);
 const _stand = {};
@@ -1852,7 +1856,8 @@ function legBlend(h, Q, dt){
 const LEG_RATE = 12;
 /* ---------- the upper-body layer: a gesture over whatever the legs do (st.upper = {g, dir, w}) ----------
    The gesture is a registered mode "upper:<g>"; it is laid over the base pose bone by bone, the spine 0.3 of the way,
-   the chest 0.7, the neck, head and arms all the way, times w. It comes on over 0.18 s and goes over 0.25 s. */
+   the chest 0.7, the neck, head and arms all the way, times w (or by the gesture's own mask, fn.mask [[bone, share]]).
+   It comes on over 0.18 s and goes over 0.25 s. */
 const UPMASK = [[B.spine, .3], [B.chest, .7], [B.neck, 1], [B.head, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1], [11, 1]];
 const _up4 = new Float64Array(4);
 function upperLayer(h, Q, st, dt){
@@ -1860,10 +1865,12 @@ function upperLayer(h, Q, st, dt){
   if (want){ U.g = want.g; U.st = want; }
   U.w = clamp(U.w + (want ? dt/.18 : -dt/.25), 0, 1);
   if (U.w <= 0 || !U.g) return;
-  const w = sstep(0, 1, U.w)*(U.st && U.st.w != null ? U.st.w : 1);
-  _B.fill(0); MODES["upper:" + U.g](h, _B, U.st || {}, dt);
-  for (let i = 0; i < UPMASK.length; i++){
-    const b = UPMASK[i][0], m = UPMASK[i][1];
+  const w = sstep(0, 1, U.w)*(U.st && U.st.w != null ? U.st.w : 1), fn = MODES["upper:" + U.g];
+  _B.fill(0); fn(h, _B, U.st || {}, dt);
+  // (a gesture may name the bones it moves and how far, fn.mask: one arm raised, the other swinging on with the legs)
+  const M = fn.mask || UPMASK;
+  for (let i = 0; i < M.length; i++){
+    const b = M[i][0], m = M[i][1];
     qEuler(_up4, 0, _B[b*3], _B[b*3 + 1], _B[b*3 + 2]);
     slerpInto(Q, b*4, _up4, w*m);
   }
@@ -1966,7 +1973,13 @@ export function animateHuman(h, dt, state = "idle", o = null){
     // (the legs' own time starts again with locomotion: a clip runs no leg pass, so what accL holds is the clip's whole
     // length, and the first pose back on the feet would take it as one step, with none of its rates limiting anything)
     if (fam) h.accL = 0;
+  } else if (!fam && h.posed && st.id != null && st.id !== h.clipId && h.clipId != null){
+    // (UF-A, U7: a new clip of the same mode, a second pass straight after the first, a tackle after a tackle: blended
+    // in from the pose drawn, as a change of mode is, never a jump from where the last one left the body to the start
+    // of the next)
+    h.blendNext = st.blend || fn.blend || -1;
   }
+  if (!fam) h.clipId = st.id != null ? st.id : null;
   h.at += dt; h.t += dt; h.acc += dt; h.accL += dt;
   if (fam){
     if (h.gait) h.gait.lod = tier;
