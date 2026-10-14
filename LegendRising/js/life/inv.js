@@ -132,7 +132,8 @@ export const hand = () => carry().hand;
 export const holding = id => { const h = hand(); return !!h && (!id || h.id === id); };
 // is it anywhere on you (hand or pockets)
 export function onYou(id){ const c = carry(); return [c.hand, ...c.slots].some(it => it && it.id === id); }
-export function dropsOf(zone){ carry(); return G().drops.filter(d => d.zone === zone); }
+// (P3-A) no career (Training Mode's sandbox): nothing lies anywhere
+export function dropsOf(zone){ const s = G(); if (!s) return []; carry(); return s.drops.filter(d => d.zone === zone); }
 
 const listeners = [];
 export function onCarry(fn){ listeners.push(fn); }

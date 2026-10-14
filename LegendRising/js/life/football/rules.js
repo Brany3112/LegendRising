@@ -9,7 +9,7 @@
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (the match RNG ms.r decides the
 // assistant's borderline error, injuries and the like).
 
-import {ballHold, ballRelease, ballStep, createBallWorld, rollSpeedFor, rollDistance, BALL} from "./ball.js";
+import {ballHold, ballRelease, ballStep, createBallWorld, rollSpeedFor, rollDistance, BALL, ballPredFence} from "./ball.js";
 import {inBox} from "./pitchspec.js";
 import {solveStrike} from "./strike.js";
 import {logEv, chainControl, chainOut, chainGoal, chainOffside, chainDead, minuteOf, onSec} from "./events.js";
@@ -68,19 +68,28 @@ export const RULES = Object.freeze({
      restarts  no set pieces: a ball out of play or a foul restarts with a kick-in (an indirect free kick from where
                it happened, inside the field, no wall, no penalty); a kick-off stays a kick-off
      goals     2: both goals count; 1: only the goal at the +x end; 0: neither (a ball into a goal that does not count
-               is out over the goal line) */
-export const MODES = Object.freeze(['match', 'rondo', 'ssg', 'pattern', 'finishing', 'drill', 'lesson']);
+               is out over the goal line)
+     out       (P3-A, INF-3) 'stop': a ball over a line is out of play and the game restarts, as in a match; 'rebound':
+               play goes on, the ball comes back off the fence of a training cage (cage.js) and nothing is given, and a
+               ball into a goal that does not count (laws.goals) plays on as well. A goal that counts is still a goal.
+               Training Mode's own mode 'train' plays 'rebound' unless its config says 'stop'; every other mode 'stop' */
+export const MODES = Object.freeze(['match', 'rondo', 'ssg', 'pattern', 'finishing', 'drill', 'lesson', 'train']);
+export const OUT_LAWS = Object.freeze(['stop', 'rebound']);
+const TRAINING_LAWS = {offside: false, cards: false, subs: 0, halfTime: false, stoppage: false, restarts: true, goals: 2, out: 'stop'};
 export const LAWS = Object.freeze({
-  match: Object.freeze({offside: true, cards: true, subs: RULES.SUBS, halfTime: true, stoppage: true, restarts: true, goals: 2}),
-  training: Object.freeze({offside: false, cards: false, subs: 0, halfTime: false, stoppage: false, restarts: true, goals: 2})
+  match: Object.freeze({offside: true, cards: true, subs: RULES.SUBS, halfTime: true, stoppage: true, restarts: true, goals: 2, out: 'stop'}),
+  training: Object.freeze(Object.assign({}, TRAINING_LAWS)),
+  // Training Mode's cages (P3-A): the training defaults, the ball coming back off the fence
+  train: Object.freeze(Object.assign({}, TRAINING_LAWS, {out: 'rebound'}))
 });
 export function lawsOf(cfg = {}){
   const mode = cfg.mode == null ? 'match' : cfg.mode;
   if (!MODES.includes(mode)) throw new Error(`createMatch: unknown mode "${mode}" (one of ${MODES.join(', ')})`);
-  const base = mode === 'match' ? LAWS.match : LAWS.training, r = cfg.rules || {}, out = {mode};
+  const base = mode === 'match' ? LAWS.match : mode === 'train' ? LAWS.train : LAWS.training, r = cfg.rules || {}, out = {mode};
   for (const k of Object.keys(base)){
     const v = r[k];
-    out[k] = v == null ? base[k] : k === 'subs' || k === 'goals' ? Math.max(0, Math.round(+v || 0)) : !!v;
+    out[k] = v == null ? base[k] : k === 'out' ? (OUT_LAWS.includes(v) ? v : base[k])
+      : k === 'subs' || k === 'goals' ? Math.max(0, Math.round(+v || 0)) : !!v;
   }
   out.goals = Math.min(2, out.goals);
   return Object.freeze(out);
@@ -89,7 +98,13 @@ const laws = ms => ms.rules || LAWS.match;
 // one law of the match (lawsOf's keys), for the brains: is offside played, are there set pieces
 export const lawOf = (ms, k) => laws(ms)[k];
 // does a ball over the goal line at this end, in the mouth, count as a goal (laws.goals)
-export const goalCounts = (ms, end) => { const g = laws(ms).goals; return g >= 2 || (g === 1 && end > 0); };
+// (P3-A) and never at an end of a part of a pitch that has no goal standing in it (spec.area.ends: a cage's or a
+// drill's area), whatever laws.goals says: a ball through the mouth of a goal that is not there is over the line
+export const goalCounts = (ms, end) => {
+  const g = laws(ms).goals, a = ms.spec && ms.spec.area;
+  if (a && Array.isArray(a.ends) && !a.ends.includes(end)) return false;
+  return g >= 2 || (g === 1 && end > 0);
+};
 
 // a dead ball rolls against RULES.DEAD_ROLL (its own grass value kept in deadRoll0 until it is back in play)
 function deadRoll(b){ if (b.deadRoll0 == null){ b.deadRoll0 = b.rollDecel; b.rollDecel = Math.max(b.rollDecel, RULES.DEAD_ROLL); } }
@@ -121,20 +136,31 @@ export function clearCtl(ms){ ms.poss.ctl = -1; }
 // Is attacker (of team passerTeam) in an offside position now? Body point 0.25 m toward the goal line he attacks;
 // offside when that point is past both the second-last opponent's (keeper counted) and the ball by more than 0.01 m
 // and in the opponents' half. margin: metres past the line (negative: onside by that much).
+// (P3-A, OFF-1) The halfway line is the real one: on a part of a pitch played as a pitch of its own (spec.area: a
+// training cage's half, a drill's area; cagespec.js areaPitchOf, trainspec.js areaPitch) the area's centre is not the
+// halfway line, so it is read from spec.area, whose x0..x1 are in the whole pitch's frame (halfway at x = 0). With
+// fewer than two opponents on the pitch the line is the last one's (keeper included): with only one there is no
+// second-last, and his own position is the line a drill means; with none, the halfway line and the ball.
+// (OFF-3) A man walking off (leaving: substituted, sent off or injured on his way out) no longer holds the line, though
+// he is still onPitch until he is over it.
+export function halfwayU(spec, dir){
+  const a = spec.area, hx = a && Number.isFinite(a.x0) && Number.isFinite(a.x1) ? -(a.x0 + a.x1)/2 : 0;
+  return dir*hx + spec.L/2;
+}
 export function offsidePosition(ms, attacker, passerTeam = attacker.team){
-  const dir = ms.dirs[passerTeam], L = ms.spec.L, B = RULES.OFF.body;
+  const dir = ms.dirs[passerTeam], L = ms.spec.L, B = RULES.OFF.body, uh = halfwayU(ms.spec, dir);
   const ua = dir*attacker.m.x + L/2 + B;
   let o1 = -1e9, o2 = -1e9;
   for (const o of ms.agents){
-    if (o.team !== 1 - passerTeam || !o.onPitch || o.role !== 'player') continue;
+    if (o.team !== 1 - passerTeam || !o.onPitch || o.role !== 'player' || o.leaving || o.sentOff) continue;
     const u = dir*o.m.x + L/2 + B;
     if (u > o1){ o2 = o1; o1 = u; } else if (u > o2) o2 = u;
   }
   const bu = dir*ms.ball.p.x + L/2;
-  const line = Math.max(o2 > -1e8 ? o2 : L/2, bu);
+  const line = Math.max(o2 > -1e8 ? o2 : o1 > -1e8 ? o1 : uh, bu);
   const margin = ua - line;
-  const off = margin > RULES.OFF.eps && ua > L/2 + 0.06;
-  return {off, margin: off ? margin : Math.min(margin, ua - L/2), line};
+  const off = margin > RULES.OFF.eps && ua > uh + 0.06;
+  return {off, margin: off ? margin : Math.min(margin, ua - uh), line};
 }
 
 // The snapshot (3.2.7) at the contact of every kick by the attacking team except goal kicks, throw-ins and corners:
@@ -212,6 +238,8 @@ export const defenderOf = (ms, end) => ms.dirs[0] === -end ? 0 : 1;
 // ball.js 'out' {line, end, x, z, t}
 export function ballOut(ms, d){
   if (ms.phase !== 'live') return;
+  // a training cage played to out 'rebound': play goes on, the ball comes back off the fence (P3-A, INF-3)
+  if (laws(ms).out === 'rebound') return;
   const b = ms.ball, last = b.last.team;
   b.state = 'dead';
   logEv(ms, 'out', last, b.last.agent, d.x, d.z, {line: d.line, lastTeam: last});
@@ -1209,6 +1237,9 @@ function roleSubs(ms){
 // substitutions, spare balls returning to their cones.
 export function refStep(ms, h){
   const C = ms.clock;
+  // the brains' prediction of the ball keeps a cage's fences while it is played to out 'rebound' (ball.js, INF-3)
+  const fence = laws(ms).out === 'rebound';
+  if (ms.bw && !!ms.bw.predFence !== fence) ballPredFence(ms.bw, fence);
   if (C.running){
     C.sec += h*C.rate;
     if (C.sec >= 2700 && !C.addedSet){

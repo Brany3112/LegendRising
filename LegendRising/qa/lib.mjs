@@ -148,6 +148,79 @@ export async function titleStart(page, timeout = 90000){
   if (await page.locator(".title-screen.ts").count()) throw new Error("the title screen did not start");
 }
 export function expect(cond, msg){ if (!cond) throw new Error(msg || "expectation failed"); }
+/* ---------- Training Mode (P3-A, BUILD-PLAN section 0 "Definition of done" item 7) ----------
+   trainingStart(page, {kind}): into Training Mode from the title. With the title's Training button in the page (P3-B),
+     a real mouse click on it, then (P3-B's hub) whatever that opens; otherwise the sandbox entry itself
+     (train/sandbox.js enterTraining). Either way the cage of `kind` ends up built (cageEnter when another is up).
+     Resolves {kind, via: "button" | "module"} once the cage has been drawn.
+   storageSpy(page): every setItem, removeItem and clear from now on (and after any reload) is logged in the page as
+     window.__spy.log = [{op, key, t, training}], training true between the train:enter and train:exit events.
+     spyCareerWrites(page) -> the logged writes that touched a career key while Training was active.
+   careerSnapshot(page) -> the career's keys (freyaFootball.v2, .v2.slot<n>, .v2.meta<n>, .v2.one) and their values;
+     careerDiff(a, b) -> the keys whose value differs (added, removed or changed). Take the first snapshot after "Quit
+     to title" has finished (or on a page with no career): saveNow writes a meta with Date.now() in it.
+   trainKeys(page) -> Training's own keys (freyaFootball.trainPresets, freyaFootball.tipFS), checked on their own. */
+export const CAREER_KEY = /^freyaFootball\.v2(?:$|\.slot\d+$|\.meta\d+$|\.one$)/;
+function spyInit(){
+  if (window.__spy) return;
+  const spy = window.__spy = {log: [], training: false};
+  addEventListener("train:enter", () => { spy.training = true; });
+  addEventListener("train:exit", () => { spy.training = false; });
+  const P = Storage.prototype, set = P.setItem, rem = P.removeItem, clr = P.clear;
+  const note = (op, key) => spy.log.push({op, key: key == null ? null : String(key), t: performance.now(), training: spy.training});
+  P.setItem = function(k, v){ note("setItem", k); return set.call(this, k, v); };
+  P.removeItem = function(k){ note("removeItem", k); return rem.call(this, k); };
+  P.clear = function(){ note("clear", null); return clr.call(this); };
+}
+export async function storageSpy(page){
+  await page.context().addInitScript(spyInit);
+  await page.evaluate(spyInit);
+}
+export async function spyCareerWrites(page){
+  const log = await page.evaluate(() => window.__spy ? window.__spy.log.slice() : []);
+  return log.filter(e => e.training && (e.op === "clear" || CAREER_KEY.test(e.key || "")));
+}
+export async function careerSnapshot(page){
+  return page.evaluate(src => {
+    const re = new RegExp(src), out = {};
+    for (let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if (re.test(k)) out[k] = localStorage.getItem(k); }
+    return out;
+  }, CAREER_KEY.source);
+}
+export function careerDiff(a, b){
+  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]), out = [];
+  for (const k of keys){
+    const x = a ? a[k] : undefined, y = b ? b[k] : undefined;
+    if (x !== y) out.push({key: k, was: x == null ? null : x.length, now: y == null ? null : y.length});
+  }
+  return out;
+}
+export async function trainKeys(page){
+  return page.evaluate(() => ({trainPresets: localStorage.getItem("freyaFootball.trainPresets"), tipFS: localStorage.getItem("freyaFootball.tipFS")}));
+}
+export async function trainingStart(page, {kind = "full", timeout = 120000} = {}){
+  await page.waitForFunction(() => typeof window.__life === "object" && document.readyState !== "loading", null, {timeout});
+  // (the cage is revealed after frames really drawn: a page frozen by the test runs its loop again first)
+  await unfreeze(page);
+  const btn = page.locator(".title-screen button", {hasText: /^\s*Training\s*$/});
+  let via = "module";
+  if (await btn.count()){
+    const box = await btn.first().boundingBox();
+    if (box){
+      await page.mouse.click(box.x + box.width/2, box.y + box.height/2);
+      via = "button";
+      await page.waitForFunction(() => import("/js/life/train/sandbox.js").then(m => m.inTraining()), null, {timeout, polling: 250});
+    }
+  }
+  await page.evaluate(async kind => {
+    const m = await import("/js/life/train/sandbox.js");
+    if (!m.inTraining()) await m.enterTraining({kind});
+    else if (m.CAGE.kind !== kind) await m.cageEnter(kind);
+  }, kind);
+  await page.waitForFunction(() => window.__life && window.__life.LIFE.zone === "cage" && window.__life.LIFE.running, null, {timeout});
+  return {kind, via};
+}
+
 
 // write qa/out/<name>.json (the per-script report run.mjs and the integrator read)
 export function report(name, data){

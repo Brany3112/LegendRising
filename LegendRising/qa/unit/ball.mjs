@@ -6,9 +6,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import {ballPredFence} from "../../js/life/football/ball.js";
 import {BALL, BALL_X, createBall, createBallWorld, ballStep, ballKick, ballHold, ballRelease, ballPredict, firstReach,
   ballFlyTo, rollDistance, rollSpeedFor, rollTime, rollSpeedAt} from "../../js/life/football/ball.js";
 import {makePitch, yawOf} from "../../js/life/football/pitchspec.js";
+import {cagePitch} from "../../js/life/football/cagespec.js";
 import {mulberry32} from "../../js/life/football/rng.js";
 import {timeToPoint, moverParams} from "../../js/life/mover.js";
 import {FRESH} from "../../js/life/stamina.js";
@@ -587,6 +589,31 @@ function segSegDist(p0, p1, q0, q1){
   const s = createBall(); ballKick(s, {x: 5, y: 0, z: 0}, null, {});
   const o2 = ballFlyTo(s, null, 30, 0, 1, 0, 6, {});
   check(!o2.hit && o2.x < 30, "a ball that dies before the plane reports no crossing", r4(o2.x));
+}
+
+/* ---------- (P3-A, INF-3) a cage's fences: the ball comes back, and the prediction knows it when asked to ---------- */
+{
+  const spec = cagePitch('onegoal'), F = spec.cage.fence;
+  const bw = createBallWorld({spec});
+  const b = createBall({x: 0, z: 0, rollDecel: spec.roll});
+  ballKick(b, {x: 0, y: 0, z: 20}, {x: 0, y: 0, z: 0}, {agent: 1, team: 0, kind: 'pass', t: 0});
+  let maxZ = 0;
+  for (let i = 0; i < 300; i++){ ballStep(b, bw, 1/60); maxZ = Math.max(maxZ, Math.abs(b.p.z)); }
+  check(maxZ < F.hz && b.v.z <= 0, "a 20 m/s ground ball into a cage's fence comes back off it", {maxZ: r4(maxZ), fence: F.hz});
+  const b2 = createBall({x: 0, z: 0, rollDecel: spec.roll});
+  ballKick(b2, {x: 0, y: 12, z: 12}, {x: 0, y: 0, z: 0}, {agent: 1, team: 0, kind: 'pass', t: 0});
+  const out = new Float32Array(4*150);
+  const n = ballPredict(b2, bw, out, 150, 30);
+  let leak = 0; for (let k = 0; k < n; k++) leak = Math.max(leak, Math.abs(out[4*k + 2]));
+  check(leak > F.hz, "without the fence law the prediction runs on through the fence (as before, for a match's boards)", r4(leak));
+  ballPredFence(bw, true);
+  const n2 = ballPredict(b2, bw, out, 150, 30);
+  let inside = 0, top = 0; for (let k = 0; k < n2; k++){ inside = Math.max(inside, Math.abs(out[4*k + 2])); top = Math.max(top, out[4*k + 1]); }
+  check(inside < F.hz && top < F.h, "with ballPredFence on, the lofted ball's prediction stays inside the fence and under the roof", {z: r4(inside), y: r4(top), fence: F});
+  ballPredFence(bw, false);
+  const n3 = ballPredict(b2, bw, out, 150, 30);
+  let again = 0; for (let k = 0; k < n3; k++) again = Math.max(again, Math.abs(out[4*k + 2]));
+  check(again > F.hz, "switching it off again drops the fences from the prediction", r4(again));
 }
 
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});

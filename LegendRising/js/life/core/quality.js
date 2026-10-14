@@ -57,6 +57,9 @@ const fadeCovered = () => FADE.v >= .98;
 const COVERS = new Set();
 export function screenCover(on, who = "overlay"){ if (on) COVERS.add(who); else COVERS.delete(who); }
 const covered = () => fadeCovered() || COVERS.size > 0;
+// (P3-A, perf-4) an opaque overlay of our own is up (screenCover(true, who) and not yet taken down): the black fade is
+// not one of these. world.js skips drawing the 3D view under it, unless a reveal is waiting for frames
+export const overlayCovered = () => COVERS.size > 0;
 // the screen is covered by an opaque fade or overlay: nothing needs drawing, no shadows or reflections need baking
 export function isScreenCovered(){ return covered(); }
 // the actors are all state-only while the screen is covered or a minigame or the time-lapse card is up (sched.js)

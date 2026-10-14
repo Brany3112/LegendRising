@@ -58,7 +58,7 @@ export function anchorOf(pos, L, Wd){ return {u: pos.y/100*L, w: pos.x/100*Wd}; 
 // the ball belongs on), so the signed distance of a ball centre is n.p - d and a panel is penetrated where that is under
 // the ball radius. For a board, n points towards the pitch. bounds is the panel's axis-aligned box
 // {x0, x1, y0, y1, z0, z1}; quad lists its four corners in order (an addition to the 1.4.9 shape, for slanted panels).
-function plane(n, p0, quad, extra){
+export function plane(n, p0, quad, extra){
   const l = hypot(n[0], n[1], n[2]), u = [n[0]/l, n[1]/l, n[2]/l];
   const d = u[0]*p0[0] + u[1]*p0[1] + u[2]*p0[2];
   const xs = quad.map(q => q[0]), ys = quad.map(q => q[1]), zs = quad.map(q => q[2]);
