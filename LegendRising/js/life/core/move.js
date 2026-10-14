@@ -81,6 +81,9 @@ export const LOCO = {m:null, prm:null, prof:null, spd:NaN, acc:NaN, drb:NaN, eas
 const FACE = {x:0, z:-1};
 const skillOf = k => {
   const s = G();
+  // (P3-A) no career (Training Mode's sandbox): the held career's skills (career.js heldSkills, G0 decision e), else 50.
+  // effSkill answers 0 for every skill without a career, which would leave you crawling
+  if (!s){ const h = typeof heldSkills === "function" ? heldSkills() : null, v = h ? +h[k] : NaN; return Number.isFinite(v) ? v : 50; }
   try { if (typeof effSkill === "function"){ const v = +effSkill(k); if (Number.isFinite(v)) return v; } } catch(e){}
   const v = s && s.skills ? +s.skills[k] : NaN;
   return Number.isFinite(v) ? v : 50;
@@ -109,7 +112,8 @@ export function body(dt, f, r, len, run){
   const spd = skillOf("sprintSpeed"), acc = skillOf("acceleration"), stamina = skillOf("stamina"), energy = s ? +s.energy || 0 : 100, fatigue = s ? +s.fatigue || 0 : 0;
   // on the training pitch's grass (and a stride round it) you move as you do in a match, the FOOTBALL profile (3.6.2):
   // what you learn walking about out there is what your legs do on match day; everywhere else the LIFE profile
-  const prof = LIFE.zone === "ground" && onPitch(P.x, P.z, 2) ? "football" : "life";
+  // (P3-A, INF-13) and in Training Mode's cage, all of it inside the fence (cage.js), whether a scenario runs or not
+  const prof = LIFE.zone === "cage" || (LIFE.zone === "ground" && onPitch(P.x, P.z, 2)) ? "football" : "life";
   // (the cache key is kept here: the LIFE profile has no acceleration field to read back, so comparing against it
   // would rebuild the profile on every slice)
   const drb = skillOf("dribbling");

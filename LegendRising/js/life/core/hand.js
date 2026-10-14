@@ -262,6 +262,7 @@ export function dropSpot(d, m, at = null){
   return live;
 }
 // the things lying about in this zone, put back where they were
+// (P3-A) with no career (Training Mode's sandbox) there is nothing saved lying about: INV.dropsOf answers none
 export function spawnDrops(){ for (const d of INV.dropsOf(LIFE.zone)) dropSpot(d, INV.itemMesh(d.item)); }
 
 /* ---------- the football: a live ball (DESIGN 3.8.1) ----------

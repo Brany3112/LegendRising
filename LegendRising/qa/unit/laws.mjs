@@ -14,6 +14,7 @@ import {createMatch, simStep} from "../../js/life/football/sim.js";
 import {RULES, LAWS, MODES, lawsOf, setCtl, ballOut, goalScored, startRestart, foul, refStep, onKick, onTouch, offsidePosition, planSub} from "../../js/life/football/rules.js";
 import {restartShape} from "../../js/life/football/brain.js";
 import {BALL} from "../../js/life/football/ball.js";
+import {cagePitch} from "../../js/life/football/cagespec.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const res = {name: "unit-laws", checks: [], ok: true};
@@ -53,8 +54,15 @@ function walkOut(ms, a){ let n = 0; while (a.onPitch && n++ < 4000){ const dx = 
 {
   const m = lawsOf({}), t = lawsOf({mode: 'ssg'}), o = lawsOf({mode: 'rondo', rules: {offside: true, subs: 3.4, goals: 7, restarts: 0}});
   check(m.mode === 'match' && Object.keys(LAWS.match).every(k => m[k] === LAWS.match[k]), "no mode: a match, every law played, five changes", m);
-  check(MODES.filter(x => x !== 'match').every(x => { const l = lawsOf({mode: x}); return Object.keys(LAWS.training).every(k => l[k] === LAWS.training[k]); }),
+  check(MODES.filter(x => x !== 'match' && x !== 'train').every(x => { const l = lawsOf({mode: x}); return Object.keys(LAWS.training).every(k => l[k] === LAWS.training[k]); }),
     "every training mode: no offside, cards, changes, half time or added time; set pieces and both goals", t);
+  // (P3-A) Training Mode's own mode: the training laws, the ball coming back off the cage's fence
+  const tr = lawsOf({mode: 'train'});
+  check(MODES.includes('train') && Object.keys(LAWS.training).every(k => k === 'out' || tr[k] === LAWS.training[k]) && tr.out === 'rebound',
+    "mode train: the training laws, out 'rebound'", tr);
+  check(m.out === 'stop' && t.out === 'stop', "a match and the career's drills: out 'stop', as before", [m.out, t.out]);
+  check(lawsOf({mode: 'train', rules: {out: 'stop'}}).out === 'stop' && lawsOf({mode: 'ssg', rules: {out: 'rebound'}}).out === 'rebound'
+    && lawsOf({mode: 'train', rules: {out: 'sideways'}}).out === 'rebound', "out is a setting: 'stop' or 'rebound', anything else the mode's own");
   check(o.offside === true && o.subs === 3 && o.goals === 2 && o.restarts === false && o.cards === false, "a block's own rules override its mode's (whole changes, at most 2 goals)", o);
   let threw = false; try { lawsOf({mode: 'futsal'}); } catch(e){ threw = true; }
   check(threw, "an unknown mode is an error");
@@ -209,6 +217,35 @@ function walkOut(ms, a){ let n = 0; while (a.onPitch && n++ < 4000){ const dx = 
   check(sub && sub.out === v.id && s.ms.subs.used[0] === 1, "a change left: a substitute comes on for the injured man", sub && {out: sub.out, in: sub.in});
   // and a planned change never takes the place an injury has already used
   check(!planSub(s.ms, 0, s.out[0][6].id, 'tactical') || s.ms.subs.used[0] + s.ms.subs.plan.length <= RULES.SUBS, "changes stay within five a side");
+}
+
+/* ---------- (P3-A, INF-3) out: 'rebound' plays on in a cage, 'stop' restarts ---------- */
+{
+  const cageScene = out => {
+    const cfg = configFor(9); cfg.mode = 'train'; cfg.rules = {out}; cfg.spec = cagePitch('half');
+    return cfg;
+  };
+  for (const out of ['rebound', 'stop']){
+    const cfg = cageScene(out);
+    let ms;
+    try { ms = createMatch(cfg); } catch(e){ console.log(e); ms = null; }
+    if (!ms){ check(false, `out ${out}: a match on the Half cage builds`); continue; }
+    ms.phase = 'live'; ms.clock.running = true; ms.restart = null;
+    for (const a of ms.agents) if (a.role === 'player'){ a.m.x = -20; a.m.z = (a.id % 10) - 5; a.m.vx = a.m.vz = 0; a.m.speed = 0; }
+    const b = ms.ball; b.state = 'free'; b.p.x = 0; b.p.y = R; b.p.z = 20; b.v.x = 0; b.v.y = 0; b.v.z = 22; b.last.team = 0; b.last.agent = 1;
+    b.inField = null;
+    const n0 = ms.events.length;
+    let maxZ = 0;
+    for (let i = 0; i < 60*3; i++){ simStep(ms, H); maxZ = Math.max(maxZ, Math.abs(ms.ball.p.z)); }
+    const outs = ms.events.slice(n0).filter(e => e.kind === 'out');
+    const fz = ms.spec.cage.fence.hz;
+    if (out === 'rebound'){
+      check(outs.length === 0 && ms.phase === 'live' && !ms.restart, "out rebound: a ball over the touchline is not out, play goes on", {outs: outs.length, phase: ms.phase});
+      check(maxZ < fz && ms.ball.v.z <= 0.01, "out rebound: the ball comes back off the fence", {maxZ, fz, vz: ms.ball.v.z});
+    } else {
+      check(outs.length === 1 && ms.restart && ms.restart.kind === 'throw', "out stop: the same ball is out and a throw-in is given", {outs: outs.length, restart: ms.restart && ms.restart.kind});
+    }
+  }
 }
 
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});

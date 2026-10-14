@@ -80,8 +80,24 @@ function promptLines(p, near){
   for (const l of ls){ const s = document.createElement("span"); s.textContent = l; el.appendChild(s); }
   el.hidden = !ls.length;
 }
+/* (P3-A) with no career (Training Mode's sandbox) the career's own HUD (the clock and the day, the money, the needs,
+   the pockets and their key hints) has nothing true to show and is hidden; the prompt for what you aim at is still
+   drawn. It comes back the moment a career is there again */
+const CAREER_HUD = [".hud-tl", ".hud-tr", "#lifeInv", "#lifeKeys", "#lifeHandHint", "#lifeCompass"];
+let HUD_NOS = null;
+function careerHud(on){
+  if (HUD_NOS === !on) return;
+  HUD_NOS = !on;
+  const root = document.getElementById("lifeRoot"); if (!root) return;
+  for (const q of CAREER_HUD){ const el = root.querySelector(q); if (el) el.style.display = on ? "" : "none"; }
+}
 export function hud(near){
-  const s = G(); if (!s) return;
+  const s = G();
+  careerHud(!!s);
+  if (s) careerMeters(s);
+  promptFor(near);
+}
+function careerMeters(s){
   const c = document.getElementById("lifeClock");
   if (c){ const t = clockText(); if (c.textContent !== t) c.textContent = t; }
   const dn = document.getElementById("lifeDay");
@@ -118,6 +134,8 @@ export function hud(near){
   meter("f", "lifeFatigue", s.fatigue, s.fatigue > 75, fatigueLabel(s.fatigue));
   meter("o", "lifeHyg", 100 - num(s.odor, 0), num(s.odor, 0) >= ODOR_SMELLY, odorLabel(num(s.odor, 0)));
   FEED.moneySync();
+}
+function promptFor(near){
   const p = document.getElementById("lifePrompt");
   if (!p) return;
   if (!near || FLAGS.modal || FLAGS.busy){ if (HUD.lastPrompt !== null){ p.classList.remove("on"); HUD.lastPrompt = null; } return; }

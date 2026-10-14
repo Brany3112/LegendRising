@@ -854,16 +854,24 @@ function copyBall(dst, src, spinMul = 1){
   return dst;
 }
 // the world a prediction runs in: the same pitch colliders but only the ground, posts, bar and nets (no bodies, no
-// boards, no events, no randomness); a life zone keeps its floor
+// boards, no events, no randomness); a life zone keeps its floor. A training cage played with the law out 'rebound'
+// (rules.js) keeps its fences and roof too (P3-A, INF-3): there the ball really does come back off them, and a
+// prediction that ran on through the fence sent the brains after balls outside the cage
 function predWorld(bw){
   if (!bw) return FREE;
   if (!bw.pred){
     const pw = createBallWorld({spec: bw.spec, solids: bw.solids && bw.solids.floor ? {floor: bw.solids.floor} : null,
       floorY: bw.floorY});
-    pw.boards = []; pw.caps = pw.caps.filter(c => c.kind !== 'board');
+    if (!bw.predFence){ pw.boards = []; pw.caps = pw.caps.filter(c => c.kind !== 'board'); }
     bw.pred = pw;
   }
   return bw.pred;
+}
+// whether the predictions of this ball world keep its boards (a cage's fences and roof): rules.js sets it from the
+// law out ('rebound': on). Changing it drops the cached prediction world, built again on the next prediction
+export function ballPredFence(bw, on){
+  if (!bw || !!bw.predFence === !!on) return;
+  bw.predFence = !!on; bw.pred = null;
 }
 
 // N samples of the ball's future at hz per second, written as x, y, z, t (t from now: sample 0 is the ball now) into

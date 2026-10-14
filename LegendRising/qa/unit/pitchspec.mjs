@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {FIFA, PITCHES, BOARDS, makePitch, makeFrame, pitchOf, toLocal, toTeam, anchorOf, inBox, inSix, side, half, onField,
-  dirOf, yawOf, wrapA} from "../../js/life/football/pitchspec.js";
+  dirOf, yawOf, wrapA, plane} from "../../js/life/football/pitchspec.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const res = {name: "unit-pitchspec", checks: [], ok: true};
@@ -202,6 +202,13 @@ const arcs = tag => P.lines.filter(l => l.type === 'arc' && l.tag === tag);
   // the only import allowed is detmath.js, the engine-independent maths every pure module shares (D6)
   const imports = [...code.matchAll(/^\s*import[^"']*["']([^"']+)["']/gm)].map(x => x[1]);
   check(!bad.length && imports.every(s => s === "./detmath.js"), "pitchspec.js is pure, imports only detmath.js and calls no engine-approximated Math function", {bad, imports});
+}
+
+// (P3-A) the plane() helper is exported for the cages' fences: a unit normal, d through the point, the quad's box
+{
+  const pl = plane([0, 0, -2], [1, 0, 5], [[-1, 0, 5], [3, 0, 5], [3, 4, 5], [-1, 4, 5]], {e: 0.4});
+  check(near(pl.n[2], -1) && near(pl.d, -5) && pl.bounds.x0 === -1 && pl.bounds.x1 === 3 && pl.bounds.y1 === 4 && pl.e === 0.4,
+    "plane(): unit normal, offset, bounds and extras", {n: pl.n, d: pl.d, bounds: pl.bounds});
 }
 
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});

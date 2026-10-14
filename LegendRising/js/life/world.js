@@ -24,12 +24,13 @@ import {BM, buildInit, buildEnter, buildExit, buildKey, buildPan} from "./buildm
 import {G, LIFE, P, keys, B, E, ME, RT, FLAGS, FADE, sync} from "./core/state.js";
 import {registerMode, enterMode, exitMode, mode, modeFlags, modeStep, modeSlice, modeLookLocked, registerZone, zoneSpec, pushInput, popInput,
   routeInput, locked, tutOn, clockScale, setClockScale, onbEmit, bootPlan, bootPlanFor, bootCover, bootCoverCheck, liftBootCover, revealAfterFrames,
-  framePresented, persist, persistNow, saveNowIf, SAVE} from "./core/modes.js";
+  framePresented, revealPending, persist, persistNow, saveNowIf, SAVE} from "./core/modes.js";
 import {camPush, camPop, camTop, camOwners, camKick, camApply, KICK} from "./core/camera.js";
 import {SCHED} from "./core/sched.js";
-import {Q, GT, createRenderer, gpuBegin, gpuEnd, quality, resize, warmNow} from "./core/quality.js";
+import {disposeBatch, MG} from "./chunks.js";
+import {Q, GT, createRenderer, gpuBegin, gpuEnd, quality, resize, warmNow, overlayCovered, screenCover} from "./core/quality.js";
 import {SG, CG, camGridBuild, camCast, hits, findInside, inside} from "./core/collide.js";
-import {GAIT, body, fovStep, moveInput} from "./core/move.js";
+import {GAIT, LOCO, body, fovStep, moveInput} from "./core/move.js";
 import {meBuild, meDispose, viewStep, toggleView, meCamInit, sstep, meFade} from "./core/me.js";
 import {target, use, clickUse, throwHand, holdStep, heldMeshDrop, flyEnd, flying, dropSpot, spawnDrops, HOLD, HOLD_GRACE, HOLD_TAP} from "./core/hand.js";
 import {hud, hudReset, HUD, note, fade, noteWhenClear, clockText} from "./core/hud.js";
@@ -76,6 +77,8 @@ function clearScene(){
   const scene = RT.scene;
   scene.traverse(o => {
     if (o.userData && o.userData.keep) return;
+    // (P3-A, perf-1) a batched mesh owns data textures of its own that only its dispose() frees
+    if (o.isBatchedMesh) disposeBatch(o, true);
     if (o.geometry) o.geometry.dispose();
     if (o.material){ for (const m of [].concat(o.material)){ if (m.userData && m.userData.keep) continue; if (m.map && m.map.isCanvasTexture && !m.map.userData.per) m.map.dispose(); m.dispose(); } }
   });
@@ -83,8 +86,9 @@ function clearScene(){
   lights();
 }
 let spawns = {};
-// opts.cam: the pose the first frames will be drawn from ({pos, look}), to warm up from
-function enterZone(zone, at, opts = null){
+// opts.cam: the pose the first frames will be drawn from ({pos, look}), to warm up from. (Exported for Training Mode's
+// cage, P3-A: train/cage.js builds its kinds through it.)
+export function enterZone(zone, at, opts = null){
   // a zone nobody has registered (its module not loaded yet: stadium.js registers itself when it is imported) is a
   // caller's mistake: it throws before anything is torn down, so the place you are in stays as it was, and nothing is
   // ever built as the flat under another zone's name
@@ -232,8 +236,11 @@ function tick(real, t0, draw){
   if (fl.compass) compassStep(r10, P);
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; RT.renderer.shadowMap.needsUpdate = true; }
-  // a mode may leave a frame undrawn (the bench watched above 1x is drawn at 30 Hz, controller.js): once, this frame
-  const thin = FLAGS.skipDraw; FLAGS.skipDraw = false;
+  // a mode may leave a frame undrawn (the bench watched above 1x is drawn at 30 Hz, controller.js): once, this frame.
+  // (P3-A, perf-4) Nothing is drawn under an opaque overlay of our own (screenCover: Training's full-screen sheets),
+  // except while a reveal waits for drawn frames (it resolves only after a real render, so skipping then would hold
+  // every reveal up). The black fade is not such an overlay: the boot, the intro and the match reveals draw under it
+  const thin = FLAGS.skipDraw || (overlayCovered() && !revealPending()); FLAGS.skipDraw = false;
   if (draw && !thin){ gpuBegin(); RT.renderer.render(RT.scene, RT.cam); gpuEnd(); presented++; framePresented(camTop()); }
   // people step out of YOUR way, wherever the camera is: drawing set VIEW to the camera (and the way it looks, fx/fz);
   // in third person that is 2.6 m behind you, so the position goes back to your own head. The camera's own position
@@ -307,6 +314,37 @@ export function startLife(opts = {}){
   mailNews();
 }
 export function stop(){ if (SAVE.due) saveNowIf(); LIFE.running = false; if (raf) cancelAnimationFrame(raf); raf = null; FLAGS.grab = null; document.exitPointerLock && document.exitPointerLock(); }
+
+/* ---------- Training Mode's sandbox (P3-A, INF-1) ----------
+   The world with no career: the renderer and the loop as startLife has them, one zone (the training cage) built
+   through enterZone, and none of the career's day (no flat to make sure of, no daily bookkeeping, no boot plan, no
+   first day, no letters and news). Covered from the first frame and revealed after two drawn frames, as startLife's
+   own boot. opts = {zone, kind, at}: the zone ('cage'), its kind (the cage's: full, half, onegoal), the spawn or a
+   place. Resolves once the screen is revealed. train/sandbox.js drives it (enterTraining, exitTraining). */
+export function startSandbox(opts = {}){
+  const zone = opts.zone || "cage";
+  bootCover();
+  document.getElementById("lifeRoot").style.display = "block";
+  boot();
+  HUD.ctxT = 0;
+  enterZone(zone, opts.at || "bus", {kind:opts.kind});
+  LIFE.running = true; last = performance.now(); raf = requestAnimationFrame(loop);
+  keysT = 0; document.getElementById("lifeKeys").classList.remove("faded");
+  return revealAfterFrames(2).then(() => { liftBootCover(500); });
+}
+// the sandbox ends: the loop stops, the zone is left and its scene taken down (meshes, textures, the walker's bodies,
+// the spots and the scheduled work), so nothing of it stays in memory on the title; the next start (a career or
+// Training again) builds from nothing
+export function stopSandbox(){
+  stop();
+  if (mode() !== "life") exitMode("done");
+  const was = zoneSpec(LIFE.zone); if (was && was.leave) try { was.leave(); } catch(e){ console.error(e); }
+  HOLD.sp = null; heldMeshDrop(); flyEnd();
+  LIFE.zone = W.zone = "";
+  if (RT.scene){ meDispose(); clearScene(); begin(RT.scene); }
+  spawns = {};
+  hudReset({prompt:true, ctx:true});
+}
 export function resumeLife(){
   if (!document.body.classList.contains("life") || !RT.renderer) return;
   lifeRefresh();
@@ -523,6 +561,8 @@ window.__life = {P, keys, B, Q, W, HOME, LIFE, GROUND, TOWNZ, compassStep:dt => 
   sched:SCHED, camera:{top:camTop, owners:camOwners, push:camPush, pop:camPop, kick:camKick, kicks:KICK},
   gfx:{apply(m){ if (typeof setGfx === "function") setGfx(m); }, get P(){ return typeof GFX === "object" && GFX ? GFX.P || null : null; }},
   HOLD, HOLD_GRACE, SG, FLAGS, FADE, CINE, cineBegin, cineEnd, hud, get fade(){ return fadeOpacity(); }, get save(){ return SAVE; },
-  get keysT(){ return keysT; }, set keysT(v){ keysT = v; }};
+  get keysT(){ return keysT; }, set keysT(v){ keysT = v; },
+  // (P3-A) the movement profile in force, the merge's books, the overlay cover and the reveal queue (tr3-* tests)
+  LOCO, MG, screenCover, revealPending, startSandbox, stopSandbox};
 // the world has loaded: whoever is waiting on it (ui/main.js before a new career's first frame) can go on
 { const done = window.lifeReadyResolve; window.lifeReady = Promise.resolve(true); if (typeof done === "function") done(true); }

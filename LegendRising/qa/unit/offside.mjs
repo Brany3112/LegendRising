@@ -280,6 +280,60 @@ const evs = (ms, kind) => ms.events.filter(e => e.kind === kind);
   clearCtl(ms);
 }
 
+/* ---------- (P3-A, OFF-3) a defender walking off no longer holds the line ---------- */
+{
+  const {ms, attacker, def2, out1} = scene({defLine: 20, att: 19});
+  // a second defender further up holds the line at 22 (the attacker at 19 is onside behind it)
+  put(out1[1], 22, 10);
+  check(!offsidePosition(ms, attacker, 0).off, "OFF-3 baseline: a defender at 22 keeps the attacker at 19 onside");
+  out1[1].leaving = true;                        // walking off: onPitch still true until he is over the line
+  check(out1[1].onPitch, "OFF-3: the man walking off is still onPitch");
+  const p = offsidePosition(ms, attacker, 0);
+  check(!p.off && Math.abs(p.line - (20 + 52.5 + RULES.OFF.body)) < 1e-9, "OFF-3: once he is leaving, the line is the next defender's (20), so the attacker at 19 is onside by it", {line: r3(p.line)});
+  put(attacker, 21, -5);
+  check(offsidePosition(ms, attacker, 0).off, "OFF-3: an attacker at 21, past the line at 20 but behind the leaving man at 22, is offside");
+  out1[1].onPitch = false; out1[1].leaving = false;
+  check(offsidePosition(ms, attacker, 0).off, "OFF-3: once he is off, nothing changes");
+  out1[1].onPitch = true; out1[1].sentOff = true;
+  check(offsidePosition(ms, attacker, 0).off, "OFF-3: a sent-off man on his way out does not hold it either");
+  void def2;
+}
+
+/* ---------- (P3-A, OFF-1) the real halfway line on an area; the last defender with fewer than two ---------- */
+{
+  const {ms, attacker, passer, gk1, out1} = scene({});
+  // the only opponent left is the keeper at 40: the line is his
+  for (const a of out1) a.onPitch = false;
+  put(gk1, 40, 0); ballAt(ms, 0.65, 0); put(passer, 0, 0);
+  put(attacker, 41, -3);
+  let p = offsidePosition(ms, attacker, 0);
+  check(p.off && Math.abs(p.line - (40 + 52.5 + RULES.OFF.body)) < 1e-9, "OFF-1: one opponent left (the keeper): past him is offside", {off: p.off, line: r3(p.line)});
+  put(attacker, 39, -3);
+  check(!offsidePosition(ms, attacker, 0).off, "OFF-1: one opponent left: level with or behind him is onside");
+  gk1.onPitch = false;
+  put(attacker, 10, -3);
+  p = offsidePosition(ms, attacker, 0);
+  check(p.off && Math.abs(p.line - Math.max(52.5, ms.ball.p.x + 52.5)) < 1e-9, "OFF-1: no opponent at all: past the halfway line and the ball is offside", {line: r3(p.line)});
+  // an area played as a pitch of its own (a Half cage, x 0..52.5 of the whole pitch): its halfway line is its -x edge,
+  // so a man in the area's middle is in the opponents' half, and one behind the real halfway line never is
+  gk1.onPitch = true; for (const a of out1) a.onPitch = true;
+  const real = ms.spec;
+  ms.spec = Object.assign({}, real, {L: 52.5, hx: 26.25, area: {x0: 0, x1: 52.5, z0: -34, z1: 34, ends: [1]}});
+  for (const a of out1) put(a, 20, 0);
+  put(out1[0], -20, 25);                         // area-local: the second-last at -20 (6.25 m into the real half)
+  put(gk1, 25, 0); ballAt(ms, -26, 0);
+  put(attacker, -24, -3);                        // 2.25 m into the real opponents' half, past the second-last? no: behind him
+  check(!offsidePosition(ms, attacker, 0).off, "OFF-1 area: behind the second-last defender is onside");
+  out1.forEach((a, i) => put(a, -25.9, -30 + i*6));   // the back line deep, on the real halfway line's edge
+  put(attacker, -25.5, -3); ballAt(ms, -26.2, 0);
+  p = offsidePosition(ms, attacker, 0);
+  check(p.off, "OFF-1 area: in the real opponents' half (0.75 m past the halfway line, the area's edge) past the line is offside", {margin: r3(p.margin)});
+  // the same positions measured with the area's centre as the halfway line (the bug): he would be in his own half
+  const noArea = Object.assign({}, ms.spec); delete noArea.area; ms.spec = noArea;
+  check(!offsidePosition(ms, attacker, 0).off, "OFF-1 area: (without spec.area the area's centre was taken for the halfway line, and he was never offside)");
+  ms.spec = real;
+}
+
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});
 fs.writeFileSync(path.join(ROOT, "qa", "out", "unit-offside.json"), JSON.stringify(res, null, 1));
 console.log(`${res.checks.filter(c => c.pass).length}/${res.checks.length} checks pass`);

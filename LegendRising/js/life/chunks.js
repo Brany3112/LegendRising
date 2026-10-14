@@ -34,9 +34,21 @@ const DETAIL = .8, BAND = 4, MCELL = 8, GROUND_Y = .1;
 export const CH = {meshes:[], tile:16, instances:0, verts:0, bytes:0, multiDraw:null, cullT:0};
 // a new place: the last one's batches are gone with its scene; anything of it that was merged is put back on the
 // camera's layer first (a mesh some module keeps and shows again in the next place must not stay hidden)
+// (P3-A, perf-1) the last place's batched meshes are disposed here too: a BatchedMesh keeps its own data textures (the
+// matrices, the indirect list, the colours) that only its dispose() frees, so dropping it with the scene left two or
+// three textures per batch on the renderer's books for every place ever built. Disposing twice (world.js clearScene
+// already did it for those still in the scene) is harmless: disposeBatch does it once
+export function disposeBatch(bm, stay = false){
+  if (!bm || !bm.isBatchedMesh || bm.userData.disposed || !bm._matricesTexture) return;
+  bm.userData.disposed = true;
+  if (!stay && bm.parent) bm.parent.remove(bm);
+  bm.dispose();
+}
 export function resetChunks(){
+  for (const bm of CH.meshes) disposeBatch(bm);
   CH.meshes = []; CH.instances = CH.verts = CH.bytes = 0;
   for (const it of MG.items.values()) it.o.layers.set(0);
+  for (const pg of MG.pages.values()){ if (pg.mesh) disposeBatch(pg.mesh); if (pg.mat) pg.mat.dispose(); if (pg.tex) pg.tex.dispose(); }
   resetMerge();
   occReset();
 }
@@ -591,7 +603,7 @@ const _p = new THREE.Vector3(), _n = new THREE.Vector3(), _c = new THREE.Color()
 function rebuild(pg){
   if (!pg.ready){ if (!pg.compiling) compilePage(pg); return; }
   pg.dirty = false; MG.rebuilds++;
-  if (pg.mesh){ if (pg.mesh.parent) pg.mesh.parent.remove(pg.mesh); pg.mesh.dispose(); pg.mesh = null; }
+  if (pg.mesh){ disposeBatch(pg.mesh); pg.mesh = null; }
   if (!pg.items.size) return;
   W.scene.add(pg.mesh = makeMesh(pg));
 }
@@ -680,7 +692,7 @@ const stillKey = o => { o.updateWorldMatrix(true, false); return o.matrixWorld.e
 // look for meshes to merge: initial (the place has just been built): every eligible one; otherwise those that have not
 // changed since the last scan
 function scan(initial){
-  if (!W.scene) return;
+  if (!W.scene || W.noMerge) return;
   const walk = o => {
     if (o.isBatchedMesh || o.isSkinnedMesh || o.userData.keep || !o.visible) return;
     if (o.isMesh && !MG.items.has(o) && eligible(o)){
@@ -692,19 +704,33 @@ function scan(initial){
   for (const c of W.scene.children) walk(c);
   for (const pg of MG.pages.values()) if (pg.dirty) rebuild(pg);
 }
-// every frame: what changed leaves; every SCAN_EVERY seconds, what has stood still joins
+// is this object still in the place's scene (its parents lead up to it)
+function inScene(o){ for (let p = o; p; p = p.parent) if (p === W.scene) return true; return false; }
+// (P3-A, perf-2) a mesh taken out of the scene (a drill's ball, a view's bodies) is forgotten: MG.still held on to every
+// mesh it had ever seen move, so each one (its geometry and material with it) outlived its place
+export function pruneMerge(){
+  let n = 0;
+  for (const o of MG.still.keys()) if (!inScene(o)){ MG.still.delete(o); n++; }
+  let out = false;
+  for (const it of MG.items.values()) if (!inScene(it.o)){ leave(it); out = true; n++; }
+  if (out) for (const pg of MG.pages.values()) if (pg.dirty) rebuild(pg);
+  return n;
+}
+// every frame: what changed leaves; every SCAN_EVERY seconds, what has stood still joins (and what has left the
+// scene is forgotten)
 function mergeStep(dt){
   MG.t += dt;
   let out = false;
   for (const it of MG.items.values()) if (changed(it)){ leave(it); out = true; }
   if (out) for (const pg of MG.pages.values()) if (pg.dirty) rebuild(pg);
-  if ((MG.scanT += dt) >= SCAN_EVERY){ MG.scanT = 0; scan(false); }
+  if ((MG.scanT += dt) >= SCAN_EVERY){ MG.scanT = 0; pruneMerge(); scan(false); }
 }
 // everything back as itself (a preset change: the merged materials are made again), and merged again
 export function unmergeAll(){
   for (const it of MG.items.values()) it.o.layers.set(0);
-  for (const pg of MG.pages.values()){ if (pg.mesh){ if (pg.mesh.parent) pg.mesh.parent.remove(pg.mesh); pg.mesh.dispose(); } if (pg.mat) pg.mat.dispose(); if (pg.tex) pg.tex.dispose(); }
+  for (const pg of MG.pages.values()){ if (pg.mesh) disposeBatch(pg.mesh); if (pg.mat) pg.mat.dispose(); if (pg.tex) pg.tex.dispose(); }
   resetMerge();
 }
 export function mergeAll(){ scan(true); }
-SCHED.task({id:"merge", kind:"keep", when:() => !!W.scene && CH.meshes.length > 0, run:mergeStep});
+// (P3-A) a place may turn the merging off (W.noMerge: Training Mode's cage, whose few meshes are drawn as they are)
+SCHED.task({id:"merge", kind:"keep", when:() => !!W.scene && CH.meshes.length > 0 && !W.noMerge, run:mergeStep});

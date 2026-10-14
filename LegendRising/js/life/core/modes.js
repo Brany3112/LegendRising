@@ -116,6 +116,9 @@ export function liftBootCover(ms = 500){
 // resolves once n frames have been presented by the camera owner on top when they were drawn (counting again from
 // the start if the owner changes) and ready() is true. Until then the screen stays covered
 const WAIT = [];
+// (P3-A, perf-4) is a reveal waiting for frames to be drawn? The world never skips drawing while one is: the reveal
+// resolves only from framePresented, after a real render
+export const revealPending = () => WAIT.length > 0;
 export function revealAfterFrames(n = 2, ready = () => true){
   coverScreen();
   return new Promise(res => WAIT.push({n, ready, res, owner:undefined, count:0}));

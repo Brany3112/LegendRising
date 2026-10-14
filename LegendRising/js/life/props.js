@@ -525,6 +525,51 @@ export function wireFence(x0, z0, x1, z1, h = 2.2){
   cy(frame((x0 + x1)/2, (z0 + z1)/2, Math.atan2(x1 - x0, z1 - z0)), 0, h - .03, 0, .03, .03, len, 0x3d4347, {seg:6, rx:Math.PI/2, key:"metal"});
   solid(Math.min(x0, x1) - .06, Math.max(x0, x1) + .06, Math.min(z0, z1) - .06, Math.max(z0, z1) + .06, 0, h);
 }
+/* (P3-A) a training cage: wireFence's posts, rail and mesh on all four sides of the box x0..x1, z0..z1 and a roof of
+   the same mesh at the fence's height h (TRAINING-SPEC 4: a low-poly cage fence). The posts and rails go into the
+   place's batches like every fence's; the four walls and the roof are ONE mesh (one draw) whose mesh texture repeats in
+   metres, so its cells are the same size on every face. The walker cannot leave it (four thin solids). Returns the mesh,
+   static (matrixAutoUpdate off). o.post: the gap between posts (metres), o.col: the posts' colour */
+export function wireCage(x0, z0, x1, z1, h, o = {}){
+  const col = o.col || 0x3d4347, gap = o.post || 3.2, rail = (ax, az, bx, bz, y) => {
+    const len = Math.hypot(bx - ax, bz - az);
+    cy(frame((ax + bx)/2, (az + bz)/2, Math.atan2(bx - ax, bz - az)), 0, y, 0, .035, .035, len, col, {seg:6, rx:Math.PI/2, key:"metal"});
+  };
+  const sides = [[x0, z0, x1, z0], [x1, z0, x1, z1], [x1, z1, x0, z1], [x0, z1, x0, z0]];
+  for (const [ax, az, bx, bz] of sides){
+    const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(len/gap));
+    for (let i = 0; i < n; i++){ const t = i/n; cy(frame(ax + (bx - ax)*t, az + (bz - az)*t), 0, 0, 0, .055, .065, h, col, {seg:8, key:"metal"}); }
+    rail(ax, az, bx, bz, h - .04);
+    rail(ax, az, bx, bz, 1.1);
+  }
+  // the walls and the roof: positions, normals (inwards) and uvs in metres x 1.5 (the mesh texture's cell)
+  const pos = [], nor = [], uv = [], idx = [], k = 1.5;
+  const quad = (a, b, c, d, n, ua) => {
+    const i = pos.length/3;
+    for (const [p, u] of [[a, ua[0]], [b, ua[1]], [c, ua[2]], [d, ua[3]]]){ pos.push(p[0], p[1], p[2]); nor.push(n[0], n[1], n[2]); uv.push(u[0]*k, u[1]*k); }
+    idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+  };
+  for (const [ax, az, bx, bz] of sides){
+    const len = Math.hypot(bx - ax, bz - az), nx = -(bz - az)/len, nz = (bx - ax)/len;
+    quad([ax, .05, az], [bx, .05, bz], [bx, h, bz], [ax, h, az], [nx, 0, nz], [[0, 0], [len, 0], [len, h], [0, h]]);
+  }
+  quad([x0, h, z0], [x1, h, z0], [x1, h, z1], [x0, h, z1], [0, -1, 0], [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  const m = mat({map:netTex(10, 1.4, "#5d666c"), transparent:true, alphaTest:.02, side:THREE.DoubleSide, forceSinglePass:true, roughness:.6, metalness:.4, depthWrite:false});
+  m.map = m.map.clone(); m.map.repeat.set(1, 1); m.map.needsUpdate = true;
+  const mesh = new THREE.Mesh(g, m);
+  mesh.name = "cage-fence"; mesh.userData.noMerge = true; mesh.castShadow = false; mesh.receiveShadow = false;
+  mesh.updateMatrix(); mesh.matrixAutoUpdate = false;
+  W.scene.add(mesh);
+  const t = .06;
+  solid(x0 - t, x1 + t, z0 - t, z0 + t, 0, h); solid(x0 - t, x1 + t, z1 - t, z1 + t, 0, h);
+  solid(x0 - t, x0 + t, z0 - t, z1 + t, 0, h); solid(x1 - t, x1 + t, z0 - t, z1 + t, 0, h);
+  return mesh;
+}
 export function parkingBays(x0, z0, n, w = 2.6, d = 5, dirZ = 1){
   for (let i = 0; i <= n; i++){
     const x = x0 + i*w;

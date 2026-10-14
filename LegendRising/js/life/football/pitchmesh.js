@@ -167,16 +167,19 @@ function wearAt(x, z, hx, hz){
   return w;
 }
 function grassMesh(spec, o){
-  const {hx, hz, L} = spec, ex = o.grass.hx, ez = o.grass.hz;
+  // (P3-A) a part of a pitch (a training cage, o.base): the mowing bands, the wear and the field's edge are the whole
+  // pitch's, offset by where the area's centre lies in it (ox, oz), so a half pitch looks like half of one
+  const bf = o.base || {hx:spec.hx, hz:spec.hz, L:spec.L, ox:0, oz:0}, ox = bf.ox || 0, oz = bf.oz || 0;
+  const hx = bf.hx, hz = bf.hz, L = bf.L, ex = o.grass.hx, ez = o.grass.hz;
   const nb = o.stripes, bw = L/nb, worn = clamp(o.worn, 0, 1), tier = clamp(o.tier | 0, 0, 4);
   const base = GREEN[tier], soil = [.42, .33, .2], dry = [.5, .48, .28];
   // the band edges, carried on past the goal lines into the run-off at the same width
   const xs = [-ex];
-  for (let k = -nb; k <= 2*nb; k++){ const e = -hx + k*bw; if (e > -ex + .01 && e < ex - .01) xs.push(e); }
+  for (let k = -nb; k <= 2*nb; k++){ const e = -hx + k*bw - ox; if (e > -ex + .01 && e < ex - .01) xs.push(e); }
   xs.push(ex);
   const nz = Math.max(8, Math.round(2*ez/1.9)), zs = Array.from({length:nz + 1}, (_, i) => -ez + 2*ez*i/nz);
   const B = Builder(), per = grassTex().userData.per;
-  const band = x => Math.floor((x + hx)/bw + 1e-6);
+  const band = x => Math.floor((x + ox + hx)/bw + 1e-6);
   for (let b = 0; b < xs.length - 1; b++){
     const a0 = xs[b], a1 = xs[b + 1], mid = (a0 + a1)/2, k = band(mid), light = ((k % 2) + 2) % 2 === 0;
     // each band its own patch, so its edges stay sharp; inside, a column every 1.75 m or so carries the wear
@@ -185,8 +188,9 @@ function grassMesh(spec, o){
     for (const x of cols){
       const row = [];
       for (const z of zs){
-        const inField = Math.abs(x) <= hx + .5 && Math.abs(z) <= hz + .5;
-        const w = worn*wearAt(x, z, hx, hz), nv = hash2(x*1.3, z*1.7), patch = hash2(Math.floor(x/7), Math.floor(z/7));
+        const wx = x + ox, wz = z + oz;
+        const inField = Math.abs(wx) <= hx + .5 && Math.abs(wz) <= hz + .5;
+        const w = worn*wearAt(wx, wz, hx, hz), nv = hash2(wx*1.3, wz*1.7), patch = hash2(Math.floor(wx/7), Math.floor(wz/7));
         // the bands: lighter and darker by the way the mower went; off the field (beyond the lines) a touch duller
         let f = (light ? 1.12 : .88)*(inField ? 1 : .96)*(.94 + .12*nv);
         let c = [base[0], base[1], base[2]];
@@ -208,7 +212,7 @@ function grassMesh(spec, o){
 
 /* ---------- the markings ---------- */
 const LINE_Y = .004, LINE_COL = lin(0xf7f8f3);
-function linesMesh(spec, extra){
+function linesMesh(spec, extra, o){
   const B = Builder(), hw = spec.line/2, c = LINE_COL;
   const strip = (x0, z0, x1, z1) => {
     const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz); if (L < 1e-6) return;
@@ -232,7 +236,10 @@ function linesMesh(spec, extra){
     let prev = null, first = null;
     for (let i = 0; i <= n; i++){ const a = -i/n*2*Math.PI, v = i === n ? first : B.v(cx + Math.cos(a)*r, LINE_Y, cz + Math.sin(a)*r, 0, 1, 0, ...c); if (!first) first = v; if (prev != null) B.tri(ctr, prev, v); prev = v; }
   };
-  for (const l of spec.lines.concat(extra || [])){
+  // (P3-A) a draw spec (a training cage, cagespec.js cageDraw) brings its own clipped lines and spots
+  const D = o && o.draw;
+  const lines = D ? D.lines : spec.lines, spots = D ? D.spots : spec.spots;
+  for (const l of lines.concat(extra || [])){
     if (l.type === "arc") arc(l.cx, l.cz, l.r, l.a0, l.a1);
     else if (l.dash){
       // a dashed line (a technical area): dashes of l.dash metres with gaps of the same
@@ -240,8 +247,8 @@ function linesMesh(spec, extra){
       for (let i = 0; i <= n; i++){ const t0 = i*2*l.dash/L, t1 = Math.min(1, t0 + l.dash/L); if (t0 >= 1) break; strip(l.x0 + (l.x1 - l.x0)*t0, l.z0 + (l.z1 - l.z0)*t0, l.x0 + (l.x1 - l.x0)*t1, l.z0 + (l.z1 - l.z0)*t1); }
     } else strip(l.x0, l.z0, l.x1, l.z1);
   }
-  disc(spec.spots.centre.x, spec.spots.centre.z, spec.spots.centre.r);
-  for (const p of spec.spots.penalty) disc(p.x, p.z, p.r);
+  if (spots.centre) disc(spots.centre.x, spots.centre.z, spots.centre.r);
+  for (const p of spots.penalty) disc(p.x, p.z, p.r);
   const m = new THREE.Mesh(B.geometry(), mat({color:0xffffff, vertexColors:true, roughness:.85, polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1, kind:"plain"}));
   m.name = "pitch-lines"; m.receiveShadow = true; m.castShadow = false;
   return m;
@@ -249,7 +256,9 @@ function linesMesh(spec, extra){
 
 /* ---------- the goals and the corner flags ---------- */
 const POST_COL = lin(0xf6f6f2), STAY_COL = lin(0xd9dcde), FLAG_POLE = lin(0xf2f0e8), FLAG_A = lin(0xf2c230), FLAG_B = lin(0xd8432f);
-function framesMesh(spec){
+// the corner flags of a pitch: its four corners, or a draw spec's own list (only the real corners of a cage)
+const flagsOf = (spec, D) => D && D.flags ? D.flags : [[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz]) => ({x:sx*spec.hx, z:sz*spec.hz, sx, sz}));
+function framesMesh(spec, D){
   const B = Builder();
   for (const g of spec.goals){
     const e = g.end, px = g.postX, pz = Math.abs(g.post[0].z), r = FIFA.postR, top = g.barY + r;
@@ -267,8 +276,8 @@ function framesMesh(spec){
     bar(B, bx, .025, -pz, bx, .025, pz, .025, STAY_COL, 6);
   }
   // the corner flags: a 1.5 m pole on each corner, a flag at the top in two halves of colour
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]){
-    const x = sx*spec.hx, z = sz*spec.hz, h = FIFA.flagH;
+  for (const fl of flagsOf(spec, D)){
+    const sx = fl.sx, sz = fl.sz, x = fl.x, z = fl.z, h = FIFA.flagH;
     bar(B, x, 0, z, x, h, z, .016, FLAG_POLE, 6, true);
     // the flag hangs off the pole away from the pitch's middle, both faces
     const fx = x + sx*.02, fz = z + sz*.02, w = .42*Math.SQRT1_2, dx = sx*w, dz = sz*w*.3, y1 = h - .02, y0 = h - .32;
@@ -358,13 +367,17 @@ function conesOf(spec, pos){
    x1, z1, dash}), o.solids (the posts, nets and flags block players, default true), o.scene (W.scene).
    Everything is placed in the spec's frame (spec.frame.cx, cz). */
 export function buildPitchMesh(spec, o = {}){
-  const opt = Object.assign({tier:2, worn:0, stripes:12, cones:true, grass:null, extra:null, solids:true, scene:W.scene}, o);
+  const opt = Object.assign({tier:2, worn:0, stripes:12, cones:true, grass:null, extra:null, solids:true, scene:W.scene, draw:null}, o);
+  // (P3-A) o.draw: a draw spec (cagespec.js cageDraw) for a part of a pitch: its clipped lines, its spots, flags only
+  // at the real corners, the grass to the fence with the whole pitch's bands
+  const D = opt.draw;
+  if (D){ if (!o.grass) opt.grass = D.grass; opt.base = D.base; }
   opt.grass = opt.grass || {hx:spec.runoff ? spec.runoff.hx : spec.hx + 5, hz:spec.runoff ? spec.runoff.hz : spec.hz + 4};
   const scene = opt.scene, cx = spec.frame ? spec.frame.cx : 0, cz = spec.frame ? spec.frame.cz : 0;
   const put = m => { m.position.set(cx, 0, cz); m.updateMatrix(); m.matrixAutoUpdate = false; scene.add(m); return m; };
   const grass = put(grassMesh(spec, opt));
-  const lines = put(linesMesh(spec, opt.extra));
-  const frames = put(framesMesh(spec));
+  const lines = put(linesMesh(spec, opt.extra, opt));
+  const frames = put(framesMesh(spec, D));
   const nets = put(netsMesh(spec));
   let cones = [], coneMesh = null, spareMesh = null;
   if (opt.cones && spec.spareCones && spec.spareCones.length){
@@ -384,7 +397,7 @@ export function buildPitchMesh(spec, o = {}){
       }
       S(bx - .05, bx + .05, -pz, pz, 0, FIFA.netBackH + .05);                           // the back net
     }
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) S(sx*spec.hx - .05, sx*spec.hx + .05, sz*spec.hz - .05, sz*spec.hz + .05, 0, FIFA.flagH);
+    for (const f of flagsOf(spec, D)) S(f.x - .05, f.x + .05, f.z - .05, f.z + .05, 0, FIFA.flagH);
   }
   const meshes = [grass, lines, frames, nets, coneMesh, spareMesh].filter(Boolean);
   return {

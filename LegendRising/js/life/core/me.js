@@ -26,7 +26,7 @@
    (doors that open); it eases back out when the way is clear. Drills, panels, the bus and the tunnel are lived in
    first person; third person comes back after. */
 import {THREE} from "../build.js";
-import {human, animateHuman, BONE, EV, onHumanRemat} from "../human.js";
+import {human, animateHuman, BONE, EV, onHumanRemat, hashStr} from "../human.js";
 import {fkQ, newFK, lerp} from "../rig.js";
 import {bodyLook} from "../look.js";
 import {G, LIFE, P, B, ME, RT, FLAGS, FADE, spring} from "./state.js";
@@ -41,7 +41,8 @@ import {note} from "./hud.js";
 // how near it may come and still show you; how high it cranes; how fast it may come in (unless it must) and go out;
 // the glide into your eyes when there is no room
 const TPV = {dist:2.65, sprint:.35, up:.12, side:.36, margin:.16, minShow:.62, crane:.5, inSpeed:15, outSpeed:3.2, glide:.25};
-const meKind = () => LIFE.zone === "ground" ? "training" : "casual";
+// (P3-A) the training kit at the ground and in Training Mode's cage
+const meKind = () => LIFE.zone === "ground" || LIFE.zone === "cage" ? "training" : "casual";
 export const wrapA = a => a - Math.round(a/(2*Math.PI))*2*Math.PI;
 export const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
 const D2R = Math.PI/180;
@@ -71,15 +72,39 @@ export function meFade(op){
 // (looked for from 0.9 m above your feet down to 0.5 m below them: a stair going up a metre ahead is still found,
 // and the flight above your head never is)
 const feetGround = (x, z) => surfaceUnder(x, P.feet + .45, z);
+/* (P3-A, spec 7: the same created character everywhere) who you are with no career loaded: Training Mode's sandbox.
+   The career held aside for it (career.js holdCareer: its look, and what dresses it: the career's id, which seeds the
+   body exactly as in the career, the age, the shirt number and the club's colours), so the body is the one the career
+   shows at the training ground; with none held, the default look (G0 decision g). {look, dress} */
+const TRAIN_SEED = 7;
+export function sandboxLook(){
+  const h = typeof heldLook === "function" ? heldLook() : null, d = typeof heldDress === "function" ? heldDress() : null;
+  if (h) return {look:h, dress:d || {}};
+  return {look:typeof lookDefault === "function" ? lookDefault(TRAIN_SEED) : {}, dress:{}};
+}
+// bodyLook's options for a held career's dress: the seed the career's own body has (look.js: from its cid)
+export function dressOpts(d){
+  const o = {};
+  if (!d) return o;
+  if (d.cid != null) o.seed = hashStr(String(d.cid || "player")) % 100000;
+  if (d.age != null) o.age = d.age;
+  if (d.number != null) o.number = d.number;
+  if (d.kit) o.kit = d.kit;
+  return o;
+}
 export function meBuild(){
   meDispose();
-  const s = G(); if (!s || !s.player || !RT.scene) return;
+  const s = G(); if (!RT.scene) return;
+  if (s && !s.player) return;
   // no body while the character is still being made (the film, creation, the offers: DESIGN 3.7.2); the signing's
   // lifeLookChanged() builds the real one
-  if (s.flags && s.flags.CharacterCreated === false) return;
+  if (s && s.flags && s.flags.CharacterCreated === false) return;
   ME.kind = meKind();
   let look;
-  try { look = bodyLook(s.player.look, ME.kind); } catch(e){ console.error(e); return; }
+  try {
+    if (s) look = bodyLook(s.player.look, ME.kind);
+    else { const t = sandboxLook(); look = bodyLook(t.look, ME.kind, dressOpts(t.dress)); }
+  } catch(e){ console.error(e); return; }
   ME.fp = human(look, {noHead:true, lod:false, track:true}); ME.fp.near.frustumCulled = false;
   ME.tp = human(look, {lod:false, track:true});
   ME.fp.g.name = "me-fp"; ME.tp.g.name = "me-tp";
@@ -216,14 +241,18 @@ export function meStep(dt){
 
 
 /* ---------- first or third person ---------- */
-const viewPref = () => { const s = G(); return s && s.life && s.life.view === "tp" ? "tp" : "fp"; };
+// (P3-A) with no career (Training Mode's sandbox) the choice is kept here for the session, never saved
+const NOS = {view:"fp"};
+const viewPref = () => { const s = G(); return s ? (s.life && s.life.view === "tp" ? "tp" : "fp") : NOS.view; };
 // a fade is up (the tunnel darkening, a cut to black); the cover startLife puts up before the first frames is not one:
 // what is behind it is your normal view, waiting to be shown
 export const fadeOn = () => { const f = document.getElementById("lifeFade"); return !!(f && (f.dataset.tun || (+f.style.opacity > .02 && !FADE.boot))); };
 // third person waits: the mode does not allow it (a drill), a panel or a card is up, the walk into the tunnel, a fade
 export const forcedFP = () => !!(!modeFlags().tp || FLAGS.modal || FLAGS.busy || tutOn() || TUN.go || fadeOn());
 export function toggleView(){
-  const s = G(); if (!s || !s.life) return;
+  const s = G();
+  if (!s){ NOS.view = NOS.view === "tp" ? "fp" : "tp"; if (forcedFP()) note(NOS.view === "tp" ? "Third person comes back when you're done here." : "First person."); return; }
+  if (!s.life) return;
   s.life.view = viewPref() === "tp" ? "fp" : "tp"; persist();
   if (forcedFP()) note(s.life.view === "tp" ? "Third person comes back when you're done here." : "First person.");
 }

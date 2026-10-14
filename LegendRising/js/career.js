@@ -77,6 +77,50 @@ function startPlayClock(){
   let last = Date.now();
   PLAY_T = setInterval(() => { const now = Date.now(); if (S && !document.hidden) S.playMs = (S.playMs || 0) + (now - last); last = now; }, 5000);
 }
+// (P3-A, INF-4) the clock stops: the title is not play time (A.quit), and nor is Training Mode. Continue starts it again
+function stopPlayClock(){ if (PLAY_T){ clearInterval(PLAY_T); PLAY_T = null; } }
+
+/* ---------- Training Mode: the career held aside (P3-A, INF-4, INF-12) ----------
+   Training Mode is a sandbox: it never writes the career. While it runs, the career in memory (after "Quit to title"
+   S is still the career object) is held aside and S is null, so every save path is inert (save and saveNow return
+   false, persist and saveNowIf look for S) and nothing in the world can touch it: S.events.away, the play clock, the
+   cloud's auto sync, a panel's save on close.
+     holdCareer()     flushes a save that is already pending (it never makes a fresh one: Quit to title has saved), takes
+                      frozen copies of what Training reads (the look and what dresses it, the effective skills, the
+                      preferred foot), keeps the career, sets S to null, stops the play clock and pauses the auto sync
+     releaseCareer()  puts the career back as it was and resumes the auto sync; the play clock stays stopped (the
+                      title is not play time; Continue starts it)
+     heldLook() / heldDress() / heldSkills() / heldFoot()   the frozen copies, or null when no career is held */
+let HELD = null;
+const freezeDeep = o => { if (o && typeof o === "object" && !Object.isFrozen(o)){ Object.freeze(o); for (const k of Object.keys(o)) freezeDeep(o[k]); } return o; };
+const copyOf = o => o == null ? null : JSON.parse(JSON.stringify(o));
+function holdCareer(){
+  if (HELD) return true;
+  if (!S) return false;
+  if (SAVE_T) saveNow();
+  let kit = null;
+  try { const c = myClub(); if (c && typeof kitOf === "function"){ const k = kitOf(c.nm); if (k && k[0] && k[1]) kit = [k[0], k[1]]; } }catch(e){}
+  let skills = null;
+  try { skills = effSkills(); }catch(e){ skills = Object.assign({}, S.skills || {}); }
+  const pl = S.player || {};
+  HELD = {s:S, look:freezeDeep(copyOf(pl.look) || {}), skills:freezeDeep(skills), foot:pl.foot || null,
+    dress:freezeDeep({cid:S.cid || "", age:pl.age, number:pl.number, kit})};
+  S = null;
+  stopPlayClock();
+  if (typeof pauseAutoSync === "function") pauseAutoSync();
+  return true;
+}
+function releaseCareer(){
+  if (!HELD) return false;
+  S = HELD.s; HELD = null;
+  if (typeof resumeAutoSync === "function") resumeAutoSync();
+  return true;
+}
+const careerHeld = () => !!HELD;
+const heldLook = () => HELD ? HELD.look : null;
+const heldDress = () => HELD ? HELD.dress : null;
+const heldSkills = () => HELD ? HELD.skills : null;
+const heldFoot = () => HELD ? HELD.foot : null;
 let S = null;
 // players are packed into flat arrays so a whole football world fits comfortably in browser storage
 const NATS = Object.keys(NAMES), PPOS = ["GK","DF","CM","CAM","LW","RW","ST"];
@@ -134,10 +178,10 @@ function deserial(txt){
    reload there starts a fresh New Game (DESIGN 1.7) */
 let SAVE_T = null;
 const saveGated = () => !!(S && S.flags && S.flags.CharacterCreated === false);
-function save(){ if (saveGated()) return false; clearTimeout(SAVE_T); SAVE_T = setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(saveNow, {timeout:2000}); else saveNow(); }, 800); return true; }
+function save(){ if (HELD || saveGated()) return false; clearTimeout(SAVE_T); SAVE_T = setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(saveNow, {timeout:2000}); else saveNow(); }, 800); return true; }
 addEventListener("pagehide", () => { if (SAVE_T) saveNow(); });
 document.addEventListener("visibilitychange", () => { if (document.hidden && SAVE_T) saveNow(); });
-function saveNow(){ clearTimeout(SAVE_T); SAVE_T = null; if (!S || saveGated()) return false; try{ localStorage.setItem(slotKey(SLOT), serial()); writeMeta(SLOT); return true; }catch(e){ console.warn("save failed", e); if (e && e.name === "QuotaExceededError") toast("Browser storage is full. Delete a career you are not using, or sync this one to the leaderboard first.", "bad"); return false; } }
+function saveNow(){ clearTimeout(SAVE_T); SAVE_T = null; if (HELD || !S || saveGated()) return false; try{ localStorage.setItem(slotKey(SLOT), serial()); writeMeta(SLOT); return true; }catch(e){ console.warn("save failed", e); if (e && e.name === "QuotaExceededError") toast("Browser storage is full. Delete a career you are not using, or sync this one to the leaderboard first.", "bad"); return false; } }
 function load(n){ try{ const r = localStorage.getItem(slotKey(n || SLOT)); return r ? deserial(r) : null; }catch(e){ console.warn(e); return null; } }
 // Clubs and leagues are built in a fixed order, so a career started before a renaming
 // can be brought up to date by index without disturbing anything else.

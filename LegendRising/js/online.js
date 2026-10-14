@@ -323,6 +323,10 @@ function startAutoSync(){
   AUTO.timer = setInterval(autoSyncTick, AUTO_SYNC_MS);
 }
 function stopAutoSync(){ clearInterval(AUTO.timer); AUTO.timer = null; }
+// (P3-A, INF-4) Training Mode holds the career aside (career.js holdCareer): the auto sync pauses with it and, if it
+// was running, starts again when the career is released
+function pauseAutoSync(){ AUTO.paused = !!AUTO.timer || !!AUTO.paused; stopAutoSync(); }
+function resumeAutoSync(){ if (!AUTO.paused) return; AUTO.paused = false; if (ONLINE.user && S && S.synced) startAutoSync(); }
 
 /* ---------- what is waiting on the account, without touching this device ----------
    Read before offering to pull a career down, so the pop-up can name what you would be
