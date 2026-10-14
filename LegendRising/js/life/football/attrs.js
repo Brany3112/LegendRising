@@ -111,25 +111,39 @@ export function attrsForPlayer(effSkills, items = {}, traits = {}){
 // archetype): attr[k] = clamp(ovr + PROFILE[arch][k] + 6 hashNoise(id, k), 20, 99) (3.2.5). A keeper gets his keeping
 // numbers {reflex, dive, handling, posit, distrib} from his overall plus the same wobble, and outfield skills a little
 // under it (a keeper is not picked for his finishing).
-export function attrsForAI(p){
+//
+// (P4-A, ATTR-1) o.training: a Training Mode NPC, whose average is set in the attribute editor. Its floor is the
+// editor's (1, not 20: an average of 10 means a side of tens), and both speed skills are its pace's profile plus the
+// same wobble as every other skill, so each of the 15 editor skills is average + PROFILE[arch][k] + up to 6 either
+// way before the clamps (G0 decision f). Its id comes from the training seed (train/teams.js), so the same seed gives
+// the same players. A career's AI players never pass it: their numbers are unchanged.
+export function attrsForAI(p, o = {}){
   const id = p.id != null ? p.id : 0, ovr = clamp(+p.ovr || 50, 1, 99);
   const arch = ARCH_OF_POS[p.pos] || (PROFILE[p.pos] ? p.pos : 'CM');
+  const lo = o.training ? 1 : 20;
   const a = {};
   if (arch === 'GK'){
-    for (const k of SKILL_KEYS) a[k] = clamp(Math.round(ovr - 10 + 6*hashNoise(id, k)), 20, 99);
-    a.passing = clamp(Math.round(ovr - 4 + 6*hashNoise(id, 'passing')), 20, 99);
+    for (const k of SKILL_KEYS) a[k] = clamp(Math.round(ovr - 10 + 6*hashNoise(id, k)), lo, 99);
+    a.passing = clamp(Math.round(ovr - 4 + 6*hashNoise(id, 'passing')), lo, 99);
     // his first steps are keeping, not outfield running: set, shuffle and the step across before a dive come from his
     // acceleration (and his agility from it), so it is at his overall like his keeping numbers. Since the speed split
     // (A1.1) steepened the mover below acceleration 50, a keeper at ovr - 10 set himself late (P2b: close-range saves
     // and the harness goals per match)
-    a.acceleration = clamp(Math.round(ovr + 6*hashNoise(id, "gkacc")), 20, 99);
+    a.acceleration = clamp(Math.round(ovr + 6*hashNoise(id, "gkacc")), lo, 99);
     derive(a);
     a.gk = {};
-    for (const k of ["reflex", "dive", "handling", "posit", "distrib"]) a.gk[k] = clamp(Math.round(ovr + 6*hashNoise(id, "gk" + k)), 20, 99);
+    for (const k of GK_KEYS) a.gk[k] = clamp(Math.round(ovr + 6*hashNoise(id, "gk" + k)), lo, 99);
     return a;
   }
   const P = PROFILE[arch];
-  for (const k of SKILL_KEYS) a[k] = clamp(Math.round(ovr + P[k] + 6*hashNoise(id, k)), 20, 99);
+  for (const k of SKILL_KEYS) a[k] = clamp(Math.round(ovr + P[k] + 6*hashNoise(id, k)), lo, 99);
+  if (o.training){
+    a.acceleration = clamp(Math.round(ovr + P.pace + 6*hashNoise(id, "acc")), 1, 99);
+    a.sprintSpeed = clamp(Math.round(ovr + P.pace + 6*hashNoise(id, "spr")), 1, 99);
+    derive(a);
+    a.gk = null;
+    return a;
+  }
   // the speed split (A1.1), as the migration splits a career's pace: wingers and full-backs quicker off the mark,
   // centre-backs and strikers quicker flat out, the other skill 3 under; the rest as their pace; a fixed wobble on top
   const nudge = speedNudge(arch, p.slot, id);
@@ -178,4 +192,45 @@ export function keeperOf(at){
   if (at.gk) return at.gk;
   const base = clamp(0.5*at.jumping + 0.3*at.composure + 0.2*at.agility - 15, 20, 99);
   return {reflex: base, dive: base, handling: base, posit: base, distrib: clamp(at.passing - 10, 20, 99)};
+}
+
+/* ---------- Training Mode (P4-A, ATTR-1; TRAINING-SPEC 4, the attribute editor) ----------
+   The editor shows the 15 career skills (js/data/game.js SKILLS: pace is two skills there, acceleration and sprint
+   speed) at 1 to 99, and the keeper's set. The presets are the lead's G0 values. */
+export const EDIT_SKILLS = Object.freeze(["power", "aero", "curve", "accuracy", "passing", "passacc", "acceleration", "sprintSpeed",
+  "dribbling", "stamina", "composure", "tackling", "interception", "jumping", "heading"]);
+export const GK_KEYS = Object.freeze(["reflex", "dive", "handling", "posit", "distrib"]);
+export const ATTR_MIN = 1, ATTR_MAX = 99;
+export const ATTR_PRESETS = Object.freeze({low: 35, average: 55, high: 75, max: 99});
+// the derived values the editor shows read-only (derive() works them out)
+export const DERIVED_KEYS = Object.freeze(["pace", "ctrl", "agility", "strength", "balance", "defAware"]);
+
+// every editor skill at one value (a preset: 'low', 'average', 'high', 'max', or a number)
+export function presetSkills(level = "average", keys = EDIT_SKILLS){
+  const v = clamp(Math.round(typeof level === "number" ? level : ATTR_PRESETS[level] || ATTR_PRESETS.average), ATTR_MIN, ATTR_MAX), o = {};
+  for (const k of keys) o[k] = v;
+  return o;
+}
+// a set of editor values made safe: every key of keys an integer 1 to 99, a missing or bad one from dflt
+export function cleanSkills(src, dflt, keys = EDIT_SKILLS){
+  const o = {};
+  for (const k of keys){
+    const v = src && src[k] != null && src[k] !== "" && Number.isFinite(+src[k]) ? +src[k] : dflt && Number.isFinite(+dflt[k]) ? +dflt[k] : ATTR_PRESETS.average;
+    o[k] = clamp(Math.round(v), ATTR_MIN, ATTR_MAX);
+  }
+  return o;
+}
+
+// The player's attributes in Training from raw editor values (no effSkill: it is 0 with no career, career.js), through
+// the same chain as a career's (attrsForPlayer, derive). gk (optional): a keeper's set on the record.
+export function attrsForTraining(skills, gk = null){
+  const a = attrsForPlayer(cleanSkills(skills, null), {}, {});
+  if (gk) a.gk = cleanSkills(gk, null, GK_KEYS);
+  return a;
+}
+// the derived values of a set of editor values (what the editor shows read-only)
+export function derivedOf(skills){
+  const a = attrsForTraining(skills), o = {};
+  for (const k of DERIVED_KEYS) o[k] = Math.round(a[k]*10)/10;
+  return o;
 }
