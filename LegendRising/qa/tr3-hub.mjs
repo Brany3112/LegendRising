@@ -44,6 +44,13 @@ async function tabTo(page, sel, max = 20){
     check(res.click.S === null, "a real click enters Training with no career (S null)", res.click);
     check(res.click.starts.continue === 0 && res.click.starts.newGame === 0, "no career is started by the click", res.click.starts);
     check(res.click.hub.open && res.click.hub.h2 === "Training", "the hub is up on its categories", res.click.hub);
+    // where you come in: the row of cones ahead of you (each within 50 degrees of where you look), so once the hub is
+    // closed you see what opens it again
+    res.spawnView = await page.evaluate(() => {
+      const P = window.__life.P, f = {x: -Math.sin(P.yaw), z: -Math.cos(P.yaw)};
+      return window.__trainCones.cones().map(c => { const dx = c.x - P.x, dz = c.z - P.z, d = Math.hypot(dx, dz) || 1; return Math.round(Math.acos(Math.max(-1, Math.min(1, (dx*f.x + dz*f.z)/d)))*180/Math.PI); });
+    });
+    check(res.spawnView.length === 7 && res.spawnView.every(a => a <= 50), "you come in facing the row of cones", res.spawnView);
     // each category opens (a real click), and Back comes back to the categories
     for (let i = 0; i < CATS.length; i++){
       const sel = `#sheetRoot .th-cat:nth-child(${i + 1})`;
@@ -71,14 +78,24 @@ async function tabTo(page, sel, max = 20){
     await pressReal(page, "Escape");
     await page.waitForFunction(() => !(window.__trainHub && window.__trainHub.hubOpen()), null, {timeout: 10000});
     await lockPointer(page);
-    for (const k of ["w", "e", "Space", "Enter", "a", "x"]) await pressReal(page, k, {hold: 120});
+    await page.evaluate(() => { const n = document.getElementById("lifeNote"); if (n) n.textContent = ""; });
+    for (const k of ["w", "e", "Space", "Enter", "a", "x", "b"]) await pressReal(page, k, {hold: 120});
     await page.waitForTimeout(300);
-    res.cage = Object.assign(await trainState(page), {starts: await starts(page), writes: await trainWrites(page)});
+    res.cage = Object.assign(await trainState(page), {starts: await starts(page), writes: await trainWrites(page),
+      note: await page.evaluate(() => (document.getElementById("lifeNote") || {}).textContent || "")});
     check(res.cage.S === null && res.cage.starts.continue === 0 && res.cage.starts.newGame === 0, "real W, E, Space and Enter in the cage start no career", res.cage);
     check(res.cage.zone === "cage" && res.cage.running, "the cage is up and running", res.cage);
-    // out: the hub's Exit to title
+    check(res.cage.mode === "trainsb" && !/flat|boxes/i.test(res.cage.note), "B in the cage says nothing about a flat (no career, no build mode)", res.cage);
+    // between scenarios, the hub closed: a line says how to get it back, and Esc with the pointer free brings it back
+    res.idle = await page.evaluate(() => { const e = document.getElementById("trainIdle"), q = e && e.getBoundingClientRect(); return {shown: !!e && !!q && q.width > 0 && q.bottom <= innerHeight, text: e ? e.textContent : ""}; });
+    check(res.idle.shown && /Esc/.test(res.idle.text) && /cone/.test(res.idle.text), "with the hub closed, a line says how to get it back", res.idle);
     await page.evaluate(() => document.exitPointerLock && document.exitPointerLock());
-    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForFunction(() => !document.pointerLockElement, null, {timeout: 10000});
+    await pressReal(page, "Escape");
+    await page.waitForFunction(() => window.__trainHub.hubOpen(), null, {timeout: 10000}).catch(() => {});
+    res.reopen = Object.assign(await hubState(page), {idle: await page.evaluate(() => !!document.getElementById("trainIdle"))});
+    check(res.reopen.open && res.reopen.h2 === "Training" && !res.reopen.idle, "Esc in the cage (the pointer free) opens the hub again", res.reopen);
+    // out: the hub's Exit to title
     await exitByHub(page);
     await page.waitForTimeout(400);
     const after = await careerSnapshot(page);

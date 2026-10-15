@@ -9,10 +9,14 @@
    registerScenario: a later scenario module needs only its line in index.js, never a change here). A category with
    nothing registered yet shows what it is for and no buttons that would do nothing. While the hub is up the 3D view
    is covered (quality.js screenCover: the world skips drawing it, P3-A perf-4), the pointer is free, and any scenario
-   is paused (the mode pauses on the pointer going). Esc or the cross closes it; Exit to title leaves Training. */
+   is paused (the mode pauses on the pointer going). Esc or the cross closes it; Exit to title leaves Training. Back in
+   the cage with nothing playing, Esc with the pointer free (so Esc twice while you look about) opens it again, and a
+   line at the bottom edge says so (thud.js thudIdle). */
 import {screenCover} from "../core/quality.js";
 import {CATEGORIES, categoryOf, scenariosOf, scenario, startScenario, stopScenario, restart, replay, RUN, onRunner} from "./runner.js";
-import {exitTraining} from "./sandbox.js";
+import {exitTraining, inTraining} from "./sandbox.js";
+import {mode} from "../core/modes.js";
+import {thudIdle} from "./thud.js";
 
 const HUB = {open:false, cat:null, key:null};
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
@@ -62,6 +66,7 @@ export function openHub(cat = null){
     addEventListener("keydown", HUB.key, true);
   }
   if (typeof openSheet === "function") openSheet("trainhub");
+  idle();
 }
 // the hub goes (its own buttons, Esc, the cross, the backdrop: main.js closeSheet tells it)
 export function closeHub(){
@@ -74,6 +79,17 @@ function hubClosed(){
   if (HUB.key){ removeEventListener("keydown", HUB.key, true); HUB.key = null; }
   screenCover(false, "trainhub");
   if (window.lifeModalSet) window.lifeModalSet(false);
+  idle();
+}
+// the line on how to get the hub back: only in the cage with nothing playing and the hub closed
+const idle = () => thudIdle(inTraining() && !HUB.open && !RUN.cur);
+// Esc in the cage, the pointer already free and nothing playing: the hub again (a running scenario's Esc is its own,
+// the train mode's, which opens the hub on its way out; the hub's own Esc, which closes it, has already been handled)
+function cageKey(e){
+  if (e.key !== "Escape" || e.repeat || e.defaultPrevented || HUB.open || RUN.cur || !inTraining() || mode() !== "trainsb") return;
+  if (document.pointerLockElement || document.querySelector("#sheetRoot.open")) return;
+  e.preventDefault();
+  openHub();
 }
 export const hubOpen = () => HUB.open;
 export const hubCategory = () => HUB.cat;
@@ -106,9 +122,10 @@ if (typeof window !== "undefined"){
   const root = document.getElementById("sheetRoot");
   if (root) root.addEventListener("click", click);
   // a registration, a start or a stop while it is up: drawn again in place
-  onRunner(redraw);
+  onRunner(() => { redraw(); idle(); });
+  addEventListener("keydown", cageKey);
   // Esc out of a scenario: the hub, on that scenario's category
   addEventListener("train:scenario", e => { const d = e.detail || {}; if (d.reason === "quit") openHub(d.category); });
-  addEventListener("train:exit", () => { if (HUB.open) closeHub(); HUB.cat = null; });
+  addEventListener("train:exit", () => { if (HUB.open) closeHub(); HUB.cat = null; thudIdle(false); });
   window.__trainHub = {openHub, closeHub, hubOpen, hubCategory};
 }

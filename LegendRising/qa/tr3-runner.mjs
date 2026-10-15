@@ -135,8 +135,13 @@ try {
         if (v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1){
           out.onScreen++;
           const x = (v.x + 1)/2*W, y = (1 - v.y)/2*H;
-          const boxes = [document.getElementById("trainHud")].filter(Boolean);
+          // the Training UI's own layers (pointer-events none, so elementFromPoint looks through them): by their boxes
+          const boxes = [document.getElementById("trainHud"), document.getElementById("trainIdle")].filter(Boolean);
           for (const e of boxes){ const q = e.getBoundingClientRect(); if (x >= q.left && x <= q.right && y >= q.top && y <= q.bottom) out.covered.push({f: out.frames, x, y, side: e.className}); }
+          // and any other HTML that would take the eye or the click at the ball's centre (a card, a note, a prompt): the
+          // element there has to be the 3D view's canvas (BUILD-PLAN P3-B acceptance, document.elementFromPoint)
+          const top = document.elementFromPoint(Math.round(x), Math.round(y));
+          if (top && top.tagName !== "CANVAS") out.covered.push({f: out.frames, x, y, over: top.id || top.className || top.tagName});
         }
       }
       // the HUD's footprint: the card and the match HUD's visible boxes (not its full-screen effects layer)
@@ -156,8 +161,8 @@ try {
     window.__qa.realRAF(tick);
   }));
   res.ui = ui;
-  check(/Test two against two/.test(ui.thud || "") && /Attacker/.test(ui.thud) && /2 v 2/.test(ui.thud) && /Keeper on/.test(ui.thud) && /No preset/.test(ui.thud) && /Backspace/.test(ui.thud) && /replay/.test(ui.thud) && /change it/.test(ui.thud),
-    "the Training HUD shows the scenario, role, counts, keeper, preset and the restart, replay and settings hints", ui.thud);
+  check(/Test two against two/.test(ui.thud || "") && /Attacker/.test(ui.thud) && /2 v 2/.test(ui.thud) && /Keeper on/.test(ui.thud) && /No preset/.test(ui.thud) && /Backspace/.test(ui.thud) && /replay/.test(ui.thud) && /pick another/.test(ui.thud),
+    "the Training HUD shows the scenario, role, counts, keeper, preset and the restart and replay hints (no settings hint until a scenario has settings, P4)", ui.thud);
   check(ui.onScreen > 100 && ui.covered.length === 0, "the Training HUD never covers the ball", {onScreen: ui.onScreen, covered: ui.covered.slice(0, 5), flips: ui.flips});
   check(ui.area.every(a => a <= .10), "the Training HUD and the match HUD cover at most 10% of the screen", ui.area.map(a => +a.toFixed(4)));
   check(Object.keys(ui.owners).every(o => o === "match-fp" || o === "match-cine"), "the camera's owner is match-fp throughout", ui.owners);

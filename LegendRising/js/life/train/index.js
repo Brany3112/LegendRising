@@ -9,7 +9,7 @@
    cage.js, P3-A), then the hub. The body pool is built when Training is entered, under its entry fade (train:enter),
    so no body is ever built while you play. qa/unit/trainentry.mjs fails if a module of js/life/train/ is not
    imported here. */
-import {enterTraining as enterSandbox, exitTraining, inTraining, trainLook} from "./sandbox.js";
+import {enterTraining as enterSandbox, exitTraining, inTraining} from "./sandbox.js";
 import "./cage.js";
 import "./runner.js";
 import {poolBuild, KITS} from "./pool.js";
@@ -17,12 +17,16 @@ import {openHub} from "./hub.js";
 import "./cones.js";
 import "./thud.js";
 import {bodyLook} from "../look.js";
+import {sandboxLook, dressOpts} from "../core/me.js";
 
-// your body in a drill: your own look (the held career's, or the default one) in my side's training bib
+// your body in a drill: your own look (the held career's, or the default one) in my side's training bib, dressed as the
+// body you walk the cage in (core/me.js meBuild: the held career's seed from its cid, its age and its number), so it is
+// the same person in a drill, in the cage and in the career (TRAINING-SPEC 7)
 export function meBodyLook(){
-  const L = trainLook();
+  const t = sandboxLook(), L = t.look;
   if (L && L.outfit) return L;
-  try { return bodyLook(L || {}, "training", {kit:KITS.mine, number:9, seed:7}); } catch(e){ console.error(e); return L || {}; }
+  const o = Object.assign({number:9, seed:7}, dressOpts(t.dress), {kit:KITS.mine});
+  try { return bodyLook(L || {}, "training", o); } catch(e){ console.error(e); return L || {}; }
 }
 if (typeof addEventListener === "function") addEventListener("train:enter", () => { try { poolBuild(meBodyLook()); } catch(e){ console.error(e); } });
 

@@ -1754,9 +1754,12 @@ export function callFor(ms, a, how = 'here', point = null){
   // (U10) the man on the ball hears it now: his next look at his options comes at once, not on his own cadence
   const c = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
   // (a kick he has chosen and is still working the ball into his stride for, to somebody else, is thought again, as a
-  // pass whose lane closed is: pendingKick; one already being struck is not)
+  // pass whose lane closed is: pendingKick; one already being struck is not. At most once in CALL_T s for the same
+  // caller: a call is heard, never a veto, so pressing R over and over cannot keep calling off his pass to another man)
   if (c && c !== a && c.team === a.team && c.brain){
-    if (c.pendKick && !c.act && c.pendKick.rq && c.pendKick.rq.recv !== a.id) c.pendKick = null;
+    if (c.pendKick && !c.act && c.pendKick.rq && c.pendKick.rq.recv !== a.id && ms.t - (a.callCut ?? -99) >= BRAIN.CALL_T){
+      c.pendKick = null; a.callCut = ms.t;
+    }
     c.brain.pending = true;
   }
   logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how, px: point ? point.x : null, pz: point ? point.z : null});

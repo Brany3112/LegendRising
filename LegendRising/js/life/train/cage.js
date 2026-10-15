@@ -46,6 +46,13 @@ function buildCage(ctx, opts){
   // after the build: whoever places things by the cage (cones.js) does it now, before the place is warmed and drawn
   try { window.dispatchEvent(new CustomEvent("train:cage", {detail:{kind}})); } catch(e){ console.error(e); }
   const sp = cageSpawn(kind);
+  // the warm-up (world.js enterZone warms from opts.cam after the build): from high over the +Z side, the whole cage in
+  // view, so every mesh of it is on the GPU before the reveal whichever way you then turn (you come in facing the
+  // cones, with the goals off to the sides)
+  if (opts && !opts.cam){
+    const cx = (B.x0 + B.x1)/2, cz = (B.z0 + B.z1)/2, far = Math.max(B.x1 - B.x0, B.z1 - B.z0);
+    opts.cam = {pos:[cx, 0.35*far, B.z1 + 0.6*far], look:[cx, 0, cz]};
+  }
   return {bus:sp, centre:{x:spec.frame.cx, y:0, z:spec.frame.cz, yaw:0}};
 }
 

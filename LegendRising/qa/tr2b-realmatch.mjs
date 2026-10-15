@@ -75,7 +75,7 @@ try {
         // (why you are off the pitch, once: sent off, hurt, or taken off; logged for the record)
         const a = ms && ms.agents[ms.me], n = document.getElementById("lifeNote");
         const why = a ? {sentOff: !!a.sentOff, injured: !!a.injured, onPitch: !!a.onPitch,
-          ev: ms.events.filter(e => e.agent === a.id && /card|foul|injur|sub|off/.test(e.kind)).slice(-4).map(e => ({kind: e.kind, min: e.min, card: e.card, why: e.why}))} : null;
+          ev: ms.events.filter(e => e.agent === a.id && /card|foul|injur|sub|off|tackle/.test(e.kind)).slice(-6).map(e => ({kind: e.kind, min: e.min, card: e.card, why: e.why, sev: e.severity, res: e.result, type: e.type, geo: e.geo, timing: e.timing, d0: e.d0}))} : null;
         return {st: F.state, mode, half: ms ? ms.half : null, why, note: n ? n.textContent : ""};
       }
       const me = F.me();
@@ -89,10 +89,21 @@ try {
       const C = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
       o.od = od; o.cd = C && C.team !== me.team ? Math.hypot(C.m.x - me.m.x, C.m.z - me.m.z) : null; o.spd = me.m.speed; o.booked = !!me.booked;
       o.sh = !!(me.shield && me.shield.on) || !!me.intent.shield; o.shOn = !!(me.shield && me.shield.on); o.myAct = me.act ? me.act.kind : null;
-      if (C && C.team !== me.team){ o.cx = C.m.x; o.cz = C.m.z; }
+      if (C && C.team !== me.team){
+        o.cx = C.m.x; o.cz = C.m.z;
+        // in front of him or behind him (his facing): a tackle from behind is the reckless one a referee books, so the
+        // bot gets goal-side first, as a defender does, and tackles from in front
+        const fx = -Math.sin(C.m.yaw || 0), fz = -Math.cos(C.m.yaw || 0), ax = me.m.x - C.m.x, az = me.m.z - C.m.z, al = Math.hypot(ax, az) || 1;
+        o.front = (ax*fx + az*fz)/al > -0.1;
+      }
       if (myRestart){ P.yaw = Math.atan2(-(gx - b.x), -(-b.z)); P.pitch = -.25; o.act = "restart"; }
       else if (mine && od < 2.2 && dg >= 25){ P.yaw = Math.atan2(-(gx - P.x), -(0 - P.z)); P.pitch = -.2; o.act = "shield"; }
-      else if (o.cd != null && o.cd < 6){ P.yaw = Math.atan2(-(C.m.x - P.x), -(C.m.z - P.z)); P.pitch = -.3; o.act = "press"; }
+      else if (o.cd != null && o.cd < 6){
+        // behind him: run for the spot between him and our goal; in front: straight at him
+        let tx = C.m.x, tz = C.m.z;
+        if (!o.front){ const og = -ms.dirs[me.team]*ms.spec.hx, gx2 = og - C.m.x, gz2 = -C.m.z, gl = Math.hypot(gx2, gz2) || 1; tx = C.m.x + gx2/gl*2.2; tz = C.m.z + gz2/gl*2.2; }
+        P.yaw = Math.atan2(-(tx - P.x), -(tz - P.z)); P.pitch = -.3; o.act = "press";
+      }
       else if (mine && dg < 25){ P.yaw = Math.atan2(-(gx - P.x), -(0 - P.z)); P.pitch = -.05; o.act = "shoot"; }
       else if (mine){ P.yaw = Math.atan2(-(gx - P.x)*.7, -(-P.z)); P.pitch = -.2; o.act = "pass"; }
       else { P.yaw = Math.atan2(-(b.x - P.x), -(b.z - P.z)); o.act = "chase"; o.d = d; }
@@ -138,14 +149,16 @@ try {
         // (sprint in: every other closing run is a slide, so he stays at a run until the slide's range)
         // (and every run once a few standing tackles have been made with no slide yet, so a match always gets its try)
         const slideRun = slideTry % 2 === 0 || (use.slideAct === 0 && use.tacklePress >= 4);
-        await key("w", r.cd > .9); await key("Shift", r.cd > (slideRun ? 1.7 : 3));
+        await key("w", r.cd > .9 || !r.front); await key("Shift", !r.front || r.cd > (slideRun ? 1.7 : 3));
         pressN++;
         // close enough: a standing tackle with the left button; at a run from a little further, a slide (F) now and
         // then (at most one each 4 s of match, so the match still has its standing tackles)
         // (once booked, he eases off the standing tackles as a player would, so a second yellow does not end his match
         // before a slide has had its chance; the slide is still tried until one is made)
-        if (r.cd < 1.5 && !r.myAct && pressN % 3 === 0 && !r.booked){ await page.mouse.down({button: "left"}); await page.mouse.up({button: "left"}); use.tacklePress++; slideTry++; }
-        else if (slideRun && !(r.booked && use.slideAct > 0) && r.cd < 3.0 && r.cd > 1.8 && r.spd > 4.5 && !r.myAct && r.t - lastSlide > 4){ await page.keyboard.press("f"); use.slidePress++; lastSlide = r.t; slideTry++; }
+        // (from in front only; a match with no standing tackle yet by the half-hour tries one wherever he is)
+        const fair = r.front || (use.tackleAct === 0 && r.min >= 30);
+        if (r.cd < 1.5 && !r.myAct && pressN % 3 === 0 && !r.booked && fair){ await page.mouse.down({button: "left"}); await page.mouse.up({button: "left"}); use.tacklePress++; slideTry++; }
+        else if (slideRun && !(r.booked && use.slideAct > 0) && (r.front || (use.slideAct === 0 && r.min >= 30)) && r.cd < 3.0 && r.cd > 1.8 && r.spd > 4.5 && !r.myAct && r.t - lastSlide > 4){ await page.keyboard.press("f"); use.slidePress++; lastSlide = r.t; slideTry++; }
       } else if (r.act === "restart"){
         await key("w", false); if (lmb){ await page.mouse.up({button: "left"}); lmb = 0; kicks++; }
         if (++restartN > 4){ await page.mouse.down({button: "right"}); await page.mouse.up({button: "right"}); restartN = 0; kicks++; }

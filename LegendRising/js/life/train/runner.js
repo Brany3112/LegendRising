@@ -20,13 +20,13 @@
    (train:exit, fired by sandbox.js) stops whatever runs. Nothing here touches the career. */
 import {onBegin} from "../build.js";
 import {P, FLAGS} from "../core/state.js";
-import {enterMode, exitMode, mode, modeArg} from "../core/modes.js";
+import {enterMode, exitMode, mode, modeArg, flagsOf} from "../core/modes.js";
 import {SCHED} from "../core/sched.js";
 import {createMatch, REF, AR1, AR2, TEMPO} from "../football/sim.js";
 import {MODES} from "../football/rules.js";
 import {refreshPred} from "../football/actions.js";
 import {attrsForAI, attrsForPlayer} from "../football/attrs.js";
-import {goalsLaw} from "../football/trainspec.js";
+import {goalsLawOf as goalsLaw} from "../football/cagespec.js";
 import {controlReset} from "../football/control.js";
 import {viewInit, viewDispose} from "../football/view.js";
 import {RUN as TRUN, fixedRun, viewOpts} from "../football/training.js";
@@ -260,8 +260,11 @@ export function stopScenario(reason = "quit"){
   returnBodies();
   RUN.last = {id:run.id, config:run.config, setup:RUN.setup};
   THUD.thudHide();
-  // back to the mode you walked about in (the sandbox's), unless the place itself is changing or Training is over
-  if (reason !== "ended" && reason !== "exit" && run.prev && run.prev !== "life" && mode() === "life") enterMode(run.prev, run.prevArg);
+  // back to the mode you walked about in (the sandbox's) unless Training is over. On a change of place ('ended') only
+  // a mode that stays on through a zone change goes back on (the sandbox's does: a pitch change keeps you in
+  // Training); a mode the change of place would end anyway stays off
+  const pf = run.prev && run.prev !== "life" ? flagsOf(run.prev) : null;
+  if (reason !== "exit" && pf && (reason !== "ended" || pf.leaveOnZone === false) && mode() === "life") enterMode(run.prev, run.prevArg);
   emit();
   // (the hub hears it: Esc out of a scenario opens it on that scenario's category)
   if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent("train:scenario", {detail:{state:"stopped", reason, id:run.id, category:run.sc.category}}));

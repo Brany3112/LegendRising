@@ -7,7 +7,8 @@
    there is a keeper, the preset it came from ("No preset" until presets exist), the keys for starting again and for
    the hub (where Replay and the settings are), and a short line when a go is decided. A hint is shown only for
    something that exists. Each frame it checks where the ball is on screen: if the ball would be under the card, the
-   card moves to the other side. The match HUD (fphud.js) is the one under it; the two together stay under a tenth of
+   card moves to the other side. Between scenarios, with the hub closed, one line at the bottom edge says how to get
+   the hub back and that the cones start things (thudIdle). The match HUD (fphud.js) is the one under it; the two together stay under a tenth of
    a 1280 x 720 screen. */
 import {THREE} from "../build.js";
 import {RT} from "../core/state.js";
@@ -32,7 +33,7 @@ export function thudShow(info){
     <span class="thud-row">${esc(info.role)} · ${side(info.mine)} v ${side(info.theirs)} · ${info.keeper ? "Keeper on" : "No keeper"}</span>
     <span class="thud-row thud-preset">${esc(info.preset || "No preset")}</span>
     ${(info.lines || []).map(l => `<span class="thud-row">${esc(l)}</span>`).join("")}
-    <span class="thud-keys"><kbd>Backspace</kbd> start again · <kbd>Esc</kbd> twice for the hub, to replay it or change it</span>
+    <span class="thud-keys"><kbd>Backspace</kbd> start again · <kbd>Esc</kbd> twice for the hub, to replay it or pick another</span>
     <span class="thud-note" hidden></span>`;
   d.hidden = false;
   TH.noteT = 0;
@@ -67,3 +68,15 @@ export function thudFrame(T){
   }
 }
 export const thudSide = () => TH.side;
+
+// in the cage with nothing playing and the hub closed (hub.js says when): one small line on how to get the hub back
+// (where Exit to title is) and how to start something from the pitch. Gone as soon as a scenario or the hub is up
+let IDLE = null;
+export function thudIdle(on){
+  if (!on){ if (IDLE){ IDLE.remove(); IDLE = null; } return; }
+  if (IDLE && IDLE.isConnected) return;
+  const d = IDLE = document.createElement("div");
+  d.id = "trainIdle"; d.className = "thud-idle";
+  d.innerHTML = `<kbd>Esc</kbd> twice for the Training hub, where you can also leave · or walk up to a cone and press <kbd>E</kbd>`;
+  (document.getElementById("lifeRoot") || document.body).appendChild(d);
+}

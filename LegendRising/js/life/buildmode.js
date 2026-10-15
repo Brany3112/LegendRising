@@ -28,6 +28,8 @@ const boxes = () => { const c = INV.carry(); return [["hand", c.hand], [0, c.slo
 export function buildEnter(){
   const P = H.P;
   if (BM.on) return;
+  // (no career in memory, as in Training: there is no flat and nothing to build, so B does nothing and says nothing)
+  if (!G()) return;
   if (!inOwnFlat(P)){ H.note("Build mode works in your own flat. Bring the boxes home and press B there."); return; }
   BM.on = true; sel = null; ry = 0; hover = null;
   const F = flatOf();

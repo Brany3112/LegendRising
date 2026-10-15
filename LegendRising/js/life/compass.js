@@ -70,7 +70,7 @@ export function compassReset(){
 }
 // what to show, here and now: looked at again twice a second (your job can change; so can the objective)
 function wanted(){
-  const zone = H.zone(), job = typeof jobState === "function" ? jobState().id : null, jw = job && typeof JOB_WHERE === "object" ? JOB_WHERE[job] : null;
+  const zone = H.zone(), job = typeof jobState === "function" && typeof S === "object" && S ? jobState().id : null, jw = job && typeof JOB_WHERE === "object" ? JOB_WHERE[job] : null;
   const away = jw && jw.zone !== zone, out = [], keys = new Set();
   const add = q => { if (keys.has(q.key)) return; keys.add(q.key); out.push(q); };
   for (const p of W.places){

@@ -33,3 +33,10 @@
 #trainHud .thud-note{font-weight:700;margin-top:2px}
 #trainHud .thud-note.good{color:#9be8b3}
 #trainHud .thud-note.bad{color:#ffd27a}
+
+/* between scenarios in the cage (thud.js thudIdle): one line at the bottom edge on how to get the hub back */
+#trainIdle{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));z-index:30;
+  max-width:calc(100vw - 32px);padding:6px 12px;border-radius:10px;background:rgba(8,13,22,.55);border:1px solid rgba(255,255,255,.12);
+  color:rgba(231,238,247,.85);font:500 .72rem/1.35 var(--body);text-align:center;pointer-events:none;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#trainIdle kbd{font:600 .62rem/1 var(--body);padding:1px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08)}
