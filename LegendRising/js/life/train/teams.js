@@ -96,8 +96,10 @@ function resolve(type, config, seed, specIn){
   if (possWho === "me") holder = {p:me, side:mySide};
   else if (possWho === "mates") holder = mates.length ? {p:mates[0], side:mySide} : {p:me, side:mySide};
   else if (possWho === "opps") holder = opps.length ? {p:opps[0], side:theirSide} : null;
-  if (possWho === "mates" && !mates.length){ possWho = "me"; notes.push("No team-mates are on, so you start with the ball."); }
-  if (possWho === "opps" && !opps.length){ possWho = "loose"; notes.push("No opponents are on, so the ball starts loose."); }
+  // (validate() has already kept the holder to someone on the pitch; a defender's only team-mates being the wall, who line up
+  // on the ball, is the one case left: you start with it then)
+  if (possWho === "mates" && !mates.length) possWho = "me";
+  if (possWho === "opps" && !opps.length) possWho = "loose";
   let ball;
   if (c.ball.at) ball = {x:c.ball.at.x, y:c.ball.at.y, z:c.ball.at.z};
   else if (holder) ball = {x:holder.p.x + 0.55*attackDir(holder.side), y:R, z:holder.p.z};
@@ -128,12 +130,12 @@ function resolve(type, config, seed, specIn){
     const B = RULES.OFF.body, eps = RULES.OFF.eps;
     const defs = [...(meAtt ? [] : [me]), ...npcs.def, ...(keeper ? [keeper] : [])].map(p => p.x + B).sort((a, b) => b - a);
     const half = spec.area && Number.isFinite(spec.area.x0) ? -(spec.area.x0 + spec.area.x1)/2 : 0;
-    const line = Math.max(defs.length >= 2 ? defs[1] : defs.length ? defs[0] : half + B, ball.x);
+    const line = Math.max(defs.length >= 2 ? defs[1] : defs.length ? defs[0] : half, ball.x);
     for (const p of [...(meAtt ? [me] : []), ...npcs.att]){
       if (p.x + B > line + eps && p.x + B > half + 0.06){
         p.x = r4(Math.max(line - B - 0.02, half - B));
-        notes.push(p.who === "me" ? "You started offside, so you've been moved back level with the last defender."
-          : `Your ${meAtt ? "team-mate" : "opponent"} at ${p.slot} started offside, so he's been moved back level with the last defender.`);
+        notes.push(p.who === "me" ? "You started offside, so you've been moved back onto the line."
+          : `The ${meAtt ? "team-mate" : "opponent"} at ${p.slot} started offside, so he's been moved back onto the line.`);
       }
     }
   }
@@ -179,7 +181,7 @@ function setupOf(r){
   return {myTeam:r.myTeam, role:ROLE_NAMES[r.c.role] || "Player", seed:r.sd, laws:r.laws,
     me:spot(r.me), mates:r.mates.map(spot), opps:r.opps.map(spot),
     keeper:r.keeper ? Object.assign(spot(r.keeper), {side:r.myTeam === 1 ? "mine" : "theirs"}) : null,
-    ball:{x:r.ball.x, y:r.ball.y, z:r.ball.z, vx:r.v.x, vy:r.v.y, vz:r.v.z, wx:r.w.x, wy:r.w.y, wz:r.w.z, free:!!r.c.ball.launch},
+    ball:{x:r.ball.x, y:r.ball.y, z:r.ball.z, vx:r.v.x, vy:r.v.y, vz:r.v.z, wx:r.w.x, wy:r.w.y, wz:r.w.z, free:true},
     poss:r.poss, config:r.c};
 }
 // a scenario's build(config, env) as the runner calls it: the setup on the cage's own pitch (env.spec)
@@ -236,7 +238,7 @@ export function cfgFromConfig(type, config, seed = 1, spec = null){
     rules:Object.assign({offside:false, restarts:false, cards:false, subs:0, halfTime:false, stoppage:false}, r.laws),
     kickoffTeam:r.poss.team >= 0 ? r.poss.team : r.myTeam, htAuto:true};
   const ballInit = {p:{x:r.ball.x, y:r.ball.y, z:r.ball.z}, v:r.v, w:r.w, kind:r.c.ball.launch ? r.c.ball.launch.kind : null,
-    apex:r.solve ? r.solve.apex : null, ok:r.solve ? r.solve.ok : true};
+    apex:r.solve ? r.solve.apex : null, tFlight:r.solve ? r.solve.tFlight : null, ok:r.solve ? r.solve.ok : true};
   return {cfg, ballInit, setup:setupOf(r), poss:r.poss, notes:r.notes};
 }
 

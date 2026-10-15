@@ -1,6 +1,7 @@
 /* ============ Training Mode ============
-   Owner: P3-B (TR-3, Training Mode Phase 3). Contract: BUILD-PLAN P3-B work items 2 and 7; TRAINING-SPEC 4 (a simple
-   hub, a small Training HUD that never covers the ball). */
+   Owner: P3-B (TR-3, Training Mode Phase 3); P4-A from Phase 4. Contract: BUILD-PLAN P3-B work items 2 and 7, P4-A work
+   items 2 and 3; TRAINING-SPEC 4 (a simple hub, a small Training HUD that never covers the ball, the configuration
+   sheet and the attribute editor). */
 
 /* ---------- the hub (a sheet: js/life/train/hub.js) ---------- */
 .th h2{margin-bottom:.15em}
@@ -42,3 +43,40 @@
   color:rgba(231,238,247,.85);font:500 .72rem/1.35 var(--body);text-align:center;pointer-events:none;
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 #trainIdle kbd{font:600 .62rem/1 var(--body);padding:1px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08)}
+
+/* ---------- the configuration sheet and the attribute editor (P4-A: js/life/train/configui.js, attredit.js) ----------
+   A layer of its own above the world and the black cover, laid out like the title's sheets */
+#trainCfg{position:fixed;inset:0;z-index:95;pointer-events:auto}
+#trainCfg .sheet-back{opacity:1}
+#trainCfg .sheet{transform:translate(-50%,0);max-height:90vh}
+.tcfg h2{margin-bottom:.15em}
+.tcfg-preview{margin:10px 0 4px;padding:8px 12px;border-radius:12px;background:rgba(63,191,106,.12);border:1px solid rgba(63,191,106,.35)}
+.tcfg-notes p{margin:4px 0;color:#ffd27a}
+.tcfg-rows{display:grid;gap:10px;margin:12px 0}
+.tcfg-row{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:12px;align-items:start;padding:10px 12px;border-radius:12px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.tcfg-label{display:grid;gap:2px}
+.tcfg-ctl{display:grid;gap:8px;min-width:0}
+.tcfg-ctl .seg button{font-size:.88rem}
+.tcfg-nums{display:flex;flex-wrap:wrap;gap:8px}
+.tcfg-num{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:500}
+.tcfg-num input{width:5.2em;padding:.4em .55em;border-radius:9px;text-align:right}
+.tcfg-poslist{display:grid;gap:6px}
+.tcfg-pos{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.tcfg-pos > b{min-width:7.5em}
+.tcfg-pos select{width:auto;min-width:6.5em;padding:.4em .55em;border-radius:9px}
+.ae-sec{margin:14px 0;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.ae-sec h4{margin:0 0 8px}
+.ae-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.ae-rows{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:4px 16px}
+.ae-row{display:grid;grid-template-columns:minmax(8em,1fr) 3.6em 60px auto auto;gap:8px;align-items:center;padding:3px 0}
+.ae-name{margin:0;font-weight:600;color:#c9d6e3}
+.ae-in{width:3.6em;padding:.35em .45em;border-radius:8px;text-align:right}
+.ae-meter{display:block;height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.ae-meter i{display:block;height:100%;background:var(--lime)}
+.ae-reset.btn.sm{font-size:.78rem;padding:.3em .6em}
+.ae-derived{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;align-items:baseline}
+.ae-d b{font-variant-numeric:tabular-nums}
+.ae-var{margin:6px 0 0}
+.tcfg-foot .btn{min-width:8em}
+@media (max-width:600px){.tcfg-row{grid-template-columns:1fr}.ae-row{grid-template-columns:1fr 3.6em auto auto}.ae-meter{display:none}.ae-rows{grid-template-columns:1fr}}

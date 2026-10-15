@@ -200,6 +200,12 @@ export function keeperOf(at){
 export const EDIT_SKILLS = Object.freeze(["power", "aero", "curve", "accuracy", "passing", "passacc", "acceleration", "sprintSpeed",
   "dribbling", "stamina", "composure", "tackling", "interception", "jumping", "heading"]);
 export const GK_KEYS = Object.freeze(["reflex", "dive", "handling", "posit", "distrib"]);
+// gk.distrib reaches the keeper's distribution only once P9-B wires it (ATTR-1: today it changes nothing). Until then
+// the attribute editor leaves it out, since a setting that changes nothing would be a decorative one. P9-B's hook
+// request flips this
+export const GK_DISTRIB_LIVE = false;
+// the keeper's attributes the editor shows
+export const gkEditKeys = () => GK_DISTRIB_LIVE ? GK_KEYS : GK_KEYS.filter(k => k !== "distrib");
 export const ATTR_MIN = 1, ATTR_MAX = 99;
 export const ATTR_PRESETS = Object.freeze({low: 35, average: 55, high: 75, max: 99});
 // the derived values the editor shows read-only (derive() works them out)
