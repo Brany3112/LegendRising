@@ -21,6 +21,7 @@ import {validate, relevant, allowed, participants, counts, countLine, labelOf, t
 import {editorHTML, editorClick, editorInput, editorSync} from "./attredit.js";
 import {setupFromConfig} from "./teams.js";
 import {cagePitch} from "../football/cagespec.js";
+import {openPresets} from "./presetui.js";
 
 const CF = {open:false, type:null, title:"", cfg:null, notes:[], onStart:null, onBack:null, startLabel:"Start", root:null, key:null};
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
@@ -104,7 +105,8 @@ function bodyHTML(){
     ${previewHTML(c)}${notesHTML()}
     <div class="tcfg-rows">${rows}</div>
     ${editorHTML(CF.type, c, keys.filter(k => ATTR_KEYS.includes(k)))}
-    <div class="th-foot tcfg-foot"><button type="button" class="btn ghost" data-cf="back">Back to hub</button><span class="grow"></span>
+    <div class="th-foot tcfg-foot"><button type="button" class="btn ghost" data-cf="back">Back to hub</button>
+      <button type="button" class="btn ghost" data-cf="presets">Presets</button><span class="grow"></span>
       <button type="button" class="btn" data-cf="start">${esc(CF.startLabel)}</button></div>`;
 }
 
@@ -195,6 +197,7 @@ function click(e){
   if (what === "set"){ choose(b.dataset.k, dec(b.dataset.v)); draw(); }
   else if (what === "back") back();
   else if (what === "start") start();
+  else if (what === "presets") presets();
 }
 // a field left (or a slot picked)
 function change(e){
@@ -265,6 +268,16 @@ function start(){
   const fn = CF.onStart, cfg = validate(CF.type, CF.cfg);
   closeConfig(true);
   if (fn) try { fn(cfg); } catch(err){ console.error(err); }
+}
+// (integrator, P4-B hook) the presets of this type over the sheet, with the setup as it is now: Load brings the sheet
+// back with the preset's configuration (Start then plays it, and the runner names it after the preset while it is
+// unchanged); Done, Esc or the cross bring the sheet back as it was. Start and Back keep doing what they did
+function presets(){
+  const o = {type:CF.type, title:CF.title, onStart:CF.onStart, onBack:CF.onBack, startLabel:CF.startLabel};
+  const cfg = validate(CF.type, CF.cfg);
+  closeConfig(false);
+  const again = c => openConfig(Object.assign({}, o, {config:c}));
+  if (!openPresets({type:o.type, typeName:typeOf(o.type).name, config:cfg, onLoad:c => again(c), onClose:() => again(cfg)})) again(cfg);
 }
 export const configOpen = () => CF.open;
 export const configNow = () => CF.open ? copy(CF.cfg) : null;

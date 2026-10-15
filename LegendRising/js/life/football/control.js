@@ -203,6 +203,9 @@ export function controlReset(){
   CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
   CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null;
   CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
+  // (P4-B) the look's history per step and the aim points start again from where you look now (a reset is a cut)
+  CTRL.gi = 0; CTRL.hy.fill(P.yaw); CTRL.hp.fill(P.pitch);
+  CTRL.aim.x = CTRL.aim.y = CTRL.aim.z = 0; CTRL.aim.ok = false; CTRL.ground.x = CTRL.ground.z = 0; CTRL.ret.x = CTRL.ret.y = CTRL.ret.z = 0; CTRL.ret.ok = false;
 }
 const use = k => { CTRL.uses[k] = (CTRL.uses[k] || 0) + 1; };
 // the window lost the keyboard (Alt+Tab, a click outside): the key-ups never come, so everything held is let go here.

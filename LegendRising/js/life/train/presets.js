@@ -27,12 +27,11 @@
    load(id)                      -> {id, type, name, config} with the config validated afresh, or null
    get(id)                       -> the stored record (a copy) with its type, or null
    Storage and the clock can be swapped for tests (useStorage, useClock); nothing here touches the DOM. */
-import {validate} from "./config.js";
+import {validate, counts, PITCH_NAMES} from "./config.js";
 
 export const KEY = "freyaFootball.trainPresets";
 export const STORE_V = 1;
 export const LIMITS = Object.freeze({perType:60, bytes:300000, name:40});
-const PITCH_NAMES = Object.freeze({full:"Full", half:"Half", onegoal:"One goal"});
 const TYPE_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
 const ENV = {storage:null, now:() => Date.now(), seq:0};
@@ -112,10 +111,9 @@ function newId(st){
 // team-mates off my side is me alone, with opponents off the other side is empty, G0 h)
 export function summary(type, config){
   const c = isObj(config) ? config : {};
-  const meDef = c.role === "defender";
-  let att = Math.max(0, c.attackers | 0), def = Math.max(0, (c.defenders | 0) + (c.wall | 0));
-  if (c.mates === false){ if (meDef) def = Math.min(def, 1); else att = Math.min(att, 1); }
-  if (c.opps === false){ if (meDef) att = 0; else def = c.wall | 0; }
+  // (integrator) the counts are config.js counts(), the same ones the configuration sheet's preview and the runner use
+  let att = 0, def = 0;
+  try { const n = counts(type, c); att = n.att; def = n.def; } catch(e){}
   return {type, counts:`${att}v${def}`, att, def, keeper:!!c.keeper, pitch:c.pitch || null, pitchName:PITCH_NAMES[c.pitch] || ""};
 }
 const view = (type, r) => Object.assign({id:r.id, name:r.name, created:r.created, updated:r.updated}, summary(type, r.config));

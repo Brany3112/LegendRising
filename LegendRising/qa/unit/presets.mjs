@@ -134,14 +134,15 @@ const val = (t, c) => CFG.validate(t, c);
 {
   fresh();
   const mk = (o, name) => P.save(T1, name, val(T1, Object.assign(CFG.defaults(T1), o)));
-  mk({attackers: 3, defenders: 2, keeper: true, pitch: "half"}, "Three v two");
-  mk({attackers: 1, defenders: 3, keeper: false, pitch: "full"}, "One v three");
-  mk({attackers: 6, defenders: 6, keeper: true, pitch: "onegoal"}, "Six a side");
+  // (team-mates and opponents on, so the counts are the ones set; config.js counts() is what the list must agree with)
+  mk({attackers: 3, defenders: 2, keeper: true, pitch: "half", mates: true, opps: true}, "Three v two");
+  mk({attackers: 2, defenders: 3, keeper: false, pitch: "full", mates: true, opps: true}, "Two v three");
+  mk({attackers: 6, defenders: 6, keeper: true, pitch: "onegoal", mates: true, opps: true}, "Six a side");
   const l = P.list(T1);
-  check(l.map(x => x.name).join("|") === "Six a side|One v three|Three v two", "the list is newest first", l.map(x => x.name));
-  const want = {"Three v two": ["3v2", true, "half", "Half"], "One v three": ["1v3", false, "full", "Full"], "Six a side": ["6v6", true, "onegoal", "One goal"]};
+  check(l.map(x => x.name).join("|") === "Six a side|Two v three|Three v two", "the list is newest first", l.map(x => x.name));
+  const want = {"Three v two": ["3v2", true, "half", "Half"], "Two v three": ["2v3", false, "full", "Full"], "Six a side": ["6v6", true, "onegoal", "One goal"]};
   const ok = l.every(r => { const w = want[r.name]; const c = P.load(r.id).config; return w && r.type === T1 && r.counts === w[0] && r.keeper === w[1] && r.pitch === w[2] && r.pitchName === w[3]
-    && r.keeper === c.keeper && r.pitch === c.pitch && r.counts === `${c.attackers}v${c.defenders + (c.wall | 0)}` && Number.isFinite(r.updated) && Number.isFinite(r.created); });
+    && r.keeper === c.keeper && r.pitch === c.pitch && r.counts === `${CFG.counts(T1, c).att}v${CFG.counts(T1, c).def}` && Number.isFinite(r.updated) && Number.isFinite(r.created); });
   check(ok && l.every(r => ["id", "name", "type", "counts", "keeper", "pitch", "pitchName", "updated"].every(k => k in r)), "each row has the name, type, counts (3v2), keeper, pitch and updated time, matching the stored configuration", l);
   // team-mates off: my side is me alone; opponents off: nobody on the other side (G0 h)
   const s = P.summary(T1, val(T1, Object.assign(CFG.defaults(T1), {role: "attacker", attackers: 4, defenders: 3, mates: false, opps: false})));

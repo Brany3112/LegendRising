@@ -24,6 +24,7 @@ import {mode} from "../core/modes.js";
 import {thudIdle} from "./thud.js";
 import {typeOf, validate, defaults} from "./config.js";
 import {openConfig, configOpen} from "./configui.js";
+import {openPresets} from "./presetui.js";
 
 const HUB = {open:false, cat:null, key:null, release:true, cfg:new Map()};
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
@@ -48,6 +49,7 @@ function html(){
     const playing = cur && cur.id === s.id, other = cur && !playing;
     const btns = [];
     if ((configurable(s) || s.configure) && !other) btns.push(`<button class="btn sm ghost" data-th="config" data-id="${s.id}">Configure</button>`);
+    if (configurable(s) && !cur) btns.push(`<button class="btn sm ghost" data-th="presets" data-id="${s.id}">Presets</button>`);
     if (playing) btns.push(`<button class="btn sm" data-th="restart" data-id="${s.id}">Start again</button>`, `<button class="btn sm ghost" data-th="end">End it</button>`);
     else if (!other){
       btns.push(`<button class="btn sm" data-th="start" data-id="${s.id}">Start</button>`);
@@ -138,6 +140,17 @@ export function configureScenario(id, config = null){
   return true;
 }
 
+// (integrator, P4-B hook) a scenario's presets in the hub's place: Load starts it with the preset (kept as its
+// configuration for this visit, and named on the Training HUD); Done brings the hub back on its category
+function presets(id){
+  const sc = scenario(id); if (!sc || !configurable(sc) || RUN.cur) return false;
+  return openPresets({type:sc.type, typeName:sc.name, scenarioId:sc.id, config:scenarioConfig(id),
+    onLoad:(config, preset) => {
+      setScenarioConfig(id, config);
+      if (window.lifeModalSet) window.lifeModalSet(false);
+      if (!startScenario(id, scenarioConfig(id), {preset})) openHub(sc.category);
+    }});
+}
 // a scenario from the hub: the hub goes, then it starts with its configuration
 function start(id){
   const sc = scenario(id); if (!sc) return;
@@ -155,6 +168,7 @@ function click(e){
   else if (what === "replay"){ closeHub(); if (!replay()) openHub(HUB.cat); }
   else if (what === "end"){ stopScenario("quit"); }
   else if (what === "config") configureScenario(id);
+  else if (what === "presets") presets(id);
   else if (what === "exit"){ closeHub(); exitTraining(); }
 }
 
@@ -168,6 +182,12 @@ if (typeof window !== "undefined"){
   addEventListener("keydown", cageKey);
   // Esc out of a scenario: the hub, on that scenario's category
   addEventListener("train:scenario", e => { const d = e.detail || {}; if (d.reason === "quit") openHub(d.category); });
+  // the pause card's Return to Configuration (quick.js): the configuration sheet with the configuration that was playing
+  addEventListener("train:configure", e => {
+    const d = e.detail || {};
+    if (e.defaultPrevented || !d.id || !configurable(scenario(d.id))) return;
+    if (configureScenario(d.id, d.config)) e.preventDefault();
+  });
   addEventListener("train:exit", () => { if (HUB.open) closeHub(); HUB.cat = null; HUB.cfg.clear(); thudIdle(false); });
   window.__trainHub = {openHub, closeHub, hubOpen, hubCategory, configureScenario, scenarioConfig, setScenarioConfig};
 }

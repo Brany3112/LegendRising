@@ -80,3 +80,9 @@
 .ae-var{margin:6px 0 0}
 .tcfg-foot .btn{min-width:8em}
 @media (max-width:600px){.tcfg-row{grid-template-columns:1fr}.ae-row{grid-template-columns:1fr 3.6em auto auto}.ae-meter{display:none}.ae-rows{grid-template-columns:1fr}}
+/* the presets sheet (presetui.js) and the pause card's match group (quick.js), P4-B */
+.tp .th-btns input.tp-in{width:auto;flex:1 1 12em;min-width:10em;padding:.45em .7em}
+.tp .tp-msg{min-height:1.2em;margin:4px 0}
+.tp .tp-meta{display:block}
+.fp-qgroup{margin-top:14px}
+.fp-qgroup .eyebrow{font-size:.72rem;margin-bottom:0}

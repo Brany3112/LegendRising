@@ -13,6 +13,7 @@
 //   node qa/run.mjs tr2                every TR-2 acceptance suite (BUILD-PLAN Phase 2)
 //   node qa/run.mjs tr2b               every TR-2b acceptance suite (BUILD-PLAN Phase 2b)
 //   node qa/run.mjs tr3                every TR-3 acceptance suite (BUILD-PLAN Phase 3)
+//   node qa/run.mjs tr4                every TR-4 acceptance suite (BUILD-PLAN Phase 4; tr4a and tr4b per package)
 //   node qa/run.mjs uf                 every user-fix suite merged with TR-3 (UF-A and UF-B)
 //   node qa/run.mjs parity wp0a-cam    any qa/<name>.mjs (arguments after "--" go to every script)
 //
@@ -40,6 +41,10 @@ const NAMED = {
   // Phase 2b (TR-2b): P2b-A's engine suites, P2b-B's input, animation and AI suites, the integrator's real-input match
   tr2b: ["tr2b-race", "tr2b-receive", "tr2b-tackle", "tr2b-shieldsim", "tr2b-shield", "tr2b-anim", "tr2b-ai", "tr2b-realmatch"],
   tr3: ["tr3-sandbox", "tr3-cage", "tr3-leak", "tr3-hub", "tr3-cones", "tr3-runner"],
+  // Phase 4 (TR-4): P4-A's configuration and attribute suites, P4-B's reset, pitch and presets suites
+  tr4: ["tr4-config", "tr4-attrs", "tr4-attredit", "tr4-reset", "tr4-pitch", "tr4-presets"],
+  tr4a: ["tr4-config", "tr4-attrs", "tr4-attredit"],
+  tr4b: ["tr4-reset", "tr4-pitch", "tr4-presets"],
   uf: ["uf-turn", "uf-throwin", "uf-anim", "uf-sub", "uf-fence", "uf-bench", "uf-aura", "uf-callpass", "uf-kits"]
 };
 // a suite name to the scripts it runs: [{file, args}]

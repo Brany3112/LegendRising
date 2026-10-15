@@ -16,6 +16,13 @@ import {poolBuild, KITS} from "./pool.js";
 import {openHub} from "./hub.js";
 import "./cones.js";
 import "./thud.js";
+import "./config.js";
+import "./configui.js";
+import "./attredit.js";
+import "./teams.js";
+import "./presets.js";
+import "./presetui.js";
+import "./quick.js";
 import {bodyLook} from "../look.js";
 import {sandboxLook, dressOpts} from "../core/me.js";
 
