@@ -30,7 +30,7 @@
    that cannot leak into each other. The runner drives the mode with an item of its own (T.fixed: one SCHED.fixed
    task steps the simulation; T.bodyOf and T.fpBody: pooled bodies; T.officials false). The coach's ball to you is a
    chain pass whose receiver is you (AI-2 follow-up), so your team-mates leave it to you; his scheduler task runs only
-   while he is lent to a run or walking back to his post (perf-9). */
+   while he is lent to a run or walking back to his post (perf-9). P4-B (TR-4): a host's pause callback (see "leaving"). */
 import {THREE, W, mat, onBegin} from "../build.js";
 import {P, LIFE, RT, ME, FLAGS} from "../core/state.js";
 import {registerMode, enterMode, exitMode, mode, pushInput, popInput, persistNow} from "../core/modes.js";
@@ -378,7 +378,7 @@ if (typeof addEventListener === "function") addEventListener("blur", () => { if 
 function inputOn(){
   INP = ev => {
     if (!RUN.T) return false;
-    if (ev.type === "keydown" && ev.key === "escape"){ if (ev.prevent) ev.prevent(); if (!ev.repeat) quit(); return true; }
+    if (ev.type === "keydown" && ev.key === "escape"){ if (ev.prevent) ev.prevent(); if (!ev.repeat) pauseOrQuit(); return true; }
     // (Training Mode: Backspace starts the scenario again from its setup, G0 lead confirmation)
     if (ev.type === "keydown" && ev.key === "backspace" && RUN.T.onRestart){ if (ev.prevent) ev.prevent(); if (!ev.repeat) RUN.T.onRestart(); return true; }
     // (a key with a modifier held is nobody's action here, as in a match: D9, control.js modded)
@@ -388,8 +388,8 @@ function inputOn(){
     // Tab held: the overview, with the offside line (1.6), as in a match
     if (ev.type === "keydown" && ev.key === "tab"){ if (ev.prevent) ev.prevent(); HUD.hudTab(true); return true; }
     // Esc with the pointer held lets the pointer go (the browser keeps that key): letting it go steps out of a drill or
-    // the session as Esc does (the lessons only pause, flags.pauseOnUnlock)
-    if (ev.type === "lock"){ if (!ev.locked && RUN.cur && RUN.cur.kind !== "lessons") quit(); return false; }
+    // the session as Esc does (the lessons only pause, flags.pauseOnUnlock); in Training Mode it opens the pause card
+    if (ev.type === "lock"){ if (!ev.locked && !(RUN.T && hostPause(RUN.T)) && RUN.cur && RUN.cur.kind !== "lessons") quit(); return false; }
     return controlInput(ev);
   };
   pushInput(INP);
@@ -616,7 +616,20 @@ function events(T){
   T.evSeen = ms.events.length;
 }
 
-/* ---------- leaving ---------- */
+/* ---------- leaving ----------
+   P4-B (INF-10, BUILD-PLAN P4-B work item 3): a run whose host has a pause callback (Training Mode's runner: the pause
+   card, js/life/train/quick.js, handed in through the host so this file never imports a Training module) is paused by
+   Esc and by losing the pointer, not ended. A host without one (the career's drills, the session, the lessons) keeps
+   what it always did: Esc ends the drill or the session, losing the pointer ends it too, and the lessons pause */
+function hostPause(T){
+  const h = T && T.host;
+  if (!h || typeof h.pause !== "function") return false;
+  try { return h.pause(T) !== false; } catch(e){ console.error(e); return false; }
+}
+function pauseOrQuit(){
+  if (RUN.T && hostPause(RUN.T)) return;
+  quit();
+}
 function quit(){
   // (an item of Training Mode's runner: its own way out)
   if (RUN.T && RUN.T.onQuit) return RUN.T.onQuit();

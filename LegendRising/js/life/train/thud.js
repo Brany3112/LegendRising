@@ -9,7 +9,12 @@
    something that exists. Each frame it checks where the ball is on screen: if the ball would be under the card, the
    card moves to the other side. Between scenarios, with the hub closed, one line at the bottom edge says how to get
    the hub back and that the cones start things (thudIdle). The match HUD (fphud.js) is the one under it; the two together stay under a tenth of
-   a 1280 x 720 screen. */
+   a 1280 x 720 screen.
+
+   P4-B (Training Mode Phase 4, BUILD-PLAN P4-B work item 5): the preset line names the preset the scenario was started
+   from (presets.js, through the runner), and the keys line gives the quick-menu hints once the pause card exists
+   (quick.js): Backspace starts the go again, Esc opens the pause menu (where Replay Last, the configuration and the
+   hub are). thudState() is the card's own state for the runner's reset digest. */
 import {THREE} from "../build.js";
 import {RT} from "../core/state.js";
 
@@ -25,15 +30,16 @@ function el(){
   TH.el = d; TH.side = "left";
   return d;
 }
-/* info = {scenario, role, mine, theirs, keeper, preset, lines?: [extra short lines]} */
+/* info = {scenario, role, mine, theirs, keeper, preset, lines?: [extra short lines], pauseMenu: Esc opens the pause card} */
 export function thudShow(info){
   const d = el(); TH.info = info;
   const side = n => `${n}`;
   d.innerHTML = `<b class="thud-name">${esc(info.scenario)}</b>
     <span class="thud-row">${esc(info.role)} · ${side(info.mine)} v ${side(info.theirs)} · ${info.keeper ? "Keeper on" : "No keeper"}</span>
-    <span class="thud-row thud-preset">${esc(info.preset || "No preset")}</span>
+    <span class="thud-row thud-preset">${info.preset ? `Preset: ${esc(info.preset)}` : "No preset"}</span>
     ${(info.lines || []).map(l => `<span class="thud-row">${esc(l)}</span>`).join("")}
-    <span class="thud-keys"><kbd>Backspace</kbd> start again · <kbd>Esc</kbd> twice for the hub, to replay it or pick another</span>
+    <span class="thud-keys">${info.pauseMenu ? `<kbd>Backspace</kbd> restart · <kbd>Esc</kbd> pause menu, to replay it or pick another`
+      : `<kbd>Backspace</kbd> start again · <kbd>Esc</kbd> twice for the hub, to replay it or pick another`}</span>
     <span class="thud-note" hidden></span>`;
   d.hidden = false;
   TH.noteT = 0;
@@ -68,6 +74,11 @@ export function thudFrame(T){
   }
 }
 export const thudSide = () => TH.side;
+// the card's own state (the runner's reset digest): what it shows, and the notice and its time
+export function thudState(){
+  const d = TH.el, n = d && d.querySelector(".thud-note");
+  return {info:TH.info, note:n && !n.hidden ? n.textContent : null, noteT:TH.noteT};
+}
 
 // in the cage with nothing playing and the hub closed (hub.js says when): one small line on how to get the hub back
 // (where Exit to title is) and how to start something from the pitch. Gone as soon as a scenario or the hub is up

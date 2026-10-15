@@ -16,7 +16,14 @@
    bodies().length = poolStats().size + 2, whatever plays.
    A body not in use is out of the scene. human.js disposes a tracked body that is in no scene once a new place has
    been built, so on every new place (onBegin) the pool's bodies are marked as of the new place; they are given back
-   to it whole. Leaving Training disposes them all (runner.js, on train:exit, once its scenario has stopped). */
+   to it whole. Leaving Training disposes them all (runner.js, on train:exit, once its scenario has stopped).
+
+   P4-B (Training Mode Phase 4, BUILD-PLAN P4-B work item 4; TRAINING-SPEC 4, resets restore animations; perf-7): a
+   body's animation state is its own data (human.js: the mode and clip, the upper-body layer, the inertialisation and
+   leg blend buffers, the IK locks, the gait clock, phase and feet). The state each body has the moment it is built is
+   kept (FRESH), and every body a scenario takes is put back to it, so a restart or a new scenario starts every pooled
+   body exactly as it was built, nothing carried over from the last go, and nothing is built. bodyData(h) is that
+   state as plain data (the runner's digest hashes it). */
 import {onBegin, W} from "../build.js";
 import {human, lookFor} from "../human.js";
 
@@ -26,6 +33,62 @@ export const POOL_GROUPS = Object.freeze({me:1, fp:1, A:5, B:6, keeper:1});
 export const KITS = Object.freeze({mine:Object.freeze(["#2c66b8", "#ffffff"]), theirs:Object.freeze(["#d8ff3a", "#1c2430"])});
 
 const POOL = {me:null, fp:null, A:[], B:[], keeper:null, used:new Set(), meKey:"", meLook:null, built:false};
+
+/* ---------- a body's own state, as built ----------
+   What is a body's own data: everything on the human() record but its meshes, bones and look (made once and kept),
+   its functions, and what the place or the pool set (gen, ast). Typed arrays, arrays and plain objects are data; any
+   other object (three.js) is a reference that stays as it is */
+const KEEP = new Set(["g", "look", "D", "bones", "skel", "near", "far", "lod3m", "num", "dispose", "rest", "restA", "id", "isHuman", "gen", "scale", "noHead", "ast"]);
+const FRESH = new WeakMap();
+const isData = v => v === null || typeof v !== "object" || ArrayBuffer.isView(v) || Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null;
+function dataOf(v){
+  if (v === null || typeof v !== "object") return typeof v === "function" ? undefined : v;
+  if (ArrayBuffer.isView(v)) return v.slice();
+  if (Array.isArray(v)) return v.map(x => { const c = dataOf(x); return c === undefined ? null : c; });
+  if (!isData(v)) return v;
+  const o = {};
+  for (const k of Object.keys(v)){ const c = dataOf(v[k]); if (c !== undefined) o[k] = c; }
+  return o;
+}
+// the body's own data now, a deep copy (references to three.js objects kept as references)
+function snapshot(h){
+  const o = {};
+  for (const k of Object.keys(h)){ if (KEEP.has(k)) continue; const c = dataOf(h[k]); if (c !== undefined) o[k] = c; }
+  return o;
+}
+// put a plain object (or array) back to a snapshot in place: typed arrays filled, what is not in it taken away
+function restoreInto(t, s, top = false){
+  for (const k of Object.keys(t)) if (!(top && KEEP.has(k)) && !(k in s) && isData(t[k]) && typeof t[k] !== "function") delete t[k];
+  for (const k of Object.keys(s)){
+    const v = s[k], cur = t[k];
+    if (ArrayBuffer.isView(v) && ArrayBuffer.isView(cur) && cur.length === v.length && cur.constructor === v.constructor) cur.set(v);
+    else if (v && typeof v === "object" && !ArrayBuffer.isView(v) && isData(v) && cur && typeof cur === "object" && isData(cur) && !ArrayBuffer.isView(cur) && Array.isArray(v) === Array.isArray(cur)){
+      if (Array.isArray(cur)) cur.length = v.length;
+      restoreInto(cur, v);
+    }
+    else t[k] = dataOf(v);
+  }
+}
+function keepFresh(h){ FRESH.set(h, snapshot(h)); return h; }
+// a pooled body back to the state it was built in (its meshes and bones untouched: the next pose rewrites them)
+export function bodyFresh(h){
+  const s = FRESH.get(h); if (!s) return false;
+  restoreInto(h, s, true);
+  return true;
+}
+// a body's own animation state as plain data (tests, the runner's digest): typed arrays as arrays, references as a tag
+export function bodyData(h){
+  const plain = v => {
+    if (v === null || typeof v !== "object") return typeof v === "number" ? (Number.isFinite(v) ? Math.round(v*1e6)/1e6 : String(v)) : typeof v === "function" ? undefined : v;
+    if (ArrayBuffer.isView(v)) return Array.from(v, x => Number.isFinite(x) ? Math.round(x*1e6)/1e6 : String(x));
+    if (Array.isArray(v)) return v.map(x => { const c = plain(x); return c === undefined ? null : c; });
+    if (!isData(v)) return "#ref";
+    const o = {}; for (const k of Object.keys(v).sort()){ const c = plain(v[k]); if (c !== undefined) o[k] = c; } return o;
+  };
+  const o = {};
+  for (const k of Object.keys(h).sort()){ if (KEEP.has(k)) continue; const c = plain(h[k]); if (c !== undefined) o[k] = c; }
+  return o;
+}
 const all = () => [POOL.me, POOL.fp, ...POOL.A, ...POOL.B, POOL.keeper].filter(Boolean);
 const park = h => { if (h.g.parent) h.g.parent.remove(h.g); h.g.visible = false; h.ast = {mode:"idle"}; };
 
@@ -36,15 +99,15 @@ export function poolBuild(meLook){
   const key = JSON.stringify(meLook || null);
   if (POOL.meKey !== key || !POOL.me){
     for (const h of [POOL.me, POOL.fp]) if (h){ POOL.used.delete(h); h.dispose(); }
-    POOL.me = human(meLook || {}, {cast:true}); park(POOL.me);
-    POOL.fp = human(meLook || {}, {noHead:true, lod:false, track:true}); park(POOL.fp);
+    POOL.me = keepFresh(human(meLook || {}, {cast:true})); park(POOL.me);
+    POOL.fp = keepFresh(human(meLook || {}, {noHead:true, lod:false, track:true})); park(POOL.fp);
     POOL.meKey = key; POOL.meLook = meLook || null; n += 2;
   }
   const kitCols = [...KITS.mine, ...KITS.theirs];
   // fixed seeds: the same faces every time
-  while (POOL.A.length < POOL_GROUPS.A){ const i = POOL.A.length, h = human(lookFor("footballer", 9101 + i, {kit:KITS.mine, number:2 + i, sex:"m"}), {cast:true}); park(h); POOL.A.push(h); n++; }
-  while (POOL.B.length < POOL_GROUPS.B){ const i = POOL.B.length, h = human(lookFor("footballer", 9201 + i, {kit:KITS.theirs, number:2 + i, sex:"m"}), {cast:true}); park(h); POOL.B.push(h); n++; }
-  if (!POOL.keeper){ POOL.keeper = human(lookFor("goalkeeper", 9301, {kit:KITS.theirs, avoid:kitCols, number:1, sex:"m"}), {cast:true}); park(POOL.keeper); n++; }
+  while (POOL.A.length < POOL_GROUPS.A){ const i = POOL.A.length, h = keepFresh(human(lookFor("footballer", 9101 + i, {kit:KITS.mine, number:2 + i, sex:"m"}), {cast:true})); park(h); POOL.A.push(h); n++; }
+  while (POOL.B.length < POOL_GROUPS.B){ const i = POOL.B.length, h = keepFresh(human(lookFor("footballer", 9201 + i, {kit:KITS.theirs, number:2 + i, sex:"m"}), {cast:true})); park(h); POOL.B.push(h); n++; }
+  if (!POOL.keeper){ POOL.keeper = keepFresh(human(lookFor("goalkeeper", 9301, {kit:KITS.theirs, avoid:kitCols, number:1, sex:"m"}), {cast:true})); park(POOL.keeper); n++; }
   POOL.built = true;
   return n;
 }
@@ -52,14 +115,14 @@ export const poolMeLook = () => POOL.meLook;
 export const poolReady = () => POOL.built && all().length === POOL_DRILL;
 
 /* the bodies a scenario needs: {mine: team-mates (0..5), theirs: opponents (0..6), keeper: true|false}, and always
-   you and your rig. Returns {me, fp, mine: [], theirs: [], keeper} or null when the pool has not been built or holds
-   too few (a setup over the limits) */
+   you and your rig, each put back to the state it was built in. Returns {me, fp, mine: [], theirs: [], keeper} or null
+   when the pool has not been built or holds too few (a setup over the limits) */
 export function takeBodies({mine = 0, theirs = 0, keeper = false} = {}){
   if (!poolReady()) return null;
   if (mine > POOL.A.length || theirs > POOL.B.length) return null;
   returnBodies();
   const out = {me:POOL.me, fp:POOL.fp, mine:POOL.A.slice(0, mine), theirs:POOL.B.slice(0, theirs), keeper:keeper ? POOL.keeper : null};
-  for (const h of [out.me, out.fp, ...out.mine, ...out.theirs, out.keeper]) if (h){ POOL.used.add(h); h.gen = W.ticks; }
+  for (const h of [out.me, out.fp, ...out.mine, ...out.theirs, out.keeper]) if (h){ bodyFresh(h); POOL.used.add(h); h.gen = W.ticks; }
   return out;
 }
 // every body back: out of the scene, hidden, free for the next scenario
