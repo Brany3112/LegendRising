@@ -66,7 +66,7 @@ function resolve(type, config, seed, specIn){
   const notes = [];
   const c = validate(type, config, notes), S = typeOf(type);
   const spec = specIn || cagePitch(c.pitch);
-  const n = counts(type, c), meAtt = n.meSide === "att", sd = seed >>> 0;
+  const n = counts(type, c), meAtt = n.meSide === "att", sd = (seed != null ? seed : c.seed) >>> 0;
   const myTeam = meAtt ? 0 : 1;
   // the participants by side, in the configuration's order: me first on mine, then the NPCs
   const used = {att:new Map(), def:new Map()};
@@ -96,8 +96,7 @@ function resolve(type, config, seed, specIn){
   if (possWho === "me") holder = {p:me, side:mySide};
   else if (possWho === "mates") holder = mates.length ? {p:mates[0], side:mySide} : {p:me, side:mySide};
   else if (possWho === "opps") holder = opps.length ? {p:opps[0], side:theirSide} : null;
-  // (validate() has already kept the holder to someone on the pitch; a defender's only team-mates being the wall, who line up
-  // on the ball, is the one case left: you start with it then)
+  // (validate() has already kept the holder to an outfield player on the pitch, never the wall; this is the last word)
   if (possWho === "mates" && !mates.length) possWho = "me";
   if (possWho === "opps" && !opps.length) possWho = "loose";
   let ball;
@@ -186,7 +185,7 @@ function setupOf(r){
 }
 // a scenario's build(config, env) as the runner calls it: the setup on the cage's own pitch (env.spec)
 export function setupFromConfig(type, config, env = {}){
-  const r = resolve(type, config, env.seed != null ? env.seed : 1, env.spec || null);
+  const r = resolve(type, config, env.seed != null ? env.seed : null, env.spec || null);
   const s = setupOf(r);
   s.notes = r.notes;
   return s;
@@ -201,7 +200,7 @@ const rec = (p, pid, o = {}) => {
 // an eleven-a-side match (Full Match): my team in a 4-3-3 with me in my role's slot, theirs the same, both keepers
 const XI = Object.freeze(["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "CM", "LW", "ST", "RW"]);
 function matchCfg(type, config, seed){
-  const notes = [], c = validate(type, config, notes), sd = seed >>> 0, spec = cagePitch("full");
+  const notes = [], c = validate(type, config, notes), sd = (seed != null ? seed : c.seed) >>> 0, spec = cagePitch("full");
   const mySlot = ROLE_SLOT[c.role] || "CM";
   const teams = [0, 1].map(t => ({name:t ? "B" : "A", players:[], bench:[]}));
   for (const t of [0, 1]){
@@ -223,7 +222,8 @@ function matchCfg(type, config, seed){
 }
 
 // cfgFromConfig(type, config, seed): see the header
-export function cfgFromConfig(type, config, seed = 1, spec = null){
+// (no seed given: the configuration's own, which a preset keeps with it)
+export function cfgFromConfig(type, config, seed = null, spec = null){
   const S = typeOf(type);
   if (S && S.match) return matchCfg(type, config, seed);
   const r = resolve(type, config, seed, spec);

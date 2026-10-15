@@ -79,6 +79,8 @@
 .ae-d b{font-variant-numeric:tabular-nums}
 .ae-var{margin:6px 0 0}
 .tcfg-foot .btn{min-width:8em}
+/* on a phone the three buttons share the width (Start, the main one, never runs off the edge) */
+@media (max-width:600px){.tcfg-foot{flex-wrap:wrap;gap:8px}.tcfg-foot .btn{min-width:0;flex:1 1 auto;padding-left:.7em;padding-right:.7em}.tcfg-foot .grow{display:none}}
 @media (max-width:600px){.tcfg-row{grid-template-columns:1fr}.ae-row{grid-template-columns:1fr 3.6em auto auto}.ae-meter{display:none}.ae-rows{grid-template-columns:1fr}}
 /* the presets sheet (presetui.js) and the pause card's match group (quick.js), P4-B */
 .tp .th-btns input.tp-in{width:auto;flex:1 1 12em;min-width:10em;padding:.45em .7em}

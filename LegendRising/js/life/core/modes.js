@@ -121,7 +121,18 @@ const WAIT = [];
 export const revealPending = () => WAIT.length > 0;
 export function revealAfterFrames(n = 2, ready = () => true){
   coverScreen();
-  return new Promise(res => WAIT.push({n, ready, res, owner:undefined, count:0}));
+  const w = {n, ready, res:null, owner:undefined, count:0};
+  const p = new Promise(res => { w.res = res; WAIT.push(w); });
+  w.p = p;
+  return p;
+}
+// a reveal nobody waits for any more (the place it was for was given up before it was drawn): it never resolves, and
+// it no longer keeps the world drawing. The cover is the caller's to lift
+export function cancelReveal(p){
+  const i = WAIT.findIndex(w => w.p === p);
+  if (i < 0) return false;
+  WAIT.splice(i, 1);
+  return true;
 }
 // world.js, after every frame it draws
 export function framePresented(owner){

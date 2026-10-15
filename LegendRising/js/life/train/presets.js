@@ -12,8 +12,9 @@
    A record holds a configuration and nothing else: every config is passed through config.js validate(type, config)
    on the way in and again on the way out, so a preset saved by an older build, a hand-edited one or a half-written
    one comes back as a safe configuration of its type (defaults for what is missing, values clamped, unknown keys
-   dropped). Records with no usable id, a type that is not a plain name, or garbage in place of a record are dropped
-   when read. The store has a size cap (LIMITS.bytes) and a cap per type (LIMITS.perType); a save over either is
+   dropped). A record of a type this build does not know is kept exactly as stored (never turned into another type's
+   configuration). A record with no id but a configuration gets one; records with an unusable id, a type that is not
+   a plain name, or garbage in place of a record are dropped when read. The store has a size cap (LIMITS.bytes) and a cap per type (LIMITS.perType); a save over either is
    refused with a plain sentence and nothing is written.
 
    list(type)                    -> the type's records, newest first, each with what the Load list shows:
@@ -27,7 +28,7 @@
    load(id)                      -> {id, type, name, config} with the config validated afresh, or null
    get(id)                       -> the stored record (a copy) with its type, or null
    Storage and the clock can be swapped for tests (useStorage, useClock); nothing here touches the DOM. */
-import {validate, counts, PITCH_NAMES} from "./config.js";
+import {validate, counts, typeOf, PITCH_NAMES} from "./config.js";
 
 export const KEY = "freyaFootball.trainPresets";
 export const STORE_V = 1;
@@ -61,12 +62,24 @@ function migrate(raw){
   const byType = isObj(raw.byType) ? raw.byType : isObj(raw.presets) ? raw.presets : {};
   return {v:STORE_V, byType, ro:v > STORE_V};
 }
-// a record made safe for its type, or null when nothing usable is there
-function cleanRecord(type, r, now){
+// a stand-in id for a record stored without a usable one: worked out from the record itself and where it stands, so it
+// is the same on every read until the store is next written (and then kept)
+function idFor(type, r, at){
+  let h = 2166136261;
+  const s = type + "|" + at + "|" + JSON.stringify(r);
+  for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return "r" + (h >>> 0).toString(36) + at.toString(36);
+}
+/* a record made safe for its type, or null when nothing usable is there (no configuration at all). A record of a type
+   this build does not know (a later scenario type, or one whose module did not load) keeps its configuration exactly
+   as stored: it can't be validated against a schema that is not here, and must not be written back as another
+   type's. A record with no id at all but a configuration (hand-made, or half-written) gets one; a record whose id is
+   there but unusable is dropped */
+function cleanRecord(type, r, now, at = 0){
   if (!isObj(r)) return null;
-  const id = typeof r.id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(r.id) ? r.id : null;
+  const id = typeof r.id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(r.id) ? r.id : r.id == null && isObj(r.config) ? idFor(type, r, at) : null;
   if (!id) return null;
-  const config = safeValidate(type, r.config);
+  const config = typeOf(type) ? safeValidate(type, r.config) : isObj(r.config) ? clone(r.config) : {};
   if (!config) return null;
   const created = time(r.created, now), updated = Math.max(created, time(r.updated, created));
   return {id, name:cleanName(r.name), created, updated, config};
@@ -80,7 +93,7 @@ function read(){
   for (const [type, list] of Object.entries(m.byType)){
     if (!TYPE_RE.test(type) || !Array.isArray(list)) continue;
     const keep = [];
-    for (const r of list){ const c = cleanRecord(type, r, now); if (c && !seen.has(c.id)){ seen.add(c.id); keep.push(c); } }
+    list.forEach((r, at) => { const c = cleanRecord(type, r, now, at); if (c && !seen.has(c.id)){ seen.add(c.id); keep.push(c); } });
     if (keep.length) out.byType[type] = keep.slice(0, LIMITS.perType);
   }
   return out;

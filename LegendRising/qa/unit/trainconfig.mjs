@@ -85,7 +85,7 @@ const TYPES = C.types();
     const u = C.validate(t, Object.assign(copy(d), {hack: 1, __proto__x: 2}));
     if ("hack" in u || "__proto__x" in u) bad.push([t, "unknown key kept"]);
     const keys = Object.keys(u).sort().join();
-    if (keys !== "attAvg,attackers,ball,defAvg,defenders,gk,keeper,mates,me,offside,opps,opts,out,pitch,positions,possession,role,v,wall") bad.push([t, "keys", keys]);
+    if (keys !== "attAvg,attackers,ball,defAvg,defenders,gk,keeper,mates,me,offside,opps,opts,out,pitch,positions,possession,role,seed,v,wall") bad.push([t, "keys", keys]);
   }
   check(bad.length === 0, "garbage, partial and old input give the type's safe defaults; unknown keys are dropped", bad.slice(0, 6));
   // an old configuration (an earlier shape: counts as strings, no version, the keeper set without distribution)
@@ -308,6 +308,21 @@ function variants(t, c, key){
   const me2 = C.defaults("attacking").me;
   delete globalThis.heldSkills;
   check(same(me, held) && me2.acceleration === 68 && me2.sprintSpeed === 68, "with a career held, my attributes start at heldSkills() (an old career's pace for both speeds)", {me, me2: [me2.acceleration, me2.sprintSpeed]});
+}
+
+/* ---------- the configuration's seed (G0 decision f) and the wall never holding the ball (TR-4 fix round 1) ---------- */
+{
+  const base = Object.assign(C.defaults("attacking"), {mates: true, opps: true, attackers: 3, defenders: 3});
+  const atOf = s => JSON.stringify([s.mates.map(p => p.at), s.opps.map(p => p.at)]);
+  const a1 = setupFromConfig("attacking", C.validate("attacking", Object.assign({}, base, {seed: 7}))), a2 = setupFromConfig("attacking", C.validate("attacking", Object.assign({}, base, {seed: 7})));
+  const b = setupFromConfig("attacking", C.validate("attacking", Object.assign({}, base, {seed: 8})));
+  check(C.defaults("attacking").seed === 1 && C.validate("attacking", {seed: -4}).seed === 1 && C.validate("attacking", {seed: 1e12}).seed === C.SEED_MAX, "a configuration carries a seed (default 1, clamped)", null);
+  check(atOf(a1) === atOf(a2) && atOf(a1) !== atOf(b) && a1.seed === 7, "with no seed handed in, the configuration's own seed is used: the same seed gives the same NPCs, another seed others", {s1: a1.seed, s2: b.seed});
+  const fk = C.validate("freekick", {role: "defender", mates: true, opps: true, defenders: 1, wall: 3, possession: "mates"});
+  check(!C.allowed("freekick", fk, "possession").includes("mates") && fk.possession === "me" && !C.relevant("freekick", fk).includes("possession") === (C.allowed("freekick", fk, "possession").length <= 1),
+    "a defender whose only team-mates are the wall is not offered 'A team-mate' to start with the ball", {allowed: C.allowed("freekick", fk, "possession"), poss: fk.possession});
+  const fk2 = C.validate("freekick", {role: "attacker", mates: true, opps: true, attackers: 2, defenders: 0, wall: 3, possession: "opps"});
+  check(!C.allowed("freekick", fk2, "possession").includes("opps") && fk2.possession === "loose", "an attacker facing only a wall is not offered 'An opponent'", {allowed: C.allowed("freekick", fk2, "possession"), poss: fk2.possession});
 }
 
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});

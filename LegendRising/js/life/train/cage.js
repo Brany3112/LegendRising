@@ -19,7 +19,7 @@
    comes back after two drawn frames. */
 import {W, box, finishBatches} from "../build.js";
 import {wireCage} from "../props.js";
-import {registerZone, revealAfterFrames} from "../core/modes.js";
+import {registerZone, revealAfterFrames, cancelReveal} from "../core/modes.js";
 import {RT, FADE} from "../core/state.js";
 import {buildPitchMesh} from "../football/pitchmesh.js";
 import {cagePitch, cageDraw, cageAnchors, cageSpawn, cageWorldBox, cageKind, CAGES} from "../football/cagespec.js";
@@ -66,20 +66,41 @@ registerZone("cage", {
   }
 });
 
-// the cage of another kind, under a fade (the one case where the spec allows rebuilding the place: a pitch change)
+// the cage of another kind, under a fade (the one case where the spec allows rebuilding the place: a pitch change).
+// Leaving Training while it is switching (train:exit) gives the switch up: nothing more is built, the cover is lifted
+// at once and the promise resolves to null
+let SWITCH = null;
 export function cageEnter(kind){
   const k = cageKind(kind), o = document.getElementById("lifeFade");
+  if (SWITCH) SWITCH.cancel();
+  const sw = SWITCH = {off:false, reveal:null, cancel:null};
   return new Promise(res => {
+    const done = v => { if (SWITCH === sw) SWITCH = null; res(v); };
+    sw.cancel = () => {
+      if (sw.off) return;
+      sw.off = true;
+      if (sw.reveal) cancelReveal(sw.reveal);
+      if (o){ o.style.transition = "none"; o.style.opacity = "0"; }
+      FADE.v = 0;
+      done(null);
+    };
     FADE.boot = false;
     if (o){ o.style.transition = "opacity 250ms ease"; o.style.opacity = "1"; }
     FADE.v = 1;
     setTimeout(() => {
+      if (sw.off) return;
       try { enterZone("cage", "bus", {kind:k}); } catch(e){ console.error(e); }
-      revealAfterFrames(2).then(() => {
+      if (sw.off) return;
+      sw.reveal = revealAfterFrames(2);
+      sw.reveal.then(() => {
+        if (sw.off) return;
         if (o){ o.style.transition = "opacity 300ms ease"; o.style.opacity = "0"; }
         FADE.v = 0;
-        res(CAGE);
+        done(CAGE);
       });
     }, 280);
   });
 }
+// a switch still under way when Training is left
+export const cageSwitching = () => !!SWITCH;
+if (typeof addEventListener === "function") addEventListener("train:exit", () => { if (SWITCH) SWITCH.cancel(); });

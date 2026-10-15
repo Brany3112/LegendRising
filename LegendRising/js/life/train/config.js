@@ -8,6 +8,8 @@
 
    A configuration is plain data, the same for every scenario type:
      v           VERSION
+     seed        1..SEED_MAX, the seed the computer's players' attributes vary by (G0 f; teams.js npcId): the same
+                 seed gives the same players. Not a setting on the sheet; a preset keeps it with the rest
      role        my role: 'attacker' | 'taker' | 'receiver' | 'support' | 'defender' (never the keeper)
      possession  who has the ball at the start: 'me' | 'mates' | 'opps' | 'loose'
      attackers   1..6 outfield players on the attacking side, me included when I attack
@@ -52,6 +54,8 @@ export const LAUNCH_NAMES = Object.freeze({pass:"Pass along the ground", driven:
 export const SLOTS = Object.freeze(["LB", "CB", "RB", "LWB", "RWB", "CDM", "LM", "CM", "RM", "CAM", "LW", "RW", "LF", "CF", "RF", "ST"]);
 // the hard limits (TRAINING-SPEC 0, G0 h): 6 outfield players a side, me included, plus one AI keeper
 export const MAX_SIDE = 6, MAX_AGENTS = 13;
+// the seed the computer's players vary by (G0 decision f): kept with the configuration, so a preset keeps its players
+export const SEED_MAX = 2147483647;
 export const OFFSET_MAX = Object.freeze({dx:40, dz:30});
 export const LAUNCH_SPEED = Object.freeze({min:3, max:36});
 // where a placed ball or a launch target may be (pitch-local metres; teams.js keeps it inside the cage's run-off)
@@ -116,7 +120,7 @@ export function defaultMe(){
 
 function baseDefaults(){
   return {
-    v:VERSION, role:"attacker", possession:"me", attackers:1, defenders:1, wall:0, mates:false, opps:true, keeper:true, offside:false,
+    v:VERSION, seed:1, role:"attacker", possession:"me", attackers:1, defenders:1, wall:0, mates:false, opps:true, keeper:true, offside:false,
     positions:{me:{slot:"", dx:0, dz:0}, att:ATT_SLOTS.map(slot => ({slot, dx:0, dz:0})), def:DEF_SLOTS.map(slot => ({slot, dx:0, dz:0}))},
     me:defaultMe(), attAvg:ATTR_PRESETS.average, defAvg:ATTR_PRESETS.average, gk:presetSkills("average", GK_KEYS),
     ball:{at:null, launch:null}, out:"rebound", pitch:"half", opts:{}
@@ -176,6 +180,7 @@ export function validate(type, src, notes = null){
   const o = isObj(src) ? src : {};
   const d = defaultsRaw(S);
   const c = {v:VERSION};
+  c.seed = intIn(o.seed, 1, SEED_MAX, d.seed);
   c.role = oneOf(o.role, S.roles, S.roles.includes(d.role) ? d.role : S.roles[0]);
   c.possession = oneOf(o.possession, POSSESSION, d.possession);
   c.attackers = intIn(o.attackers, 0, MAX_SIDE, d.attackers);
@@ -219,9 +224,10 @@ export function validate(type, src, notes = null){
   // who starts with the ball is someone on the pitch
   const can = allowed(type, c, "possession");
   if (!can.includes(c.possession)){
-    const was = c.possession;
+    const was = c.possession, n2 = counts(type, c), walled = n2.wall > 0 && (was === "mates" ? n2.meSide === "def" : n2.meSide === "att");
     c.possession = was === "mates" ? "me" : "loose";
-    say(was === "mates" ? "No team-mates are on, so you start with the ball." : "No opponents are on, so the ball starts loose.");
+    say(was === "mates" ? (walled ? "Your only team-mates are in the wall, so you start with the ball." : "No team-mates are on, so you start with the ball.")
+      : (walled ? "The only opponents are in the wall, so the ball starts loose." : "No opponents are on, so the ball starts loose."));
   }
   return c;
 }
@@ -301,7 +307,11 @@ export function allowed(type, cfg, key){
   const meAtt = n.meSide === "att";
   switch (key){
     case "role": return [...S.roles];
-    case "possession": return POSSESSION.filter(p => p === "me" || p === "loose" || (p === "mates" ? n.mine > 1 : n.theirs > 0));
+    // (the wall lines up on the ball and never starts with it: only outfield players count here)
+    case "possession": {
+      const mates = n.mine - 1 - (meAtt ? 0 : n.wall), opps = n.theirs - (meAtt ? n.wall : 0);
+      return POSSESSION.filter(p => p === "me" || p === "loose" || (p === "mates" ? mates > 0 : opps > 0));
+    }
     case "mates": case "opps": case "keeper": case "offside": return [true, false];
     case "out": return [...OUTS];
     case "pitch": return [...PITCHES];

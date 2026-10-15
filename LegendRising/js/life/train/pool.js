@@ -74,6 +74,14 @@ function keepFresh(h){ FRESH.set(h, snapshot(h)); return h; }
 export function bodyFresh(h){
   const s = FRESH.get(h); if (!s) return false;
   restoreInto(h, s, true);
+  // the meshes shown as the LOD level now stands (back to the built one, 1: full detail): human.js only switches them
+  // when the level it works out differs from h.lod, so a body last shown far off would otherwise keep its far mesh
+  // close up
+  const lv = h.lod;
+  if (h.near) h.near.visible = lv === 1;
+  if (h.far) h.far.visible = lv === 0;
+  if (h.lod3m) h.lod3m.visible = lv === -1;
+  if (h.num) h.num.visible = lv === 1;
   return true;
 }
 // a body's own animation state as plain data (tests, the runner's digest): typed arrays as arrays, references as a tag

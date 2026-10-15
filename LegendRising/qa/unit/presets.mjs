@@ -169,6 +169,23 @@ const val = (t, c) => CFG.validate(t, c);
   check(P.matching(T1, val(T1, Object.assign({}, c, {attackers: 3}))) === null, "a changed one is not", null);
 }
 
+// (TR-4 fix round 1) a record with no id but a configuration is kept with a stable id; a record of a type this build
+// does not know is never turned into another type's configuration, and survives a write of the store; a preset keeps
+// its seed
+{
+  fresh();
+  const later = {id: "fut1", name: "Later type", created: 9, updated: 9, config: {role: "defender", wall: 4, ball: {launch: {kind: "cross"}}, opts: {x: 1}}};
+  mem.setItem(P.KEY, JSON.stringify({v: 1, byType: {[T1]: [{name: "ok", config: {attackers: 3}}, {id: 3, name: {}, config: "x"}], qafuture: [later]}}));
+  const l1 = P.list(T1), l2 = P.list(T1);
+  check(l1.length === 1 && l1[0].name === "ok" && l1[0].id === l2[0].id && !!P.load(l1[0].id), "a record with no id but a configuration is listed with an id that stays the same and loads", l1);
+  const o = P.overwrite(l1[0].id, val(T1, {attackers: 2}));
+  const raw = JSON.parse(mem.getItem(P.KEY));
+  check(o.ok && raw.byType[T1].length === 1 && raw.byType[T1][0].id === l1[0].id, "overwriting it keeps it under that id", raw.byType[T1]);
+  check(deep(raw.byType.qafuture[0], later), "a preset of a type this build does not know is written back exactly as it was", raw.byType.qafuture);
+  const sc = val(T1, Object.assign(CFG.defaults(T1), {seed: 4242})), sv = P.save(T1, "Seeded", sc);
+  check(P.load(sv.rec.id).config.seed === 4242, "a preset keeps its configuration's seed", P.load(sv.rec.id).config.seed);
+}
+
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});
 fs.writeFileSync(path.join(ROOT, "qa/out/unit-presets.json"), JSON.stringify(res, null, 1));
 if (!res.ok){ console.error("unit-presets: FAIL"); process.exit(1); }

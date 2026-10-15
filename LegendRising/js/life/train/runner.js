@@ -253,17 +253,27 @@ export function startScenario(id, config = {}, opts = {}){
   return go();
 }
 // the cage of another kind first, under the fade (the pool's bodies are kept), then fn()
+// (Training left while it switches: cage.js gives the switch up and it resolves to null; nothing starts.) A sheet put
+// up while it switched (the hub on Esc) is still up when it plays: the scenario starts held, as the pause card holds
+// it, and the card comes up once the sheet goes (nothing runs behind the hub). With no pause card there is no hold
 function switchThen(kind, fn){
-  const p = RUN.pending = cageEnter(kind).then(() => {
+  const p = RUN.pending = cageEnter(kind).then(c => {
     RUN.pending = null;
-    if (RUN.cur || !CAGE.spec || CAGE.kind !== kind) return false;
-    return fn();
+    if (!c || RUN.cur || !CAGE.spec || CAGE.kind !== kind) return false;
+    const ok = fn();
+    if (ok && RUN.cur && sheetUp()) holdUnderSheet();
+    return ok;
   }, e => { console.error(e); RUN.pending = null; return false; }).then(ok => {
     if (!ok){ emit(); if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent("train:scenario", {detail:{state:"failed"}})); }
     return !!ok;
   });
   emit();
   return !!p;
+}
+const sheetUp = () => { const r = typeof document !== "undefined" && document.getElementById("sheetRoot"); return !!r && r.classList.contains("open"); };
+function holdUnderSheet(){
+  const T = RUN.cur && RUN.cur.T;
+  if (HOOKS.pause && T){ try { HOOKS.pause(T); } catch(e){ console.error(e); } }
 }
 // every participant's attributes worked out once, into the setup (the seeded role profiles and my own): the snapshot
 // holds them, so a reset never works them out again
