@@ -1,8 +1,9 @@
 // js/life/stamina.js: short-term stamina (breath, B) for any body: sprint drain, recovery, action costs, the factors
 // that make a tired player slower, heavier and less precise, and the career energy and fatigue a match costs.
 // Owner: WP-0D (pure foundations), then WP-B, then WP-F2 (addendum A1.6: the late-match cap, the capped sprint), then
-// P2b-A (TRAINING-SPEC section 3: the shield's breath, stamShield). Contract DESIGN 1.4.7 and BUILD-PLAN Phase 2b; numbers
-// 1.5.2; use 3.1.6.
+// P2b-A (TRAINING-SPEC section 3: the shield's breath, stamShield), then P5-B (Training Mode Phase 5, the admin panel's
+// stamina controls: TRAINING-SPEC 4 "Stamina: infinite on/off, restore, set value"; stamInfinite, stamRestore,
+// stamSetBreath). Contract DESIGN 1.4.7 and BUILD-PLAN Phase 2b and P5-B; numbers 1.5.2; use 3.1.6.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no randomness. The pool is never saved; the long-term
 // numbers (S.energy, S.fatigue, the stamina skill) come in through arguments.
@@ -51,7 +52,7 @@ export function stamCap(energy, fatigue){
 // a fresh pool, full to its cap. stamina is kept for reference; stamStep takes it from ctx each step.
 export function createStam({stamina = 50, energy = 100, fatigue = 0} = {}){
   const cap = stamCap(energy, fatigue);
-  return {B: cap, cap, recoverDelay: 0, sprintT: 0, sprintFrac: 0, stamina,
+  return {B: cap, cap, recoverDelay: 0, sprintT: 0, sprintFrac: 0, stamina, inf: false,
     acc: {t: 0, sprint: 0, drain: 0, shield: 0, shieldT: 0}};   // running totals (seconds, seconds sprinting, breath
                                                                  // drained; breath and seconds spent shielding)
 }
@@ -84,7 +85,8 @@ export function stamStep(st, h, effort, ctx = {}){
   const ks = ksOf(s);
   // (a sprint held under the run speed: a sprint once the breath is what caps it, A1.6)
   if (effort === 'sprint-run' || effort === 'sprint-jog') effort = st.B < STAM.BF_FULL ? 'sprint' : effort === 'sprint-run' ? 'run' : 'jog';
-  const drain = effort === 'sprint' ? STAM.SPRINT*ks : effort === 'run' ? STAM.RUN*ks : 0;
+  // (infinite stamina, P5-B: the pool is held full, so nothing is drained and there is nothing to wait for)
+  const drain = st.inf ? 0 : effort === 'sprint' ? STAM.SPRINT*ks : effort === 'run' ? STAM.RUN*ks : 0;
   if (drain > 0){
     const before = st.B;
     st.B = Math.max(0, st.B - drain*h);
@@ -98,7 +100,7 @@ export function stamStep(st, h, effort, ctx = {}){
       st.B = Math.min(st.cap, st.B + rate*rest);
     }
   }
-  if (st.B > st.cap) st.B = st.cap;
+  if (st.B > st.cap || st.inf) st.B = st.cap;
   const sprinting = effort === 'sprint';
   st.sprintT = sprinting ? st.sprintT + h : 0;
   st.sprintFrac += ((sprinting ? 1 : 0) - st.sprintFrac)*(1 - exp(-h/STAM.SPRINT_TAU));
@@ -109,7 +111,7 @@ export function stamStep(st, h, effort, ctx = {}){
 // the breath an action costs: shot 3, slide 6, jump 3, tackle 2, pass 0.5. Returns the cost. Never refused: a tired
 // player still shoots, the factors make it worse.
 export function stamAction(st, kind){
-  const c = STAM.ACT[kind] || 0;
+  const c = st.inf ? 0 : STAM.ACT[kind] || 0;
   if (c > 0){
     const before = st.B;
     st.B = Math.max(0, st.B - c);
@@ -130,13 +132,37 @@ export function shieldRate(gap, b0 = SHIELD.B0, k = SHIELD.K){
   return Math.max(0, b0) + Math.max(0, k)*g;
 }
 export function stamShield(st, h, gap, b0 = SHIELD.B0, k = SHIELD.K){
-  if (!st || !(h > 0)) return 0;
+  if (!st || !(h > 0) || st.inf) return 0;
   const before = st.B;
   st.B = Math.max(0, st.B - shieldRate(gap, b0, k)*h);
   st.recoverDelay = Math.max(st.recoverDelay, h*1.01);
   const c = before - st.B;
   if (st.acc){ st.acc.drain += c; st.acc.shield = (st.acc.shield || 0) + c; st.acc.shieldT = (st.acc.shieldT || 0) + h; }
   return c;
+}
+
+// The admin panel's stamina controls (P5-B; TRAINING-SPEC 4). They change the one pool every body already has, so the
+// factors below follow them exactly as they follow a sprint.
+//   stamInfinite(st, on)   on: the breath is held at its cap (every drain is skipped and the pool refilled each step);
+//                          off: it drains and recovers as usual again, from full
+//   stamRestore(st)        the breath back to its cap at once, recovery not held back
+//   stamSetBreath(st, b)   the breath set to b (0 to 100, kept under the cap); recovery starts from there as usual
+export function stamInfinite(st, on){
+  if (!st) return false;
+  st.inf = !!on;
+  if (st.inf){ st.B = st.cap; st.recoverDelay = 0; }
+  return st.inf;
+}
+export function stamRestore(st){
+  if (!st) return 0;
+  st.B = st.cap; st.recoverDelay = 0;
+  return st.B;
+}
+export function stamSetBreath(st, b){
+  if (!st) return 0;
+  const v = Number.isFinite(+b) ? +b : st.B;
+  st.B = clamp(v, 0, st.cap); st.recoverDelay = 0;
+  return st.B;
 }
 
 // How tiredness shows (1.5.2). bF = sstep(0, 35, B) is breath, eF today's energy. Every factor is smooth in both and

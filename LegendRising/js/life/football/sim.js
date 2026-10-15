@@ -4,7 +4,8 @@
 // whoever listens (the bridge, the view, the HUD, the audio). Nothing is pre-rolled and nothing directs it: the score,
 // the stats, the ratings and the highlights are what happened in it. The same seed and inputs give the same match.
 // Owner: WP-E, then P2b-A (TRAINING-SPEC section 3: shield challenges resolved once per engagement, pushing a
-// shielder from behind). Contract DESIGN 1.4.13 (createMatch, simStep, advance, runHeadless, on, MatchState, cfg) and
+// shielder from behind), then P5-B (Training Mode Phase 5, the admin panel: setAttrs, attributes changed while a
+// match plays, through the same levelling as at kick-off). Contract DESIGN 1.4.13 (createMatch, simStep, advance, runHeadless, on, MatchState, cfg) and
 // BUILD-PLAN Phase 2b (items 7 and 7a); step order 3.2.1; clock and tempo 3.2.10; timings 1.5.5.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (ms.r = mulberry32(cfg.seed)).
@@ -29,7 +30,7 @@ import {mulberry32, hashStr} from "./rng.js";
 import {moverStep} from "../mover.js";
 import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute, STAM} from "../stamina.js";
 import {phaseAdvanceQ, GQ, gaitModeStep} from "../gaitcore.js";
-import {createAgent, separate, bodyRec} from "./agent.js";
+import {createAgent, separate, bodyRec, agentAttrs} from "./agent.js";
 import {levelled} from "./attrs.js";
 import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle, situation} from "./tactics.js";
 import {brainStep, restartShape, decideCarrier} from "./brain.js";
@@ -118,8 +119,7 @@ export function createMatch(cfg){
   // the teams
   const T = cfg.teams || [];
   // the levelling: each side's AI players moved toward the middle of the two sides' overalls
-  const ovr = cfg.ovr && cfg.ovr.length === 2 ? cfg.ovr : null, mid = ovr ? (ovr[0] + ovr[1])/2 : 0;
-  const lev = (t, p) => ovr && !p.isMe ? levelled(p.at, -(ovr[t] - mid)*LEVEL) : p.at;
+  const lev = (t, p) => levelOf(cfg, t, p.at, !!p.isMe);
   const styles = [0, 1].map(t => (T[t] && T[t].style) || clubStyle(T[t] ? T[t].name : "T" + t));
   ms.tm = [createShape(styles[0], T[0] ? T[0].formation : null), createShape(styles[1], T[1] ? T[1].formation : null)];
   for (let t = 0; t < 2; t++){
@@ -259,6 +259,22 @@ function applyResume(ms){
 /* ---------- events ---------- */
 
 // subscribe to events of a kind ('*' for all; ball contacts 'bounce' 'post' 'bar' 'net' 'board' 'body' too)
+// the levelling an AI player's attributes get at kick-off (LEVEL, with cfg.ovr): the player is never levelled
+function levelOf(cfg, t, at, isMe){
+  const ovr = cfg && cfg.ovr && cfg.ovr.length === 2 ? cfg.ovr : null;
+  if (!ovr || isMe || t < 0) return at;
+  return levelled(at, -(ovr[t] - (ovr[0] + ovr[1])/2)*LEVEL);
+}
+// New attributes for an agent while the match plays (P5-B, the Training admin panel's live edits; TRAINING-SPEC 4 "live
+// where safe"): the record goes through the same levelling an AI player's got at kick-off, then agent.js agentAttrs
+// works out again what was worked out from it (mover profile, reaction, stamina skill). Call it between two steps.
+// Returns the agent's new attributes.
+export function setAttrs(ms, a, at){
+  if (!ms || !a || !at) return null;
+  agentAttrs(a, levelOf(ms.cfg, a.team, at, !!a.isMe));
+  return a.at;
+}
+
 export function on(ms, kind, fn){ (ms.subsFn[kind] || (ms.subsFn[kind] = [])).push(fn); return () => { const l = ms.subsFn[kind]; const i = l.indexOf(fn); if (i >= 0) l.splice(i, 1); }; }
 function flush(ms){
   const S0 = ms.subsFn, all = S0['*'];
