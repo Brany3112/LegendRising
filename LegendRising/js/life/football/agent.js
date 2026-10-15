@@ -64,7 +64,7 @@ export function createAgent(o){
     x0: o.x || 0, z0: o.z || 0,
     acc: {dist: 0, sprints: 0, sprintOn: false, oop: 0, oopFar: 0, drain: 0, mins: 0},
     touchFoot: 0, strides: 0, footN: 0, drib: null, ctl: false, plan: null, set: null, wall: false,
-    perceived: 0, callT: -99, calls: 0, lastCall: -99, chalT: -99, gk: null, react: 0.2, cool: {tackle: 0, call: 0, header: 0},
+    perceived: 0, callT: -99, calls: 0, lastCall: -99, callCut: -99, chalT: -99, gk: null, react: 0.2, cool: {tackle: 0, call: 0, header: 0},
     // (UF-A, U10: when he last raised his hand for the ball, in simulation seconds: raiseHand)
     handUp: -99,
     // what the match sets on an agent later, declared here so that every agent keeps one shape: the step reads these

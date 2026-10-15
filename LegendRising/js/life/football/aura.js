@@ -57,10 +57,13 @@ export function auraDispose(){
 }
 
 const _f = new THREE.Vector3(), _c = new THREE.Vector3(), _p = {x: 0, y: 0, z: 0}, _q = {x: 0, y: 0, z: 0};
-// the angle (degrees) between where you look and a point
+// the angle (degrees) between where you look and a point, and its distance, written into one reused object (this runs
+// for every team-mate on every frame of a match: nothing is allocated)
+const _A = {deg: 0, d: 0};
 function angleTo(cam, x, y, z){
   const dx = x - _c.x, dy = y - _c.y, dz = z - _c.z, d = Math.hypot(dx, dy, dz) || 1e-6;
-  return {deg: Math.acos(Math.max(-1, Math.min(1, (dx*_f.x + dy*_f.y + dz*_f.z)/d)))*180/Math.PI, d};
+  _A.deg = Math.acos(Math.max(-1, Math.min(1, (dx*_f.x + dy*_f.y + dz*_f.z)/d)))*180/Math.PI; _A.d = d;
+  return _A;
 }
 export function auraFrame(dt, cam, ms, me, posOf){
   const m = AURA.mesh;

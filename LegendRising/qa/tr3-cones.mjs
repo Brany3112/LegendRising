@@ -8,7 +8,7 @@
 import {report, expect, freeze, unfreeze} from "./lib.mjs";
 import {trainLaunch, enterByButton, hubState, hubUp, pressReal} from "./tr3b-lib.mjs";
 
-const res = {walk: [], reload: null, busy: null, kinds: [], errors: []};
+const res = {walk: [], reload: null, busy: null, kinds: [], change: null, errors: []};
 const check = (ok, what, got) => { if (!ok) res.errors.push(`${what}: ${JSON.stringify(got)}`); console.log(`${ok ? "ok  " : "FAIL"} ${what}`); };
 const NAMES = {setpieces: "Set Pieces", attacking: "Attacking", defending: "Defending", receiving: "Ball Receiving and First Touch", scenarios: "Match Scenarios", fullmatch: "Full Match", freeplay: "Free Play"};
 
@@ -84,6 +84,26 @@ let first = null;
       res.kinds.push(k);
     }
     check(res.kinds.every(k => k.n === 7 && k.err <= .01 && k.spots === 7 && k.cage === k.kind), "after each pitch change every cone is at the new anchors and no spot is doubled", res.kinds);
+    // a pitch change while a scenario plays (runner.js: the change of place ends it): you are back walking in Training's
+    // own mode in the new cage, the screen comes back, the world keeps drawing, and the next change and the next
+    // scenario work as before
+    res.change = await page.evaluate(async () => {
+      const C = await import("/js/life/train/cage.js"), R = window.__trainRun, L = window.__life;
+      const race = p => Promise.race([p.then(() => "resolved"), new Promise(r => setTimeout(() => r("timeout"), 60000))]);
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      const ok = R.startScenario("qa-cones", {}), during = L.modes.mode();
+      const r1 = await race(C.cageEnter("half"));
+      const p0 = L.presented; await wait(1500);
+      const a = {r1, mode: L.modes.mode(), run: !!R.RUN.cur, fade: L.FADE.v, drawn: L.presented - p0, cage: C.CAGE.kind};
+      const r2 = await race(C.cageEnter("full"));
+      const again = R.startScenario("qa-cones", {}), mode2 = L.modes.mode();
+      R.stopScenario("done"); await wait(300);
+      return Object.assign(a, {ok, during, r2, again, mode2, after: L.modes.mode(), fade2: L.FADE.v});
+    });
+    check(res.change.ok && res.change.during === "train" && res.change.r1 === "resolved" && res.change.mode === "trainsb" && !res.change.run
+      && res.change.fade === 0 && res.change.drawn > 0 && res.change.cage === "half", "a pitch change while a scenario plays ends it and leaves you walking in the new cage", res.change);
+    check(res.change.r2 === "resolved" && res.change.again && res.change.mode2 === "train" && res.change.after === "trainsb" && res.change.fade2 === 0,
+      "after it the next pitch change and the next scenario work", res.change);
   } catch(e){ res.errors.push("cones: " + (e && e.stack || e)); }
   finally { res.errors.push(...t.page.errors.map(x => "page: " + x)); await t.close(); }
 }

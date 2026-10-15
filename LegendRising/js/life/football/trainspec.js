@@ -12,6 +12,7 @@
 // own events and numbers as arguments.
 
 import {makePitch, PITCHES} from "./pitchspec.js";
+import {areaPitchOf, goalsLawOf} from "./cagespec.js";
 import {hypot} from "./detmath.js";
 import {SLOT_POS} from "./tactics.js";
 export {SLOT_POS};
@@ -46,27 +47,15 @@ export const onPitch = (wx, wz, margin = 0) => Math.abs(wx - GP.cx) <= GP.L/2 + 
 export const GROUND_RUN = Object.freeze({x: GP.L/2 + 3, z: GP.Wd/2 + 1.1});
 export function areaPitch(area, tier = 3){
   if (!area){ const g = groundPitch(tier); g.runoff = {hx: GROUND_RUN.x, hz: GROUND_RUN.z}; return g; }
+  // (cagespec.js areaPitchOf over the training ground: a goal only at an end on one of its goal lines, the area
+  // centred across it and wide enough; the run-off round an area 2 m, never past the ground's own, a symmetric box
+  // about the area's middle; every mark kept)
   const L = area.x1 - area.x0, Wd = area.z1 - area.z0, cx = (area.x0 + area.x1)/2, cz = (area.z0 + area.z1)/2;
-  const spec = makePitch({L, Wd, cx: GP.cx + cx, cz: GP.cz + cz, roll: rollFor(tier)});
-  // the run-off round an area: 2 m, never past the ground's own (a symmetric box about the area's middle)
-  spec.runoff = {hx: Math.min(L/2 + 2, GROUND_RUN.x - Math.abs(cx)), hz: Math.min(Wd/2 + 2, GROUND_RUN.z - Math.abs(cz))};
-  // the ends of the area that are the training pitch's own goal lines, with its goals in them (full width only)
-  const full = Math.abs(Wd - GP.Wd) < 1e-6 && Math.abs(cz) < 1e-6;
-  const real = end => full && Math.abs(cx + end*L/2 - end*GP.L/2) < 1e-6;
-  const keep = q => real(q.end);
-  spec.goals = spec.goals.filter(keep);
-  spec.colliders.posts = spec.colliders.posts.filter(keep);
-  spec.colliders.bars = spec.colliders.bars.filter(keep);
-  spec.colliders.nets = spec.colliders.nets.filter(keep);
-  spec.spareCones = [];
-  spec.area = {x0: area.x0, x1: area.x1, z0: area.z0, z1: area.z1, ends: [-1, 1].filter(real)};
-  return spec;
+  return areaPitchOf(GP, area, {roll: rollFor(tier), allMarks: true,
+    runoff: {hx: Math.min(L/2 + 2, GROUND_RUN.x - Math.abs(cx)), hz: Math.min(Wd/2 + 2, GROUND_RUN.z - Math.abs(cz))}});
 }
-// the laws.goals of an area: 2 both ends are goals, 1 only the +x end, 0 none (rules.js goalCounts)
-export function goalsLaw(spec){
-  const e = spec.area ? spec.area.ends : [-1, 1];
-  return e.length === 2 ? 2 : e.length === 1 && e[0] === 1 ? 1 : 0;
-}
+// the laws.goals of an area: 2 both ends are goals, 1 only the +x end, 0 none (rules.js goalCounts; cagespec.js)
+export const goalsLaw = goalsLawOf;
 
 /* ---------- the drill stations (3.6.2) ----------
    Each in the training pitch's frame (x along the length, +x the east goal; z across, +24 the near touchline): the

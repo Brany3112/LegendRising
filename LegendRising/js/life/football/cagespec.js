@@ -47,8 +47,10 @@ export const cageKind = kind => CAGES[kind] ? kind : 'full';
    movers may go (default 2 m, never past the base's own run-off); o.boards: makePitch boards for the area.
    An end of the area is a real goal when it lies on one of the base's goal lines and the area is centred across the
    pitch and wide enough for the goal: only then does a goal stand in it (posts, bar, net), otherwise a ball over it
-   is simply out. The penalty and goal areas of an end with no goal are left out too. spec.area keeps the area (its
-   x0..x1 in the base frame are where rules.js finds the real halfway line, OFF-1), its real ends and the base. */
+   is simply out. The penalty and goal areas of an end with no goal are left out too, unless o.allMarks (the training
+   ground's drills, trainspec.js areaPitch, keep every mark their recorded runs were played with). spec.area keeps the
+   area (its x0..x1 in the base frame are where rules.js finds the real halfway line, OFF-1), its real ends and the
+   base. This is the one implementation: trainspec.js areaPitch is it over the training ground. */
 export function areaPitchOf(base, area, o = {}){
   const B = Object.assign({L: FIFA.L, Wd: FIFA.Wd, cx: 0, cz: 0}, base || {});
   const a = area || {x0: -B.L/2, x1: B.L/2, z0: -B.Wd/2, z1: B.Wd/2};
@@ -65,9 +67,11 @@ export function areaPitchOf(base, area, o = {}){
   spec.colliders.posts = spec.colliders.posts.filter(keep);
   spec.colliders.bars = spec.colliders.bars.filter(keep);
   spec.colliders.nets = spec.colliders.nets.filter(keep);
-  spec.areas.box = spec.areas.box.filter(keep);
-  spec.areas.six = spec.areas.six.filter(keep);
-  spec.spots.penalty = spec.spots.penalty.filter(keep);
+  if (!o.allMarks){
+    spec.areas.box = spec.areas.box.filter(keep);
+    spec.areas.six = spec.areas.six.filter(keep);
+    spec.spots.penalty = spec.spots.penalty.filter(keep);
+  }
   spec.spareCones = [];
   spec.area = {x0: a.x0, x1: a.x1, z0: a.z0, z1: a.z1, ends: [-1, 1].filter(real), base: {L: B.L, Wd: B.Wd}};
   return spec;
@@ -191,20 +195,24 @@ export function cageDraw(kind){
 
 /* ---------- the cones' places (BUILD-PLAN P3-B work item 3) ----------
    One cone per Training category at fixed places in the run-off along the +Z touchline (between the line and the
-   fence), 4 m apart and centred on the area, each facing the pitch (face: the yaw a person standing at it looking at
-   the pitch has; yaw 0 faces -Z). World coordinates of the cage zone. The same numbers every time. */
+   fence), 3 m apart and centred on the area (the whole row in view from where you come in), each facing the pitch
+   (face: the yaw a person standing at it looking at the pitch has; yaw 0 faces -Z). World coordinates of the cage
+   zone. The same numbers every time. */
 export const CAGE_CATEGORIES = Object.freeze(['setpieces', 'attacking', 'defending', 'receiving', 'scenarios', 'fullmatch', 'freeplay']);
 export function cageAnchors(kind){
   const k = cageKind(kind), a = CAGES[k].area, F = cageFence(k);
   const mx = (a.x0 + a.x1)/2, zLine = a.z1, z = zLine + clamp((F.hz - (a.z1 - a.z0)/2)/2, 1, 2.5);
-  const n = CAGE_CATEGORIES.length, gap = 4, out = {};
+  const n = CAGE_CATEGORIES.length, gap = 3, out = {};
   CAGE_CATEGORIES.forEach((cat, i) => { out[cat] = [{x: mx + (i - (n - 1)/2)*gap, z, face: 0}]; });
   return out;
 }
-// where you come into a cage: on the grass just inside the touchline by the cones, facing the pitch (yaw 0 faces -Z)
+// where you come into a cage: on the grass SPAWN_IN m inside the +Z touchline, facing the row of cones (yaw PI faces
+// +Z), so the cones that open each category are what you see once the hub is closed (the row spans 18 m: from here
+// it sits within about 45 degrees either side of straight ahead)
+export const SPAWN_IN = 8;
 export function cageSpawn(kind){
   const k = cageKind(kind), a = CAGES[k].area;
-  return {x: (a.x0 + a.x1)/2, y: 0, z: a.z1 - 2, yaw: 0};
+  return {x: (a.x0 + a.x1)/2, y: 0, z: a.z1 - SPAWN_IN, yaw: PI};
 }
 // the world box a cage's fence encloses (the cage zone's frame), for W.bounds and the camera
 export function cageWorldBox(kind){

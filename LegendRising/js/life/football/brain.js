@@ -96,8 +96,9 @@ export const BRAIN = Object.freeze({
   // the bodies in front); from a wide angle beyond SIGHT[4] m out (more than SIGHT[0] m off the axis) SIGHT[5] of it
   SIGHT: [11, 12, 28, 1.1, 22, 0.55],
   // (U9) holding the shape in possession, an attacker or a midfielder with a man within SPACE[0] m of his place in it
-  // finds space: up to SPACE[1] m off his place, away from that man, never offside
-  SPACE: [4, 5],
+  // finds space: up to SPACE[1] m off his place, away from that man, never offside (TR-3+U fix round 2: 3 m, not 5, the
+  // shape kept tighter; at 5 m goals per match and the striker's touches went above their harness bands)
+  SPACE: [4, 3],
   ME_FIRST: 1.0,             // (P2-A, AI-2) a pass to the player is left to him unless a team-mate gets to it this many s sooner
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
   TACKLE_RATE: [2.5, 0.5, 0.16],  // per second: a ball out of his feet, a shielded one, and the factor from behind (TR-2b refit: 0.12)
@@ -1754,9 +1755,12 @@ export function callFor(ms, a, how = 'here', point = null){
   // (U10) the man on the ball hears it now: his next look at his options comes at once, not on his own cadence
   const c = ms.poss.ctl >= 0 ? ms.agents[ms.poss.ctl] : null;
   // (a kick he has chosen and is still working the ball into his stride for, to somebody else, is thought again, as a
-  // pass whose lane closed is: pendingKick; one already being struck is not)
+  // pass whose lane closed is: pendingKick; one already being struck is not. At most once in CALL_T s for the same
+  // caller: a call is heard, never a veto, so pressing R over and over cannot keep calling off his pass to another man)
   if (c && c !== a && c.team === a.team && c.brain){
-    if (c.pendKick && !c.act && c.pendKick.rq && c.pendKick.rq.recv !== a.id) c.pendKick = null;
+    if (c.pendKick && !c.act && c.pendKick.rq && c.pendKick.rq.recv !== a.id && ms.t - (a.callCut ?? -99) >= BRAIN.CALL_T){
+      c.pendKick = null; a.callCut = ms.t;
+    }
     c.brain.pending = true;
   }
   logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how, px: point ? point.x : null, pz: point ? point.z : null});
