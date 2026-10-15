@@ -15,7 +15,9 @@
 .th-sc > div:first-child{display:grid;gap:2px}
 .th-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .th-none{margin:14px 0}
-.th-foot{display:flex;align-items:center;gap:10px;margin-top:8px}
+/* the foot (Exit to title, Back to hub) stays at the bottom of the sheet while the list scrolls, so the way out is always on screen */
+.th-foot{display:flex;align-items:center;gap:10px;margin-top:8px;position:sticky;bottom:-30px;z-index:1;margin-bottom:-30px;padding:10px 0 42px;
+  background:linear-gradient(180deg,rgba(12,21,34,.82),rgba(12,21,34,.97) 30%)}
 .th-foot .grow{flex:1}
 @media (max-width:600px){.th-sc{flex-direction:column;align-items:stretch}.th-btns{justify-content:flex-start}}
 

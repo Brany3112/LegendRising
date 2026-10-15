@@ -20,7 +20,7 @@
    (train:exit, fired by sandbox.js) stops whatever runs. Nothing here touches the career. */
 import {onBegin} from "../build.js";
 import {P, FLAGS} from "../core/state.js";
-import {enterMode, exitMode, mode, modeArg, flagsOf} from "../core/modes.js";
+import {enterMode, exitMode, mode, modeArg, modeFlags} from "../core/modes.js";
 import {SCHED} from "../core/sched.js";
 import {createMatch, REF, AR1, AR2, TEMPO} from "../football/sim.js";
 import {MODES} from "../football/rules.js";
@@ -179,7 +179,7 @@ function play(sc, config, setup){
   const B = takeBodies(need(setup));
   if (!B) return false;
   const {ms, bodyOf} = buildMatch(setup, spec, B);
-  const run = {id:sc.id, sc, config, T:null, prev:mode(), prevArg:modeArg(), state:"play", wait:0, verdict:null};
+  const run = {id:sc.id, sc, config, T:null, prev:mode(), prevArg:modeArg(), prevFlags:modeFlags(), state:"play", wait:0, verdict:null};
   const T = itemFor(run, setup, spec, ms, bodyOf, B);
   run.T = T;
   RUN.cur = run; RUN.setup = setup; RUN.starts++;
@@ -263,7 +263,7 @@ export function stopScenario(reason = "quit"){
   // back to the mode you walked about in (the sandbox's) unless Training is over. On a change of place ('ended') only
   // a mode that stays on through a zone change goes back on (the sandbox's does: a pitch change keeps you in
   // Training); a mode the change of place would end anyway stays off
-  const pf = run.prev && run.prev !== "life" ? flagsOf(run.prev) : null;
+  const pf = run.prev && run.prev !== "life" ? run.prevFlags : null;
   if (reason !== "exit" && pf && (reason !== "ended" || pf.leaveOnZone === false) && mode() === "life") enterMode(run.prev, run.prevArg);
   emit();
   // (the hub hears it: Esc out of a scenario opens it on that scenario's category)

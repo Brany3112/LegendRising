@@ -731,6 +731,7 @@ function workWhy(inj){
 function trainCost(){ return 14 - (carTier() >= 2 ? 3 : 0); }
 
 /* ---------- sheets (mall, staff, training, skills, menu) ---------- */
+let SHEET_RAF = 0;   // the pending slide-in of the sheet (openSheet, closeSheet)
 function openSheet(kind){
   const r = $("#sheetRoot"); let body = "";
   if (kind !== "trainhub" && r.classList.contains("open") && r.dataset.kind === "trainhub" && typeof window.trainHubClosed === "function") window.trainHubClosed();
@@ -849,12 +850,15 @@ function openSheet(kind){
   if (cur && r.classList.contains("open") && r.dataset.kind === kind){ r.classList.add("still"); morph(cur, inner); return; }   // refresh in place: no replayed row animations
   r.classList.remove("still");
   r.innerHTML = `<div class="sheet-back" onclick="closeSheet()"></div><div class="sheet glass">${inner}</div>`;
-  requestAnimationFrame(() => r.classList.add("open"));
+  // the slide-in waits a frame; a close before then cancels it, so a quick open and close never leaves it up
+  if (SHEET_RAF) cancelAnimationFrame(SHEET_RAF);
+  SHEET_RAF = requestAnimationFrame(() => { SHEET_RAF = 0; r.classList.add("open"); });
   r.dataset.kind = kind;
 }
 function closeSheet(){ const r = $("#sheetRoot"); if (!r) return;
+  const pending = SHEET_RAF; if (pending){ cancelAnimationFrame(pending); SHEET_RAF = 0; }
   // (Training's hub hears it go: it uncovers the view and gives the pointer back, train/hub.js)
-  if (r.classList.contains("open") && r.dataset.kind === "trainhub" && typeof window.trainHubClosed === "function") window.trainHubClosed();
+  if ((pending || r.classList.contains("open")) && r.dataset.kind === "trainhub" && typeof window.trainHubClosed === "function") window.trainHubClosed();
   r.classList.remove("open"); setTimeout(() => { if (!r.classList.contains("open")) r.innerHTML = ""; }, 300); }
 function refreshSheet(){ const r = $("#sheetRoot"); if (r && r.classList.contains("open")) openSheet(r.dataset.kind); }
 

@@ -44,8 +44,6 @@ export function exitMode(reason = "done"){
 export const mode = () => CUR.name;
 export const modeArg = () => CUR.arg;
 export const modeFlags = () => CUR.name === "life" ? LIFE_FLAGS : MODES[CUR.name].flags;
-// the flags of a mode by name, whether or not it runs now (null for one nobody registered)
-export const flagsOf = name => name === "life" ? LIFE_FLAGS : MODES[name] ? MODES[name].flags : null;
 const spec = () => CUR.name === "life" ? null : MODES[CUR.name];
 export function modeStep(dt, real){ const s = spec(); if (s && s.step) s.step(dt, real); }
 export function modeSlice(h){ const s = spec(); if (s && s.slice) s.slice(h); }

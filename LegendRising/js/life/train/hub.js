@@ -71,7 +71,10 @@ export function openHub(cat = null){
 // the hub goes (its own buttons, Esc, the cross, the backdrop: main.js closeSheet tells it)
 export function closeHub(){
   if (!HUB.open) return;
-  if (typeof closeSheet === "function" && document.querySelector("#sheetRoot.open")) closeSheet(); else hubClosed();
+  // the sheet goes too, even when its slide-in has not happened yet (main.js closeSheet cancels that)
+  const r = document.getElementById("sheetRoot");
+  if (typeof closeSheet === "function" && r && r.dataset.kind === "trainhub" && (r.classList.contains("open") || r.firstChild)) closeSheet();
+  hubClosed();
 }
 function hubClosed(){
   if (!HUB.open) return;

@@ -92,7 +92,8 @@ async function tabTo(page, sel, max = 20){
     await page.evaluate(() => document.exitPointerLock && document.exitPointerLock());
     await page.waitForFunction(() => !document.pointerLockElement, null, {timeout: 10000});
     await pressReal(page, "Escape");
-    await page.waitForFunction(() => window.__trainHub.hubOpen(), null, {timeout: 10000}).catch(() => {});
+    // (the sheet slides in on the next frame after the flag rises: wait for both)
+    await page.waitForFunction(() => { const r = document.querySelector("#sheetRoot.open"); return !!r && r.dataset.kind === "trainhub" && window.__trainHub.hubOpen(); }, null, {timeout: 10000}).catch(() => {});
     res.reopen = Object.assign(await hubState(page), {idle: await page.evaluate(() => !!document.getElementById("trainIdle"))});
     check(res.reopen.open && res.reopen.h2 === "Training" && !res.reopen.idle, "Esc in the cage (the pointer free) opens the hub again", res.reopen);
     // out: the hub's Exit to title
