@@ -5,7 +5,8 @@
 // Three test scenarios whose configurations ask for the Full, Half and One-goal pitch are started from the hub with real
 // clicks on their Start buttons, three round trips; each is left with Esc and the pause card's Return to Hub (real
 // key and click). The cage follows the configuration, the cones follow the cage, the pool is never rebuilt, and the
-// renderer's memory is back at each kind's first value on every trip.
+// renderer's memory is back at each kind's first value on every trip. Then (TR-4 fix round 2) a scenario that comes up
+// while the hub is up waits under it, and closing the hub by a click leaves the pause card clickable.
 //
 //   node qa/tr4-pitch.mjs
 import {report, expect, snap} from "./lib.mjs";
@@ -58,6 +59,34 @@ try {
       s.hubKeeps = after === kind;
     }
   }
+  // a scenario that comes up while the hub is up (a pitch switch with the hub opened during it, as Esc does there):
+  // held under the hub, then the hub closed by a real click on its cross. The pause card comes up with the pointer free,
+  // so a real click on Resume plays on
+  await clickReal(page, '#sheetRoot [data-th="start"][data-id="qa-pitch-full"]');
+  await page.evaluate(() => window.__trainHub.openHub());
+  await page.waitForFunction(() => !!window.__trainRun.RUN.cur && !window.__trainRun.RUN.pending, null, {timeout: 60000});
+  await page.waitForTimeout(800);
+  const held = await page.evaluate(() => ({paused: window.__trainRun.RUN.paused, hub: window.__trainHub.hubOpen(), card: document.getElementById("fpOverlay").classList.contains("on")}));
+  check(held.paused && held.hub && !held.card, "a scenario that starts under the hub is held, with no pause card over the hub", held);
+  await clickReal(page, "#sheetRoot .sheet-x");
+  await cardUp(page);
+  await page.waitForTimeout(400);
+  const lockUnderCard = await page.evaluate(() => !!document.pointerLockElement);
+  check(!lockUnderCard, "the hub closed by a click: the pause card is up and the pointer stays free", {lock: lockUnderCard});
+  await clickReal(page, '#fpOverlay [data-q="resume"]');
+  await page.waitForFunction(() => !window.__trainRun.RUN.paused && !window.__trainQuick.quickIsOpen(), null, {timeout: 10000}).catch(() => {});
+  const resumed = await page.evaluate(() => ({paused: window.__trainRun.RUN.paused, quick: window.__trainQuick.quickIsOpen()}));
+  check(!resumed.paused && !resumed.quick, "then a real click on Resume plays on", resumed);
+  // the hub opened over a scenario that plays: no pause card drawn over it (it would take the hub's clicks), and a real
+  // click on the hub's End it ends the scenario
+  await page.evaluate(() => window.__trainHub.openHub());
+  await page.waitForFunction(() => !!document.querySelector('#sheetRoot.open [data-th="end"]'), null, {timeout: 20000});
+  await page.waitForTimeout(400);
+  const over = await page.evaluate(() => document.getElementById("fpOverlay").classList.contains("on"));
+  await clickReal(page, '#sheetRoot [data-th="end"]');
+  await page.waitForFunction(() => !window.__trainRun.RUN.cur, null, {timeout: 10000}).catch(() => {});
+  const ended = await page.evaluate(() => !window.__trainRun.RUN.cur && window.__trainHub.hubOpen());
+  check(!over && ended, "with the hub over a playing scenario no card covers it, and its End it works by a real click", {over, ended});
   await closeHubReal(page);
   const T = res.trips;
   check(T.every(s => s.kind === s.want && s.specKind === s.want), "CAGE.kind matches the configured pitch at every start", T.map(s => [s.want, s.kind]));

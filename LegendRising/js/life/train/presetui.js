@@ -53,7 +53,7 @@ function html(){
   const msg = `<p class="muted small tp-msg" role="status">${esc(PS.msg)}</p>`;
   const body = rows.length ? `<div class="th-list tp-list">${rows.map(r => {
     const as = PS.asFor === r.id;
-    const btns = as ? `<input id="tpAsName" class="tp-in" type="text" maxlength="${LIMITS.name}" placeholder="New name" autocomplete="off" aria-label="Name for the new preset" value="${esc(r.name + " copy")}">
+    const btns = as ? `<input id="tpAsName" class="tp-in" type="text" maxlength="${LIMITS.name}" placeholder="New name" autocomplete="off" aria-label="Name for the new preset" value="${canSave ? "" : esc(r.name + " copy")}">
         <button class="btn sm" data-tp="ascopy" data-id="${r.id}">Save copy</button><button class="btn sm ghost" data-tp="ascancel">Cancel</button>`
       : `<button class="btn sm" data-tp="load" data-id="${r.id}">Load</button>${canSave ? `<button class="btn sm ghost" data-tp="over" data-id="${r.id}">Overwrite</button>` : ""}
         <button class="btn sm ghost" data-tp="as" data-id="${r.id}">Save as new</button><button class="btn sm ghost" data-tp="del" data-id="${r.id}">Delete</button>`;
@@ -155,7 +155,8 @@ function doAsCopy(id){
   if (!name){ say("Give the new preset a name."); return; }
   const r = saveAs(id, name, o.config);
   PS.asFor = null;
-  say(r.ok ? `Saved as a new preset, "${r.rec.name}".` : r.why);
+  // (with a setup in hand the new preset holds that setup, as Save does; without one it is a copy of the row)
+  say(r.ok ? (o.config ? `Saved the setup you have now as a new preset, "${r.rec.name}".` : `Saved a copy as "${r.rec.name}".`) : r.why);
 }
 function doLoad(id){
   const o = PS.o, L = load(id);

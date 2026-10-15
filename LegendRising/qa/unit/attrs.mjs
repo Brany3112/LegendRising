@@ -71,7 +71,8 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
       for (const p of ps){
         for (const k of [...SKILL_KEYS.filter(k => k !== "pace"), "acceleration", "sprintSpeed"]){
           const prof = PROFILE[p.arch][k === "acceleration" || k === "sprintSpeed" ? "pace" : k];
-          worst = Math.max(worst, Math.abs(p.a[k] - (avg + prof)));
+          // (a skill is a whole number: it is checked against average plus profile rounded the same way)
+          worst = Math.max(worst, Math.abs(p.a[k] - Math.round(avg + prof)));
           lo = Math.min(lo, p.a[k]); hi = Math.max(hi, p.a[k]);
         }
         for (const k of SKILL_KEYS){ sum += p.a[k]; n++; }
@@ -80,8 +81,8 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
     }
   }
   res.log.spreadAt50 = {min: lo, max: hi, worstFromProfile: worst};
-  console.log(`     measured at average 50 over 640 players: skills from ${lo} to ${hi}; the furthest from average plus profile ${worst.toFixed(2)}`);
-  check(worst <= 6.5, "every NPC skill is within 6 of average plus its role's profile (rounding aside) before the clamps", {worst});
+  console.log(`     measured at average 50 over 640 players: skills from ${lo} to ${hi}; the furthest from average plus profile (rounded) ${worst}`);
+  check(worst <= 6, "every NPC skill is within 6 of average plus its role's profile (both whole numbers) before the clamps", {worst});
   check(meanBad.length === 0, "a side's mean skill equals its average within 1", meanBad.slice(0, 3));
   // the editor's floor: an average of 5 gives a side of fives, not of twenties (a career's AI keeps its floor of 20)
   const low = attrsForAI({id: npcId(1, "att", 0), ovr: 5, pos: "CM"}, {training: true}), car = attrsForAI({id: "career-1", ovr: 5, pos: "CM"});

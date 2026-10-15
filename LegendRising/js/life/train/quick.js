@@ -21,7 +21,7 @@
    else to whoever listens for 'train:configure' {id, type, category, config} (P4-A's configuration sheet, which calls
    preventDefault), else the hub opens on its category. */
 import {RUN, restart, replay, stopScenario, setPauseMenu, setPaused, onRunner} from "./runner.js";
-import {openHub} from "./hub.js";
+import {openHub, hubOpen} from "./hub.js";
 import {hudOverlay} from "../football/fphud.js";
 import {controlRelease} from "../football/control.js";
 import {pushInput, popInput} from "../core/modes.js";
@@ -54,7 +54,9 @@ export const items = () => shown().map(it => ({id:it.id, label:it.label, group:i
 /* ---------- the card ---------- */
 const Q = {open:false, drawn:false, el:null, inp:null, obs:null, lockErr:null, lockOk:null};
 // (a sheet is up, or the presets' sheet is on its way up: it slides in on the next frame)
-const sheetUp = () => { const r = document.getElementById("sheetRoot"); return !!r && (r.classList.contains("open") || r.dataset.kind === "trainpreset"); };
+// (the hub counts from the moment it opens: its sheet slides in a frame later, and a card drawn in that frame would sit
+// over the hub and take its clicks)
+const sheetUp = () => { const r = document.getElementById("sheetRoot"); return !!r && (r.classList.contains("open") || r.dataset.kind === "trainpreset" || hubOpen()); };
 
 function html(){
   const run = RUN.cur, sc = run.sc, list = shown();
@@ -105,7 +107,8 @@ export function quickOpen(){
   controlRelease();
   if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
   if (!Q.open){ Q.open = true; Q.inp = input; pushInput(Q.inp); }
-  if (sheetUp()){ Q.drawn = false; watchSheet(true); return true; }
+  // (a sheet over it: the card, if it was already up, steps aside until the sheet goes)
+  if (sheetUp()){ if (Q.drawn) hudOverlay(null); Q.drawn = false; watchSheet(true); return true; }
   if (!Q.drawn) draw();
   return true;
 }

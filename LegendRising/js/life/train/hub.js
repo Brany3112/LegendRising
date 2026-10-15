@@ -25,12 +25,16 @@ import {thudIdle} from "./thud.js";
 import {typeOf, validate, defaults} from "./config.js";
 import {openConfig, configOpen} from "./configui.js";
 import {openPresets} from "./presetui.js";
+import {quickIsOpen, quickClose} from "./quick.js";
+import {FLAGS} from "../core/state.js";
 
-const HUB = {open:false, cat:null, key:null, release:true, cfg:new Map()};
+const HUB = {open:false, cat:null, key:null, release:true, cfg:new Map(), drawn:""};
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
 
-// the sheet's markup (js/ui/main.js openSheet calls it)
-function html(){
+// the sheet's markup (js/ui/main.js openSheet calls it): what was drawn is kept, so a runner event that changes
+// nothing on it does not draw it again under your click
+const html = () => (HUB.drawn = markup());
+function markup(){
   const cur = RUN.cur;
   const running = cur ? `<div class="th-run"><span>Playing now: <b>${esc(cur.sc.name)}</b></span>
       <button class="btn sm ghost" data-th="end">End it</button></div>` : "";
@@ -93,7 +97,12 @@ function hubClosed(){
   HUB.open = false; HUB.release = true;
   if (HUB.key){ removeEventListener("keydown", HUB.key, true); HUB.key = null; }
   screenCover(false, "trainhub");
-  if (release && window.lifeModalSet) window.lifeModalSet(false);
+  // the pointer back to the game, unless a scenario is held under the hub (it started while the hub was up after a
+  // pitch switch, runner.js holdUnderSheet): its pause card comes next and needs the pointer free to be clicked
+  if (release){
+    if (RUN.cur && RUN.paused) FLAGS.modal = false;
+    else if (window.lifeModalSet) window.lifeModalSet(false);
+  }
   idle();
 }
 // the line on how to get the hub back: only in the cage with nothing playing and neither sheet up
@@ -108,7 +117,12 @@ function cageKey(e){
 }
 export const hubOpen = () => HUB.open;
 export const hubCategory = () => HUB.cat;
-const redraw = () => { if (HUB.open && typeof openSheet === "function") openSheet("trainhub"); };
+function redraw(){
+  if (!HUB.open || typeof openSheet !== "function") return;
+  const r = document.getElementById("sheetRoot");
+  if (r && r.dataset.kind === "trainhub" && r.firstChild && markup() === HUB.drawn) return;
+  openSheet("trainhub");
+}
 
 /* ---------- each scenario's configuration (P4-A) ----------
    A scenario whose type config.js knows (registerType) has a configuration: its own starting values (the scenario's
@@ -164,7 +178,12 @@ function click(e){
   if (what === "cat"){ HUB.cat = id; redraw(); }
   else if (what === "back"){ HUB.cat = null; redraw(); }
   else if (what === "start") start(id);
-  else if (what === "restart"){ closeHub(); restart(); }
+  else if (what === "restart"){
+    // (held under the hub: its pause card goes too and play goes on, the pointer asked back by this click)
+    const held = quickIsOpen();
+    closeHub();
+    if (held){ quickClose({resume:true}); restart(); } else restart();
+  }
   else if (what === "replay"){ closeHub(); if (!replay()) openHub(HUB.cat); }
   else if (what === "end"){ stopScenario("quit"); }
   else if (what === "config") configureScenario(id);
@@ -175,6 +194,7 @@ function click(e){
 if (typeof window !== "undefined"){
   window.trainHubHTML = html;
   window.trainHubClosed = hubClosed;
+  window.trainHubOpen = hubOpen;
   const root = document.getElementById("sheetRoot");
   if (root) root.addEventListener("click", click);
   // a registration, a start or a stop while it is up: drawn again in place

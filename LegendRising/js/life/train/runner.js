@@ -270,7 +270,9 @@ function switchThen(kind, fn){
   emit();
   return !!p;
 }
-const sheetUp = () => { const r = typeof document !== "undefined" && document.getElementById("sheetRoot"); return !!r && r.classList.contains("open"); };
+// (the hub is up from the moment it opens, before its sheet has slid in: hub.js gives window.trainHubOpen)
+const sheetUp = () => { const r = typeof document !== "undefined" && document.getElementById("sheetRoot");
+  return !!r && (r.classList.contains("open") || (typeof window.trainHubOpen === "function" && window.trainHubOpen())); };
 function holdUnderSheet(){
   const T = RUN.cur && RUN.cur.T;
   if (HOOKS.pause && T){ try { HOOKS.pause(T); } catch(e){ console.error(e); } }
