@@ -34,6 +34,9 @@ function pageInit({seed, gfx}){
   const qa = window.__qa = {
     seed(n){ rnd = mulberry32(n); },
     frozen: false, queue: new Map(), nextId: 1e9,
+    // frames asked for while frozen and handed to the real RAF on unfreeze: their frozen id to the real one, so the
+    // page can still cancel them by the id it was given (main.js closeSheet cancels a pending slide-in that way)
+    handed: new Map(),
     // the page's real requestAnimationFrame, for the harness's own waits while the page's is stopped
     realRAF: raf
   };
@@ -41,7 +44,7 @@ function pageInit({seed, gfx}){
     if (!qa.frozen) return raf(cb);
     const id = qa.nextId++; qa.queue.set(id, cb); return id;
   };
-  window.cancelAnimationFrame = id => { if (qa.queue.has(id)) qa.queue.delete(id); else caf(id); };
+  window.cancelAnimationFrame = id => { if (qa.queue.has(id)) qa.queue.delete(id); else if (qa.handed.has(id)){ caf(qa.handed.get(id)); qa.handed.delete(id); } else caf(id); };
   try { if (gfx) localStorage.setItem("freyaFootball.gfx", gfx); } catch(e){}
 }
 
@@ -116,7 +119,10 @@ export async function freeze(page){
 }
 // let the page's RAF run again, handing it what it asked for while frozen
 export async function unfreeze(page){
-  await page.evaluate(() => { const qa = window.__qa; qa.frozen = false; const q = [...qa.queue.values()]; qa.queue.clear(); for (const cb of q) requestAnimationFrame(cb); });
+  await page.evaluate(() => {
+    const qa = window.__qa; qa.frozen = false; const q = [...qa.queue.entries()]; qa.queue.clear();
+    for (const [id, cb] of q) qa.handed.set(id, qa.realRAF(t => { qa.handed.delete(id); cb(t); }));
+  });
 }
 
 // n frames of the world with nothing drawn (__life.stepN), at a fixed dt
