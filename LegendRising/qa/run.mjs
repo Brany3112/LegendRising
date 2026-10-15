@@ -42,7 +42,7 @@ const NAMED = {
   tr2b: ["tr2b-race", "tr2b-receive", "tr2b-tackle", "tr2b-shieldsim", "tr2b-shield", "tr2b-anim", "tr2b-ai", "tr2b-realmatch"],
   tr3: ["tr3-sandbox", "tr3-cage", "tr3-leak", "tr3-hub", "tr3-cones", "tr3-runner"],
   // Phase 4 (TR-4): P4-A's configuration and attribute suites, P4-B's reset, pitch and presets suites
-  tr4: ["tr4-config", "tr4-attrs", "tr4-attredit", "tr4-reset", "tr4-pitch", "tr4-presets"],
+  tr4: ["tr4-config", "tr4-attrs", "tr4-attredit", "tr4-reset", "tr4-pitch", "tr4-presets", "tr4-play"],
   tr4a: ["tr4-config", "tr4-attrs", "tr4-attredit"],
   tr4b: ["tr4-reset", "tr4-pitch", "tr4-presets"],
   uf: ["uf-turn", "uf-throwin", "uf-anim", "uf-sub", "uf-fence", "uf-bench", "uf-aura", "uf-callpass", "uf-kits"]

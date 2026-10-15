@@ -16,7 +16,9 @@ const check = (ok, what, got) => { if (!ok) res.errors.push(`${what}: ${JSON.str
 const TYPE = "qa3v3", TNAME = "Test three against three";
 
 // a configuration as the configuration sheet hands it in (config.js validate), with these fields
-const cfgOf = (page, o) => page.evaluate(async ([t, o]) => { const C = await import("/js/life/train/config.js"); return C.validate(t, Object.assign(C.defaults(t), o)); }, [TYPE, o]);
+// (integrator) team-mates and opponents on, so the counts set are the counts played (config.js counts(): a side switched
+// off has nobody but you on it, and the Load list says what will be on the pitch)
+const cfgOf = (page, o) => page.evaluate(async ([t, o]) => { const C = await import("/js/life/train/config.js"); return C.validate(t, Object.assign(C.defaults(t), {mates: true, opps: true}, o)); }, [TYPE, o]);
 const open = (page, config, extra = {}) => page.evaluate(([t, n, c, x]) => window.__trainPresetUI.openPresets(Object.assign({type: t, typeName: n, config: c, scenarioId: "qa-3v3"}, x)), [TYPE, TNAME, config, extra]);
 const sheetUp = page => page.waitForFunction(() => !!document.querySelector("#sheetRoot.open .tp") && window.__trainPresetUI.presetsOpen(), null, {timeout: 15000});
 const stored = page => page.evaluate(k => { const s = localStorage.getItem(k); return s ? JSON.parse(s) : null; }, "freyaFootball.trainPresets");
@@ -122,7 +124,7 @@ try {
   check(res.saveAs.own, "loading each gives its own configuration", res.saveAs);
 
   // ---------- the Load list: three presets of different counts, keeper and pitch ----------
-  for (const [name, o] of [["Two v one full", {attackers: 2, defenders: 1, keeper: false, pitch: "full"}], ["Five v four goal", {attackers: 5, defenders: 4, keeper: true, pitch: "onegoal"}], ["One v one half", {attackers: 1, defenders: 1, keeper: false, pitch: "half"}]]){
+  for (const [name, o] of [["Two v one full", {attackers: 2, defenders: 1, keeper: false, pitch: "full"}], ["Five v four goal", {attackers: 5, defenders: 4, keeper: true, pitch: "onegoal"}], ["One v one half", {attackers: 1, defenders: 1, keeper: false, pitch: "half", mates: false}]]){
     const c = await cfgOf(page, o);
     await clickReal(page, '#sheetRoot .th-foot [data-tp="close"]');
     await page.waitForFunction(() => !window.__trainPresetUI.presetsOpen(), null, {timeout: 10000});

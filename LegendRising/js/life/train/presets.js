@@ -112,6 +112,7 @@ function newId(st){
 export function summary(type, config){
   const c = isObj(config) ? config : {};
   // (integrator) the counts are config.js counts(), the same ones the configuration sheet's preview and the runner use
+  // (a type config.js does not know is validated as its default type, so it is counted the same way)
   let att = 0, def = 0;
   try { const n = counts(type, c); att = n.att; def = n.def; } catch(e){}
   return {type, counts:`${att}v${def}`, att, def, keeper:!!c.keeper, pitch:c.pitch || null, pitchName:PITCH_NAMES[c.pitch] || ""};
