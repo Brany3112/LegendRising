@@ -1283,7 +1283,10 @@ function acroBody(h, T, C, d, k, K, s, tau, ball){
 const RECV = {inside:{dur:.62, contact:.32}, sole:{dur:.58, contact:.30}, air:{dur:.64, contact:.32}, thigh:{dur:.64, contact:.32}, chest:{dur:.66, contact:.34}};
 // STEP: how far the support foot may be from its spot before it steps (m, x height); LIFT: its step's height; REACH:
 // the most the hips move to bring the part onto the ball; POST: the clip's end after the contact (on the run, RUN_POST)
-export const RCV = Object.freeze({STEP:.16, LIFT:.07, REACH:.32, POST:.3, RUN_POST:.16, RUN_V:2.2, SUP_BACK:.18, SUP_OUT:.2, SUP_MAX:.62});
+// (the chest and the thigh: the body steps in to the ball, the support foot planted under where the hips will be, BODY_BACK
+// m short of the ball's centre, chest or thigh, and the hips go on to it by at most REACH_BODY)
+export const RCV = Object.freeze({STEP:.16, LIFT:.07, REACH:.32, POST:.3, RUN_POST:.16, RUN_V:2.2, SUP_BACK:.18, SUP_OUT:.2, SUP_MAX:.62,
+  BODY_BACK:{chest:.26, thigh:.3}, REACH_BODY:.5});
 const RECV_EV = [];
 function recvSpec(st){
   const R0 = RECV[st.part] || RECV.inside, v = st.rootV ? Math.hypot(st.rootV.x, st.rootV.z) : 0;
@@ -1344,7 +1347,13 @@ function receive(h, T, st, dt){
     const tx = rx - d.bx, tz = rz - d.bz, tl = Math.hypot(tx, tz) || 1;
     px += tx/tl*RCV.SUP_BACK*sc; pz += tz/tl*RCV.SUP_BACK*sc;
     // (the chest and the thigh are taken square on, the support foot under the body)
-    if (part === "chest" || part === "thigh"){ px = rx + ox*.5 + (d.bx - rx)*.25; pz = rz + oz*.5 + (d.bz - rz)*.25; }
+    d.ax = 0; d.az = 0; d.along = 0;
+    if (part === "chest" || part === "thigh"){
+      // (stepped in to it: under where the hips take the ball, BODY_BACK short of its centre)
+      const bx = d.bx - rx, bz = d.bz - rz, bl = Math.hypot(bx, bz) || 1;
+      d.ax = bx/bl; d.az = bz/bl; d.along = Math.min(RCV.SUP_MAX*sc, Math.max(0, bl - RCV.BODY_BACK[part]*sc));
+      px = rx + ox*.5 + d.ax*d.along; pz = rz + oz*.5 + d.az*d.along;
+    }
     const pdx = px - rx, pdz = pz - rz, pdl = Math.hypot(pdx, pdz), mx = RCV.SUP_MAX*sc;
     if (pdl > mx){ px = rx + pdx/pdl*mx; pz = rz + pdz/pdl*mx; }
     d.px = px; d.pz = pz;
@@ -1400,13 +1409,16 @@ function receive(h, T, st, dt){
   } else if (part === "thigh"){
     // the thigh comes up under the ball (the knee as high as the ball asks) and drops away with it
     const lift = kf(tau, [[0, 0], [ct, 1], [ct + .15, .7], [dur, 0]]), hb = clamp((d.by - d.gy)/sc - .4, 0, .6)/.55;
-    toB(d.kx0, d.ky0, d.kz0, _b3);
+    // (from where it stood, carried in with the body's step to the ball)
+    const ein = ease(clamp(tau/Math.max(.1, ct), 0, 1));
+    toB(d.kx0 + d.ax*d.along*ein, d.ky0, d.kz0 + d.az*d.along*ein, _b3);
     toW(_b3.x, D.ankY + (.1 + .14*hb)*lift, _b3.z + (.14 + .16*hb)*lift, _w3);
     Fk.x = _w3.x; Fk.y = _w3.y; Fk.z = _w3.z; Fk.yaw = 0; Fk.pitch = .6*lift; Fk.roll = 0; Fk.down = lift <= 0;
   } else {
     // the chest: both feet stay (the support foot set under the body), the receiving foot steps back a touch to brace
     const u = clamp((tau - .04)/.2, 0, 1), e = ease(u);
-    toB(d.kx0, d.ky0, d.kz0, _b3);
+    // (it follows the body's step in to the ball by half, behind the support foot)
+    toB(d.kx0 + d.ax*d.along*.5*e, d.ky0, d.kz0 + d.az*d.along*.5*e, _b3);
     toW(_b3.x, D.ankY, _b3.z - .08*e, _w3);
     Fk.x = _w3.x; Fk.y = lerp(d.ky0, _w3.y, e) + .04*sc*bump(u); Fk.z = _w3.z; Fk.yaw = lerp(d.kyaw0, 0, e); Fk.pitch = 0; Fk.roll = 0; Fk.down = u >= 1;
   }
@@ -1417,6 +1429,11 @@ function receive(h, T, st, dt){
   const turn = clamp(faceYaw, -1.4, 1.4);
   T[61] = -(.035 + (part === "inside" || part === "sole" ? .03 : 0))*wIn - .03*wC;
   T[60] = sup*.045*sstep(0, d.tDown, tau)*(1 - sstep(ct, ct + .2, tau))*wIn;
+  // (the chest and the thigh: the hips go in with the step to the ball and come part of the way back after)
+  if (d.along > 0){
+    dirB(d.ax, d.az, _d2); const k = d.along*kf(tau, [[0, 0], [ct, 1], [ct + .12, 1], [dur, .35]]);
+    T[60] += _d2.x*k; T[62] += _d2.z*k;
+  }
   R3(T, B.hips, .04*wIn, turn*.38*wIn, 0);
   R3(T, B.spine, (part === "chest" ? 0 : .1)*wIn, turn*.14*wIn, -sup*.04*wC);
   R3(T, B.chest, (part === "chest" ? 0 : .05)*wIn, turn*.1*wIn, 0);
@@ -1450,7 +1467,7 @@ function receive(h, T, st, dt){
     if (body) toB(d.bx + d.vx*BR*.5, d.by, d.bz + d.vz*BR*.5, _rq); else toB(d.tx, d.ty, d.tz, _rq);
     let ex = _rq.x - _rp.x, ey = _rq.y - _rp.y, ez = _rq.z - _rp.z;
     // (the feet stay down: the hips go no lower than a bent knee allows, and for a foot the leg reaches as well)
-    const el = Math.hypot(ex, ey, ez), mx = RCV.REACH;
+    const el = Math.hypot(ex, ey, ez), mx = body ? RCV.REACH_BODY : RCV.REACH;
     if (el > mx){ ex *= mx/el; ey *= mx/el; ez *= mx/el; }
     T[60] += ex*wC; T[61] += clamp(ey, -.12, .06)*wC; T[62] += ez*wC;
     solve();
