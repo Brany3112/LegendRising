@@ -70,8 +70,8 @@ const TUNE_GROUPS = Object.freeze([["MAP_STR_POW", "How the duel stats come from
   ["S_STR", "Shielding"], ["TR_0", "Tackling"]]);
 
 // the admin's own state. inf: infinite stamina for you (kept over restarts and scenarios until Training is left);
-// ms: the simulation the session settings were last applied to; spawn: Free Play's spawn options
-const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, spawn:{y:R, v:0}, key:null, obs:null, hub:null, paused:false, start:null};
+// ms: the simulation the session settings were last applied to; hq: the height (cm) queued for the restart; spawn: Free Play's spawn options
+const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, hq:null, spawn:{y:R, v:0}, key:null, obs:null, hub:null, paused:false, start:null};
 
 /* ---------- the runner's admin API (P5-A) ---------- */
 // a change safe mid-play, run between two simulation steps (the runner's applyLive)
@@ -113,7 +113,10 @@ function mySkills(){
   return null;
 }
 const myFoot = () => { const a = meAgent(); return a ? FOOT_NAME[a.foot] || "Right" : null; };
+// the height the slider shows: one waiting for the restart first (RUN.pending only carries its label, so the panel
+// keeps the value it queued), else the one in the configuration, else the body's own
 function myHeight(){
+  if (AD.hq != null && pending().some(c => c.key === "me.height")) return AD.hq;
   const run = RUN.cur, a = meAgent();
   const h = run && isObj(run.config) && isObj(run.config.me) && Number.isFinite(+run.config.me.height) ? +run.config.me.height : null;
   if (h) return Math.round(h*100);
@@ -146,8 +149,10 @@ function setHeight(cm){
   const a = meAgent(), now = a ? Math.round((a.scale || 1)*BASE_H*100) : null;
   if (v === now){
     dropChange("me.height");
+    AD.hq = null;
     return v;
   }
+  AD.hq = v;
   queue({key:"me.height", label:`Height ${v} cm`, apply(c){ if (!isObj(c.me)) c.me = {}; c.me.height = m; }});
   return v;
 }
