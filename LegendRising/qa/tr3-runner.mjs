@@ -9,7 +9,7 @@
 //
 //   node qa/tr3-runner.mjs
 import {report, expect, snap, freeze, unfreeze} from "./lib.mjs";
-import {trainLaunch, enterByButton, trainWrites, pressReal, lockPointer} from "./tr3b-lib.mjs";
+import {trainLaunch, enterByButton, trainWrites, pressReal, lockPointer, clickReal} from "./tr3b-lib.mjs";
 
 const res = {setup: null, cycles: [], counts: null, restore: [], ui: null, cam: null, ball: null, errors: []};
 const check = (ok, what, got) => { if (!ok) res.errors.push(`${what}: ${JSON.stringify(got)}`); console.log(`${ok ? "ok  " : "FAIL"} ${what}`); };
@@ -110,7 +110,17 @@ try {
   // the Training UI, the camera and the HUD over 600 frames of the 2 v 2 with the ball played all over the screen
   await unfreeze(page);
   await page.evaluate(() => { if (window.__trainHub.hubOpen()) window.__trainHub.closeHub(); window.__trainRun.startScenario("qa-2v2", {}); });
+  // the measuring starts in play: the hub's sheet gone and the pause card (up while the pointer was free, P4-B) left with
+  // its own Resume, as a player does. A click for the pointer made while either is still there lands on it instead,
+  // and the 600 frames would then start over a card or a closing sheet (a flake under load)
+  await page.waitForFunction(() => !document.querySelector("#sheetRoot.open") && !window.__trainHub.hubOpen(), null, {timeout: 15000});
+  await page.waitForTimeout(500);
+  if (await page.evaluate(() => window.__trainQuick.quickIsOpen() && !!document.querySelector('#fpOverlay.on [data-q="resume"]'))){
+    await clickReal(page, '#fpOverlay [data-q="resume"]');
+    await page.waitForFunction(() => !window.__trainQuick.quickIsOpen(), null, {timeout: 10000});
+  }
   await lockPointer(page);
+  await page.waitForFunction(() => !window.__trainQuick.quickIsOpen() && !document.querySelector("#fpOverlay.on") && !!document.pointerLockElement, null, {timeout: 10000});
   const ui = await page.evaluate(() => new Promise(done => {
     const L = window.__life, R = window.__trainRun, T = () => R.RUN.T, THREE = null;
     const out = {frames: 0, onScreen: 0, covered: [], thud: null, area: [], owners: {}, flips: 0, sideStart: null};
