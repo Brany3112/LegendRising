@@ -88,3 +88,42 @@
 .tp .tp-meta{display:block}
 .fp-qgroup{margin-top:14px}
 .fp-qgroup .eyebrow{font-size:.72rem;margin-bottom:0}
+
+/* ---------- the admin panel (P5-B: js/life/train/admin.js), on the sheet layer like the hub ----------
+   A narrower sheet on the right, so the pitch stays in view on the left while it is up */
+#sheetRoot[data-kind="trainadmin"] .sheet.tad-sheet{left:auto;right:0;width:min(560px,100%);max-height:none;top:0;bottom:0;border-radius:24px 0 0 24px;
+  transform:translate(0,0)}
+#sheetRoot[data-kind="trainadmin"]:not(.open) .sheet.tad-sheet{transform:translate(100%,0)}
+#sheetRoot[data-kind="trainadmin"] .sheet-back{background:rgba(5,9,15,.25)}
+.tad h2{margin-bottom:.1em}
+.tad-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 6px}
+.tad-tabs .btn{min-width:0}
+.tad-pending{margin:6px 0;padding:6px 10px;border-radius:10px;background:rgba(255,210,122,.12);border:1px solid rgba(255,210,122,.35);color:#ffd27a;font-size:.86rem}
+.tad-msg{min-height:1.2em;margin:4px 0}
+.tad-body{display:grid;gap:8px;margin:6px 0 10px}
+.tad-row{display:grid;grid-template-columns:minmax(130px,190px) 1fr;gap:10px;align-items:center;padding:8px 10px;border-radius:12px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.tad-label{display:grid;gap:2px}
+.tad-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.tad-seg button{font-size:.84rem}
+.tad-in{width:5.4em;padding:.35em .5em;border-radius:8px;text-align:right}
+.tad-big{font:700 1.2rem/1 var(--display);font-variant-numeric:tabular-nums}
+.tad-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tad-range{width:160px}
+.tad-hv{min-width:4.2em;font-variant-numeric:tabular-nums}
+.tad-btns{margin:4px 0}
+.tad-none{margin:10px 0}
+.tad-match{margin-top:12px}
+.tad-ed .ae-sec{margin:4px 0}
+.tad .ae-rows{grid-template-columns:1fr}
+.tad-tg{margin:8px 0;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.tad-tg h4{margin:0 0 6px}
+.tad-tr{display:grid;grid-template-columns:1fr 5.4em auto auto;gap:8px;align-items:center;padding:2px 0}
+.tad-tr.changed .tad-tl{color:#ffd27a}
+.tad-tl{margin:0;font-weight:500;color:#c9d6e3;font-size:.86rem}
+.tad-tl .muted{font-size:.7rem}
+.tad-rg{white-space:nowrap}
+@media (max-width:600px){.tad-row{grid-template-columns:1fr}.tad-tr{grid-template-columns:1fr 5em auto}.tad-rg{display:none}}
+
+/* the Training HUD's key hints (P5-A's Free Play Q hint and the admin hint, thud.js): one quiet line */
+#trainHud .thud-hint{color:rgba(231,238,247,.75);font-size:.66rem}

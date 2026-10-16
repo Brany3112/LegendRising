@@ -6,6 +6,9 @@
 // behaviour 3.2.1 step 5 and 3.2.5 (duels). P2b-A (Training Mode and football rework, Phase 2b; TRAINING-SPEC 3) adds
 // intent.shield and the possession fields (shield, chal, recoverT, duelOn/duelT, chalOn/chalRoll, pushT/pushOn, zLB/zIn/zD).
 // UF-A (TR-3 user fixes, USER-ISSUES U10) adds handUp and raiseHand (the hand raised for the ball).
+// P5-B (Training Mode Phase 5, the admin panel; TRAINING-SPEC 4 "Player: attributes, physical traits") adds footCode,
+// agentAttrs and agentFoot: a body's attributes and preferred foot changed while it plays, with everything worked out
+// from them at creation worked out again (its mover profile, its reaction time, its stamina skill).
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Lengths in metres, pitch-local
 // frame of DESIGN 1.1 (x along the length, z across, yaw 0 faces -Z).
@@ -29,6 +32,9 @@ export const AGENT = Object.freeze({
   REACH: {feet: 0.6, chest: 1.45, head: 2.1, hands: 2.4}   // reachY for firstReach (3.1.2), x scale
 });
 
+// the preferred foot as the agent keeps it: 'L', 'R' or 'B' (from 'Left', 'Right', 'Both' or the letters)
+export const footCode = f => f === 'Left' || f === 'L' ? 'L' : f === 'Both' || f === 'B' ? 'B' : 'R';
+
 // The agent record (1.4.13). o = {id, pid, team, slot, arch, isGK, isMe, role, scale, at, energy, x, z, yaw, items,
 // name, number, prefFoot}. prm is the FOOTBALL mover profile for the agent's pace and dribbling (grip boots for the
 // player); officials run on a plain profile. The stamina pool starts full to the cap the match energy allows.
@@ -39,9 +45,11 @@ export function createAgent(o){
   const a = {
     id: o.id, pid: o.pid != null ? o.pid : -1, team: o.team != null ? o.team : -1, slot: o.slot || '', arch: o.arch || 'CM',
     isGK: !!o.isGK, isMe: !!o.isMe, role, scale: o.scale || 1,
-    name: o.name || '', number: o.number || 0, foot: o.prefFoot === 'Left' || o.prefFoot === 'L' ? 'L' : o.prefFoot === 'Both' ? 'B' : 'R',
+    name: o.name || '', number: o.number || 0, foot: footCode(o.prefFoot),
     m: createMover({x: o.x || 0, z: o.z || 0, yaw: o.yaw || 0}),
-    prm: moverParams({pace: at.pace, dribbling: at.dribbling, acceleration: at.acceleration, sprintSpeed: at.sprintSpeed, agility: at.agility}, "football", o.items || {}),
+    prm: moverParams(prmSkills(at), "football", o.items || {}),
+    // (the items his mover profile was made with: agentAttrs makes it again with the same ones)
+    items: o.items || null,
     st: createStam({stamina: at.stamina != null ? at.stamina : 50, energy, fatigue: o.fatigue || 0}),
     g: createGait(),
     y: 0, vy: 0,
@@ -82,8 +90,33 @@ export function createAgent(o){
     // the agent's own facing vector for faceTo() in the per-step code (one object reused, not a new one a step)
     faceV: {x: 0, z: 0}
   };
-  a.react = 0.25 - 0.0015*clamp(at.interception != null ? at.interception : 50, 0, 99);
+  a.react = reactOf(at);
   return a;
+}
+const prmSkills = at => ({pace: at.pace, dribbling: at.dribbling, acceleration: at.acceleration, sprintSpeed: at.sprintSpeed, agility: at.agility});
+const reactOf = at => 0.25 - 0.0015*clamp(at.interception != null ? at.interception : 50, 0, 99);
+
+// New attributes for a body that is already playing (P5-B, the admin panel's live edits): the record's at replaced,
+// and what createAgent worked out from it made again the same way: the mover profile (its pace, acceleration, sprint
+// speed and agility, with the items he plays in; the bounds it was given are kept), the reaction time, and the stamina
+// skill the pool reads. A keeper's own set (at.gk) is kept when the new record has none. Everything else that reads
+// the attributes (the touch, the strike, the duels, the AI) reads a.at when it acts, so it follows at once. The body's
+// movement state, breath and plans are left as they are: play goes on from where it is.
+export function agentAttrs(a, at){
+  if (!a || !at || typeof at !== 'object') return a;
+  if (at.gk == null && a.at && a.at.gk) at.gk = a.at.gk;
+  const bounds = a.prm ? a.prm.bounds : null;
+  a.at = at;
+  if (a.role === 'player') a.prm = Object.assign(moverParams(prmSkills(at), "football", a.items || {}), {bounds});
+  a.react = reactOf(at);
+  if (a.st) a.st.stamina = at.stamina != null ? at.stamina : 50;
+  return a;
+}
+// the preferred foot changed while he plays (P5-B): touch.js and the strike read a.foot when they pick a side, so the
+// next touch or strike uses it; an action already under way keeps the side it stored
+export function agentFoot(a, f){
+  if (a) a.foot = footCode(f);
+  return a ? a.foot : 'R';
 }
 
 // UF-A (USER-ISSUES U10): the hand raised for the ball. Every request for the pass (the player's R, whether or not the

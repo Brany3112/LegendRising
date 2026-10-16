@@ -27,7 +27,11 @@
    remove(id)                    -> true when it was there
    load(id)                      -> {id, type, name, config} with the config validated afresh, or null
    get(id)                       -> the stored record (a copy) with its type, or null
-   Storage and the clock can be swapped for tests (useStorage, useClock); nothing here touches the DOM. */
+   Storage and the clock can be swapped for tests (useStorage, useClock); nothing here touches the DOM.
+
+   P5-B (Training Mode Phase 5, the admin panel; TRAINING-SPEC 4 "player presets"): a type whose setup is not a team
+   (the admin's 'player' presets: attributes, height and foot) says what its Load list should show instead of the
+   counts with describe(type, fn): fn(config) -> a short line, kept on the summary as detail. */
 import {validate, counts, typeOf, PITCH_NAMES} from "./config.js";
 
 export const KEY = "freyaFootball.trainPresets";
@@ -122,8 +126,16 @@ function newId(st){
 /* ---------- what the Load list shows ---------- */
 // the counts a configuration puts on the pitch: attackers v defenders (the wall stands with the defenders, G0 d; with
 // team-mates off my side is me alone, with opponents off the other side is empty, G0 h)
+const DESCRIBE = new Map();
+export function describe(type, fn){ if (TYPE_RE.test(String(type))){ if (typeof fn === "function") DESCRIBE.set(type, fn); else DESCRIBE.delete(type); } }
 export function summary(type, config){
   const c = isObj(config) ? config : {};
+  const d = DESCRIBE.get(type);
+  if (d){
+    let detail = "";
+    try { detail = String(d(c) || ""); } catch(e){ detail = ""; }
+    return {type, counts:"", att:0, def:0, keeper:false, pitch:null, pitchName:"", detail};
+  }
   // (integrator) the counts are config.js counts(), the same ones the configuration sheet's preview and the runner use
   // (a type config.js does not know is validated as its default type, so it is counted the same way)
   let att = 0, def = 0;
