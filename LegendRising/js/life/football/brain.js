@@ -27,7 +27,7 @@ import {gauss} from "./rng.js";
 import {timeToPointQ, TT, sprintSpeed} from "../mover.js";
 import {xT, SLOT_POS, teamToPitch, depthOf} from "./tactics.js";
 import {xgAt, xgGeo} from "./judge.js";
-import {offsidePosition, RULES, lawOf, goalCounts} from "./rules.js";
+import {offsidePosition, halfwayU, RULES, lawOf, goalCounts} from "./rules.js";
 import {logEv} from "./events.js";
 import {decisionRecord} from "./judge.js";
 import {steer, standStill, faceTo, startKick, startTackle, startHeader, startThrow, passSpeedFor, loftSpeedFor, pressureOn,
@@ -438,21 +438,29 @@ function ballPlans(ms, team){
   if (recv && recv.isMe && !ms.meAI && recv.team === team && recv.onPitch && !recv.sentOff){
     const s = recv.scale || 1, mr = reachOf(ms, recv, 1.45*s, recv.react + age, Infinity);
     const mates = Math.min(bestT[team], headT[team]);
-    if (mr && !(mates + BRAIN.ME_FIRST < mr.t)) return;
+    if (mr && !(mates + BRAIN.ME_FIRST < mr.t)){ standDown(ms, team, null); return; }
   }
   const hd = heads[team];
   if (hd && headR[team] && (!fr || headR[team].t + 0.1 < fr.t)){
     const hr = headR[team];
+    standDown(ms, team, hd);
     planHeader(ms, hd, {t: Math.max(0, hr.t - age), x: hr.x, y: hr.y, z: hr.z});
     return;
   }
   if (!who || !fr) return;
   if (who.isMe && !ms.meAI) return;
   const kind = recv === who ? 'receive' : (recv && recv.team !== team ? 'intercept' : 'chase');
+  standDown(ms, team, who);
   who.plan = {kind, x: fr.x, z: fr.z, t: Math.max(0, fr.t - age), y: fr.y, at: ms.t, first: null, push: null};
   planFirst(ms, who);
 }
 
+// (P6-B) one man of a side goes for a loose ball: when the side's plan now sends someone else (or leaves it to the
+// player), a team-mate still running to meet it with his head from an earlier plan stands down, unless he has already
+// left the ground for it. (A header plan used to outlive the plan that replaced it: two of a side went for one ball)
+function standDown(ms, team, keep){
+  for (const a of ms.agents) if (a.team === team && a !== keep && a.plan && a.plan.kind === 'header' && !a.act) a.plan = null;
+}
 // a header plan: run to the spot, jump to meet it near the apex; at the attackers' end a header at goal, at the
 // defenders' a clearance, otherwise a header pass
 function planHeader(ms, a, hr){
@@ -568,7 +576,9 @@ function* carrierOptions(ms, a){
     const om = o.m;
     if (o.isGK && !(u < L*0.3 && press > 0.4)) continue;
     // perceived offside: the receiver's margin seen with an error (nobody is offside when the law is not played)
-    const seenOff = offOn && offsidePosition(ms, o, team).margin + offErr*gauss(ms.r) > RULES.OFF.eps && uOf(ms, team, om.x) > L/2;
+    // ((P6-B) past the real halfway line, the law's own: a cage's area is only part of the pitch, and the middle of a
+    // Half cage is not halfway; on a whole pitch the two are the same)
+    const seenOff = offOn && offsidePosition(ms, o, team).margin + offErr*gauss(ms.r) > RULES.OFF.eps && uOf(ms, team, om.x) > halfwayU(ms.spec, dir);
     if (o.id === caller) callerOff = seenOff;
     // a pass to his feet (a little ahead of where he is going)
     const tx = clamp(om.x + om.vx*0.35, -ms.spec.hx + 1, ms.spec.hx - 1), tz = clamp(om.z + om.vz*0.35, -ms.spec.hz + 1, ms.spec.hz - 1);
@@ -850,7 +860,26 @@ function kickWhenReady(ms, a, rq){
   a.drib = null;
   return null;
 }
-const realStart = (ms, a, rq) => { a.pendKick = null; return startKick(ms, a, rq); };
+const realStart = (ms, a, rq) => {
+  a.pendKick = null;
+  // (P6-B) Training Mode: a pass to a man who would be offside when it is struck is thought again, never played
+  if (offAtStrike(ms, a, rq)){ a.brain.next = ms.t; a.brain.pending = true; a.drib = null; return null; }
+  return startKick(ms, a, rq);
+};
+/* (P6-B, TRAINING-SPEC 2: offside respected by the AI's passing; BUILD-PLAN P6-B "no pass to an offside receiver") In
+   Training Mode's scenarios the passer has a last look as he strikes it: where his man is against the real line (the
+   law's own test, rules.js offsidePosition) and where his run takes him over the strike's wind-up (STRIKE_T s). The
+   choice itself still reads the line as he perceives it (with an error by his vision), so he can pick the pass and
+   then hold it; in a match he can also get it wrong, as players and assistants do (the harness's offside bands) */
+const STRIKE_T = 0.25;
+function offAtStrike(ms, a, rq){
+  if (ms.mode !== 'train' || !lawOf(ms, 'offside') || rq.recv == null || rq.recv < 0) return false;
+  if (rq.kind !== 'pass' && rq.kind !== 'through' && rq.kind !== 'lob') return false;
+  const o = ms.agents[rq.recv];
+  if (!o || o.team !== a.team || o === a) return false;
+  const p = offsidePosition(ms, o, a.team), fwd = Math.max(0, ms.dirs[a.team]*o.m.vx);
+  return p.margin + fwd*STRIKE_T > -0.05;
+}
 const PMC = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
 const LBM = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
 // the pending kick: into the window, then the strike; out of time, the decision is made again
@@ -954,7 +983,7 @@ export function decideOffBall(ms, a){
   // a man standing offside gets back onside before anything else (unless he is on a run): with the ball, so that he
   // can be played in; without it, so that a header or a block that falls to him is not given against him
   const myU = uOf(ms, team, m.x);
-  if (!(ms.poss.team === team && a.task.run) && myU > onsideU(ms, tm) - 0.2 && myU > ms.spec.L/2 && a.task.press !== 1){
+  if (!(ms.poss.team === team && a.task.run) && myU > onsideU(ms, tm) - 0.2 && myU > halfwayU(ms.spec, dir) && a.task.press !== 1){
     const p = teamToPitch(ms, team, tm.lineOpp - 1.2, wOf(ms, team, m.z), {x: 0, z: 0});
     out.x = p.x; out.z = clamp(anc.z, -ms.spec.hz + 1, ms.spec.hz - 1)*0.4 + p.z*0.6; out.gait = 'run'; out.stop = 0.4;
     return out;
@@ -1717,7 +1746,9 @@ export function brainStep(ms, h){
     if (a.drill && ms.mode === 'train' && drillMove(ms, a, c)) continue;
     // a runner holding the line goes the moment the pass to him is struck
     const run = a.task.run;
-    if (run && !run.go && c && c.team === a.team && c.act && c.act.kind === 'kick' && c.act.action && c.act.action.recv === a.id){ run.go = true; a.tgtSet = false; }
+    // ((P6-B) in Training Mode, at the moment it is struck, not as the passer shapes to strike it: a run that starts with
+    // the wind-up can carry him past the line before the contact, which is when the law looks)
+    if (run && !run.go && c && c.team === a.team && c.act && c.act.kind === 'kick' && c.act.action && c.act.action.recv === a.id && (ms.mode !== 'train' || c.act.ev)){ run.go = true; a.tgtSet = false; }
     const p = a.plan;
     if (p && (p.kind === 'receive' || p.kind === 'chase' || p.kind === 'intercept')){
       // to the reach point, in time (a sprint when the margin is thin), facing the ball
