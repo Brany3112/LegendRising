@@ -245,7 +245,7 @@ try {
       "the preset's configuration has the non-default values (moving, bouncing from the left at 14 m/s, a defender at 3 m, then a shot)", C1.opts);
     // (the digest is read the moment the activation is done: the runner tells its listeners at the end of every start)
     const atStart = () => page.evaluate(async () => { const RM = await import("/js/life/train/runner.js"), R = window.__trainRun; window.__qaAt = null;
-      if (!window.__qaAtOff) window.__qaAtOff = RM.onRunner(() => { if (R.RUN.cur && !window.__qaAt) window.__qaAt = {d: R.digest(), cfg: JSON.parse(JSON.stringify(R.RUN.cur.config))}; }); });
+      if (!window.__qaAtOff) window.__qaAtOff = RM.onRunner(() => { if (R.RUN.cur && !window.__qaAt) window.__qaAt = {d: R.digest(), cfg: JSON.parse(JSON.stringify(R.RUN.cur.config)), runner: JSON.parse(JSON.stringify(R.digestState().runner))}; }); });
     // the digest of the saved setup's activation
     await page.evaluate(() => window.__t6.reset());
     await atStart();
@@ -283,7 +283,12 @@ try {
       const dig1 = await page.evaluate(() => Object.assign({preset: window.__trainRun.RUN.cur.preset}, window.__qaAt));
       res.preset = {meta, same: JSON.stringify(dig1.cfg) === JSON.stringify(C1), digest: [dig0.d && dig0.d.hash, dig1.d && dig1.d.hash], parts: dig0.d && dig1.d ? dig0.d.parts.filter((p, i) => p !== dig1.d.parts[i]) : null, preset: dig1.preset};
       check(res.preset.same && JSON.stringify(dig0.cfg) === JSON.stringify(C1), "Load starts the drill with exactly the saved configuration", res.preset);
-      check(dig0.d && dig1.d && dig0.d.hash === dig1.d.hash, "the loaded preset's activation digest (RUN.digest) equals the saved setup's", res.preset);
+      // (the one thing meant to differ: the HUD's preset line names the preset it was loaded from, "No preset" before)
+      const diffs = [], walk = (a, b, at) => { if (JSON.stringify(a) === JSON.stringify(b)) return; if (a && b && typeof a === "object" && typeof b === "object"){ for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) walk(a[k], b[k], at + "." + k); } else diffs.push([at, a, b]); };
+      walk(dig0.runner, dig1.runner, "runner");
+      res.preset.runnerDiff = diffs;
+      const onlyHud = res.preset.parts && res.preset.parts.every(p => p.startsWith("runner:")) && diffs.every(([at, a, b]) => /^runner\.hud\b/.test(at) && /preset/i.test(JSON.stringify([at, a, b])));
+      check(dig0.d && dig1.d && (dig0.d.hash === dig1.d.hash || onlyHud), "the loaded preset's activation digest (RUN.digest) equals the saved setup's (but for the HUD's line naming the preset)", res.preset);
       check(meta.length && /From the left|from the left/.test(meta[0].meta) && /14 m\/s/.test(meta[0].meta), "the Load list says what the preset is (where from, how, how hard)", meta);
     }
   }
