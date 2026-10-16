@@ -20,7 +20,7 @@
    How it is played:
    - The coach's feed (passer -1): a kick from outside the play, as the runner's activation launch is (ball.js
      ballKick, agent -1, logged as the coach's).
-   - A passer (an agent of the simulation, a team-mate standing at the ball): his own kick (actions.js startKick, the
+   - A passer (an agent of the simulation, a team-mate standing a couple of strides behind the ball): his own kick (actions.js startKick, the
      one every player strikes with), his body's strike clip and all. A feed is a delivery drill, so his strike is the
      configured launch exactly: no deviation is drawn for it (the strike's three unit draws are zero) and its speed
      spread is none. What still shapes the flight is his own strike: his aero skill (the drag of his ball) and his
@@ -37,11 +37,12 @@ import {FRESH} from "../stamina.js";
 
 const R = BALL.R;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-// BACK, SIDE: where the passer stands from the ball (behind it on the line of the pass, to his support foot's side);
+// BACK, SIDE: where the passer stands from the ball (behind it on the line of the pass, to his support foot's side: a
+// couple of strides back, so his strike has its run-up, actions.js's walk-up to a dead ball);
 // CONTACT_EST: the seconds from the passer's start to his contact the receiver's point is worked out for; ITERS: the
 // rounds of the flight time; WAIT: the default seconds before a feed, MAX the latest; RUN_TAU: how fast a runner
 // closes on the speed he is asking for (seconds), for where he will be
-export const FEEDER = Object.freeze({BACK:0.62, SIDE:0.12, CONTACT_EST:0.16, ITERS:4, WAIT:1.0, MAX:4.5, RUN_TAU:0.22});
+export const FEEDER = Object.freeze({BACK:1.9, SIDE:0.25, CONTACT_EST:0.75, ITERS:4, WAIT:1.0, MAX:4.5, RUN_TAU:0.22});
 // the contact each kind is struck with (teams.js: driven -1, a cross or a lofted ball 1, a pass 0)
 export const CONTACT = Object.freeze({pass:0, driven:-1, cross:1, loft:1});
 // the touch kind ball.js records and the action a passer strikes it as

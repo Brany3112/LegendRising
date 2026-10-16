@@ -31,7 +31,7 @@ import {human, animateHuman, lookFor, EV} from "../human.js";
 import {SCHED} from "../core/sched.js";
 import {ballMesh} from "./pitchmesh.js";
 import {STADIUM} from "./stadium.js";
-import {predAt} from "./actions.js";
+import {predAt, ACT} from "./actions.js";
 import {kindOf, windHold, windUpper, heldBall, HAND} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
@@ -348,13 +348,25 @@ function liveSt(V, R, a, ms, dt){
   if (act && act !== R.doneAct){
     switch (act.kind){
       case "kick": {
-        if (act.adjust && !act.done) break;
+        // (the walk-up to a dead ball, P6-A: the last strides onto it are the strike's run-up, so the clip starts while
+        // he is still walking up, on the contact his walk-up says, and is re-aimed on the simulation's own once he is
+        // in the window; started only then, a strike from a walk-up had a tenth of a second for a run-up of a third)
+        let walkTc = -1;
+        if (act.adjust && !act.done){
+          const b = ms.ball, dead = b.state === "dead" || (act.adjustMax || 0) > 1;
+          // (he is in the window once the ball is ACT.REACH1 ahead; he comes onto it slowing to the speed the steer
+          // allows there, and the strike is ACT.TC_MAX after that, the window's far edge)
+          const f = dirOf(a.m.yaw), sc = a.scale || 1, ahead = (b.p.x - a.m.x)*f.x + (b.p.z - a.m.z)*f.z;
+          const dl = ahead - ACT.REACH1*sc, vEdge = 1.5*Math.max(0, ACT.REACH1*sc - WALKUP.BACK) + .3;
+          walkTc = dead ? Math.max(0, dl)/Math.max(WALKUP.V, .5*(a.m.speed + vEdge)) + ACT.TC_MAX + H : -1;
+          if (!(walkTc >= 0 && walkTc <= WALKUP.LEAD)) break;
+        }
         const rq = act.action || {};
         const c = clipFor(R, "strike", act);
         c.mode = "strike"; c.kind = strikeKind(rq); c.side = act.foot === "L" ? "L" : "R";
         c.power = rq.power != null ? rq.power : .6; c.curl = rq.finesse ? 1 : 0; c.lowHigh = rq.contact || 0;
         if (!act.done){
-          const tcl = Math.max(0, act.tc - act.t - alpha*H);
+          const tcl = walkTc >= 0 ? walkTc : Math.max(0, act.tc - act.t - alpha*H);
           c.tc = tcl;
           predAt(ms, tcl, PB); c.ball = c.ball || {x:0, y:0, z:0}; c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
           const tg = rq.target; c.dir = tg ? {x:tg.x - PB.x, z:tg.z - PB.z} : dirOf(a.m.yaw);
@@ -437,6 +449,9 @@ function liveSt(V, R, a, ms, dt){
   return loco;
 }
 const UP_FLAG = {g:"point", w:1}, UP_SHIELD = {g:"shield", w:1};
+// a dead ball's walk-up (actions.js: he steers to his plant spot, BACK m behind the ball, slowing as he comes onto it,
+// at no less than V m/s here, and strikes once in the window): the strike clip starts once that is under LEAD s away
+const WALKUP = Object.freeze({BACK:.62, V:.5, LEAD:.55});
 // is this body shielding the ball now: the engine's resolved shield (actions.js a.shield.on) when it has one, else its
 // intent (the AI's or yours); never in the middle of an action
 const shielding = a => !a.act && (a.shield ? !!a.shield.on : !!(a.intent && a.intent.shield));
@@ -489,8 +504,8 @@ function outcomeOf(V, a, g){
 }
 /* ---------- the first touch (P6-A: TRAINING-SPEC 5, never an animation where the ball is not) ----------
    recvFor: a first touch about to happen. The contact is found the way the simulation takes it (actions.js touchCheck
-   and envAhead): step by step ahead, the ball where it will be at the start of each step (or half way through it, or at
-   its end), his body where his run takes him by that step's end, inside his control radius (zone.js R for the ball as
+   and envAhead): step by step ahead, the ball where it will be at the start of each step (or at its end, or half way
+   through it, in envAhead's order and with its LATER_MIN), his body where his run takes him by that step's end, inside his control radius (zone.js R for the ball as
    it will be then). The first such step is the contact: its time and the ball's centre then are the clip's st.tc and
    st.ball. The clip starts when that contact is under RECV_LEAD s away and he is the one to take it; its part is
    touch.js touchPart's (the simulation's own rule: the foot, the raised foot for a ball in the air out to his side or
@@ -503,25 +518,52 @@ function outcomeOf(V, a, g){
 const RECV_LEAD = .45, RECV_HOLD = .35, READY = 1.3;
 const RA = {m:{x:0, z:0, yaw:0, vx:0, vz:0, speed:0}, at:null, scale:1, fac:null, y:0, st:null, plan:null}, RBALL = {p:{x:0, y:0, z:0}, v:{x:0, y:0, z:0}};
 const CS = {n:-1, t:0, x:0, y:0, z:0, d:0, r:0};
-const HALF3 = [0, .5, 1];
+// (actions.js envAhead: the ball now, else where it is at the end of the step, else half way; one inside only at the
+// end and still beyond LATER_MIN is left for the next step)
+const HALF3 = [0, 1, .5], LATER_MIN = .45;
+/* the ball's predicted path read from where the ball really is now: the path cache (actions.js refreshPred) may have
+   been made before or after the ball's own step of the step it was made in, so its time 0 is the ball now or a step
+   on; the offset (0, one step or two back) is the one whose point is the ball now (ms.pred at 30 Hz) */
+let PRED_OFF = 0;
+function predSync(ms){
+  const b = ms.ball.p;
+  let best = Infinity;
+  PRED_OFF = 0;
+  for (const o of [0, -H, -2*H]){
+    predRaw(ms, o, PB);
+    const d = Math.hypot(PB.x - b.x, PB.y - b.y, PB.z - b.z);
+    if (d < best - 1e-6){ best = d; PRED_OFF = o; }
+  }
+}
+function predRaw(ms, t, out){
+  const P = ms.pred, n = ms.predN, tt = Math.max(0, t + ms.t - ms.predT);
+  if (!(n > 0)){ out.x = ms.ball.p.x; out.y = ms.ball.p.y; out.z = ms.ball.p.z; return out; }
+  const k = Math.min(tt*30, n - 1.001), i = Math.floor(k), f = k - i, o = 4*i;
+  if (i >= n - 1){ out.x = P[4*(n - 1)]; out.y = P[4*(n - 1) + 1]; out.z = P[4*(n - 1) + 2]; return out; }
+  out.x = P[o] + (P[o + 4] - P[o])*f; out.y = P[o + 1] + (P[o + 5] - P[o + 1])*f; out.z = P[o + 2] + (P[o + 6] - P[o + 2])*f;
+  return out;
+}
+const predOn = (ms, t, out) => predRaw(ms, t + PRED_OFF, out);
 // the step (n, 0 = the next) the simulation will take the ball in, within tMax s, and the ball then; null for none
 function contactStep(a, ms, tMax){
   const M = RA.m; RA.at = a.at; RA.scale = a.scale || 1; RA.fac = a.fac; RA.st = a.st; RA.y = 0; RA.plan = a.plan;
   M.yaw = a.m.yaw; M.vx = a.m.vx; M.vz = a.m.vz; M.speed = a.m.speed;
   const bv = ms.ball.v; RBALL.v.x = bv.x; RBALL.v.y = bv.y; RBALL.v.z = bv.z;
   const N = Math.ceil(tMax/H);
+  predSync(ms);
   for (let n = 0; n <= N; n++){
     // (his body at the end of that step: the simulation moves him before it looks at the ball)
     const tb = (n + 1)*H;
     M.x = a.m.x + a.m.vx*tb; M.z = a.m.z + a.m.vz*tb;
     for (const f of HALF3){
-      predAt(ms, (n + f)*H, PB);
+      predOn(ms, (n + f)*H, PB);
       RBALL.p.x = PB.x; RBALL.p.y = PB.y; RBALL.p.z = PB.z;
       if (zonePart(PB.y, RA.scale) === "head") continue;
       const d = Math.hypot(PB.x - M.x, PB.z - M.z), r = zoneR(RA, RBALL, ms);
+      if (r > 0 && d <= r && f === 1 && d > LATER_MIN) break;
       if (r > 0 && d <= r){
         // (the touch is put on the ball as it is at the start of that step)
-        if (f) predAt(ms, n*H, PB);
+        if (f) predOn(ms, n*H, PB);
         CS.n = n; CS.t = n*H; CS.x = PB.x; CS.y = PB.y; CS.z = PB.z; CS.d = d; CS.r = r;
         return CS;
       }

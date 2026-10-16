@@ -37,7 +37,19 @@ const r3 = v => Math.round(v*1000)/1000;
 const HELPERS = async () => {
   const RC = await import("/js/life/train/receive.js");
   await import("/js/life/train/scen-receive.js");
-  const MV = await import("/js/life/moves.js"), Z = await import("/js/life/football/zone.js");
+  const MV = await import("/js/life/moves.js"), Z = await import("/js/life/football/zone.js"), A = await import("/js/life/football/actions.js"), CT = await import("/js/life/football/control.js");
+  // (a ball off his line: the player steps across to where it will pass, as a player would: W A S D for the way to it)
+  const steer = (ms, me) => {
+    const Q = {x:0, y:0, z:0}, P = window.__life.P;
+    let best = null;
+    for (let i = 1; i <= 45; i++){ A.predAt(ms, i/30, Q); const d = Math.hypot(Q.x - me.m.x, Q.z - me.m.z); if (!best || d < best.d) best = {d, x:Q.x, z:Q.z, t:i/30}; }
+    for (const k of ["w", "a", "s", "d"]) CT.CTRL.held[k] = false;
+    if (!best || best.d < .45 || best.t < .12 || ms.poss.ctl === me.id) return;
+    const dx = best.x - me.m.x, dz = best.z - me.m.z, l = Math.hypot(dx, dz), fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = -fz, rz = fx;
+    const fw = (dx*fx + dz*fz)/l, rt = (dx*rx + dz*rz)/l;
+    if (fw > .38) CT.CTRL.held.w = true; else if (fw < -.38) CT.CTRL.held.s = true;
+    if (rt > .38) CT.CTRL.held.d = true; else if (rt < -.38) CT.CTRL.held.a = true;
+  };
   const L = window.__life, Rn = window.__trainRun, r3 = v => Math.round(v*1000)/1000;
   const T6 = window.__t6 = {RC, MV, Z,
     cfg(id, extra){ return RC.drillConfig(id, extra || null); },
@@ -56,6 +68,7 @@ const HELPERS = async () => {
       const T = Rn.RUN.T, ms = () => Rn.RUN.T.ms, me = () => Rn.RUN.T.me, V = T.V, rec = () => V.rec[me().id];
       const S = T6.S || (T6.S = {});
       for (let i = 0; i < max; i++){
+        if (T6.steer && !S.touch) steer(ms(), me());
         L.stepN(1, 1/120);
         const R = rec(), c = R && R.clip && R.clip.mode === "receive" ? R.clip : null, C = R && R.h.mv, m = me(), M = ms();
         if (c && !S.clip){
@@ -92,7 +105,7 @@ const HELPERS = async () => {
       }
       return S;
     },
-    reset(){ T6.S = null; },
+    reset(){ T6.S = null; T6.steer = false; for (const k of ["w", "a", "s", "d"]) CT.CTRL.held[k] = false; },
     me(){ const m = Rn.RUN.T.me; return {x:m.m.x, z:m.m.z}; }
   };
 };
@@ -124,8 +137,8 @@ try {
 
   // ---------- 1 to 5: the receive animation on the real ball ----------
   const DRILLS = [
-    ["feet", "receive-feet", null], ["left", "receive-left", null], ["adjust", "receive-adjust", null], ["slow", "receive-slow", null],
-    ["thigh", "receive-thigh", null], ["chest", "receive-chest", null], ["footair", "receive-footair", null],
+    ["feet", "receive-feet", null], ["left", "receive-left", null], ["adjust", "receive-adjust", {steer: true}], ["slow", "receive-slow", null],
+    ["thigh", "receive-thigh", null], ["chest", "receive-chest", null], ["footair", "receive-footair", {steer: true}],
     ["jog", "receive-jog", {keys: ["w"]}], ["sprint", "receive-sprint", {keys: ["w", "shift"]}]
   ];
   for (const [name, id, o] of DRILLS){
@@ -134,7 +147,7 @@ try {
     await ready();
     await lockPointer(page);
     await freeze(page);
-    await page.evaluate(() => window.__t6.whole());
+    await page.evaluate(([st]) => { window.__t6.whole(); window.__t6.steer = !!st; }, [!!(o && o.steer)]);
     // (the run of a moving drill: its keys held as the player's would be, looking along the run)
     if (o && o.keys) await page.evaluate(async keys => { const CT = await import("/js/life/football/control.js"); for (const k of keys) CT.CTRL.held[k] = true; window.__life.P.yaw = -Math.PI/2; }, o.keys);
     let S = await page.evaluate(() => window.__t6.run("clip", 1600));
@@ -205,7 +218,8 @@ try {
           if (!at && C && C.key === "strike" && C.contactDone && R2.clip){
             const k = MV.kindOf(R2.clip.kind), part = MV.KINDS[k].part, p = MV.partPoint(R2.h, part, R2.clip.side);
             const ox = V.ox || 0, oz = V.oz || 0, b = G.feed.f.from;
-            at = {d: Math.hypot(p.x - ox - b.x, p.y - b.y, p.z - oz - b.z), part, kind: R2.clip.kind, side: R2.clip.side};
+            const pa = T.ms.agents[G.passer];
+            at = {d: Math.hypot(p.x - ox - b.x, p.y - b.y, p.z - oz - b.z), part, kind: R2.clip.kind, side: R2.clip.side, p: [p.x - ox, p.y, p.z - oz], b: [b.x, b.y, b.z], body: [pa.m.x, pa.m.z], tau: C.tau, cball: R2.clip.ball, mode: R2.h.mode};
           }
           if (G.feed.landed && at) break;
         }
