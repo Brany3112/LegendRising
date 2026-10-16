@@ -14,7 +14,14 @@
    P4-B (Training Mode Phase 4, BUILD-PLAN P4-B work item 5): the preset line names the preset the scenario was started
    from (presets.js, through the runner), and the keys line gives the quick-menu hints once the pause card exists
    (quick.js): Backspace starts the go again, Esc opens the pause menu (where Replay Last, the configuration and the
-   hub are). thudState() is the card's own state for the runner's reset digest. */
+   hub are). thudState() is the card's own state for the runner's reset digest.
+
+   P5-A (Training Mode Phase 5, BUILD-PLAN P5-A work items 2 and 3; TRAINING-SPEC 4, the Training UI shows the admin
+   and Q hints, and changes that wait for the next safe state say so): the keys line also gives the admin panel's keys
+   (Numpad 1, or Ctrl+Shift+1 on a laptop: keys.js), in every scenario and in the cage between them, never outside
+   Training (this card only exists in it); a scenario's own keys (its ui(T).keys, [{key, text}]: Free Play's Q) get a
+   line of their own; and each change queued for the restart (runner.js RUN.pending) is a note of its own,
+   "Applies on restart: ..." (thudPending). */
 import {THREE} from "../build.js";
 import {RT} from "../core/state.js";
 
@@ -30,7 +37,12 @@ function el(){
   TH.el = d; TH.side = "left";
   return d;
 }
-/* info = {scenario, role, mine, theirs, keeper, preset, lines?: [extra short lines], pauseMenu: Esc opens the pause card} */
+// the admin panel's keys (keys.js): Numpad 1, or Ctrl+Shift+1 on a keyboard with no number pad
+export const ADMIN_HINT = `<kbd>Numpad 1</kbd> or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd> admin panel`;
+const keyLine = k => `<span class="thud-keys thud-own"><kbd>${esc(k.key)}</kbd> ${esc(k.text)}</span>`;
+const pendLines = list => (list || []).map(l => `<span class="thud-row thud-pend">Applies on restart: ${esc(l)}</span>`).join("");
+/* info = {scenario, role, mine, theirs, keeper, preset, lines?: [extra short lines], pauseMenu: Esc opens the pause card,
+   keys?: [{key, text}] the scenario's own keys, pending?: [labels of the changes waiting for the restart]} */
 export function thudShow(info){
   const d = el(); TH.info = info;
   const side = n => `${n}`;
@@ -38,8 +50,11 @@ export function thudShow(info){
     <span class="thud-row">${esc(info.role)} · ${side(info.mine)} v ${side(info.theirs)} · ${info.keeper ? "Keeper on" : "No keeper"}</span>
     <span class="thud-row thud-preset">${info.preset ? `Preset: ${esc(info.preset)}` : "No preset"}</span>
     ${(info.lines || []).map(l => `<span class="thud-row">${esc(l)}</span>`).join("")}
+    <span class="thud-pends">${pendLines(info.pending)}</span>
+    ${(info.keys || []).filter(k => k && k.key && k.text).map(keyLine).join("")}
     <span class="thud-keys">${info.pauseMenu ? `<kbd>Backspace</kbd> restart · <kbd>Esc</kbd> pause menu, to replay it or pick another`
       : `<kbd>Backspace</kbd> start again · <kbd>Esc</kbd> twice for the hub, to replay it or pick another`}</span>
+    <span class="thud-keys thud-admin">${ADMIN_HINT}</span>
     <span class="thud-note" hidden></span>`;
   d.hidden = false;
   TH.noteT = 0;
@@ -74,6 +89,12 @@ export function thudFrame(T){
   }
 }
 export const thudSide = () => TH.side;
+// the changes waiting for the restart, as notes on the card (runner.js, whenever RUN.pending changes); null for none
+export function thudPending(labels){
+  if (TH.info) TH.info = Object.assign({}, TH.info, {pending:labels && labels.length ? labels.slice() : null});
+  const d = TH.el, box = d && d.querySelector(".thud-pends");
+  if (box) box.innerHTML = pendLines(labels);
+}
 // the card's own state (the runner's reset digest): what it shows, and the notice and its time
 export function thudState(){
   const d = TH.el, n = d && d.querySelector(".thud-note");
@@ -88,6 +109,6 @@ export function thudIdle(on){
   if (IDLE && IDLE.isConnected) return;
   const d = IDLE = document.createElement("div");
   d.id = "trainIdle"; d.className = "thud-idle";
-  d.innerHTML = `<kbd>Esc</kbd> twice for the Training hub, where you can also leave · or walk up to a cone and press <kbd>E</kbd>`;
+  d.innerHTML = `<kbd>Esc</kbd> twice for the Training hub, where you can also leave · or walk up to a cone and press <kbd>E</kbd> · ${ADMIN_HINT}`;
   (document.getElementById("lifeRoot") || document.body).appendChild(d);
 }

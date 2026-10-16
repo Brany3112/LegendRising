@@ -23,7 +23,9 @@
      positions   {me: {slot, dx, dz}, att: [6 x {slot, dx, dz}], def: [6 x {slot, dx, dz}]}: a formation slot and an
                  offset in metres (dx toward the goal attacked, dz across) for every participant; att and def are the
                  computer's players of each side in order (me left out, the wall left out: it lines up on the ball)
-     me          my 15 skills (attrs.js EDIT_SKILLS), 1..99
+     me          my 15 skills (attrs.js EDIT_SKILLS), 1..99, and (P5-A) my body: height (metres, in the range the look
+                 editor allows: HEIGHT) and prefFoot ('Right' | 'Left' | 'Both'); teams.js makes them the player record's
+                 scale and preferred foot
      attAvg      the attacking NPCs' average, 1..99; defAvg the defending NPCs'
      gk          the keeper's set {reflex, dive, handling, posit, distrib}, 1..99
      ball        {at: {x, y, z} | null (null: at the feet of whoever has it), launch: null | {kind: 'pass' | 'driven' |
@@ -36,7 +38,13 @@
    copy of anything: defaults for what is missing or bad, values clamped, unknown keys dropped, the limits kept with a
    note saying what was changed. relevant() is what the configuration sheet shows (configui.js), allowed() the values
    a field may take in a configuration. teams.js turns a configuration into the simulation's setup. Nothing here
-   touches the DOM, so the unit tests run it under node. */
+   touches the DOM, so the unit tests run it under node.
+
+   P5-A (Training Mode Phase 5, BUILD-PLAN P5-A work item 5; TRAINING-SPEC 4, the admin panel's Player section: height
+   through the whole-body scale, the preferred foot as a physical trait): me.height and me.prefFoot in the shared
+   schema, relevant to every type (me is always shown). Defaults: the height of the body you walk Training in (the held
+   career's look, else the default look: core/me.js sandboxLook) and the held career's preferred foot, else Right.
+   validate() clamps the height to the look editor's range and keeps the foot one of FEET. */
 import {EDIT_SKILLS, GK_KEYS, ATTR_MIN, ATTR_MAX, ATTR_PRESETS, presetSkills, cleanSkills} from "../football/attrs.js";
 
 export const VERSION = 1;
@@ -118,11 +126,62 @@ export function defaultMe(){
   return cleanSkills(h, presetSkills("average"));
 }
 
+/* ---------- my body (P5-A) ----------
+   The look editor's height is a scale of a 1.80 m body (daily.js LOOK_OPT.height, a classic script's global, read by its
+   bare name as heldSkills is; 0.93 to 1.07 when it is not there, as under node). A height in metres is that scale times
+   HEIGHT_REF, and the scale a height gives is the look rule's own (daily.js lookSane: clamped, three decimals), so the
+   simulation's agent is exactly as tall as the body drawn for it (view.js and bridge.js read look.height the same way) */
+export const HEIGHT_REF = 1.80;
+export const FEET = Object.freeze(["Right", "Left", "Both"]);
+export const FOOT_NAMES = Object.freeze({Right:"Right", Left:"Left", Both:"Both feet"});
+const lookRange = () => {
+  try { if (typeof LOOK_OPT !== "undefined" && LOOK_OPT && Array.isArray(LOOK_OPT.height)) return LOOK_OPT.height; } catch(e){ /* not loaded */ }
+  return [0.93, 1.07];
+};
+// the heights the look editor allows, in metres: {min, max}
+export function heightRange(){ const [a, b] = lookRange(); return {min:r3(a*HEIGHT_REF), max:r3(b*HEIGHT_REF)}; }
+// the whole-body scale (look.height, agent.scale) a height in metres gives
+export function scaleOfHeight(h){
+  const [a, b] = lookRange(), v = numOr(h, HEIGHT_REF)/HEIGHT_REF;
+  return +clamp(v, a, b).toFixed(3);
+}
+// a foot as the career writes it ('Right', 'Left', 'Both', or 'R', 'L', 'B'), or null
+export const footOf = f => f === "Left" || f === "L" ? "Left" : f === "Both" || f === "B" ? "Both" : f === "Right" || f === "R" ? "Right" : null;
+// the body you walk Training in: the held career's look, else the default look (core/me.js sandboxLook, TRAIN_SEED 7)
+function trainLookNow(){
+  try {
+    const h = typeof heldLook === "function" ? heldLook() : null;
+    if (h) return h;
+    return typeof lookDefault === "function" ? lookDefault(7) : null;
+  } catch(e){ return null; }
+}
+export function defaultHeight(){
+  const L = trainLookNow(), f = L && +L.height > 0 ? +L.height : 1;
+  return r3(scaleOfHeight(f*HEIGHT_REF)*HEIGHT_REF);
+}
+export function defaultFoot(){
+  let f = null;
+  try { f = typeof heldFoot === "function" ? heldFoot() : null; } catch(e){ f = null; }
+  return footOf(f) || "Right";
+}
+// a height made safe: metres within the look editor's range (a scale of a 1.80 m body)
+export function cleanHeight(v, d = defaultHeight()){
+  const R = heightRange(), x = numOr(v, numOr(d, HEIGHT_REF));
+  return r3(clamp(x, R.min, R.max));
+}
+// my skills and my body: the skills cleaned as the editor's, then the height and the preferred foot
+function cleanMe(src, d){
+  const o = cleanSkills(isObj(src) ? src : null, d);
+  o.height = cleanHeight(isObj(src) ? src.height : null, d.height);
+  o.prefFoot = footOf(isObj(src) ? src.prefFoot : null) || footOf(d.prefFoot) || "Right";
+  return o;
+}
+
 function baseDefaults(){
   return {
     v:VERSION, seed:1, role:"attacker", possession:"me", attackers:1, defenders:1, wall:0, mates:false, opps:true, keeper:true, offside:false,
     positions:{me:{slot:"", dx:0, dz:0}, att:ATT_SLOTS.map(slot => ({slot, dx:0, dz:0})), def:DEF_SLOTS.map(slot => ({slot, dx:0, dz:0}))},
-    me:defaultMe(), attAvg:ATTR_PRESETS.average, defAvg:ATTR_PRESETS.average, gk:presetSkills("average", GK_KEYS),
+    me:Object.assign(defaultMe(), {height:defaultHeight(), prefFoot:defaultFoot()}), attAvg:ATTR_PRESETS.average, defAvg:ATTR_PRESETS.average, gk:presetSkills("average", GK_KEYS),
     ball:{at:null, launch:null}, out:"rebound", pitch:"half", opts:{}
   };
 }
@@ -191,7 +250,7 @@ export function validate(type, src, notes = null){
   c.keeper = boolOr(o.keeper, d.keeper);
   c.offside = uses(S, "offside") ? boolOr(o.offside, d.offside) : false;
   c.positions = cleanPositions(o.positions, d.positions);
-  c.me = cleanSkills(isObj(o.me) ? o.me : null, d.me);
+  c.me = cleanMe(o.me, d.me);
   c.attAvg = intIn(o.attAvg, ATTR_MIN, ATTR_MAX, d.attAvg);
   c.defAvg = intIn(o.defAvg, ATTR_MIN, ATTR_MAX, d.defAvg);
   c.gk = cleanSkills(isObj(o.gk) ? o.gk : null, d.gk, GK_KEYS);
@@ -393,8 +452,25 @@ registerType("scenarios", {name:"Match Scenarios", fields:[...DEFAULT_FIELDS, "o
 registerType("setpieces", {name:"Set Pieces", roles:["taker", "attacker", "receiver", "support", "defender"], defaults:{role:"taker", attackers:1, defenders:0, mates:false, opps:false}});
 registerType("freekick", {name:"Free kick", fields:[...DEFAULT_FIELDS, "wall"], roles:["taker", "attacker", "receiver", "support", "defender"],
   defaults:{role:"taker", attackers:1, defenders:0, wall:4, mates:false, opps:true}});
+/* (P5-A, BUILD-PLAN P5-A work item 1; TRAINING-SPEC 4, Free Play: optional practice opponents, presets for its settings)
+   Free Play's settings, type 'free' (freeplay.js plays it): practice opponents on or off, how many (0 to 6, the
+   defenders' count: you attack), their average and what they do (opts.behave: stand, jockey or press; brain.js
+   drillMove), an optional keeper, the Q ball's height and speed toward you (opts.spawnY, opts.spawnV), out of play and
+   the pitch */
+export const BEHAVE_NAMES = Object.freeze({stand:"Stand still and watch the ball", jockey:"Jockey you, no tackles", press:"Press you and tackle"});
+// (the heights and speeds the settings offer; the admin panel's Ball section may hand spawnBall any within Y_MAX and V_MAX)
+export const FREE_SPAWN = Object.freeze({Y_MIN:0.11, Y_MAX:2.5, V_MAX:20, HEIGHTS:Object.freeze([0.11, 0.3, 0.5, 0.8, 1.2, 1.6, 2]), SPEEDS:Object.freeze([0, 3, 6, 10, 15])});
+registerType("free", {name:"Free Play", fields:["opps", "defenders", "keeper", "me", "defAvg", "gk", "out", "pitch"], roles:["attacker"],
+  labels:{opps:"Practice opponents", defenders:"How many opponents", defAvg:"Opponents' average"},
+  defaults:{role:"attacker", possession:"me", attackers:1, defenders:1, mates:false, opps:false, keeper:false, pitch:"full"},
+  options:{
+    behave:{kind:"enum", label:"What the opponents do", values:Object.entries(BEHAVE_NAMES).map(([v, label]) => ({v, label})), def:"jockey", when:c => !!c.opps},
+    spawnY:{kind:"enum", label:"Height of the Q ball", help:"How high it appears in front of you, to drop onto your foot, thigh or chest.",
+      values:FREE_SPAWN.HEIGHTS.map(v => ({v, label:v === FREE_SPAWN.Y_MIN ? "On the grass" : `${v} m`})), def:FREE_SPAWN.Y_MIN},
+    spawnV:{kind:"enum", label:"Speed of the Q ball", help:"How fast it comes toward you.", values:FREE_SPAWN.SPEEDS.map(v => ({v, label:v ? `${v} m/s` : "Still"})), def:0}
+  }});
 registerType("fullmatch", {name:"Full Match", match:true, fields:["role", "me", "attAvg", "defAvg", "gk"], roles:["attacker", "support", "defender"],
   labels:{attAvg:"Your team's average", defAvg:"Opponents' average", gk:"Opponents' keeper"}, fixed:{pitch:"full", out:"stop", offside:true, keeper:true}});
 
 // tests (DESIGN 1.4.20 style)
-if (typeof window !== "undefined") window.__trainConfig = {VERSION, registerType, defaults, validate, relevant, allowed, participants, counts, countLine, typeOf, types, FIELDS, ROLES, MAX_SIDE, MAX_AGENTS};
+if (typeof window !== "undefined") window.__trainConfig = {VERSION, HEIGHT_REF, FEET, heightRange, scaleOfHeight, defaultHeight, defaultFoot, registerType, defaults, validate, relevant, allowed, participants, counts, countLine, typeOf, types, FIELDS, ROLES, MAX_SIDE, MAX_AGENTS};

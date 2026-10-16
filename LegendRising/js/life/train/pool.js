@@ -23,9 +23,13 @@
    leg blend buffers, the IK locks, the gait clock, phase and feet). The state each body has the moment it is built is
    kept (FRESH), and every body a scenario takes is put back to it, so a restart or a new scenario starts every pooled
    body exactly as it was built, nothing carried over from the last go, and nothing is built. bodyData(h) is that
-   state as plain data (the runner's digest hashes it). */
+   state as plain data (the runner's digest hashes it).
+
+   P5-A (Training Mode Phase 5): replaceMe(look), your two bodies built again for a new height, under the fade. */
 import {onBegin, W} from "../build.js";
 import {human, lookFor} from "../human.js";
+import {FADE} from "../core/state.js";
+import {revealAfterFrames} from "../core/modes.js";
 
 export const POOL_DRILL = 14;
 export const POOL_GROUPS = Object.freeze({me:1, fp:1, A:5, B:6, keeper:1});
@@ -120,6 +124,25 @@ export function poolBuild(meLook){
   return n;
 }
 export const poolMeLook = () => POOL.meLook;
+
+/* (P5-A, Training Mode Phase 5, BUILD-PLAN P5-A work item 4 and the Phase 5 contract "pool.js replaceMe"; TRAINING-SPEC
+   4, the admin panel's height through the whole-body scale) your two pooled bodies (you, and the rig in your eyes) built
+   again from a new look, under the fade: the black cover is put up at once, before the build, and lifted two drawn
+   frames after it, so the frame that builds them (18 to 30 ms a body, perf.md) is never seen. A body's height is baked
+   into it when it is built (human.js scale), so a new height needs new bodies; nothing else of the pool changes, and the
+   old two are disposed. Returns the number of bodies built (0 when the look is the one they already have, or when the
+   pool is not built). The caller takes them again (runner.js restart and play take every body afresh). */
+export function replaceMe(look){
+  if (!POOL.built) return 0;
+  if (JSON.stringify(look || null) === POOL.meKey && POOL.me) return 0;
+  const o = typeof document !== "undefined" ? document.getElementById("lifeFade") : null;
+  // (already covered, by a pitch change's fade or the entry's: that cover is its owner's to lift)
+  const covered = !o || FADE.v >= 1 || o.style.opacity === "1";
+  const reveal = covered ? null : revealAfterFrames(2);
+  const n = poolBuild(look);
+  if (reveal) reveal.then(() => { if (FADE.boot) return; o.style.transition = "opacity 200ms ease"; o.style.opacity = "0"; FADE.v = 0; });
+  return n;
+}
 export const poolReady = () => POOL.built && all().length === POOL_DRILL;
 
 /* the bodies a scenario needs: {mine: team-mates (0..5), theirs: opponents (0..6), keeper: true|false}, and always
