@@ -33,6 +33,7 @@ import {attrsForAI} from "../football/attrs.js";
 import {ballKick} from "../football/ball.js";
 import {logEv, chainKick} from "../football/events.js";
 import {refreshPred} from "../football/actions.js";
+import {hashStr} from "../football/rng.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const copy = o => o == null ? o : JSON.parse(JSON.stringify(o));
@@ -164,6 +165,16 @@ export function recOf(p, id, o = {}){
     scale:o.scale || 1, at:p.at || o.at || attrsForAI({id, ovr:p.ovr, pos}), energy:100, fatigue:0, prefFoot:o.foot || "Right", items:null};
 }
 const touchKind = k => k === "cross" || k === "loft" ? "cross" : "pass";
+// the computer's players' names: what a team-mate's call shows over him and says (fphud.js .fp-call, audio.js call).
+// Plain first names, the same for the same seed and place (a reset gives everyone his name back)
+export const NAMES = Object.freeze(["Alex", "Ben", "Carlos", "Dani", "Eli", "Femi", "Gio", "Hugo", "Ivan", "Jonas", "Kai", "Leo", "Marco", "Nico",
+  "Omar", "Pablo", "Rui", "Sami", "Theo", "Yusuf", "Luka", "Matteo", "Tomas", "Andre"]);
+export function npcName(seed, team, i, used){
+  let k = hashStr(`name:${seed >>> 0}:${team}:${i}`) % NAMES.length;
+  for (let n = 0; n < NAMES.length && used.has(NAMES[k]); n++) k = (k + 1) % NAMES.length;
+  used.add(NAMES[k]);
+  return NAMES[k];
+}
 export function matchOf(setup0, spec, mode = "train", o = {}){
   const setup = copy(setup0);
   const myTeam = setup.myTeam, oppTeam = 1 - myTeam;
@@ -173,10 +184,11 @@ export function matchOf(setup0, spec, mode = "train", o = {}){
   // (o.scaleOf(t, i): the whole-body scale of the body drawn for team t's i-th player, when the runner has one)
   const sc = (t, d) => { const v = o.scaleOf ? +o.scaleOf(t, order[t].length) : NaN; return v > 0 ? v : d; };
   const foot = setup.me.foot || o.foot || "Right";
+  const used = new Set(), nm = (t, i) => npcName(setup.seed, t, i, used);
   add(myTeam, recOf(setup.me, 1, {me:!o.aiMe, at:setup.me.at || o.meAt, foot, number:9, scale:setup.me.scale || sc(myTeam, 1)}), setup.me);
-  setup.mates.forEach((p, i) => add(myTeam, recOf(p, 100 + i, {number:2 + i, scale:sc(myTeam, 1)}), p));
-  setup.opps.forEach((p, i) => add(oppTeam, recOf(p, 200 + i, {number:2 + i, scale:sc(oppTeam, 1)}), p));
-  if (setup.keeper){ const t = setup.keeper.side === "mine" ? myTeam : oppTeam; add(t, recOf(setup.keeper, 300, {number:1, scale:sc(t, 1)}), setup.keeper); }
+  setup.mates.forEach((p, i) => add(myTeam, recOf(p, 100 + i, {number:2 + i, scale:sc(myTeam, 1), name:nm("mine", i)}), p));
+  setup.opps.forEach((p, i) => add(oppTeam, recOf(p, 200 + i, {number:2 + i, scale:sc(oppTeam, 1), name:nm("theirs", i)}), p));
+  if (setup.keeper){ const t = setup.keeper.side === "mine" ? myTeam : oppTeam; add(t, recOf(setup.keeper, 300, {number:1, scale:sc(t, 1), name:nm("keeper", 0)}), setup.keeper); }
   const rules = Object.assign({goals:goalsLawOf(spec), offside:false, restarts:false, cards:false, subs:0, halfTime:false, stoppage:false}, setup.laws);
   const tempo = Object.assign({}, TEMPO[2], setup.tempo || {});
   const ms = createMatch({seed:setup.seed, mode, spec, halfRealSec:1e6, tempo, teams,
