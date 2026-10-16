@@ -30,7 +30,10 @@ page.on("console", m => { if (m.type() === "error") pageErr.push(m.text()); });
 
 // every train:admin the window gets, from the start of the page (an init script: the panel's own listener would see
 // exactly these)
-await t.context.addInitScript(() => { window.__adm = []; addEventListener("train:admin", e => window.__adm.push(Object.assign({}, e.detail))); });
+// (the key layer's own events only: since Phase 5 is merged the panel answers each with its own {open, from:"admin"},
+// which says it did open or close; that answer is checked as window.trainAdminOpen() below)
+await t.context.addInitScript(() => { window.__adm = []; addEventListener("train:admin", e => { if (!e.detail || e.detail.from !== "admin") window.__adm.push(Object.assign({}, e.detail)); }); });
+const panelOpen = () => page.evaluate(() => typeof window.trainAdminOpen === "function" ? !!window.trainAdminOpen() : null);
 await page.reload();
 await page.waitForFunction(() => typeof newCareer === "function" && !!window.__life && document.readyState !== "loading", null, {timeout: 60000});
 const adm = () => page.evaluate(() => window.__adm.length);
@@ -69,12 +72,12 @@ try {
   const c0 = await contact(), a0 = await adm();
   await pressReal(page, "Numpad1");
   await frames(page, 2);
-  const s1 = await page.evaluate(() => window.__adm.slice(-1)[0]), c1 = await contact();
+  const s1 = await page.evaluate(() => window.__adm.slice(-1)[0]), c1 = await contact(), p1 = await panelOpen();
   await pressReal(page, "Numpad1");
   await frames(page, 2);
-  const s2 = await page.evaluate(() => window.__adm.slice(-1)[0]), c2 = await contact(), a2 = await adm();
-  res.steps.numpad = {c0, c1, c2, s1, s2, n: a2 - a0};
-  check(a2 - a0 === 2 && s1.open === true && s2.open === false, "Numpad1 toggles the admin panel: open, then closed (train:admin {open})", res.steps.numpad);
+  const s2 = await page.evaluate(() => window.__adm.slice(-1)[0]), c2 = await contact(), a2 = await adm(), p2 = await panelOpen();
+  res.steps.numpad = {c0, c1, c2, s1, s2, n: a2 - a0, p1, p2};
+  check(a2 - a0 === 2 && s1.open === true && s2.open === false && p1 !== false && p2 !== true, "Numpad1 toggles the admin panel: open, then closed (train:admin {open}, and the panel with it)", res.steps.numpad);
   check(c1 === c0 && c2 === c0, "Numpad1 leaves CTRL.contact as it was", res.steps.numpad);
 
   // Digit1 alone: Low contact, no panel
