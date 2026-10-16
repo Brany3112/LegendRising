@@ -151,7 +151,10 @@ try {
           // and any other HTML that would take the eye or the click at the ball's centre (a card, a note, a prompt): the
           // element there has to be the 3D view's canvas (BUILD-PLAN P3-B acceptance, document.elementFromPoint)
           const top = document.elementFromPoint(Math.round(x), Math.round(y));
-          if (top && top.tagName !== "CANVAS") out.covered.push({f: out.frames, x, y, over: top.id || top.className || top.tagName});
+          if (top && top.tagName !== "CANVAS") { const sr = document.getElementById("sheetRoot");
+            // (what was up, so a failure says which layer it was: the sheet's kind, the hub, the pause card, the admin panel, the pointer)
+            out.covered.push({f: out.frames, x, y, over: top.id || top.className || top.tagName, sheet: sr ? sr.className + "/" + (sr.dataset.kind || "") : null,
+              hub: window.__trainHub.hubOpen(), card: window.__trainQuick.quickIsOpen(), admin: !!(window.__trainAdmin && window.__trainAdmin.adminIsOpen()), lock: !!document.pointerLockElement}); }
         }
       }
       // the HUD's footprint: the card and the match HUD's visible boxes (not its full-screen effects layer)
