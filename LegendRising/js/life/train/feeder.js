@@ -130,53 +130,53 @@ export function passerSpot(from, target, foot = "R"){
 }
 
 /* one step of a feed, after the simulation's step: returns the state. recv: the receiver's agent id */
-export function feedStep(ms, S, recv){
-  if (!S) return null;
-  const f = S.f, b = ms.ball, me = ms.agents[recv];
-  if (S.state === "wait"){
-    const t = ms.t - S.t0, sp = me ? me.m.speed : 0, W = f.wait || {};
+export function feedStep(ms, FS, recv){
+  if (!FS) return null;
+  const f = FS.f, b = ms.ball, me = ms.agents[recv];
+  if (FS.state === "wait"){
+    const t = ms.t - FS.t0, sp = me ? me.m.speed : 0, W = f.wait || {};
     const due = t >= (W.t != null ? W.t : FEEDER.WAIT) && (!(W.v > 0) || sp >= W.v) || t >= (W.max != null ? W.max : FEEDER.MAX);
-    if (!due || !me) return S;
-    const pa = S.passer >= 0 ? ms.agents[S.passer] : null;
+    if (!due || !me) return FS;
+    const pa = FS.passer >= 0 ? ms.agents[FS.passer] : null;
     // a passer who cannot strike now (on the ground, in the middle of something) leaves it to the coach
     const striker = pa && pa.onPitch && !pa.act ? pa : null;
-    S.target = targetOf(f, me, b.rollDecel, striker, striker ? FEEDER.CONTACT_EST : 0);
-    S.plan = launchOf(f, S.target, b.rollDecel, striker);
+    FS.target = targetOf(f, me, b.rollDecel, striker, striker ? FEEDER.CONTACT_EST : 0);
+    FS.plan = launchOf(f, FS.target, b.rollDecel, striker);
     if (striker){
       // his own strike, the configured launch exactly: no deviation drawn, no speed spread (see the header)
-      startKick(ms, striker, {kind:touchKind(f.kind), target:S.target, speed:S.plan.speed, contact:S.plan.contact, curl:f.curl || 0, recv,
+      startKick(ms, striker, {kind:touchKind(f.kind), target:FS.target, speed:FS.plan.speed, contact:FS.plan.contact, curl:f.curl || 0, recv,
         weightSigma:0, noRecord:true, feed:true});
       if (striker.act){ striker.act.pre = false; striker.act.devZ = [0, 0, 0]; }
-      S.state = "strike"; S.strikeAt = ms.t;
-      return S;
+      FS.state = "strike"; FS.strikeAt = ms.t;
+      return FS;
     }
-    coachKick(ms, S, recv);
-    return S;
+    coachKick(ms, FS, recv);
+    return FS;
   }
-  if (S.state === "strike"){
-    const pa = ms.agents[S.passer];
+  if (FS.state === "strike"){
+    const pa = ms.agents[FS.passer];
     const ev = pa && pa.act && pa.act.kind === "kick" && pa.act.done ? pa.act.ev : null;
-    if (ev && !ev.whiff){ S.kick = ev; S.fedAt = ev.t; S.state = "flight"; S.apex = b.p.y; S.lastY = b.p.y; }
-    else if (ev && ev.whiff || !pa || !pa.act){ coachKick(ms, S, recv); }
-    return S;
+    if (ev && !ev.whiff){ FS.kick = ev; FS.fedAt = ev.t; FS.state = "flight"; FS.apex = b.p.y; FS.lastY = b.p.y; }
+    else if (ev && ev.whiff || !pa || !pa.act){ coachKick(ms, FS, recv); }
+    return FS;
   }
-  if (S.state === "flight" && !S.landed){
+  if (FS.state === "flight" && !FS.landed){
     // the highest the ball has been since it was struck, until it comes down or somebody plays it
-    if (b.p.y > S.apex) S.apex = b.p.y;
-    const touched = b.last.agent !== (S.passer >= 0 && S.kick && S.kick.agent === S.passer ? S.passer : -1);
-    if (touched || (b.grounded && b.p.y <= R + 0.02 && ms.t - S.fedAt > 0.1)) S.landed = true;
+    if (b.p.y > FS.apex) FS.apex = b.p.y;
+    const touched = b.last.agent !== (FS.passer >= 0 && FS.kick && FS.kick.agent === FS.passer ? FS.passer : -1);
+    if (touched || (b.grounded && b.p.y <= R + 0.02 && ms.t - FS.fedAt > 0.1)) FS.landed = true;
   }
-  return S;
+  return FS;
 }
 // the coach's feed: the ball, at rest where it lies, kicked from outside the play (agent -1), as the runner's launch is
-function coachKick(ms, S, recv){
-  const b = ms.ball, f = S.f, me = ms.agents[recv], team = me ? me.team : 0;
-  if (!S.plan || S.passer >= 0){ S.target = targetOf(f, me, b.rollDecel, null, 0); S.plan = launchOf(f, S.target, b.rollDecel, null); }
-  const L = S.plan, kind = touchKind(f.kind);
+function coachKick(ms, FS, recv){
+  const b = ms.ball, f = FS.f, me = ms.agents[recv], team = me ? me.team : 0;
+  if (!FS.plan || FS.passer >= 0){ FS.target = targetOf(f, me, b.rollDecel, null, 0); FS.plan = launchOf(f, FS.target, b.rollDecel, null); }
+  const L = FS.plan, kind = touchKind(f.kind);
   ballKick(b, L.v, L.w, {agent:-1, team, kind, t:ms.t});
   const ev = logEv(ms, "kick", team, -1, b.p.x, b.p.z, {intent:kind, recv, coach:true, noOffside:true, launch:f.kind, speed:Math.round(L.speed*100)/100});
   chainKick(ms, ev);
   ms.kick = {seq:(ms.kick ? ms.kick.seq : 0) + 1, ev, t:ms.t, team, agent:-1};
   refreshPred(ms);
-  S.kick = ev; S.fedAt = ms.t; S.state = "flight"; S.apex = b.p.y; S.passer = -1;
+  FS.kick = ev; FS.fedAt = ms.t; FS.state = "flight"; FS.apex = b.p.y; FS.passer = -1;
 }

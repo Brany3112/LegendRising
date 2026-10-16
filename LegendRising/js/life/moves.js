@@ -1308,9 +1308,11 @@ function receive(h, T, st, dt){
   const ct = sp.contact, dur = sp.dur, tau = C.tau;
   const groundY = BT.gy + D.ankY*sc;
   // the ball: where the simulation meets it (kept on it by the view up to the contact)
-  if (!C.contactDone || !d.id){
+  // (read up to and including the frame of the contact: the view puts it on the simulation's own point then)
+  if (!d.ballSet){
     const b = st.ball || defaultBall(h, s, aimOf({}, h, _d2));
     d.bx = b.x; d.by = b.y != null ? b.y : BR; d.bz = b.z;
+    if (C.contactDone) d.ballSet = true;
   }
   if (!d.id){
     d.id = 1;
@@ -1383,8 +1385,9 @@ function receive(h, T, st, dt){
   if (part === "inside" || part === "sole" || part === "air"){
     // the face of the foot onto the ball: the inside turned to meet it (raised, for a ball in the air), the sole on top
     const yaw = part === "sole" ? faceYaw*.5 : faceYaw + s*(part === "air" ? 1.15 : 1.35), pitch = part === "sole" ? -.45 : part === "air" ? .25 : .05;
-    const px = d.bx + (part === "sole" ? 0 : d.vx*BR*.9) + gx, pz = d.bz + (part === "sole" ? 0 : d.vz*BR*.9) + gz;
-    const py = part === "sole" ? d.by + BR*.85 : part === "air" ? d.by : Math.max(d.gy + .07*sc, d.by);
+    // (the face against the ball's near side, pressed a little into it: where the ball's centre and the face meet)
+    const px = d.bx + (part === "sole" ? 0 : d.vx*BR*.5) + gx, pz = d.bz + (part === "sole" ? 0 : d.vz*BR*.5) + gz;
+    const py = part === "sole" ? d.by + BR*.6 : d.by;
     d.tx = px; d.ty = py; d.tz = pz;
     ankleFor(h, part === "air" ? "inside" : part, s, px, py, pz, yaw, pitch, 0, _w3);
     Fk.x = lerp(d.kx0, _w3.x, eIn); Fk.z = lerp(d.kz0, _w3.z, eIn); Fk.y = lerp(d.ky0, _w3.y, eIn) + .06*sc*bump(uIn)*(part === "air" ? 0 : 1);
@@ -1444,7 +1447,7 @@ function receive(h, T, st, dt){
     partB(h, T, part, s, _rp);
     // (the foot's face where the foot was put on the ball above; the thigh and the chest on the ball's near surface)
     const body = part === "chest" || part === "thigh";
-    if (body) toB(d.bx + d.vx*BR*.9, d.by, d.bz + d.vz*BR*.9, _rq); else toB(d.tx, d.ty, d.tz, _rq);
+    if (body) toB(d.bx + d.vx*BR*.5, d.by, d.bz + d.vz*BR*.5, _rq); else toB(d.tx, d.ty, d.tz, _rq);
     let ex = _rq.x - _rp.x, ey = _rq.y - _rp.y, ez = _rq.z - _rp.z;
     // (the feet stay down: the hips go no lower than a bent knee allows, and for a foot the leg reaches as well)
     const el = Math.hypot(ex, ey, ez), mx = RCV.REACH;

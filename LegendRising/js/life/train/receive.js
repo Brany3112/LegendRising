@@ -65,7 +65,7 @@ registerType(TYPE, {name:"Ball Receiving and First Touch", roles:["receiver"],
     dist:{kind:"int", label:"How far away it's played from", min:6, max:40, def:15, unit:"m"},
     delivery:{kind:"enum", label:"How it comes", values:E(DELIVERY), def:"ground"},
     speed:{kind:"int", label:"How hard it's played", min:5, max:32, def:12, unit:"m/s", when:c => !ELEV[c.opts.delivery] && !(c.opts.into === "space" && c.opts.delivery === "ground"),
-      help:"A ball in the air, a bouncing one or a pass into space is struck as hard as its flight needs."},
+      help:"A ball in the air, a high bouncing one or a pass into space is struck as hard as its flight needs."},
     height:{kind:"enum", label:"How high it gets to you", values:HEIGHTS.map(v => ({v, label:`${HEIGHT_NAMES[v]} (${v} m)`})), def:1.25, when:c => AIR.has(c.opts.delivery)},
     move:{kind:"enum", label:"What you're doing as it comes", values:E(MOVE), def:"still",
       help:"Moving, the ball is played once you're on the move, to where you'll be."},
@@ -142,11 +142,12 @@ const RUN_BACK = {still:0, jog:5, sprint:10, side:3, turn:0};
 // runs onto it; the pass along the grass is weighted to get there at SPACE_V)
 const INTO_OFF = {feet:[0, 0], space:[3, 1.2], ahead:[0.9, 0], behind:[-0.9, 0], adjust:[0, 1.6]};
 const SPACE_V = 4;
-// the elevation a ball in the air, a high one and the bounces are played at (their speed is worked out for it: the
-// ball's drag makes a lofted ball's range from a speed anything but obvious, so the configuration asks for the flight)
+// the elevation a ball in the air, a high one and a high bounce are played at (their speed is worked out for it: the
+// ball's drag makes a lofted ball's range from a speed anything but obvious, so the configuration asks for the flight);
+// a low bounce is struck as hard as the configuration says, pitching short of him
 // (a ball in the air is met as it comes into reach, about this far in front of the body: that is where its height counts)
 const AIR_MEET = 0.45;
-export const ELEV = Object.freeze({aerial:28, high:58, highBounce:52, lowBounce:24});
+export const ELEV = Object.freeze({aerial:28, high:58, highBounce:52});
 const DEG = Math.PI/180;
 const faceTo = (dx, dz) => yawOf(dx, dz);
 
