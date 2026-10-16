@@ -88,10 +88,19 @@ async function startFromHub(page, cat, id){
 }
 // the pause card's Return to Hub, by real keys and clicks
 async function backToHub(page){
-  await pressReal(page, "Escape");
-  await wait(page, () => { const o = document.getElementById("fpOverlay"); return !!o && o.classList.contains("on") && !!o.querySelector('[data-q="hub"]'); }, null, 15000);
-  await clickReal(page, '#fpOverlay [data-q="hub"]');
-  await wait(page, () => !window.__trainRun.RUN.cur && window.__trainHub.hubOpen(), null, 30000);
+  const cardOn = () => { const o = document.getElementById("fpOverlay"); return !!o && o.classList.contains("on") && !!o.querySelector('[data-q="hub"]'); };
+  for (let k = 0; k < 3 && !(await page.evaluate(cardOn)); k++){
+    // (a replay showing: Esc skips it first, as Space does)
+    await pressReal(page, "Escape");
+    await wait(page, cardOn, null, 10000).catch(() => null);
+  }
+  await wait(page, cardOn, null, 15000);
+  const gone = () => !window.__trainRun.RUN.cur && window.__trainHub.hubOpen();
+  for (let k = 0; k < 3 && !(await page.evaluate(gone)); k++){
+    if (await page.evaluate(cardOn)){ await page.waitForTimeout(300); await clickReal(page, '#fpOverlay [data-q="hub"]'); }
+    await wait(page, gone, null, 20000).catch(() => null);
+  }
+  await wait(page, gone, null, 10000);
 }
 
 const t = await trainLaunch({seed:6});
@@ -227,7 +236,8 @@ try {
     await startFromHub(page, "attacking", "att-midfield-mates");
     const said0 = await page.evaluate(() => (window.__qaSaid || []).length);
     const w = await watchCalls(6);
-    res.audio = await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); return {utter:typeof SpeechSynthesisUtterance, voices:window.speechSynthesis.getVoices().length, speech:C.SET.speech, ctrl:localStorage.getItem("freyaFootball.ctrl"), act:navigator.userActivation && navigator.userActivation.hasBeenActive}; });
+    res.audio = await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); const A = (await import("/js/life/football/audio.js")).AUD; const n0 = window.__qaSaid.length, init = A.init(), call = A.call("Test", null, 1); await new Promise(r => setTimeout(r, 400));
+      return {init, call, direct:window.__qaSaid.length - n0, utter:typeof SpeechSynthesisUtterance, voices:window.speechSynthesis.getVoices().length, speech:C.SET.speech, ctrl:localStorage.getItem("freyaFootball.ctrl"), act:navigator.userActivation && navigator.userActivation.hasBeenActive}; });
     const calls = w.calls.filter(c => c.name);
     res.calls = {calls:w.calls.slice(0, 6), said:w.said - said0};
     const okCalls = calls.length > 0 && calls.every(c => c.w <= 160 && c.h <= 48 && c.name === c.agentName && (c.edge || c.off.length && Math.max(...c.off) <= 40) && (c.life == null || c.life <= 2000));
@@ -251,25 +261,30 @@ try {
   {
     await startFromHub(page, "attacking", "att-keeper");
     const before = await st(page);
-    // a scripted goal: the keeper out of the way, the ball struck into the far corner from 7 m (applyLive, between steps)
-    await page.evaluate(async () => {
-      const B = await import("/js/life/football/ball.js"), R = window.__trainRun;
-      R.applyLive(ms => {
-        const gk = ms.agents.find(a => a.isGK && a.onPitch); if (gk){ gk.m.x = ms.spec.hx - 1; gk.m.z = 3.4; }
-        const b = R.placeBall(ms, {x:ms.spec.hx - 7, y:.11, z:-1}, true);
-        B.ballKick(b, {x:24, y:1.2, z:-2.2}, null, {agent:ms.me, team:ms.agents[ms.me].team, kind:"shot", t:ms.t});
-        R.ballPlaced(ms);
+    // a scripted goal: the keeper out of the way, the ball struck into the far corner from 6 m (applyLive, between
+    // steps); again if the keeper still gets to it
+    let rp = false;
+    for (let k = 0; k < 3 && !rp; k++){
+      await page.evaluate(async () => {
+        const B = await import("/js/life/football/ball.js"), R = window.__trainRun;
+        R.applyLive(ms => {
+          const gk = ms.agents.find(a => a.isGK && a.onPitch); if (gk){ gk.m.x = ms.spec.hx - 1; gk.m.z = 3.4; gk.m.vx = gk.m.vz = 0; }
+          const b = R.placeBall(ms, {x:ms.spec.hx - 6, y:.11, z:-1}, true);
+          B.ballKick(b, {x:30, y:1.0, z:-2.6}, null, {agent:ms.me, team:ms.agents[ms.me].team, kind:"shot", t:ms.t});
+          R.ballPlaced(ms);
+        });
       });
-    });
+      rp = await wait(page, () => window.__trainRun.replaying(), null, 20000).then(() => true, () => false);
+    }
     await wait(page, () => window.__trainRun.replaying(), null, 30000);
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(150);
     const mid = await page.evaluate(async () => {
       const RP = await import("/js/life/football/replay.js"), CAM = await import("/js/life/core/camera.js"), R = window.__trainRun;
       return {playing:RP.playing(), owners:CAM.camOwners(), step:R.RUN.ms.step, replays:R.RUN.replays, state:R.RUN.cur.state};
     });
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(300);
     const mid2 = await page.evaluate(() => window.__trainRun.RUN.ms.step);
-    await pressReal(page, "Space");
+    if (await page.evaluate(() => window.__trainRun.replaying())) await pressReal(page, "Space");
     await wait(page, () => !window.__trainRun.replaying() && window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.state === "play", null, 20000);
     const after = await page.evaluate(async () => {
       const CAM = await import("/js/life/core/camera.js"), R = window.__trainRun;

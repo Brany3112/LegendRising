@@ -28,7 +28,9 @@
                    the scorebug's foot a small Warm mark with the boost and its minutes left (On fire after a goal)
    Text is written at most ten times a second and only when it changes; the arcs and rings are transforms and dash
    offsets updated per frame. Settings (this device's, control.js SET): HUD scale, opacity, a colour-blind palette,
-   each element hidden on its own. */
+   each element hidden on its own.
+   P6-B (Training Mode Phase 6, BUILD-PLAN P6-B work item 6b; TRAINING-SPEC 2, subtle team-mate calls): a call tag on
+   the screen edge is only as wide as its chevron (the name shows when he is in view). */
 import {SET} from "./control.js";
 import {RT} from "../core/state.js";
 import {FX} from "./matchcam.js";
@@ -373,8 +375,10 @@ function callsFrame(s, now){
     if (now > c.until || !a){ if (c.el) c.el.remove(); D.calls.splice(i, 1); continue; }
     if (!c.el){ c.el = document.createElement("div"); c.el.className = "fp-call"; c.el.innerHTML = `<b>${esc(c.name)}</b><i></i>`; E.calls.appendChild(c.el); }
     const p = s.proj ? s.proj(a.m.x, 2.15*(a.scale || 1), a.m.z) : null;
-    if (p && p.on){ c.el.classList.remove("edge"); c.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`; }
-    else edgePlace(c.el, s, a.m.x, a.m.z, "edge", p);
+    // ((P6-B) on the edge only the chevron shows, so the tag is only as wide as it: a rotated 80 px label box would
+    // stand up as a long bar pointing at him)
+    if (p && p.on){ c.el.classList.remove("edge"); c.el.style.width = c.el.style.marginLeft = ""; c.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`; }
+    else { c.el.style.width = "16px"; c.el.style.marginLeft = "-8px"; edgePlace(c.el, s, a.m.x, a.m.z, "edge", p); }
     c.el.style.opacity = Math.min(.6, (c.until - now)/400).toFixed(2);
   }
 }
