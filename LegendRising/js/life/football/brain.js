@@ -881,8 +881,26 @@ function offAtStrike(ms, a, rq){
   if (rq.kind !== 'pass' && rq.kind !== 'through' && rq.kind !== 'lob') return false;
   const o = ms.agents[rq.recv];
   if (!o || o.team !== a.team || o === a) return false;
+  // where he and their line will be at the contact: his run carries him on, and a line stepping up carries it to him
+  // (TR-6 integration: the line moving over the wind-up was missed, and a defence stepping out at 3.4 m/s caught a
+  // receiver who had been 0.14 m onside when the strike began)
   const p = offsidePosition(ms, o, a.team), fwd = Math.max(0, ms.dirs[a.team]*o.m.vx);
-  return p.margin + fwd*STRIKE_T > -0.05;
+  return p.margin + fwd*STRIKE_T > -0.05 || lineAheadMargin(ms, o, a.team, STRIKE_T) > -0.05;
+}
+// the offside margin of o (rules.js offsidePosition's own test) with every player and the ball carried on at his
+// present velocity for T s; nothing allocated
+function lineAheadMargin(ms, o, team, T){
+  const dir = ms.dirs[team], L = ms.spec.L, B = RULES.OFF.body, uh = halfwayU(ms.spec, dir);
+  const ua = dir*(o.m.x + o.m.vx*T) + L/2 + B;
+  if (ua <= uh + 0.06) return -1;
+  let o1 = -1e9, o2 = -1e9;
+  for (const d of ms.agents){
+    if (d.team !== 1 - team || !d.onPitch || d.role !== 'player' || d.leaving || d.sentOff) continue;
+    const u = dir*(d.m.x + d.m.vx*T) + L/2 + B;
+    if (u > o1){ o2 = o1; o1 = u; } else if (u > o2) o2 = u;
+  }
+  const b = ms.ball, bu = dir*(b.p.x + b.v.x*T) + L/2;
+  return ua - Math.max(o2 > -1e8 ? o2 : o1 > -1e8 ? o1 : uh, bu);
 }
 const PMC = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
 const LBM = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
