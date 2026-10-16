@@ -10,6 +10,8 @@
 // duel.js pShieldLoss) and carried out (intent.shield, the back to the presser); the presser answers a shield with a
 // shield challenge or a tackle (pShieldLoss against pTackleWin); tackles reach duel.js standReach; loose balls and 50/50s
 // are challenged; the pass model's defender reach is the control zone's R and the receiver's control its q (zone.js).
+// P5-A (Training Mode Phase 5, BUILD-PLAN P5-A work item 1b; TRAINING-SPEC 4, Free Play's optional practice opponents):
+// a practice opponent's behaviour (a.drill: stand, jockey or press), read only in the training mode (drillMove).
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (choices draw from ms.r).
 
@@ -109,6 +111,11 @@ export const BRAIN = Object.freeze({
   // challenge on the ball at LOOSE_RATE a second within his reach, a slide at SLIDE_RATE at speed within its reach
   CHAL_NEAR: 2.6, CHAL_KEEP: 1.0, CHAL_V: 2.4, LOOSE_OPP: 1.0, LOOSE_RATE: 1.0,
   COVER: 7, MARK: 1.8, MARK_LOOSE: 3.5, ZONE_PULL: 0.55,
+  // (P5-A) a practice opponent who jockeys keeps DRILL_JOCKEY[0] to [1] m off the man on the ball: goal side of where
+  // the man will be in [5] s, [4] m further off him than the ball is (so it does not come into his reach), at least [2]
+  // m and under [1], and [7] m more until he is moving with him; he backs off at the man's own speed, or the ball's,
+  // plus [3] m/s (never under JOCKEY_V), and against a man coming faster than [6] m/s he turns and runs
+  DRILL_JOCKEY: [1.5, 3.5, 2.4, 1.0, 1.3, 0.25, 2.6, 1.5],
   RUN_HOLD: 0.3, RUN_DEPTH: [7, 16],
   ENGAGED: 3.0,              // an opponent this close to where a pass leaves is already on the ball: no reaction time
   SUPPORT: [2, 32, [9, 14], 16, 7, 0.12, 0.1]   // showing for the ball: the 2 central midfielders nearest the carrier,
@@ -1216,6 +1223,60 @@ function pressMove(ms, a, carrier){
   }
 }
 
+/* A practice opponent (P5-A, Training Mode Phase 5, BUILD-PLAN P5-A work item 1b; TRAINING-SPEC 4, Free Play's
+   practice opponents with a behaviour). a.drill = {behave, x, z} is put on him by Training's runner from the setup (his
+   spawn point with it); only the training mode reads it, so no career or harness agent is ever affected.
+     stand   holds his spawn point and turns to face the ball: no press, no tackle and no challenge;
+     jockey  contains the man on the ball (with the ball loose, the man of the other side nearest it): DRILL_JOCKEY m off
+             him, goal side, facing him, in pressMove's own jockey stance (strafing, state 'jockey'), with the tackle
+             and the shield challenge left out;
+     press   today's pressMove on the man on the ball, tackles and shield challenges and all; a loose ball he goes for
+             as anyone does (false: the rest of brainStep decides).
+   Returns true when it has decided his step. */
+function drillMove(ms, a, c){
+  const d = a.drill, b = ms.ball.p, m = a.m;
+  if (d.behave === 'press'){
+    if (c && c.team !== a.team){ pressMove(ms, a, c); return true; }
+    return false;
+  }
+  a.plan = null; a.press = null;
+  if (a.intent.shield) a.intent.shield = false;
+  let ref = c && c.team !== a.team ? c : null;
+  if (d.behave === 'jockey' && !ref){
+    let best = Infinity;
+    for (const o of ms.agents){
+      if (o.team === a.team || o.team < 0 || !o.onPitch || o.role !== 'player' || o.isGK) continue;
+      const dd = hypot(o.m.x - b.x, o.m.z - b.z);
+      if (dd < best){ best = dd; ref = o; }
+    }
+  }
+  if (d.behave !== 'jockey' || !ref){
+    // stand (and a jockey with nobody to jockey): on his spot, turned to the ball
+    steer(a, d.x, d.z, 'jog', 0.2, faceTo(a, b.x, b.z, a.faceV));
+    a.state = m.speed > 0.3 ? 'run' : 'idle';
+    return true;
+  }
+  // the spot: on the line from the ball to his own goal, far enough off the ball that it is never in his reach (the
+  // engine would give him a ball inside his control radius, and that is a challenge he must not make) and within
+  // DRILL_JOCKEY of the man
+  // (from where the man will be in a moment, so that he backs off at the man's pace and does not wait to be reached)
+  // (until he is moving with the man, a little further off: turning to go with him costs him ground)
+  const J = BRAIN.DRILL_JOCKEY, rm = ref.m, ogx = -ms.dirs[a.team]*ms.spec.hx;
+  const px = rm.x + rm.vx*J[5], pz = rm.z + rm.vz*J[5];
+  const vx = ogx - px, vz = -pz, vl = hypot(vx, vz) || 1, ux = vx/vl, uz = vz/vl;
+  const withHim = m.vx*rm.vx + m.vz*rm.vz >= (rm.speed - 1)*rm.speed;
+  const off = clamp(hypot(b.x - rm.x, b.z - rm.z) + J[4], J[2], J[1] - 0.2) + (withHim ? 0 : J[7]);
+  const tx = px + ux*off, tz = pz + uz*off;
+  const dc = hypot(rm.x - m.x, rm.z - m.z), face = faceTo(a, rm.x, rm.z, a.faceV);
+  const bv = ms.ball.v, cap = Math.max(BRAIN.JOCKEY_V, rm.speed + J[3], hypot(bv.x, bv.z) + J[3]);
+  // goal side of him already and near the spot: the jockey stance at his pace; else get there first
+  const goalSide = hypot(ogx - m.x, -m.z) < hypot(ogx - rm.x, -rm.z);
+  // (a man coming at him faster than a body backs off sideways on: he turns and runs with him, still goal side)
+  if (dc > J[1] + 1.5 || !goalSide || rm.speed > J[6]){ steer(a, tx, tz, dc > 8 || rm.speed > J[6] + 1.5 ? 'sprint' : 'run', 0.2, dc < J[1] && rm.speed <= J[6] ? face : null); a.state = 'run'; }
+  else { steer(a, tx, tz, 'run', 0.1, face, cap, true); a.state = 'jockey'; }
+  return true;
+}
+
 // A loose ball or a 50/50 (P2b-B, TRAINING-SPEC 3): nobody has it and an opponent is about to (within LOOSE_OPP m of
 // it and nearer it than this man). Within his standing reach he goes in on the ball itself; at speed, with the ball in
 // front and within the slide's reach for his speed, he may slide for it. The challenge is the engine's (actions.js
@@ -1631,6 +1692,8 @@ export function brainStep(ms, h){
     }
     if (a.act && a.act.kind !== 'header') continue;
     if (a === c){ carrierMove(ms, a); continue; }
+    // (P5-A) a practice opponent of Training's Free Play: his behaviour, in the training mode only
+    if (a.drill && ms.mode === 'train' && drillMove(ms, a, c)) continue;
     // a runner holding the line goes the moment the pass to him is struck
     const run = a.task.run;
     if (run && !run.go && c && c.team === a.team && c.act && c.act.kind === 'kick' && c.act.action && c.act.action.recv === a.id){ run.go = true; a.tgtSet = false; }

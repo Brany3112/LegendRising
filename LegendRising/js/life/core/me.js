@@ -1,6 +1,7 @@
 /* ============ LIFE core: your body and the life camera ============
    Owner: WP-0A moves it here, WP-B owns it from Stage 1. Contract: DESIGN 1.2 (me.js), 1.4.2 (camera owners life-fp,
-   life-tp, drill-view), 1.5.9 (the bob and the footfall nod), 3.5.9 (first person), 2.2 WP-0A.
+   life-tp, drill-view), 1.5.9 (the bob and the footfall nod), 3.5.9 (first person), 2.2 WP-0A. P5-A (Training Mode
+   Phase 5, BUILD-PLAN P5-A work item 4) adds sandboxHeight: Training's body at the height the admin panel set.
 
    Your body. You are drawn by the same character system as everybody else (human.js), dressed from your look
    (S.player.look, see look.js): your own clothes at home and in the street, the club's training kit with your number at
@@ -77,10 +78,30 @@ const feetGround = (x, z) => surfaceUnder(x, P.feet + .45, z);
    body exactly as in the career, the age, the shirt number and the club's colours), so the body is the one the career
    shows at the training ground; with none held, the default look (G0 decision g). {look, dress} */
 const TRAIN_SEED = 7;
+/* (P5-A, Training Mode Phase 5, BUILD-PLAN P5-A work item 4; TRAINING-SPEC 4, the admin panel's height through the
+   whole-body scale) the height your Training body has, when Training has set one (the runner, at the restart a height
+   change waits for): a look.height scale, laid over the look above, so the body you walk the cage in and its eye are as
+   tall as your body in a drill. Never a career's: it is only read with no career loaded, and Training clears it when it
+   is left */
+const SANDBOX = {height:null};
 export function sandboxLook(){
   const h = typeof heldLook === "function" ? heldLook() : null, d = typeof heldDress === "function" ? heldDress() : null;
-  if (h) return {look:h, dress:d || {}};
-  return {look:typeof lookDefault === "function" ? lookDefault(TRAIN_SEED) : {}, dress:{}};
+  const L = h ? h : typeof lookDefault === "function" ? lookDefault(TRAIN_SEED) : {};
+  return {look:SANDBOX.height ? Object.assign({}, L, {height:SANDBOX.height}) : L, dress:h ? d || {} : {}};
+}
+/* the sandbox body at a new height (a look.height scale; null: the look's own): set, and when the body you walk with
+   is the sandbox's (no career, a scene up) and not that tall already, built again from the new look (meDispose, then
+   meBuild: the eye with it). build false: only set (Training being left: the world is about to stop). Returns true
+   when the body was built again */
+export function sandboxHeight(scale, {build = true} = {}){
+  const v = scale > 0 ? +(+scale).toFixed(3) : null;
+  if (v === SANDBOX.height) return false;
+  SANDBOX.height = v;
+  if (!build || G() || !RT.scene || !ME.fp) return false;
+  const want = v || +(sandboxLook().look.height) || 1;
+  if (Math.abs((ME.scale || 1) - want) < 1e-4) return false;
+  meBuild();
+  return true;
 }
 // bodyLook's options for a held career's dress: the seed the career's own body has (look.js: from its cid)
 export function dressOpts(d){

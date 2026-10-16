@@ -43,7 +43,27 @@
      fixed task does not step (RUN.paused). Career drills have no pause and keep their own behaviour.
    - Pitch switching: startScenario compares config.pitch with CAGE.kind and, when they differ, rebuilds the cage of
      that kind under the fade (cage.js cageEnter) before anything is spawned; the pool's bodies are kept. A type with
-     a fixed pitch gets it through config.js validate. Returning to the hub never switches back. */
+     a fixed pitch gets it through config.js validate. Returning to the hub never switches back.
+
+   P5-A (Training Mode Phase 5, BUILD-PLAN Phase 5 "Contracts" runner.js and P5-A work items 1b, 3 and 4; TRAINING-SPEC 4,
+   the admin panel: "live where safe, otherwise applied at the next safe state with a note"):
+   - applyLive(fn) runs fn(ms) between two simulation steps (at once when no step is running, else right after it):
+     for changes that are safe mid-play (attribute values, stamina, tunables, the keeper's attributes). false when
+     nothing plays.
+   - queueChange({key, label, apply(config)}) holds a change until the next safe state (a restart, a replay, a new
+     start: Phase 8's resets call takePending too) and applies it to the configuration before anything is spawned; a
+     later change with the same key takes the earlier one's place. RUN.pending lists them ({key, label}, oldest first;
+     null when there are none) and the Training HUD shows each label as a note ("Applies on restart: 4 defenders"). A
+     restart with changes waiting is a new start of the scenario from the changed configuration (its setup is made
+     again), so Replay Last still plays the setup from before the change.
+   - The start waiting on a pitch change is RUN.switching (it was RUN.pending up to Phase 4; the name now belongs to
+     the contract's queue).
+   - My height and foot (setup.me.scale and setup.me.foot, teams.js from config.me.height and config.me.prefFoot): my
+     player record gets them, and at every start and restart my pooled body is built again at that scale when it is
+     not already (pool.js replaceMe, under the fade), the sandbox body with it (core/me.js sandboxHeight), so the eye,
+     the capsules and the body drawn all agree inside and outside a scenario.
+   - A participant's drill behaviour (setup p.drill = {behave: 'stand' | 'jockey' | 'press'}, Free Play's practice
+     opponents) is put on his agent (a.drill, with his spawn point): brain.js reads it in the training mode only. */
 import {onBegin} from "../build.js";
 import {P, FLAGS} from "../core/state.js";
 import {enterMode, exitMode, mode, modeArg, modeFlags} from "../core/modes.js";
@@ -60,7 +80,8 @@ import {controlReset, CTRL} from "../football/control.js";
 import {viewInit, viewDispose} from "../football/view.js";
 import {RUN as TRUN, fixedRun, viewOpts} from "../football/training.js";
 import {CAGE, cageEnter} from "./cage.js";
-import {takeBodies, returnBodies, poolStats, poolMeLook, poolDispose, bodyData, KITS, POOL_DRILL} from "./pool.js";
+import {takeBodies, returnBodies, poolStats, poolMeLook, poolDispose, bodyData, replaceMe, KITS, POOL_DRILL} from "./pool.js";
+import {sandboxHeight} from "../core/me.js";
 import * as THUD from "./thud.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -103,9 +124,9 @@ export const scenariosOf = category => [...REG.values()].filter(s => s.category 
    RUN.cur: the scenario playing ({id, sc, config, T, preset, kind}) or null; RUN.setup: the snapshot of the setup it
    started from (what a restart puts back); RUN.ms: its simulation; RUN.last: the run before ({id, config, setup, kind,
    preset}, what Replay Last plays again); RUN.task: the one scheduler task stepping it; RUN.paused: the pause card is
-   up (the task does not step); RUN.pending: a start waiting on a pitch change; RUN.starts and RUN.restarts count
-   (tests) */
-export const RUN = {cur:null, setup:null, last:null, task:null, paused:false, pending:null, starts:0, restarts:0,
+   up (the task does not step); RUN.switching: a start waiting on a pitch change (a promise); RUN.pending: the changes
+   queued for the next safe state ({key, label}, or null: P5-A); RUN.starts and RUN.restarts count (tests) */
+export const RUN = {cur:null, setup:null, last:null, task:null, paused:false, switching:null, pending:null, starts:0, restarts:0,
   get ms(){ return RUN.cur && RUN.cur.T ? RUN.cur.T.ms : null; }, get T(){ return RUN.cur ? RUN.cur.T : null; }};
 
 // the most agents a drill may have (G0 decision h): me, five team-mates, six opponents and a keeper
@@ -117,8 +138,20 @@ const num = (v, d) => Number.isFinite(+v) ? +v : d;
 // a setup made safe: counts within the limits, every number a number, everyone inside the movers' run-off
 export function cleanSetup(s, spec){
   const B = spec.runoff || {hx:spec.hx + 2, hz:spec.hz + 2};
-  const pt = (p, d = {}) => ({slot:typeof (p && p.slot) === "string" ? p.slot : d.slot || "CM", x:clamp(num(p && p.x, 0), -B.hx, B.hx), z:clamp(num(p && p.z, 0), -B.hz, B.hz),
-    yaw:num(p && p.yaw, 0), at:p && p.at && typeof p.at === "object" ? copy(p.at) : null, ovr:clamp(num(p && p.ovr, 60), 1, 99)});
+  const pt = (p, d = {}) => {
+    const o = {slot:typeof (p && p.slot) === "string" ? p.slot : d.slot || "CM", x:clamp(num(p && p.x, 0), -B.hx, B.hx), z:clamp(num(p && p.z, 0), -B.hz, B.hz),
+      yaw:num(p && p.yaw, 0), at:p && p.at && typeof p.at === "object" ? copy(p.at) : null, ovr:clamp(num(p && p.ovr, 60), 1, 99)};
+    // (P5-A) a practice opponent's behaviour (brain.js, the training mode only)
+    if (p && p.drill && BEHAVES.includes(p.drill.behave)) o.drill = {behave:p.drill.behave};
+    return o;
+  };
+  // (P5-A) my body: the whole-body scale my height gives and my preferred foot, when the setup says (teams.js)
+  const meBody = p => {
+    const o = {};
+    if (p && Number.isFinite(+p.scale) && +p.scale > 0) o.scale = +clamp(+p.scale, .85, 1.15).toFixed(3);
+    if (p && FOOT_OF[p.foot]) o.foot = FOOT_OF[p.foot];
+    return o;
+  };
   const b = s.ball || {};
   // the launch's kind: the setup's own, else the configuration's (P4-A teams.js keeps the configuration on the setup)
   const L = s.config && s.config.ball && s.config.ball.launch;
@@ -127,7 +160,7 @@ export function cleanSetup(s, spec){
   return {
     myTeam:s.myTeam === 1 ? 1 : 0, role:String(s.role || ""), seed:num(s.seed, 1) >>> 0,
     laws:Object.assign({}, s.laws || {}),
-    me:pt(s.me, {slot:"CM"}),
+    me:Object.assign(pt(s.me, {slot:"CM"}), meBody(s.me)),
     mates:(s.mates || []).slice(0, LIMITS.mates).map(p => pt(p, {slot:"CM"})),
     opps:(s.opps || []).slice(0, LIMITS.opps).map(p => pt(p, {slot:"CB"})),
     keeper:s.keeper ? Object.assign(pt(s.keeper, {slot:"GK"}), {slot:"GK", side:s.keeper.side === "mine" ? "mine" : "theirs"}) : null,
@@ -136,6 +169,9 @@ export function cleanSetup(s, spec){
     poss:ps, notes:Array.isArray(s.notes) ? s.notes.filter(n => typeof n === "string").slice(0, 8) : []
   };
 }
+// the practice opponents' behaviours (P5-A, brain.js drillMove) and the feet a setup may name
+export const BEHAVES = Object.freeze(["stand", "jockey", "press"]);
+const FOOT_OF = Object.freeze({Right:"Right", R:"Right", Left:"Left", L:"Left", Both:"Both", B:"Both"});
 const POS_OF = {GK:"GK", LB:"DF", CB:"DF", RB:"DF", LWB:"DF", RWB:"DF", CDM:"CM", CM:"CM", LM:"LW", RM:"RW", CAM:"CAM", LW:"LW", RW:"RW", LF:"ST", RF:"ST", CF:"ST", ST:"ST"};
 const ARCH_OF = {GK:"GK", DF:"DF", CM:"CM", CAM:"AM", LW:"W", RW:"W", ST:"ST"};
 // a player record for createMatch (sim.js 1.4.13): an NPC's attributes from the seeded role profile (attrs.js, G0 f)
@@ -163,13 +199,14 @@ function buildMatch(setup0, spec, B){
   const teams = [{name:"A", players:[], bench:[]}, {name:"B", players:[], bench:[]}];
   const order = [[], []];
   const add = (t, r, body) => { teams[t].players.push(r); order[t].push(body); };
-  add(myTeam, rec(setup.me, 1, B.me, {me:true, at:myAttrs(setup.me), foot:myFoot(), number:9}), B.me);
+  const foot = setup.me.foot || myFoot();
+  add(myTeam, Object.assign(rec(setup.me, 1, B.me, {me:true, at:myAttrs(setup.me), foot, number:9}), setup.me.scale ? {scale:setup.me.scale} : {}), B.me);
   setup.mates.forEach((p, i) => add(myTeam, rec(p, 100 + i, B.mine[i], {number:2 + i}), B.mine[i]));
   setup.opps.forEach((p, i) => add(oppTeam, rec(p, 200 + i, B.theirs[i], {number:2 + i}), B.theirs[i]));
   if (setup.keeper) add(setup.keeper.side === "mine" ? myTeam : oppTeam, rec(setup.keeper, 300, B.keeper, {number:1}), B.keeper);
   const rules = Object.assign({goals:goalsLaw(spec), offside:false, restarts:false, cards:false, subs:0, halfTime:false, stoppage:false}, setup.laws);
   const ms = createMatch({seed:setup.seed, mode:SIM_MODE, spec, halfRealSec:1e6, tempo:Object.assign({}, TEMPO[2]), teams,
-    me:{team:myTeam, slot:setup.me.slot, prefFoot:myFoot(), role:"starter"}, rules, kickoffTeam:myTeam, htAuto:true});
+    me:{team:myTeam, slot:setup.me.slot, prefFoot:foot, role:"starter"}, rules, kickoffTeam:myTeam, htAuto:true});
   // no officials in a drill: off the grass, and no bodies for them (the view is told so)
   for (const id of [REF, AR1, AR2]) if (ms.agents[id]) ms.agents[id].onPitch = false;
   const bodyOf = new Map();
@@ -183,6 +220,8 @@ function buildMatch(setup0, spec, B){
       const p = places[t][i]; if (!p) return;
       a.m.x = a.x0 = p.x; a.m.z = a.z0 = p.z; a.m.vx = a.m.vz = 0; a.m.speed = 0; a.m.yaw = a.m.heading = p.yaw;
       a.set = null;
+      // (P5-A) a practice opponent's behaviour, his spawn point the anchor a 'stand' holds
+      if (p.drill) a.drill = {behave:p.drill.behave, x:p.x, z:p.z};
       if (order[t][i]) bodyOf.set(a.id, order[t][i]);
     });
   }
@@ -234,15 +273,18 @@ function presetFor(sc, config, opts){
   try { return HOOKS.preset(sc.type, config) || null; } catch(e){ console.error(e); return null; }
 }
 /* config: the scenario's configuration (P4-A config.js). opts: {preset: {id, name}} when it was loaded from one.
-   Returns true when it is playing, or will be once the cage of the configured pitch is up (RUN.pending is that
+   Returns true when it is playing, or will be once the cage of the configured pitch is up (RUN.switching is that
    promise, resolving to whether it started); false when it cannot start (another is running or starting, an unknown
    id, no cage) */
 export function startScenario(id, config = {}, opts = {}){
   const sc = REG.get(id);
   if (!sc) return false;
-  if (RUN.cur || RUN.pending) return false;
+  if (RUN.cur || RUN.switching) return false;
   if (!CAGE || !CAGE.spec) return false;
-  const cfg = copy(config || {}), preset = presetFor(sc, cfg, opts);
+  // (P5-A) the changes queued for the next safe state go into the configuration first; a preset is no longer what
+  // plays once one of them has changed it
+  const cfg = takePending(copy(config || {}), sc), changed = cfg.__changed; delete cfg.__changed;
+  const preset = presetFor(sc, cfg, changed ? {} : opts);
   const go = () => {
     const spec = CAGE.spec;
     const setup = cleanSetup(sc.build(copy(cfg), {cage:CAGE, spec, limits:LIMITS}) || {}, spec);
@@ -257,13 +299,13 @@ export function startScenario(id, config = {}, opts = {}){
 // up while it switched (the hub on Esc) is still up when it plays: the scenario starts held, as the pause card holds
 // it, and the card comes up once the sheet goes (nothing runs behind the hub). With no pause card there is no hold
 function switchThen(kind, fn){
-  const p = RUN.pending = cageEnter(kind).then(c => {
-    RUN.pending = null;
+  const p = RUN.switching = cageEnter(kind).then(c => {
+    RUN.switching = null;
     if (!c || RUN.cur || !CAGE.spec || CAGE.kind !== kind) return false;
     const ok = fn();
     if (ok && RUN.cur && sheetUp()) holdUnderSheet();
     return ok;
-  }, e => { console.error(e); RUN.pending = null; return false; }).then(ok => {
+  }, e => { console.error(e); RUN.switching = null; return false; }).then(ok => {
     if (!ok){ emit(); if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent("train:scenario", {detail:{state:"failed"}})); }
     return !!ok;
   });
@@ -289,6 +331,8 @@ function resolveAttrs(setup){
 function play(sc, config, setup, preset = null){
   const spec = CAGE.spec;
   resolveAttrs(setup);
+  returnBodies();
+  fitMe(setup);
   const B = takeBodies(need(setup));
   if (!B) return false;
   const {ms, bodyOf} = buildMatch(setup, spec, B);
@@ -298,7 +342,7 @@ function play(sc, config, setup, preset = null){
   run.T = T;
   RUN.cur = run; RUN.setup = copy(setup); RUN.starts++; RUN.paused = false;
   // one scheduler task steps the simulation (perf-8), only while a scenario plays and is not paused
-  RUN.task = SCHED.fixed({id:"train-sim", hz:60, maxSteps:4, kind:"zone", run:h => { if (RUN.cur === run && run.T && !RUN.paused) fixedRun(run.T, h); }});
+  RUN.task = SCHED.fixed({id:"train-sim", hz:60, maxSteps:4, kind:"zone", run:h => { if (RUN.cur === run && run.T && !RUN.paused) stepRun(run, h); }});
   T.fixed = RUN.task;
   P.yaw = setup.me.yaw; P.pitch = 0;
   enterMode("train", T);
@@ -340,7 +384,8 @@ function itemFor(run, setup, spec, ms, bodyOf, B){
 function thudInfo(run){
   const s = RUN.setup, sc = run.sc, ui = sc.ui ? sc.ui(run.T, run) || {} : {};
   return {scenario:sc.name, role:ui.role || s.role || "Player", mine:1 + s.mates.length, theirs:s.opps.length, keeper:!!s.keeper,
-    preset:ui.preset || (run.preset ? run.preset.name : null), lines:ui.lines || null, pauseMenu:!!HOOKS.pause};
+    preset:ui.preset || (run.preset ? run.preset.name : null), lines:ui.lines || null, pauseMenu:!!HOOKS.pause,
+    keys:Array.isArray(ui.keys) ? ui.keys : null, pending:RUN.pending ? RUN.pending.map(c => c.label) : null};
 }
 
 /* the same scenario from its setup snapshot, at once: the same seed, the same places, the same ball and launch, the
@@ -348,10 +393,19 @@ function thudInfo(run){
    the simulation new, the runner's flags and notices cleared. The camera and the HUD stay up */
 export function restart(){
   const run = RUN.cur; if (!run || !run.T || !RUN.setup) return false;
+  // (P5-A) changes waiting for this safe state: the scenario starts again from the changed configuration, its setup
+  // made again (and this go becomes the last one, what Replay Last plays)
+  if (RUN.pending){
+    const cfg = takePending(copy(run.config), run.sc); delete cfg.__changed;
+    const id = run.id;
+    stopScenario("restart");
+    return startScenario(id, cfg);
+  }
   const T = run.T, spec = T.spec;
   if (T.V) viewDispose(T.V);
   T.V = null;
   returnBodies();
+  fitMe(RUN.setup);
   const B = takeBodies(need(RUN.setup));
   const {ms, bodyOf} = buildMatch(RUN.setup, spec, B);
   T.ms = ms; T.me = ms.agents[ms.me]; T.bodyOf = a => bodyOf.get(a.id) || null; T.fpBody = B.fp;
@@ -400,10 +454,15 @@ export function stopScenario(reason = "quit"){
    any configuration edit since). With a scenario playing, the last one is the one before it: this one stops first.
    On the cage that setup was made for (switched under the fade when another is up). Returns as startScenario does */
 export function replay(){
-  const L = RUN.last; if (!L || RUN.pending) return false;
+  const L = RUN.last; if (!L || RUN.switching) return false;
   const sc = REG.get(L.id); if (!sc || !CAGE || !CAGE.spec) return false;
   const last = {id:L.id, config:copy(L.config), setup:copy(L.setup), kind:L.kind, preset:L.preset};
   if (RUN.cur) stopScenario("replay");
+  // (P5-A) changes waiting for this safe state: the last configuration with them, its setup made again from it
+  if (RUN.pending){
+    const cfg = takePending(copy(last.config), sc); delete cfg.__changed;
+    return startScenario(last.id, cfg);
+  }
   const go = () => play(sc, last.config, last.setup, last.preset);
   if (last.kind && CAGES[last.kind] && last.kind !== CAGE.kind) return switchThen(last.kind, go);
   return go();
@@ -412,6 +471,76 @@ export const running = () => !!RUN.cur;
 export const paused = () => !!(RUN.cur && RUN.paused);
 // the pause card holds the simulation (on) or lets it go on (off)
 export function setPaused(on){ RUN.paused = !!(on && RUN.cur); return RUN.paused; }
+
+/* ---------- changes from the admin panel (P5-A, the Phase 5 contract) ---------- */
+const LIVE = {stepping:false, q:[]};
+// one fixed-step call of the scenario's simulation; what applyLive was handed while it ran is applied right after it
+function stepRun(run, h){
+  LIVE.stepping = true;
+  try { fixedRun(run.T, h); }
+  finally {
+    LIVE.stepping = false;
+    if (LIVE.q.length){ const q = LIVE.q.splice(0); for (const fn of q) liveNow(fn); }
+  }
+}
+function liveNow(fn){
+  const ms = RUN.ms; if (!ms) return false;
+  try { fn(ms); } catch(e){ console.error(e); return false; }
+  return true;
+}
+// fn(ms) between two simulation steps: at once when no step is running (the usual case: a click or a key), else right
+// after the step under way. false when no scenario plays
+export function applyLive(fn){
+  if (typeof fn !== "function" || !RUN.ms) return false;
+  if (LIVE.stepping){ LIVE.q.push(fn); return true; }
+  return liveNow(fn);
+}
+// a change held for the next safe state: {key, label, apply(config) -> config (or changes it in place)}. The same key
+// again takes the earlier one's place. Returns the queue as RUN.pending lists it
+const QUEUE = [];
+export function queueChange(c){
+  if (!c || typeof c.key !== "string" || !c.key || typeof c.apply !== "function") throw new Error("queueChange: a change needs a key and apply(config)");
+  const i = QUEUE.findIndex(q => q.key === c.key);
+  const rec = {key:c.key, label:String(c.label || c.key), apply:c.apply};
+  if (i >= 0) QUEUE.splice(i, 1);
+  QUEUE.push(rec);
+  pendingChanged();
+  return RUN.pending;
+}
+// a queued change taken back (the admin set it back before the restart). true when there was one
+export function dropChange(key){
+  const i = QUEUE.findIndex(q => q.key === key);
+  if (i < 0) return false;
+  QUEUE.splice(i, 1);
+  pendingChanged();
+  return true;
+}
+function pendingChanged(){
+  RUN.pending = QUEUE.length ? QUEUE.map(q => ({key:q.key, label:q.label})) : null;
+  if (RUN.cur && RUN.cur.T) THUD.thudPending(RUN.pending ? RUN.pending.map(c => c.label) : null);
+  emit();
+}
+/* the queued changes applied to a configuration (each in turn, oldest first) and the queue emptied: what a safe state
+   does before anything is spawned. Marks the result __changed when there were any (the caller takes the mark off) */
+export function takePending(config, sc = null){
+  if (!QUEUE.length) return config;
+  let c = config;
+  for (const q of QUEUE.splice(0)){
+    try { const r = q.apply(c, sc ? {id:sc.id, type:sc.type} : null); if (r && typeof r === "object") c = r; } catch(e){ console.error(e); }
+  }
+  pendingChanged();
+  c.__changed = true;
+  return c;
+}
+// my pooled body (and the sandbox's) at the scale the setup gives me, built again only when it is not already
+function fitMe(setup){
+  const want = setup && setup.me ? +setup.me.scale : NaN;
+  if (!(want > 0)) return 0;
+  const L = poolMeLook(), cur = L && +L.height > 0 ? +L.height : 1;
+  const n = Math.abs(cur - want) > 1e-4 ? replaceMe(Object.assign({}, L || {}, {height:want})) : 0;
+  try { sandboxHeight(want); } catch(e){ console.error(e); }
+  return n;
+}
 
 /* ---------- the reset state, as one hash (tests) ----------
    Everything a reset has to put back (BUILD-PLAN P4-B item 4, TRAINING-SPEC 4): every agent whole (position,
@@ -469,10 +598,15 @@ export function digest(){
 }
 
 // leaving Training stops whatever plays (sandbox.js fires train:exit; it never imports this module)
-if (typeof addEventListener === "function") addEventListener("train:exit", () => { stopScenario("exit"); RUN.last = null; RUN.setup = null; poolDispose(); });
+if (typeof addEventListener === "function") addEventListener("train:exit", () => {
+  stopScenario("exit"); RUN.last = null; RUN.setup = null; poolDispose();
+  // (P5-A) nothing queued outlives Training, and the sandbox body's height is the look's own again next time
+  QUEUE.length = 0; RUN.pending = null; LIVE.q.length = 0;
+  try { sandboxHeight(null, {build:false}); } catch(e){ console.error(e); }
+});
 // a new place being built (a pitch change): whatever played there is over, its task gone with the place's
 onBegin(() => { if (RUN.cur) stopScenario("ended"); });
 
 // tests (DESIGN 1.4.20 style)
 if (typeof window !== "undefined") window.__trainRun = {RUN, CATEGORIES, LIMITS, POOL_DRILL, registerScenario, startScenario, restart, stopScenario, replay, scenario, scenariosOf, poolStats,
-  digest, digestState, setPaused, paused};
+  digest, digestState, setPaused, paused, applyLive, queueChange, dropChange, takePending, BEHAVES};

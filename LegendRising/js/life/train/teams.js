@@ -18,13 +18,19 @@
 
    The frame is the cage pitch's own (pitch-local metres): +x is the goal the attackers attack (every cage has it);
    team 0 attacks +x, so the attackers are team 0 and the defenders, with the keeper in the +x goal, team 1. A slot's
-   place is a distance from that goal line and a distance across, cut to the area; the offset moves it from there. */
+   place is a distance from that goal line and a distance across, cut to the area; the offset moves it from there.
+
+   P5-A (Training Mode Phase 5, BUILD-PLAN P5-A work item 5; TRAINING-SPEC 4, the admin panel's height and physical
+   traits): my height and preferred foot (config.me.height in metres, config.me.prefFoot) become my player record's
+   scale (the look rule config.js scaleOfHeight: the whole-body scale look.height is, which view.js and bridge.js read
+   the same way) and prefFoot (createAgent makes it a.foot, agent.js), in the createMatch cfg (cfg.me.prefFoot too) and
+   in the runner's setup (setup.me.scale and setup.me.foot: the runner draws your pooled body at that scale). */
 import {cagePitch, goalsLawOf} from "../football/cagespec.js";
 import {solveStrike} from "../football/strike.js";
 import {attrsForAI, attrsForTraining} from "../football/attrs.js";
 import {RULES} from "../football/rules.js";
 import {atan2} from "../football/detmath.js";
-import {validate, counts, sideOf, ROLE_SLOT, ROLE_NAMES, typeOf} from "./config.js";
+import {validate, counts, sideOf, ROLE_SLOT, ROLE_NAMES, typeOf, scaleOfHeight, footOf} from "./config.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const R = 0.11;
@@ -149,6 +155,8 @@ function resolve(type, config, seed, specIn){
   // attributes: mine from the editor (raw, no effSkill: attrs.js attrsForTraining), the NPCs' from their side's
   // average through the seeded role profile (attrsForAI, G0 f), the keeper's set as configured
   me.at = attrsForTraining(c.me);
+  // my body: the scale my height gives, and my preferred foot (P5-A)
+  me.scale = scaleOfHeight(c.me.height); me.foot = footOf(c.me.prefFoot) || "Right";
   for (const side of ["att", "def"]){
     const avg = side === "att" ? c.attAvg : c.defAvg;
     for (const p of npcs[side]){ p.ovr = avg; p.at = attrsForAI({id:p.id, ovr:avg, pos:posOfSlot(p.slot), slot:p.slot}, {training:true}); }
@@ -160,8 +168,15 @@ function resolve(type, config, seed, specIn){
     keeper.at.gk = Object.assign({}, g);
   }
 
-  // the ball's flight: the launch solved from the placement to the target (no ball is moved here)
+  // (P5-A) a type with the Q ball's settings (Free Play: opts.spawnY, opts.spawnV) starts with that ball: at that
+  // height, coming toward me at that speed
   let v = {x:0, y:0, z:0}, w = {x:0, y:0, z:0}, solve = null;
+  if (!c.ball.at && c.opts && Number.isFinite(c.opts.spawnY)){
+    ball.y = Math.max(R, c.opts.spawnY);
+    const sp = Number.isFinite(c.opts.spawnV) ? c.opts.spawnV : 0, ux = me.x - ball.x, uz = me.z - ball.z, ul = Math.hypot(ux, uz) || 1;
+    if (sp > 0) v = {x:r4(ux/ul*sp), y:0, z:r4(uz/ul*sp)};
+  }
+  // the ball's flight: the launch solved from the placement to the target (no ball is moved here)
   if (c.ball.launch){
     const L = c.ball.launch;
     const contact = L.kind === "driven" ? -1 : L.kind === "cross" || L.kind === "loft" ? 1 : 0;
@@ -178,7 +193,7 @@ function resolve(type, config, seed, specIn){
 const spot = p => ({slot:p.slot, x:p.x, z:p.z, yaw:p.yaw, at:p.at, ovr:p.ovr});
 function setupOf(r){
   return {myTeam:r.myTeam, role:ROLE_NAMES[r.c.role] || "Player", seed:r.sd, laws:r.laws,
-    me:spot(r.me), mates:r.mates.map(spot), opps:r.opps.map(spot),
+    me:Object.assign(spot(r.me), {scale:r.me.scale, foot:r.me.foot}), mates:r.mates.map(spot), opps:r.opps.map(spot),
     keeper:r.keeper ? Object.assign(spot(r.keeper), {side:r.myTeam === 1 ? "mine" : "theirs"}) : null,
     ball:{x:r.ball.x, y:r.ball.y, z:r.ball.z, vx:r.v.x, vy:r.v.y, vz:r.v.z, wx:r.w.x, wy:r.w.y, wz:r.w.z, free:true},
     poss:r.poss, config:r.c};
@@ -194,14 +209,14 @@ export function setupFromConfig(type, config, env = {}){
 /* ---------- the createMatch cfg ---------- */
 const rec = (p, pid, o = {}) => {
   const pos = posOfSlot(p.slot);
-  return {pid, name:o.name || "", number:o.number || 0, slot:p.slot, arch:ARCH_OF[pos] || "CM", isGK:p.slot === "GK", isMe:!!o.me, scale:1,
-    at:p.at, energy:100, fatigue:0, prefFoot:"Right", items:null, place:{x:p.x, z:p.z, yaw:p.yaw}, ovr:p.ovr != null ? p.ovr : null};
+  return {pid, name:o.name || "", number:o.number || 0, slot:p.slot, arch:ARCH_OF[pos] || "CM", isGK:p.slot === "GK", isMe:!!o.me, scale:o.scale || 1,
+    at:p.at, energy:100, fatigue:0, prefFoot:o.foot || "Right", items:null, place:{x:p.x, z:p.z, yaw:p.yaw}, ovr:p.ovr != null ? p.ovr : null};
 };
 // an eleven-a-side match (Full Match): my team in a 4-3-3 with me in my role's slot, theirs the same, both keepers
 const XI = Object.freeze(["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "CM", "LW", "ST", "RW"]);
 function matchCfg(type, config, seed){
   const notes = [], c = validate(type, config, notes), sd = (seed != null ? seed : c.seed) >>> 0, spec = cagePitch("full");
-  const mySlot = ROLE_SLOT[c.role] || "CM";
+  const mySlot = ROLE_SLOT[c.role] || "CM", myScale = scaleOfHeight(c.me.height), myFoot = footOf(c.me.prefFoot) || "Right";
   const teams = [0, 1].map(t => ({name:t ? "B" : "A", players:[], bench:[]}));
   for (const t of [0, 1]){
     let mePlaced = false;
@@ -213,10 +228,10 @@ function matchCfg(type, config, seed){
       if (isMe) at = attrsForTraining(c.me);
       else if (slot === "GK"){ at = attrsForAI({id, ovr:avg, pos:"GK"}, {training:true}); if (t === 1) at.gk = Object.assign({}, c.gk); }
       else at = attrsForAI({id, ovr:avg, pos:posOfSlot(slot), slot}, {training:true});
-      teams[t].players.push(rec({slot, at, x:0, z:0, yaw:0, ovr:isMe ? null : avg}, t*100 + i + 1, {me:isMe, number:i + 1}));
+      teams[t].players.push(rec({slot, at, x:0, z:0, yaw:0, ovr:isMe ? null : avg}, t*100 + i + 1, isMe ? {me:true, number:i + 1, scale:myScale, foot:myFoot} : {number:i + 1}));
     });
   }
-  const cfg = {seed:sd, mode:"train", spec, halfRealSec:600, teams, me:{team:0, slot:mySlot, prefFoot:"Right", role:"starter"},
+  const cfg = {seed:sd, mode:"train", spec, halfRealSec:600, teams, me:{team:0, slot:mySlot, prefFoot:myFoot, role:"starter"},
     rules:{out:"stop", offside:true, goals:2, restarts:true, cards:true, halfTime:true, stoppage:true}, kickoffTeam:0};
   return {cfg, ballInit:{p:{x:0, y:R, z:0}, v:{x:0, y:0, z:0}, w:{x:0, y:0, z:0}}, setup:null, poss:{team:0, who:"me", i:-1}, notes};
 }
@@ -229,12 +244,12 @@ export function cfgFromConfig(type, config, seed = null, spec = null){
   const r = resolve(type, config, seed, spec);
   const teams = [{name:"A", players:[], bench:[]}, {name:"B", players:[], bench:[]}];
   const oppTeam = 1 - r.myTeam;
-  teams[r.myTeam].players.push(rec(r.me, 1, {me:true, number:9}));
+  teams[r.myTeam].players.push(rec(r.me, 1, {me:true, number:9, scale:r.me.scale, foot:r.me.foot}));
   r.mates.forEach((p, i) => teams[r.myTeam].players.push(rec(p, 100 + i, {number:2 + i})));
   r.opps.forEach((p, i) => teams[oppTeam].players.push(rec(p, 200 + i, {number:2 + i})));
   if (r.keeper) teams[1].players.push(rec(r.keeper, 300, {number:1}));
   const cfg = {seed:r.sd, mode:"train", spec:r.spec, halfRealSec:1e6, teams,
-    me:{team:r.myTeam, slot:r.me.slot, prefFoot:"Right", role:"starter"},
+    me:{team:r.myTeam, slot:r.me.slot, prefFoot:r.me.foot, role:"starter"},
     rules:Object.assign({offside:false, restarts:false, cards:false, subs:0, halfTime:false, stoppage:false}, r.laws),
     kickoffTeam:r.poss.team >= 0 ? r.poss.team : r.myTeam, htAuto:true};
   const ballInit = {p:{x:r.ball.x, y:r.ball.y, z:r.ball.z}, v:r.v, w:r.w, kind:r.c.ball.launch ? r.c.ball.launch.kind : null,
