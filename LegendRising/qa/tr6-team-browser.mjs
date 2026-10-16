@@ -66,9 +66,9 @@ async function scrollReal(page, sel){
   for (let k = 0; k < 40; k++){
     const r = await page.evaluate(sel => { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(), s = document.querySelector("#sheetRoot .sheet");
       const sb = s ? s.getBoundingClientRect() : {top:0, bottom:innerHeight, left:0, width:innerWidth}; const foot = document.querySelector("#sheetRoot .th-foot"), fb = foot && !foot.contains(e) && getComputedStyle(foot).position === "sticky" ? foot.getBoundingClientRect().top : Infinity;
-      return {top:b.top, bottom:b.bottom, min:Math.max(0, sb.top) + 8, max:Math.min(innerHeight, sb.bottom, fb) - 8, x:sb.left + sb.width/2}; }, sel);
+      return {top:b.top, bottom:b.bottom, min:Math.max(0, sb.top) + 8, max:Math.min(innerHeight, sb.bottom, fb) - 8, x:sb.left + sb.width/2, hit:(h => !!h && (h === e || e.contains(h)))(document.elementFromPoint(b.left + b.width/2, b.top + b.height/2))}; }, sel);
     if (!r) return false;
-    if (r.top >= r.min && r.bottom <= r.max) return true;
+    if (r.top >= r.min && r.bottom <= r.max && r.hit) return true;
     await page.mouse.move(r.x, (r.min + r.max)/2);
     await page.mouse.wheel(0, r.bottom > r.max ? 240 : -240);
     await page.waitForTimeout(80);
@@ -105,6 +105,18 @@ async function inPlay(page){
     await page.waitForTimeout(300);
   }
   return page.evaluate(() => !document.querySelector('#fpOverlay.on') && !!document.pointerLockElement && !window.__trainRun.RUN.paused);
+}
+// a scenario's Presets, by a real click on its row (the hub may still be settling its scroll as it comes back: the
+// row is brought into view and clicked again until the presets sheet is up)
+async function openPresets(page, id){
+  const sel = `#sheetRoot [data-th="presets"][data-id="${id}"]`, up = () => !!document.querySelector("#sheetRoot.open .tp") && window.__trainPresetUI.presetsOpen();
+  for (let k = 0; k < 3; k++){
+    await page.waitForTimeout(300);
+    await scrollReal(page, sel);
+    await clickReal(page, sel);
+    if (await wait(page, up, null, 10000).then(() => true, () => false)) return;
+  }
+  await wait(page, up, null, 5000);
 }
 // the pause card's Return to Hub, by real keys and clicks
 async function backToHub(page){
@@ -372,9 +384,7 @@ try {
     const d0 = await page.evaluate(id => [...window.__qaDig].reverse().find(x => x.id === id), id);
     await backToHub(page);
     // Presets (a real click), a name typed, Save
-    await scrollReal(page, `#sheetRoot [data-th="presets"][data-id="${id}"]`);
-    await clickReal(page, `#sheetRoot [data-th="presets"][data-id="${id}"]`);
-    await wait(page, () => !!document.querySelector("#sheetRoot.open .tp") && window.__trainPresetUI.presetsOpen(), null, 15000);
+    await openPresets(page, id);
     await clickReal(page, "#tpName");
     await page.keyboard.press("Control+A");
     await page.keyboard.type(name, {delay:15});
@@ -397,9 +407,7 @@ try {
   await digests();
   for (const [cat, id, , name] of PRE){
     await toHubCategory(page, cat);
-    await scrollReal(page, `#sheetRoot [data-th="presets"][data-id="${id}"]`);
-    await clickReal(page, `#sheetRoot [data-th="presets"][data-id="${id}"]`);
-    await wait(page, () => !!document.querySelector("#sheetRoot.open .tp") && window.__trainPresetUI.presetsOpen(), null, 15000);
+    await openPresets(page, id);
     const row = await page.evaluate(n => { const r = [...document.querySelectorAll("#sheetRoot .tp-row")].find(r => r.querySelector(".tp-name").textContent === n); return r ? r.dataset.row : null; }, name);
     if (!row){ check(false, `${cat}: the preset "${name}" is in the Load list after the reload`, null); continue; }
     await scrollReal(page, `#sheetRoot [data-row="${row}"] [data-tp="load"]`);
