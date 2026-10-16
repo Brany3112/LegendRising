@@ -113,7 +113,8 @@ try {
     await clickIn(page, `#trainCfg [data-ae="preset"][data-set="gk"][data-level="${lvl}"]`);
     const cc = await cfgNow(page);
     const shown = await page.evaluate(() => [...document.querySelectorAll('#trainCfg [data-ae-in^="me."], #trainCfg [data-ae-in^="gk."]')].map(e => +e.value));
-    pre[lvl] = Object.values(cc.me).every(x => x === v) && ["reflex", "dive", "handling", "posit"].every(k => cc.gk[k] === v) && shown.every(x => x === v);
+    // (config.me also carries height and prefFoot since Phase 5: only the 15 skills are the editor's)
+    pre[lvl] = Object.entries(cc.me).filter(([k]) => k !== "height" && k !== "prefFoot").every(([, x]) => x === v) && ["reflex", "dive", "handling", "posit"].every(k => cc.gk[k] === v) && shown.every(x => x === v);
   }
   check(Object.values(pre).every(Boolean), "Low, Average, High and Max set every value to 35, 55, 75 and 99", pre);
 

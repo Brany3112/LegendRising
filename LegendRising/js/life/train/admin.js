@@ -28,8 +28,7 @@
    A control that would change nothing is not shown: no height without the schema field that carries it, no counts or
    averages for a scenario without a configuration, no ball spawn outside Free Play, no match resets outside Full
    Match. The panel never touches the career. */
-import * as RN from "./runner.js";
-import {RUN, onRunner, restart, replay, stopScenario, setPaused, startScenario} from "./runner.js";
+import {RUN, onRunner, restart, replay, stopScenario, setPaused, applyLive, queueChange, dropChange} from "./runner.js";
 import * as QK from "./quick.js";
 import {openHub, hubOpen, hubCategory} from "./hub.js";
 import {openPresets, presetsOpen} from "./presetui.js";
@@ -71,45 +70,20 @@ const TUNE_GROUPS = Object.freeze([["MAP_STR_POW", "How the duel stats come from
   ["S_STR", "Shielding"], ["TR_0", "Tackling"]]);
 
 // the admin's own state. inf: infinite stamina for you (kept over restarts and scenarios until Training is left);
-// ms: the simulation the session settings were last applied to; local: changes waiting for a restart when the runner
-// has no queue of its own; spawn: Free Play's spawn options
-const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, restarts:-1, local:[], spawn:{y:R, v:0}, key:null, obs:null, hub:null, paused:false, start:null};
+// ms: the simulation the session settings were last applied to; spawn: Free Play's spawn options
+const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, spawn:{y:R, v:0}, key:null, obs:null, hub:null, paused:false, start:null};
 
-/* ---------- the runner's admin API (P5-A), and what it falls back to ---------- */
-// a change safe mid-play, run between two simulation steps (the runner's applyLive; with none, now: the panel only acts
-// on a click, which is never inside a step)
+/* ---------- the runner's admin API (P5-A) ---------- */
+// a change safe mid-play, run between two simulation steps (the runner's applyLive)
 function live(fn){
-  const ms = RUN.ms; if (!ms) return false;
-  if (typeof RN.applyLive === "function") RN.applyLive(fn);
-  else fn(ms);
+  if (!RUN.ms) return false;
+  applyLive(fn);
   return true;
 }
-/* a change held until the next safe state ({key, label, apply(config)}): the runner's queueChange. With a runner that
-   has none, the panel keeps it and applies it when this scenario next starts again (Restart, Backspace, Reset
-   scenario): the configuration with the change, started afresh, so the run before it stays what Replay Last plays.
-   A later change with the same key replaces the earlier one */
-function queue(ch){
-  if (typeof RN.queueChange === "function") return RN.queueChange(ch);
-  const i = AD.local.findIndex(x => x.key === ch.key);
-  if (i >= 0) AD.local.splice(i, 1);
-  AD.local.push(ch);
-  return true;
-}
-const pending = () => typeof RN.queueChange === "function" ? (Array.isArray(RUN.pending) ? RUN.pending : []) : AD.local;
-function applyLocal(run){
-  const list = AD.local.splice(0);
-  if (!list.length || RUN.cur !== run) return;
-  let cfg = copy(run.config) || {};
-  for (const ch of list){ try { ch.apply(cfg); } catch(e){ console.error(e); } }
-  if (typedRun(run)) cfg = validate(run.sc.type, cfg);
-  // (after the restart that called for it has finished: the runner is not re-entered from its own listener)
-  queueMicrotask(() => {
-    if (RUN.cur !== run) return;
-    const paused = RUN.paused;
-    stopScenario("replay");
-    if (startScenario(run.id, cfg) && paused) setPaused(true);
-  });
-}
+// a change held until the next safe state ({key, label, apply(config)}): the runner's queueChange, which shows its
+// note (RUN.pending). A later change with the same key replaces the earlier one
+const queue = ch => queueChange(ch);
+const pending = () => Array.isArray(RUN.pending) ? RUN.pending : [];
 
 /* ---------- what is playing ---------- */
 const typedRun = run => !!(run && run.sc && typeOf(run.sc.type) && isObj(run.config) && run.config.v === VERSION);
@@ -171,8 +145,7 @@ function setHeight(cm){
   // (set back to the height you play at now: nothing waits for the restart any more)
   const a = meAgent(), now = a ? Math.round((a.scale || 1)*BASE_H*100) : null;
   if (v === now){
-    if (typeof RN.dropChange === "function") RN.dropChange("me.height");
-    else { const i = AD.local.findIndex(x => x.key === "me.height"); if (i >= 0) AD.local.splice(i, 1); }
+    dropChange("me.height");
     return v;
   }
   queue({key:"me.height", label:`Height ${v} cm`, apply(c){ if (!isObj(c.me)) c.me = {}; c.me.height = m; }});
@@ -259,10 +232,9 @@ function spawnBall(){
 /* ---------- the session settings on every new simulation (a start, a restart, a replay) ---------- */
 function onSim(){
   const ms = RUN.ms;
-  if (!RUN.cur){ AD.ms = null; AD.restarts = -1; AD.local.length = 0; return; }
+  if (!RUN.cur){ AD.ms = null; return; }
   if (!ms || ms === AD.ms) return;
-  const again = AD.ms !== null && RUN.restarts !== AD.restarts;
-  AD.ms = ms; AD.restarts = RUN.restarts;
+  AD.ms = ms;
   const a = ms.agents[ms.me];
   if (a){
     if (AD.inf) stamInfinite(a.st, true);
@@ -270,7 +242,6 @@ function onSim(){
     const f = RUN.setup && RUN.setup.me && RUN.setup.me.foot;
     if (f && footCode(f) !== a.foot) agentFoot(a, f);
   }
-  if (again && AD.local.length) applyLocal(RUN.cur);
   if (AD.open) draw();
 }
 
@@ -684,7 +655,7 @@ if (typeof addEventListener === "function"){
     if (want) adminOpen(d.section || null); else adminClose();
   });
   // leaving Training: the panel goes, and the session settings with it
-  addEventListener("train:exit", () => { if (AD.open){ AD.hub = null; gone(); takeDown(); } AD.inf = false; AD.local.length = 0; AD.ms = null; AD.start = null; tuneReset(); });
+  addEventListener("train:exit", () => { if (AD.open){ AD.hub = null; gone(); takeDown(); } AD.inf = false; AD.ms = null; AD.start = null; tuneReset(); });
 }
 
 // tests (DESIGN 1.4.20 style)
