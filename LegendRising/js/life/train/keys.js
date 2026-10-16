@@ -24,7 +24,10 @@ import {spawnBall, freePlaying} from "./freeplay.js";
 import {RUN} from "./runner.js";
 
 const K = {on:false, open:false, sent:0, q:0};
-const typing = t => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+// (typing: a field that takes text. A slider, a box to tick or a button with the focus is not typing: the admin panel's
+// height slider keeps the focus after a drag and Numpad 1 must still close the panel)
+const TEXT_IN = new Set(["", "text", "number", "search", "email", "password", "tel", "url"]);
+const typing = t => !!t && ((t.tagName === "INPUT" && TEXT_IN.has(String(t.getAttribute("type") || "").toLowerCase())) || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
 // is this key event the admin panel's key
 export const isAdminKey = e => !!e && (e.code === "Numpad1" || (e.code === "Digit1" && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey));
 export const adminOpen = () => typeof window.trainAdminOpen === "function" ? !!window.trainAdminOpen() : K.open;

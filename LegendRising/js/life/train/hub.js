@@ -18,7 +18,7 @@
    there, and the hub's own Start uses the same configuration (startScenario(id, config)). What was set is kept for
    each scenario while you stay in Training (scenarioConfig, setScenarioConfig; presets that last are P4-B's). */
 import {screenCover} from "../core/quality.js";
-import {CATEGORIES, categoryOf, scenariosOf, scenario, startScenario, stopScenario, restart, replay, RUN, onRunner} from "./runner.js";
+import {CATEGORIES, categoryOf, scenariosOf, scenario, startScenario, stopScenario, restart, replay, RUN, onRunner, withPending} from "./runner.js";
 import {exitTraining, inTraining} from "./sandbox.js";
 import {mode} from "../core/modes.js";
 import {thudIdle} from "./thud.js";
@@ -146,8 +146,10 @@ export function configureScenario(id, config = null){
   const sc = scenario(id); if (!sc) return false;
   if (!configurable(sc)){ if (sc.configure){ closeHub(); sc.configure(); return true; } return false; }
   if (RUN.cur && RUN.cur.id !== id) return false;
-  openConfig({type:sc.type, title:sc.name, config:config || scenarioConfig(id),
-    onStart:c => { setScenarioConfig(id, c); if (RUN.cur && RUN.cur.id === id) stopScenario("config"); if (!startScenario(id, scenarioConfig(id))) openHub(sc.category); },
+  // (changes queued from the admin panel for this scenario, still waiting: the sheet shows them, as Start would play them)
+  const cfg = config || (RUN.cur && RUN.cur.id === id && RUN.pending ? validate(sc.type, withPending(scenarioConfig(id), sc)) : scenarioConfig(id));
+  openConfig({type:sc.type, title:sc.name, config:cfg,
+    onStart:c => { if (RUN.cur && RUN.cur.id === id) stopScenario("config"); setScenarioConfig(id, c); if (!startScenario(id, scenarioConfig(id))) openHub(sc.category); },
     onBack:() => openHub(sc.category)});
   closeHub(false);
   idle();
@@ -201,7 +203,8 @@ if (typeof window !== "undefined"){
   onRunner(() => { redraw(); idle(); });
   addEventListener("keydown", cageKey);
   // Esc out of a scenario: the hub, on that scenario's category
-  addEventListener("train:scenario", e => { const d = e.detail || {}; if (d.reason === "quit") openHub(d.category); });
+  addEventListener("train:scenario", e => { const d = e.detail || {}; if (d.state === "stopped" && d.id && d.config && configurable(scenario(d.id))) setScenarioConfig(d.id, d.config);
+    if (d.reason === "quit") openHub(d.category); });
   // the pause card's Return to Configuration (quick.js): the configuration sheet with the configuration that was playing
   addEventListener("train:configure", e => {
     const d = e.detail || {};

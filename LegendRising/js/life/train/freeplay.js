@@ -20,16 +20,14 @@
      presets like every scenario.
    spawnBall(o) is also what the admin panel's Ball section calls (o: {y, v} to override the settings' height and
    speed). */
-import {registerScenario, RUN} from "./runner.js";
+import {registerScenario, RUN, placeBall, ballPlaced} from "./runner.js";
 import {BEHAVE_NAMES, FREE_SPAWN} from "./config.js";
 import {setupFromConfig} from "./teams.js";
 import {P} from "../core/state.js";
 import {BALL, ballKick} from "../football/ball.js";
 import {capsules} from "../football/agent.js";
-import {refreshPred} from "../football/actions.js";
-import {clearCtl, liveRoll, lawOf} from "../football/rules.js";
+import {lawOf} from "../football/rules.js";
 import {logEv, chainKick} from "../football/events.js";
-import {viewPreStep} from "../football/view.js";
 
 const R = BALL.R;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -118,18 +116,8 @@ export function spawnBall(o = {}){
   const y = clamp(num(o && o.y, num(opts.spawnY, R)), R, FREE.Y_MAX), v = clamp(num(o && o.v, num(opts.spawnV, 0)), 0, FREE.V_MAX);
   const law = lawOf(ms, "out") === "stop" ? "stop" : "rebound";
   const p = spawnPoint(ms, me, spec, y, law);
-  const b = ms.ball;
-  // nobody has it any more: out of the hands (a keeper's: gkbrain.js reads the ball's own state each step) or the feet
-  clearCtl(ms);
-  for (const a of ms.agents) if (a.drib) a.drib = null;
-  b.p.x = p.x; b.p.y = p.y; b.p.z = p.z;
-  b.v.x = b.v.y = b.v.z = 0; b.w.x = b.w.y = b.w.z = 0;
-  b.knuck = null; b.state = "free"; b.holder = -1; b.sleep = false; b.still = 0; b.dragMul = 1;
-  b.grounded = p.y <= R + 0.02; b.inField = null;
-  b.netSide.fill(0); b.netHit = false; b.netQ = 0; b.netAny = false; b.pendN = 0;
-  liveRoll(b);
-  // play goes on from here: a restart that was waiting (a ball out, with play stopping for it) is over
-  if (ms.restart || ms.phase !== "live"){ ms.restart = null; ms.phase = "live"; for (const a of ms.agents){ a.set = null; a.wall = false; } }
+  // (nobody has it any more, at rest there, play going on from here: the runner's placeBall, as the admin's reset)
+  const b = placeBall(ms, p, true);
   if (v > 0){
     const ux = me.m.x - p.x, uz = me.m.z - p.z, ul = Math.hypot(ux, uz) || 1;
     ballKick(b, {x:ux/ul*v, y:0, z:uz/ul*v}, null, {agent:-1, team:me.team, kind:"pass", t:ms.t});
@@ -137,8 +125,7 @@ export function spawnBall(o = {}){
     chainKick(ms, ev);
     ms.kick = {seq:(ms.kick ? ms.kick.seq : 0) + 1, ev, t:ms.t, team:me.team, agent:-1};
   }
-  refreshPred(ms);
-  if (T.V) viewPreStep(T.V, ms);
+  ballPlaced(ms);
   FP.spawns++;
   // (what the tests read: where it went, where you were and how you faced and moved, and every body there then)
   FP.last = {x:p.x, y:p.y, z:p.z, d:p.d, pushed:p.pushed, v, me:{x:me.m.x, z:me.m.z, yaw:me.m.yaw, speed:me.m.speed, scale:me.scale || 1},

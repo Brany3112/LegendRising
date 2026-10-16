@@ -55,7 +55,9 @@
      later change with the same key takes the earlier one's place. RUN.pending lists them ({key, label}, oldest first;
      null when there are none) and the Training HUD shows each label as a note ("Applies on restart: 4 defenders"). A
      restart with changes waiting is a new start of the scenario from the changed configuration (its setup is made
-     again), so Replay Last still plays the setup from before the change.
+     again), so Replay Last still plays the setup from before the change. A scenario stopped with changes still
+     waiting (Return to Configuration, Return to Hub, Esc) takes them into its own configuration as it stops, so
+     they never land on the next start of something else and the sheet shows what Start will play.
    - The start waiting on a pitch change is RUN.switching (it was RUN.pending up to Phase 4; the name now belongs to
      the contract's queue).
    - My height and foot (setup.me.scale and setup.me.foot, teams.js from config.me.height and config.me.prefFoot): my
@@ -69,7 +71,7 @@ import {P, FLAGS} from "../core/state.js";
 import {enterMode, exitMode, mode, modeArg, modeFlags} from "../core/modes.js";
 import {SCHED} from "../core/sched.js";
 import {createMatch, REF, AR1, AR2, TEMPO} from "../football/sim.js";
-import {MODES} from "../football/rules.js";
+import {MODES, clearCtl, liveRoll} from "../football/rules.js";
 import {refreshPred} from "../football/actions.js";
 import {attrsForAI, attrsForPlayer} from "../football/attrs.js";
 import {goalsLawOf as goalsLaw, CAGES} from "../football/cagespec.js";
@@ -77,7 +79,7 @@ import {ballKick} from "../football/ball.js";
 import {logEv, chainKick} from "../football/events.js";
 import {hashStr} from "../football/rng.js";
 import {controlReset, CTRL} from "../football/control.js";
-import {viewInit, viewDispose} from "../football/view.js";
+import {viewInit, viewDispose, viewPreStep} from "../football/view.js";
 import {RUN as TRUN, fixedRun, viewOpts} from "../football/training.js";
 import {CAGE, cageEnter} from "./cage.js";
 import {takeBodies, returnBodies, poolStats, poolMeLook, poolDispose, bodyData, replaceMe, KITS, POOL_DRILL} from "./pool.js";
@@ -439,6 +441,16 @@ export function stopScenario(reason = "quit"){
   returnBodies();
   // what Replay Last plays: this run's own setup snapshot, as it started
   RUN.last = {id:run.id, config:copy(run.config), setup:copy(RUN.setup), kind:run.kind, preset:run.preset};
+  // (P5-A) the changes still queued for this scenario are not carried to whatever starts next: stopping is their safe
+  // state, so they go into this run's configuration (run.config), which is what Return to Configuration hands the
+  // sheet and what the hub keeps for the scenario (the stopped event carries it). Whatever is then picked on the sheet
+  // is what plays. Replay Last still plays the setup from before them, as a restart with changes leaves it. (Leaving
+  // Training drops them instead: nothing queued outlives it)
+  let folded = null;
+  if (QUEUE.length && reason !== "exit"){
+    folded = takePending(copy(run.config), run.sc); delete folded.__changed;
+    run.config = folded;
+  }
   THUD.thudHide();
   // back to the mode you walked about in (the sandbox's) unless Training is over. On a change of place ('ended') only
   // a mode that stays on through a zone change goes back on (the sandbox's does: a pitch change keeps you in
@@ -447,7 +459,7 @@ export function stopScenario(reason = "quit"){
   if (reason !== "exit" && pf && (reason !== "ended" || pf.leaveOnZone === false) && mode() === "life") enterMode(run.prev, run.prevArg);
   emit();
   // (the hub hears it: Esc out of a scenario opens it on that scenario's category)
-  if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent("train:scenario", {detail:{state:"stopped", reason, id:run.id, category:run.sc.category}}));
+  if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent("train:scenario", {detail:{state:"stopped", reason, id:run.id, category:run.sc.category, config:folded ? copy(folded) : null}}));
   return true;
 }
 /* the last scenario again from the setup snapshot it started from (not where its last go ended, and not changed by
@@ -507,6 +519,30 @@ export function queueChange(c){
   pendingChanged();
   return RUN.pending;
 }
+/* a ball put somewhere by hand during play (Free Play's Q, the admin panel's reset), the one way both do it:
+   placeBall(ms, p, free) takes it out of anyone's hands or feet, puts it at rest at p (a free ball, or a dead one),
+   clears its net contact and dead-ball roll, and ends a restart that was waiting (play goes on from here). The caller
+   may then launch it (ball.js ballKick); ballPlaced(ms) works out the predictions again and tells the view it was put
+   there, so no streak is drawn from where it was */
+export function placeBall(ms, p, free = true){
+  const b = ms.ball;
+  clearCtl(ms);
+  for (const a of ms.agents) if (a.drib) a.drib = null;
+  b.p.x = p.x; b.p.y = Math.max(R, p.y); b.p.z = p.z;
+  b.v.x = b.v.y = b.v.z = 0; b.w.x = b.w.y = b.w.z = 0;
+  b.knuck = null; b.state = free ? "free" : "dead"; b.holder = -1; b.sleep = false; b.still = 0; b.dragMul = 1;
+  b.grounded = b.p.y <= R + 0.02; b.inField = null;
+  if (b.netSide) b.netSide.fill(0);
+  b.netHit = false; b.netQ = 0; b.netAny = false; b.pendN = 0;
+  liveRoll(b);
+  if (ms.restart || ms.phase !== "live"){ ms.restart = null; ms.phase = "live"; for (const a of ms.agents){ a.set = null; a.wall = false; } }
+  return b;
+}
+export function ballPlaced(ms){
+  refreshPred(ms);
+  const T = RUN.cur && RUN.cur.T;
+  if (T && T.V && T.ms === ms) viewPreStep(T.V, ms);
+}
 // a queued change taken back (the admin set it back before the restart). true when there was one
 export function dropChange(key){
   const i = QUEUE.findIndex(q => q.key === key);
@@ -519,6 +555,15 @@ function pendingChanged(){
   RUN.pending = QUEUE.length ? QUEUE.map(q => ({key:q.key, label:q.label})) : null;
   if (RUN.cur && RUN.cur.T) THUD.thudPending(RUN.pending ? RUN.pending.map(c => c.label) : null);
   emit();
+}
+/* the queued changes applied to a copy of a configuration, the queue left as it is: what a configuration sheet opened
+   while they wait shows (Start then plays what the sheet set) */
+export function withPending(config, sc = null){
+  let c = copy(config || {});
+  for (const q of QUEUE){
+    try { const r = q.apply(c, sc ? {id:sc.id, type:sc.type} : null); if (r && typeof r === "object") c = r; } catch(e){ console.error(e); }
+  }
+  return c;
 }
 /* the queued changes applied to a configuration (each in turn, oldest first) and the queue emptied: what a safe state
    does before anything is spawned. Marks the result __changed when there were any (the caller takes the mark off) */
@@ -609,4 +654,4 @@ onBegin(() => { if (RUN.cur) stopScenario("ended"); });
 
 // tests (DESIGN 1.4.20 style)
 if (typeof window !== "undefined") window.__trainRun = {RUN, CATEGORIES, LIMITS, POOL_DRILL, registerScenario, startScenario, restart, stopScenario, replay, scenario, scenariosOf, poolStats,
-  digest, digestState, setPaused, paused, applyLive, queueChange, dropChange, takePending, BEHAVES};
+  digest, digestState, setPaused, paused, applyLive, queueChange, dropChange, takePending, withPending, placeBall, ballPlaced, BEHAVES};

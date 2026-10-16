@@ -359,6 +359,17 @@ try {
       W.height.push(row);
       check(Math.abs(h1.me.scale - sc) < 0.005 && Math.abs(h1.me.torsoR - 0.25*h1.me.scale) < 1e-6 && Math.abs(h1.me.headY - 1.66*h1.me.scale) < 1e-6 && Math.abs(h1.eye - 1.68*h1.me.scale) < 0.02 && !row.pending.length,
         `after the restart at ${sc}: a.scale, the capsule radius, the header point and the eye all at that scale`, row);
+      // (P5-B acceptance: cadence within 5% of the table and foot slide at most 2 mm at the height the restart gave the
+      // body. The plan names 0.92 and 1.08; the look editor's range, LOOK_OPT.height, is [0.93, 1.07], and the schema
+      // keeps a height inside it, so its two ends are what is measured. A body at the agent's own scale runs on the
+      // real mover and animation, as tr2-gait does)
+      const {drive, metrics} = await import("./tr2-gaitlib.mjs");
+      for (const C of [{name: "walk1.7", prof: "life", gait: "walk", v: 1.7}, {name: "jog3.8", prof: "football", gait: "jog", v: 3.8}]){
+        const r = await drive(page, {hz: 60, scale: h1.me.scale, prof: C.prof, v0: C.v, segs: [{T: 3.8, dir: 0, gait: C.gait, cap: C.v}]});
+        const m = metrics(r.rows, {t0: 1.4, t1: 3.8, scale: r.scale, hz: 60});
+        row[C.name] = {cadErr: m.cadErr, driftMm: m.driftMm, stances: m.stances};
+        check(Math.abs(m.cadErr) <= .05 && m.driftMm <= 2, `after the restart at ${sc}: ${C.name} cadence within 5% of the table and planted foot slide <= 2 mm`, row[C.name]);
+      }
       await relocked();
       await openAdmin("player");
     }
@@ -467,12 +478,14 @@ try {
     await page.waitForFunction(() => !!window.__trainRun.RUN.ms, null, {timeout: 30000, polling: 100});
     await lockPointer(page);
     await openAdmin("ball");
-    await typeField("#tadSpH", "0.5");
+    // (the panel offers the heights and speeds Free Play's own settings offer, so the configuration keeps what is set)
+    await clickReal(page, '#sheetRoot [data-ad="spawnY"][data-v="0.5"]');
     await clickReal(page, '#sheetRoot [data-ad="spawn"]');
     await page.evaluate(() => new Promise(r => setTimeout(r, 300)));
-    const fp = await page.evaluate(() => { const ms = window.__trainRun.RUN.ms; return {y: ms.ball.p.y, live: (ms.spares || []).filter(s => s.state !== "cone").length}; });
+    const fp = await page.evaluate(() => { const R = window.__trainRun.RUN, ms = R.ms, c = R.cur.config;
+      return {y: ms.ball.p.y, live: (ms.spares || []).filter(s => s.state !== "cone").length, opt: c.opts.spawnY, kept: window.__trainConfig.validate(R.cur.sc.type, c).opts.spawnY}; });
     W.spawn = fp;
-    check(Math.abs(fp.y - 0.5) < 0.01 && fp.live === 1, "Free Play: spawn height 0.5 m (typed in the panel) spawns one ball at 0.5 m", fp);
+    check(Math.abs(fp.y - 0.5) < 0.01 && fp.live === 1 && fp.opt === 0.5 && fp.kept === 0.5, "Free Play: spawn height 0.5 m (picked in the panel) spawns one ball at 0.5 m, and the configuration keeps 0.5 through validate", fp);
     await closeAdmin();
   } else wait("Spawn or reset and the spawn height in Free Play", "P5-A's freeplay.js (spawnBall); the panel shows these only in Free Play");
 
@@ -517,6 +530,43 @@ try {
   check(!cf.cur && cf.inUse === 0 && cf.open && cf.cfg === cfgNow && cf.cover && !cf.admin && !cf.card && !cf.sheet,
     "Back to Configuration (a real click): the configuration sheet with the current configuration and its cover up, nothing playing, every body in the pool, nothing else left open", W.config);
   await page.evaluate(() => window.__trainConfigUI.closeConfig());
+  // a change still queued when the scenario stops is not carried to whatever starts next (TRAINING-SPEC 4, the runner's
+  // queue): Back to Configuration shows it on the sheet, what is then picked there is what Start plays; Back to Hub
+  // keeps it in that scenario's own configuration and nothing else gets it
+  {
+    await page.evaluate(() => window.__trainRun.startScenario("qa-adm", window.__qaCfgA));
+    await lockPointer(page);
+    await openAdmin("ai");
+    await clickReal(page, '#sheetRoot [data-ad="count:defenders"][data-v="3"]');
+    const k0 = await adminState();
+    await tab("scenario");
+    await clickReal(page, '#sheetRoot [data-ad="config"]');
+    await page.waitForFunction(() => window.__trainConfigUI.configOpen(), null, {timeout: 10000, polling: 50}).catch(() => {});
+    const k1 = await page.evaluate(() => ({defenders: window.__trainConfigUI.configNow().defenders, pending: window.__trainRun.RUN.pending,
+      shown: (document.querySelector('[data-cf="set"][data-k="defenders"][aria-pressed="true"]') || {}).textContent || null}));
+    await clickReal(page, '[data-cf="set"][data-k="defenders"][data-v="n:1"]');
+    await clickReal(page, '[data-cf="start"]');
+    await page.waitForFunction(() => !!window.__trainRun.RUN.ms, null, {timeout: 30000, polling: 100}).catch(() => {});
+    const k2 = await look();
+    W.queuedConfig = {queued: k0.pending, sheet: k1, started: {defenders: k2.config.defenders, opps: k2.opps.length, pending: (await adminState()).pending}};
+    check(k0.pending.includes("3 defenders") && k1.defenders === 3 && k1.shown === "3" && !k1.pending && k2.config.defenders === 1 && k2.opps.length === 1 && !W.queuedConfig.started.pending.length,
+      "a count queued then Back to Configuration: the sheet shows the queued 3, nothing is left waiting, and the 1 picked on the sheet is what Start plays", W.queuedConfig);
+    await lockPointer(page);
+    await openAdmin("ai");
+    await clickReal(page, '#sheetRoot [data-ad="count:defenders"][data-v="3"]');
+    await tab("scenario");
+    await clickReal(page, '#sheetRoot [data-ad="hub"]');
+    await page.waitForFunction(() => window.__trainHub.hubOpen(), null, {timeout: 10000, polling: 50}).catch(() => {});
+    const k3 = await page.evaluate(() => ({pending: window.__trainRun.RUN.pending, kept: window.__trainHub.scenarioConfig("qa-adm").defenders}));
+    await B.closeHubReal(page);
+    await page.evaluate(() => window.__trainRun.startScenario("qa-adm", window.__qaCfgA));
+    await page.waitForFunction(() => !!window.__trainRun.RUN.ms, null, {timeout: 30000, polling: 100}).catch(() => {});
+    const k4 = await look();
+    W.queuedHub = {hub: k3, next: {defenders: k4.config.defenders, opps: k4.opps.length}};
+    check(!k3.pending && k3.kept === 3 && k4.config.defenders === 2 && k4.opps.length === 2,
+      "a count queued then Back to Hub: nothing is left waiting, the scenario's own configuration keeps it, and a start with another configuration plays that one as it is", W.queuedHub);
+    await page.evaluate(() => { const R = window.__trainRun; if (R.RUN.cur) R.stopScenario("hub"); if (window.__trainHub.hubOpen()) window.__trainHub.closeHub(); });
+  }
 
   // ---------- Tunables ----------
   await page.evaluate(() => window.__trainRun.startScenario("qa-adm", window.__qaCfgA));

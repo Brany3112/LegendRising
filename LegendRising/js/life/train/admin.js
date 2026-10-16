@@ -28,14 +28,14 @@
    A control that would change nothing is not shown: no height without the schema field that carries it, no counts or
    averages for a scenario without a configuration, no ball spawn outside Free Play, no match resets outside Full
    Match. The panel never touches the career. */
-import {RUN, onRunner, restart, replay, stopScenario, setPaused, applyLive, queueChange, dropChange} from "./runner.js";
+import {RUN, onRunner, restart, replay, stopScenario, setPaused, applyLive, queueChange, dropChange, placeBall, ballPlaced} from "./runner.js";
 import * as QK from "./quick.js";
 import {openHub, hubOpen, hubCategory} from "./hub.js";
 import {openPresets, presetsOpen} from "./presetui.js";
 import {configOpen} from "./configui.js";
 import {describe} from "./presets.js";
 import {inTraining} from "./sandbox.js";
-import {registerType, typeOf, validate, allowed, counts, labelOf, relevant, VERSION, OUT_NAMES} from "./config.js";
+import {registerType, typeOf, validate, allowed, counts, labelOf, relevant, VERSION, OUT_NAMES, heightRange as cfgHeightRange, HEIGHT_REF, FREE_SPAWN} from "./config.js";
 import {editorHTML, editorClick, editorInput, skillName} from "./attredit.js";
 import {attrsForTraining, EDIT_SKILLS, GK_KEYS, cleanSkills, ATTR_MIN, ATTR_MAX} from "../football/attrs.js";
 import {TUNE, TUNE_KEYS, tuneSet, tuneReset} from "../football/tune.js";
@@ -43,14 +43,10 @@ import {stamInfinite, stamRestore, stamSetBreath} from "../stamina.js";
 import {setAttrs} from "../football/sim.js";
 import {agentFoot, footCode} from "../football/agent.js";
 import {ballKick} from "../football/ball.js";
-import {clearCtl, liveRoll} from "../football/rules.js";
-import {viewPreStep} from "../football/view.js";
-import {refreshPred} from "../football/actions.js";
 import {controlRelease} from "../football/control.js";
 import {FLAGS} from "../core/state.js";
 
 const KIND = "trainadmin";
-const R = 0.11;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
 const copy = o => o == null ? o : JSON.parse(JSON.stringify(o));
@@ -71,7 +67,7 @@ const TUNE_GROUPS = Object.freeze([["MAP_STR_POW", "How the duel stats come from
 
 // the admin's own state. inf: infinite stamina for you (kept over restarts and scenarios until Training is left);
 // ms: the simulation the session settings were last applied to; hq: the height (cm) queued for the restart; spawn: Free Play's spawn options
-const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, hq:null, spawn:{y:R, v:0}, key:null, obs:null, hub:null, paused:false, start:null};
+const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, hq:null, spawn:{y:FREE_SPAWN.Y_MIN, v:0}, key:null, obs:null, hub:null, paused:false, start:null};
 
 /* ---------- the runner's admin API (P5-A) ---------- */
 // a change safe mid-play, run between two simulation steps (the runner's applyLive)
@@ -90,13 +86,12 @@ const typedRun = run => !!(run && run.sc && typeOf(run.sc.type) && isObj(run.con
 const meAgent = () => { const ms = RUN.ms; return ms && ms.me >= 0 ? ms.agents[ms.me] : null; };
 const keepers = ms => ms ? ms.agents.filter(a => a.isGK && a.role === "player" && a.onPitch) : [];
 const FOOT_NAME = Object.freeze({R:"Right", L:"Left", B:"Both"});
-// the look editor's height range, as a whole-body scale (daily.js LOOK_OPT, a classic script's global), in metres
-// (a 1.80 m body at scale 1, as the look editor shows it)
-const BASE_H = 1.8;
+// the height range the configuration allows (config.js heightRange: the look editor's, a 1.80 m body at scale 1), in
+// whole centimetres inside it, so what the slider sets is what the configuration keeps
+const BASE_H = HEIGHT_REF;
 function heightRange(){
-  let r = [0.92, 1.08];
-  try { if (typeof LOOK_OPT !== "undefined" && LOOK_OPT.height && LOOK_OPT.height.length === 2) r = LOOK_OPT.height; } catch(e){}
-  return [Math.round(r[0]*BASE_H*100), Math.round(r[1]*BASE_H*100)];
+  const r = cfgHeightRange();
+  return [Math.round(r.min*100), Math.round(r.max*100)];
 }
 // whether the configuration carries the height and the preferred foot (P5-A's schema fields): without them a height
 // set here would reach nothing, so it is not offered
@@ -166,10 +161,17 @@ function setKeeper(gk){
   if (typedRun(run)) run.config.gk = Object.assign({}, run.config.gk, g);
 }
 const COUNT_NAME = {attackers:["attacker", "attackers"], defenders:["defender", "defenders"]};
+// what a count is called in this type: its own wording when it names the field ('How many opponents' in Free Play
+// counts opponents), else attackers or defenders
+function countName(type, key, n){
+  const m = /^how many (\w+)/i.exec(labelOf(type, key) || "");
+  if (m){ const pl = m[1].toLowerCase(); return n === 1 && pl.endsWith("s") ? pl.slice(0, -1) : pl; }
+  return COUNT_NAME[key][n === 1 ? 0 : 1];
+}
 function queueField(key, v){
   const run = RUN.cur; if (!typedRun(run)) return false;
   let label;
-  if (key === "attackers" || key === "defenders") label = `${v} ${COUNT_NAME[key][v === 1 ? 0 : 1]}`;
+  if (key === "attackers" || key === "defenders") label = `${v} ${countName(run.sc.type, key, v)}`;
   else if (key === "attAvg" || key === "defAvg") label = `${labelOf(run.sc.type, key)} ${v}`;
   else if (key === "out") label = v === "stop" ? "the ball going out stops play" : "the ball bounces back off the fence";
   else label = `${key} ${v}`;
@@ -189,43 +191,39 @@ function resetBall(){
   const s = RUN.setup && RUN.setup.ball; if (!s) return false;
   const myTeam = RUN.setup.myTeam;
   return live(ms => {
-    const b = ms.ball;
-    // (nobody has it: out of a keeper's hands or anyone's feet; its net contact and dead-ball roll cleared)
-    clearCtl(ms);
-    for (const a of ms.agents) if (a.drib) a.drib = null;
-    b.p.x = s.x; b.p.y = Math.max(R, s.y); b.p.z = s.z; b.v.x = b.v.y = b.v.z = 0; b.w.x = b.w.y = b.w.z = 0;
-    b.holder = -1; b.sleep = false; b.still = 0; b.knuck = null; b.dragMul = 1; b.pendN = 0; b.grounded = b.p.y <= R + 0.02; b.inField = null;
-    if (b.netSide) b.netSide.fill(0);
-    b.netHit = false; b.netQ = 0; b.netAny = false;
-    b.state = s.free ? "free" : "dead";
-    liveRoll(b);
-    // play goes on from here: a restart that was waiting (the ball out, with play stopping for it) is over
-    if (ms.restart || ms.phase !== "live"){ ms.restart = null; ms.phase = "live"; for (const a of ms.agents){ a.set = null; a.wall = false; } }
+    // (the runner's placeBall: nobody on it, at rest there, play going on from here; Free Play's Q does the same)
+    const b = placeBall(ms, s, !!s.free);
     if (Math.hypot(s.vx, s.vy, s.vz) > 1e-9){
       const kind = s.kind === "cross" || s.kind === "loft" ? "cross" : "pass";
       ballKick(b, {x:s.vx, y:s.vy, z:s.vz}, {x:s.wx || 0, y:s.wy || 0, z:s.wz || 0}, {agent:-1, team:myTeam, kind, t:ms.t});
     }
-    refreshPred(ms);
-    // (the view is told it was put there: no streak drawn from where it was)
-    const T = RUN.T; if (T && T.V) viewPreStep(T.V, ms);
+    ballPlaced(ms);
   });
 }
 /* Free Play's ball (freeplay.js spawnBall(o), P5-A): one ball in front of you. Its spawn height and speed are Free
-   Play's own options (config opts.spawnY in metres, opts.spawnV in m/s): set here, they are what Q uses from then on,
-   live, and the configuration keeps them (a preset saved from Back to Configuration has them) */
+   Play's own options (config opts.spawnY in metres, opts.spawnV in m/s, from the choices the type offers: config.js
+   FREE_SPAWN): set here, they are what Q uses from then on, live, and the configuration keeps them (a preset saved
+   from Back to Configuration has them). The panel offers the same choices as the configuration sheet, so a value set
+   here is never one the configuration would throw away */
 let FREE = null;
-const SPAWN = Object.freeze({Y_MAX:2.5, V_MAX:20});
+const nearest = (list, x) => list.reduce((b, v) => Math.abs(v - x) < Math.abs(b - x) ? v : b, list[0]);
 const freeplayOn = () => !!(RUN.cur && RUN.cur.sc && RUN.cur.sc.category === "freeplay");
 const freeOpts = () => freeplayOn() && isObj(RUN.cur.config) && isObj(RUN.cur.config.opts) ? RUN.cur.config.opts : null;
+// the type's own names for the choices ('On the grass', '0.5 m', 'Still', '6 m/s')
+function spawnChoices(opt, list, unit){
+  const S = typeOf("free"), o = S && S.options && S.options[opt];
+  return list.map(v => { const x = o && Array.isArray(o.values) ? o.values.find(y => y.v === v) : null; return [v, x ? x.label : `${v} ${unit}`]; });
+}
 function spawnNow(){
   const o = freeOpts();
   return {y:o && Number.isFinite(+o.spawnY) ? +o.spawnY : AD.spawn.y, v:o && Number.isFinite(+o.spawnV) ? +o.spawnV : AD.spawn.v};
 }
 function setSpawn(y, v){
-  AD.spawn.y = clamp(y, R, SPAWN.Y_MAX); AD.spawn.v = clamp(v, 0, SPAWN.V_MAX);
+  AD.spawn.y = nearest(FREE_SPAWN.HEIGHTS, +y); AD.spawn.v = nearest(FREE_SPAWN.SPEEDS, +v);
   const o = freeOpts();
   if (o){ o.spawnY = AD.spawn.y; o.spawnV = AD.spawn.v; }
 }
+const spawnLine = sp => `New balls come ${sp.y === FREE_SPAWN.Y_MIN ? "on the grass" : `at ${sp.y} m`}${sp.v ? `, at ${sp.v} m/s` : ", at rest"}.`;
 function spawnBall(){
   if (!freeplayOn()) return false;
   FREE = FREE || import("./freeplay.js");
@@ -315,8 +313,8 @@ function ballHTML(){
   if (freeplayOn()){
     out.push(row("Spawn a ball", btn("spawn", "Spawn or reset", {main:true}), "One ball in front of you, as Q does."));
     const sp = spawnNow();
-    out.push(row("Spawn height", `${num("tadSpH", sp.y.toFixed(2), {k:"spawnH", label:"Spawn height in metres"})}<span class="muted small"> m</span>${btn("spawnopt", "Set")}`, `0.11 is on the grass. Up to ${SPAWN.Y_MAX} m. Q uses it too.`));
-    out.push(row("Spawn speed", `${num("tadSpV", sp.v.toFixed(1), {k:"spawnV", label:"Spawn speed in metres a second"})}<span class="muted small"> m/s</span>${btn("spawnopt", "Set")}`, `0 is at rest. Up to ${SPAWN.V_MAX}, played toward you.`));
+    out.push(row("Spawn height", seg("spawnY", sp.y, spawnChoices("spawnY", FREE_SPAWN.HEIGHTS, "m")), "How high it appears in front of you. Q uses it too."));
+    out.push(row("Spawn speed", seg("spawnV", sp.v, spawnChoices("spawnV", FREE_SPAWN.SPEEDS, "m/s")), "How fast it comes toward you."));
   }
   out.push(row("Reset position", btn("resetball", "Ball back to the start"), "Where this scenario puts it, with the same flight."));
   out.push(row("Reset scenario", btn("restart", "Restart Current Scenario"), "Everything back to how this go started."));
@@ -479,15 +477,17 @@ function doReplay(){
   const ok = replay();
   if (!ok) return;
   // (on another pitch the cage is built first: the pointer is asked back once it plays)
-  const sw = RUN.switching || (RUN.pending && typeof RUN.pending.then === "function" ? RUN.pending : null);
+  const sw = RUN.switching;
   if (sw) sw.then(r => { if (r) relock(); });
   else { setPaused(false); relock(); }
 }
 function doConfig(){
   const run = RUN.cur; if (!run) return;
-  const sc = run.sc, config = copy(run.config);
+  const sc = run.sc;
   leaveFor();
+  // (the changes still queued go into run.config as it stops: the sheet shows what Start will play)
   stopScenario("config");
+  const config = copy(run.config);
   if (sc.configure){ sc.configure(copy(config), {from:"admin"}); return; }
   const ev = new CustomEvent("train:configure", {detail:{id:sc.id, type:sc.type, category:sc.category, config:copy(config)}, cancelable:true});
   dispatchEvent(ev);
@@ -531,7 +531,7 @@ function click(e){
   if (what === "avg") return void commitInput(document.getElementById("tad-" + k));
   if (what === "out"){ queueField("out", v); return void say("That applies on restart."); }
   if (what === "spawn"){ spawnBall(); return void say("Here's a ball."); }
-  if (what === "spawnopt"){ commitInput(document.getElementById("tadSpH"), false); commitInput(document.getElementById("tadSpV"), false); const sp = spawnNow(); return void say(`New balls come at ${sp.y.toFixed(2)} m and ${sp.v.toFixed(1)} m/s.`); }
+  if (what === "spawnY" || what === "spawnV"){ const sp = spawnNow(); if (what === "spawnY") sp.y = +v; else sp.v = +v; setSpawn(sp.y, sp.v); return void say(spawnLine(spawnNow())); }
   if (what === "resetball"){ resetBall(); return void say("The ball is back where it started."); }
   if (what === "restart") return void doRestart();
   if (what === "replay") return void doReplay();
@@ -565,14 +565,6 @@ function commitInput(inp, talk = true){
     const v = clamp(Math.round(n), ATTR_MIN, ATTR_MAX);
     queueField(key, v);
     return void say(`${labelOf(run.sc.type, key)}: ${v}. That applies on restart.`, focus);
-  }
-  if (key === "spawnH" || key === "spawnV"){
-    const sp = spawnNow();
-    if (Number.isFinite(n)){ if (key === "spawnH") sp.y = n; else sp.v = n; setSpawn(sp.y, sp.v); }
-    const now = spawnNow();
-    inp.value = key === "spawnH" ? now.y.toFixed(2) : now.v.toFixed(1);
-    if (talk) say(`New balls come at ${now.y.toFixed(2)} m and ${now.v.toFixed(1)} m/s.`, focus);
-    return;
   }
 }
 function keydown(e){

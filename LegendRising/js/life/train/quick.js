@@ -185,7 +185,7 @@ addItem({id:"replay", label:"Replay Last Scenario", group:"scenario", order:20, 
     else { setPaused(false); relock(); }
   }});
 addItem({id:"config", label:"Return to Configuration", group:"scenario", order:30, hint:"Stop here and change the setup",
-  run(run){ const sc = run.sc, config = run.config; quickClose(); stopScenario("config"); openConfig(sc, config); }});
+  run(run){ const sc = run.sc; quickClose(); stopScenario("config"); openConfig(sc, run.config); }});
 addItem({id:"hub", label:"Return to Hub", group:"scenario", order:40, hint:"Stop here and pick something else",
   run(run){ const cat = run.sc.category; quickClose(); stopScenario("hub"); openHub(cat); }});
 

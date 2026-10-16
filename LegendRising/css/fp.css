@@ -288,8 +288,12 @@ body.gfx-low .fp-wu{background:rgba(9,15,24,.85)}
 @media (prefers-reduced-motion:reduce){.fp-pop,.fp-say,.fp-wu{transition:none !important}}
 /* a narrow screen (a phone held upright, 390 wide): the scorebug takes the top row, so the set's panel goes under it
    across the width (the Warm mark, under the scorebug too, only shows once the set is over), and the event cards come
-   down below both rather than over the score */
+   down below both rather than over the score. The hints keep to the right edge, their verbs wrapping, so they never
+   reach the middle of the bottom of the screen, where the ball at your feet is */
 @media (max-width:560px){
   .fp-wu{left:var(--fp-pad);right:var(--fp-pad);top:calc(var(--fp-pad) + 38px*var(--s));width:auto}
   .fp-cards{top:calc(var(--fp-pad) + 132px*var(--s))}
+  .fp-hints{max-width:36vw}
+  .fp-hints div{align-items:flex-start;text-align:right}
+  .fp-hints span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 }

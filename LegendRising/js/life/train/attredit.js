@@ -84,7 +84,12 @@ export function presetAttrs(type, cfg, which, level){
 // a whole set back to its defaults
 export function resetSet(type, cfg, which){
   const d = defaults(type), c = copy(cfg);
-  if (which === "me") c.me = d.me;
+  // (my height and preferred foot are not this editor's: they stay as they are)
+  if (which === "me"){
+    const keep = {};
+    for (const k of ["height", "prefFoot"]) if (c.me && c.me[k] != null) keep[k] = c.me[k];
+    c.me = Object.assign({}, d.me, keep);
+  }
   else if (which === "gk") c.gk = d.gk;
   else return cfg;
   return validate(type, c);

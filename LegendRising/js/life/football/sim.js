@@ -256,9 +256,6 @@ function applyResume(ms){
   ms.subs.used = (rs.subsUsed || [0, 0]).slice();
 }
 
-/* ---------- events ---------- */
-
-// subscribe to events of a kind ('*' for all; ball contacts 'bounce' 'post' 'bar' 'net' 'board' 'body' too)
 // the levelling an AI player's attributes get at kick-off (LEVEL, with cfg.ovr): the player is never levelled
 function levelOf(cfg, t, at, isMe){
   const ovr = cfg && cfg.ovr && cfg.ovr.length === 2 ? cfg.ovr : null;
@@ -275,6 +272,9 @@ export function setAttrs(ms, a, at){
   return a.at;
 }
 
+/* ---------- events ---------- */
+
+// subscribe to events of a kind ('*' for all; ball contacts 'bounce' 'post' 'bar' 'net' 'board' 'body' too)
 export function on(ms, kind, fn){ (ms.subsFn[kind] || (ms.subsFn[kind] = [])).push(fn); return () => { const l = ms.subsFn[kind]; const i = l.indexOf(fn); if (i >= 0) l.splice(i, 1); }; }
 function flush(ms){
   const S0 = ms.subsFn, all = S0['*'];
