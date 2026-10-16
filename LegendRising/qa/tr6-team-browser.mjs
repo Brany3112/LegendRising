@@ -24,6 +24,8 @@ import {trainLaunch, enterByButton, trainWrites, careerSnapshot, careerDiff, cli
 
 const res = {play:[], call:null, presets:{}, replay:null, offside:null, calls:null, speech:null, markers:null, career:null, errors:[], console:[]};
 const check = (ok, what, got) => { if (!ok) res.errors.push(`${what}: ${JSON.stringify(got).slice(0, 1500)}`); console.log(`${ok ? "ok  " : "FAIL"} ${what}${ok ? "" : ": " + JSON.stringify(got).slice(0, 600)}`); };
+// TR6_ONLY=1,5 runs only those parts (a rerun of one failure; the full run runs them all)
+const ONLY = process.env.TR6_ONLY ? new Set(process.env.TR6_ONLY.split(",")) : null, on = k => !ONLY || ONLY.has(k);
 const wait = (page, fn, arg, t = 60000) => page.waitForFunction(fn, arg, {timeout:t});
 
 // the speech spy (before the page's scripts): a voice to speak with, and every utterance counted
@@ -81,10 +83,28 @@ async function startFromHub(page, cat, id){
   if (!v.ok) throw new Error(`Start of ${id} is not visible: ${v.why}`);
   await clickReal(page, sel);
   await wait(page, id => window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.id === id && window.__trainRun.RUN.ms && window.__trainRun.RUN.ms.step > 2, id, 120000);
-  const lk = await lockPointer(page);
+  const lk = await inPlay(page);
   if (!lk) throw new Error("no pointer lock");
   // (the pointer lock click lands as a press in the game: let it pass)
   await page.waitForTimeout(150);
+}
+// the scenario in play with the pointer held, a player's way: the pointer taken by a click on the view; a pause card
+// up (the pointer was let go as the drill started, under load) is closed with its Resume button. (A card up with the
+// pointer held cannot be clicked: Esc, which in a real browser always lets the pointer go, first)
+async function inPlay(page){
+  for (let k = 0; k < 4; k++){
+    const s = await page.evaluate(() => ({card:!!document.querySelector('#fpOverlay.on [data-q="resume"]'), lock:!!document.pointerLockElement, paused:window.__trainRun.RUN.paused}));
+    if (!s.card && s.lock && !s.paused) return true;
+    if (s.card){
+      if (s.lock){ await page.evaluate(() => document.exitPointerLock()); await page.waitForTimeout(200); }
+      await clickReal(page, '#fpOverlay [data-q="resume"]');
+      await page.waitForTimeout(400);
+      continue;
+    }
+    await lockPointer(page);
+    await page.waitForTimeout(300);
+  }
+  return page.evaluate(() => !document.querySelector('#fpOverlay.on') && !!document.pointerLockElement && !window.__trainRun.RUN.paused);
 }
 // the pause card's Return to Hub, by real keys and clicks
 async function backToHub(page){
@@ -97,7 +117,9 @@ async function backToHub(page){
   await wait(page, cardOn, null, 15000);
   const gone = () => !window.__trainRun.RUN.cur && window.__trainHub.hubOpen();
   for (let k = 0; k < 3 && !(await page.evaluate(gone)); k++){
-    if (await page.evaluate(cardOn)){ await page.waitForTimeout(300); await clickReal(page, '#fpOverlay [data-q="hub"]'); }
+    if (await page.evaluate(cardOn)){ await page.waitForTimeout(300);
+      // (the pointer held under a card: Esc lets it go first, as in a real browser)
+      if (await page.evaluate(() => !!document.pointerLockElement)){ await page.evaluate(() => document.exitPointerLock()); await page.waitForTimeout(200); } if (process.env.TR6_TRACE) console.log("trace before hub click", JSON.stringify(await st(page)).slice(0, 300)); await clickReal(page, '#fpOverlay [data-q="hub"]'); }
     await wait(page, gone, null, 20000).catch(() => null);
   }
   const okNow = await wait(page, gone, null, 10000).then(() => true, () => false);
@@ -126,7 +148,7 @@ try {
 
   /* ---------- 1. input bots: two scenarios of each category ---------- */
   const PLAY = [["attacking", "att-midfield"], ["attacking", "att-call"], ["defending", "def-1v1"], ["defending", "def-carry"], ["scenarios", "m-2v1"], ["scenarios", "m-overlap"]];
-  for (const [cat, id] of PLAY){
+  for (const [cat, id] of (on("1") ? PLAY : [])){
     await startFromHub(page, cat, id);
     const s0 = await st(page);
     // the bot: W and Shift held while it turns with the mouse, a step to the side, a left click
@@ -157,7 +179,7 @@ try {
   }
 
   /* ---------- 2. a real R press: the AI carrier passes to me ---------- */
-  {
+  if (on("2")) {
     await startFromHub(page, "attacking", "att-call");
     const tries = [];
     for (let k = 0; k < 5; k++){
@@ -188,7 +210,7 @@ try {
   }
 
   /* ---------- 3. calls: the name tag, its size and place, its time; the spoken call on and off; no big markers ---------- */
-  {
+  if (on("3")) {
     const watchCalls = async (secs) => page.evaluate(async secs => {
       const ST = await import("/js/life/core/state.js"), THREE = (await import("/js/life/build.js")).THREE;
       const R = window.__trainRun, out = {calls:[], markers:[]};
@@ -261,7 +283,7 @@ try {
   }
 
   /* ---------- 4. instant replay of a goal ---------- */
-  {
+  if (on("4")) {
     await startFromHub(page, "attacking", "att-keeper");
     const before = await st(page);
     // a scripted goal: the keeper out of the way, the ball struck into the far corner from 6 m (applyLive, between
@@ -302,7 +324,7 @@ try {
   }
 
   /* ---------- 5. a scripted offside shows the notice ---------- */
-  {
+  if (on("5")) {
     await startFromHub(page, "scenarios", "m-through");
     await page.evaluate(async () => {
       const A = await import("/js/life/football/actions.js"), R = window.__trainRun;
@@ -328,6 +350,7 @@ try {
   }
 
   /* ---------- 6. presets for attacking, defending and scenarios: save, reload, load ---------- */
+  if (on("6")) {
   const PRE = [
     ["attacking", "att-midfield", {attackers:3, mates:true, defenders:3, keeper:false, role:"support", opts:{objective:"keep", time:15}}, "Keep ball three"],
     ["defending", "def-1v1", {attackers:2, defenders:2, mates:true, keeper:false, opts:{objective:"clean", time:25}}, "Hold them two"],
@@ -345,7 +368,7 @@ try {
     await scrollReal(page, `#sheetRoot [data-th="start"][data-id="${id}"]`);
     await clickReal(page, `#sheetRoot [data-th="start"][data-id="${id}"]`);
     await wait(page, id => window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.id === id, id, 120000);
-    await lockPointer(page);
+    await inPlay(page);
     const d0 = await page.evaluate(id => [...window.__qaDig].reverse().find(x => x.id === id), id);
     await backToHub(page);
     // Presets (a real click), a name typed, Save
@@ -363,7 +386,7 @@ try {
     await scrollReal(page, `#sheetRoot [data-row="${row}"] [data-tp="load"]`);
     await clickReal(page, `#sheetRoot [data-row="${row}"] [data-tp="load"]`);
     await wait(page, id => window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.id === id && window.__trainRun.RUN.cur.preset, id, 120000);
-    await lockPointer(page);
+    await inPlay(page);
     const d1 = await page.evaluate(id => [...window.__qaDig].reverse().find(x => x.id === id && x.preset), id);
     saved[id] = {cfg, d0, d1, name, cat};
     await backToHub(page);
@@ -382,7 +405,7 @@ try {
     await scrollReal(page, `#sheetRoot [data-row="${row}"] [data-tp="load"]`);
     await clickReal(page, `#sheetRoot [data-row="${row}"] [data-tp="load"]`);
     await wait(page, id => window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.id === id && window.__trainRun.RUN.cur.preset, id, 120000);
-    await lockPointer(page);
+    await inPlay(page);
     const d2 = await page.evaluate(id => [...window.__qaDig].reverse().find(x => x.id === id && x.preset), id);
     const S = saved[id];
     const parts = d => (d && d.d ? d.d.parts : []).filter(p => !p.startsWith("runner:"));
@@ -394,6 +417,7 @@ try {
     await backToHub(page);
   }
 
+  }
   /* ---------- the career untouched; no errors ---------- */
   await page.evaluate(() => { if (window.__trainHub.hubOpen()) window.__trainHub.closeHub(); });
   const careerAfter = await careerSnapshot(page);
