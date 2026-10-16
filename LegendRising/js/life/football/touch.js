@@ -6,6 +6,17 @@
 // win chance with timing and angle, the slide's carried momentum and friction). Contract DESIGN 1.4.12 and BUILD-PLAN
 // Phase 2b; numbers 1.5.3 and tune.js; behaviour 3.1.4 (fouls 3.2.9).
 //
+// P6-A (Training Mode and football rework, Phase 6, BUILD-PLAN P6-A work item 3; TRAINING-SPEC 3 and 5, Ball Receiving
+// and First Touch: foot control of an aerial ball, a header to control or redirect):
+// - touchPart: the one rule for the body part a first touch uses, read by the simulation (firstTouch) and by the view
+//   (view.js recvFor), so the animation always shows the part the touch was made with. Under 0.4 m the foot; a ball
+//   up to FOOT_AIR (1.05 m) is met with the raised foot when it is out to the side of the body (the thigh cannot get
+//   across to it), when it drops steeply onto him, or when he means to (want 'foot': the player's F held, a scenario's
+//   intended control); else the thigh to 0.95 m and the chest to 1.4 m, a header above. A wish the height cannot give
+//   (the chest for a ball at the shins) is ignored.
+// - the cushioned header (headerContact intent kind 'cushion'): the neck gives with the ball instead of attacking it,
+//   so it drops in front of him at CUSHION.MAX m/s or less (a clearance or an attacking header leaves at 6 m/s or more).
+//
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Randomness comes from r (rng.js).
 // Every function returns velocities and decisions; the caller applies them with ballKick (ball.js), so a touch is a
 // real kick of the one ball and nothing attaches from outside the reach envelope.
@@ -39,8 +50,35 @@ export const TOUCH = Object.freeze({
                                             // Control, at a run) pops off the grass (A1.1)
   CADENCE: [[3, 1], [6, 2], [Infinity, 3]],       // every stride under 3 m/s, every 2nd to 6, every 3rd above
   HEADER_R: 0.17, HEADER_RK: 0.0015,
-  LEN_ERR: 0.15                                   // a first touch's length error: 15% x (1 - q) (sigma)
+  LEN_ERR: 0.15,                                  // a first touch's length error: 15% x (1 - q) (sigma)
+  FOOT_AIR: 1.05, FOOT_SIDE: 0.3, FOOT_DROP: -3.5 // P6-A: the raised foot meets a ball up to 1.05 m (scaled) when it is
+                                                  // more than 0.3 m to the side, or dropping faster than 3.5 m/s
 });
+// P6-A: the cushioned header. Its speed is 0.6 + 0.08 x the ball's speed + 1.2 (1 - heading/99), at most MAX (m/s),
+// played PITCH below the look (radians) so it drops onto the feet in front, with an aim error of (1 - heading/110) x ERR
+export const CUSHION = Object.freeze({MAX: 3.0, MIN: 0.6, K_IN: 0.08, K_SKILL: 1.2, PITCH: 28*DEG, ERR: 8*DEG});
+
+/* ---------- the part a touch is made with (P6-A) ----------
+   touchPart(agent, ball, want) -> 'foot' | 'thigh' | 'chest' | 'head'. ball: {p, v} or a point. Heights are of the
+   ball's centre above the root (raised by a jump), scaled by the body's height. want: 'foot' | 'thigh' | 'chest' |
+   'auto' (or null): what he means to use, honoured where the height allows it. */
+export function touchPart(agent, ball, want){
+  const P = ball.p || ball, V = ball.v || null, m = posOf(agent), sc = agent.scale || 1;
+  const y = P.y - (+agent.y || 0);
+  const pt = partOf(y, sc);
+  if (pt === 'head' || pt === 'foot') return pt;
+  // (above the foot's band: the raised foot can still meet it up to FOOT_AIR)
+  const footOk = y <= TOUCH.FOOT_AIR*sc;
+  if (want === 'foot' && footOk) return 'foot';
+  if (want === 'thigh' && y <= TUNE.FH_Y1.value*0.8*sc) return 'thigh';
+  if (want === 'chest' && y >= 0.75*sc) return 'chest';
+  if (footOk && (!want || want === 'auto')){
+    const f = dirOf(yawOfAgent(agent)), lat = Math.abs((P.x - m.x)*(-f.z) + (P.z - m.z)*f.x);
+    if (lat > TOUCH.FOOT_SIDE*sc) return 'foot';
+    if (V && +V.y < TOUCH.FOOT_DROP && y < 0.8*sc) return 'foot';
+  }
+  return pt;
+}
 
 // the tackles of 1.5.3 and spec 3: standing (wind-up 0.12 s, active 0.25 s, the reach of duel.standReach to the ball's
 // centre in a 50 degree cone), a toe poke (a shorter, straight jab reaching POKE_DR further) and the slide (from the
@@ -152,7 +190,10 @@ export function firstTouch(agent, ball, intent, ctx, r){
   const qq = ctx.q != null ? clamp(+ctx.q, 0, 1) : qOf(at, vRel, press, bF);
   const P = ball.p || ball, sc = agent.scale || 1;
   const y = P.y - (+agent.y || 0);
-  const pt = partOf(y, sc), part = pt === 'head' ? 'chest' : pt;
+  // the part: the ball's real height and side, and what he means to use (intent.part, else his plan's: the player's
+  // F held, a scenario bot's intended control), touchPart (P6-A)
+  const want = intent.part || (agent.plan && agent.plan.part) || null;
+  const pt = touchPart(agent, B, want), part = pt === 'head' ? 'chest' : pt;
   // the way: the keys or the plan, else the facing
   let dx = intent.dir ? +intent.dir.x || 0 : 0, dz = intent.dir ? +intent.dir.z || 0 : 0;
   const dl = hypot(dx, dz);
@@ -482,6 +523,17 @@ export function headerContact(agent, ball, headPos, intent, ctx, r){
   else if (intent.dir){ const dd = intent.dir, h = hypot(dd.x || 0, dd.z || 0); yaw = yawOf(dd.x || 0, h > 1e-9 ? dd.z : -1); pitch = atan2(dd.y || 0, h); }
   else { yaw = yawOfAgent(agent); pitch = 0; }
   const kind = intent.kind || 'clear';
+  // the cushioned header (P6-A): the ball taken on the brow and let drop in front, not struck
+  if (kind === 'cushion' || kind === 'control'){
+    const C = CUSHION, sk = clamp(heading, 0, 99);
+    const sp = clamp(C.MIN + C.K_IN*sIn + C.K_SKILL*(1 - sk/99), C.MIN, C.MAX);
+    const sigC = (1 - heading/110)*C.ERR;
+    const eyC = sigC > 0 ? truncNormal(r, sigC, 2.5) : 0, epC = sigC > 0 ? truncNormal(r, sigC, 2.5) : 0;
+    const yc = yaw + eyC, pc = -C.PITCH + epC, dc = dirOf(yc), cc = cos(pc);
+    const errC = hypot(eyC, epC);
+    const qC = clamp(0.5*(1 - dist/(rh + R)) + 0.5*(1 - errC/(2.5*Math.max(sigC, 1e-6))), 0, 1);
+    return {v: {x: sp*cc*dc.x, y: sp*sin(pc), z: sp*cc*dc.z}, quality: qC, dist, err: errC, speed: sp, cushion: true};
+  }
   if (kind === 'attack') pitch -= 5*DEG;
   else if (kind === 'pass' && intent.target){
     const tx = intent.target.x - P.x, tz = intent.target.z - P.z, D = hypot(tx, tz);
