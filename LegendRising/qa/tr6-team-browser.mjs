@@ -100,7 +100,9 @@ async function backToHub(page){
     if (await page.evaluate(cardOn)){ await page.waitForTimeout(300); await clickReal(page, '#fpOverlay [data-q="hub"]'); }
     await wait(page, gone, null, 20000).catch(() => null);
   }
-  await wait(page, gone, null, 10000);
+  const okNow = await wait(page, gone, null, 10000).then(() => true, () => false);
+  if (!okNow) throw new Error("Return to Hub did not take: " + JSON.stringify(await page.evaluate(() => { const b = document.querySelector('#fpOverlay [data-q="hub"]'), r = b && b.getBoundingClientRect(), e = r && document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+    return {card:!!document.querySelector("#fpOverlay.on"), box:r && [r.left, r.top, r.width, r.height], at:e ? e.tagName + "." + e.className + (e.dataset && e.dataset.q ? ":" + e.dataset.q : "") : null, run:!!window.__trainRun.RUN.cur, hub:window.__trainHub.hubOpen(), lock:!!document.pointerLockElement}; })));
 }
 
 const t = await trainLaunch({seed:6});
@@ -233,8 +235,8 @@ try {
       return out;
     }, secs);
     await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); C.saveSet({speech:true}); Object.assign(C.SET, {speech:true}); });
-    await startFromHub(page, "attacking", "att-midfield-mates");
     const said0 = await page.evaluate(() => (window.__qaSaid || []).length);
+    await startFromHub(page, "attacking", "att-midfield-mates");
     const w = await watchCalls(6);
     res.audio = await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); const A = (await import("/js/life/football/audio.js")).AUD; const n0 = window.__qaSaid.length, init = A.init(), call = A.call("Test", null, 1); await new Promise(r => setTimeout(r, 400));
       return {init, call, direct:window.__qaSaid.length - n0, utter:typeof SpeechSynthesisUtterance, voices:window.speechSynthesis.getVoices().length, speech:C.SET.speech, ctrl:localStorage.getItem("freyaFootball.ctrl"), act:navigator.userActivation && navigator.userActivation.hasBeenActive}; });
@@ -248,11 +250,12 @@ try {
     check(!big.length, "no HUD marker over 64 px points at a player or the ball", res.markers);
     await backToHub(page);
     await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); C.saveSet({speech:false}); Object.assign(C.SET, {speech:false}); });
-    await startFromHub(page, "attacking", "att-midfield-mates");
     const said1 = await page.evaluate(() => (window.__qaSaid || []).length);
+    await startFromHub(page, "attacking", "att-midfield-mates");
     const w2 = await watchCalls(5);
-    res.speech = {on:w.said - said0, off:w2.said - said1, callsOff:w2.calls.length};
-    check(w2.calls.length > 0 && w2.said - said1 === 0, "the spoken call stays quiet with speech off (the name tag still shows)", res.speech);
+    const callsOff = await page.evaluate(() => { const ms = window.__trainRun.RUN.ms; return ms.events.filter(e => e.kind === "call" && e.agent !== ms.me).length; });
+    res.speech = {on:w.said - said0, off:w2.said - said1, callsOff};
+    check(callsOff > 0 && w2.said - said1 === 0, "the spoken call stays quiet with speech off (the name tag still shows)", res.speech);
     await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); C.saveSet({speech:true}); Object.assign(C.SET, {speech:true}); });
     await backToHub(page);
   }
