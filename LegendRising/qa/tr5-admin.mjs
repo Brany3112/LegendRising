@@ -585,6 +585,9 @@ try {
   await tab("player");
   await clickReal(page, '#sheetRoot [data-ted="me"] [data-ae="preset"][data-level="low"]');
   await clickReal(page, '#sheetRoot [data-ad="foot"][data-v="Left"]');
+  // (the height too: the top of the range, set with the slider's End key and Set, waiting for the restart)
+  const hTop = await page.evaluate(() => { const h = document.getElementById("tadH"); return h ? +h.max : null; });
+  if (caps.height && hTop){ await clickReal(page, "#tadH"); await pressReal(page, "End"); await clickReal(page, '#sheetRoot [data-ad="height"]'); }
   await clickReal(page, '#sheetRoot [data-ad="ppresets"]');
   await page.waitForFunction(() => !!document.querySelector("#sheetRoot.open #tpName"), null, {timeout: 10000, polling: 50});
   await clickReal(page, "#tpName");
@@ -594,19 +597,28 @@ try {
   await page.waitForFunction(() => window.__trainAdmin.adminIsOpen(), null, {timeout: 10000, polling: 50});
   await clickReal(page, '#sheetRoot [data-ted="me"] [data-ae="preset"][data-level="max"]');
   await clickReal(page, '#sheetRoot [data-ad="foot"][data-v="Right"]');
-  const pr0 = await look();
+  if (caps.height && hTop){ await clickReal(page, "#tadH"); await pressReal(page, "Home"); await clickReal(page, '#sheetRoot [data-ad="height"]'); }
+  const pr0 = await look(), ph0 = await adminState(), hv0 = await page.evaluate(() => (document.getElementById("tadH") || {}).value || null);
+  const savedH = await page.evaluate(() => { try { const s = JSON.parse(localStorage.getItem("freyaFootball.trainPresets") || "{}"); const l = (s.byType && s.byType.player) || []; return l.map(p => p.config && p.config.me ? p.config.me.height : null); } catch(e){ return null; } });
   await clickReal(page, '#sheetRoot [data-ad="ppresets"]');
   await page.waitForFunction(() => !!document.querySelector('#sheetRoot.open [data-tp="load"]'), null, {timeout: 10000, polling: 50});
   const meta = await page.evaluate(() => (document.querySelector("#sheetRoot .tp-row .tp-meta") || {}).textContent || "");
   await clickReal(page, '#sheetRoot [data-tp="load"]');
   await page.waitForFunction(() => window.__trainAdmin.adminIsOpen(), null, {timeout: 10000, polling: 50});
-  const pr1 = await look();
+  const pr1 = await look(), ph1 = await adminState(), hv1 = await page.evaluate(() => (document.getElementById("tadH") || {}).value || null);
   const allIs = (at, v) => ["power", "passing", "sprintSpeed", "tackling", "heading"].every(k => at[k] === v);
   W.presets = {changed: {power: pr0.me.at.power, foot: pr0.me.foot}, loaded: {power: pr1.me.at.power, sprint: pr1.me.at.sprintSpeed, foot: pr1.me.foot}, meta, height: caps.height};
   check(allIs(pr0.me.at, 99) && pr0.me.foot === "R" && allIs(pr1.me.at, 35) && (caps.prefFoot ? pr1.me.foot === "L" : true),
     "a player preset (attributes and foot) saved, everything changed, loaded: the attributes and foot come back", W.presets);
   if (!caps.prefFoot) wait("the preferred foot kept in a player preset", "P5-A's me.prefFoot schema field (config.js validate keeps only the skills until then)");
   if (!caps.height) wait("the height kept in a player preset", "P5-A's me.height schema field");
+  else {
+    // (the top of the look editor's range, LOOK_OPT.height, is the plan's 1.08 kept inside the range: 1.07, 193 cm)
+    W.presetHeight = {top: hTop, saved: savedH, changed: {slider: hv0, note: ph0.note}, loaded: {slider: hv1, note: ph1.note, pending: ph1.pending}};
+    check(hTop > 0 && Array.isArray(savedH) && savedH.some(h => Math.abs(h*100 - hTop) < 1) && hv0 !== String(hTop) && !(ph0.note || "").includes(`${hTop} cm`)
+      && hv1 === String(hTop) && !!ph1.note && ph1.note.includes(`Height ${hTop} cm`),
+      "a player preset keeps the height: saved at the top of the range, set back to the bottom, loaded: the top height waits for the restart again", W.presetHeight);
+  }
   await closeAdmin();
   const back = await relocked(), bs = await adminState(), bt0 = (await look()).t;
   await page.waitForFunction(t0 => window.__trainRun.RUN.ms && window.__trainRun.RUN.ms.t > t0, bt0, {timeout: 15000, polling: 100}).catch(() => {});

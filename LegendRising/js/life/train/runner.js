@@ -85,6 +85,7 @@ import {CAGE, cageEnter} from "./cage.js";
 import {takeBodies, returnBodies, poolStats, poolMeLook, poolDispose, bodyData, replaceMe, KITS, POOL_DRILL} from "./pool.js";
 import {sandboxHeight} from "../core/me.js";
 import * as THUD from "./thud.js";
+import {scaleOfHeight, defaultHeight} from "./config.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const R = .11;
@@ -445,11 +446,14 @@ export function stopScenario(reason = "quit"){
   // state, so they go into this run's configuration (run.config), which is what Return to Configuration hands the
   // sheet and what the hub keeps for the scenario (the stopped event carries it). Whatever is then picked on the sheet
   // is what plays. Replay Last still plays the setup from before them, as a restart with changes leaves it. (Leaving
-  // Training drops them instead: nothing queued outlives it)
-  let folded = null;
-  if (QUEUE.length && reason !== "exit"){
-    folded = takePending(copy(run.config), run.sc); delete folded.__changed;
-    run.config = folded;
+  // Training drops them instead: nothing queued outlives it; a restart with changes has already taken them and starts
+  // again at once.) The live edits the admin panel made (attributes, foot,
+  // the keeper, Free Play's ball spawn) are already in run.config, so the hub keeps them on every stop, whether or
+  // not something was also queued
+  let kept = null;
+  if (reason !== "exit" && reason !== "restart"){
+    if (QUEUE.length){ const folded = takePending(copy(run.config), run.sc); delete folded.__changed; run.config = folded; }
+    kept = run.config;
   }
   THUD.thudHide();
   // back to the mode you walked about in (the sandbox's) unless Training is over. On a change of place ('ended') only
@@ -459,7 +463,7 @@ export function stopScenario(reason = "quit"){
   if (reason !== "exit" && pf && (reason !== "ended" || pf.leaveOnZone === false) && mode() === "life") enterMode(run.prev, run.prevArg);
   emit();
   // (the hub hears it: Esc out of a scenario opens it on that scenario's category)
-  if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent("train:scenario", {detail:{state:"stopped", reason, id:run.id, category:run.sc.category, config:folded ? copy(folded) : null}}));
+  if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent("train:scenario", {detail:{state:"stopped", reason, id:run.id, category:run.sc.category, config:kept ? copy(kept) : null}}));
   return true;
 }
 /* the last scenario again from the setup snapshot it started from (not where its last go ended, and not changed by
@@ -577,9 +581,12 @@ export function takePending(config, sc = null){
   c.__changed = true;
   return c;
 }
-// my pooled body (and the sandbox's) at the scale the setup gives me, built again only when it is not already
+// my pooled body (and the sandbox's) at the scale the setup gives me, built again only when it is not already. A setup
+// that names no scale (one not made from a typed configuration) gets the height you walk Training at, never whatever
+// the pooled body was last built to
 function fitMe(setup){
-  const want = setup && setup.me ? +setup.me.scale : NaN;
+  let want = setup && setup.me ? +setup.me.scale : NaN;
+  if (!(want > 0)) want = scaleOfHeight(defaultHeight());
   if (!(want > 0)) return 0;
   const L = poolMeLook(), cur = L && +L.height > 0 ? +L.height : 1;
   const n = Math.abs(cur - want) > 1e-4 ? replaceMe(Object.assign({}, L || {}, {height:want})) : 0;

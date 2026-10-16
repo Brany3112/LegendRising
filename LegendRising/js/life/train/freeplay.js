@@ -19,7 +19,8 @@
    - The settings are config type 'free' (config.js registers it, so it is there under node too), so Free Play has
      presets like every scenario.
    spawnBall(o) is also what the admin panel's Ball section calls (o: {y, v} to override the settings' height and
-   speed). */
+   speed; the panel only offers config.js FREE_SPAWN.HEIGHTS and SPEEDS, spawnBall clamps whatever it gets to
+   FREE.Y_MAX and V_MAX). */
 import {registerScenario, RUN, placeBall, ballPlaced} from "./runner.js";
 import {BEHAVE_NAMES, FREE_SPAWN} from "./config.js";
 import {setupFromConfig} from "./teams.js";

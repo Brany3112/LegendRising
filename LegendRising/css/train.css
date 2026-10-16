@@ -106,7 +106,8 @@
   background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
 .tad-label{display:grid;gap:2px}
 .tad-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
-.tad-seg button{font-size:.84rem}
+.tad-seg{flex-wrap:wrap;max-width:100%;min-width:0}
+.tad-seg button{font-size:.84rem;white-space:nowrap;padding:.4em .65em}
 .tad-in{width:5.4em;padding:.35em .5em;border-radius:8px;text-align:right}
 .tad-big{font:700 1.2rem/1 var(--display);font-variant-numeric:tabular-nums}
 .tad-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

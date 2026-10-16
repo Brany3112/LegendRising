@@ -458,7 +458,8 @@ registerType("freekick", {name:"Free kick", fields:[...DEFAULT_FIELDS, "wall"], 
    drillMove), an optional keeper, the Q ball's height and speed toward you (opts.spawnY, opts.spawnV), out of play and
    the pitch */
 export const BEHAVE_NAMES = Object.freeze({stand:"Stand still and watch the ball", jockey:"Jockey you, no tackles", press:"Press you and tackle"});
-// (the heights and speeds the settings offer; the admin panel's Ball section may hand spawnBall any within Y_MAX and V_MAX)
+// (the heights and speeds the settings offer, and the only ones the admin panel's Ball section hands spawnBall: it
+// snaps to the nearest. Y_MAX and V_MAX are spawnBall's own limits on whatever it is handed)
 export const FREE_SPAWN = Object.freeze({Y_MIN:0.11, Y_MAX:2.5, V_MAX:20, HEIGHTS:Object.freeze([0.11, 0.3, 0.5, 0.8, 1.2, 1.6, 2]), SPEEDS:Object.freeze([0, 3, 6, 10, 15])});
 registerType("free", {name:"Free Play", fields:["opps", "defenders", "keeper", "me", "defAvg", "gk", "out", "pitch"], roles:["attacker"],
   labels:{opps:"Practice opponents", defenders:"How many opponents", defAvg:"Opponents' average"},
