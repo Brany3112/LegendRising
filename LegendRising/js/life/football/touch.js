@@ -25,7 +25,7 @@
 // flat {x, z, yaw, vx, vz, scale, y} for tests and life; skills come from ctx first, then agent.at, then 50.
 // Directions: yaw as DESIGN 1.1 (yaw 0 faces -Z); right of a facing d is (-dz, dx).
 
-import {BALL, rollDistance} from "./ball.js";
+import {BALL, BALL_X, rollDistance} from "./ball.js";
 import {truncNormal} from "./rng.js";
 import {dirOf, yawOf} from "./pitchspec.js";
 import {sin, cos, atan2, atan, asin, acos, hypot} from "./detmath.js";
@@ -166,6 +166,32 @@ function speedForGap(gap, v, rd){
   return Math.min(BALL.VMAX, (lo + hi)/2);
 }
 
+// (P6-A) the same for a ball touched in the air: it flies airT s at its speed u (the runner going on at v), lands
+// keeping KB of it as it takes to rolling (a solid sphere slipping on the grass: 5/7), then rolls on; its farthest
+// lead from ahead0 (where it was met) is ahead0 + (u - v) airT + the roll's gap. The u whose lead peaks at L (bisection;
+// a standing man cushions a ball met further out than L back toward him, at most to his feet)
+// It lands at vImp and bounces (ball.js: restitution E_MAX - 0.012 (vy - 4), held to E_MIN..E_MAX) until a bounce
+// leaves slower than ROLL_VY; in those hops it carries on at KB u, with no roll's friction (bounceT, the hops' time)
+const KB = 5/7;
+function bounceT(vImp){
+  let t = 0, vy = vImp;
+  for (let i = 0; i < 12; i++){
+    const e = clamp(BALL.E_MAX - 0.012*(vy - 4), BALL.E_MIN, BALL.E_MAX);
+    vy *= e;
+    if (vy < BALL_X.ROLL_VY) break;
+    t += 2*vy/G;
+  }
+  return t;
+}
+const airLead = (u, ahead0, v, rd, airT, hopT) => ahead0 + (u - v)*airT + (Math.max(0, u)*KB - v)*hopT + maxGap(Math.max(0, u)*KB, v, rd);
+function speedForAirGap(L, ahead0, v, rd, airT, vImp){
+  const hopT = bounceT(vImp);
+  let lo = v - 6, hi = v + 12;
+  if (airLead(lo, ahead0, v, rd, airT, hopT) >= L) return lo;
+  for (let i = 0; i < 40; i++){ const mid = (lo + hi)/2; if (airLead(mid, ahead0, v, rd, airT, hopT) < L) lo = mid; else hi = mid; }
+  return Math.min(BALL.VMAX, (lo + hi)/2);
+}
+
 // The first touch (spec 3), in the receiver's own frame. intent = {dir: {x, z} | null, push: 0..1}; ctx = {ctrl,
 // pressure01, bF, rollDecel, q}. The quality q = clamp(1.2 c - 0.04 max(0, v - vc) - 0.2 pressure - 0.1 (1 - breath),
 // 0, 1) (zone.q) with v the ball's speed relative to his body; the touch leaves the ball touchDist(q) = 0.6 + 0.8 (1 - q)
@@ -206,12 +232,16 @@ export function firstTouch(agent, ball, intent, ctx, r){
   const ahead0 = (P.x - m.x)*dx + (P.z - m.z)*dz;
   // met further out than the touch distance: a man standing (or barely moving) cushions it back toward him to rest at
   // it; a man on the run cannot pull it in closer than where he met it, so it is carried on with him from there
-  const u0 = L - ahead0 >= 0 ? speedForGap(L - ahead0, along, rd) : along < 0.5 ? -Math.sqrt(2*rd*(ahead0 - L)) : along;
+  const vy = T.BODY_POP[part] || 0;
+  // a ball that leaves the touch in the air (off the thigh or the chest, or a raised foot's) falls first, then rolls:
+  // its lead is the flight's and the roll's after it (airLead, P6-A), not a roll's from the touch
+  const yA = P.y - R, airT = yA > 0.05 || vy > 0 ? (vy + Math.sqrt(vy*vy + 2*G*Math.max(0, yA)))/G : 0;
+  const u0 = airT > 0 ? speedForAirGap(L, ahead0, along, rd, airT, G*airT - vy)
+    : L - ahead0 >= 0 ? speedForGap(L - ahead0, along, rd) : along < 0.5 ? -Math.sqrt(2*rd*(ahead0 - L)) : along;
   const sig = (1 - ctrl/110)*0.35*vRel/15;
   const angErr = sig > 0 ? truncNormal(r, sig, 2.5) : 0;
   const c = cos(angErr), s = sin(angErr);
   const kx = dx*c - dz*s, kz = dx*s + dz*c;
-  const vy = T.BODY_POP[part] || 0;
   const airborne = P.y > R + 0.05;
   const heavy = qq < TUNE.HEAVY_Q.value;
   const pushK = clamp(intent.push != null ? +intent.push : 0.5, 0, 1);
