@@ -633,11 +633,17 @@ export function controlStep(ms, me, h, opts = {}){
       if (I.shield) d.speed = Math.min(d.speed, (TUNE.SH_SPEED ? TUNE.SH_SPEED.value : .6)*me.prm.jog);
     } else if (me.drib) me.drib = null;
   }
-  // a ball on its way to you: you take it (the first touch pushes it the way you are going), or a first-time strike
-  // queued for its arrival
+  // a ball on its way to you: you take it (the first touch pushes it the way you mean to go), or a first-time strike
+  // queued for its arrival. The way you mean (P6-A, TRAINING-SPEC 3 and 5: the touch in the receiver's own frame) is
+  // the keys' (W A S D, relative to where you look), else where you look: standing still and looking down the line,
+  // the touch goes down the line, not wherever your body happens to face. F held asks for the foot (touch.js
+  // touchPart: the raised foot for a ball up to the waist that the thigh would take)
   if (ms.ball.state === "free" && ms.poss.ctl !== me.id){
     const p = me.plan && me.plan.kind === "receive" ? me.plan : (me.plan = {kind:"receive", push:null, first:null, x:me.m.x, z:me.m.z});
-    if (len){ p.push = p.push || {x:0, z:0}; p.push.x = I.dx; p.push.z = I.dz; } else p.push = null;
+    p.push = p.push || {x:0, z:0};
+    if (len){ p.push.x = I.dx; p.push.z = I.dz; }
+    else { p.push.x = -Math.sin(bodyYaw); p.push.z = -Math.cos(bodyYaw); }
+    p.part = CTRL.held.f ? "foot" : null;
     if (p.first && ms.t - (p.firstT || 0) > 1.2) p.first = null;
   } else if (me.plan && me.plan.kind === "receive") me.plan = null;
   gestureStep();
@@ -700,13 +706,13 @@ function slide(ms, me, ctx){
 }
 
 const RES_SPACE = {kind:"ground", tc:0, side:"R", h:0, x:0, y:0, z:0, mirrored:false, face:0};
-// Space: a header when the ball comes into head reach (LMB held: at goal; RMB held: to the cone's man; neither: clear
-// it), else a jump; a low ball in front at a stretch, a diving header (A1.5)
+// Space: a header when the ball comes into head reach (LMB held: at goal; RMB held: to the cone's man; F held: cushioned
+// down onto your feet, P6-A; none of them: clear it), else a jump; a low ball in front at a stretch, a diving header (A1.5)
 function space(ms, me){
   if (me.act) return;
   const R = resolveAction(ms, me, null, RES_SPACE), b = ms.ball;
   const H = R && (R.kind === "header" || R.kind === "divingHeader") ? R : null;
-  const intent = CTRL.lmb ? "attack" : CTRL.rmb ? "pass" : "clear";
+  const intent = CTRL.lmb ? "attack" : CTRL.rmb ? "pass" : CTRL.held.f && !(H && H.kind === "divingHeader") ? "cushion" : "clear";
   let target = null;
   if (intent === "attack") target = {x:CTRL.aim.x, y:CTRL.aim.ok ? CTRL.aim.y : 1.2, z:CTRL.aim.z};
   else if (intent === "pass"){ const o = ms.agents[coneTarget(ms, me)]; if (o) target = passPoint(ms, me, o, {x:0, y:0, z:0}); }
@@ -714,7 +720,7 @@ function space(ms, me){
   // (the jump sized to the ball: none for one at your head, a full leap for one above it)
   me.intent.action = {kind:"header", tc, intent, target, power:1, dive:!!(H && H.kind === "divingHeader"), ballY:H ? H.y : null};
   CTRL.headMeet = H && H.kind === "header" ? {x:H.x, z:H.z} : null;
-  CTRL.last = H ? (H.kind === "divingHeader" ? "divingHeader" : "header") : "jump"; use("header");
+  CTRL.last = H ? (H.kind === "divingHeader" ? "divingHeader" : "header") : "jump"; use(intent === "cushion" && H ? "cushion" : "header");
   void b;
 }
 
@@ -908,7 +914,7 @@ export function hintsFor(ms, me){
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
       else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Mouse", "sweep through it to curl", "shape"); }
     }
-    else if (CTRL.resolve && CTRL.resolve.kind === "header") add("Space", "head it", "header");
+    else if (CTRL.resolve && CTRL.resolve.kind === "header"){ add("Space", "head it", "header"); add("F+Space", "cushion it down to your feet", "cushion"); }
     else if (CTRL.resolve && CTRL.resolve.kind !== "ground") add("LMB", "volley it", "shoot");
     else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); add("V", "hold to look over your shoulder", "scan"); }
   } else if (ctx === "defend"){
