@@ -7,6 +7,9 @@
 // describes what is going on.
 // Owner: WP-E. Contract DESIGN 1.4.14 (teamShape, assignDefence, clubStyle, xT); behaviour 3.2.2, 3.2.5, 3.2.9
 // (situation lines); cadence 1.5.6.
+// P6-B (Training Mode Phase 6, BUILD-PLAN P6-B work item 5; TRAINING-SPEC 2, offside respected by the AI): TAC-1, the
+// anchor cap only where offside is played and the line of a side with fewer than two men the last one; OFF-3, a man
+// walking off holds no line.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random.
 
@@ -48,6 +51,15 @@ export const TAC = Object.freeze({
   ME_PRESS: 20                        // the harness's stand-in for the player at centre forward, this long (s) out of the
                                       // play: he presses wherever the ball is, as a striker looking for it does
 });
+
+// (P6-B, TAC-1) is the offside law played: the match's laws (rules.js lawsOf; a match without its own laws plays them
+// all). Read here from ms.rules, as rules.js laws() does, since rules.js imports this module
+const offsideOn = ms => !ms.rules || !!ms.rules.offside;
+// the real halfway line in a team's frame (rules.js halfwayU: a cage's area keeps where it lies on the whole pitch)
+const halfU = (spec, dir) => {
+  const a = spec.area, hx = a && Number.isFinite(a.x0) && Number.isFinite(a.x1) ? -(a.x0 + a.x1)/2 : 0;
+  return dir*hx + spec.L/2;
+};
 
 // A club's style from its name (3.2.2): line -6..6 m, press -1..1, width -4..4 m, directness 0.35..0.65. Frozen at
 // kick-off.
@@ -109,15 +121,19 @@ export function teamShape(ms, team){
   if (!poss && bu < TAC.CROSS_DROP[0]*sL && Math.abs(bw - Wd/2) > TAC.CROSS_DROP[1]*sW) tm.line = Math.min(tm.line, (bu < TAC.CROSS_DROP[3]*sL ? TAC.CROSS_DROP[4] : TAC.CROSS_DROP[2])*sL);
   tm.len = (poss ? TAC.LEN_IN : TAC.LEN_OUT)*sL;
   tm.wid = clamp(((poss ? TAC.WID_IN : TAC.WID_OUT) + (st.widthBias || 0))*sW, 20*sW, Wd - 4);
-  // the opponents' last line (their second-last body, keeper counted) and midfield, in this team's frame
-  let a1 = -1, a2 = -1, midSum = 0, midN = 0;
+  // the opponents' last line (their second-last body, keeper counted) and midfield, in this team's frame. (P6-B, TAC-1
+  // and OFF-3) the same bodies and the same fallbacks as the offside law (rules.js offsidePosition, OFF-1): a man
+  // walking off or sent off holds no line; with fewer than two of them the last one is the line, with none the
+  // halfway line (the real one: a cage's area keeps where it is). It was 0.7 L with fewer than two, so a striker
+  // against a lone keeper stood 21 m short of him
+  let a1 = -1e9, a2 = -1e9, midSum = 0, midN = 0;
   for (const o of ms.agents){
-    if (o.team !== 1 - team || !o.onPitch || o.role !== 'player') continue;
+    if (o.team !== 1 - team || !o.onPitch || o.role !== 'player' || o.leaving || o.sentOff) continue;
     const u = dir*o.m.x + L/2;
     if (u > a1){ a2 = a1; a1 = u; } else if (u > a2) a2 = u;
     if (!o.isGK && (o.slotLine === 'CM' || o.slotLine === 'CAM')){ midSum += u; midN++; }
   }
-  tm.lineOpp = a2 > 0 ? a2 : L*0.7;
+  tm.lineOpp = a2 > -1e8 ? a2 : a1 > -1e8 ? a1 : halfU(spec, dir);
   tm.oppMid = midN ? midSum/midN : (tm.lineOpp + bu)/2;
   // anchors
   const blend = clamp((ms.t - tm.changeT)/TAC.BLEND, 0, 1);
@@ -139,8 +155,9 @@ export function teamShape(ms, team){
         if (ballSide && (inside || !wing)) u += TAC.OVERLAP*sL;
       }
       if (slot === 'CDM') u = Math.min(u, tm.line + TAC.DM_SCREEN*sL + 6*sL);
-      // nobody but a runner stands offside: hold at the line
-      u = Math.min(u, tm.lineOpp - 0.3);
+      // nobody but a runner stands offside: hold at the line. (P6-B, TAC-1) only where the offside law is played: with
+      // it off (a training drill's law) there is no line to hold, and a striker plays as high as his place says
+      if (offsideOn(ms)) u = Math.min(u, tm.lineOpp - 0.3);
     } else {
       if (slot === 'CDM') u = tm.line + TAC.DM_SCREEN*sL;
       if (STRIKER.has(slot)) u = Math.min(u, Math.max(tm.line + tm.len, bu + 8*sL));
