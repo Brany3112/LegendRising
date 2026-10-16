@@ -64,6 +64,23 @@ export async function assertVisible(page, selector, {pixels = true} = {}){
   return {ok: !why, why, box, top: info.top, fade: info.fadeOp, coverAbove: info.coverAbove, lum};
 }
 
+// a row of a long sheet brought into view the player's way: the mouse wheel over the sheet until the element is wholly
+// on screen and nothing covers its centre (TR-6 integration: the hub's lists grew with the Phase 6 drills, so a row
+// registered last can start below the fold). Resolves false when there is no such element or it never comes into view
+export async function scrollReal(page, sel, {tries = 40} = {}){
+  for (let k = 0; k < tries; k++){
+    const r = await page.evaluate(sel => { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(), s = document.querySelector("#sheetRoot .sheet");
+      const sb = s ? s.getBoundingClientRect() : {top: 0, bottom: innerHeight, left: 0, width: innerWidth}; const foot = document.querySelector("#sheetRoot .th-foot"), fb = foot && !foot.contains(e) && getComputedStyle(foot).position === "sticky" ? foot.getBoundingClientRect().top : Infinity;
+      return {top: b.top, bottom: b.bottom, min: Math.max(0, sb.top) + 8, max: Math.min(innerHeight, sb.bottom, fb) - 8, x: sb.left + sb.width/2, hit: (h => !!h && (h === e || e.contains(h)))(document.elementFromPoint(b.left + b.width/2, b.top + b.height/2))}; }, sel);
+    if (!r) return false;
+    if (r.top >= r.min && r.bottom <= r.max && r.hit) return true;
+    await page.mouse.move(r.x, (r.min + r.max)/2);
+    await page.mouse.wheel(0, r.bottom > r.max ? 240 : -240);
+    await page.waitForTimeout(80);
+  }
+  return false;
+}
+
 // a real click on the element's centre (page.mouse: move, down, up), as a hand would make it. Throws when there is none
 export async function clickReal(page, selector, {button = "left", hold = 60} = {}){
   await settle(page, selector);

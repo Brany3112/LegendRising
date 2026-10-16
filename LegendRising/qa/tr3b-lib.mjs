@@ -6,9 +6,9 @@
 //   const t = await trainLaunch({seed: 3});          // a page on the title, with the write spy and the title spies on
 //   await enterByButton(t.page);                      // a real click on the title's Training button: the hub is up
 import * as LIB from "./lib.mjs";
-import {clickReal, assertVisible, lockPointer, pressReal, settle} from "./trlib.mjs";
+import {clickReal, assertVisible, lockPointer, pressReal, settle, scrollReal} from "./trlib.mjs";
 
-export {clickReal, assertVisible, lockPointer, pressReal, settle};
+export {clickReal, assertVisible, lockPointer, pressReal, settle, scrollReal};
 const CAREER = /^freyaFootball\.v2(\.slot\d+|\.meta\d+|\.one)?$/;
 
 // the write spy (DoD 7): every setItem, removeItem and clear, with whether Training was on (train:enter to train:exit)

@@ -10,7 +10,7 @@
 //
 //   node qa/tr4-pitch.mjs
 import {report, expect, snap} from "./lib.mjs";
-import {trainLaunch, enterByButton, trainWrites, careerSnapshot, careerDiff, clickReal, pressReal, closeHubReal, cardUp} from "./tr4b-lib.mjs";
+import {trainLaunch, enterByButton, trainWrites, careerSnapshot, careerDiff, clickReal, pressReal, closeHubReal, cardUp, scrollReal} from "./tr4b-lib.mjs";
 
 const res = {trips: [], errors: []};
 const check = (ok, what, got) => { if (!ok) res.errors.push(`${what}: ${JSON.stringify(got).slice(0, 1500)}`); console.log(`${ok ? "ok  " : "FAIL"} ${what}`); };
@@ -35,6 +35,7 @@ try {
       // the hub on Attacking, Start by a real click
       await page.evaluate(() => window.__trainHub.openHub("attacking"));
       await page.waitForFunction(() => !!document.querySelector('#sheetRoot.open [data-th="start"]'), null, {timeout: 20000});
+      await scrollReal(page, `#sheetRoot [data-th="start"][data-id="qa-pitch-${kind}"]`);
       await clickReal(page, `#sheetRoot [data-th="start"][data-id="qa-pitch-${kind}"]`);
       await page.waitForFunction(k => !!window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.id === "qa-pitch-" + k && !window.__trainRun.RUN.switching, kind, {timeout: 60000});
       // a few frames drawn on the new cage
@@ -62,6 +63,7 @@ try {
   // a scenario that comes up while the hub is up (a pitch switch with the hub opened during it, as Esc does there):
   // held under the hub, then the hub closed by a real click on its cross. The pause card comes up with the pointer free,
   // so a real click on Resume plays on
+  await scrollReal(page, '#sheetRoot [data-th="start"][data-id="qa-pitch-full"]');
   await clickReal(page, '#sheetRoot [data-th="start"][data-id="qa-pitch-full"]');
   await page.evaluate(() => window.__trainHub.openHub());
   await page.waitForFunction(() => !!window.__trainRun.RUN.cur && !window.__trainRun.RUN.switching, null, {timeout: 60000});
