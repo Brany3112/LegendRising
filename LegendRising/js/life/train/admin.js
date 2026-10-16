@@ -168,6 +168,13 @@ function setFoot(f){
 function setHeight(cm){
   const [lo, hi] = heightRange();
   const v = clamp(Math.round(+cm), lo, hi), m = Math.round(v)/100;
+  // (set back to the height you play at now: nothing waits for the restart any more)
+  const a = meAgent(), now = a ? Math.round((a.scale || 1)*BASE_H*100) : null;
+  if (v === now){
+    if (typeof RN.dropChange === "function") RN.dropChange("me.height");
+    else { const i = AD.local.findIndex(x => x.key === "me.height"); if (i >= 0) AD.local.splice(i, 1); }
+    return v;
+  }
   queue({key:"me.height", label:`Height ${v} cm`, apply(c){ if (!isObj(c.me)) c.me = {}; c.me.height = m; }});
   return v;
 }
@@ -537,7 +544,8 @@ function click(e){
   if (what === "close") return void adminClose();
   if (what === "sec") return void adminSection(v);
   if (what === "foot"){ const f = setFoot(v); return void say(`Your preferred foot is now ${f.toLowerCase() === "both" ? "both feet" : f.toLowerCase()}.`); }
-  if (what === "height"){ const h = document.getElementById("tadH"); const cm = setHeight(h ? h.value : myHeight()); return void say(`Height ${cm} cm applies on restart.`); }
+  if (what === "height"){ const h = document.getElementById("tadH"); const cm = setHeight(h ? h.value : myHeight()), a = meAgent();
+    return void say(a && cm === Math.round((a.scale || 1)*BASE_H*100) ? `You're ${cm} cm already.` : `Height ${cm} cm applies on restart.`); }
   if (what === "pdefault") return void resetMe();
   if (what === "ppresets") return void playerPresets();
   if (what === "inf"){ setInfinite(v === "on"); return void say(AD.inf ? "Infinite stamina is on." : "Infinite stamina is off. Your breath drains as usual again."); }
