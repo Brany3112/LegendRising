@@ -732,6 +732,7 @@ function trainCost(){ return 14 - (carTier() >= 2 ? 3 : 0); }
 
 /* ---------- sheets (mall, staff, training, skills, menu) ---------- */
 let SHEET_RAF = 0;   // the pending slide-in of the sheet (openSheet, closeSheet)
+let SHEET_CLR = 0;   // the pending clear-out of a closed sheet (closeSheet), cancelled when a sheet opens before it runs
 function openSheet(kind){
   const r = $("#sheetRoot"); let body = "";
   if (kind !== "trainhub" && r.classList.contains("open") && r.dataset.kind === "trainhub" && typeof window.trainHubClosed === "function") window.trainHubClosed();
@@ -849,6 +850,9 @@ function openSheet(kind){
   const inner = `${body}<button class="sheet-x" onclick="closeSheet()">✕</button>`, cur = r.querySelector(".sheet");
   if (cur && r.classList.contains("open") && r.dataset.kind === kind){ r.classList.add("still"); morph(cur, inner); return; }   // refresh in place: no replayed row animations
   r.classList.remove("still");
+  // (a sheet closed a moment ago must not clear this one out: its clear-out waits for the slide-out, and with this
+  // sheet's own slide-in still a frame away the "still closed" test it makes would empty the new sheet)
+  if (SHEET_CLR){ clearTimeout(SHEET_CLR); SHEET_CLR = 0; }
   r.innerHTML = `<div class="sheet-back" onclick="closeSheet()"></div><div class="sheet glass">${inner}</div>`;
   // the slide-in waits a frame; a close before then cancels it, so a quick open and close never leaves it up
   if (SHEET_RAF) cancelAnimationFrame(SHEET_RAF);
@@ -859,7 +863,9 @@ function closeSheet(){ const r = $("#sheetRoot"); if (!r) return;
   const pending = SHEET_RAF; if (pending){ cancelAnimationFrame(pending); SHEET_RAF = 0; }
   // (Training's hub hears it go: it uncovers the view and gives the pointer back, train/hub.js)
   if ((pending || r.classList.contains("open")) && r.dataset.kind === "trainhub" && typeof window.trainHubClosed === "function") window.trainHubClosed();
-  r.classList.remove("open"); setTimeout(() => { if (!r.classList.contains("open")) r.innerHTML = ""; }, 300); }
+  r.classList.remove("open");
+  if (SHEET_CLR) clearTimeout(SHEET_CLR);
+  SHEET_CLR = setTimeout(() => { SHEET_CLR = 0; if (!r.classList.contains("open")) r.innerHTML = ""; }, 300); }
 function refreshSheet(){ const r = $("#sheetRoot"); if (r && r.classList.contains("open")) openSheet(r.dataset.kind); }
 
 function screenSeasonEnd(sum){
