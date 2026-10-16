@@ -32,6 +32,8 @@ function speechSpy(){
   const fake = {getVoices:() => [{name:"qa", lang:"en-GB"}], speak:u => { said.push({text:u && u.text, t:performance.now()}); }, cancel(){}, pause(){}, resume(){},
     addEventListener(){}, removeEventListener(){}, speaking:false, pending:false, paused:false, onvoiceschanged:null};
   try { Object.defineProperty(window, "speechSynthesis", {value:fake, configurable:true}); } catch(e){ window.speechSynthesis = fake; }
+  // (the headless browser may have no utterance to make: a stand-in with the fields audio.js sets)
+  if (typeof window.SpeechSynthesisUtterance !== "function") window.SpeechSynthesisUtterance = function(text){ this.text = text; this.volume = 1; this.rate = 1; this.pitch = 1; };
 }
 
 const st = page => page.evaluate(() => {
@@ -122,6 +124,8 @@ try {
     for (let k = 0; k < 60; k++){
       await page.mouse.move(640 + (k % 2 ? 40 : -40), 360); await page.waitForTimeout(220);
       const s = await st(page); if (k >= 5 && (s.step - s0.step >= 120 || s.state !== "play")) break;
+      // (the pointer let go under load: the pause card is up; a click on the view takes it back, as a player would)
+      if (s.paused || !s.lock){ await page.keyboard.up("ShiftLeft"); await page.keyboard.up("KeyW"); if (await page.evaluate(() => !!document.querySelector('#fpOverlay.on [data-q="resume"]'))) await clickReal(page, '#fpOverlay [data-q="resume"]'); await page.waitForTimeout(200); await lockPointer(page); await page.keyboard.down("KeyW"); await page.keyboard.down("ShiftLeft"); }
     }
     await page.keyboard.down(id.startsWith("def") ? "KeyA" : "KeyD"); await page.waitForTimeout(500); await page.keyboard.up(id.startsWith("def") ? "KeyA" : "KeyD");
     await page.mouse.down(); await page.waitForTimeout(120); await page.mouse.up();
@@ -223,6 +227,7 @@ try {
     await startFromHub(page, "attacking", "att-midfield-mates");
     const said0 = await page.evaluate(() => (window.__qaSaid || []).length);
     const w = await watchCalls(6);
+    res.audio = await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); return {utter:typeof SpeechSynthesisUtterance, voices:window.speechSynthesis.getVoices().length, speech:C.SET.speech, ctrl:localStorage.getItem("freyaFootball.ctrl"), act:navigator.userActivation && navigator.userActivation.hasBeenActive}; });
     const calls = w.calls.filter(c => c.name);
     res.calls = {calls:w.calls.slice(0, 6), said:w.said - said0};
     const okCalls = calls.length > 0 && calls.every(c => c.w <= 160 && c.h <= 48 && c.name === c.agentName && (c.edge || c.off.length && Math.max(...c.off) <= 40) && (c.life == null || c.life <= 2000));
