@@ -11,8 +11,7 @@
 // - touchPart: the one rule for the body part a first touch uses, read by the simulation (firstTouch) and by the view
 //   (view.js recvFor), so the animation always shows the part the touch was made with. Under 0.4 m the foot; a ball
 //   up to FOOT_AIR (1.05 m) is met with the raised foot when it is out to the side of the body (the thigh cannot get
-//   across to it), when it drops steeply onto him, or when he means to (want 'foot': the player's F held, a scenario's
-//   intended control); else the thigh to 0.95 m and the chest to 1.4 m, a header above. A wish the height cannot give
+//   across to it) or when he means to (want 'foot': the player's F held, a scenario's intended control); else the thigh to 0.95 m and the chest to 1.4 m, a header above. A wish the height cannot give
 //   (the chest for a ball at the shins) is ignored.
 // - the cushioned header (headerContact intent kind 'cushion'): the neck gives with the ball instead of attacking it,
 //   so it drops in front of him at CUSHION.MAX m/s or less (a clearance or an attacking header leaves at 6 m/s or more).
@@ -51,8 +50,8 @@ export const TOUCH = Object.freeze({
   CADENCE: [[3, 1], [6, 2], [Infinity, 3]],       // every stride under 3 m/s, every 2nd to 6, every 3rd above
   HEADER_R: 0.17, HEADER_RK: 0.0015,
   LEN_ERR: 0.15,                                  // a first touch's length error: 15% x (1 - q) (sigma)
-  FOOT_AIR: 1.05, FOOT_SIDE: 0.3, FOOT_DROP: -3.5 // P6-A: the raised foot meets a ball up to 1.05 m (scaled) when it is
-                                                  // more than 0.3 m to the side, or dropping faster than 3.5 m/s
+  FOOT_AIR: 1.05, FOOT_SIDE: 0.3                  // P6-A: the raised foot meets a ball up to 1.05 m (scaled) when it is
+                                                  // more than 0.3 m to the side of the body
 });
 // P6-A: the cushioned header. Its speed is 0.6 + 0.08 x the ball's speed + 1.2 (1 - heading/99), at most MAX (m/s),
 // played PITCH below the look (radians) so it drops onto the feet in front, with an aim error of (1 - heading/110) x ERR
@@ -63,7 +62,7 @@ export const CUSHION = Object.freeze({MAX: 3.0, MIN: 0.6, K_IN: 0.08, K_SKILL: 1
    ball's centre above the root (raised by a jump), scaled by the body's height. want: 'foot' | 'thigh' | 'chest' |
    'auto' (or null): what he means to use, honoured where the height allows it. */
 export function touchPart(agent, ball, want){
-  const P = ball.p || ball, V = ball.v || null, m = posOf(agent), sc = agent.scale || 1;
+  const P = ball.p || ball, m = posOf(agent), sc = agent.scale || 1;
   const y = P.y - (+agent.y || 0);
   const pt = partOf(y, sc);
   if (pt === 'head' || pt === 'foot') return pt;
@@ -75,7 +74,6 @@ export function touchPart(agent, ball, want){
   if (footOk && (!want || want === 'auto')){
     const f = dirOf(yawOfAgent(agent)), lat = Math.abs((P.x - m.x)*(-f.z) + (P.z - m.z)*f.x);
     if (lat > TOUCH.FOOT_SIDE*sc) return 'foot';
-    if (V && +V.y < TOUCH.FOOT_DROP && y < 0.8*sc) return 'foot';
   }
   return pt;
 }

@@ -36,6 +36,7 @@ import {kindOf, windHold, windUpper, heldBall, HAND} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
 import {R as zoneR, part as zonePart} from "./zone.js";
+import {touchPart} from "./touch.js";
 import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
 
@@ -404,14 +405,15 @@ function liveSt(V, R, a, ms, dt){
       }
     }
   }
-  // a receive coming: the ball on its way into his reach within 0.35 s, and it is his to take
+  // a receive coming: the ball on its way into his reach within RECV_LEAD s, and it is his to take (P6-A, recvFor)
   if (!act && a.role === "player" && ms.ball.state === "free" && ms.poss.ctl !== a.id){
     const r = recvFor(V, R, a, ms);
     if (r) return r;
   }
-  // a clip still finishing (its follow-through, the get-up after a slide)
+  // a clip still finishing (its follow-through, the get-up after a slide; a receive once the touch is his, on the
+  // simulation's own contact)
   if (R.clip && R.clip.mode !== "receive") return R.clip;
-  if (R.clip && R.clip.mode === "receive" && ms.t < R.clip.until) return R.clip;
+  if (R.clip && R.clip.mode === "receive" && ms.t < R.clip.until && !act){ const c = recvKeep(V, R, R.clip, a, ms); if (c) return c; }
   R.clip = null;
   // a celebration after a goal, for the scorer and the team-mates near him, while play is stopped for it
   if (ms.phase === "goal" && V.goalEv && a.team === V.goalEv.team && a.role === "player" && !a.isGK){
@@ -429,6 +431,7 @@ function liveSt(V, R, a, ms, dt){
   if (hold) loco.upper = hold;
   else if (shielding(a)) loco.upper = UP_SHIELD;
   else if (hand) loco.upper = hand;
+  else if ((R.readyUp = readyFor(V, R, a, ms))) loco.upper = R.readyUp;
   else if (a.role === "ar" && V.flag && V.flag.agent === a.id && ms.t < V.flag.until) loco.upper = UP_FLAG;
   else if (a.isMe) loco.upper = windUpper(V.wind, a.m.speed, R.windUp || (R.windUp = {}));
   return loco;
@@ -484,34 +487,114 @@ function outcomeOf(V, a, g){
   if (g.diveT < g.plan.tc) return "catch";
   return "miss";
 }
-// a first touch about to happen: the ball comes inside his control radius (zone.js R: the radius the simulation takes
-// it in, for the ball as it will be then, from where his run takes him) in under 0.35 s and he is the one to take it;
-// the part by the ball's real height there (zone.js part: under 0.4 m the foot, the thigh to 0.95 m, the chest to 1.4 m;
-// above that it is a header, not a touch)
-const RA = {m:{x:0, z:0, yaw:0, vx:0, vz:0, speed:0}, at:null, scale:1, fac:null, y:0, st:null}, RBALL = {p:{x:0, y:0, z:0}, v:{x:0, y:0, z:0}};
-function recvFor(V, R, a, ms){
-  const p = a.plan, mine = a.isMe || (p && (p.kind === "receive" || p.kind === "chase" || p.kind === "intercept")) || (ms.kick && ms.kick.ev && ms.kick.ev.recv === a.id);
-  if (!mine) return null;
-  if (R.clip && R.clip.mode === "receive" && ms.t < R.clip.until) return R.clip;
-  // (the body as it will be: his run carried on; the ball as it will be, with its velocity now)
-  const M = RA.m; RA.at = a.at; RA.scale = a.scale || 1; RA.fac = a.fac; RA.st = a.st; RA.y = 0;
+/* ---------- the first touch (P6-A: TRAINING-SPEC 5, never an animation where the ball is not) ----------
+   recvFor: a first touch about to happen. The contact is found the way the simulation takes it (actions.js touchCheck
+   and envAhead): step by step ahead, the ball where it will be at the start of each step (or half way through it, or at
+   its end), his body where his run takes him by that step's end, inside his control radius (zone.js R for the ball as
+   it will be then). The first such step is the contact: its time and the ball's centre then are the clip's st.tc and
+   st.ball. The clip starts when that contact is under RECV_LEAD s away and he is the one to take it; its part is
+   touch.js touchPart's (the simulation's own rule: the foot, the raised foot for a ball in the air out to his side or
+   when he asks for the foot, the thigh, the chest), on the side of his body the ball is on (his own foot for a ball
+   straight at him). Up to the contact the clip is kept on the contact as it is worked out again every frame (a ball
+   that changes course is followed; one that no longer comes to him takes the clip away again), and once the
+   simulation has taken the touch (the ball's last touch his control) on the simulation's own point and moment.
+   It is over at most RECV_HOLD s after the contact (moves.js ends it sooner), and he is never held in it. Before the
+   clip, a ball coming to him within READY s is watched: the upper body's 'ready' gesture (moves.js). */
+const RECV_LEAD = .45, RECV_HOLD = .35, READY = 1.3;
+const RA = {m:{x:0, z:0, yaw:0, vx:0, vz:0, speed:0}, at:null, scale:1, fac:null, y:0, st:null, plan:null}, RBALL = {p:{x:0, y:0, z:0}, v:{x:0, y:0, z:0}};
+const CS = {n:-1, t:0, x:0, y:0, z:0, d:0, r:0};
+const HALF3 = [0, .5, 1];
+// the step (n, 0 = the next) the simulation will take the ball in, within tMax s, and the ball then; null for none
+function contactStep(a, ms, tMax){
+  const M = RA.m; RA.at = a.at; RA.scale = a.scale || 1; RA.fac = a.fac; RA.st = a.st; RA.y = 0; RA.plan = a.plan;
   M.yaw = a.m.yaw; M.vx = a.m.vx; M.vz = a.m.vz; M.speed = a.m.speed;
   const bv = ms.ball.v; RBALL.v.x = bv.x; RBALL.v.y = bv.y; RBALL.v.z = bv.z;
-  for (let i = 1; i <= 10; i++){
-    const t = i*.035;
-    predAt(ms, t, PB);
-    M.x = a.m.x + a.m.vx*t; M.z = a.m.z + a.m.vz*t;
-    RBALL.p.x = PB.x; RBALL.p.y = PB.y; RBALL.p.z = PB.z;
-    const d = Math.hypot(PB.x - M.x, PB.z - M.z), part0 = zonePart(PB.y, RA.scale);
-    if (part0 !== "head" && d < zoneR(RA, RBALL, ms)){
-      const f = dirOf(a.m.yaw), lat = (PB.x - a.m.x)*-f.z + (PB.z - a.m.z)*f.x;
-      const part = part0 === "chest" ? "chest" : part0 === "thigh" ? "thigh" : PB.y < .16 && Math.hypot(ms.ball.v.x, ms.ball.v.z) < 3 ? "sole" : "inside";
-      R.clip = {key:"receive", ref:ms.predSeq, id:++CLIP_N, mode:"receive", part, zpart:part0, side:lat >= 0 ? "R" : "L", ball:{x:PB.x, y:PB.y, z:PB.z}, tc:t, dStart:d, rStart:zoneR(RA, RBALL, ms),
-        ballV:{x:ms.ball.v.x, y:ms.ball.v.y, z:ms.ball.v.z}, cushion:.7, until:ms.t + t + .35};
-      return R.clip;
+  const N = Math.ceil(tMax/H);
+  for (let n = 0; n <= N; n++){
+    // (his body at the end of that step: the simulation moves him before it looks at the ball)
+    const tb = (n + 1)*H;
+    M.x = a.m.x + a.m.vx*tb; M.z = a.m.z + a.m.vz*tb;
+    for (const f of HALF3){
+      predAt(ms, (n + f)*H, PB);
+      RBALL.p.x = PB.x; RBALL.p.y = PB.y; RBALL.p.z = PB.z;
+      if (zonePart(PB.y, RA.scale) === "head") continue;
+      const d = Math.hypot(PB.x - M.x, PB.z - M.z), r = zoneR(RA, RBALL, ms);
+      if (r > 0 && d <= r){
+        // (the touch is put on the ball as it is at the start of that step)
+        if (f) predAt(ms, n*H, PB);
+        CS.n = n; CS.t = n*H; CS.x = PB.x; CS.y = PB.y; CS.z = PB.z; CS.d = d; CS.r = r;
+        return CS;
+      }
     }
   }
   return null;
+}
+// the drawn moment now, in the simulation's time: between the last two steps
+const drawnT = (V, ms) => ms.t - H + V.alpha*H;
+const mineFor = (a, ms) => { const p = a.plan; return a.isMe || (p && (p.kind === "receive" || p.kind === "chase" || p.kind === "intercept")) || (ms.kick && ms.kick.ev && ms.kick.ev.recv === a.id); };
+function recvFor(V, R, a, ms){
+  if (!mineFor(a, ms)) return null;
+  const c0 = R.clip && R.clip.mode === "receive" ? R.clip : null;
+  if (c0 && ms.t < c0.until) return recvKeep(V, R, c0, a, ms);
+  const k = contactStep(a, ms, RECV_LEAD);
+  if (!k) return null;
+  // the part, as the simulation will choose it (touch.js touchPart), and the side the ball is on
+  RA.m.x = a.m.x + a.m.vx*(k.t + H); RA.m.z = a.m.z + a.m.vz*(k.t + H);
+  RBALL.p.x = k.x; RBALL.p.y = k.y; RBALL.p.z = k.z;
+  const part0 = touchPart(RA, RBALL, a.plan && a.plan.part);
+  if (part0 === "head") return null;
+  const f = dirOf(a.m.yaw), lat = (k.x - RA.m.x)*-f.z + (k.z - RA.m.z)*f.x, sc = a.scale || 1;
+  const part = part0 === "chest" ? "chest" : part0 === "thigh" ? "thigh" : k.y > .4*sc ? "air" : k.y < .16 && Math.hypot(ms.ball.v.x, ms.ball.v.z) < 3 ? "sole" : "inside";
+  const side = Math.abs(lat) < .1 ? (a.foot === "L" ? "L" : "R") : lat >= 0 ? "R" : "L";
+  const push = a.plan && a.plan.push ? {x:a.plan.push.x, z:a.plan.push.z} : null;
+  R.clip = {key:"receive", ref:ms.predSeq, id:++CLIP_N, mode:"receive", part, zpart:part0, side, ball:{x:k.x, y:k.y, z:k.z}, tc:Math.max(0, ms.t + k.t - drawnT(V, ms)),
+    dStart:k.d, rStart:k.r, ballV:{x:ms.ball.v.x, y:ms.ball.v.y, z:ms.ball.v.z}, cushion:.7, push, rootV:{x:a.m.vx, z:a.m.vz}, ballNow:{x:0, y:0, z:0},
+    tSim:ms.t + k.t, t0:ms.t, until:ms.t + k.t + RECV_HOLD, lost:0, done:false};
+  ballNow(V, ms, R.clip.ballNow);
+  return R.clip;
+}
+// a receive under way: kept on the contact up to it (the simulation's own once it has taken the touch), the head on the ball
+function recvKeep(V, R, c, a, ms){
+  ballNow(V, ms, c.ballNow);
+  if (c.done) return c;
+  const L = ms.ball.last;
+  if (L.agent === a.id && L.kind === "control" && L.t >= c.t0 - 1e-9){
+    // the simulation has taken it: on its point, at its moment
+    c.ball.x = L.x; c.ball.z = L.z; c.tSim = L.t; c.tc = Math.max(0, L.t - drawnT(V, ms)); c.done = true; c.until = Math.min(c.until, L.t + RECV_HOLD);
+    return c;
+  }
+  const k = contactStep(a, ms, RECV_LEAD);
+  if (!k){
+    // (it no longer comes to him: twice running before the contact, the clip goes; after its contact it plays out)
+    if (ms.t < c.tSim && ++c.lost >= 2){ R.clip = null; return null; }
+    return c;
+  }
+  c.lost = 0;
+  c.ball.x = k.x; c.ball.y = k.y; c.ball.z = k.z; c.tSim = ms.t + k.t; c.tc = Math.max(0, c.tSim - drawnT(V, ms));
+  c.until = c.tSim + RECV_HOLD; c.rootV.x = a.m.vx; c.rootV.z = a.m.vz;
+  if (a.plan && a.plan.push){ c.push = c.push || {x:0, z:0}; c.push.x = a.plan.push.x; c.push.z = a.plan.push.z; }
+  return c;
+}
+// the ball as it is drawn now (between its last two steps)
+function ballNow(V, ms, out){
+  const b = ms.ball.p, p0 = V.ballPrev, al = V.alpha;
+  out.x = p0.x + (b.x - p0.x)*al; out.y = p0.y + (b.y - p0.y)*al; out.z = p0.z + (b.z - p0.z)*al;
+  return out;
+}
+// a ball on its way to him, a second or so off (no clip yet): the upper body's 'ready' gesture, watching it in
+const RB2 = {x:0, y:0, z:0};
+function readyFor(V, R, a, ms){
+  if (a.act || ms.ball.state !== "free" || ms.poss.ctl === a.id || a.isGK || !mineFor(a, ms)) return null;
+  let near = false;
+  for (let i = 1; i <= 12 && !near; i++){
+    const t = i*READY/12;
+    predAt(ms, t, RB2);
+    if (Math.hypot(RB2.x - a.m.x - a.m.vx*t, RB2.z - a.m.z - a.m.vz*t) < 1.6) near = true;
+  }
+  if (!near) return null;
+  const c = R.ready || (R.ready = {g:"ready", w:1, ball:{x:0, y:0, z:0}});
+  ballNow(V, ms, c.ball);
+  return c;
 }
 
 /* ---------- your first-person body (matchcam.js calls this after placing the eye) ---------- */
