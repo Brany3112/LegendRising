@@ -457,8 +457,10 @@ function ballPlans(ms, team){
 
 // (P6-B) one man of a side goes for a loose ball: when the side's plan now sends someone else (or leaves it to the
 // player), a team-mate still running to meet it with his head from an earlier plan stands down, unless he has already
-// left the ground for it. (A header plan used to outlive the plan that replaced it: two of a side went for one ball)
+// left the ground for it. (A header plan used to outlive the plan that replaced it: two of a side went for one ball.)
+// Training Mode's scenarios only: the 11-a-side calibration (the harness bands) was fitted with it as it was
 function standDown(ms, team, keep){
+  if (ms.mode !== 'train') return;
   for (const a of ms.agents) if (a.team === team && a !== keep && a.plan && a.plan.kind === 'header' && !a.act) a.plan = null;
 }
 // a header plan: run to the spot, jump to meet it near the apex; at the attackers' end a header at goal, at the
@@ -513,9 +515,11 @@ function planFirst(ms, a){
     // close to his own goal line with the man right on him: safety first, out toward the corner flag (a corner or a
     // throw costs less than a chance); further out, high and wide up the pitch
     const deep = Math.abs(ogx - p.x) < BRAIN.CLEAR_FIRST[4] && nd < BRAIN.CLEAR_FIRST[5];
-    // (P6-B) a cage's fence gives the ball back: no aiming it out of play there, and never past the far lines
+    // (P6-B) a cage's fence gives the ball back: no aiming it out of play there, and in Training Mode never past the
+    // far lines (a cage's pitch is short; a match keeps its calibrated clearance)
+    const fx = p.x + dir*BRAIN.CLEAR_FIRST[2];
     const target = deep && !rebound(ms) ? {x: ogx - dir*2, y: R, z: sz*(ms.spec.hz + 4)}
-      : {x: clamp(p.x + dir*BRAIN.CLEAR_FIRST[2], -ms.spec.hx + 2, ms.spec.hx - 2), y: R, z: sz*Math.max(2, ms.spec.hz - 5)};
+      : {x: ms.mode === 'train' ? clamp(fx, -ms.spec.hx + 2, ms.spec.hx - 2) : fx, y: R, z: sz*Math.max(2, ms.spec.hz - 5)};
     p.first = {kind: 'clear', target, contact: 1, speed: BRAIN.CLEAR_FIRST[3], firstTime: true};
     return;
   }
