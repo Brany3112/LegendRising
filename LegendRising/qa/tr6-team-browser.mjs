@@ -61,7 +61,8 @@ async function toHubCategory(page, cat){
 async function scrollReal(page, sel){
   for (let k = 0; k < 40; k++){
     const r = await page.evaluate(sel => { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(), s = document.querySelector("#sheetRoot .sheet");
-      const sb = s ? s.getBoundingClientRect() : {top:0, bottom:innerHeight, left:0, width:innerWidth}; return {top:b.top, bottom:b.bottom, min:Math.max(0, sb.top) + 8, max:Math.min(innerHeight, sb.bottom) - 8, x:sb.left + sb.width/2}; }, sel);
+      const sb = s ? s.getBoundingClientRect() : {top:0, bottom:innerHeight, left:0, width:innerWidth}; const foot = document.querySelector("#sheetRoot .th-foot"), fb = foot && !foot.contains(e) && getComputedStyle(foot).position === "sticky" ? foot.getBoundingClientRect().top : Infinity;
+      return {top:b.top, bottom:b.bottom, min:Math.max(0, sb.top) + 8, max:Math.min(innerHeight, sb.bottom, fb) - 8, x:sb.left + sb.width/2}; }, sel);
     if (!r) return false;
     if (r.top >= r.min && r.bottom <= r.max) return true;
     await page.mouse.move(r.x, (r.min + r.max)/2);
@@ -117,7 +118,11 @@ try {
     const s0 = await st(page);
     // the bot: W and Shift held while it turns with the mouse, a step to the side, a left click
     await page.keyboard.down("KeyW"); await page.keyboard.down("ShiftLeft");
-    for (let k = 0; k < 6; k++){ await page.mouse.move(640 + (k % 2 ? 40 : -40), 360); await page.waitForTimeout(220); }
+    // (held for at least 2 s of play, however slowly this machine draws it)
+    for (let k = 0; k < 60; k++){
+      await page.mouse.move(640 + (k % 2 ? 40 : -40), 360); await page.waitForTimeout(220);
+      const s = await st(page); if (k >= 5 && (s.step - s0.step >= 120 || s.state !== "play")) break;
+    }
     await page.keyboard.down(id.startsWith("def") ? "KeyA" : "KeyD"); await page.waitForTimeout(500); await page.keyboard.up(id.startsWith("def") ? "KeyA" : "KeyD");
     await page.mouse.down(); await page.waitForTimeout(120); await page.mouse.up();
     await page.keyboard.up("ShiftLeft"); await page.keyboard.up("KeyW");
@@ -142,10 +147,16 @@ try {
     const tries = [];
     for (let k = 0; k < 5; k++){
       // the go from its start: Backspace, then R at once
-      await pressReal(page, "Backspace");
-      await wait(page, n => window.__trainRun.RUN.restarts > n, (await st(page)).restarts, 15000);
+      const n0 = (await st(page)).restarts;
+      let ok = false;
+      for (let b = 0; b < 3 && !ok; b++){
+        if (!(await page.evaluate(() => !!document.pointerLockElement))) await lockPointer(page);
+        await pressReal(page, "Backspace");
+        ok = await wait(page, n => window.__trainRun.RUN.restarts > n, n0, 30000).then(() => true, () => false);
+      }
+      if (!ok) throw new Error("Backspace did not restart: " + JSON.stringify(await st(page)) + " " + JSON.stringify(await page.evaluate(() => ({card:!!document.querySelector("#fpOverlay.on"), quick:window.__trainQuick && window.__trainQuick.quickIsOpen()}))));
       await pressReal(page, "KeyR");
-      await page.waitForFunction(() => { const ms = window.__trainRun.RUN.ms; const c = ms && ms.events.find(e => e.kind === "call" && e.agent === ms.me); return !c || ms.t > c.t + 2.2; }, null, {timeout:30000}).catch(() => null);
+      await page.waitForFunction(() => { const ms = window.__trainRun.RUN.ms; const c = ms && ms.events.find(e => e.kind === "call" && e.agent === ms.me); return !!c && (ms.t > c.t + 2.2 || ms.events.some(e => e.kind === "kick" && e.agent >= 0 && e.t >= c.t)); }, null, {timeout:30000}).catch(() => null);
       const r = await page.evaluate(() => {
         const ms = window.__trainRun.RUN.ms, me = ms.me;
         const c = ms.events.find(e => e.kind === "call" && e.agent === me);
@@ -168,6 +179,10 @@ try {
       const R = window.__trainRun, out = {calls:[], markers:[]};
       const seen = new Map(), v = new THREE.Vector3();
       const t0 = performance.now();
+      // (when each name tag is put in and taken out: the DOM's own record, not the sampling below)
+      const life = new Map(), box = document.querySelector(".fp-calls");
+      const mo = new MutationObserver(list => { const now = performance.now(); for (const m of list){ for (const n of m.addedNodes) life.set(n, {add:now, rem:null}); for (const n of m.removedNodes){ const L = life.get(n); if (L) L.rem = now; } } });
+      if (box) mo.observe(box, {childList:true});
       await new Promise(done => {
         const f = () => {
           const ms = R.RUN.ms, T = R.RUN.T;
@@ -198,7 +213,9 @@ try {
         };
         window.__qa.realRAF(f);
       });
-      for (const rec of out.calls){ if (rec.last == null && !document.contains([...seen.keys()][out.calls.indexOf(rec)])) rec.last = performance.now(); rec.life = rec.last != null ? Math.round(rec.last - rec.first) : null; const ms = window.__trainRun.RUN.ms; rec.agentName = ms && ms.agents[rec.agent] ? ms.agents[rec.agent].name : null; }
+      mo.disconnect();
+      const els = [...seen.keys()];
+      out.calls.forEach((rec, i) => { const L = life.get(els[i]); rec.life = L && L.rem != null ? Math.round(L.rem - L.add) : null; const ms = window.__trainRun.RUN.ms; rec.agentName = ms && ms.agents[rec.agent] ? ms.agents[rec.agent].name : null; });
       out.said = (window.__qaSaid || []).length;
       return out;
     }, secs);

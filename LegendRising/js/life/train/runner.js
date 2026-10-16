@@ -76,6 +76,7 @@
      ui see the setup it started from as run.setup.
    - Offside (OFF-2): when the flag goes up in a scenario, the Training HUD says who was offside and by how much, in
      the match's words (controller.js offside notice).
+   - Sound: a start asks for the match's audio (audio.js AUD.init), so the kicks and the team-mates' calls are heard.
    - Instant replay: every go is recorded (replay.js, the match's own ring, 12 s) and a go a scenario decides with a
      goal it wants replayed (verdict.replay) is played back from the match's replay cameras, framed on the cage, before
      the next go: the simulation waits, Space, Enter or Esc skips it, and the next go starts as it would have. */
@@ -98,6 +99,7 @@ import {sandboxHeight} from "../core/me.js";
 import * as THUD from "./thud.js";
 import {scaleOfHeight, defaultHeight} from "./config.js";
 import {matchOf, drillSink} from "./scen-team.js";
+import {AUD} from "../football/audio.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const R = .11;
@@ -323,6 +325,9 @@ function play(sc, config, setup, preset = null){
   T.fixed = RUN.task;
   P.yaw = setup.me.yaw; P.pitch = 0;
   enterMode("train", T);
+  // (P6-B) the match's sound in a scenario too: the kicks, the team-mates' calls (spoken when the setting allows). The
+  // train mode never asked for it, so a call in Training was silent; the context is made at the page's first gesture
+  try { AUD.init(); } catch(e){ console.error(e); }
   goStart(run);
   THUD.thudShow(thudInfo(run));
   emit();
