@@ -125,13 +125,30 @@ function run(v, seed){
     let look = P.yaw;
     if (!ctl){
       // before the touch
-      if (o.move === "jog" || o.move === "sprint"){ look = yawOf(rcv.run.x, rcv.run.z); keys.push("w"); if (o.move === "sprint") keys.push("shift"); }
+      if (o.move === "jog" || o.move === "sprint"){
+        look = yawOf(rcv.run.x, rcv.run.z); keys.push("w"); if (o.move === "sprint") keys.push("shift");
+        // running onto it: once it is near, bend the run to where it will meet him (as a player steers onto a pass)
+        if (fed && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) < 9){
+          const m = meetOf(ms, me.m.x, me.m.z, 2, me.m.vx, me.m.vz);
+          if (m && m.d > 0.4){
+            const tx = m.x - me.m.x, tz = m.z - me.m.z;
+            // (ahead of him: bend onto it; behind him: check the run and turn to it)
+            if (tx*rcv.run.x + tz*rcv.run.z > 0.3) look = yawOf(tx, tz);
+            else if (m.t < 1.2){ keys.length = 0; look = turnTo(P.yaw, yawOf(b.p.x - me.m.x, b.p.z - me.m.z), 8*H); }
+          }
+        }
+      }
       else if (o.move === "side"){ look = P.yaw; keys.push(...keysFor(rcv.run.x, rcv.run.z, look)); }
       else if (fed){
         // standing (or turning): watch the ball come, step to where it will pass if it is off your line
         look = turnTo(P.yaw, yawOf(b.p.x - me.m.x, b.p.z - me.m.z), o.move === "turn" ? 6*H : 12*H);
         const m = meetOf(ms, me.m.x, me.m.z, 1.6);
         if (m && m.d > 0.45 && m.t > 0.15) keys.push(...keysFor(m.x - me.m.x, m.z - me.m.z, look));
+      }
+      // to go on toward goal after it (sprint away, shoot): the touch is taken that way, the key toward goal as it comes
+      if (fed && !keys.length && (rcv.then === "sprint" || rcv.then === "shoot")){
+        const m = meetOf(ms, me.m.x, me.m.z, 1.2);
+        if (m && m.t < 0.45) keys.push(...keysFor(ms.dirs[me.team], 0, look));
       }
       // a defender behind you: take it away from him, across you
       if (fed && g.s.opps.length && !keys.length){
@@ -159,9 +176,14 @@ function run(v, seed){
     } else {
       // after the touch: what the drill asks
       const tc = ms.t - Gs.ctlAt;
-      if (rcv.then === "keep"){ if (o.move === "jog" || o.move === "sprint") keys.push("w"); }
+      // (keep it: on the move, keep going the way you were, the ball with you)
+      if (rcv.then === "keep"){ if (o.move === "jog" || o.move === "sprint"){ look = yawOf(rcv.run.x, rcv.run.z); keys.push("w"); if (o.move === "sprint") keys.push("shift"); } else if (o.move === "side") keys.push(...keysFor(rcv.run.x, rcv.run.z, look)); }
       else if (rcv.then === "turn"){ look = turnTo(P.yaw, goalYaw(), 5*H); if (tc > 0.2) keys.push("w"); }
-      else if (rcv.then === "sprint"){ look = turnTo(P.yaw, goalYaw(), 6*H); keys.push("w", "shift"); }
+      else if (rcv.then === "sprint"){
+        // (turned toward goal, then away at full speed, steering onto the ball as it runs in front)
+        const by = yawOf(b.p.x + b.v.x*0.3 - me.m.x, b.p.z + b.v.z*0.3 - me.m.z), aimY = Math.abs(wrapA(by - goalYaw())) < 1.0 && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) > 0.5 ? by : goalYaw();
+        look = turnTo(P.yaw, aimY, 6*H); if (Math.abs(wrapA(look - aimY)) < 0.6) keys.push("w", "shift");
+      }
       else if (rcv.then === "pass" || rcv.then === "through" || rcv.then === "cross"){
         const pa = ms.agents[Gs.passer];
         if (rcv.then === "cross" && !st.crossSet){ B.tap("3"); st.crossSet = true; }
@@ -170,8 +192,11 @@ function run(v, seed){
         if (st.rmbAt >= 0 && ms.t - st.rmbAt > 0.06) B.mouse(2, false);
       } else if (rcv.then === "shoot"){
         look = turnTo(P.yaw, goalYaw(), 6*H); P.pitch = -0.02;
-        if (tc > 0.5 && Math.abs(wrapA(P.yaw - goalYaw())) < 0.2 && st.lmbAt < 0){ B.mouse(0, true); st.lmbAt = ms.t; }
-        if (st.lmbAt >= 0 && ms.t - st.lmbAt > 0.4) B.mouse(0, false);
+        // (onto the ball first, then the shot as it sits in front of the striking foot)
+        const db = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z);
+        if (db > 0.7) keys.push(...keysFor(b.p.x - me.m.x, b.p.z - me.m.z, look));
+        if (tc > 0.3 && db <= 1.3 && Math.abs(wrapA(P.yaw - goalYaw())) < 0.3 && st.lmbAt < 0){ B.mouse(0, true); st.lmbAt = ms.t; }
+        if (st.lmbAt >= 0 && ms.t - st.lmbAt > 0.3) B.mouse(0, false);
       }
       if (rcv.shield) keys.push("c");
     }
@@ -216,6 +241,7 @@ function run(v, seed){
       }
     }
     verdict = RC.judge(ms, Gs);
+    if (process.env.TRACE === v.id && seed === 1 && (i % 6 === 0 || verdict)) console.log(`    ${ms.t.toFixed(2)} ${Gs.feed.state} me ${me.m.x.toFixed(2)},${me.m.z.toFixed(2)} v ${me.m.speed.toFixed(2)} yaw ${me.m.yaw.toFixed(2)} keys ${keys.join("")} ball ${ms.ball.p.x.toFixed(2)},${ms.ball.p.z.toFixed(2)},${ms.ball.p.y.toFixed(2)} ctl ${ms.poss.ctl} ${Gs.feed.target ? "aim " + Gs.feed.target.x.toFixed(2) + "," + Gs.feed.target.z.toFixed(2) : ""} ${verdict ? verdict.text : ""}`);
     // no NaN anywhere
     for (const a of ms.agents){ if (!(Number.isFinite(a.m.x) && Number.isFinite(a.m.z) && Number.isFinite(a.m.yaw))) out.nan = true; }
     const bb = ms.ball; if (!(Number.isFinite(bb.p.x) && Number.isFinite(bb.p.y) && Number.isFinite(bb.p.z) && Number.isFinite(bb.v.x))) out.nan = true;

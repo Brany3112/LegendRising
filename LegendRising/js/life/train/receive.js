@@ -64,8 +64,8 @@ registerType(TYPE, {name:"Ball Receiving and First Touch", roles:["receiver"],
     from:{kind:"enum", label:"Where it comes from", values:E(FROM), def:"behind"},
     dist:{kind:"int", label:"How far away it's played from", min:6, max:40, def:15, unit:"m"},
     delivery:{kind:"enum", label:"How it comes", values:E(DELIVERY), def:"ground"},
-    speed:{kind:"int", label:"How hard it's played", min:5, max:32, def:12, unit:"m/s", when:c => !ELEV[c.opts.delivery],
-      help:"A ball in the air or a bouncing one is struck as hard as its flight needs."},
+    speed:{kind:"int", label:"How hard it's played", min:5, max:32, def:12, unit:"m/s", when:c => !ELEV[c.opts.delivery] && !(c.opts.into === "space" && c.opts.delivery === "ground"),
+      help:"A ball in the air, a bouncing one or a pass into space is struck as hard as its flight needs."},
     height:{kind:"enum", label:"How high it gets to you", values:HEIGHTS.map(v => ({v, label:`${HEIGHT_NAMES[v]} (${v} m)`})), def:1.25, when:c => AIR.has(c.opts.delivery)},
     move:{kind:"enum", label:"What you're doing as it comes", values:E(MOVE), def:"still",
       help:"Moving, the ball is played once you're on the move, to where you'll be."},
@@ -90,8 +90,8 @@ export const DRILLS = Object.freeze([
   D("right", "From the right", "A pass from the right touchline.", {from:"right", dist:16}),
   D("behind", "From behind you", "Facing the goal, a pass from your own half comes over your shoulder.", {from:"behind", facing:"goal", into:"ahead"}),
   D("angle", "At an angle", "A diagonal ball from the left. Half-turn and take it on the half-volley side.", {from:"angleL", dist:18}),
-  D("space", "Into space", "The pass is played into the space in front of you. Run onto it.", {into:"space", facing:"goal", from:"angleR", move:"jog"}),
-  D("sprint", "While sprinting", "A through ball into your stride at full speed.", {move:"sprint", from:"behind", facing:"goal", into:"ahead", speed:16, dist:22}),
+  D("space", "Into space", "The pass is played into the space in front of you. Run onto it.", {into:"space", facing:"goal", from:"behind", move:"jog", dist:18}),
+  D("sprint", "While sprinting", "A through ball into your stride at full speed.", {move:"sprint", from:"angleL", facing:"goal", into:"ahead", speed:19, dist:20}),
   D("jog", "While jogging", "Jog across and take it without breaking stride.", {move:"jog", from:"right", facing:"goal"}),
   D("side", "Moving sideways", "Shuffle across as the ball comes and take it on the move.", {move:"side", from:"behind"}),
   D("pressure", "Under pressure", "A defender is right behind you. Get your first touch away from him.", {pressure:"behind", defDist:2, behave:"press"}, {opps:true}),
@@ -138,7 +138,10 @@ const FROM_DIR = {behind:[-1, 0], front:[1, 0], left:[0, -1], right:[0, 1], angl
 export const RUN_V = Object.freeze({still:0, jog:3.2, sprint:6.5, side:2.0, turn:0});
 const WAIT_V = {still:0, jog:2.4, sprint:4.8, side:1.4, turn:0};
 const RUN_BACK = {still:0, jog:5, sprint:10, side:3, turn:0};
-const INTO_OFF = {feet:[0, 0], space:[4.5, 0], ahead:[0.9, 0], behind:[-0.9, 0], adjust:[0, 1.6]};
+// (into space: past him on one side, into the space ahead where his run takes him a moment after it gets there, so he
+// runs onto it; the pass along the grass is weighted to get there at SPACE_V)
+const INTO_OFF = {feet:[0, 0], space:[3, 1.2], ahead:[0.9, 0], behind:[-0.9, 0], adjust:[0, 1.6]};
+const SPACE_V = 4;
 // the elevation a ball in the air, a high one and the bounces are played at (their speed is worked out for it: the
 // ball's drag makes a lofted ball's range from a speed anything but obvious, so the configuration asks for the flight)
 // (a ball in the air is met as it comes into reach, about this far in front of the body: that is where its height counts)
@@ -220,7 +223,9 @@ export function plan(c, spec, s = null, notes = []){
   // (in the air: the normal contact's flatter flight, its speed deciding how flat; high and the bounces: the high
   // contact's steep one; driven: low)
   const contact = o.delivery === "aerial" || o.delivery === "ground" ? 0 : o.delivery === "driven" ? -1 : 1;
-  const feed = {kind, contact, from:{x:r3(bx), y:R, z:r3(bz)}, speed:o.speed, curl:0, aim, passer:-1,
+  // (into space along the grass: weighted to reach the space at SPACE_V, so it is there to run onto, not past him)
+  const arrive = o.into === "space" && o.delivery === "ground" ? SPACE_V : 0;
+  const feed = {kind, contact, arrive, from:{x:r3(bx), y:R, z:r3(bz)}, speed:o.speed, curl:0, aim, passer:-1,
     wait:{t:o.move === "still" || o.move === "turn" ? (o.move === "turn" ? 0.6 : FEEDER.WAIT) : 0.4, v:WAIT_V[o.move] || 0, max:FEEDER.MAX}};
   // a high ball and the bounces are struck at their own elevation: the speed for it is worked out (and said)
   if (ELEV[o.delivery]){
@@ -354,8 +359,10 @@ export function judge(ms, G){
   }
   // nothing yet: it went by you
   const b = ms.ball, dx = b.p.x - me.m.x, dz = b.p.z - me.m.z, d = Math.hypot(dx, dz);
+  // (gone well past him, or still out of reach long after it was played; a ball played into space ahead of him may run
+  // on away from him for a while before he catches it)
   const away = (b.v.x*dx + b.v.z*dz) > 0 && d > 3;
-  if (tf > 2 && away && Math.hypot(b.v.x, b.v.z) < 25 && b.last.agent !== me.id && tf > 1.2) return end(false, "It got past you.", "missed");
+  if (tf > 2 && away && (d > 12 || tf > 7) && b.last.agent !== me.id) return end(false, "It got past you.", "missed");
   if (tf > 8) return end(false, "You never got to it.", "missed");
   return null;
 }

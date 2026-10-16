@@ -8,7 +8,8 @@
 
    A feed is plain data: where the ball lies (from, at rest: a dead ball nobody plays until it is fed), the kind of
    ball ('pass' along the ground, 'driven', 'cross', 'loft': config.js LAUNCH_KINDS, the contact each one is struck
-   with as teams.js has it, unless contact says otherwise: -1 low, 0 normal, 1 high), its speed and curl, and where it
+   with as teams.js has it, unless contact says otherwise: -1 low, 0 normal, 1 high), its speed (or, for a pass along
+   the grass, arrive: the speed it is to reach its target at, a weighted pass into space) and curl, and where it
    goes: a fixed target, or a point on a receiver (aim: {who, along, across, up, toward, short, dir}: metres along his
    run (his velocity, else dir, else his facing), across it, the height it gets to him at, metres in front of him
    toward the ball where that height is met, and how far short of him a bouncing ball pitches). The receiver's point is where he will be when
@@ -27,10 +28,12 @@
      speed. plan() is that solve, the one the test compares the real flight with.
    Pure of the DOM and of the page: it runs under node (qa/tr6-receive.mjs) as in the browser. */
 import {solveStrike} from "../football/strike.js";
-import {ballKick, BALL} from "../football/ball.js";
+import {ballKick, BALL, rollSpeedFor} from "../football/ball.js";
 import {startKick, refreshPred} from "../football/actions.js";
 import {logEv, chainKick} from "../football/events.js";
 import {dirOf} from "../football/pitchspec.js";
+import {sprintSpeed} from "../mover.js";
+import {FRESH} from "../stamina.js";
 
 const R = BALL.R;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -50,7 +53,10 @@ const touchKind = k => k === "cross" || k === "loft" ? "cross" : "pass";
 export function launchOf(f, target, rollDecel, striker = null){
   const contact = f.contact != null ? f.contact : CONTACT[f.kind] != null ? CONTACT[f.kind] : 0;
   const at = striker && striker.at ? striker.at : null;
-  const s = solveStrike({from:{x:f.from.x, y:f.from.y, z:f.from.z}, target:{x:target.x, y:target.y, z:target.z}, speed:f.speed, contact,
+  // (a weighted pass, f.arrive: struck to reach its target at that speed along the grass, his ball's drag and all)
+  const ground = contact <= 0 && target.y <= R + 0.05 && f.from.y <= R + 0.05;
+  const speed = f.arrive > 0 && ground ? clamp(rollSpeedFor(Math.hypot(target.x - f.from.x, target.z - f.from.z), f.arrive, rollDecel, 1 - 0.0045*clamp(at ? +at.aero || 0 : 0, 0, 99)), 3, 32) : f.speed;
+  const s = solveStrike({from:{x:f.from.x, y:f.from.y, z:f.from.z}, target:{x:target.x, y:target.y, z:target.z}, speed, contact,
     curl:f.curl || 0, foot:"R", kind:f.kind, rollDecel, curve:at ? at.curve : undefined, aero:at ? at.aero : 0});
   return {v:{x:s.v.x, y:s.v.y, z:s.v.z}, w:{x:s.w.x, y:s.w.y, z:s.w.z}, apex:s.apex, tFlight:s.tFlight, ok:s.ok, speed:Math.hypot(s.v.x, s.v.y, s.v.z), contact};
 }
@@ -67,11 +73,24 @@ export function targetOf(f, who, rollDecel, striker = null, lead = 0){
   else if (A.dir){ const l = Math.hypot(A.dir.x, A.dir.z) || 1; ux = A.dir.x/l; uz = A.dir.z/l; }
   else { const d = dirOf(+m.yaw || 0); ux = d.x; uz = d.z; }
   const y = Math.max(R, A.up != null ? +A.up : R);
-  // how far his run takes him in tt seconds: from his speed now toward the speed he is asking his legs for (the mover's
-  // target), closing on it with a time constant of RUN_TAU (a man still getting up to speed is not where his speed now
-  // says he will be)
+  // how far his run takes him in tt seconds: from his speed now up to the speed he is asking his legs for (the mover's
+  // target), on the mover's own acceleration curve (mover.js: a0 (1 - v/vmax)^0.8, s^0.2 falling at 0.2 k a second), so
+  // a man still getting up to speed is met where he will be, not where his speed now says; with no mover's numbers, a
+  // closing time of RUN_TAU
   const vt = Math.max(sp, +m.target || 0), ex = sp > 0.8 ? vx/sp : ux, ez = sp > 0.8 ? vz/sp : uz;
-  const run = tt => vt*tt - (vt - sp)*FEEDER.RUN_TAU*(1 - Math.exp(-tt/FEEDER.RUN_TAU));
+  const prm = who.prm, fac = who.fac || FRESH;
+  const run = tt => {
+    if (!(vt > sp + 0.05)) return sp*tt;
+    if (!prm) return vt*tt - (vt - sp)*FEEDER.RUN_TAU*(1 - Math.exp(-tt/FEEDER.RUN_TAU));
+    const vmax = Math.max(vt, sprintSpeed(prm, fac)), k = prm.a0*(fac.accel || 1)/vmax, s0 = Math.pow(Math.max(0, 1 - sp/vmax), 0.2);
+    let d = 0, v = sp;
+    const n = Math.max(1, Math.ceil(tt*60)), h = tt/n;
+    for (let i = 1; i <= n; i++){
+      const sg = Math.max(0, s0 - 0.2*k*i*h), v1 = Math.min(vt, vmax*(1 - Math.pow(sg, 5)));
+      d += (v + v1)/2*h; v = v1;
+    }
+    return d;
+  };
   let t = 1, tg = null;
   for (let i = 0; i < FEEDER.ITERS; i++){
     const tt = lead + t, dr = run(tt);
@@ -125,7 +144,7 @@ export function feedStep(ms, S, recv){
     S.plan = launchOf(f, S.target, b.rollDecel, striker);
     if (striker){
       // his own strike, the configured launch exactly: no deviation drawn, no speed spread (see the header)
-      startKick(ms, striker, {kind:touchKind(f.kind), target:S.target, speed:f.speed, contact:S.plan.contact, curl:f.curl || 0, recv,
+      startKick(ms, striker, {kind:touchKind(f.kind), target:S.target, speed:S.plan.speed, contact:S.plan.contact, curl:f.curl || 0, recv,
         weightSigma:0, noRecord:true, feed:true});
       if (striker.act){ striker.act.pre = false; striker.act.devZ = [0, 0, 0]; }
       S.state = "strike"; S.strikeAt = ms.t;
