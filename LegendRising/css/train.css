@@ -32,6 +32,7 @@
 #trainHud .thud-row{color:#c9d6e3}
 #trainHud .thud-preset{color:rgba(201,214,227,.7)}
 #trainHud .thud-keys{color:rgba(231,238,247,.75);font-size:.66rem}
+#trainHud .thud-pends:empty{display:none}
 #trainHud kbd{font:600 .62rem/1 var(--body);padding:1px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08)}
 #trainHud .thud-note{font-weight:700;margin-top:2px}
 #trainHud .thud-note.good{color:#9be8b3}

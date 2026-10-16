@@ -23,6 +23,9 @@ import "./teams.js";
 import "./presets.js";
 import "./presetui.js";
 import "./quick.js";
+import "./freeplay.js";
+import "./keys.js";
+import "./admin.js";
 import {bodyLook} from "../look.js";
 import {sandboxLook, dressOpts} from "../core/me.js";
 

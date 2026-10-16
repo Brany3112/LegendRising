@@ -50,6 +50,13 @@ export function addItem(item){
 export function removeItem(id){ const i = ITEMS.findIndex(x => x.id === id); if (i >= 0) ITEMS.splice(i, 1); }
 const shown = () => ITEMS.filter(it => { try { return !it.when || !!it.when(RUN.cur); } catch(e){ console.error(e); return false; } });
 export const items = () => shown().map(it => ({id:it.id, label:it.label, group:it.group}));
+// run a shown item by its id, as a click on the card would (the admin panel's Scenario section); false when not shown
+export function runItem(id){
+  const it = shown().find(x => x.id === id);
+  if (!it) return false;
+  try { it.run(RUN.cur); } catch(e){ console.error(e); }
+  return true;
+}
 
 /* ---------- the card ---------- */
 const Q = {open:false, drawn:false, el:null, inp:null, obs:null, lockErr:null, lockOk:null};
@@ -174,7 +181,7 @@ addItem({id:"replay", label:"Replay Last Scenario", group:"scenario", order:20, 
     const ok = replay();
     if (!ok) return;
     // (on another pitch the cage is built first: the pointer is asked back once it plays)
-    if (RUN.pending) RUN.pending.then(r => { if (r) relock(); });
+    if (RUN.switching) RUN.switching.then(r => { if (r) relock(); });
     else { setPaused(false); relock(); }
   }});
 addItem({id:"config", label:"Return to Configuration", group:"scenario", order:30, hint:"Stop here and change the setup",
@@ -189,4 +196,4 @@ onRunner(() => { if (!RUN.cur){ if (Q.open) quickClose(); unwatchLock(); } });
 if (typeof addEventListener === "function") addEventListener("train:exit", () => { if (Q.open) quickClose(); });
 
 // tests (DESIGN 1.4.20 style)
-if (typeof window !== "undefined") window.__trainQuick = {addItem, removeItem, items, quickOpen, quickClose, quickIsOpen, GROUPS};
+if (typeof window !== "undefined") window.__trainQuick = {addItem, removeItem, items, runItem, quickOpen, quickClose, quickIsOpen, GROUPS};

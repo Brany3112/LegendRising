@@ -61,10 +61,11 @@ async function tabTo(page, sel, max = 20){
       await clickReal(page, '#sheetRoot [data-th="back"]');
       await page.waitForFunction(() => ((document.querySelector("#sheetRoot .th h2") || {}).textContent || "") === "Training", null, {timeout: 10000}).catch(() => {});
       const back = await hubState(page);
-      res.cats.push({name: CATS[i], opened: open.h2, buttons: dead, back: back.h2});
+      const registered = await page.evaluate(i => window.__trainRun.scenariosOf(window.__trainRun.CATEGORIES[i].id).length, i);
+      res.cats.push({name: CATS[i], opened: open.h2, buttons: dead, registered, back: back.h2});
     }
     check(res.cats.every(c => c.opened === c.name && c.back === "Training"), "each category opens and Back returns to the hub", res.cats);
-    check(res.cats.every(c => c.buttons === 0), "a category with nothing registered shows no buttons that do nothing", res.cats);
+    check(res.cats.every(c => c.buttons === 0 || c.registered > 0), "a category with nothing registered shows no buttons that do nothing", res.cats);
     // nothing runs behind the hub: 120 frames, no draw, no actor posed in full
     res.frozen = await page.evaluate(() => new Promise(r => {
       const L = window.__life, f0 = L.renderer().info.render.frame, s0 = L.sched.stats();

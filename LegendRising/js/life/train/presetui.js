@@ -38,7 +38,7 @@ export function whenText(t, now = Date.now()){
 }
 // what a row says about a preset: the type, the counts, the keeper, the pitch, when it was last changed
 export function rowMeta(r, typeName){
-  const parts = [typeName || r.type, `${r.att} v ${r.def}`, r.keeper ? "Keeper on" : "Keeper off"];
+  const parts = r.detail ? [typeName || r.type, r.detail] : [typeName || r.type, `${r.att} v ${r.def}`, r.keeper ? "Keeper on" : "Keeper off"];
   if (r.pitchName) parts.push(r.pitchName);
   parts.push(`Updated ${whenText(r.updated)}`);
   return parts.join(" · ");

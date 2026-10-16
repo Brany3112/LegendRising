@@ -76,7 +76,7 @@ export function resetAttr(type, cfg, path){
 export function presetAttrs(type, cfg, which, level){
   if (!ATTR_PRESETS[level]) return cfg;
   const c = copy(cfg);
-  if (which === "me") c.me = presetSkills(level);
+  if (which === "me") c.me = Object.assign({}, c.me, presetSkills(level));
   else if (which === "gk") Object.assign(c.gk, presetSkills(level, gkEditKeys()));
   else return cfg;
   return validate(type, c);

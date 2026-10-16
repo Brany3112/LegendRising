@@ -100,7 +100,7 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
   const d = C.defaults("attacking"), r = cfgFromConfig("attacking", d, 1);
   delete globalThis.heldSkills;
   const me = r.cfg.teams[r.cfg.me.team].players.find(p => p.isMe).at;
-  check(JSON.stringify(d.me) === JSON.stringify(held) && EDIT_SKILLS.every(k => me[k] === held[k]), "with a held career the default 'my attributes' equal heldSkills(), and reach my agent", d.me);
+  check(EDIT_SKILLS.every(k => d.me[k] === held[k]) && EDIT_SKILLS.every(k => me[k] === held[k]), "with a held career the default 'my attributes' equal heldSkills(), and reach my agent", d.me);
   const none = C.defaults("attacking").me;
   check(EDIT_SKILLS.every(k => none[k] === 55), "with no career, the Average preset");
 }

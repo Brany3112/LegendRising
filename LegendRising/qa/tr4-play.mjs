@@ -25,7 +25,7 @@ const check = (pass, name, value) => {
 };
 const shot = async (page, n) => { res.shots.push(await snap(page, "tr4-play-" + n)); };
 const set = (k, v) => `#trainCfg [data-cf="set"][data-k="${k}"][data-v="s:${v}"]`;
-const running = page => page.waitForFunction(() => { const R = window.__trainRun.RUN; return !!R.cur && !R.pending; }, null, {timeout: 120000});
+const running = page => page.waitForFunction(() => { const R = window.__trainRun.RUN; return !!R.cur && !R.switching; }, null, {timeout: 120000});
 const now = page => page.evaluate(() => {
   const R = window.__trainRun, run = R.RUN.cur, el = document.querySelector(".thud-preset");
   return {id: run && run.id, pitch: run && run.config && run.config.pitch, kind: run && run.kind, preset: el ? el.textContent : null};

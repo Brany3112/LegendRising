@@ -307,7 +307,7 @@ function variants(t, c, key){
   globalThis.heldSkills = () => old;
   const me2 = C.defaults("attacking").me;
   delete globalThis.heldSkills;
-  check(same(me, held) && me2.acceleration === 68 && me2.sprintSpeed === 68, "with a career held, my attributes start at heldSkills() (an old career's pace for both speeds)", {me, me2: [me2.acceleration, me2.sprintSpeed]});
+  check(EDIT_SKILLS.every(k => me[k] === held[k]) && me2.acceleration === 68 && me2.sprintSpeed === 68, "with a career held, my attributes start at heldSkills() (an old career's pace for both speeds)", {me, me2: [me2.acceleration, me2.sprintSpeed]});
 }
 
 /* ---------- the configuration's seed (G0 decision f) and the wall never holding the ball (TR-4 fix round 1) ---------- */

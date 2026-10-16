@@ -82,6 +82,8 @@ export function createAgent(o){
     tgtSet: false, ctlT: undefined, hold: null, lastChoice: undefined, pendKick: null, nudgeT: undefined, invT: undefined,
     noTouch: undefined, roll: 0, marker: undefined, leaving: false, exit: null, subbedOff: false, penSide: undefined,
     koMate: undefined,
+    // (P5-A: a practice opponent's behaviour {behave, x, z}, set by Training's runner and read by brain.js drillMove)
+    drill: null,
     // P2b-A (spec 3): the shield's resolved state (actions.js shieldStep), the open shield challenge on him ({by, t,
     // open}: sim.js), the time he is up again after a slide, the 50/50 engagement he is in (the controller's id and when
     // it was rolled), the shield challenge he is making (the shielder's id, when he rolled it), his time pushing a

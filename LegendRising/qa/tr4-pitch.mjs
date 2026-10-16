@@ -36,7 +36,7 @@ try {
       await page.evaluate(() => window.__trainHub.openHub("attacking"));
       await page.waitForFunction(() => !!document.querySelector('#sheetRoot.open [data-th="start"]'), null, {timeout: 20000});
       await clickReal(page, `#sheetRoot [data-th="start"][data-id="qa-pitch-${kind}"]`);
-      await page.waitForFunction(k => !!window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.id === "qa-pitch-" + k && !window.__trainRun.RUN.pending, kind, {timeout: 60000});
+      await page.waitForFunction(k => !!window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.id === "qa-pitch-" + k && !window.__trainRun.RUN.switching, kind, {timeout: 60000});
       // a few frames drawn on the new cage
       await page.evaluate(() => new Promise(r => { let n = 0; const f = () => { if (++n >= 20) r(); else window.__qa.realRAF(f); }; window.__qa.realRAF(f); }));
       const s = await page.evaluate(async () => {
@@ -64,7 +64,7 @@ try {
   // so a real click on Resume plays on
   await clickReal(page, '#sheetRoot [data-th="start"][data-id="qa-pitch-full"]');
   await page.evaluate(() => window.__trainHub.openHub());
-  await page.waitForFunction(() => !!window.__trainRun.RUN.cur && !window.__trainRun.RUN.pending, null, {timeout: 60000});
+  await page.waitForFunction(() => !!window.__trainRun.RUN.cur && !window.__trainRun.RUN.switching, null, {timeout: 60000});
   await page.waitForTimeout(800);
   const held = await page.evaluate(() => ({paused: window.__trainRun.RUN.paused, hub: window.__trainHub.hubOpen(), card: document.getElementById("fpOverlay").classList.contains("on")}));
   check(held.paused && held.hub && !held.card, "a scenario that starts under the hub is held, with no pause card over the hub", held);

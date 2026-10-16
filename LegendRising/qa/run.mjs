@@ -14,6 +14,7 @@
 //   node qa/run.mjs tr2b               every TR-2b acceptance suite (BUILD-PLAN Phase 2b)
 //   node qa/run.mjs tr3                every TR-3 acceptance suite (BUILD-PLAN Phase 3)
 //   node qa/run.mjs tr4                every TR-4 acceptance suite (BUILD-PLAN Phase 4; tr4a and tr4b per package)
+//   node qa/run.mjs tr5                every TR-5 acceptance suite (BUILD-PLAN Phase 5; tr5a and tr5b per package)
 //   node qa/run.mjs uf                 every user-fix suite merged with TR-3 (UF-A and UF-B)
 //   node qa/run.mjs parity wp0a-cam    any qa/<name>.mjs (arguments after "--" go to every script)
 //
@@ -45,6 +46,10 @@ const NAMED = {
   tr4: ["tr4-config", "tr4-attrs", "tr4-attredit", "tr4-reset", "tr4-pitch", "tr4-presets", "tr4-play"],
   tr4a: ["tr4-config", "tr4-attrs", "tr4-attredit"],
   tr4b: ["tr4-reset", "tr4-pitch", "tr4-presets"],
+  // Phase 5 (TR-5): P5-A's Free Play and key suites, P5-B's admin panel suite
+  tr5: ["tr5-freeplay", "tr5-keys", "tr5-admin"],
+  tr5a: ["tr5-freeplay", "tr5-keys"],
+  tr5b: ["tr5-admin"],
   uf: ["uf-turn", "uf-throwin", "uf-anim", "uf-sub", "uf-fence", "uf-bench", "uf-aura", "uf-callpass", "uf-kits"]
 };
 // a suite name to the scripts it runs: [{file, args}]
