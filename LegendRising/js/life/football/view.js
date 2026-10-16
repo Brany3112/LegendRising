@@ -25,7 +25,13 @@
    ball is never drawn smaller than BALL_MIN_PX across, so it stays readable far off.
    UF-A (TR-3 user fixes, USER-ISSUES U6 and U10): a throw-in's ball is drawn in the taker's hands from the moment he
    holds it to the release (throwHeld, throwHold); a request for the ball raises the caller's hand and drops it again
-   (handUp: agent.js raiseHand and the calls), in your own view too. */
+   (handUp: agent.js raiseHand and the calls), in your own view too.
+   P6-A (TR-6, TRAINING-SPEC 5, BUILD-PLAN P6-A): the first touch is found the way the simulation takes it (actions.js
+   envAhead, step by step on the ball's prediction, inside zone.js R), so the receive clip starts on the simulation's own
+   contact moment and point, with touch.js touchPart's part (the foot, the raised foot, the thigh, the chest); it is kept
+   on that contact as it is worked out again, put on the simulation's own point once the touch is taken, and over at
+   most 0.35 s after it. A ball on its way to a body a second or so off brings the upper body's 'ready' gesture. A strike
+   at a dead ball begins on the walk-up, on the moment the simulation's window says, so the run-up is the clip's. */
 import {THREE} from "../build.js";
 import {human, animateHuman, lookFor, EV} from "../human.js";
 import {SCHED} from "../core/sched.js";
