@@ -65,19 +65,31 @@
      not already (pool.js replaceMe, under the fade), the sandbox body with it (core/me.js sandboxHeight), so the eye,
      the capsules and the body drawn all agree inside and outside a scenario.
    - A participant's drill behaviour (setup p.drill = {behave: 'stand' | 'jockey' | 'press'}, Free Play's practice
-     opponents) is put on his agent (a.drill, with his spawn point): brain.js reads it in the training mode only. */
+     opponents) is put on his agent (a.drill, with his spawn point): brain.js reads it in the training mode only.
+
+   P6-B (Training Mode Phase 6, BUILD-PLAN P6-B work items 1, 4 and 7; TRAINING-SPEC 2, offside notices, and 5, instant
+   replay):
+   - The team scenarios (scen-team.js, handed over by scen-attack.js, scen-defend.js and scen-match.js) are registered
+     here as they come (drillSink). The simulation of a setup is scen-team.js matchOf, the one builder the runner and
+     the Node tests share; a setup may carry the scenario's tempo (setup.tempo, sim.js cfg.tempo: AI-4) and its plan
+     (setup.plan: the objective and the scripted runs, plain data kept in the snapshot). A scenario's step, judge and
+     ui see the setup it started from as run.setup.
+   - Offside (OFF-2): when the flag goes up in a scenario, the Training HUD says who was offside and by how much, in
+     the match's words (controller.js offside notice).
+   - Sound: a start asks for the match's audio (audio.js AUD.init), so the kicks and the team-mates' calls are heard.
+   - Instant replay: every go is recorded (replay.js, the match's own ring, 12 s) and a go a scenario decides with a
+     goal it wants replayed (verdict.replay) is played back from the match's replay cameras, framed on the cage, before
+     the next go: the simulation waits, Space, Enter or Esc skips it, and the next go starts as it would have. */
 import {onBegin} from "../build.js";
 import {P, FLAGS} from "../core/state.js";
 import {enterMode, exitMode, mode, modeArg, modeFlags} from "../core/modes.js";
 import {SCHED} from "../core/sched.js";
-import {createMatch, REF, AR1, AR2, TEMPO} from "../football/sim.js";
 import {MODES, clearCtl, liveRoll} from "../football/rules.js";
 import {refreshPred} from "../football/actions.js";
 import {attrsForAI, attrsForPlayer} from "../football/attrs.js";
-import {goalsLawOf as goalsLaw, CAGES} from "../football/cagespec.js";
-import {ballKick} from "../football/ball.js";
-import {logEv, chainKick} from "../football/events.js";
+import {CAGES} from "../football/cagespec.js";
 import {hashStr} from "../football/rng.js";
+import {recInit, rec as recStep, clip as recClip, play as replayPlay, playing as replayPlaying, skip as replaySkip, replayStep} from "../football/replay.js";
 import {controlReset, CTRL} from "../football/control.js";
 import {viewInit, viewDispose, viewPreStep} from "../football/view.js";
 import {RUN as TRUN, fixedRun, viewOpts} from "../football/training.js";
@@ -86,6 +98,8 @@ import {takeBodies, returnBodies, poolStats, poolMeLook, poolDispose, bodyData, 
 import {sandboxHeight} from "../core/me.js";
 import * as THUD from "./thud.js";
 import {scaleOfHeight, defaultHeight} from "./config.js";
+import {matchOf, drillSink} from "./scen-team.js";
+import {AUD} from "../football/audio.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const R = .11;
@@ -129,7 +143,7 @@ export const scenariosOf = category => [...REG.values()].filter(s => s.category 
    preset}, what Replay Last plays again); RUN.task: the one scheduler task stepping it; RUN.paused: the pause card is
    up (the task does not step); RUN.switching: a start waiting on a pitch change (a promise); RUN.pending: the changes
    queued for the next safe state ({key, label}, or null: P5-A); RUN.starts and RUN.restarts count (tests) */
-export const RUN = {cur:null, setup:null, last:null, task:null, paused:false, switching:null, pending:null, starts:0, restarts:0,
+export const RUN = {cur:null, setup:null, last:null, task:null, paused:false, switching:null, pending:null, starts:0, restarts:0, replays:0,
   get ms(){ return RUN.cur && RUN.cur.T ? RUN.cur.T.ms : null; }, get T(){ return RUN.cur ? RUN.cur.T : null; }};
 
 // the most agents a drill may have (G0 decision h): me, five team-mates, six opponents and a keeper
@@ -169,20 +183,21 @@ export function cleanSetup(s, spec){
     keeper:s.keeper ? Object.assign(pt(s.keeper, {slot:"GK"}), {slot:"GK", side:s.keeper.side === "mine" ? "mine" : "theirs"}) : null,
     ball:{x:clamp(num(b.x, 0), -B.hx, B.hx), y:Math.max(R, num(b.y, R)), z:clamp(num(b.z, 0), -B.hz, B.hz), vx:num(b.vx, 0), vy:num(b.vy, 0), vz:num(b.vz, 0),
       wx:num(b.wx, 0), wy:num(b.wy, 0), wz:num(b.wz, 0), kind, free:!!b.free},
-    poss:ps, notes:Array.isArray(s.notes) ? s.notes.filter(n => typeof n === "string").slice(0, 8) : []
+    poss:ps, notes:Array.isArray(s.notes) ? s.notes.filter(n => typeof n === "string").slice(0, 8) : [],
+    // (P6-B) the scenario's tempo (numbers only) and its plan (plain data: the objective, the runs)
+    tempo:cleanTempo(s.tempo), plan:s.plan && typeof s.plan === "object" ? copy(s.plan) : null
   };
 }
+const cleanTempo = t => {
+  if (!t || typeof t !== "object") return null;
+  const o = {};
+  for (const k of ["directness", "shotBias", "pressMul"]) if (Number.isFinite(+t[k])) o[k] = clamp(+t[k], 0, 4);
+  return Object.keys(o).length ? o : null;
+};
 // the practice opponents' behaviours (P5-A, brain.js drillMove) and the feet a setup may name
 export const BEHAVES = Object.freeze(["stand", "jockey", "press"]);
 const FOOT_OF = Object.freeze({Right:"Right", R:"Right", Left:"Left", L:"Left", Both:"Both", B:"Both"});
 const POS_OF = {GK:"GK", LB:"DF", CB:"DF", RB:"DF", LWB:"DF", RWB:"DF", CDM:"CM", CM:"CM", LM:"LW", RM:"RW", CAM:"CAM", LW:"LW", RW:"RW", LF:"ST", RF:"ST", CF:"ST", ST:"ST"};
-const ARCH_OF = {GK:"GK", DF:"DF", CM:"CM", CAM:"AM", LW:"W", RW:"W", ST:"ST"};
-// a player record for createMatch (sim.js 1.4.13): an NPC's attributes from the seeded role profile (attrs.js, G0 f)
-function rec(p, id, body, o = {}){
-  const pos = POS_OF[p.slot] || "CM";
-  return {pid:id, name:o.name || "", number:o.number || 0, slot:p.slot, arch:ARCH_OF[pos] || "CM", isGK:p.slot === "GK", isMe:!!o.me,
-    scale:body && body.scale ? body.scale : 1, at:p.at || o.at || attrsForAI({id, ovr:p.ovr, pos}), energy:100, fatigue:0, prefFoot:o.foot || "Right", items:null};
-}
 // my attributes (G0 decision e): the held career's skills on the day when there is one, else an even 60 for my slot
 function myAttrs(p){
   if (p.at) return p.at;
@@ -191,62 +206,21 @@ function myAttrs(p){
   return attrsForAI({id:1, ovr:p.ovr, pos:POS_OF[p.slot] || "CM"});
 }
 const myFoot = () => { const f = typeof heldFoot === "function" ? heldFoot() : null; return f === "Left" || f === "L" ? "Left" : f === "Both" || f === "B" ? "Both" : "Right"; };
-// the touch kind ball.js records for a launch (the coach feed's: a lofted ball is a cross, anything else a pass)
-const touchKind = k => k === "cross" || k === "loft" ? "cross" : "pass";
 
 /* the simulation for a setup, and the pooled body of each agent. Returns {ms, bodyOf: Map(agentId -> body)}. The
-   setup is read, never written: the simulation gets its own copies (the agents' attributes included) */
-function buildMatch(setup0, spec, B){
-  const setup = copy(setup0);
+   setup is read, never written (scen-team.js matchOf, P6-B: the one builder, which the Node tests use too) */
+function buildMatch(setup, spec, B){
   const myTeam = setup.myTeam, oppTeam = 1 - myTeam;
-  const teams = [{name:"A", players:[], bench:[]}, {name:"B", players:[], bench:[]}];
-  const order = [[], []];
-  const add = (t, r, body) => { teams[t].players.push(r); order[t].push(body); };
-  const foot = setup.me.foot || myFoot();
-  add(myTeam, Object.assign(rec(setup.me, 1, B.me, {me:true, at:myAttrs(setup.me), foot, number:9}), setup.me.scale ? {scale:setup.me.scale} : {}), B.me);
-  setup.mates.forEach((p, i) => add(myTeam, rec(p, 100 + i, B.mine[i], {number:2 + i}), B.mine[i]));
-  setup.opps.forEach((p, i) => add(oppTeam, rec(p, 200 + i, B.theirs[i], {number:2 + i}), B.theirs[i]));
-  if (setup.keeper) add(setup.keeper.side === "mine" ? myTeam : oppTeam, rec(setup.keeper, 300, B.keeper, {number:1}), B.keeper);
-  const rules = Object.assign({goals:goalsLaw(spec), offside:false, restarts:false, cards:false, subs:0, halfTime:false, stoppage:false}, setup.laws);
-  const ms = createMatch({seed:setup.seed, mode:SIM_MODE, spec, halfRealSec:1e6, tempo:Object.assign({}, TEMPO[2]), teams,
-    me:{team:myTeam, slot:setup.me.slot, prefFoot:foot, role:"starter"}, rules, kickoffTeam:myTeam, htAuto:true});
-  // no officials in a drill: off the grass, and no bodies for them (the view is told so)
-  for (const id of [REF, AR1, AR2]) if (ms.agents[id]) ms.agents[id].onPitch = false;
+  const bodies = [[], []];
+  bodies[myTeam].push(B.me, ...setup.mates.map((p, i) => B.mine[i]));
+  bodies[oppTeam].push(...setup.opps.map((p, i) => B.theirs[i]));
+  if (setup.keeper) bodies[setup.keeper.side === "mine" ? myTeam : oppTeam].push(B.keeper);
+  const {ms} = matchOf(setup, spec, SIM_MODE, {foot:setup.me.foot || myFoot(), meAt:myAttrs(setup.me),
+    scaleOf:(t, i) => bodies[t][i] && bodies[t][i].scale});
   const bodyOf = new Map();
-  const places = [[], []];
-  places[myTeam].push(setup.me, ...setup.mates);
-  places[oppTeam].push(...setup.opps);
-  if (setup.keeper) places[setup.keeper.side === "mine" ? myTeam : oppTeam].push(setup.keeper);
   for (const t of [0, 1]){
-    const list = ms.agents.filter(a => a.team === t && a.role === "player");
-    list.forEach((a, i) => {
-      const p = places[t][i]; if (!p) return;
-      a.m.x = a.x0 = p.x; a.m.z = a.z0 = p.z; a.m.vx = a.m.vz = 0; a.m.speed = 0; a.m.yaw = a.m.heading = p.yaw;
-      a.set = null;
-      // (P5-A) a practice opponent's behaviour, his spawn point the anchor a 'stand' holds
-      if (p.drill) a.drill = {behave:p.drill.behave, x:p.x, z:p.z};
-      if (order[t][i]) bodyOf.set(a.id, order[t][i]);
-    });
+    ms.agents.filter(a => a.team === t && a.role === "player").forEach((a, i) => { if (bodies[t][i]) bodyOf.set(a.id, bodies[t][i]); });
   }
-  ms.cutStep = ms.step;
-  // the ball where the setup places it, at rest
-  const b = ms.ball, s = setup.ball;
-  b.p.x = s.x; b.p.y = s.y; b.p.z = s.z; b.v.x = b.v.y = b.v.z = 0; b.w.x = b.w.y = b.w.z = 0;
-  b.state = s.free ? "free" : "dead";
-  // play is on from the first step: no kick-off, no restart pending (a set piece's own scenario sets one itself)
-  ms.restart = null; ms.phase = "live";
-  for (const a of ms.agents) a.set = null;
-  // the configured launch, played as a real kick from outside the play (the coach feed's way, training.js feedStep):
-  // ball.js ballKick gives the ball its velocity and spin, the kick is in the chain of play with no offside snapshot
-  if (Math.hypot(s.vx, s.vy, s.vz) > 1e-9){
-    const kind = touchKind(s.kind);
-    ballKick(b, {x:s.vx, y:s.vy, z:s.vz}, {x:s.wx, y:s.wy, z:s.wz}, {agent:-1, team:myTeam, kind, t:ms.t});
-    const ev = logEv(ms, "kick", myTeam, -1, b.p.x, b.p.z, {intent:kind, recv:-1, coach:true, noOffside:true, launch:s.kind || kind,
-      speed:Math.round(Math.hypot(s.vx, s.vy, s.vz)*100)/100});
-    chainKick(ms, ev);
-    ms.kick = {seq:(ms.kick ? ms.kick.seq : 0) + 1, ev, t:ms.t, team:myTeam, agent:-1};
-  }
-  refreshPred(ms);
   return {ms, bodyOf};
 }
 
@@ -344,11 +318,17 @@ function play(sc, config, setup, preset = null){
   const T = itemFor(run, setup, spec, ms, bodyOf, B);
   run.T = T;
   RUN.cur = run; RUN.setup = copy(setup); RUN.starts++; RUN.paused = false;
-  // one scheduler task steps the simulation (perf-8), only while a scenario plays and is not paused
-  RUN.task = SCHED.fixed({id:"train-sim", hz:60, maxSteps:4, kind:"zone", run:h => { if (RUN.cur === run && run.T && !RUN.paused) stepRun(run, h); }});
+  // (P6-B) the scenario's step, judge and ui see the setup it started from
+  run.setup = RUN.setup;
+  // one scheduler task steps the simulation (perf-8), only while a scenario plays and is not paused (nor replayed)
+  RUN.task = SCHED.fixed({id:"train-sim", hz:60, maxSteps:4, kind:"zone", run:h => { if (RUN.cur === run && run.T && !RUN.paused && !run.replaying) stepRun(run, h); }});
   T.fixed = RUN.task;
   P.yaw = setup.me.yaw; P.pitch = 0;
   enterMode("train", T);
+  // (P6-B) the match's sound in a scenario too: the kicks, the team-mates' calls (spoken when the setting allows). The
+  // train mode never asked for it, so a call in Training was silent; the context is made at the page's first gesture
+  try { AUD.init(); } catch(e){ console.error(e); }
+  goStart(run);
   THUD.thudShow(thudInfo(run));
   emit();
   return true;
@@ -371,22 +351,96 @@ function itemFor(run, setup, spec, ms, bodyOf, B){
   T.script = {
     post(T){
       const sc = run.sc;
+      // (P6-B) the go's record for an instant replay, and the flag's notice
+      recStep(T.ms);
+      offsideNotes(run, T);
       if (sc.step) sc.step(T, run);
       if (run.state === "play" && sc.judge){
         const v = sc.judge(T, run);
         if (v && v.done){ run.state = "result"; run.wait = 1.6; run.verdict = v; T.results.push(v); THUD.thudNotice(v.text || (v.ok ? "Well done" : "Not this time"), v.ok); }
       } else if (run.state === "result" && (run.wait -= 1/60) <= 0){
-        // the go is over: the same setup again (a scenario that plays once says repeat false and ends here)
-        if (run.verdict && run.verdict.repeat === false) stopScenario("done"); else restart();
+        // the go is over: its goal again when it asks for an instant replay (P6-B), then the same setup again (a
+        // scenario that plays once says repeat false and ends here)
+        if (run.verdict && run.verdict.replay && startReplay(run)) return;
+        nextGo(run);
       }
     },
-    frame(T){ THUD.thudFrame(T); }
+    frame(T, real){ if (run.replaying) replayStep(Math.max(0, +real || 0)); THUD.thudFrame(T); }
   };
   return T;
 }
+/* ---------- a go's own extras (P6-B): the flag's notice and the instant replay ---------- */
+// at the start of every go (a start, a restart): the replay's record from now, no notice owed for what came before
+function goStart(run){
+  const T = run.T; if (!T) return;
+  run.offSeen = T.ms.events.length;
+  recInit(T.ms, 20, 12, T.V);
+}
+// the flag up (OFF-2): who was offside and by how much, in the match's words (controller.js)
+export function offsideText(ms, ev, myTeam){
+  const m = (+ev.margin || 0).toFixed(1);
+  if (ev.agent === ms.me) return `Offside. You were ${m} m past the last defender when the pass was played.`;
+  if (ev.team === myTeam) return `Offside. Your team-mate was ${m} m past the last defender.`;
+  return `Offside against them. Their man was ${m} m past your last defender.`;
+}
+function offsideNotes(run, T){
+  const E = T.ms.events;
+  for (let i = run.offSeen || 0; i < E.length; i++){
+    const e = E[i];
+    if (e.kind === "offside"){ run.offNotes = (run.offNotes || 0) + 1; THUD.thudNotice(offsideText(T.ms, e, T.myTeam), false); }
+  }
+  run.offSeen = E.length;
+}
+// the next go, or the end of a scenario that plays once
+function nextGo(run){
+  if (RUN.cur !== run) return;
+  if (run.verdict && run.verdict.repeat === false) stopScenario("done"); else restart();
+}
+// the goal again (replay.js, the match's replay cameras framed on the cage): the simulation waits while it plays;
+// Space, Enter or Esc skips it; then the next go. false when there is nothing to show
+const REPLAY = Object.freeze({BEFORE:6, AFTER:1.2});
+function startReplay(run){
+  const T = run.T, v = run.verdict;
+  if (!T || !T.V || v.goalT == null) return false;
+  const c = recClip(v.goalT - REPLAY.BEFORE, v.goalT + REPLAY.AFTER);
+  if (!c.frames || c.frames.length < 2) return false;
+  const spec = T.spec, end = c.frames[c.frames.length - 1].ball.x < 0 ? -1 : 1;
+  run.replaying = true; run.state = "replay"; RUN.replays++;
+  replayKeys(true);
+  THUD.thudNotice("Replay. Space skips it.", true);
+  replayPlay(c, {frame:T.F, cams:[
+    {until:.5, fov:38, pos:b => ({x:clamp(b.x*.8, -spec.hx, spec.hx), y:12, z:-(spec.hz + 12)})},
+    {until:1, fov:44, pos:b => ({x:end*(spec.hx + 9), y:4.2, z:clamp(b.z*.3, -6, 6)})}]}).then(() => {
+    replayKeys(false);
+    if (RUN.cur !== run || !run.replaying) return;
+    run.replaying = false; run.state = "result";
+    nextGo(run);
+  });
+  return true;
+}
+// a replay under way stops (a restart, a stop): the simulation is the play's again
+function endReplay(run){
+  if (!run || !run.replaying) return;
+  run.replaying = false;
+  replayKeys(false);
+  if (replayPlaying()) replaySkip();
+}
+const RK = {fn:null};
+function replayKeys(on){
+  if (typeof addEventListener !== "function") return;
+  if (on && !RK.fn){
+    RK.fn = e => {
+      if (e.code !== "Space" && e.code !== "Enter" && e.code !== "NumpadEnter" && e.key !== "Escape") return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat && replayPlaying()) replaySkip();
+    };
+    addEventListener("keydown", RK.fn, true);
+  } else if (!on && RK.fn){ removeEventListener("keydown", RK.fn, true); RK.fn = null; }
+}
+
 function thudInfo(run){
   const s = RUN.setup, sc = run.sc, ui = sc.ui ? sc.ui(run.T, run) || {} : {};
-  return {scenario:sc.name, role:ui.role || s.role || "Player", mine:1 + s.mates.length, theirs:s.opps.length, keeper:!!s.keeper,
+  return {scenario:ui.name || sc.name, role:ui.role || s.role || "Player", mine:1 + s.mates.length, theirs:s.opps.length, keeper:!!s.keeper,
     preset:ui.preset || (run.preset ? run.preset.name : null), lines:ui.lines || null, pauseMenu:!!HOOKS.pause,
     keys:Array.isArray(ui.keys) ? ui.keys : null, pending:RUN.pending ? RUN.pending.map(c => c.label) : null};
 }
@@ -396,6 +450,7 @@ function thudInfo(run){
    the simulation new, the runner's flags and notices cleared. The camera and the HUD stay up */
 export function restart(){
   const run = RUN.cur; if (!run || !run.T || !RUN.setup) return false;
+  endReplay(run);
   // (P5-A) changes waiting for this safe state: the scenario starts again from the changed configuration, its setup
   // made again (and this go becomes the last one, what Replay Last plays)
   if (RUN.pending){
@@ -423,6 +478,7 @@ export function restart(){
   // (what happened before this go is not this go's: the mode's enter does the same at activation)
   T.evFrom = T.evSeen = ms.events.length;
   run.state = "play"; run.wait = 0; run.verdict = null;
+  goStart(run);
   RUN.restarts++;
   THUD.thudShow(thudInfo(run));
   emit();
@@ -435,6 +491,7 @@ export function restart(){
    mode ended under it: a zone change), 'exit' (Training is left) */
 export function stopScenario(reason = "quit"){
   const run = RUN.cur; if (!run) return false;
+  endReplay(run);
   RUN.cur = null; RUN.paused = false;
   if (RUN.task){ SCHED.remove(RUN.task); RUN.task = null; }
   if (mode() === "train" && TRUN.T === run.T) exitMode(reason === "done" ? "done" : "quit");
@@ -636,7 +693,7 @@ export function digestState(){
   let subs = 0; for (const k in ms.subsFn) subs += (ms.subsFn[k] || []).length;
   const match = C(pick(ms, ["poss", "chain", "call", "restart", "phase", "judgeQ", "judgeLast", "t", "step", "seed", "kick", "half", "score", "restartLog", "physQ", "deadBall", "carrierEval", "planSeq", "zone", "lapseT", "lapseBy"]));
   const ball = C(ms.ball), extra = C((ms.spares || []).map(s => ({state:s.state, cone:s.cone, ball:s.ball === ms.ball ? "#main" : s.ball})));
-  const runner = C({state:run.state, wait:run.wait, verdict:run.verdict, paused:RUN.paused, id:run.id, kind:run.kind,
+  const runner = C({state:run.state, wait:run.wait, verdict:run.verdict, paused:RUN.paused, id:run.id, kind:run.kind, replaying:!!run.replaying,
     T:pick(T, ["t", "acc", "tRep", "slow", "done", "evFrom", "evSeen", "sprintD", "goalAt", "bounces", "feed", "fedAt", "fedBounces", "inPlay", "ballSeen", "phase", "quit", "qs"]),
     hud:THUD.thudState ? THUD.thudState() : null});
   const ctrl = C(Object.assign(pick(CTRL, CTRL_RESET), {held:Object.keys(CTRL.held).filter(k => CTRL.held[k]).sort(),
@@ -658,7 +715,10 @@ if (typeof addEventListener === "function") addEventListener("train:exit", () =>
 });
 // a new place being built (a pitch change): whatever played there is over, its task gone with the place's
 onBegin(() => { if (RUN.cur) stopScenario("ended"); });
+// (P6-B) the team scenarios of scen-team.js, registered as each category module hands them over
+drillSink(sc => registerScenario(sc));
 
 // tests (DESIGN 1.4.20 style)
 if (typeof window !== "undefined") window.__trainRun = {RUN, CATEGORIES, LIMITS, POOL_DRILL, registerScenario, startScenario, restart, stopScenario, replay, scenario, scenariosOf, poolStats,
-  digest, digestState, setPaused, paused, applyLive, queueChange, dropChange, takePending, withPending, placeBall, ballPlaced, BEHAVES};
+  digest, digestState, setPaused, paused, applyLive, queueChange, dropChange, takePending, withPending, placeBall, ballPlaced, BEHAVES,
+  offsideText, replaying:() => !!(RUN.cur && RUN.cur.replaying), skipReplay:() => { if (replayPlaying()) replaySkip(); }};

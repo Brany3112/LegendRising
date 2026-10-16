@@ -12,6 +12,12 @@
 // are challenged; the pass model's defender reach is the control zone's R and the receiver's control its q (zone.js).
 // P5-A (Training Mode Phase 5, BUILD-PLAN P5-A work item 1b; TRAINING-SPEC 4, Free Play's optional practice opponents):
 // a practice opponent's behaviour (a.drill: stand, jockey or press), read only in the training mode (drillMove).
+// P6-B (Training Mode Phase 6, BUILD-PLAN P6-B work items 3, 4 and 6; TRAINING-SPEC 2 and 5): AI-3, nobody shoots,
+// crosses, takes a first-time shot or heads at goal toward an end with no goal that counts (rules.js goalCounts: a
+// cage's end with no goal standing, laws.goals) or when the scenario's objective has no goal in it (AI-4, tempo.shotBias
+// 0); in a cage whose ball comes back off the fence nobody puts it out of play for safety, and no clearance is aimed
+// past the lines; the player is among the carrier's pass candidates in every decision while he is on the pitch (at
+// any distance: a pass he cannot reach is valued as the pass model says, never forced).
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (choices draw from ms.r).
 
@@ -21,7 +27,7 @@ import {gauss} from "./rng.js";
 import {timeToPointQ, TT, sprintSpeed} from "../mover.js";
 import {xT, SLOT_POS, teamToPitch, depthOf} from "./tactics.js";
 import {xgAt, xgGeo} from "./judge.js";
-import {offsidePosition, RULES, lawOf} from "./rules.js";
+import {offsidePosition, halfwayU, RULES, lawOf, goalCounts} from "./rules.js";
 import {logEv} from "./events.js";
 import {decisionRecord} from "./judge.js";
 import {steer, standStill, faceTo, startKick, startTackle, startHeader, startThrow, passSpeedFor, loftSpeedFor, pressureOn,
@@ -133,6 +139,12 @@ const isAI = (ms, a) => !a.isMe || ms.meAI;
 const uOf = (ms, team, x) => ms.dirs[team]*x + ms.spec.L/2;
 const wOf = (ms, team, z) => ms.dirs[team]*z + ms.spec.Wd/2;
 const PT = {x: 0, z: 0};
+// (P6-B, AI-3 and AI-4) is there a goal worth going for at the end this team attacks: a goal that counts there
+// (rules.js goalCounts: laws.goals and the ends a cage's area has) and an objective with a goal in it (a scenario's
+// tempo.shotBias 0: keep the ball, reach a line). In a match both are always so
+export const goalOn = (ms, team) => goalCounts(ms, ms.dirs[team]) && !(ms.cfg.tempo && ms.cfg.tempo.shotBias === 0);
+// (P6-B) a ball that comes back off a cage's fence: putting it out of play wins nothing
+const rebound = ms => lawOf(ms, 'out') === 'rebound';
 
 // the team-frame value of a pitch point for a team (3.2.3)
 export function valueAt(ms, team, x, z){ return xT(uOf(ms, team, x), wOf(ms, team, z), ms.spec.L, ms.spec.Wd); }
@@ -426,21 +438,31 @@ function ballPlans(ms, team){
   if (recv && recv.isMe && !ms.meAI && recv.team === team && recv.onPitch && !recv.sentOff){
     const s = recv.scale || 1, mr = reachOf(ms, recv, 1.45*s, recv.react + age, Infinity);
     const mates = Math.min(bestT[team], headT[team]);
-    if (mr && !(mates + BRAIN.ME_FIRST < mr.t)) return;
+    if (mr && !(mates + BRAIN.ME_FIRST < mr.t)){ standDown(ms, team, null); return; }
   }
   const hd = heads[team];
   if (hd && headR[team] && (!fr || headR[team].t + 0.1 < fr.t)){
     const hr = headR[team];
+    standDown(ms, team, hd);
     planHeader(ms, hd, {t: Math.max(0, hr.t - age), x: hr.x, y: hr.y, z: hr.z});
     return;
   }
   if (!who || !fr) return;
   if (who.isMe && !ms.meAI) return;
   const kind = recv === who ? 'receive' : (recv && recv.team !== team ? 'intercept' : 'chase');
+  standDown(ms, team, who);
   who.plan = {kind, x: fr.x, z: fr.z, t: Math.max(0, fr.t - age), y: fr.y, at: ms.t, first: null, push: null};
   planFirst(ms, who);
 }
 
+// (P6-B) one man of a side goes for a loose ball: when the side's plan now sends someone else (or leaves it to the
+// player), a team-mate still running to meet it with his head from an earlier plan stands down, unless he has already
+// left the ground for it. (A header plan used to outlive the plan that replaced it: two of a side went for one ball.)
+// Training Mode's scenarios only: the 11-a-side calibration (the harness bands) was fitted with it as it was
+function standDown(ms, team, keep){
+  if (ms.mode !== 'train') return;
+  for (const a of ms.agents) if (a.team === team && a !== keep && a.plan && a.plan.kind === 'header' && !a.act) a.plan = null;
+}
 // a header plan: run to the spot, jump to meet it near the apex; at the attackers' end a header at goal, at the
 // defenders' a clearance, otherwise a header pass
 function planHeader(ms, a, hr){
@@ -449,7 +471,7 @@ function planHeader(ms, a, hr){
   const dir = ms.dirs[a.team], gx = dir*ms.spec.hx;
   const dGoal = hypot(gx - hr.x, hr.z), ownEnd = dir*hr.x < -ms.spec.hx + 22;
   let intent = 'pass', target = null;
-  if (dGoal < 16){ intent = 'attack'; target = {x: gx, y: 0.6 + ms.r()*1.4, z: (ms.r() - 0.5)*5.4}; }
+  if (dGoal < 16 && goalOn(ms, a.team)){ intent = 'attack'; target = {x: gx, y: 0.6 + ms.r()*1.4, z: (ms.r() - 0.5)*5.4}; }
   else if (ownEnd) intent = 'clear';
   else {
     // a header on to the best placed team-mate within 20 m
@@ -471,7 +493,7 @@ function planHeader(ms, a, hr){
 function planFirst(ms, a){
   const p = a.plan, dir = ms.dirs[a.team], gx = dir*ms.spec.hx;
   const dGoal = hypot(gx - p.x, p.z);
-  if (dGoal < 13 && p.y < 0.9 && a.plan.kind !== 'intercept'){
+  if (dGoal < 13 && p.y < 0.9 && a.plan.kind !== 'intercept' && goalOn(ms, a.team)){
     const xg = xgAt(ms, a.team, p.x, p.z);
     if (xg > 0.11 && ms.r() < 0.55 + xg){
       const tz = (ms.r() < 0.5 ? -1 : 1)*(3.66 - 0.55);
@@ -493,7 +515,11 @@ function planFirst(ms, a){
     // close to his own goal line with the man right on him: safety first, out toward the corner flag (a corner or a
     // throw costs less than a chance); further out, high and wide up the pitch
     const deep = Math.abs(ogx - p.x) < BRAIN.CLEAR_FIRST[4] && nd < BRAIN.CLEAR_FIRST[5];
-    const target = deep ? {x: ogx - dir*2, y: R, z: sz*(ms.spec.hz + 4)} : {x: p.x + dir*BRAIN.CLEAR_FIRST[2], y: R, z: sz*(ms.spec.hz - 5)};
+    // (P6-B) a cage's fence gives the ball back: no aiming it out of play there, and in Training Mode never past the
+    // far lines (a cage's pitch is short; a match keeps its calibrated clearance)
+    const fx = p.x + dir*BRAIN.CLEAR_FIRST[2];
+    const target = deep && !rebound(ms) ? {x: ogx - dir*2, y: R, z: sz*(ms.spec.hz + 4)}
+      : {x: ms.mode === 'train' ? clamp(fx, -ms.spec.hx + 2, ms.spec.hx - 2) : fx, y: R, z: sz*Math.max(2, ms.spec.hz - 5)};
     p.first = {kind: 'clear', target, contact: 1, speed: BRAIN.CLEAR_FIRST[3], firstTime: true};
     return;
   }
@@ -531,7 +557,8 @@ function* carrierOptions(ms, a){
   // the harness's stand-in for the player (meAI, a forward or a ten) shoots when he can, as a player chasing his own
   // chances does
   const meT = a.isMe && ms.meAI ? BRAIN.ME[a.arch] : null, meShot = !!meT && meT.shoot > 1;
-  if (dGoal < (meShot ? BRAIN.ME_RANGE : 34)){
+  const goal = goalOn(ms, team);
+  if (goal && dGoal < (meShot ? BRAIN.ME_RANGE : 34)){
     const xg = xgAt(ms, team, m.x, m.z);
     const bias = (a.arch === 'DF' || a.arch === 'CM' ? 0.85 : 1)*(tempo.shotBias || 1)*(tm.lateShot || 1)*(meShot ? meT.shoot : 1);
     // (U9) square on, from the edge of the box and the D, a shot is the thing to do; from a wide angle at range it is not
@@ -553,12 +580,18 @@ function* carrierOptions(ms, a){
     const om = o.m;
     if (o.isGK && !(u < L*0.3 && press > 0.4)) continue;
     // perceived offside: the receiver's margin seen with an error (nobody is offside when the law is not played)
-    const seenOff = offOn && offsidePosition(ms, o, team).margin + offErr*gauss(ms.r) > RULES.OFF.eps && uOf(ms, team, om.x) > L/2;
+    // ((P6-B) past the real halfway line, the law's own: a cage's area is only part of the pitch, and the middle of a
+    // Half cage is not halfway; on a whole pitch the two are the same)
+    const seenOff = offOn && offsidePosition(ms, o, team).margin + offErr*gauss(ms.r) > RULES.OFF.eps && uOf(ms, team, om.x) > halfwayU(ms.spec, dir);
     if (o.id === caller) callerOff = seenOff;
     // a pass to his feet (a little ahead of where he is going)
     const tx = clamp(om.x + om.vx*0.35, -ms.spec.hx + 1, ms.spec.hx - 1), tz = clamp(om.z + om.vz*0.35, -ms.spec.hz + 1, ms.spec.hz - 1);
     const d = hypot(tx - m.x, tz - m.z);
-    if (d >= BRAIN.PASS_MIN && d <= BRAIN.PASS_MAX){
+    // (P6-B) the player himself is weighed at any distance (he sees the user: a pass to him is always one of the
+    // options, valued by the same pass model, so one that cannot arrive is worth little and is not made); the AI
+    // stand-in of the harness keeps the AI's own range
+    const meOpt = o.isMe && !ms.meAI;
+    if (d >= (meOpt ? 1 : BRAIN.PASS_MIN) && (meOpt || d <= BRAIN.PASS_MAX)){
       const v0 = passSpeedFor(d, 9, ms.ball.rollDecel);
       let pm = passModel(ms, org, {x: tx, z: tz}, 'pass', v0, o);
       let kind = 'pass', pOK = pm.pOK, spd = v0;
@@ -616,7 +649,7 @@ function* carrierOptions(ms, a){
     }
   }
   // 3. a cross from wide in the final third
-  if (u > L - BRAIN.CROSS_FROM[0] && Math.abs(m.z) > ms.spec.hz - BRAIN.CROSS_FROM[1] && dGoal > 9){
+  if (goal && u > L - BRAIN.CROSS_FROM[0] && Math.abs(m.z) > ms.spec.hz - BRAIN.CROSS_FROM[1] && dGoal > 9){
     const side = m.z > 0 ? 1 : -1;
     const zones = [[gx - dir*5.5, side*2.5, 'near'], [gx - dir*11, 0, 'spot'], [gx - dir*6, -side*4, 'far']];
     for (const [zx, zz, nm] of zones){
@@ -698,12 +731,13 @@ function* carrierOptions(ms, a){
   }
   // 5. a clearance from around his own box under pressure: up the pitch toward the touchline on his side
   if (u < BRAIN.CLEAR[0] && press > BRAIN.CLEAR[1]){
-    const tx = -dir*(-ms.spec.hx + 50), tz = (m.z >= 0 ? 1 : -1)*(ms.spec.hz - 10);
+    // (up to 50 m short of their goal line; P6-B: on a pitch shorter than that, a cage's, no further back than halfway)
+    const tx = dir*Math.max(ms.spec.hx - 50, 0), tz = (m.z >= 0 ? 1 : -1)*Math.max(2, ms.spec.hz - 10);
     add({kind: 'clear', V: here*BRAIN.CLEAR[2] + 0.004, target: {x: tx, y: R, z: tz}, contact: 1, speed: 26});
   }
   // 5b. safety: pinned in a wide spot near his own goal line with a man on him, he puts it out of play (a corner or a
   // throw costs less than losing it there)
-  if (u < BRAIN.SAFETY[0] && press > BRAIN.SAFETY[1] && Math.abs(m.z) > BRAIN.SAFETY[2]){
+  if (u < BRAIN.SAFETY[0] && press > BRAIN.SAFETY[1] && Math.abs(m.z) > BRAIN.SAFETY[2] && !rebound(ms)){
     const sz = m.z >= 0 ? 1 : -1, byline = u < 9;
     const tx = byline ? -dir*(ms.spec.hx + 3) : m.x + dir*5, tz = byline ? m.z + sz*3 : sz*(ms.spec.hz + 4);
     add({kind: 'clear', V: -BRAIN.SAFETY[3]*(byline ? 1 : 0.4), target: {x: tx, y: R, z: tz}, contact: 0, speed: 15});
@@ -830,7 +864,26 @@ function kickWhenReady(ms, a, rq){
   a.drib = null;
   return null;
 }
-const realStart = (ms, a, rq) => { a.pendKick = null; return startKick(ms, a, rq); };
+const realStart = (ms, a, rq) => {
+  a.pendKick = null;
+  // (P6-B) Training Mode: a pass to a man who would be offside when it is struck is thought again, never played
+  if (offAtStrike(ms, a, rq)){ a.brain.next = ms.t; a.brain.pending = true; a.drib = null; return null; }
+  return startKick(ms, a, rq);
+};
+/* (P6-B, TRAINING-SPEC 2: offside respected by the AI's passing; BUILD-PLAN P6-B "no pass to an offside receiver") In
+   Training Mode's scenarios the passer has a last look as he strikes it: where his man is against the real line (the
+   law's own test, rules.js offsidePosition) and where his run takes him over the strike's wind-up (STRIKE_T s). The
+   choice itself still reads the line as he perceives it (with an error by his vision), so he can pick the pass and
+   then hold it; in a match he can also get it wrong, as players and assistants do (the harness's offside bands) */
+const STRIKE_T = 0.25;
+function offAtStrike(ms, a, rq){
+  if (ms.mode !== 'train' || !lawOf(ms, 'offside') || rq.recv == null || rq.recv < 0) return false;
+  if (rq.kind !== 'pass' && rq.kind !== 'through' && rq.kind !== 'lob') return false;
+  const o = ms.agents[rq.recv];
+  if (!o || o.team !== a.team || o === a) return false;
+  const p = offsidePosition(ms, o, a.team), fwd = Math.max(0, ms.dirs[a.team]*o.m.vx);
+  return p.margin + fwd*STRIKE_T > -0.05;
+}
 const PMC = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
 const LBM = {pOK: 0, tArrive: 0, intercepts: -1, margin: 0, x: 0, z: 0, recvCtrl: 1, pLane: 0};
 // the pending kick: into the window, then the strike; out of time, the decision is made again
@@ -934,7 +987,7 @@ export function decideOffBall(ms, a){
   // a man standing offside gets back onside before anything else (unless he is on a run): with the ball, so that he
   // can be played in; without it, so that a header or a block that falls to him is not given against him
   const myU = uOf(ms, team, m.x);
-  if (!(ms.poss.team === team && a.task.run) && myU > onsideU(ms, tm) - 0.2 && myU > ms.spec.L/2 && a.task.press !== 1){
+  if (!(ms.poss.team === team && a.task.run) && myU > onsideU(ms, tm) - 0.2 && myU > halfwayU(ms.spec, dir) && a.task.press !== 1){
     const p = teamToPitch(ms, team, tm.lineOpp - 1.2, wOf(ms, team, m.z), {x: 0, z: 0});
     out.x = p.x; out.z = clamp(anc.z, -ms.spec.hz + 1, ms.spec.hz - 1)*0.4 + p.z*0.6; out.gait = 'run'; out.stop = 0.4;
     return out;
@@ -1531,7 +1584,7 @@ function decideRestart(ms, a){
       return;
     }
     case 'corner': {
-      if (r() < 0.12){ const m = nearestMate(ms, a, 3, 14, -1); if (m){ startKick(ms, a, {kind: 'pass', target: {x: m.m.x, y: R, z: m.m.z}, recv: m.id, contact: 0}); return; } }
+      if (!goalOn(ms, team) || r() < 0.12){ const m = nearestMate(ms, a, 3, 14, -1); if (m){ startKick(ms, a, {kind: 'pass', target: {x: m.m.x, y: R, z: m.m.z}, recv: m.id, contact: 0}); return; } }
       const side = b.p.z > 0 ? 1 : -1, k = r();
       const zone = k < 0.4 ? [5.5, side*2.5] : k < 0.65 ? [11, 0] : [6.5, -side*3.8];
       const tx = gx - dir*zone[0], tz = zone[1];
@@ -1541,12 +1594,13 @@ function decideRestart(ms, a){
     }
     case 'free': case 'indirect': {
       const dGoal = hypot(gx - b.p.x, b.p.z), angle = Math.abs(b.p.z)/Math.max(1, Math.abs(gx - b.p.x));
-      if (R0.kind === 'free' && dGoal < 30 && angle < 0.8 && r() < 0.75){
+      const goal = goalOn(ms, team);
+      if (goal && R0.kind === 'free' && dGoal < 30 && angle < 0.8 && r() < 0.75){
         const side = b.p.z > 0 ? -1 : 1, tz = side*(3.66 - 0.5), ty = 1.6 + r()*0.6;
         startKick(ms, a, {kind: 'shot', target: {x: gx, y: ty, z: tz}, power: 0.84, contact: 0, finesse: true, curl: 1, fk: true});
         return;
       }
-      if (dGoal < 42 && Math.abs(b.p.z) > 8 && r() < 0.7){
+      if (goal && dGoal < 42 && Math.abs(b.p.z) > 8 && r() < 0.7){
         const tx = gx - dir*(7 + r()*5), tz = (r() - 0.5)*8;
         startKick(ms, a, {kind: 'cross', target: {x: tx, y: 1.7, z: tz}, recv: -1, contact: 1, speed: loftSpeedFor(hypot(tx - b.p.x, tz - b.p.z))*1.05});
         return;
@@ -1696,7 +1750,9 @@ export function brainStep(ms, h){
     if (a.drill && ms.mode === 'train' && drillMove(ms, a, c)) continue;
     // a runner holding the line goes the moment the pass to him is struck
     const run = a.task.run;
-    if (run && !run.go && c && c.team === a.team && c.act && c.act.kind === 'kick' && c.act.action && c.act.action.recv === a.id){ run.go = true; a.tgtSet = false; }
+    // ((P6-B) in Training Mode, at the moment it is struck, not as the passer shapes to strike it: a run that starts with
+    // the wind-up can carry him past the line before the contact, which is when the law looks)
+    if (run && !run.go && c && c.team === a.team && c.act && c.act.kind === 'kick' && c.act.action && c.act.action.recv === a.id && (ms.mode !== 'train' || c.act.ev)){ run.go = true; a.tgtSet = false; }
     const p = a.plan;
     if (p && (p.kind === 'receive' || p.kind === 'chase' || p.kind === 'intercept')){
       // to the reach point, in time (a sprint when the margin is thin), facing the ball

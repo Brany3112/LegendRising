@@ -26,6 +26,10 @@ import "./quick.js";
 import "./freeplay.js";
 import "./keys.js";
 import "./admin.js";
+import "./scen-team.js";
+import "./scen-attack.js";
+import "./scen-defend.js";
+import "./scen-match.js";
 import {bodyLook} from "../look.js";
 import {sandboxLook, dressOpts} from "../core/me.js";
 

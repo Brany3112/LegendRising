@@ -9,7 +9,9 @@
    bodies are drawn from the record while the simulation waits, and the camera owner replay frames it: first from high
    on the side of the main stand, then from behind the goal. Nothing in the simulation changes while one plays.
    (The design names CINE for replays; CINE runs as a mode of its own and would end the match mode, so a replay is its
-   own camera owner on the stack instead, the one 1.3 gives it.) */
+   own camera owner on the stack instead, the one 1.3 gives it.)
+   P6-B (Training Mode Phase 6, BUILD-PLAN P6-B work item 7; TRAINING-SPEC 5, instant replay in training): play() takes
+   the pitch's frame, so a cage off the world's origin is replayed from cameras placed on it. */
 import {camPush, camPop} from "../core/camera.js";
 import {viewSource} from "./view.js";
 
@@ -72,15 +74,18 @@ export function keep(c, label, o = {}){
 export const kept = () => R.kept.slice();
 
 /* ---------- playing one ----------
-   play(clip, {cams: [{until (0..1 of the clip), pos(ball) -> {x, y, z}, fov}], rate = 1}) -> Promise (true when it
-   ran to its end, false when skipped). The controller calls replayStep(dt) every frame while it plays. */
+   play(clip, {cams: [{until (0..1 of the clip), pos(ball) -> {x, y, z}, fov}], rate = 1, frame}) -> Promise (true when
+   it ran to its end, false when skipped). The controller calls replayStep(dt) every frame while it plays. (P6-B,
+   Training Mode's instant replay) frame {cx, cz}: where the pitch's own frame sits in the world (a training cage's):
+   the cameras' places and the ball are given in the pitch's frame and moved by it. */
 const SRC = {agents:[], ball:{x:0, y:0, z:0}, ballHidden:false};
 const OWNER = {id:"replay", priority:95, frame:(dt, cam) => replayCam(cam), fov:() => R.play ? R.play.fov : 50, near:.1};
 export function play(c, o = {}){
   stopPlay(false);
   if (!c || c.frames.length < 2) return Promise.resolve(false);
   return new Promise(res => {
-    R.play = {c, t:0, dur:c.t1 - c.t0, rate:o.rate || 1, cams:o.cams || [], fov:50, res, look:{x:0, y:0, z:0}};
+    R.play = {c, t:0, dur:c.t1 - c.t0, rate:o.rate || 1, cams:o.cams || [], fov:50, res, look:{x:0, y:0, z:0},
+      fx:o.frame ? +o.frame.cx || 0 : 0, fz:o.frame ? +o.frame.cz || 0 : 0};
     camPush(OWNER);
     replayStep(0);
   });
@@ -129,7 +134,8 @@ function replayCam(cam){
   const L = P0.look;
   if (P0.lastCam !== cs){ P0.lastCam = cs; L.x = b.x; L.y = b.y; L.z = b.z; }
   L.x += (b.x - L.x)*.2; L.y += (b.y - L.y)*.2; L.z += (b.z - L.z)*.2;
-  cam.position.set(p.x, p.y, p.z);
-  cam.lookAt(L.x, Math.max(.3, L.y), L.z);
+  // (P6-B) a pitch whose frame is not the world's (a training cage): the cameras' places and the ball are the pitch's
+  cam.position.set(p.x + P0.fx, p.y, p.z + P0.fz);
+  cam.lookAt(L.x + P0.fx, Math.max(.3, L.y), L.z + P0.fz);
   P0.fov = cs.fov || 40;
 }
