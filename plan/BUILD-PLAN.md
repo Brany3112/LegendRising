@@ -1431,7 +1431,7 @@ Merge order: P6-A, then P6-B. Scenario modules register their config types throu
 
 **Hook requests:** importmap entries, and `import './scen-team.js';`, `import './scen-attack.js';`, `import './scen-defend.js';` and `import './scen-match.js';` in `js/life/train/index.js`, all to the integrator. Changes to rules.js are not expected; if one is needed, it is a hook to the integrator.
 
-*Recorded (TR-6 fix rounds, integrator work).* The TR-6 fix rounds act as the integrator for Phase 6 and edited files neither package owns: sim.js (LEVEL 0.82 to 0.90 and Standard tempo shotBias 1.9 to 1.7, the harness recalibration after P6-A's aerial first touch), rules.js (reconsiderSource: the quickest spare ball when the game ball is out of reach), zone.js (playableFrom, the time canPlay's timed bars lift, read by the view's receive clip) and brain.js (the harness stand-in's archetype table, and CALL_MIN for a pass to the player on his call).
+*Recorded (TR-6 fix rounds, integrator work).* The TR-6 fix rounds act as the integrator for Phase 6 and edited files neither package owns: sim.js (LEVEL 0.82 to 0.90 and Standard tempo shotBias 1.9 to 1.7, the harness recalibration after P6-A's aerial first touch), rules.js (reconsiderSource: the quickest spare ball when the game ball is out of reach), zone.js (playableFrom, the time canPlay's timed bars lift, read by the view's receive clip) and brain.js (CALL_MIN: no pass to the player on his call from closer than 3 m).
 
 **Acceptance**
 - **`qa/tr6-team.mjs`** (Node, every scenario x 10 seeds):
