@@ -67,7 +67,7 @@ const TUNE_GROUPS = Object.freeze([["MAP_STR_POW", "How the duel stats come from
 
 // the admin's own state. inf: infinite stamina for you (kept over restarts and scenarios until Training is left);
 // ms: the simulation the session settings were last applied to; hq: the height (cm) queued for the restart; spawn: Free Play's spawn options
-const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, hq:null, spawn:{y:FREE_SPAWN.Y_MIN, v:0}, key:null, obs:null, hub:null, paused:false, start:null};
+const AD = {open:false, sec:"player", msg:"", inf:false, ms:null, hq:null, spawn:{y:FREE_SPAWN.Y_MIN, v:0}, key:null, obs:null, hub:null, paused:false, start:null, confirm:null};
 
 /* ---------- the runner's admin API (P5-A) ---------- */
 // a change safe mid-play, run between two simulation steps (the runner's applyLive)
@@ -325,6 +325,13 @@ function ballHTML(){
 }
 function scenarioHTML(){
   const run = RUN.cur;
+  // (P8-B) a confirmation asked for by one of the match's items (Reset Current Half, Reset Match): its question, Yes, Cancel
+  const its = typeof QK.items === "function" ? QK.items().filter(it => it.group === "match") : [];
+  const ask = AD.confirm ? its.find(it => it.id === AD.confirm) : null;
+  if (ask) return `<div class="tad-match tad-confirm"><div class="eyebrow">${esc(ask.label)}</div><p>${esc(ask.confirm)}</p>
+    <div class="row wrap gap8">${btn("qyes", `Yes, ${ask.label.toLowerCase()}`, {v:ask.id, main:true})}${btn("qno", "Cancel")}</div></div>`;
+  // (P8-B) a Full Match playing (the real match, not a scenario of the runner): the match's own items
+  if (!run && its.length) return `<p class="muted small">Full Match</p><div class="tad-match"><div class="eyebrow">The match</div><div class="row wrap gap8">${its.map(it => btn("qitem", it.label, {v:it.id})).join("")}</div></div>`;
   if (!run) return `${nothing("you can restart or replay it")}<div class="row wrap gap8 tad-btns">${btn("hub", "Back to Hub")}</div>`;
   const b = [btn("restart", "Restart Current Scenario", {main:true})];
   if (RUN.last) b.push(btn("replay", "Replay Last Scenario"));
@@ -332,7 +339,6 @@ function scenarioHTML(){
   // Full Match's own resets (quick.js group 'match', Phase 8): shown only where they are offered
   let match = "";
   if (typeof QK.runItem === "function"){
-    const its = QK.items().filter(it => it.group === "match");
     if (its.length) match = `<div class="tad-match"><div class="eyebrow">The match</div><div class="row wrap gap8">${its.map(it => btn("qitem", it.label, {v:it.id})).join("")}</div></div>`;
   }
   return `<p class="muted small">${esc(run.sc.name)}${run.preset ? ` · Preset: ${esc(run.preset.name)}` : ""}</p><div class="row wrap gap8 tad-btns">${b.join("")}</div>${match}`;
@@ -537,7 +543,14 @@ function click(e){
   if (what === "replay") return void doReplay();
   if (what === "config") return void doConfig();
   if (what === "hub") return void doHub();
-  if (what === "qitem"){ leaveFor(); try { QK.runItem(v); } catch(err){ console.error(err); } return; }
+  if (what === "qitem"){
+    // (an item that asks first: its question here, Yes runs it)
+    const it = typeof QK.items === "function" ? QK.items().find(x => x.id === v) : null;
+    if (it && it.confirm){ AD.confirm = v; return void draw(); }
+    leaveFor(); try { QK.runItem(v); } catch(err){ console.error(err); } return;
+  }
+  if (what === "qyes"){ AD.confirm = null; leaveFor(); try { QK.runItem(v); } catch(err){ console.error(err); } return; }
+  if (what === "qno"){ AD.confirm = null; return void draw(); }
   if (what === "tunereset"){ live(() => tuneReset()); return void say("Every tunable is back to its default."); }
   if (what === "tunedef"){ live(() => tuneReset(k)); return void say(`${TUNE[k].label}: back to ${fmt(TUNE[k].def)}.`); }
 }
