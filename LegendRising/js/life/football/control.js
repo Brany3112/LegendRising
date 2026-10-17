@@ -66,7 +66,11 @@ const DEG = Math.PI/180;
 /* ---------- this device's settings (1.6, 3.4.7, A1.2, A1.4) ---------- */
 export const SET_KEY = "freyaFootball.ctrl";
 export const SET_DEF = Object.freeze({sens:1.0, invertY:false, fov:78, offsidePip:"auto", volume:.8, hints:true,
-  motion:1, hudScale:1, hudOpacity:1, palette:"normal", radar:false, hide:{}, assist:"on", footCam:"third"});
+  motion:1, hudScale:1, hudOpacity:1, palette:"normal", radar:false, hide:{}, assist:"on", footCam:"third",
+  tpDist:4, tpHeight:1.5, tpSide:0, tpShake:0});
+// the third-person camera, yours to set: how far back (m), how high over your head (m), over which shoulder (m, minus
+// is the left), and how much it shakes at a full sprint (0 none, 1 the most)
+export const TP_SET = Object.freeze({tpDist:[2, 8], tpHeight:[.3, 3], tpSide:[-1.2, 1.2], tpShake:[0, 1]});
 // (U21) the football camera: "third" (behind and above you, the default) or "first" (through your eyes)
 export const FOOT_CAMS = Object.freeze(["third", "first"]);
 function loadSet(){
@@ -79,6 +83,7 @@ function loadSet(){
   if (!["normal", "cb"].includes(s.palette)) s.palette = "normal";
   if (!ASSISTS.includes(s.assist)) s.assist = "on";
   if (!FOOT_CAMS.includes(s.footCam)) s.footCam = "third";
+  for (const [k, [lo, hi]] of Object.entries(TP_SET)){ const v = +s[k]; s[k] = Number.isFinite(v) ? clamp(v, lo, hi) : SET_DEF[k]; }
   s.hide = Object.assign({}, s.hide || {});
   return s;
 }
@@ -91,6 +96,7 @@ ME.footCam = SET.footCam;
 export const assistK = () => ASSIST_K[SET.assist] != null ? ASSIST_K[SET.assist] : 1;
 export function saveSet(patch = {}){
   Object.assign(SET, patch);
+  for (const [k, [lo, hi]] of Object.entries(TP_SET)) if (k in patch){ const v = +SET[k]; SET[k] = Number.isFinite(v) ? clamp(v, lo, hi) : SET_DEF[k]; }
   const o = {}; for (const k of Object.keys(SET_DEF)) o[k] = SET[k];
   try { localStorage.setItem(SET_KEY, JSON.stringify(o)); } catch(e){}
   ME.footCam = SET.footCam;

@@ -672,6 +672,12 @@ export function settingsHTML(o = {}){
   rows.push(["Field of view", range("fov", 70, 90, 1, SET.fov)]);
   // (U21) third person for every football moment (the default), or through your own eyes
   rows.push(["Football camera", seg("footCam", [["third", "Third person"], ["first", "First person"]], SET.footCam)]);
+  if (SET.footCam !== "first"){
+    rows.push(["Camera distance", range("tpDist", 2, 8, .1, SET.tpDist)]);
+    rows.push(["Camera height", range("tpHeight", .3, 3, .05, SET.tpHeight)]);
+    rows.push(["Over the shoulder", range("tpSide", -1.2, 1.2, .05, SET.tpSide)]);
+    rows.push(["Camera shake at a sprint", range("tpShake", 0, 1, .05, SET.tpShake)]);
+  }
   rows.push(["Camera motion and effects", range("motion", 0, 1, .05, SET.motion)]);
   rows.push(["Control hints", seg("hints", [[true, "On"], [false, "Off"]], SET.hints)]);
   rows.push(["Offside marker", seg("offsidePip", [["auto", "Auto"], ["on", "On"], ["off", "Off"]], SET.offsidePip)]);
@@ -687,5 +693,7 @@ export function settingsHTML(o = {}){
 export function fmtVal(k, v){
   if (k === "sens") return (+v).toFixed(2) + "x";
   if (k === "fov") return Math.round(v) + " degrees";
+  if (k === "tpDist" || k === "tpHeight") return (+v).toFixed(1) + " m";
+  if (k === "tpSide") return Math.abs(+v) < .03 ? "Centre" : (Math.abs(+v).toFixed(2) + " m " + (+v < 0 ? "left" : "right"));
   return Math.round(v*100) + "%";
 }

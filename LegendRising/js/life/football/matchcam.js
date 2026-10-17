@@ -296,13 +296,16 @@ function tpFrame(a, V, x, y0, z, s, dt, cam){
   const R = V && a ? V.rec[a.id] : null, g = R && R.h && R.h.g;
   let hx = x, hz = z, gy = y0 - 1.68*s;
   if (g && g.parent && !R.hidden){ g.getWorldPosition(_tg); hx = _tg.x; hz = _tg.z; gy = _tg.y; }
+  // your settings: how far back, how high, over which shoulder (the pivot moves across, the look stays yours)
+  const BACK = SET.tpDist != null ? +SET.tpDist : TP.BACK, UP = SET.tpHeight != null ? +SET.tpHeight : TP.UP, SIDE = +SET.tpSide || 0;
+  if (SIDE){ hx += Math.cos(P.yaw)*SIDE*s; hz -= Math.sin(P.yaw)*SIDE*s; }
   // its height through the spring
   if (T.y == null || !(dt > 0)){ T.y = gy; T.yv = 0; }
   else { const w = TP.W, e = T.y - gy, f = Math.exp(-w*dt), v = T.yv; T.y = gy + (e + (v + w*e)*dt)*f; T.yv = (v - (v + w*e)*w*dt)*f; }
   const hy = T.y + (1.68 + TP.HEAD)*s;
   // the orbit: back along the look and up across it, the look's tilt held within PMIN..PMAX for the place only
   const pp = clamp(P.pitch, TP.PMIN, TP.PMAX), sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), sp = Math.sin(pp), cp = Math.cos(pp);
-  let cx = sy*cp*TP.BACK + sy*sp*TP.UP, cyy = -sp*TP.BACK + cp*TP.UP, cz = cy*cp*TP.BACK + cy*sp*TP.UP;
+  let cx = sy*cp*BACK + sy*sp*UP, cyy = -sp*BACK + cp*UP, cz = cy*cp*BACK + cy*sp*UP;
   const L = Math.hypot(cx, cyy, cz);
   cx /= L; cyy /= L; cz /= L;
   let len = L;
@@ -311,6 +314,15 @@ function tpFrame(a, V, x, y0, z, s, dt, cam){
   _tc.set(hx + cx*len, Math.max(TP.MIN_Y, hy + cyy*len), hz + cz*len);
   // it looks where you look; eased in from your eyes (the place, and the turn)
   _te.set(clamp(P.pitch, -1.45, 1.45), P.yaw, 0); _tq.setFromEuler(_te);
+  // the shake you asked for (SET.tpShake, none by default): a smooth wobble that grows with your speed, full at a sprint
+  const SH = +SET.tpShake || 0;
+  if (SH > 0 && a && a.body){
+    const v = Math.hypot(a.body.vx || 0, a.body.vz || 0), q = SH*Math.min(1, v/8);
+    if (q > 0){ T.sh = (T.sh || 0) + Math.max(0, dt)*(4 + 6*Math.min(1, v/8)); const t = T.sh;
+      _tc.x += Math.cos(P.yaw)*.05*q*Math.sin(t*2.1); _tc.z -= Math.sin(P.yaw)*.05*q*Math.sin(t*2.1);
+      _tc.y += .07*q*Math.sin(t*4.3 + 1.3)*Math.abs(Math.sin(t*1.7));
+      _te.z = .012*q*Math.sin(t*1.9 + .4); _tq.setFromEuler(_te); }
+  }
   const e = k*k*(3 - 2*k);
   cam.position.lerp(_tc, e);
   cam.quaternion.slerp(_tq, e);
