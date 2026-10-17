@@ -590,8 +590,9 @@ function liveSt(V, R, a, ms, dt){
         c.jump = clamp((act.v0*act.v0/(2*9.81))/(.55*(a.scale || 1)), .1, 1.2);
         // (the simulation heads it on the first step the ball is at his head from act.tc on, which can be a few steps
         // after it: until it has, the contact is the next step, the head on the ball as it comes; stepAt)
-        if (!act.done){ c.tc = stepAt(ms, act, act.tc, alpha, PB); c.ball = c._ball || (c._ball = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z; }
-        else { c.tc = 0; if (!c._ball){ predAt(ms, 0, PB); c.ball = c._ball = {x:PB.x, y:PB.y, z:PB.z}; } }
+        // (HEAD_WAIT at most: a header the simulation never makes, the ball over him, plays on through its landing)
+        if (!act.done && act.t < act.tc + HEAD_WAIT){ c.tc = stepAt(ms, act, act.tc, alpha, PB); c.ball = c._ball || (c._ball = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z; }
+        else { c.tc = 0; if (!c._ball){ predAt(ms, 0, PB); c.ball = c._ball = {x:PB.x, y:PB.y, z:PB.z}; } c.ball = c._ball; }
         const tg = act.target; c.dir = tg ? dirTo(c, tg.x - a.m.x, tg.z - a.m.z) : yawDir(c, a.m.yaw);
         c.groupY = act.dive ? 0 : (a.y || 0);
         return c;
@@ -647,7 +648,9 @@ const shielding = a => !a.act && (a.shield ? !!a.shield.on : !!(a.intent && a.in
    is the next step's, every step until it is). The simulation plays the act before the ball moves in that step, so the
    ball it meets is where it stands at the step's start; that is the drawn moment of it (drawnT: alpha 0 after the step),
    (n - alpha) steps from now, and the ball then (predOn, (n - 1) steps on from the ball now) goes in out. Timed to tAct
-   itself the clip met the ball up to a step before the simulation did, and a ball predicted a step too far on */
+   itself the clip met the ball up to a step before the simulation did, and a ball predicted a step too far on.
+   HEAD_WAIT: how long past its act.tc a header's clip waits for the simulation's contact (s) */
+const HEAD_WAIT = .15;
 function stepAt(ms, act, tAct, alpha, out){
   const n = Math.max(1, Math.ceil((tAct - act.t - 1e-9)/H));
   if (out){ predSync(ms); predOn(ms, (n - 1)*H, out); }
