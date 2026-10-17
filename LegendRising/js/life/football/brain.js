@@ -502,7 +502,6 @@ function planFirst(ms, a){
     if (a.fkNext.kind === 'shoot' && p.y < 0.9){
       const tz = (ms.r() < 0.5 ? -1 : 1)*(3.66 - 0.5);
       p.first = {kind: 'shot', target: {x: gx, y: 0.5 + ms.r()*0.9, z: tz}, power: 0.88, contact: 0, firstTime: true};
-      a.fkNext = null;
       return;
     }
     if (a.fkNext.kind === 'carry'){ p.push = {x: dir, z: 0}; return; }
@@ -1689,6 +1688,8 @@ function fkExpire(ms){
   for (const a of ms.agents){
     const f = a.fkNext; if (!f) continue;
     if (ms.restart === f.R0){ left++; continue; }
+    // (his part played: he has struck it, or is striking it)
+    if (a.act && a.act.kind === 'kick'){ a.fkNext = null; continue; }
     if (f.until < 0) f.until = ms.t + FK_NEXT;
     if (ms.t > f.until || ms.restart){ a.fkNext = null; continue; }
     left++;

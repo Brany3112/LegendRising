@@ -153,7 +153,8 @@
 
 /* ---------- the free kick's placement (P7-A: js/life/train/fkplace.js): a card over the pitch, the 3D view left showing ---------- */
 #fkPlace{position:fixed;left:16px;bottom:16px;z-index:94;pointer-events:none;max-width:min(420px,calc(100vw - 32px))}
-#fkPlace .fkp{pointer-events:auto;padding:14px 16px;border-radius:16px;max-height:calc(100vh - 32px);overflow:auto;display:grid;gap:10px}
+#fkPlace .fkp{pointer-events:auto;padding:12px 14px;border-radius:16px;font-size:.84rem;max-height:calc(100vh - 32px);display:flex;flex-direction:column;gap:8px}
+.fkp-body{display:grid;gap:8px;overflow:auto;min-height:0}
 #fkPlace h3{margin:0;font:700 1rem/1.2 var(--display);letter-spacing:.04em;text-transform:uppercase}
 #fkPlace h4{margin:0 0 4px;font:700 .86rem/1.2 var(--display);letter-spacing:.03em;text-transform:uppercase}
 .fkp-steps{display:flex;gap:6px;margin:0;padding:0;list-style:none;counter-reset:fkp}
@@ -162,17 +163,22 @@
 .fkp-steps li::before{content:counter(fkp) ". "}
 .fkp-steps li.on{background:rgba(200,240,96,.16);border-color:rgba(200,240,96,.6);color:#fff}
 .fkp-steps li.done{color:#c8f060}
-.fkp-sec{display:grid;gap:8px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)}
+.fkp-sec{display:grid;gap:6px;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)}
 .fkp-sec.on{border-color:rgba(255,215,90,.55)}
 .fkp-sec.off{opacity:.55}
 .fkp-ok{margin-left:6px;padding:1px 6px;border-radius:6px;font:600 .66rem/1.3 var(--body);text-transform:none;letter-spacing:0;background:rgba(63,191,106,.2);color:#8fe0a8}
-.fkp-range{display:grid;grid-template-columns:8.5em 1fr 4.6em;align-items:center;gap:8px;margin:0;font-weight:500}
+.fkp-range{display:grid;grid-template-columns:8em 1fr 4.4em;align-items:center;gap:8px;margin:0;font-weight:500;line-height:1.2}
 .fkp-range input{width:100%;min-width:0}
 .fkp-range output{text-align:right;font-variant-numeric:tabular-nums}
 .fkp-row{display:grid;gap:4px}
 .fkp-sec .seg button{font-size:.82rem}
 .fkp-read{margin:0;font-variant-numeric:tabular-nums}
-.fkp-read b{font-size:1.05rem}
+.fkp-read b{font-size:.98rem}
+#fkPlace .btn{padding:.5em .95em;font-size:.84rem}
+#fkPlace .fkp-sec > .btn{justify-self:start}
+#fkPlace p{margin:0}
+/* (the card says what the Training HUD would: the HUD stands aside while it is up) */
+body:has(#fkPlace) #trainHud{visibility:hidden}
 .fkp-note{margin:0;min-height:1.2em;color:#ffd27a}
 .fkp-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .fkp-foot .grow{flex:1}

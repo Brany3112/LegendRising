@@ -53,7 +53,7 @@ const hyp = (x, z) => Math.sqrt(x*x + z*z);
    the ball and the line) and EDGE m inside the touchlines and the far line. The wall: WDMIN to WDMAX m from the ball,
    WOFF m either side, 0 to 6 men. */
 export const FK = Object.freeze({DMIN:16, DMAX:40, AMAX:60, BOX_D:16.5, BOX_W:20.16, MARGIN:0.4, EDGE:1, WDMIN:5, WDMAX:12, WOFF:3,
-  BALL0:22, ANG0:0, WD0:9.15, TAKER_BACK:1.6});
+  BALL0:22, ANG0:0, WD0:9.15, TAKER_BACK:1.6, CLEAR:5});
 export const SECOND_NAMES = Object.freeze({none:"No second taker", pass:"He touches it to the taker", decoy:"He runs over it (a decoy)",
   short:"The taker plays it short to him, he shoots", carry:"The taker plays it to him, he runs with it"});
 export const STRIKE_NAMES = Object.freeze({shot:"Goal", cross:"A cross into the box", auto:"Whatever's on"});
@@ -146,9 +146,11 @@ export function confirmBall(S){
   S.wallOk = false; S.conf.wall = null;
   return true;
 }
-// the wall's preview changed (only once the ball is confirmed and while the wall is not). The ball is never touched
+// the wall's preview changed (only once the ball is confirmed; a change to a confirmed wall opens it again, the ball
+// staying confirmed). The ball is never touched
 export function previewWall(S, w){
-  if (!S.ballOk || S.wallOk) return false;
+  if (!S.ballOk) return false;
+  if (S.wallOk){ S.wallOk = false; S.conf.wall = null; }
   if (w.n != null) S.wall.n = clamp(Math.round(+w.n), 0, S.maxWall);
   if (w.on != null) S.wall.on = !!w.on;
   if (w.dist != null) S.wall.dist = clamp(+w.dist, FK.WDMIN, FK.WDMAX);
@@ -276,16 +278,23 @@ export function layout(setup, spec, ball){
     const p = placeOf(setup, e.ref); if (!p) continue;
     let x = e.x, z = e.z;
     const isDef = meAtt ? e.ref.team === defTeam : e.ref.team === "mine";
-    // the laws' 9.15 m for the defenders, a metre for the attackers
-    const minB = isDef ? RULES.WALL_D + 0.3 : 1.5;
+    // the laws' 9.15 m for the defenders; the attackers out of the routine's way (FK.CLEAR m from the ball and the
+    // takers: a short ball between the two takers is theirs)
+    const minB = isDef ? RULES.WALL_D + 0.3 : FK.CLEAR;
     let dx = x - b.x, dz = z - b.z, d = hyp(dx, dz);
-    if (d < minB){ if (d < 1e-6){ dx = -ux; dz = -uz; d = 1; } x = b.x + dx/d*minB; z = b.z + dz/d*minB; }
+    if (d < minB){ if (d < 1e-6){ dx = ux; dz = uz; d = 1; } x = b.x + dx/d*minB; z = b.z + dz/d*minB; }
     for (let pass = 0; pass < 3; pass++){
-      for (const q of [...wallPts, ...busy]){
+      for (const q of wallPts){
         const ex = x - q.x, ez = z - q.z, e2 = hyp(ex, ez);
         if (e2 >= keep) continue;
         // goal side of the man in the way (an attacker on the line, a defender behind the wall)
         x = q.x + ux*keep; z = q.z + uz*keep;
+      }
+      for (const q of busy){
+        const ex = x - q.x, ez = z - q.z, e2 = hyp(ex, ez), k = isDef ? keep : FK.CLEAR;
+        if (e2 >= k) continue;
+        // on toward goal, past the routine
+        x = q.x + ux*k; z = q.z + uz*k;
       }
     }
     put(p, x, z);

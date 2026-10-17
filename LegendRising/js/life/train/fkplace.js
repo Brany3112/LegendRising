@@ -76,22 +76,22 @@ const seg = (k, vals, cur, name, dis) => `<div class="seg wrap" role="group">${v
 const range = (k, min, max, step, v, label, dis) => `<label class="fkp-range"><span>${esc(label)}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-fkp-in="${k}" aria-label="${esc(label)}"${dis ? " disabled" : ""}><output data-fkp-val="${k}"></output></label>`;
 function html(){
   const S = FKS.S, M = measures(S), b = S.ball, w = S.wall;
-  const ballOpen = !S.ballOk, wallOpen = S.ballOk && !S.wallOk;
+  const ballOpen = !S.ballOk, wallOpen = S.ballOk;
   const ang = Math.abs(b.ang) < 0.5 ? "straight on" : `${Math.round(Math.abs(b.ang))} degrees ${b.ang > 0 ? "right" : "left"}`;
   const step = !S.ballOk ? 2 : !S.wallOk ? 3 : 4;
   const sizes = []; for (let i = 0; i <= S.maxWall; i++) sizes.push(i);
   return `<div class="fkp glass">
     <h3>Free kick: placement</h3>
+    <div class="fkp-body">
     <ol class="fkp-steps"><li class="${step === 2 ? "on" : "done"}">Ball</li><li class="${step === 3 ? "on" : step > 3 ? "done" : ""}">Wall</li><li class="${step === 4 ? "on" : ""}">Start</li></ol>
     <section class="fkp-sec${ballOpen ? " on" : " done"}">
       <h4>The ball${S.ballOk ? " <span class=\"fkp-ok\">confirmed</span>" : ""}</h4>
-      ${range("dist", FK.DMIN, FK.DMAX, 0.1, b.dist, "Distance", !ballOpen)}
-      ${range("ang", -FK.AMAX, FK.AMAX, 1, b.ang, "Angle", !ballOpen)}
+      ${ballOpen ? range("dist", FK.DMIN, FK.DMAX, 0.1, b.dist, "Distance", false) + range("ang", -FK.AMAX, FK.AMAX, 1, b.ang, "Angle", false) : ""}
       <p class="fkp-read">Distance to goal: <b data-fkp-out="ballGoal">${f1(M.ballGoal)}</b> <span class="muted" data-fkp-out="ang">${esc(ang)}</span></p>
-      <p class="muted small">Only places a free kick can be taken from: outside the penalty area, inside the lines.</p>
-      <button type="button" class="btn" data-fkp="confirmBall"${ballOpen ? "" : " disabled"}>Confirm Ball Position</button>
+      ${ballOpen ? `<p class="muted small">Only places a free kick can be taken from: outside the penalty area, inside the lines.</p>
+      <button type="button" class="btn" data-fkp="confirmBall">Confirm Ball Position</button>` : ""}
     </section>
-    <section class="fkp-sec${wallOpen ? " on" : S.wallOk ? " done" : " off"}">
+    <section class="fkp-sec${S.wallOk ? " done" : wallOpen ? " on" : " off"}">
       <h4>The wall${S.wallOk ? " <span class=\"fkp-ok\">confirmed</span>" : ""}</h4>
       ${seg("on", [true, false], w.on, v => v ? "Wall up" : "No wall", !wallOpen)}
       <div class="fkp-row"><span>Players in it</span>${seg("n", sizes, w.n, String, !wallOpen || !w.on)}</div>
@@ -100,8 +100,9 @@ function html(){
       ${seg("align", ["post", "centre"], w.align, v => ALIGN_NAMES[v], !wallOpen || !w.on)}
       <p class="fkp-read">Distance from ball: <b data-fkp-out="wallBall">${M.wallBall == null ? "no wall" : f1(M.wallBall)}</b> <span class="muted">Ball to goal: <b data-fkp-out="ballGoal2">${f1(M.ballGoal)}</b></span></p>
       <p class="muted small">${S.ballOk ? "The rings on the grass are the preview. Confirm puts the wall there." : "Confirm the ball first."}</p>
-      <button type="button" class="btn" data-fkp="confirmWall"${wallOpen ? "" : " disabled"}>Confirm Wall Position</button>
+      <button type="button" class="btn" data-fkp="confirmWall"${wallOpen && !S.wallOk ? "" : " disabled"}>Confirm Wall Position</button>
     </section>
+    </div>
     <p class="fkp-note small" data-fkp-out="note" aria-live="polite">${esc(FKS.note)}</p>
     <div class="fkp-foot">
       <button type="button" class="btn ghost" data-fkp="back">Back to settings</button>
@@ -123,10 +124,12 @@ function vals(){
 function input(e){
   const t = e.target, k = t && t.dataset ? t.dataset.fkpIn : null; if (!k || !FKS.S) return;
   const v = +t.value;
+  const was = FKS.S.wallOk;
   if (k === "dist" || k === "ang") previewBall(FKS.S, k === "dist" ? {dist:v} : {ang:v});
   else if (k === "wdist") previewWall(FKS.S, {dist:v});
   else if (k === "woff") previewWall(FKS.S, {off:v});
-  vals(); marks();
+  // (a confirmed wall changed: its step is open again, the card says so)
+  if (was && !FKS.S.wallOk) draw(); else { vals(); marks(); }
 }
 function click(e){
   const b = e.target.closest ? e.target.closest("[data-fkp]") : null; if (!b || !FKS.S) return;
