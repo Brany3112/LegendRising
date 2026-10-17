@@ -129,6 +129,17 @@ line that holds it.
   - **Why:** the strike clip's contact is timed by its own clock (`moves.js` contact, rate-adjusted toward the
     simulation's tc). A strike started from a stride adjust or a first-time ball reaches its contact a frame or more off
     the simulation's, and the leg is still on its way.
-- **Fix:** not made in this package. It needs the strike clip's contact pinned to the simulation's contact step (the
-  clock's `tcAt` from the act's own `tc`, as the keeper's distribution now is).
+- **Fix:** made after the integration (U24):
+  - `view.js stepAt` times a strike's, a header's and a tackle's contact to the step the simulation plays it in
+    (`act.t` counted in whole steps), not to `act.tc` itself, which put the foot up to a step early; and the ball the
+    clip aims at is where it stands at that step's start (`predOn`), not a step further on.
+  - A header waits for the simulation's contact (it heads the ball on the first step it is at his head, which can be
+    steps after `act.tc`), at most `HEAD_WAIT` (0.15 s), its brow following the live ball up to it.
+  - `moves.js clock`: a clip waits at its contact rather than playing past it before the simulation's, and the call that
+    reaches the contact poses the contact itself; `view.js kickHold` draws the ball on its contact point in the first
+    frame after the kick's step (the frame drawn at alpha after it showed the ball already gone).
+  - A strike begun late (`C.late`) swings and plants from where the feet are.
+  - Result: 0 or 1 misses in 16 or 17 contacts a run (it was 14 of 16, then 3 of 16 after the PC's own timing fix).
+    The odd miss left is intermittent (a header, or a first strike of a drill begun while the page still ran real
+    frames) and was not traced further.
 - **Check:** `tr9-anim` "at contact the kicking foot (a header: the head) is within 0.12 m of the drawn ball".
