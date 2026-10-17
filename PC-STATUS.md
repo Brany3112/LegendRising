@@ -1,6 +1,6 @@
 # PC status: P9-B (AI refinement), branch `pc/p9b`
 
-**State: see "Harness" below for the n=1000 result.** Built on `pc/p7a` as asked: it carries P7-A, whose own status is on
+**State: finished; ready for the cloud to merge (after `pc/p7a`).** Built on `pc/p7a` as asked: it carries P7-A, whose own status is on
 `pc/p7a`. `HOOKS.md` holds P9-B's requests (the `GK_DISTRIB_LIVE` flag, the `tr4-attrs` row, the run.mjs suites, and the
 contract for P9-A).
 
@@ -64,7 +64,15 @@ loose ball only 101 times" in 50,290 loose-ball team-steps. P1's probe isn't in 
 
 ## Harness
 
-(filled in once the n=1000 run on this branch is done)
+`node qa/harness.mjs --n 1000` on this branch (10 workers, 2,097 s): **60 of 62 checks pass**, above the 57 required.
+- **The misses:**
+  - winger touches 28.4 against 15 to 26 (origin's code misses it too: 27.6 on `pc/p7a`);
+  - striker defensive actions 4.015 against 1 to 4.
+- **What moved, all in band:**
+  - goals 2.74 a match (2.88 before), shots 15.3 (16.5), on target 8.29, save rate 0.716;
+  - counters 4.67, sequences of 5+ passes 6.97, crosses 10.3, final-third free kicks 2.13;
+  - striker touches, a miss before (22.17), now pass.
+- **Keepers' distribution in a match:** throws 19.9 a match (throw-ins included), rolls 0.5, punts 2.3 (3.8 before).
 
 ## Other tests on this branch
 
