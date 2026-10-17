@@ -41,15 +41,15 @@ import {SCHED} from "../core/sched.js";
 import {moveBy, findInside} from "../core/collide.js";
 import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
-import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating} from "./sim.js";
+import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating, halfStart, restoreHalf, placeForKickoff} from "./sim.js";
 import {xgAt} from "./judge.js";
-import {firstReach} from "./ball.js";
+import {firstReach, BALL} from "./ball.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
-import {minuteOf, highlights, onSec, deriveMy} from "./events.js";
+import {minuteOf, highlights, onSec, deriveMy, createChain} from "./events.js";
 import {makePitch, ROLL, dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {attrsForAI} from "./attrs.js";
 import {restartReady, startRestart} from "./rules.js";
-import {startAction} from "./actions.js";
+import {startAction, refreshPred} from "./actions.js";
 import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv, makeFP} from "./view.js";
@@ -60,7 +60,7 @@ import {hudInit, hudFrame, hudNotice, hudClearCards, hudScenario, hudCall, hudOv
 import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling,
   warmCallDue, warmOn, warmTab, careerPort, localPort, boostedAttrs, pickSet, WARM_POOL, boostFor, callMinute, exerciseCount, exScore, touchFence, inFence} from "./warmup.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
-import {STADIUM, SPAWNS} from "./stadium.js";
+import {STADIUM, SPAWNS, benchOf} from "./stadium.js";
 import {AUD} from "./audio.js";
 import {prebuildHumans, lookFor, human, animateHuman} from "../human.js";
 import {runOne} from "./harness.js";
@@ -94,11 +94,15 @@ export const DAY = Object.freeze({
    note(text), relock()} */
 let HOST = null;
 export function fpHost(h){ HOST = h; }
+// (P8-A, MF-10) the host of the match being played: the career's for a match of the career and its test fixtures, the
+// one an entry hands in for Training (FS.host, set at each entry), none at all for an entry that brings none. Every call
+// to a host during a match goes through FS.host; outside a match (the settings) the career's, when there is one
+const hostNow = () => FS.state ? FS.host : HOST;
 
 /* ---------- the state of the day ---------- */
 const FS = {
   state: null,            // 'travel'|'dressing'|'walkout'|'kickoff'|'live'|'bench'|'entering'|'halftime'|'fulltime'|'leaving'
-  ms: null, V: null, f: null, M: null, cfg: null, test: null, real: false,
+  ms: null, V: null, f: null, M: null, cfg: null, test: null, real: false, host: null, training: null, simOffs: [], pooled: false, kits: null, meLook: null, revealSeq: 0,
   evq: [], offs: [], acc: 0, ffRate: 1, timeScale: 1, slow: null, renderT: 0,
   own: null, ownPrm: null, ownSt: null, ownFac: {}, onPitch: false,
   walkers: null, koT: 0, ready: false, nagT: 0,
@@ -196,6 +200,10 @@ export const FP = {
   get recovering(){ return RECOVER.busy; },
   enter(f, o = {}){ return enter(f, o); },
   exit(){ abort(); },
+  // (P8-A) Training's Full Match and its resets
+  enterTraining(cfg, o = {}){ return enterTraining(cfg, o); },
+  resetMatch(){ return resetMatch(); }, resetHalf(){ return resetHalf(); }, restartKickoff(){ return restartKickoff(); },
+  get training(){ return FS.training ? Object.assign({}, FS.training) : null; },
   skipToCall(){ startSkip("call"); }, skipToEnd(){ startSkip("end"); },
   checkpointNow(){ return writeCheckpoint(true); },
   // A1.5: the world in slow motion for `seconds` of real time at `scale` (fixed steps, fewer of them a real second)
@@ -207,7 +215,7 @@ function enter(f, o){
   if (FS.state) return false;
   if (typeof f === "string" && f.startsWith("test:")) return enterTest(f.slice(5), o);
   if (!HOST || !f) return false;
-  FS.real = true; FS.test = null; FS.f = f; FS.done = false; FS.R = null;
+  FS.real = true; FS.test = null; FS.f = f; FS.done = false; FS.R = null; FS.host = HOST; FS.training = null;
   const ko = HOST.kickoff(f), now = HOST.now(), trav = HOST.travel(f);
   const arrive = now + trav;
   const late = arrive > ko - DAY.LATE;
@@ -268,12 +276,32 @@ function visibleFn(x, y, z){
 }
 const _vp = new THREE.Vector3();
 // the match itself: the simulation, its listeners, the bodies (prebuilt behind the cover), the camera, the HUD
+/* (P8-A) a match's simulation bound to the controller: its listeners (kept apart from the page's in FS.simOffs), the
+   view of it (the host's pooled bodies when it has them: host.bodies(ms, kits, meLook) -> {bodyOf, fp}, else bodies
+   built), the replay's record and the fourth official. Used at the start and by every reset (a new match, the same
+   bodies) */
+function bindMatch(ms){
+  for (const f of FS.simOffs) try { f(); } catch(e){ console.error(e); }
+  FS.simOffs.length = 0;
+  FS.ms = ms;
+  ms.meEntry = {at: false};
+  FS.simOffs.push(on(ms, "*", ev => FS.evq.push(ev)));
+  for (const k of ["bounce", "post", "bar", "net", "board"]) FS.simOffs.push(on(ms, k, d => ballSound(k, d)));
+  if (FS.real) FS.simOffs.push(attach(ms, on));
+  if (FS.V){ viewDispose(FS.V); FS.V = null; }
+  const B = FS.host && typeof FS.host.bodies === "function" ? FS.host.bodies(ms, FS.kits, FS.meLook) : null;
+  FS.pooled = !!B; FS.bodies = B;
+  const V = FS.V = viewInit(ms, RT.scene, FS.kits, Object.assign({meLook: FS.meLook, meFPLook: FS.meLook}, B ? {bodyOf: B.bodyOf, fpBody: B.fp} : {}));
+  V.me = ms.me;
+  recInit(ms, 20, 12, V);
+  return V;
+}
 function startMatch(cfg, kits){
   FS.cfg = cfg;
   // (your own look on your own body; a test fixture of a career wears it too, in the home kit its side plays in, so what
   // a test sees through your eyes is what a match shows: your first-person body under the eye)
   const meRec = recOfMe(cfg);
-  const meLook = HOST ? HOST.look(kits && (FS.real && FS.M ? (FS.M.home ? kits.home : kits.away) : kits.home), meRec ? meRec.number : 9) : null;
+  const meLook = FS.host ? FS.host.look(kits && (FS.real && FS.M ? (FS.M.home ? kits.home : kits.away) : kits.home), meRec ? meRec.number : 9) : null;
   // your height (MV-10): the body you are drawn as is the one the simulation moves, so reach, headers and your eye agree
   if (meRec) meRec.scale = meLook && meLook.height ? +meLook.height : heightOf(meRec);
   FS.meScale = meRec && meRec.scale ? meRec.scale : 1;
@@ -284,13 +312,12 @@ function startMatch(cfg, kits){
   FS.prevState = null; FS.htCard = FS.ftCard = false; FS.freed = FS.exitAsked = false; relockWait(false); FS.lockUsed = !!document.pointerLockElement; FS.callT = 0; FS.autoWalk = false;
   // your change off the bench waits for you by the fourth official (MF-9, rules.js subStep): the controller says when you are there
   ms.meEntry = {at: false};
-  FS.offs.push(on(ms, "*", ev => FS.evq.push(ev)));
-  for (const k of ["bounce", "post", "bar", "net", "board"]) FS.offs.push(on(ms, k, d => ballSound(k, d)));
-  if (FS.real) FS.offs.push(attach(ms, on));
-  const V = FS.V = viewInit(ms, RT.scene, kits, {meLook, meFPLook: meLook});
-  V.me = ms.me;
-  recInit(ms, 20, 12, V);
-  prebuildHumans(looksOf(ms, kits, meLook), {budgetMs: 4});
+  FS.kits = kits; FS.meLook = meLook;
+  // (P8-A) the simulation's listeners, the view and the replay's record: what a reset binds again to a new match
+  bindMatch(ms);
+  // (a host with bodies of its own, Training's pool: nothing is built here; else every look built behind the cover)
+  if (!FS.pooled) prebuildHumans(looksOf(ms, kits, meLook), {budgetMs: 4});
+  const V = FS.V;
   camInit({me: () => liveMe(), view: () => FS.V, eye: eyeOf, speed: () => mySpeed(), top: () => myTop(), breath: () => myB(), accel: () => myAcc(),
     bench: () => FS.state === "bench" && FS.benchSeat ? FS.benchSeat : null, motion: () => SET.motion, fov: () => SET.fov,
     pose: (x, z, yaw, dt) => fpPoseNow(x, z, yaw, dt), clip: () => fpInClip(), after: () => afterCam()});
@@ -306,7 +333,6 @@ function startMatch(cfg, kits){
   FS.own = createMover({x: P.x, z: P.z, yaw: P.yaw});
   if (FS.real){ writeCheckpoint(true); }
   FS.lastMin = -1; FS.board = -1;
-  FS.kits = kits;
   fourthInit(kits);
   // the team-mate you look at, lit with a soft red edge (U8)
   auraInit(RT.scene);
@@ -358,7 +384,7 @@ function dressing(){
   viewPre(FS.V, pre);
   placeOwn(SPAWNS.dressing);
   P.yaw = Math.PI; P.pitch = 0;
-  revealAfterFrames(2).then(() => liftCover());
+  reveal();
   const role = roleOf();
   note(role === "sub" || role === "cameo" ? "The dressing room. Talk to the manager, then head out to the bench." : "The dressing room. Talk to the manager, then walk out through the tunnel door.");
 }
@@ -380,7 +406,7 @@ function manager(){ if (FS.state !== "dressing") return; note(`Manager: "${MANAG
 // E at the door: time passes to kick-off minus 5, then the walk-out
 function headOut(){
   if (FS.state !== "dressing") return;
-  const ko = HOST ? HOST.kickoff(FS.f) : 0, now = HOST ? HOST.now() : 0, to = ko - DAY.HEAD_OUT;
+  const ko = FS.host ? FS.host.kickoff(FS.f) : 0, now = FS.host ? FS.host.now() : 0, to = ko - DAY.HEAD_OUT;
   coverScreen();
   if (FS.real && now < to) pass(to - now, "idle");
   walkout();
@@ -423,7 +449,7 @@ function walkout(){
   const sub = !onTheTeamSheet();
   if (sub) note("Walk out with the substitutes and take your seat on the bench.");
   else note("Walk out with the team and go to your position. Press E when you're ready.");
-  revealAfterFrames(2).then(() => liftCover());
+  reveal();
 }
 const onTheTeamSheet = () => !!FS.ms && FS.ms.me >= 0;
 function walkStep(dt){
@@ -502,7 +528,7 @@ function frame(dt, real){
       if (FS.real) pass(real*.5, "idle");
       ownWalk(dt, true);
       // past kick-off minus 2 the manager sends everyone out
-      if (FS.real && HOST && HOST.now() >= HOST.kickoff(FS.f) - 2) headOut();
+      if (FS.real && FS.host && FS.host.now() >= FS.host.kickoff(FS.f) - 2) headOut();
       break;
     case "walkout": {
       ownWalk(dt, true);
@@ -898,7 +924,7 @@ function recvPoint(ms, me){
   return FS.recvAt;
 }
 // the offside pip's setting (1.5.10): Auto shows it in a player's first 5 matches (and the tests), On always, Off never
-const pipShown = () => SET.offsidePip === "on" || (SET.offsidePip === "auto" && (isTest() || !!(HOST && HOST.early && HOST.early())));
+const pipShown = () => SET.offsidePip === "on" || (SET.offsidePip === "auto" && (isTest() || !!(FS.host && FS.host.early && FS.host.early())));
 // the hints off the ball's play: on the bench, walking out, in the dressing room (the records kept, the verbs changed
 // in place: written ten times a second at most)
 const OH = {walkout: [{key: "W", verb: "go to your position"}, {key: "E", verb: "ready"}], walkSub: [{key: "W", verb: "walk to the bench"}],
@@ -1009,13 +1035,19 @@ function auraPos(id, out){
 const FOURTH = {h: null, actor: null, at: {x: 0, z: -35.45}, yaw: 0, st: {mode: "idle", upper: null}, wave: {g: "call", w: 1}, point: {g: "point", w: .8},
   goal: {x: 0, y: 2.25, z: -35.45, label: "Fourth official"}, ring: false};
 const goingOn = () => !!(FS.ms && FS.called && FS.state === "entering" && !FS.atFourth && !FS.onPitch);
+// (P8-A) the bench of the place the match is played in (stadium.js benchOf: the stadium's, or Training's Full cage's)
+const BENCH = () => benchOf(FS.training && FS.training.zone ? FS.training.zone : "stadium");
 function fourthInit(kits){
   fourthDispose();
   const V = FS.V; if (!V || !V.scene || !FS.ms) return;
-  FOURTH.at.z = FOURTH.goal.z = -(FS.ms.spec.hz + 1.45);
+  const fo = BENCH().fourthOfficial(FS.ms.spec);
+  FOURTH.at.x = FOURTH.goal.x = fo.x; FOURTH.at.z = FOURTH.goal.z = fo.z; FOURTH.posW = null;
   // (the officials' kit of this match, the one the view dresses the assistants in: he reads as one of them)
   const look = V.L && V.L.of ? V.L.of({role: "ar", id: 44, team: -1}) : lookFor("linesman", 44, kits && kits.ref ? {sex: "m", kit: [kits.ref, "#16171a"], avoid: []} : {sex: "m"});
-  const h = FOURTH.h = human(look, {cast: true});
+  // (Training's Full Match: his body from the host's pool when it has one, P8-A)
+  const pooled = FS.bodies && typeof FS.bodies.fourth === "function" ? FS.bodies.fourth() : null;
+  const h = FOURTH.h = pooled || human(look, {cast: true});
+  FOURTH.pooled = !!pooled; h.g.visible = true;
   h.g.name = "fourth-official";
   h.g.position.set(FOURTH.at.x, 0, FOURTH.at.z);
   FOURTH.yaw = 0; h.g.rotation.y = 0;
@@ -1039,7 +1071,7 @@ function fourthState(dt){
 }
 function fourthDispose(){
   if (FOURTH.actor){ SCHED.remove(FOURTH.actor); FOURTH.actor = null; }
-  if (FOURTH.h){ FOURTH.h.dispose(); FOURTH.h = null; }
+  if (FOURTH.h){ if (FOURTH.pooled){ if (FOURTH.h.g.parent) FOURTH.h.g.parent.remove(FOURTH.h.g); FOURTH.h.g.visible = false; } else FOURTH.h.dispose(); FOURTH.h = null; FOURTH.pooled = false; }
   FOURTH.ring = false;
 }
 // where a substitute steps on (rules.js enterSub: the halfway line on the bench side): beside the fourth official
@@ -1050,28 +1082,28 @@ function entrySpot(){ const ms = FS.ms, t = FS.cfg.me ? FS.cfg.me.team : 0; retu
 // the end seat has the dugout's side wall against your shoulder, A1.6; the others are warming up)
 function sitDown(side){
   if (FS.state !== "bench" || FS.seated) return;
-  const seats = (STADIUM.bench || []).filter(b => b.side === side), k = Math.max(0, seats.length - 4), mine = seats[k];
-  const x = mine ? mine.x : side === "home" ? -10 : 10;
-  const C = STADIUM.crowd;
+  const B = BENCH(), seats = (B.seats() || []).filter(b => b.side === side), k = Math.max(0, seats.length - 4), mine = seats[k];
+  const x = mine ? mine.x : B.dugout(side).x, z = mine && mine.z != null ? mine.z : B.seatZ;
+  const C = B.crowd ? B.crowd() : null;
   if (C && C.setBench && C.benchN && seats.length){
     // (the count the dugout had before you sat: kept once, so a seat taken again never keeps an already shortened one)
     if (!FS.benchKept || FS.benchKept.side !== side) FS.benchKept = {side, n: C.benchN[side]};
     C.setBench(side, Math.min(FS.benchKept.n, Math.max(0, k - 1)));
   }
-  FS.seated = true; FS.benchSeat = {x, z: -37.4, y: 0, yaw: Math.PI};
-  placeOwn({x, z: -37.4, yaw: Math.PI});
+  FS.seated = true; FS.benchSeat = {x, z, y: 0, yaw: Math.PI};
+  placeOwn({x, z, yaw: Math.PI});
   P.yaw = Math.PI; P.pitch = -.05;
   benchCam(true);
 }
 function standUp(){
   if (!FS.seated) return;
   unseat();
-  placeOwn({x: P.x, z: -36.6, yaw: Math.PI});
+  placeOwn({x: P.x, z: BENCH().standZ, yaw: Math.PI});
 }
 // out of the seat however you leave it (standing up, the skip to your call, sent to the bench): the bench camera off,
 // real time again, and the seated substitutes back in the dugout
 function unseat(){
-  const C = STADIUM.crowd, K = FS.benchKept;
+  const B = BENCH(), C = B.crowd ? B.crowd() : null, K = FS.benchKept;
   if (C && C.setBench && K) C.setBench(K.side, K.n);
   FS.benchKept = null;
   if (!FS.seated) return;
@@ -1157,7 +1189,7 @@ function skipFrame(){
       FS.state = "bench"; unseat(); FS.V.pre = null;
       placeOwn({x: 0, z: -40.5, yaw: Math.PI}); P.yaw = Math.PI;
       note("You're late. You start on the bench.");
-      revealAfterFrames(2).then(() => liftCover());
+      reveal();
       return;
     }
     if (S0.kind === "call" && ms.callUp){
@@ -1166,7 +1198,7 @@ function skipFrame(){
       const e = entrySpot(); placeOwn({x: e.x, z: e.z - .3, yaw: Math.PI}); P.yaw = Math.PI; FS.atFourth = true;
       hudNotice("sub", "Get ready, you're going on.", "You're with the fourth official. You'll go on at the next stoppage.");
     }
-    revealAfterFrames(2).then(() => liftCover());
+    reveal();
   }
 }
 
@@ -1207,7 +1239,8 @@ function warmSetup(){
   const cfg = FS.cfg, ms = FS.ms;
   const subOn = cfg && cfg.roleTimes ? cfg.roleTimes.subOn : 0;
   FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.cheer = 0; FS.wbRev = NaN; FS.wbNow = null;
-  if (!subOn || !cfg.me || cfg.resume || ms.me >= 0){ warmDispose(); return; }
+  // (P8-A: no warm-up in Training's Full Match: the configuration says so, P8-B)
+  if (!subOn || !cfg.me || cfg.resume || ms.me >= 0 || FS.training){ warmDispose(); return; }
   const port = FS.real ? careerPort() : (FS.testPort = localPort());
   FS.wport = port;
   const t = cfg.me.team, kit = FS.kits ? (t === 0 ? FS.kits.home : FS.kits.away) : null;
@@ -1349,7 +1382,7 @@ function cardDone(){
   FS.freed = false;
   if (!want || FS.relock === false || document.pointerLockElement) return;
   relockWait(true);
-  if (HOST) HOST.relock(); else if (window.lifeRelock) window.lifeRelock();
+  if (FS.host) FS.host.relock(); else if (window.lifeRelock) window.lifeRelock();
 }
 // the wait for the lock asked back is real time on a timer, not the frames' dt, and it starts once the page is free again:
 // the browser answers between tasks, so frames stepped in one go (a skip's catch-up, a page stepping the match itself)
@@ -1371,8 +1404,8 @@ function showHalftimeCard(){
   const rating = me && me.on.length ? liveRating(ms, me) : null;
   const drift = me && me.acc.oop > 30 && me.acc.oopFar/me.acc.oop > .35;
   let html;
-  if (HOST && FS.real){
-    html = HOST.htCard(FS.M, {rating, drift, drinks: HOST.drinks()});
+  if (FS.host && FS.real){
+    html = FS.host.htCard(FS.M, {rating, drift, drinks: FS.host.drinks()});
   } else {
     const T = FS.cfg.teams;
     html = `<div class="eyebrow">Half time</div><h2>${esc(T[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(T[1].name)}</h2>`;
@@ -1412,7 +1445,7 @@ function secondHalfGo(){
   if (FS.state === "bench" && FS.skipResume){ const k = FS.skipResume; FS.skipResume = null; startSkip(k); }
   else FS.skipResume = null;
   cardDone();
-  revealAfterFrames(2).then(() => liftCover());
+  reveal();
 }
 
 /* ---------- full time (3.4.3) ---------- */
@@ -1440,20 +1473,20 @@ function fulltime(dt, real){
 function settle(){
   if (FS.R || !FS.real) return FS.R;
   const out = finish(FS.ms);
-  if (HOST) out.around = HOST.around(FS.f);
+  if (FS.host) out.around = FS.host.around(FS.f);
   FS.R = out;
   return out;
 }
 function showFulltimeCard(){
   const ms = FS.ms;
   let html;
-  if (HOST && FS.real && FS.R && FS.R.R){
-    html = HOST.ftCard(FS.M, Object.assign({}, FS.R.R, {around: FS.R.around || []}));
+  if (FS.host && FS.real && FS.R && FS.R.R){
+    html = FS.host.ftCard(FS.M, Object.assign({}, FS.R.R, {around: FS.R.around || []}));
   } else {
     const T = FS.cfg.teams;
     html = `<div class="eyebrow">Full time</div><h2>${esc(T[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(T[1].name)}</h2>`;
   }
-  const press = !!(HOST && FS.real && HOST.pressOpen && HOST.pressOpen());
+  const press = !!(FS.host && FS.real && FS.host.pressOpen && FS.host.pressOpen());
   // (Continue first in the footer's markup, so Tab reaches it first; it is drawn on the right, MF-4)
   const o = hudOverlay(cardBox(html, `<button class="btn" data-ft="go">Continue</button>${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}`), "ft");
   if (o){
@@ -1461,7 +1494,7 @@ function showFulltimeCard(){
       const b = e.target.closest("button"); if (!b) return;
       if (b.dataset.ft === "go"){ leave(); return; }
       // the interview (awards.js): its answers run their own onclick (A.press), then it is back to the card
-      if (b.dataset.ft === "press"){ cardUp(hudOverlay(cardBox(HOST.press(), `<button class="btn ghost" data-ft="back">Back</button>`), "ft")); return; }
+      if (b.dataset.ft === "press"){ cardUp(hudOverlay(cardBox(FS.host.press(), `<button class="btn ghost" data-ft="back">Back</button>`), "ft")); return; }
       if (b.dataset.ft === "back" || b.classList.contains("media")){ showFulltimeCard(); return; }
       if (b.dataset.clip != null) playHighlight(+b.dataset.clip);
     };
@@ -1485,14 +1518,16 @@ function leave(){
   FS.state = "leaving";
   hudOverlay(null);
   const fat = FS.R && FS.R.R ? FS.R.R.fatigue || 0 : 0;
-  const real = FS.real;
+  const real = FS.real, host = FS.host, training = !!FS.training;
   teardown();
   exitMode("done");
-  if (real && HOST) HOST.leave(fat);
+  if (real && host) host.leave(fat);
+  // (P8-A) Training's host hears that the match is over (its Continue at full time): back to the hub, P8-B
+  else if (training && host && typeof host.ended === "function") try { host.ended("fulltime"); } catch(e){ console.error(e); }
 }
 function teardown(){
-  for (const f of FS.offs) try { f(); } catch(e){ console.error(e); }
-  FS.offs.length = 0;
+  for (const f of FS.offs.concat(FS.simOffs)) try { f(); } catch(e){ console.error(e); }
+  FS.offs.length = 0; FS.simOffs.length = 0;
   if (playing()) skip();
   // the warm-up's coaches and ball go; its boost belongs to this match only (a Cold record from an ignored call too)
   warmDispose();
@@ -1511,7 +1546,8 @@ function teardown(){
   clearMatchFlags();
   if (FLAGS.lockLost) FLAGS.lockLost = false;
   FS.ms = null; FS.state = null; FS.walkers = null; FS.skipping = null; FS.seated = false; FS.benchKept = null; FS.called = false; FS.onPitch = false;
-  FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null;
+  FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null; FS.host = null; FS.training = null;
+  FS.pooled = false; FS.bodies = null; FS.kits = null; FS.meLook = null;
   FS.prevState = null; FS.htCard = FS.ftCard = false; FS.freed = FS.exitAsked = false; relockWait(false); FS.lockUsed = false; FS.atFourth = false; FS.autoWalk = false; FS.callT = 0;
   FS.pauseShown = false;
   document.body.classList.remove("fp-match");
@@ -1641,12 +1677,18 @@ function benchRelease(ev){
 const callPlanned = () => { const rt = FS.cfg && FS.cfg.roleTimes; return !!(rt && rt.subOn) && !(FS.ms && FS.ms.roleDone.on && !FS.ms.callUp); };
 
 /* ---------- the cover and notes ---------- */
+/* (P8-A) the cover lifted two drawn frames from now, unless a reset has come in between (a reset puts up its own cover
+   and its own reveal: FS.revealSeq, so a reveal still pending from before it never lifts the new cover early) */
+function reveal(ms){
+  const seq = FS.revealSeq;
+  revealAfterFrames(2).then(() => { if (seq === FS.revealSeq) liftCover(ms); });
+}
 function liftCover(ms = 500){
   const o = document.getElementById("lifeFade");
   FADE.v = 0;
   if (o){ o.style.transition = `opacity ${ms}ms ease`; o.style.opacity = "0"; delete o.dataset.tun; }
 }
-function note(t){ if (HOST && HOST.note) HOST.note(t); }
+function note(t){ if (FS.host && FS.host.note) FS.host.note(t); }
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
 // a task that runs whatever the mode's step does (the pause, E held on the bench)
@@ -1670,10 +1712,10 @@ SCHED.task({id: "fp-match", kind: "keep", run: dt => {
 const LENGTHS = {4: "Short (6 minute halves)", 2: "Standard (10 minute halves)", 1: "Long (15 minute halves)"};
 export function fpSettingsHTML(){
   const lengths = [4, 2, 1].filter(k => CALIBRATED[k]).map(k => [k, LENGTHS[k]]);
-  return settingsHTML({speed: HOST && HOST.speed ? HOST.speed() : 2, lengths});
+  return settingsHTML({speed: hostNow() && hostNow().speed ? hostNow().speed() : 2, lengths});
 }
 export function fpSet(k, v){
-  if (k === "speed"){ if (HOST && HOST.setSpeed && CALIBRATED[v]) HOST.setSpeed(v); }
+  if (k === "speed"){ if (hostNow() && hostNow().setSpeed && CALIBRATED[v]) hostNow().setSpeed(v); }
   else if (k === "hide"){ const h = Object.assign({}, SET.hide || {}); h[v] = !h[v]; saveSet({hide: h}); }
   else saveSet({[k]: v});
   if (k === "volume") AUD.volume(SET.volume);
@@ -1774,7 +1816,7 @@ function testConfig(name, o = {}){
     ovr: [o.ovr || 60, o.ovr || 60], visible: visibleFn};
 }
 function enterTest(name, o){
-  FS.test = name; FS.real = false; FS.f = null; FS.M = null; FS.R = null;
+  FS.test = name; FS.real = false; FS.f = null; FS.M = null; FS.R = null; FS.host = HOST; FS.training = null;
   enterMode("match");
   coverScreen();
   // (o.kits: a fixture's own pair, resolved as a real match's are)
@@ -1792,7 +1834,7 @@ function enterTest(name, o){
   placeOwn({x: me.m.x, z: me.m.z, yaw: me.m.yaw}); P.yaw = me.m.yaw; P.pitch = -.12;
   handover();
   scenario(name, o);
-  revealAfterFrames(2).then(() => liftCover(100));
+  reveal(100);
   return true;
 }
 // test:bench (A1.8): you on the home bench, seated (o.seated false: on your feet by the dugout), the match from its
@@ -1801,11 +1843,123 @@ function enterBench(o){
   const ms = FS.ms;
   if (o.startMin > 1) ms.clock.sec = (o.startMin - 1)*60;
   FS.state = "bench"; FS.onPitch = false; FS.V.pre = null;
-  placeOwn({x: -10, z: -36.6, yaw: Math.PI}); P.yaw = Math.PI; P.pitch = -.1;
+  const d = BENCH().dugout("home");
+  placeOwn({x: d.x, z: d.z, yaw: Math.PI}); P.yaw = Math.PI; P.pitch = -.1;
   if (o.seated !== false) sitDown("home");
-  revealAfterFrames(2).then(() => liftCover(100));
+  reveal(100);
   return true;
 }
+/* ---------- Training's Full Match: the entry and the resets (P8-A, MF-10; BUILD-PLAN Phase 8 contract) ----------
+   FP.enterTraining(cfg, {zone, kind, start: 'kickoff' | 'bench', host, kits, subOn}): a match in the zone you are in
+   (Training's Full cage: its pitch is the world's frame, as the stadium's is), from a createMatch cfg (teams.js
+   cfgFromConfig 'fullmatch': both sides' averages, the keeper's attributes, my slot and role), with no career at all:
+   FS.real false (no checkpoint, no settle, no career writes), the host the entry hands in (FS.host: look, kits, bodies,
+   kickoff/now, relock, note, speed/setSpeed, ended; never setup, leave, around, htCard or ftCard), no warm-up. The start
+   is the kick-off, or the bench (my agent a substitute, called on at o.subOn, 60 by default).
+   FP.resetMatch(): a fresh match from the same cfg, the view bound to the same bodies again, the zone not entered again.
+   FP.resetHalf(): the match as the current half began (sim.js halfStart: the whole state, call-ups and the bench
+   included), control where it was then: on me if I started the half on the pitch, else on the bench seat.
+   FP.restartKickoff() (G0 decision c, the default): the clock and the score kept, both teams lined up again for a
+   kick-off in the current half by the side that kicked that half off; play stopped, the AI's plans and the chain
+   cleared, stamina kept.
+   Every reset clears the controller's own flags (the cards, the skip, the call-up walk and the seat, the goal flags, the
+   event queue), the replay, the controls, the warm-up and any reveal still pending. */
+function enterTraining(cfg, o = {}){
+  if (FS.state || !cfg) return false;
+  FS.test = null; FS.real = false; FS.f = null; FS.M = null; FS.R = null; FS.host = o.host || null;
+  const start = o.start === "bench" ? "bench" : "kickoff";
+  FS.training = {zone: o.zone || null, kind: o.kind || null, start, subOn: o.subOn != null ? +o.subOn : 60};
+  enterMode("match");
+  coverScreen();
+  const kits = matchKits(o.kits || (FS.host && FS.host.kits ? FS.host.kits() : {home: ["#2c66b8", "#ffffff"], away: ["#c8463a", "#ffffff"]}));
+  const c = Object.assign({}, cfg, {visible: visibleFn, htAuto: false});
+  // (the real match's changes when the configuration names a bench and no number of them: Training's own laws allow none,
+  // rules.js LAWS.train, and a bench start's change would never be made)
+  if ((c.teams || []).some(T => T && (T.bench || []).length) && (!c.rules || c.rules.subs == null)) c.rules = Object.assign({}, c.rules, {subs: 5});
+  if (start === "bench"){
+    c.me = Object.assign({}, cfg.me, {role: "sub"});
+    c.roleTimes = Object.assign({}, cfg.roleTimes, {subOn: FS.training.subOn});
+  }
+  startMatch(c, kits);
+  playFrom();
+  return true;
+}
+// play from where the match stands: on the pitch at my agent (the kick-off, or a half begun on it), else on the bench
+function playFrom(){
+  const ms = FS.ms, me = ms.me >= 0 ? ms.agents[ms.me] : null;
+  if (me && me.onPitch){
+    FS.state = "live"; FS.onPitch = true;
+    placeOwn({x: me.m.x, z: me.m.z, yaw: me.m.yaw}); P.yaw = me.m.yaw; P.pitch = -.12;
+    handover();
+    reveal(100);
+  } else enterBench({seated: true});
+}
+function resetClear(){
+  FS.revealSeq++;
+  if (playing()) skip();
+  FS.replayQ = null;
+  hudOverlay(null); hudClearCards(); hudSayOff();
+  if (FS.seated) unseat();
+  FS.htCard = false; FS.htCardT = 0; FS.ftCard = false; FS.skipping = null; FS.skipResume = null;
+  FS.called = false; FS.atFourth = false; FS.seated = false; FS.autoWalk = false; FS.callT = 0; FS.entering = false; FS.benchSeat = null;
+  FS.prevState = null; FS.slow = null; FS.timeScale = 1; FS.acc = 0; FS.ffRate = 1; FS.drawAcc = 0; FS.viewDt = 0; FS.lockLook = false;
+  clearMatchFlags(); FS.evq.length = 0; FS.goalT = -1;
+  benchCam(false);
+  controlReset();
+  warmDispose(); FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.wDrive = false;
+  coverScreen();
+}
+function resetMatch(){
+  if (!FS.ms || !FS.cfg || FS.state === "leaving") return false;
+  resetClear();
+  bindMatch(createMatch(FS.cfg));
+  fourthInit(FS.kits);
+  warmSetup();
+  playFrom();
+  return true;
+}
+function resetHalf(){
+  if (!FS.ms || !FS.cfg || FS.state === "leaving") return false;
+  const snap = halfStart(FS.ms);
+  if (!snap) return false;
+  resetClear();
+  bindMatch(restoreHalf(FS.cfg, snap));
+  fourthInit(FS.kits);
+  warmSetup();
+  playFrom();
+  return true;
+}
+function restartKickoff(){
+  const ms = FS.ms;
+  if (!ms || FS.state === "leaving" || ms.phase === "over") return false;
+  const half = ms.phase === "halftime" ? 2 : ms.half;
+  resetClear();
+  if (ms.phase === "halftime") secondHalf(ms);
+  // play stops where it is: nobody's act, plan, run or set-piece spot, the chain and the referee's pending calls cleared
+  for (const a of ms.agents){
+    a.act = null; a.plan = null; a.drib = null; a.y = 0; a.vy = 0; a.set = null; a.wall = false; if (a.task) a.task.run = null;
+    if (a.gk){ a.gk.state = "ready"; a.gk.plan = null; a.gk.handsOn = false; a.gk.read = null; }
+  }
+  ms.chain = createChain(); ms.offside.set.clear(); ms.offside.pending = null; ms.advantage = null; ms.poss.ctl = -1;
+  if (ms.ball.state === "held") ms.ball.state = "dead";
+  // (the kick-off's partner chosen afresh: brain.js restartShape keeps the one of an earlier kick-off otherwise)
+  ms.koMate = null;
+  // the ball on the centre spot, still, before the restart starts: a kick-off's ball is there, so nobody is sent to fetch
+  // it (rules.js chooseSource) and nobody is left out of the line-up as its fetcher
+  const b = ms.ball;
+  b.p.x = 0; b.p.y = BALL.R; b.p.z = 0; b.v.x = b.v.y = b.v.z = 0; b.w.x = b.w.y = b.w.z = 0; b.state = "dead"; b.holder = -1;
+  const ko = half === 1 ? ms.koFirst : 1 - ms.koFirst;
+  startRestart(ms, "kickoff", ko, {x: 0, z: 0}, {first: true});
+  placeForKickoff(ms);
+  ms.phase = "kickoff";
+  refreshPred(ms);
+  if (FS.V){ const pre = FS.V.pre; if (pre) for (const k in pre) pre[k] = null; }
+  if (FS.onPitch && ms.me >= 0 && ms.agents[ms.me].onPitch){ const me = ms.agents[ms.me]; placeOwn({x: me.m.x, z: me.m.z, yaw: me.m.yaw}); P.yaw = me.m.yaw; handover(); FS.state = "live"; }
+  else if (!FS.onPitch){ FS.state = "bench"; }
+  reveal(100);
+  return true;
+}
+
 // a test's situation set up on the simulation's own state, before its first step (a cut: nothing has been drawn yet)
 function scenario(name, o){
   const ms = FS.ms, me = ms.agents[ms.me];
@@ -1890,6 +2044,8 @@ function gkShotsDriver(){
 window.__fp = {
   get ms(){ return FS.ms; }, me: () => FS.ms && FS.ms.me >= 0 ? FS.ms.agents[FS.ms.me] : null, ball: () => FS.ms ? FS.ms.ball : null,
   seed(n){ FS.seedOverride = n; }, enter: (f, o) => enter(f, o || {}), exit: () => abort(),
+  // (P8-A) the career's host as registered (tests spy on it: Training never calls it), and the host of this match
+  careerHost: () => HOST, host: () => FS.host,
   // n fixed steps of play as live play does them (your input first), no drawing
   stepN(n){ let k = 0; for (; k < n && FS.ms && FS.ms.phase !== "over"; k++){ oneStep(); events(); } mirror(); return k; },
   // headless to the match second untilSec (5400: to the end), half time and full time handled as live play does,
