@@ -93,3 +93,19 @@ tedious, looks incredible hard and plays bad and not even rewarding"
   before you start the kick.
 - Overall: the game must feel easier and more rewarding to play, not tedious. Tune toward an arcade-friendly default
   (assists on) with a harder setting available.
+
+## Round 3 (Oct 17 evening)
+
+User's words: "instead of the first game when playing is third person always when playing or in contact with a ball
+but when doing your life you are in first person"
+
+- U21 Camera by activity: every football activity (career matches, the daily team session and lessons, Training Mode
+  drills, Free Play, Full Match, the cage, warm-up games with a ball, and any moment you have the ball in life, for
+  example the apartment ball) uses a third-person camera behind and slightly above the player. Everything else in life
+  (walking around, home, shops, jobs, bus) stays first person. Switch smoothly (no cut) when the activity starts or
+  ends. Defaults: a chase camera about 4 m behind and 1.8 m above the player's head, looking slightly down past the
+  player toward where they aim; it never clips into walls, goals or the fence; it turns with the mouse as the aim does
+  now. The shot meter, kick selector, pass assist and crosshair work the same, placed for third person (the aim point
+  shown on the pitch ahead). Keep a setting to go back to first person for football (Settings: Football camera =
+  Third person (default) / First person), and keep the existing view toggle key working. Replays and cut-scenes are
+  unchanged.
