@@ -661,7 +661,6 @@ export function settingsHTML(o = {}){
   rows.push(["Camera motion and effects", range("motion", 0, 1, .05, SET.motion)]);
   rows.push(["Control hints", seg("hints", [[true, "On"], [false, "Off"]], SET.hints)]);
   rows.push(["Offside marker", seg("offsidePip", [["auto", "Auto"], ["on", "On"], ["off", "Off"]], SET.offsidePip)]);
-  rows.push(["Spoken team-mates' calls", seg("speech", [[true, "On"], [false, "Off"]], SET.speech)]);
   rows.push(["Volume", range("volume", 0, 1, .05, SET.volume)]);
   rows.push(["HUD size", range("hudScale", .75, 1.4, .05, SET.hudScale)]);
   rows.push(["HUD opacity", range("hudOpacity", .35, 1, .05, SET.hudOpacity)]);

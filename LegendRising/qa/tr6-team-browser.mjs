@@ -14,7 +14,7 @@
 //     skips it, and the next go starts;
 //   - a scripted offside (my pass to a team-mate standing past their line) shows the offside notice on the Training HUD;
 //   - calls: an AI team-mate's call shows a .fp-call with his name, within 160 x 48 px, over him (or on the edge on his
-//     bearing), gone within 2 s; the spoken call fires with speech on (an audio spy) and not with it off; no HUD
+//     bearing), gone within 2 s; no call is ever spoken aloud (an audio spy); no HUD
 //     marker over 64 px points at a player or the ball;
 //   - the career untouched (write spy, career diff), and no console or page error.
 //
@@ -278,7 +278,7 @@ try {
     res.calls = {calls:w.calls.slice(0, 6), said:w.said - said0};
     const okCalls = calls.length > 0 && calls.every(c => c.w <= 160 && c.h <= 48 && c.name === c.agentName && (c.edge || c.off.length && Math.max(...c.off) <= 40) && (c.life == null || c.life <= 2000));
     check(okCalls, "an AI team-mate's call shows his name in a .fp-call within 160 x 48 px, over him or on the edge on his bearing, gone within 2 s", res.calls);
-    check(w.said - said0 > 0, "the spoken call fires with speech on", {said:w.said - said0});
+    check(w.said - said0 === 0, "no call is ever spoken aloud (text to speech removed)", {said:w.said - said0});
     const big = w.markers.filter(m => m.w > 64 || m.h > 64);
     res.markers = {n:w.markers.length, big};
     check(!big.length, "no HUD marker over 64 px points at a player or the ball", res.markers);
@@ -289,7 +289,7 @@ try {
     const w2 = await watchCalls(5);
     const callsOff = await page.evaluate(() => { const ms = window.__trainRun.RUN.ms; return ms.events.filter(e => e.kind === "call" && e.agent !== ms.me).length; });
     res.speech = {on:w.said - said0, off:w2.said - said1, callsOff};
-    check(callsOff > 0 && w2.said - said1 === 0, "the spoken call stays quiet with speech off (the name tag still shows)", res.speech);
+    check(callsOff > 0 && w2.said - said1 === 0, "calls still happen and stay silent (the name tag still shows)", res.speech);
     await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); C.saveSet({speech:true}); Object.assign(C.SET, {speech:true}); });
     await backToHub(page);
   }

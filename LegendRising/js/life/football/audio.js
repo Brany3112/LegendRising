@@ -1,6 +1,6 @@
 /* ============ Football: the sound of a match ============
    Owner: WP-D (pitch mesh, stadium, crowd, audio). Contract: DESIGN 1.4.17 (audio.js: AUD), spec 3.3.6; the volume
-   and speech settings of 1.6 (localStorage "freyaFootball.ctrl": {volume, speech}).
+   setting of 1.6 (localStorage "freyaFootball.ctrl": {volume}). Calls are never spoken aloud (the user removed text to speech for good).
 
    Every sound is made here with WebAudio, from oscillators and noise: there is no audio file anywhere.
      AUD.init()            asks for sound. The AudioContext is only made once the page has had a user gesture (the
@@ -11,8 +11,8 @@
                            whistleShort, whistleLong, whistleTriple, kick, bounce, post, net, board, crowdOoh, crowdRoar,
                            crowdGroan, and for the bench warm-up (A1.8) clap (a few fans clapping) and tick (a soft beat)
      AUD.crowd(level, excite)   the crowd's bed of noise: level 0..1 from the attendance, excite 0..1 swells it
-     AUD.call(name, pos, voiceSeed)   a team-mate's "hey!" from his head (an HRTF panner), and his name said by the
-                           browser's speech voice when the setting allows and there is one
+     AUD.call(name, pos, voiceSeed)   a team-mate's "hey!" from his head (an HRTF panner); his name is shown on
+                           the HUD, never spoken (no text to speech)
      AUD.listener(pos, yaw) where your ears are (every frame, from the camera)
      AUD.dispose()         everything stops; the context sleeps until the next init()
    At most 12 sounds play at once: a new one stops the oldest. With no audio at all (no WebAudio, or no gesture yet)
@@ -21,8 +21,8 @@
 const CTRL_KEY = "freyaFootball.ctrl", MAX_VOICES = 12;
 export const CUES = ["whistleShort", "whistleLong", "whistleTriple", "kick", "bounce", "post", "net", "board", "crowdOoh", "crowdRoar", "crowdGroan", "clap", "tick"];
 function settings(){
-  try { return Object.assign({volume:.8, speech:true}, JSON.parse(localStorage.getItem(CTRL_KEY) || "{}") || {}); }
-  catch(e){ return {volume:.8, speech:true}; }
+  try { return Object.assign({volume:.8}, JSON.parse(localStorage.getItem(CTRL_KEY) || "{}") || {}); }
+  catch(e){ return {volume:.8}; }
 }
 // a small seeded value from an integer, for voices and the crowd's chorus
 const hash = n => { let h = Math.imul((n | 0) ^ 0x9e3779b9, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); return ((h ^ (h >>> 16)) >>> 0)/4294967296; };
@@ -250,15 +250,6 @@ export const AUD = {
   muffle(m){ AU.muffle = Math.max(0, Math.min(1, +m || 0)); if (AU.bed) AU.bed.lp.frequency.setTargetAtTime(9000 - 8400*AU.muffle, AU.ctx.currentTime, .25); },
   call(name, pos, voiceSeed = 0){
     const ok = play((c, out, t) => hey(c, out, t, 1, voiceSeed), pos || null, true);
-    if (ok && name && settings().speech !== false){
-      try {
-        const sp = window.speechSynthesis;
-        if (sp && sp.getVoices && sp.getVoices().length){
-          const u = new SpeechSynthesisUtterance(String(name)); u.volume = .35*AU.vol; u.rate = 1.3; u.pitch = .8 + .5*hash(voiceSeed | 0);
-          setTimeout(() => { try { sp.speak(u); } catch(e){} }, 180);
-        }
-      } catch(e){}
-    }
     return ok;
   },
   listener(pos, yaw){
