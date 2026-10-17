@@ -866,7 +866,7 @@ function drillScript(kind, D, run){
       takeBall(T, sp.x, sp.z, true);
       startRestart(T.ms, "free", T.myTeam, {x:sp.x, z:sp.z});
       if (T.ms.restart) T.ms.restart.taker = me.id;
-      card("Over the wall or round it. Left button to shoot; the wheel, or 1, 2 and 3, for low, normal or high contact.");
+      card("Over the wall or round it. Left button to shoot. Scroll the mouse wheel to pick the kick type shown in the corner, or press 1, 2 or 3 for Driven, Normal or Chip.");
       return;
     }
     let tgt;
@@ -1208,7 +1208,7 @@ function lessonScript(L, run){
           return;
         }
         case "shoot": {
-          if (!S.fed){ feedMe(T); card(`${!S.low ? "Low contact: the wheel down, or 1." : "High contact: the wheel up, or 3."} Left button to shoot.`); return; }
+          if (!S.fed){ feedMe(T); card(`${!S.low ? "Driven keeps it low: press 1, or scroll down to Driven." : "A chip lifts it: press 3, or scroll up to Chip."} Left button to shoot.`); return; }
           if (T.feed) return;
           const v = TS.shotTest(evsOf(T), me.id, {timeUp:T.tRep > TRAIN.REP_LIMIT, dead:ballDead(T)});
           if (!v) return;
@@ -1216,7 +1216,7 @@ function lessonScript(L, run){
           if (v.ok && v.contact < 0) S.low = true;
           if (v.ok && v.contact > 0) S.high = true;
           if (S.low && S.high) return tryOver(T, true, "");
-          hudResult(v.ok ? (v.contact < 0 ? "Low and on target" : v.contact > 0 ? "High and on target" : "On target, now change the contact") : WHY[v.why] || "Again", "", v.ok);
+          hudResult(v.ok ? (v.contact < 0 ? "Low and on target" : v.contact > 0 ? "High and on target" : "On target. Now switch to Driven or Chip") : WHY[v.why] || "Again", "", v.ok);
           if (S.shots >= 2*TRAIN.TRIES) return tryOver(T, false, v.why);
           S.fed = false; S.stage = "go";
           return;

@@ -173,7 +173,7 @@ export const LESSONS = Object.freeze([
     line: "When a teammate calls, look for him. Pass with the right mouse button.",
     area: {x0: -26, x1: 6, z0: -2, z1: 22}, dir: 1, start: {x: -10, z: 10}, feed: {kind: 'pass', from: {x: -22, z: 18}}, mates: 2, mateSlots: ['CB', 'CDM'], opps: 0, keeper: false},
   {n: 4, kind: 'shoot', mode: 'lesson', title: "Shoot low and high",
-    line: "Low contact keeps it down. High contact lifts it. Try both.",
+    line: "Pick the kick type in the corner with the mouse wheel. Driven keeps it low, a chip lifts it. Try both.",
     area: null, dir: 1, start: {x: 17, z: 4}, feed: {kind: 'pass', from: {x: 24, z: 15}}, mates: 0, opps: 0, keeper: true},
   {n: 5, kind: 'position', mode: 'lesson', title: "Position and the offside line",
     line: "Take your position when I call the shape. Stay level with the last defender until the pass is played.",

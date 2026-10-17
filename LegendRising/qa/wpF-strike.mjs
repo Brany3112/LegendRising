@@ -38,6 +38,8 @@ const snap = async name => {
 };
 try {
   await career(page, {zone: "ground", min: 15*60});
+  // (UF2-A: with the assists on, a clean release forgives the stride, so the rhythm checks below run with them off)
+  await page.evaluate(() => window.fpSet("assist", "off"));
   await freeze(page);
   await page.evaluate(() => {
     const L = window.__life, F = window.__fp;
@@ -154,7 +156,7 @@ try {
     };
     const l0 = leg();
     S.btn(0, true); S.steps(30);
-    const mid = {p: F.ctrl.wind.p, k: F.MC.wind.k, leg: leg(), look: L.P.pitch, camPitch: L.cam.rotation.x, arc: +getComputedStyle(document.querySelector("#fpHud .fp-arcg")).opacity, ret: +document.querySelector("#fpHud .fp-ret").style.opacity,
+    const mid = {p: F.ctrl.wind.p, k: F.MC.wind.k, leg: leg(), look: L.P.pitch, camPitch: L.cam.rotation.x, arc: +getComputedStyle(document.querySelector("#fpHud .fp-meter")).opacity, ret: +document.querySelector("#fpHud .fp-ret").style.opacity,
       retY: (() => { const m = /translate\([^,]+,\s*([-\d.]+)px/.exec(document.querySelector("#fpHud .fp-ret").style.transform || ""); return m ? +m[1] : null; })()};
     S.steps(60);
     const over = {over: F.ctrl.wind.over, red: document.querySelector("#fpHud .fp-ret-c").classList.contains("over"), y: F.ctrl.ret.y, lean: F.ctrl.ret.sp};
@@ -178,7 +180,7 @@ try {
     "looking down at the ball, the knee and the boot drawn back behind it are both in view", S3.down);
   check(Math.abs(S3.down.back - S3.mid.leg.back) < .05 && Math.abs(S3.down.kneeY - S3.mid.leg.kneeY) < .05,
     "the wind-up is the same pose whichever way you look", {goal: S3.mid.leg, down: S3.down});
-  check(S3.mid.arc > .8 && S3.mid.ret > .8, "the power arc shows round the reticle while winding up", S3.mid);
+  check(S3.mid.arc > .8 && S3.mid.ret > .8, "the power meter shows near the crosshair while winding up", S3.mid);
   check(S3.over.over > .9 && S3.over.red && S3.k && /over/.test(S3.k.shape) && S3.k.ty > 1.6, "held past full: it trembles, turns red, you lean back and the shot rises", {over: S3.over, kick: S3.k});
 
   // ---- 4. the body shape through the release (each a real launch parameter)

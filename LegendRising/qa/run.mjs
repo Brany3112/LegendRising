@@ -55,7 +55,11 @@ const NAMED = {
   tr6: ["tr6-receive", "tr6-receive-anim", "tr6-team", "tr6-team-browser"],
   tr6a: ["tr6-receive", "tr6-receive-anim"],
   tr6b: ["tr6-team", "tr6-team-browser"],
-  uf: ["uf-turn", "uf-throwin", "uf-anim", "uf-sub", "uf-fence", "uf-bench", "uf-aura", "uf-callpass", "uf-kits"]
+  uf: ["uf-turn", "uf-throwin", "uf-anim", "uf-sub", "uf-fence", "uf-bench", "uf-aura", "uf-callpass", "uf-kits"],
+  // User fix round 2 (UF2): UF2-A's feel suite (first-person body, settle, meter, pass assist, kick type), UF2-B's small-sided game suites
+  uf2: ["uf2-feel", "uf2-ssg-sim", "uf2-ssg"],
+  uf2a: ["uf2-feel"],
+  uf2b: ["uf2-ssg-sim", "uf2-ssg"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){
