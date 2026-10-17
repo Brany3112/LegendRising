@@ -31,7 +31,13 @@
    contact moment and point, with touch.js touchPart's part (the foot, the raised foot, the thigh, the chest); it is kept
    on that contact as it is worked out again, put on the simulation's own point once the touch is taken, and over at
    most 0.35 s after it. A ball on its way to a body a second or so off brings the upper body's 'ready' gesture. A strike
-   at a dead ball begins on the walk-up, on the moment the simulation's window says, so the run-up is the clip's. */
+   at a dead ball begins on the walk-up, on the moment the simulation's window says, so the run-up is the clip's.
+   UF2-A (stage UF2, USER-ISSUES U12 and U18): your body in your eyes ends its clips where they play (a clip of a strike,
+   a tackle or a slide was kept after its act: your whole body is not drawn in first person, so its actor never saw the
+   clip end), takes a slide from where it began and jumps with you, and stands at ease while the simulation is held
+   (fpHeld). A ball into the net ripples it (netRipple: the nets' own mesh pushed back round the ball for a moment, and a
+   ring spreading on the mesh where it went in) and, where nobody else plays the net's sound, it is heard; your clean
+   strike (control.js, the meter's sweet spot) rings out over the kick. */
 import {THREE} from "../build.js";
 import {human, animateHuman, lookFor, EV} from "../human.js";
 import {SCHED} from "../core/sched.js";
@@ -45,6 +51,7 @@ import {R as zoneR, part as zonePart, playableFrom} from "./zone.js";
 import {touchPart} from "./touch.js";
 import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
+import {AUD} from "./audio.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -181,6 +188,100 @@ export function viewFrame(V, ms, alpha, dt, cam){
   // its actor, so the hands are the ones drawn this frame; your own, first person, fpPose does after the camera)
   const th = !V.src && ms.ball.state === "held" ? ms.agents[ms.ball.holder] : null, TR = th ? V.rec[th.id] : null;
   if (TR && !TR.hidden) throwBall(V, TR, th, ms, TR.h, dt, "thw");
+  // (UF2-A) the net when the ball goes in, and your clean strike heard
+  netFrame(V, ms, dt);
+  cleanFeel(V, ms);
+}
+
+/* ---------- the net and the clean strike (UF2-A, U18: a strike that feels rewarding) ---------- */
+// RIP: how long the ripple lasts (s), how far round the ball the net gives (m), how far it is pushed at most (m), its
+// wobble (rad/s); the ring spreading where the ball went in (its largest radius, m)
+const RIP = Object.freeze({T:.9, R:1.2, A:.22, W:15, RING:1.1});
+function netFrame(V, ms, dt){
+  const b = V.src ? null : ms.ball;
+  if (b){
+    if (b.netHit && !V.netWas){
+      const x = b.p.x + V.ox, y = b.p.y, z = b.p.z + V.oz;
+      netRipple(V, x, y, z, b.v);
+      // (heard where nobody else plays it: a match's controller does, a training item does not)
+      const subs = ms.subsFn && ms.subsFn.net;
+      if (!(subs && subs.length)) try { AUD.cue("net", {x, y, z}, .9); } catch(e){}
+    }
+    V.netWas = !!b.netHit;
+  }
+  rippleStep(V, dt);
+}
+// the nets' meshes in the world (pitchmesh.js names them "pitch-nets"; one merged into a batch is not there to move)
+function netMeshes(V){
+  if (V.nets && V.nets.length && V.nets.every(m => m.parent)) return V.nets;
+  let root = V.scene; while (root && root.parent) root = root.parent;
+  const out = [];
+  if (root) root.traverse(o => { if (o.isMesh && o.name === "pitch-nets" && o.geometry && o.geometry.attributes.position) out.push(o); });
+  return (V.nets = out);
+}
+const _rp = new THREE.Vector3(), _rv = new THREE.Vector3(), _rq = new THREE.Quaternion();
+export function netRipple(V, x, y, z, v){
+  if (!V || !V.scene) return null;
+  const vl = Math.hypot(v.x, v.y, v.z) || 1;
+  // the mesh the ball went into: its own vertices pushed back round the ball (its rest positions kept to put them back)
+  let hit = null;
+  for (const m of netMeshes(V)){
+    m.updateMatrixWorld(true);
+    _rp.set(x, y, z); m.worldToLocal(_rp);
+    const g = m.geometry; if (!g.boundingBox) g.computeBoundingBox();
+    if (g.boundingBox.distanceToPoint(_rp) < .6){ hit = m; break; }
+  }
+  if (V.rip && V.rip.m){ V.rip.m.geometry.attributes.position.array.set(V.rip.base); V.rip.m.geometry.attributes.position.needsUpdate = true; }
+  V.rip = null;
+  if (hit){
+    const pos = hit.geometry.attributes.position, base = hit.userData.netBase || (hit.userData.netBase = Float32Array.from(pos.array));
+    _rv.set(v.x/vl, v.y/vl, v.z/vl); _rq.copy(hit.quaternion).invert(); _rv.applyQuaternion(_rq);
+    V.rip = {m:hit, base, lx:_rp.x, ly:_rp.y, lz:_rp.z, dx:_rv.x, dy:_rv.y, dz:_rv.z, t:0, a:RIP.A*Math.min(1, .35 + vl/22)};
+  }
+  // the ring spreading on the net where it went in (facing the way the ball came)
+  let ring = V.ripRing;
+  if (!ring){
+    ring = V.ripRing = new THREE.Mesh(new THREE.RingGeometry(.86, 1, 40), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide}));
+    ring.userData.noMerge = true; ring.renderOrder = 3; ring.name = "net-ripple";
+    let root = V.scene; while (root && root.parent) root = root.parent;
+    (root || V.scene).add(ring);
+  }
+  ring.position.set(x, y, z); _rv.set(x + v.x/vl, y + v.y/vl, z + v.z/vl); ring.lookAt(_rv);
+  ring.visible = true; ring.scale.setScalar(.05); ring.userData.t = 0;
+  return V.rip;
+}
+function rippleStep(V, dt){
+  const R = V.rip;
+  if (R){
+    R.t += Math.max(0, dt || 0);
+    const pos = R.m.geometry.attributes.position, a = pos.array, base = R.base, k = R.t/RIP.T;
+    if (k >= 1 || !R.m.parent){ a.set(base); pos.needsUpdate = true; V.rip = null; }
+    else {
+      const env = (1 - k)*(1 - k), wave = Math.cos(R.t*RIP.W)*R.a*env, r2 = RIP.R*RIP.R;
+      for (let i = 0; i < a.length; i += 3){
+        const ex = base[i] - R.lx, ey = base[i + 1] - R.ly, ez = base[i + 2] - R.lz, d2 = ex*ex + ey*ey + ez*ez;
+        if (d2 >= r2){ a[i] = base[i]; a[i + 1] = base[i + 1]; a[i + 2] = base[i + 2]; continue; }
+        const w = (1 - d2/r2)*(1 - d2/r2)*wave;
+        a[i] = base[i] + R.dx*w; a[i + 1] = base[i + 1] + R.dy*w*.4; a[i + 2] = base[i + 2] + R.dz*w;
+      }
+      pos.needsUpdate = true;
+    }
+  }
+  const ring = V.ripRing;
+  if (ring && ring.visible){
+    const t = (ring.userData.t += Math.max(0, dt || 0)), k = Math.min(1, t/.55);
+    ring.scale.setScalar(.05 + RIP.RING*k); ring.material.opacity = .55*(1 - k);
+    if (k >= 1) ring.visible = false;
+  }
+}
+// your clean strike (the meter's sweet spot, control.js): a bright ring on top of the kick the caller plays
+function cleanFeel(V, ms){
+  const K = !V.src && ms.kick;
+  if (!K || K.ev === V.cleanEv) return;
+  V.cleanEv = K.ev;
+  const ev = K.ev;
+  if (!ev || !ev.clean || K.agent !== V.me) return;
+  try { AUD.cue("tick", {x:ev.x + V.ox, y:.3, z:ev.z + V.oz}, 1.8); AUD.cue("kick", {x:ev.x + V.ox, y:.2, z:ev.z + V.oz}, .45); } catch(e){}
 }
 /* the ball never smaller on screen than BALL_MIN_PX across (TRAINING-SPEC 2, "ball readable"): far off, a real ball
    (22 cm) is under 3 px at 40 m in a 720-pixel-high view; beyond the distance where it would be, it is drawn a little
@@ -236,6 +337,7 @@ function animAgent(V, R, dt, tier){
   const st = S ? replaySt(R, S) : Q ? preSt(R, Q) : liveSt(V, R, a, ms, dt);
   if (st.groupY != null) h.g.position.y = st.groupY;
   if (st.groupAt){ h.g.position.x = st.groupAt.x; h.g.position.z = st.groupAt.z; }
+  rebase(h, R.base || (R.base = {x:0, z:0, at:false, ok:false}), !!st.groupAt);
   const ev = animateHuman(h, dt, st, {tier:R.hidden ? 4 : tier});
   // (a clip that has played to its end is not started again for the same act: a slide or a header is not replayed
   // while its act lingers, UF-A U7)
@@ -692,7 +794,33 @@ function readyFor(V, R, a, ms){
   return c;
 }
 
+/* ---------- a body's group moved under its pose (UF2-A, U12) ----------
+   A clip that carries the body from its own start (a slide: groupAt) is given up or taken on: the group moves from that
+   start to where the agent is (or back) in one frame, so the last pose's hips (Q 80..82, in the group's own frame) and
+   the group as it was drawn are moved by as much the other way, and the blend into the new pose starts from where the
+   body really was drawn. Without it the blend carried the slide's whole travel: the body shot out ahead and slid back
+   over a second. B: the body's own record of its group {x, z, at, ok}; at: a groupAt clip now */
+function rebase(h, B, at){
+  if (B.ok && B.at !== at && h.posed){
+    const dx = B.x - h.g.position.x, dz = B.z - h.g.position.z, ry = h.g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), sc = h.scale || 1;
+    const lx = (c*dx - sn*dz)/sc, lz = (sn*dx + c*dz)/sc;
+    for (const Pq of [h.pose, h.posePrev]) if (Pq){ Pq[80] += lx; Pq[82] += lz; }
+    // (and the group as it was drawn is the new one: the feet found from that pose stay where they were, human.js)
+    if (h.drawn){ h.drawn[0] = h.g.position.x; h.drawn[2] = h.g.position.z; }
+  }
+  B.x = h.g.position.x; B.z = h.g.position.z; B.at = at; B.ok = true;
+}
+
 /* ---------- your first-person body (matchcam.js calls this after placing the eye) ---------- */
+// (UF2-A, U12) is the simulation held: its clock has not moved for FP_HELD real seconds and no replay or walk-out is
+// drawn (a pause card, the pointer let go; a slow-motion hit-stop still steps well inside that)
+const FP_HELD = .25;
+function fpHeld(V, ms, dt){
+  if (!ms || V.src || V.pre){ V.fpStill = 0; V.fpT = ms ? ms.t : 0; return false; }
+  if (ms.t !== V.fpT){ V.fpT = ms.t; V.fpStill = 0; return false; }
+  V.fpStill = (V.fpStill || 0) + Math.max(0, dt || 0);
+  return V.fpStill > FP_HELD;
+}
 const FPST = {mode:"move", speed:0, root:{x:0, z:0}, armsIn:0, fatigue:0, correct:null, intent:0, style:undefined};
 // x, z: where you stand; yaw: where you look; dt; armsIn (0..1), correct (the neck fix); returns the pose's events
 export function fpPose(V, x, z, yaw, dt, o = {}){
@@ -703,18 +831,33 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   h.g.visible = !!(V.fpOn && !V.src && !V.hideAll);
   if (!h.g.visible) return 0;
   const s = h.scale || 1, back = o.back || 0;
-  h.g.position.set(x - dirOf(yaw).x*back, o.y || 0, z - dirOf(yaw).z*back); h.g.rotation.y = yaw + Math.PI;
+  // (UF2-A, USER-ISSUES U12) the body off the grass with you: your jump (the agent's own height, the eye's too) or the
+  // clip's own lift, as your whole body has it (animAgent), so the eye and the legs under it stay one body
+  h.g.position.set(x - dirOf(yaw).x*back, o.y != null ? o.y : a ? a.y || 0 : 0, z - dirOf(yaw).z*back); h.g.rotation.y = yaw + Math.PI;
+  // (U12) held: the simulation has not moved for a moment (the pause card, a lost pointer) while nobody replays. You
+  // stand where you are, at ease, rather than run on the spot or hang in the middle of a clip under a still camera
+  const held = fpHeld(V, ms, dt);
   let st = FPST;
-  if (a){
+  if (a && !held){
     const R = V.rec[a.id];
     // a strike, a tackle, a header, a receive: the same clip as your whole body, seen from inside it
     const clip = R && R.clip && R.clip.mode !== "celebrate" ? R.clip : null;
-    if (clip) st = clip;
+    // (U12: the clip's own root, as your whole body has it, animAgent. A slide carries the body along its curve from
+    // where it began: posed from where you are now it was carried that far again, and the legs lay out ahead of the
+    // eye as if you were sitting back on the grass)
+    if (clip){
+      st = clip;
+      if (clip.groupY != null) h.g.position.y = clip.groupY;
+      if (clip.groupAt){ h.g.position.x = clip.groupAt.x; h.g.position.z = clip.groupAt.z; }
+    }
   }
   if (st === FPST){
-    if (a) locoOf(FPST, a);
+    if (a && !held) locoOf(FPST, a);
+    else if (held){ FPST.mode = "move"; FPST.speed = 0; FPST.intent = 0; FPST.style = undefined; }
     else { FPST.speed = o.speed || 0; FPST.intent = FPST.speed; FPST.style = undefined; }
-    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn || 0; FPST.correct = o.correct || null;
+    // (the arms kept nearer the body as you look down at a run: matchcam.js hands in its share, V.fpArms, as me.js
+    // does for the life body; a caller's own armsIn wins)
+    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn != null ? o.armsIn : V.fpArms || 0; FPST.correct = o.correct || null;
     FPST.fatigue = a && a.st ? clamp(1 - a.st.B/60, 0, 1)*.6 : 0;
     // (shielding: your arms come out wide and back, at the edges of your view, P2b-B; the ball of your throw-in in your
     // hands, and your hand up in front of you as you ask for the ball, UF-A U6 and U10)
@@ -722,7 +865,18 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     FPST.upper = hold || (a && shielding(a) ? UP_SHIELD : hand);
   }
   void s;
+  V.fpHeldNow = held;
+  // (U12) a clip that carries the body from its own start (a slide, groupAt) given up or taken on: the body's group
+  // moves from that start to where you are (or back) in one frame, so the last pose's hips are moved by as much the other
+  // way in the group's own frame, and the blend into the new pose starts from where the body really was drawn. Without
+  // it the blend carried the slide's whole travel: the body shot out ahead of the eye and slid back over a second
+  rebase(h, V.fpBase || (V.fpBase = {x:0, z:0, at:false, ok:false}), st !== FPST && !!st.groupAt);
   const mask = animateHuman(h, dt, st).mask;
+  // (U12) your clip ends where it plays: in your eyes. Your whole body is not drawn while you look through them (its
+  // actor poses it at tier 4, which runs no clip and so never says it ended, animAgent), so the clip of a strike, a
+  // tackle or a slide was kept after its act, and the body in your eyes stood frozen in its last pose (lying back
+  // after a slide, the legs out ahead of you) until your next action
+  if (a && st !== FPST && (mask & EV.END)){ const R = V.rec[a.id]; if (R && R.clip === st){ R.doneAct = R.clip.ref; R.clip = null; } }
   if (a && V.rec[a.id]) throwBall(V, V.rec[a.id], a, ms, h, dt, "thwFP");
   return mask;
 }
@@ -773,7 +927,10 @@ export function viewDispose(V){
   // (each ball's geometry and material are its own, pitchmesh.js ballMesh: they go with the view, P2-B perf-2; the
   // blob under it is shared and stays)
   for (const b of [V.ball].concat(V.extra)) if (b){ if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); }
-  for (const k of ["ringSpot", "ringRecv"]) if (V[k]){ V[k].geometry.dispose(); V[k].material.dispose(); if (V[k].parent) V[k].parent.remove(V[k]); V[k] = null; }
+  for (const k of ["ringSpot", "ringRecv", "ripRing"]) if (V[k]){ V[k].geometry.dispose(); V[k].material.dispose(); if (V[k].parent) V[k].parent.remove(V[k]); V[k] = null; }
+  // (a net still rippling is put back as it was)
+  if (V.rip && V.rip.m){ V.rip.m.geometry.attributes.position.array.set(V.rip.base); V.rip.m.geometry.attributes.position.needsUpdate = true; }
+  V.rip = null; V.nets = null;
   V.extra.length = 0;
 }
 // a pose of the view's bodies for a replay frame (replay.js): src = {agents: [{x, z, y, yaw, speed, on, mode, st, cid}], ball}

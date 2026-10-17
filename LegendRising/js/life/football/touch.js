@@ -16,6 +16,14 @@
 // - the cushioned header (headerContact intent kind 'cushion'): the neck gives with the ball instead of attacking it,
 //   so it drops in front of him at CUSHION.MAX m/s or less (a clearance or an attacking header leaves at 6 m/s or more).
 //
+// UF2-A (stage UF2, USER-ISSUES U17, ball control made easier for the player; the AI never asks for either, so the
+// match's calibration is untouched):
+// - the settle (firstTouch ctx.settle, 0..1): the first touch kills the ball onto the preferred foot, SETTLE.D (plus
+//   SETTLE.Q for a poorer q) ahead along the way he means, SETTLE.LAT to the preferred foot's side, with a smaller
+//   length and direction error, instead of pushing it touchDist(q) ahead;
+// - close control (dribbleTouch ctx.close, 0..1): below a sprint the dribble's lead is CLOSE.L0 + CLOSE.LV v (with
+//   the square root of Ball Control's share), so the ball stays by the main foot; only a sprint pushes it on.
+//
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Randomness comes from r (rng.js).
 // Every function returns velocities and decisions; the caller applies them with ballKick (ball.js), so a touch is a
 // real kick of the one ball and nothing attaches from outside the reach envelope.
@@ -56,6 +64,9 @@ export const TOUCH = Object.freeze({
 // P6-A: the cushioned header. Its speed is 0.6 + 0.08 x the ball's speed + 1.2 (1 - heading/99), at most MAX (m/s),
 // played PITCH below the look (radians) so it drops onto the feet in front, with an aim error of (1 - heading/110) x ERR
 export const CUSHION = Object.freeze({MAX: 3.0, MIN: 0.6, K_IN: 0.08, K_SKILL: 1.2, PITCH: 28*DEG, ERR: 8*DEG});
+// UF2-A (U17): the settle and close control (see the header). Metres scaled by the body's height
+export const SETTLE = Object.freeze({D: 0.38, Q: 0.3, LAT: 0.06, ERR: 0.7, ANG: 0.6});
+export const CLOSE = Object.freeze({L0: 0.3, LV: 0.07});
 
 /* ---------- the part a touch is made with (P6-A) ----------
    touchPart(agent, ball, want) -> 'foot' | 'thigh' | 'chest' | 'head'. ball: {p, v} or a point. Heights are of the
@@ -225,26 +236,43 @@ export function firstTouch(agent, ball, intent, ctx, r){
   // his speed along the way and across it
   const along = Math.max(0, pv.x*dx + pv.z*dz), crossX = pv.x - (pv.x*dx + pv.z*dz)*dx, crossZ = pv.z - (pv.x*dx + pv.z*dz)*dz;
   const rd = ctx.rollDecel != null ? +ctx.rollDecel : (ball.rollDecel || 1.1);
-  const lenErr = truncNormal(r, T.LEN_ERR*(1 - qq), 2.5);
-  const L = touchDist(qq)*Math.max(0.5, 1 + lenErr);
+  // (UF2-A, U17) the settle: killed onto the preferred foot, a short touch to its side with less error
+  // (a ball on the grass only: one taken in the air, off the thigh, the chest or a raised foot, already drops dead in
+  // front of him, P6-A, and is played as before)
+  const vy = T.BODY_POP[part] || 0;
+  const yA = P.y - R, airT = yA > 0.05 || vy > 0 ? (vy + Math.sqrt(vy*vy + 2*G*Math.max(0, yA)))/G : 0;
+  const st = airT > 0 ? 0 : clamp(+ctx.settle || 0, 0, 1);
+  const lenErr = truncNormal(r, T.LEN_ERR*(1 - qq)*(1 - SETTLE.ERR*st), 2.5);
+  const Ls = (SETTLE.D + SETTLE.Q*(1 - qq))*sc;
+  const L = (touchDist(qq) + (Math.min(touchDist(qq), Ls) - touchDist(qq))*st)*Math.max(0.5, 1 + lenErr);
+  if (st > 0){
+    const pf = footOf(agent), side = pf === 'L' ? -1 : pf === 'R' ? 1 : 0, ang = side*atan(SETTLE.LAT*sc/Math.max(0.2, L))*st;
+    const ca = cos(ang), sa = sin(ang), nx = dx*ca - dz*sa, nz = dx*sa + dz*ca;
+    dx = nx; dz = nz;
+  }
   const ahead0 = (P.x - m.x)*dx + (P.z - m.z)*dz;
   // met further out than the touch distance: a man standing (or barely moving) cushions it back toward him to rest at
   // it; a man on the run cannot pull it in closer than where he met it, so it is carried on with him from there
-  const vy = T.BODY_POP[part] || 0;
   // a ball that leaves the touch in the air (off the thigh or the chest, or a raised foot's) falls first, then rolls:
-  // its lead is the flight's and the roll's after it (airLead, P6-A), not a roll's from the touch
-  const yA = P.y - R, airT = yA > 0.05 || vy > 0 ? (vy + Math.sqrt(vy*vy + 2*G*Math.max(0, yA)))/G : 0;
+  // its lead is the flight's and the roll's after it (airLead, P6-A), not a roll's from the touch (vy, airT above)
   const u0 = airT > 0 ? speedForAirGap(L, ahead0, along, rd, airT, G*airT - vy)
     : L - ahead0 >= 0 ? speedForGap(L - ahead0, along, rd) : along < 0.5 ? -Math.sqrt(2*rd*(ahead0 - L)) : along;
-  const sig = (1 - ctrl/110)*0.35*vRel/15;
+  const sig = (1 - ctrl/110)*0.35*vRel/15*(1 - SETTLE.ANG*st);
   const angErr = sig > 0 ? truncNormal(r, sig, 2.5) : 0;
   const c = cos(angErr), s = sin(angErr);
-  const kx = dx*c - dz*s, kz = dx*s + dz*c;
+  let kx = dx*c - dz*s, kz = dx*s + dz*c, u = u0;
+  // (UF2-A, U17) the settle of a ball on the grass by a man standing or barely moving: played from where it is to the
+  // spot by his preferred foot (L out along the way he means, turned to that foot's side), to rest there; the
+  // direction's error turns it about that line as it would any touch
+  if (st > 0 && airT === 0 && along < 1){
+    const tx = m.x + kx*L, tz = m.z + kz*L, bx = tx - P.x, bz = tz - P.z, D = hypot(bx, bz);
+    if (D > 1e-4){ kx = bx/D; kz = bz/D; u = speedForGap(D, 0, rd); } else u = 0;
+  }
   const airborne = P.y > R + 0.05;
   const heavy = qq < TUNE.HEAVY_Q.value;
   const pushK = clamp(intent.push != null ? +intent.push : 0.5, 0, 1);
-  return {v: {x: kx*u0 + crossX, y: vy, z: kz*u0 + crossZ}, quality: qq, q: qq, heavy, bounce: airborne || vy > 0, part, dist: L, angErr,
-    push: dl > 1e-6 ? pushK : 0, vRel, dir: {x: dx, z: dz}, ahead0};
+  return {v: {x: kx*u + crossX, y: vy, z: kz*u + crossZ}, quality: qq, q: qq, heavy, bounce: airborne || vy > 0, part, dist: L, angErr,
+    push: dl > 1e-6 ? pushK : 0, vRel, dir: {x: dx, z: dz}, ahead0, settle: st};
 }
 
 /* ---------- dribbling ---------- */
@@ -274,7 +302,11 @@ export function dribbleTouch(agent, ball, dir, speed, ctx, r){
   const dl = hypot(dx, dz);
   if (dl < 1e-6){ const f = dirOf(yawOfAgent(agent)); dx = f.x; dz = f.z; } else { dx /= dl; dz /= dl; }
   const ctrl = ctx.ctrl != null ? +ctx.ctrl : agent && agent.at && agent.at.ctrl != null ? +agent.at.ctrl : 65;
-  const lead0 = (0.6 + 0.22*v)*(ctx.walk ? 0.5 : 1)*ctrlLead(ctrl)*(ctx.small ? T.SMALL : 1);
+  // (UF2-A, U17: close control below a sprint, ctx.close of it: the ball kept by the main foot)
+  const cl = clamp(+ctx.close || 0, 0, 1);
+  const leadN = (0.6 + 0.22*v)*(ctx.walk ? 0.5 : 1)*ctrlLead(ctrl)*(ctx.small ? T.SMALL : 1);
+  const leadC = Math.min(leadN, (CLOSE.L0 + CLOSE.LV*v)*Math.sqrt(ctrlLead(ctrl))*(ctx.small ? T.SMALL : 1)*(agent.scale || 1));
+  const lead0 = leadN + (leadC - leadN)*cl;
   const angErr = truncNormal(r, (1 - drib/110)*(0.06 + 0.10*v/8)*tired, 2.5);
   const lead = Math.max(0.1, lead0*(1 + truncNormal(r, 0.15*(1 - drib/100)*tired, 2.5)));
   // the kick speed whose lead peaks at `lead` (bisection on the monotonic gap); a ball touched from further ahead than
@@ -295,7 +327,7 @@ export function dribbleTouch(agent, ball, dir, speed, ctx, r){
   if (pf === 'L' && lat > T.WEAK_SIDE) foot = 'R';
   const dist = hypot(bx, bz), ahead = dist > 1e-6 ? acos(clamp((bx*f.x + bz*f.z)/dist, -1, 1)) : 0;
   const ok = dist <= T.DRIB_REACH && ahead <= T.DRIB_CONE && P.y < T.FOOT_Y;
-  const kc = ctrlLead(ctrl), pop = kc > T.HEAVY_K && v > 2.5 && !ctx.small ? Math.min(1.4, 0.3 + 2*(kc - T.HEAVY_K)) : 0;
+  const kc = ctrlLead(ctrl), pop = kc > T.HEAVY_K && v > 2.5 && !ctx.small && cl < 0.5 ? Math.min(1.4, 0.3 + 2*(kc - T.HEAVY_K)) : 0;
   return {v: {x: u0*kx, y: pop, z: u0*kz}, lead, foot, angErr, ok, speed: u0, heavy: pop > 0};
 }
 // the share of the dribble's lead Ball Control gives (A1.1): 0.6 at 90, 1 at 65, 1.4 at 40, held within 0.5 and 1.6

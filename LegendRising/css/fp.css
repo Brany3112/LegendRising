@@ -297,3 +297,34 @@ body.gfx-low .fp-wu{background:rgba(9,15,24,.85)}
   .fp-hints div{align-items:flex-start;text-align:right}
   .fp-hints span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 }
+
+/* UF2-A (USER-ISSUES U18 to U20). The meter sits just under the crosshair while a shot or a pass is held. It fills
+   as you hold, and the sweet spot for the distance is marked green. It moves above the crosshair when the ball would
+   be under it, and holds a moment on where you let go. The kick type lives in the right edge above the hints. It is
+   always there, with the type you will strike with lit, and the mouse wheel changes it */
+.fp-meter{position:absolute;left:50%;top:calc(50% + 40px*var(--s));width:calc(132px*var(--s));margin-left:calc(-66px*var(--s));opacity:0;
+  display:flex;align-items:center;gap:6px;pointer-events:none;transition:top .12s ease-out}
+.fp-meter.up{top:calc(50% - 40px*var(--s) - 12px)}
+.fp-meter-lab{position:absolute;right:calc(100% + 6px);top:50%;transform:translateY(-50%);font-family:var(--fp-font);font-size:calc(11px*var(--s));
+  letter-spacing:.08em;text-transform:uppercase;color:var(--fp-muted);text-shadow:0 1px 2px rgba(0,0,0,.9);white-space:nowrap}
+.fp-meter-bar{position:relative;flex:1 1 auto;height:calc(8px*var(--s));border-radius:4px;background:rgba(9,15,24,.6);
+  box-shadow:0 0 0 1px rgba(255,255,255,.35),0 1px 3px rgba(0,0,0,.6);overflow:hidden}
+.fp-meter-sweet{position:absolute;top:0;bottom:0;left:0;width:0;z-index:2;background:rgba(95,212,122,.3);box-shadow:inset 0 0 0 2px var(--fp-good)}
+.fp-meter-fill{z-index:1;position:absolute;left:0;top:0;bottom:0;width:100%;transform:scaleX(0);transform-origin:0 50%;background:rgba(255,255,255,.88)}
+.fp-meter.sweet .fp-meter-fill{background:var(--fp-good)}
+.fp-meter.over .fp-meter-fill{background:var(--fp-bad)}
+.fp-meter-rel{position:absolute;top:-2px;bottom:-2px;width:2px;margin-left:-1px;background:#fff;opacity:0;box-shadow:0 0 2px #000}
+.fp-meter-say{position:absolute;left:calc(100% + 6px);top:50%;transform:translateY(-50%);font-family:var(--fp-font);font-size:calc(13px*var(--s));
+  letter-spacing:.04em;color:var(--fp-good);text-shadow:0 1px 3px rgba(0,0,0,.9);white-space:nowrap}
+.fp-kick{position:absolute;right:var(--fp-pad);bottom:calc(var(--fp-pad) + 112px*var(--s));display:flex;flex-direction:column;align-items:flex-end;gap:2px;
+  padding:5px 8px 6px;border-radius:6px;background:var(--fp-panel);font-size:calc(12px*var(--s));line-height:1.15;transition:box-shadow .2s}
+.fp-kick-h{font-family:var(--fp-font);font-weight:700;font-size:.85em;letter-spacing:.1em;text-transform:uppercase;color:var(--fp-muted)}
+.fp-kick ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.fp-kick li{display:flex;align-items:center;gap:5px;color:rgba(255,255,255,.42);font-family:var(--fp-font);letter-spacing:.03em}
+.fp-kick li i{display:inline-block;width:5px;height:5px;border-radius:50%;background:transparent}
+.fp-kick li.on{color:#fff;font-weight:700}
+.fp-kick li.on i{background:var(--fp-charge)}
+.fp-kick.flash{box-shadow:0 0 0 1px var(--fp-charge)}
+.fp-kick-tip{font-size:.82em;color:var(--fp-muted)}
+.fp-no-kick .fp-kick{display:none}
+@media (max-width:560px){.fp-kick{bottom:calc(var(--fp-pad) + 150px*var(--s))}}
