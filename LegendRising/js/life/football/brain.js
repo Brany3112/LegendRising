@@ -2222,6 +2222,12 @@ export function callFor(ms, a, how = 'here', point = null){
       c.pendKick = null; a.callCut = ms.t;
     }
     c.brain.pending = true;
+    // (his keeper winding up a throw or a roll to another man: his choice is made, the call waits for that man, who hears
+    // it the moment he has the ball, rules.js setCtl; in his hands before that, gkbrain.js heardCall hears it itself)
+    const K = c.act;
+    if (c.isGK && K && (K.kind === 'gkthrow' || K.kind === 'gkroll') && !K.done && K.recv !== a.id && a.id === ms.me && !ms.meAI){
+      ms.call.wait = K.recv; ms.call.from = c.id;
+    }
   }
   logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how, px: point ? point.x : null, pz: point ? point.z : null});
 }

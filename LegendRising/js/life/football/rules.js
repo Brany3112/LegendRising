@@ -127,6 +127,14 @@ export function setCtl(ms, a){
     P.team = a.team; P.since = ms.t;
   }
   P.ctl = a.id; P.agent = a.id;
+  // (U10) a call the player made while his keeper wound up a throw or a roll to this man (brain.js callFor, ms.call.wait)
+  // is heard now he has the ball: it stands from this moment and his first look comes at once. Anybody else on the
+  // ball first (an interception, a loose ball) and the call has had its moment
+  const C = ms.call;
+  if (C && C.wait >= 0 && a.id !== C.from){
+    if (C.wait === a.id){ C.t = ms.t; C.heard = a.id; if (a.brain) a.brain.pending = true; }
+    C.wait = -1;
+  }
 }
 // nobody in control: a loose ball (the team keeps possession for the shape until the other side touches it)
 export function clearCtl(ms){ ms.poss.ctl = -1; }
