@@ -74,6 +74,8 @@ try {
           // (a far body is posed less often than every frame, its level of detail (the scheduler's tiers): a pose that
           // has not changed is a frame it was not posed in, and the next change is spread over the frames since)
           if (bm === 0){ s.idle = (s.idle || 0) + 1; continue; }
+          // (a body not posed in the frame before: its plants start again, a skipped frame can carry a foot to a new one)
+          if (s.idle > 0){ s.plant[0] = s.plant[1] = null; }
           bm /= (s.idle || 0) + 1; s.idle = 0;
           if (changed){ if (bm > out.transMax){ out.transMax = bm; out.transAt = {id:a.id, from:s.mode, to:modeNow, t:ms.t}; } }
           else if (!imp && bm > out.boneMax){ out.boneMax = bm; out.boneAt = {id:a.id, mode:modeNow, t:ms.t, tau:mv ? mv.tau : null}; }
@@ -89,8 +91,9 @@ try {
             // (one plant: the foot down all along, its own time down growing; a body posed less often than every frame
             // can lift a foot and set it down again between two poses, which starts a new plant)
             if (f.down){
-              if (p && p.down && f.tDown >= p.tDown){ p.tDown = f.tDown; const d = Math.hypot(v1.x - p.x0, v1.z - p.z0); if (d > p.max) p.max = d; if (p.max > out.slideMax){ out.slideMax = p.max; out.slideAt = {id:a.id, foot:i, t:ms.t, v:a.m.speed}; } }
-              else s.plant[i] = {down:true, x0:v1.x, z0:v1.z, max:0, tDown:f.tDown};
+              // (one plant: the same footfall of the gait, G.n counting them, and the foot's own time down growing)
+              if (p && p.down && f.tDown >= p.tDown && p.n === G.n){ p.tDown = f.tDown; const d = Math.hypot(v1.x - p.x0, v1.z - p.z0); if (d > p.max) p.max = d; if (p.max > out.slideMax){ out.slideMax = p.max; out.slideAt = {id:a.id, foot:i, t:ms.t, v:a.m.speed}; } }
+              else s.plant[i] = {down:true, x0:v1.x, z0:v1.z, max:0, tDown:f.tDown, n:G.n};
             } else s.plant[i] = null;
           } else { s.plant[0] = s.plant[1] = null; }
           // stuck: a clip held more than 0.5 s past its end

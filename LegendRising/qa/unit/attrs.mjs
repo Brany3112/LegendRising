@@ -45,7 +45,8 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
   check(ok && EDIT_SKILLS.length === 15, "the presets: Low 35, Average 55, High 75, Max 99, over the 15 skills and the keeper's set", ATTR_PRESETS);
   const c = cleanSkills({passing: 0, power: 140, curve: "x", heading: 44.4}, presetSkills("average"));
   check(c.passing === 1 && c.power === 99 && c.curve === 55 && c.heading === 44, "editor values are whole numbers from 1 to 99", c);
-  check(GK_DISTRIB_LIVE === false && gkEditKeys().join() === "reflex,dive,handling,posit", "distribution is left out of the editor until it does something (GK_DISTRIB_LIVE)", gkEditKeys());
+  // (P9-B wired gk.distrib into the keeper's distribution, and the integration turned GK_DISTRIB_LIVE on: the editor shows it)
+  check(GK_DISTRIB_LIVE === true && gkEditKeys().join() === "reflex,dive,handling,posit,distrib", "distribution is in the editor now that it does something (GK_DISTRIB_LIVE)", gkEditKeys());
 }
 
 /* ---------- seeded NPCs ---------- */

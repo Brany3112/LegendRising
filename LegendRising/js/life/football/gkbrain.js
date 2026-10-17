@@ -432,8 +432,8 @@ function considerClaim(ms, a){
      the choice   a throw to a full-back or a wing-back whose throw is safer than THROW_NEED (0.50 at D 0.7, 0.56 at
                   D 0.3, 0.47 at D 0.9; passModel's own scale for a dropping ball, which a receiver has to bring down), within
                   the throw's range (30 m at D 0.7, 26 at 0.3, 32 at 0.9); a roll to a
-                  centre-back safer than ROLL_NEED (0.72 at D 0.7, 0.76 at 0.3, 0.70 at 0.9, passModel's scale); else a punt, as long as
-                  his kicking reaches (45 to 55 m at D 0.7, 40 to 48 at 0.3, 48 to 58 at 0.9): a weak distributor
+                  centre-back safer than ROLL_NEED (0.72 at D 0.7, 0.76 at 0.3, 0.70 at 0.9, passModel's scale); a full-back safe to throw to is
+                  preferred by DIST.WIDE (0.3) over a centre-back's roll; else a punt, as long as his kicking reaches (45 to 55 m at D 0.7, 40 to 48 at 0.3, 48 to 58 at 0.9): a weak distributor
                   throws only the safest balls, and kicks long less often to a far target (his punt is aimed at the
                   team-mate nearest the length he can reach)
      the accuracy where he means it to go is scattered by a normal error of SCATTER m: 0.25 + 3.2 (1 - D)^2 for a throw
@@ -444,7 +444,7 @@ function considerClaim(ms, a){
    tRelease, dur}. The ball stays in his hands (rules.js holdAt) up to tRelease, when it is let go to where the act
    says; the act runs on to dur (actions.js steps its clock, as it does a dive's). The punt is the volley it always was. */
 export const DIST = Object.freeze({THROW_NEED: [0.50, 0.15], ROLL_NEED: [0.72, 0.10], RANGE: [0.79, 0.30], SCATTER: [0.25, 3.2, 14],
-  THROW_T: [0.55, 0.9], ROLL_T: [0.45, 0.8], D0: 0.7, KICK: 0.8});   // (the release and length of gkmoves.js gkdistribute: throw 0.55 of 0.9 s, roll 0.45 of 0.8)
+  THROW_T: [0.55, 0.9], ROLL_T: [0.45, 0.8], D0: 0.7, KICK: 0.8, WIDE: 0.3});   // (the release and length of gkmoves.js gkdistribute: throw 0.55 of 0.9 s, roll 0.45 of 0.8)
 const distOf = a => clamp((+at(a).distrib || 50)/100, 0.01, 0.99);
 // a throw's speed for a distance: enough that it carries there with the air's drag (1.05 sqrt(g d) fell short past
 // about 22 m)
@@ -474,7 +474,10 @@ function distribute(ms, a){
     // (26 to 28 m out) was never safe to throw to and the keeper never threw
     const pm = passModel(ms, a.m, o.m, fb ? 'throw' : 'pass', fb ? throwSpeed(d) : passSpeedFor(d, 8), o);
     const need = fb ? needT : needR;
-    if (pm.pOK > need && pm.pOK > bv){ bv = pm.pOK; best = o; kind = fb ? 'throw' : 'roll'; }
+    // (integration: with the roll on passModel's own scale a ground ball to a centre-back always rates a little higher
+    // than a lofted throw; a full-back out wide, safe to throw to, is a keeper's first look: DIST.WIDE more for him)
+    const sc = pm.pOK + (fb ? DIST.WIDE : 0);
+    if (pm.pOK > need && sc > bv){ bv = sc; best = o; kind = fb ? 'throw' : 'roll'; }
   }
   if (best){
     // where he means it to go, scattered by his distribution; then the act (the release comes at tRelease)
