@@ -150,7 +150,7 @@ export const KICKS = Object.freeze([
 ]);
 const KICK_OF_CONTACT = {"-1":"driven", "0":"normal", "1":"chip"};
 export const METER = Object.freeze({SHOT_C0:.55, SHOT_C1:.86, SHOT_D0:8, SHOT_D1:30, SHOT_W:.12, SHOT_WA:.14, TECH_W:.04, SHOT_MAX:.91,
-  PASS_W0:.10, PASS_W1:.25, PASS_WA:.6, SETTLE_LATCH:.5, CONE_A:.6});
+  PASS_W0:.10, PASS_W1:.25, PASS_WA:.6, SETTLE_LATCH:.5, CONE_A:.8});
 // the shot's sweet band for a strike d metres to its target, a Technique (0..99) and an assist share (0..1): {lo, hi}
 // in charge units (the power the meter fills with). Pure: the unit tests check it
 export function meterBand(d, tech = 50, ak = 1, out = {lo:0, hi:0, c:0}){
@@ -1054,8 +1054,8 @@ export function hintsFor(ms, me){
   } else if (ctx === "attack"){
     if (ms.poss.ctl === me.id){
       // (A1.7: the wind-up, the release on your plant, the shape through it)
-      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go as your foot plants", "release"); add("Mouse", "sweep to curl, lift to chip", "shape"); }
-      else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
+      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go in the green", "release"); add("Mouse", "sweep to curl, lift to chip", "shape"); }
+      else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
       else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Mouse", "sweep through it to curl", "shape"); }

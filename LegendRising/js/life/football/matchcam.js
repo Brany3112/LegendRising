@@ -250,16 +250,19 @@ const FP_OWNER = {id:"match-fp", priority:40, frame:fpFrame, fov:() => Math.roun
    that takes the body down (a slide, a fall, a dive) or a jump takes the eye with it: HEAD.UP over the neck along the
    spine, eased by a critically damped spring (HEAD.W a second), only beyond HEAD.DEAD of the standing height (the gait's
    own bob stays the bob's), and across only as far as the body has gone down (HEAD.FROM to HEAD.FULL), so a lean into
-   a sprint never moves the view. The eye stayed at standing height while the body lay back in a slide: looking down,
+   a sprint never moves the view; and across beyond HEAD.SLACK of the root at any height (a lunge onto a ball). The eye stayed at standing height while the body lay back in a slide: looking down,
    the legs ran out ahead of the camera as if you were sitting on the grass */
-export const HEAD = Object.freeze({UP: .2, DEAD: .035, FROM: .06, FULL: .25, W: 16});
+export const HEAD = Object.freeze({UP: .2, DEAD: .035, FROM: .06, FULL: .25, W: 22, SLACK: .16});
 const _nk = new THREE.Vector3(), _ck = new THREE.Vector3();
 function headFollow(h, x, y0, z, s, dt){
   const HF = MC.head;
   let tx = 0, ty = 0, tz = 0;
   HF.dy = 0;
   if (h && h.bones && h.g.visible){
-    h.bones[BONE.neck].getWorldPosition(_nk); h.bones[BONE.chest].getWorldPosition(_ck);
+    // (the bones' world matrices are brought up to date with the pose just made: the renderer would only do it when it
+    // draws, and the pose's group has moved since the last frame drawn)
+    h.g.updateMatrixWorld(true);
+    _nk.setFromMatrixPosition(h.bones[BONE.neck].matrixWorld); _ck.setFromMatrixPosition(h.bones[BONE.chest].matrixWorld);
     // the head's way: along the spine, chest to neck
     let ux = _nk.x - _ck.x, uy = _nk.y - _ck.y, uz = _nk.z - _ck.z;
     const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
@@ -268,7 +271,9 @@ function headFollow(h, x, y0, z, s, dt){
     const dy = ey - y0, ady = Math.abs(dy) - HEAD.DEAD*s;
     ty = ady > 0 ? Math.sign(dy)*ady : 0;
     const w = sstep(HEAD.FROM*s, HEAD.FULL*s, -dy);
-    tx = (ex - x)*w; tz = (ez - z)*w;
+    // (and across beyond HEAD.SLACK whatever the height: a lunge onto a ball ahead takes the head with it)
+    const hx = ex - x, hz = ez - z, hl = Math.hypot(hx, hz), ex2 = Math.max(0, hl - HEAD.SLACK*s)/(hl || 1);
+    tx = hx*(w + (1 - w)*ex2); tz = hz*(w + (1 - w)*ex2);
     HF.dy = dy;
   }
   toward(HF, "x", "vx", tx, HEAD.W, dt); toward(HF, "y", "vy", ty, HEAD.W, dt); toward(HF, "z", "vz", tz, HEAD.W, dt);

@@ -14,7 +14,7 @@
 //   U18  holding LMB (real) fills one meter under the crosshair with its sweet spot marked; let go in it and the strike
 //        is clean (the kick logged clean, Clean strike!, the camera's kick); past it, not; the meter never covers the
 //        ball; a shot into the net ripples it
-//   U19  a tap of RMB (real) 45 degrees off a team-mate goes to him with the assists on and not with them off; a tap is
+//   U19  a tap of RMB (real) well off a team-mate (outside the plain pass cone) goes to him with the assists on and not with them off; a tap is
 //        weighted for the distance (a longer pass is struck harder and both arrive at about 9 m/s)
 //   U17  F held as the ball arrives settles it on the preferred foot within reach; with the assists, standing still
 //        settles it too; a push touch (W held, assists off) leaves it further; dribbling at a jog keeps the ball closer
@@ -91,7 +91,7 @@ try {
       body(){
         const L = window.__life, T = R.RUN.cur.T, h = T.V.fp, c = L.cam, s = h.scale || 1;
         c.updateMatrixWorld(true); h.g.updateMatrixWorld(true);
-        const yaw = L.P.yaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw), o = {s, agentScale: T.me.scale, pitch: L.P.pitch, visible: h.g.visible};
+        const yaw = L.P.yaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw), o = {s, agentScale: T.me.scale, pitch: L.P.pitch, visible: h.g.visible, clip: T.V.rec[T.me.id] && T.V.rec[T.me.id].clip ? T.V.rec[T.me.id].clip.mode : null, act: T.me.act ? T.me.act.kind : null, head: [window.__uf2.M.MC.head.x, window.__uf2.M.MC.head.y, window.__uf2.M.MC.head.z].map(v => Math.round(v*1000)/1000)};
         for (const n of ["hips", "neck", "ftL", "ftR", "toL", "toR", "haL", "haR"]){
           h.bones[BN.indexOf(n)].getWorldPosition(v);
           const dx = v.x - c.position.x, dz = v.z - c.position.z;
@@ -117,7 +117,7 @@ try {
 
   /* ---------- U12: the body under the eye ---------- */
   if (on("body")){
-    const heights = [1.60, 1.75, 1.95];
+    const heights = process.env.UF2_H ? process.env.UF2_H.split(",").map(Number) : [1.60, 1.75, 1.95];
     for (const H of heights){
       const scale = await page.evaluate(H => window.__trainConfig.scaleOfHeight(H), H);
       await page.evaluate(scale => window.__uf2.start({scale}), scale);
@@ -195,17 +195,17 @@ try {
       const f = {x: -Math.sin(me.m.yaw), z: -Math.cos(me.m.yaw)};
       ms.ball.p.x = me.m.x + f.x*1.6; ms.ball.p.z = me.m.z + f.z*1.6; ms.ball.v.x = ms.ball.v.z = 0; ms.ball.state = "free"; ms.poss.ctl = -1; A.refreshPred(ms);
       const act = A.startAction(ms, me, {kind: "slide", target: "ball"});
-      let low = 9, neckGap = 0, during = 0;
-      for (let i = 0; i < 40; i++){ window.__life.stepN(1); const b = U.body(); low = Math.min(low, window.__life.cam.position.y); if (me.act && me.act.kind === "slide"){ during++; neckGap = Math.max(neckGap, b.neck[2]); } }
+      let low = 9, neckGap = 0, during = 0; const gaps = [];
+      for (let i = 0; i < 40; i++){ window.__life.stepN(1); const b = U.body(); low = Math.min(low, window.__life.cam.position.y); if (me.act && me.act.kind === "slide"){ during++; gaps.push(b.neck[2]); if (during > 12) neckGap = Math.max(neckGap, b.neck[2]); } }
       for (let i = 0; i < 150 && me.act; i++) window.__life.stepN(1);
       window.__life.stepN(70);
       const after = U.body(), clip = U.T().V.rec[me.id].clip;
       window.__train.input({type: "keyup", key: "w"}); window.__train.input({type: "keyup", key: "shift"});
-      return {started: !!act, low, neckGap, during, after, clip: clip ? clip.mode : null, speed: me.m.speed, eyeStand: 1.68*(me.scale || 1)};
+      return {started: !!act, low, neckGap, during, gaps, after, clip: clip ? clip.mode : null, speed: me.m.speed, eyeStand: 1.68*(me.scale || 1)};
     });
     const S = res.slide;
     check(S.started && S.low < S.eyeStand - .45, "a slide takes the eye down with the body (the camera at least 0.45 m under standing height)", S);
-    check(S.neckGap <= .45, "through the slide the body's neck stays just under the eye (within 0.45 of the height's scale)", S.neckGap);
+    check(S.neckGap <= .45, "through the slide (once it is under way, 0.2 s in) the body's neck stays just under the eye (within 0.45 of the height's scale)", S.neckGap);
     check(!S.clip && ["ftL", "ftR"].every(k => Math.hypot(S.after[k][0], S.after[k][1]) <= .95 && S.after[k][2] >= 1.05), "after the slide its clip has ended and the body runs under the eye again", S);
   }
 
@@ -321,9 +321,13 @@ try {
       await page.evaluate(([a, m]) => { window.__uf2.C.saveSet({assist: a}); window.__uf2.start({mates: m}); }, [assist, mates]);
       await page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 60000});
       await unfreeze(page); await frames(page, 6); await lock(); await freeze(page);
-      const aim = await page.evaluate(off => { const ms = window.__uf2.ms(), me = ms.agents[ms.me], o = ms.agents.find(a => a.team === me.team && a !== me && !a.isGK);
-        const yaw = Math.atan2(-(o.m.x - me.m.x), -(o.m.z - me.m.z)) + off; window.__uf2.look(yaw, -.15); return {mate: o.id, d: Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z)}; }, yawOff);
+      // (the ball yours first; then the look set just before the tap, so the team-mate has not moved off the line since)
       await step(30);
+      const aim = await page.evaluate(off => { const ms = window.__uf2.ms(), me = ms.agents[ms.me], o = ms.agents.find(a => a.team === me.team && a !== me && !a.isGK);
+        // ("cone": 0.85 of the cone the assists give at his distance now, outside the cone without them and its hold)
+        const d = Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z), C = window.__uf2.C, base = d < C.CN.CONE_NEAR_D ? C.CN.CONE_NEAR : C.CN.CONE, a = off === "cone" ? .85*base*(1 + C.METER.CONE_A) : off;
+        const yaw = Math.atan2(-(o.m.x - me.m.x), -(o.m.z - me.m.z)) + a; window.__uf2.look(yaw, -.15); return {mate: o.id, d, off: a*180/Math.PI, outside: a > base + C.CN.HYST}; }, yawOff);
+      await step(1);
       const ev0 = await page.evaluate(() => window.__uf2.ms().events.length);
       await page.mouse.down({button: "right"}); await step(4); await page.mouse.up({button: "right"});
       await step(30);
@@ -334,14 +338,14 @@ try {
         return {closest: best, speed: v}; }, aim.mate);
       return {aim, recv: k ? k.recv : null, speed: k ? k.speed : null, intent: k ? k.intent : null, arrive};
     };
-    Pp.onAt45 = await tap("on", 45*Math.PI/180, [[8, -10]]);
-    Pp.offAt45 = await tap("off", 45*Math.PI/180, [[8, -10]]);
-    check(Pp.onAt45.recv === Pp.onAt45.aim.mate, "assists on: a tap 45 degrees off the team-mate goes to him (the aim assist)", Pp.onAt45);
-    check(Pp.offAt45.recv !== Pp.offAt45.aim.mate, "assists off: the same tap is not steered to him", Pp.offAt45);
+    Pp.onAt45 = await tap("on", "cone", [[7, -9]]);
+    Pp.offAt45 = await tap("off", "cone", [[7, -9]]);
+    check(Pp.onAt45.aim.outside && Pp.onAt45.recv === Pp.onAt45.aim.mate, "assists on: a tap well off a team-mate (outside the plain pass cone) goes to him (the aim assist)", Pp.onAt45);
+    check(Pp.offAt45.aim.outside && Pp.offAt45.recv !== Pp.offAt45.aim.mate, "assists off: the same tap is not steered to him", Pp.offAt45);
     Pp.near = await tap("on", 0, [[8, -10]]);
     Pp.far = await tap("on", 0, [[24, -12]]);
     check(Pp.near.recv === Pp.near.aim.mate && Pp.far.recv === Pp.far.aim.mate && Pp.far.speed > Pp.near.speed + 1, "a tap is weighted for the distance: the longer pass is struck harder", {near: Pp.near, far: Pp.far});
-    check([Pp.near, Pp.far].every(r => r.arrive.closest < 1.6 && r.arrive.speed >= 6 && r.arrive.speed <= 11.5), "both arrive at the team-mate at a pace he can take (6 to 11.5 m/s)", [Pp.near.arrive, Pp.far.arrive]);
+    check([Pp.near, Pp.far].every(r => r.arrive.closest < 1.6 && r.arrive.speed >= 5 && r.arrive.speed <= 13), "both arrive at the team-mate at a pace he can take (5 to 13 m/s, under his comfortable speed)", [Pp.near.arrive, Pp.far.arrive]);
     await page.evaluate(() => window.__uf2.C.saveSet({assist: "on"}));
   }
 

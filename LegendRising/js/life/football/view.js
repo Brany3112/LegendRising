@@ -848,6 +848,19 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   }
   void s;
   V.fpHeldNow = held;
+  // (U12) a clip that carries the body from its own start (a slide, groupAt) given up or taken on: the body's group
+  // moves from that start to where you are (or back) in one frame, so the last pose's hips are moved by as much the other
+  // way in the group's own frame, and the blend into the new pose starts from where the body really was drawn. Without
+  // it the blend carried the slide's whole travel: the body shot out ahead of the eye and slid back over a second
+  const atNow = st !== FPST && !!st.groupAt, B = V.fpBase || (V.fpBase = {x:0, z:0, at:false, ok:false});
+  if (B.ok && B.at !== atNow && h.posed){
+    const dx = B.x - h.g.position.x, dz = B.z - h.g.position.z, ry = h.g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), sc = h.scale || 1;
+    const lx = (c*dx - sn*dz)/sc, lz = (sn*dx + c*dz)/sc;
+    for (const Pq of [h.pose, h.posePrev]) if (Pq){ Pq[80] += lx; Pq[82] += lz; }
+    // (and the group as it was drawn is the new one: the feet found from that pose stay where they were, human.js)
+    if (h.drawn){ h.drawn[0] = h.g.position.x; h.drawn[2] = h.g.position.z; }
+  }
+  B.x = h.g.position.x; B.z = h.g.position.z; B.at = atNow; B.ok = true;
   const mask = animateHuman(h, dt, st).mask;
   // (U12) your clip ends where it plays: in your eyes. Your whole body is not drawn while you look through them (its
   // actor poses it at tier 4, which runs no clip and so never says it ended, animAgent), so the clip of a strike, a

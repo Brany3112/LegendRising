@@ -66,7 +66,7 @@ export const TOUCH = Object.freeze({
 export const CUSHION = Object.freeze({MAX: 3.0, MIN: 0.6, K_IN: 0.08, K_SKILL: 1.2, PITCH: 28*DEG, ERR: 8*DEG});
 // UF2-A (U17): the settle and close control (see the header). Metres scaled by the body's height
 export const SETTLE = Object.freeze({D: 0.38, Q: 0.3, LAT: 0.12, ERR: 0.7, ANG: 0.6});
-export const CLOSE = Object.freeze({L0: 0.45, LV: 0.08});
+export const CLOSE = Object.freeze({L0: 0.3, LV: 0.07});
 
 /* ---------- the part a touch is made with (P6-A) ----------
    touchPart(agent, ball, want) -> 'foot' | 'thigh' | 'chest' | 'head'. ball: {p, v} or a point. Heights are of the
