@@ -204,6 +204,9 @@ export const FP = {
   enterTraining(cfg, o = {}){ return enterTraining(cfg, o); },
   resetMatch(){ return resetMatch(); }, resetHalf(){ return resetHalf(); }, restartKickoff(){ return restartKickoff(); },
   get training(){ return FS.training ? Object.assign({}, FS.training) : null; },
+  // ((P8-B hook) a bench of a place other than the stadium, Training's Full cage: its spot sits you down as the
+  // stadium's does, and is offered only to a substitute on his feet and not yet called, U4)
+  bench(side){ sitDown(side); }, benchOk(side){ void side; return FS.state === "bench" && !FS.seated && !FS.called; },
   skipToCall(){ startSkip("call"); }, skipToEnd(){ startSkip("end"); },
   checkpointNow(){ return writeCheckpoint(true); },
   // A1.5: the world in slow motion for `seconds` of real time at `scale` (fixed steps, fewer of them a real second)
@@ -1705,7 +1708,13 @@ SCHED.task({id: "fp-match", kind: "keep", run: dt => {
   else if (play && FS.lockUsed && !FLAGS.lockLost && FS.relock !== false) FLAGS.lockLost = true;
   // paused (the pointer let go): the card; the simulation is not stepped (world.js skips the mode's step)
   const paused = !!FLAGS.lockLost && play;
-  if (paused !== FS.pauseShown){ FS.pauseShown = paused; hudOverlay(paused ? `<div class="fp-pausebox"><div class="fp-pause">Paused. Click to carry on.</div><div class="fp-box">${fpSettingsHTML()}</div></div>` : null, paused ? "dim pause" : ""); }
+  // ((P8-B hook) a host that draws its own pause card, Training's quick menu: host.pause(on) -> true when it did)
+  if (paused !== FS.pauseShown){
+    FS.pauseShown = paused;
+    let own = false;
+    if (FS.host && typeof FS.host.pause === "function") try { own = !!FS.host.pause(paused); } catch(e){ console.error(e); }
+    if (!own) hudOverlay(paused ? `<div class="fp-pausebox"><div class="fp-pause">Paused. Click to carry on.</div><div class="fp-box">${fpSettingsHTML()}</div></div>` : null, paused ? "dim pause" : "");
+  }
 }});
 
 /* ---------- the match settings (3.4.7): the pause card and the Settings sheet (window.fpSettingsHTML) ---------- */
