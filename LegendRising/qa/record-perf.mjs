@@ -50,14 +50,20 @@ function measureInPage({view, FRAMES, WARM}){
   const frame = () => { L.stepN(1); R.render(sc, cam); };
   for (let i = 0; i < WARM; i++) frame();
   sync();
-  const step = [], rend = [], sub = [], anim = [];
+  const step = [], rend = [], sub = [], anim = [], people = [];
+  // (P10-B, perf-10) the people's animation too: the scheduler's actors, timed by the scheduler itself (its timing on
+  // for the frames measured)
+  const SC = L.sched, timing0 = SC ? SC.timing : false;
+  if (SC) SC.timing = true;
   for (let i = 0; i < FRAMES; i++){
     let t = performance.now(); L.stepN(1); step.push(performance.now() - t);
+    if (SC){ const st = SC.stats(); people.push((st.animMs || 0) + (st.thinkMs || 0)); }
     t = performance.now(); for (const a of L.W.anims) a(1/60); anim.push(performance.now() - t);
     t = performance.now(); R.render(sc, cam); const t1 = performance.now(); sync(); const t2 = performance.now();
     sub.push(t1 - t); rend.push(t2 - t);
   }
-  const q = (a, p) => { const s = a.slice().sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor(p*s.length))].toFixed(3); };
+  if (SC) SC.timing = timing0;
+  const q = (a, p) => { const s = a.slice().sort((x, y) => x - y); return s.length ? +s[Math.min(s.length - 1, Math.floor(p*s.length))].toFixed(3) : 0; };
   // one frame without a shadow redraw, one with
   R.info.autoReset = true;
   R.shadowMap.needsUpdate = false; R.render(sc, cam);
@@ -73,9 +79,10 @@ function measureInPage({view, FRAMES, WARM}){
     if (v){ visMeshes++; if (o.isSkinnedMesh) skinnedVis++; }
     if (o.userData && o.userData.human) humans++;
   });
-  return {zone: L.LIFE.zone, at: [P.x, P.feet, P.z, P.yaw, P.pitch].map(v => +v.toFixed(3)), gfxLow: !!(window.GFX && GFX.low),
+  return {zone: L.LIFE.zone, at: [P.x, P.feet, P.z, P.yaw, P.pitch].map(v => +v.toFixed(3)), gfxLow: !!(window.GFX && GFX.P && GFX.P.tier === "low"),
     calls: main.calls, tris: main.tris, shadowCalls: all.calls - main.calls, shadowTris: all.tris - main.tris, shadowMapOn: R.shadowMap.enabled,
     renderMs: {median: q(rend, .5), p95: q(rend, .95)}, submitMs: {median: q(sub, .5), p95: q(sub, .95)}, stepMs: {median: q(step, .5), p95: q(step, .95)}, animMs: {median: q(anim, .5), p95: q(anim, .95)}, anims: L.W.anims.length,
+    peopleMs: {median: q(people, .5), p95: q(people, .95)},
     castUs, programs: R.info.programs.length, geometries: R.info.memory.geometries, textures: R.info.memory.textures,
     pointLights, meshes, visibleMeshes: visMeshes, skinnedVisible: skinnedVis, solids: L.W.solids.length,
     canvas: [R.domElement.width, R.domElement.height], pixelRatio: R.getPixelRatio()};

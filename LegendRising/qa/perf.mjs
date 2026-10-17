@@ -33,6 +33,7 @@
 //   node qa/perf.mjs --report                            no time ratio gated (and no side-by-side step)
 //   node qa/perf.mjs --tiers low,medium,high --views bedroom,street   Medium and High measured on these views too
 //   node qa/perf.mjs --gate-release                      the 10% against the release baseline gated as well
+//   node qa/perf.mjs --no-cage                           without Training's cage (qa/tr10-perf.mjs and qa/tr10-leak.mjs)
 //
 // Writes qa/out/perf.json.
 import fs from "node:fs";
@@ -155,6 +156,18 @@ if (!a.includes("--report") && TIERS.includes("low")){
       check(`low ${v}: CPU per frame (world step) at most 10% over the I0 tree's, side by side (3.9.8)`, !!best && best.stepRatio <= 1.1,
         best ? Object.assign({ratio: best.stepRatio, ms: best.stepNew, base: best.stepBase}, y ? {first: x ? x.stepRatio : null, again: y.stepRatio} : {}) : "not measured");
     }
+  }
+}
+// (P10-B) Training's cage: its budget (45 draw calls, 80k triangles, no point light or shadow map on Low), the body
+// count (13 agents and at most 12 full poses a frame), allocations (16 KB a frame) and the reset and leak gates are
+// measured by qa/tr10-perf.mjs and qa/tr10-leak.mjs (they enter Training, which the probe page does not); their
+// checks are folded in here, gating as theirs do. --no-cage leaves them out
+if (!a.includes("--no-cage")){
+  for (const name of ["tr10-perf", "tr10-leak"]){
+    const r = spawnSync(process.execPath, [path.join(ROOT, "qa", name + ".mjs")], {cwd: ROOT, env: process.env, encoding: "utf8", timeout: 60*60*1000});
+    let rep = null; try { rep = JSON.parse(fs.readFileSync(path.join(OUT, name + ".json"), "utf8")); } catch(e){}
+    if (!rep) { check(`cage: ${name} ran`, false, (r.stderr || r.stdout || "").slice(-400)); continue; }
+    for (const c of rep.checks || []) check(`cage (${name}): ${c.name}`, !!c.pass, c.value);
   }
 }
 report("perf", out);
