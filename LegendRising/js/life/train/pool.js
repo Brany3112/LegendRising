@@ -32,7 +32,7 @@
    in your eyes. matchBodies(ms, myTeam) grows the pool to that (poolEnsure: only what is missing is built, the drill
    bodies are used first) under the entry's cover, and hands the view its bodyOf(agent): you; my side's outfield players
    in my bib (A); theirs in theirs (B); a keeper's kit for each side (KA mine, the drill keeper and KB theirs); the
-   officials in theirs (OFF). poolTrim() takes it back to the 14 drill bodies (Return to Hub, under the fade). */
+   officials (OFF: the referee, his assistants and the fourth official, who stands by the halfway line for a change). poolTrim() takes it back to the 14 drill bodies (Return to Hub, under the fade). */
 import {onBegin, W} from "../build.js";
 import {human, lookFor} from "../human.js";
 import {FADE} from "../core/state.js";
@@ -175,7 +175,8 @@ export function poolStats(){
 }
 
 /* ---------- Full Match (P8-A) ---------- */
-const OFF_N = 3;
+// the referee, his two assistants and the fourth official
+const OFF_N = 4;
 const kitCols = () => [...KITS.mine, ...KITS.theirs];
 // builds what is missing for counts {A, B, KA, KB, OFF} (KB: their keepers beyond the drill keeper). Returns the number built
 export function poolEnsure(n){
@@ -207,7 +208,7 @@ export function matchBodies(ms, myTeam = 0){
     else t === myTeam ? n.A++ : n.B++;
   }
   // (their first keeper is the drill keeper)
-  poolEnsure({A:n.A, B:n.B, KA:n.KA, KB:Math.max(0, n.KB - 1), OFF:Math.min(OFF_N, n.OFF)});
+  poolEnsure({A:n.A, B:n.B, KA:n.KA, KB:Math.max(0, n.KB - 1), OFF:Math.min(OFF_N, n.OFF + 1)});
   returnBodies();
   const free = {A:POOL.A.slice(), B:POOL.B.slice(), KA:POOL.KA.slice(), KB:[POOL.keeper, ...POOL.KB], OFF:POOL.OFF.slice()};
   const take = h => { if (!h) return null; bodyFresh(h); POOL.used.add(h); h.gen = W.ticks; return h; };
@@ -223,7 +224,8 @@ export function matchBodies(ms, myTeam = 0){
     byId.set(a.id, h);
     return h;
   };
-  return {bodyOf, fp:POOL.fp};
+  // (the fourth official: the officials' last body, controller.js fourthInit)
+  return {bodyOf, fp:POOL.fp, fourth:() => take(free.OFF.length ? free.OFF.pop() : null)};
 }
 // back to the drill's 14 (Return to Hub from a Full Match, under the fade): the match's extra bodies disposed
 export function poolTrim(){

@@ -43,7 +43,7 @@ import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
 import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating, halfStart, restoreHalf, placeForKickoff} from "./sim.js";
 import {xgAt} from "./judge.js";
-import {firstReach} from "./ball.js";
+import {firstReach, BALL} from "./ball.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
 import {minuteOf, highlights, onSec, deriveMy, createChain} from "./events.js";
 import {makePitch, ROLL, dirOf, yawOf, wrapA} from "./pitchspec.js";
@@ -290,7 +290,7 @@ function bindMatch(ms){
   if (FS.real) FS.simOffs.push(attach(ms, on));
   if (FS.V){ viewDispose(FS.V); FS.V = null; }
   const B = FS.host && typeof FS.host.bodies === "function" ? FS.host.bodies(ms, FS.kits, FS.meLook) : null;
-  FS.pooled = !!B;
+  FS.pooled = !!B; FS.bodies = B;
   const V = FS.V = viewInit(ms, RT.scene, FS.kits, Object.assign({meLook: FS.meLook, meFPLook: FS.meLook}, B ? {bodyOf: B.bodyOf, fpBody: B.fp} : {}));
   V.me = ms.me;
   recInit(ms, 20, 12, V);
@@ -1044,7 +1044,10 @@ function fourthInit(kits){
   FOURTH.at.x = FOURTH.goal.x = fo.x; FOURTH.at.z = FOURTH.goal.z = fo.z; FOURTH.posW = null;
   // (the officials' kit of this match, the one the view dresses the assistants in: he reads as one of them)
   const look = V.L && V.L.of ? V.L.of({role: "ar", id: 44, team: -1}) : lookFor("linesman", 44, kits && kits.ref ? {sex: "m", kit: [kits.ref, "#16171a"], avoid: []} : {sex: "m"});
-  const h = FOURTH.h = human(look, {cast: true});
+  // (Training's Full Match: his body from the host's pool when it has one, P8-A)
+  const pooled = FS.bodies && typeof FS.bodies.fourth === "function" ? FS.bodies.fourth() : null;
+  const h = FOURTH.h = pooled || human(look, {cast: true});
+  FOURTH.pooled = !!pooled; h.g.visible = true;
   h.g.name = "fourth-official";
   h.g.position.set(FOURTH.at.x, 0, FOURTH.at.z);
   FOURTH.yaw = 0; h.g.rotation.y = 0;
@@ -1068,7 +1071,7 @@ function fourthState(dt){
 }
 function fourthDispose(){
   if (FOURTH.actor){ SCHED.remove(FOURTH.actor); FOURTH.actor = null; }
-  if (FOURTH.h){ FOURTH.h.dispose(); FOURTH.h = null; }
+  if (FOURTH.h){ if (FOURTH.pooled){ if (FOURTH.h.g.parent) FOURTH.h.g.parent.remove(FOURTH.h.g); FOURTH.h.g.visible = false; } else FOURTH.h.dispose(); FOURTH.h = null; FOURTH.pooled = false; }
   FOURTH.ring = false;
 }
 // where a substitute steps on (rules.js enterSub: the halfway line on the bench side): beside the fourth official
@@ -1544,7 +1547,7 @@ function teardown(){
   if (FLAGS.lockLost) FLAGS.lockLost = false;
   FS.ms = null; FS.state = null; FS.walkers = null; FS.skipping = null; FS.seated = false; FS.benchKept = null; FS.called = false; FS.onPitch = false;
   FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null; FS.host = null; FS.training = null;
-  FS.pooled = false; FS.kits = null; FS.meLook = null;
+  FS.pooled = false; FS.bodies = null; FS.kits = null; FS.meLook = null;
   FS.prevState = null; FS.htCard = FS.ftCard = false; FS.freed = FS.exitAsked = false; relockWait(false); FS.lockUsed = false; FS.atFourth = false; FS.autoWalk = false; FS.callT = 0;
   FS.pauseShown = false;
   document.body.classList.remove("fp-match");
@@ -1870,6 +1873,9 @@ function enterTraining(cfg, o = {}){
   coverScreen();
   const kits = matchKits(o.kits || (FS.host && FS.host.kits ? FS.host.kits() : {home: ["#2c66b8", "#ffffff"], away: ["#c8463a", "#ffffff"]}));
   const c = Object.assign({}, cfg, {visible: visibleFn, htAuto: false});
+  // (the real match's changes when the configuration names a bench and no number of them: Training's own laws allow none,
+  // rules.js LAWS.train, and a bench start's change would never be made)
+  if ((c.teams || []).some(T => T && (T.bench || []).length) && (!c.rules || c.rules.subs == null)) c.rules = Object.assign({}, c.rules, {subs: 5});
   if (start === "bench"){
     c.me = Object.assign({}, cfg.me, {role: "sub"});
     c.roleTimes = Object.assign({}, cfg.roleTimes, {subOn: FS.training.subOn});
@@ -1936,6 +1942,12 @@ function restartKickoff(){
   }
   ms.chain = createChain(); ms.offside.set.clear(); ms.offside.pending = null; ms.advantage = null; ms.poss.ctl = -1;
   if (ms.ball.state === "held") ms.ball.state = "dead";
+  // (the kick-off's partner chosen afresh: brain.js restartShape keeps the one of an earlier kick-off otherwise)
+  ms.koMate = null;
+  // the ball on the centre spot, still, before the restart starts: a kick-off's ball is there, so nobody is sent to fetch
+  // it (rules.js chooseSource) and nobody is left out of the line-up as its fetcher
+  const b = ms.ball;
+  b.p.x = 0; b.p.y = BALL.R; b.p.z = 0; b.v.x = b.v.y = b.v.z = 0; b.w.x = b.w.y = b.w.z = 0; b.state = "dead"; b.holder = -1;
   const ko = half === 1 ? ms.koFirst : 1 - ms.koFirst;
   startRestart(ms, "kickoff", ko, {x: 0, z: 0}, {first: true});
   placeForKickoff(ms);
