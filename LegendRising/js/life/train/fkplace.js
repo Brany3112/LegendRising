@@ -29,18 +29,18 @@ import {FK, FREEKICKS, ALIGN_NAMES, scenarioOf, uiOf, placeState, previewBall, c
 
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
 const f1 = v => v == null ? "none" : (+v).toFixed(1) + " m";
-const FKS = {run:null, S:null, keep:null, root:null, key:null, marks:null, open:false, note:""};
+const FKS = {run:null, st:null, keep:null, root:null, key:null, marks:null, open:false, note:""};
 
 /* ---------- the scenarios, the placement in front of each go ---------- */
 function gate(T, run){
   if (run.fkGo) return true;
   if (FKS.run === run) return false;
   FKS.run = run;
-  const keep = FKS.keep && FKS.keep.id === run.id ? FKS.keep.S : null;
+  const keep = FKS.keep && FKS.keep.id === run.id ? FKS.keep.st : null;
   FKS.keep = null;
-  FKS.S = keep || placeState(run.config, T.spec);
-  FKS.S.spec = T.spec;
-  if (keep) FKS.S.maxWall = Math.max(...allowed("freekick", run.config, "wall"));
+  FKS.st = keep || placeState(run.config, T.spec);
+  FKS.st.spec = T.spec;
+  if (keep) FKS.st.maxWall = Math.max(...allowed("freekick", run.config, "wall"));
   openCard();
   return false;
 }
@@ -58,7 +58,7 @@ for (const d of FREEKICKS){
 // the pause card: the placement again (the go stops; Start plays from the new places)
 addItem({id:"fk-adjust", label:"Adjust Free Kick Placement", group:"scenario", order:25,
   when:run => !!run && !!run.sc && run.sc.type === "freekick" && !!run.fkGo,
-  run(run){ quickClose(); run.fkGo = false; FKS.run = null; FKS.keep = {id:run.id, S:Object.assign(placeState(run.config, run.T.spec), {spec:run.T.spec})}; restart(); }});
+  run(run){ quickClose(); run.fkGo = false; FKS.run = null; FKS.keep = {id:run.id, st:Object.assign(placeState(run.config, run.T.spec), {spec:run.T.spec})}; restart(); }});
 
 /* ---------- the card ---------- */
 function rootEl(){
@@ -75,94 +75,94 @@ function rootEl(){
 const seg = (k, vals, cur, name, dis) => `<div class="seg wrap" role="group">${vals.map(v => `<button type="button" data-fkp="set" data-k="${k}" data-v="${esc(String(v))}" aria-pressed="${v === cur}"${dis ? " disabled" : ""}>${esc(name(v))}</button>`).join("")}</div>`;
 const range = (k, min, max, step, v, label, dis) => `<label class="fkp-range"><span>${esc(label)}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-fkp-in="${k}" aria-label="${esc(label)}"${dis ? " disabled" : ""}><output data-fkp-val="${k}"></output></label>`;
 function html(){
-  const S = FKS.S, M = measures(S), b = S.ball, w = S.wall;
-  const ballOpen = !S.ballOk, wallOpen = S.ballOk;
+  const st = FKS.st, M = measures(st), b = st.ball, w = st.wall;
+  const ballOpen = !st.ballOk, wallOpen = st.ballOk;
   const ang = Math.abs(b.ang) < 0.5 ? "straight on" : `${Math.round(Math.abs(b.ang))} degrees ${b.ang > 0 ? "right" : "left"}`;
-  const step = !S.ballOk ? 2 : !S.wallOk ? 3 : 4;
-  const sizes = []; for (let i = 0; i <= S.maxWall; i++) sizes.push(i);
+  const step = !st.ballOk ? 2 : !st.wallOk ? 3 : 4;
+  const sizes = []; for (let i = 0; i <= st.maxWall; i++) sizes.push(i);
   return `<div class="fkp glass">
     <h3>Free kick: placement</h3>
     <div class="fkp-body">
     <ol class="fkp-steps"><li class="${step === 2 ? "on" : "done"}">Ball</li><li class="${step === 3 ? "on" : step > 3 ? "done" : ""}">Wall</li><li class="${step === 4 ? "on" : ""}">Start</li></ol>
     <section class="fkp-sec${ballOpen ? " on" : " done"}">
-      <h4>The ball${S.ballOk ? " <span class=\"fkp-ok\">confirmed</span>" : ""}</h4>
+      <h4>The ball${st.ballOk ? " <span class=\"fkp-ok\">confirmed</span>" : ""}</h4>
       ${ballOpen ? range("dist", FK.DMIN, FK.DMAX, 0.1, b.dist, "Distance", false) + range("ang", -FK.AMAX, FK.AMAX, 1, b.ang, "Angle", false) : ""}
       <p class="fkp-read">Distance to goal: <b data-fkp-out="ballGoal">${f1(M.ballGoal)}</b> <span class="muted" data-fkp-out="ang">${esc(ang)}</span></p>
       ${ballOpen ? `<p class="muted small">Only places a free kick can be taken from: outside the penalty area, inside the lines.</p>
       <button type="button" class="btn" data-fkp="confirmBall">Confirm Ball Position</button>` : ""}
     </section>
-    <section class="fkp-sec${S.wallOk ? " done" : wallOpen ? " on" : " off"}">
-      <h4>The wall${S.wallOk ? " <span class=\"fkp-ok\">confirmed</span>" : ""}</h4>
+    <section class="fkp-sec${st.wallOk ? " done" : wallOpen ? " on" : " off"}">
+      <h4>The wall${st.wallOk ? " <span class=\"fkp-ok\">confirmed</span>" : ""}</h4>
       ${seg("on", [true, false], w.on, v => v ? "Wall up" : "No wall", !wallOpen)}
       <div class="fkp-row"><span>Players in it</span>${seg("n", sizes, w.n, String, !wallOpen || !w.on)}</div>
       ${range("wdist", FK.WDMIN, FK.WDMAX, 0.05, w.dist, "Distance from the ball", !wallOpen || !w.on)}
       ${range("woff", -FK.WOFF, FK.WOFF, 0.05, w.off, "Offset across", !wallOpen || !w.on)}
       ${seg("align", ["post", "centre"], w.align, v => ALIGN_NAMES[v], !wallOpen || !w.on)}
       <p class="fkp-read">Distance from ball: <b data-fkp-out="wallBall">${M.wallBall == null ? "no wall" : f1(M.wallBall)}</b> <span class="muted">Ball to goal: <b data-fkp-out="ballGoal2">${f1(M.ballGoal)}</b></span></p>
-      <p class="muted small">${S.ballOk ? "The rings on the grass are the preview. Confirm puts the wall there." : "Confirm the ball first."}</p>
-      <button type="button" class="btn" data-fkp="confirmWall"${wallOpen && !S.wallOk ? "" : " disabled"}>Confirm Wall Position</button>
+      <p class="muted small">${st.ballOk ? "The rings on the grass are the preview. Confirm puts the wall there." : "Confirm the ball first."}</p>
+      <button type="button" class="btn" data-fkp="confirmWall"${wallOpen && !st.wallOk ? "" : " disabled"}>Confirm Wall Position</button>
     </section>
     </div>
     <p class="fkp-note small" data-fkp-out="note" aria-live="polite">${esc(FKS.note)}</p>
     <div class="fkp-foot">
       <button type="button" class="btn ghost" data-fkp="back">Back to settings</button>
-      <button type="button" class="btn ghost" data-fkp="adjust"${S.ballOk ? "" : " disabled"}>Adjust Placement</button>
+      <button type="button" class="btn ghost" data-fkp="adjust"${st.ballOk ? "" : " disabled"}>Adjust Placement</button>
       <span class="grow"></span>
-      <button type="button" class="btn" data-fkp="start" aria-disabled="${!canStart(S)}"${canStart(S) ? "" : " data-blocked=\"1\""}>Start Free Kick</button>
+      <button type="button" class="btn" data-fkp="start" aria-disabled="${!canStart(st)}"${canStart(st) ? "" : " data-blocked=\"1\""}>Start Free Kick</button>
     </div></div>`;
 }
 function draw(){ const r = rootEl(); r.innerHTML = html(); vals(); marks(); }
 // the live readings and the slider values, in place (a slider being dragged is never redrawn under the pointer)
 function vals(){
-  const r = FKS.root, S = FKS.S; if (!r || !S) return;
-  const M = measures(S), set = (k, t) => { const e = r.querySelector(`[data-fkp-out="${k}"]`); if (e) e.textContent = t; };
+  const r = FKS.root, st = FKS.st; if (!r || !st) return;
+  const M = measures(st), set = (k, t) => { const e = r.querySelector(`[data-fkp-out="${k}"]`); if (e) e.textContent = t; };
   set("ballGoal", f1(M.ballGoal)); set("ballGoal2", f1(M.ballGoal)); set("wallBall", M.wallBall == null ? "no wall" : f1(M.wallBall));
-  const a = S.ball.ang; set("ang", Math.abs(a) < 0.5 ? "straight on" : `${Math.round(Math.abs(a))} degrees ${a > 0 ? "right" : "left"}`);
+  const a = st.ball.ang; set("ang", Math.abs(a) < 0.5 ? "straight on" : `${Math.round(Math.abs(a))} degrees ${a > 0 ? "right" : "left"}`);
   const out = (k, t) => { const e = r.querySelector(`[data-fkp-val="${k}"]`); if (e) e.textContent = t; };
-  out("dist", S.ball.dist.toFixed(1) + " m"); out("ang", Math.round(S.ball.ang) + "°"); out("wdist", S.wall.dist.toFixed(2) + " m"); out("woff", (S.wall.off > 0 ? "+" : "") + S.wall.off.toFixed(2) + " m");
+  out("dist", st.ball.dist.toFixed(1) + " m"); out("ang", Math.round(st.ball.ang) + "°"); out("wdist", st.wall.dist.toFixed(2) + " m"); out("woff", (st.wall.off > 0 ? "+" : "") + st.wall.off.toFixed(2) + " m");
 }
 function input(e){
-  const t = e.target, k = t && t.dataset ? t.dataset.fkpIn : null; if (!k || !FKS.S) return;
+  const t = e.target, k = t && t.dataset ? t.dataset.fkpIn : null; if (!k || !FKS.st) return;
   const v = +t.value;
-  const was = FKS.S.wallOk;
-  if (k === "dist" || k === "ang") previewBall(FKS.S, k === "dist" ? {dist:v} : {ang:v});
-  else if (k === "wdist") previewWall(FKS.S, {dist:v});
-  else if (k === "woff") previewWall(FKS.S, {off:v});
+  const was = FKS.st.wallOk;
+  if (k === "dist" || k === "ang") previewBall(FKS.st, k === "dist" ? {dist:v} : {ang:v});
+  else if (k === "wdist") previewWall(FKS.st, {dist:v});
+  else if (k === "woff") previewWall(FKS.st, {off:v});
   // (a confirmed wall changed: its step is open again, the card says so)
-  if (was && !FKS.S.wallOk) draw(); else { vals(); marks(); }
+  if (was && !FKS.st.wallOk) draw(); else { vals(); marks(); }
 }
 function click(e){
-  const b = e.target.closest ? e.target.closest("[data-fkp]") : null; if (!b || !FKS.S) return;
-  const S = FKS.S, what = b.dataset.fkp;
+  const b = e.target.closest ? e.target.closest("[data-fkp]") : null; if (!b || !FKS.st) return;
+  const st = FKS.st, what = b.dataset.fkp;
   FKS.note = "";
   if (what === "set"){
     const k = b.dataset.k, v = b.dataset.v;
-    if (k === "on") previewWall(S, {on:v === "true"});
-    else if (k === "n") previewWall(S, {n:+v});
-    else if (k === "align") previewWall(S, {align:v});
+    if (k === "on") previewWall(st, {on:v === "true"});
+    else if (k === "n") previewWall(st, {n:+v});
+    else if (k === "align") previewWall(st, {align:v});
     draw();
   }
-  else if (what === "confirmBall"){ if (confirmBall(S)) commit(); }
-  else if (what === "confirmWall"){ if (confirmWall(S)) commit(); }
-  else if (what === "adjust"){ adjust(S); draw(); }
+  else if (what === "confirmBall"){ if (confirmBall(st)) commit(); }
+  else if (what === "confirmWall"){ if (confirmWall(st)) commit(); }
+  else if (what === "adjust"){ adjust(st); draw(); }
   else if (what === "start") start();
   else if (what === "back") back();
 }
 // a confirm: the placement into the configuration, and the scenario started again from it (the card stays up)
 function commit(){
   const run = RUN.cur; if (!run || run !== FKS.run) return;
-  const S = FKS.S;
-  queueChange({key:"fk-place", label:"Free kick placement", apply:c => applyPlace(c, S)});
-  FKS.keep = {id:run.id, S};
+  const st = FKS.st;
+  queueChange({key:"fk-place", label:"Free kick placement", apply:c => applyPlace(c, st)});
+  FKS.keep = {id:run.id, st};
   FKS.run = null;
   marksClear();
   restart();
 }
 function start(){
-  const run = RUN.cur, S = FKS.S;
-  if (!canStart(S)){ FKS.note = !S.ballOk ? "Confirm the ball's position first." : "Confirm the wall's position first."; const n = FKS.root && FKS.root.querySelector('[data-fkp-out="note"]'); if (n) n.textContent = FKS.note; return false; }
+  const run = RUN.cur, st = FKS.st;
+  if (!canStart(st)){ FKS.note = !st.ballOk ? "Confirm the ball's position first." : "Confirm the wall's position first."; const n = FKS.root && FKS.root.querySelector('[data-fkp-out="note"]'); if (n) n.textContent = FKS.note; return false; }
   if (!run || run !== FKS.run) return false;
-  S.go = true; run.fkGo = true;
+  st.go = true; run.fkGo = true;
   closeCard(true);
   setPaused(false);
   return true;
@@ -203,8 +203,8 @@ function closeCard(release = true){
 const RING = {geo:null, mat:null, matB:null};
 function ringMesh(r, m){ const g = new THREE.RingGeometry(r*0.78, r, 28); g.rotateX(-Math.PI/2); return new THREE.Mesh(g, m); }
 function marks(){
-  const S = FKS.S, run = FKS.run; if (!S || !run || !run.T || !W.scene) return;
-  const F = run.T.F || {cx:0, cz:0}, M = measures(S);
+  const st = FKS.st, run = FKS.run; if (!st || !run || !run.T || !W.scene) return;
+  const F = run.T.F || {cx:0, cz:0}, M = measures(st);
   if (!FKS.marks){
     RING.mat = RING.mat || new THREE.MeshBasicMaterial({color:0xffd75a, transparent:true, opacity:0.85, depthWrite:false});
     RING.matB = RING.matB || new THREE.MeshBasicMaterial({color:0xc8f060, transparent:true, opacity:0.9, depthWrite:false});
@@ -215,10 +215,10 @@ function marks(){
     FKS.marks = g;
   }
   const g = FKS.marks, ball = g.children[0];
-  ball.visible = !S.ballOk; ball.position.set(M.ball.x + F.cx, 0.03, M.ball.z + F.cz);
+  ball.visible = !st.ballOk; ball.position.set(M.ball.x + F.cx, 0.03, M.ball.z + F.cz);
   for (let i = 0; i < 6; i++){
     const m = g.children[i + 1], q = M.wall[i];
-    m.visible = !!q && S.ballOk && !S.wallOk;
+    m.visible = !!q && st.ballOk && !st.wallOk;
     if (q) m.position.set(q.x + F.cx, 0.03, q.z + F.cz);
   }
 }
@@ -235,7 +235,7 @@ if (typeof addEventListener === "function"){
   addEventListener("train:scenario", e => { const d = e.detail || {}; if (d.state === "stopped" && d.reason !== "restart" && FKS.open){ FKS.run = null; closeCard(d.reason !== "config"); } });
 }
 // tests (DESIGN 1.4.20 style)
-if (typeof window !== "undefined") window.__fkPlace = {FKS, start, back, commit, open:() => FKS.open, state:() => FKS.S,
-  ball:(o) => { const ok = previewBall(FKS.S, o); vals(); marks(); return ok; }, wall:(o) => { const ok = previewWall(FKS.S, o); draw(); return ok; },
-  confirmBall:() => confirmBall(FKS.S) && (commit(), true), confirmWall:() => confirmWall(FKS.S) && (commit(), true), adjust:() => { adjust(FKS.S); draw(); return true; },
-  canStart:() => canStart(FKS.S), measures:() => measures(FKS.S), marks:() => FKS.marks ? FKS.marks.children.filter(m => m.visible).length : 0};
+if (typeof window !== "undefined") window.__fkPlace = {FKS, start, back, commit, open:() => FKS.open, state:() => FKS.st,
+  ball:(o) => { const ok = previewBall(FKS.st, o); vals(); marks(); return ok; }, wall:(o) => { const ok = previewWall(FKS.st, o); draw(); return ok; },
+  confirmBall:() => confirmBall(FKS.st) && (commit(), true), confirmWall:() => confirmWall(FKS.st) && (commit(), true), adjust:() => { adjust(FKS.st); draw(); return true; },
+  canStart:() => canStart(FKS.st), measures:() => measures(FKS.st), marks:() => FKS.marks ? FKS.marks.children.filter(m => m.visible).length : 0};

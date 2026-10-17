@@ -1605,11 +1605,11 @@ export function wallSpots(sp, gx, spec, bounds){
 // the wall of a Training free kick: R0.wallSpec's size and place, its men the ones it names (spec.ids, the
 // defending side's) and then the nearest; the others kept clear of it and of the ball
 function specWall(ms, R0, sp, gx, def){
-  const S = R0.wallSpec, W = wallSpots(sp, gx, S, {hx: ms.spec.hx, hz: ms.spec.hz});
+  const WS = R0.wallSpec, W = wallSpots(sp, gx, WS, {hx: ms.spec.hx, hz: ms.spec.hz});
   if (!R0.wallSet){
     R0.wallSet = true;
     const ok = o => o && o.team === def && o.onPitch && !o.isGK && !o.leaving && o.role === 'player';
-    const ids = Array.isArray(S.ids) ? S.ids.filter(id => ok(ms.agents[id])) : [];
+    const ids = Array.isArray(WS.ids) ? WS.ids.filter(id => ok(ms.agents[id])) : [];
     if (ids.length < W.n){
       const rest = ms.agents.filter(o => ok(o) && !ids.includes(o.id) && !o.isMe).sort((p, q) => hypot(p.m.x - W.spots[0].x, p.m.z - W.spots[0].z) - hypot(q.m.x - W.spots[0].x, q.m.z - W.spots[0].z) || p.id - q.id);
       for (const o of rest){ if (ids.length >= W.n) break; ids.push(o.id); }

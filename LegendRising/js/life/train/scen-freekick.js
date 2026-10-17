@@ -130,55 +130,55 @@ export function placeState(config, spec){
     maxWall:Math.max(...allowed("freekick", c, "wall")), ballOk:false, wallOk:false, conf:{ball:null, wall:null}, go:false};
 }
 // the ball's preview moved (only while it is not confirmed). Returns whether it was taken
-export function previewBall(S, b){
-  if (S.ballOk) return false;
-  if (b.dist != null) S.ball.dist = clamp(+b.dist, FK.DMIN, FK.DMAX);
-  if (b.ang != null) S.ball.ang = clamp(+b.ang, -FK.AMAX, FK.AMAX);
+export function previewBall(st, b){
+  if (st.ballOk) return false;
+  if (b.dist != null) st.ball.dist = clamp(+b.dist, FK.DMIN, FK.DMAX);
+  if (b.ang != null) st.ball.ang = clamp(+b.ang, -FK.AMAX, FK.AMAX);
   return true;
 }
-export function confirmBall(S){
-  if (S.ballOk) return false;
-  const p = ballSpot(S.spec, S.ball.dist, S.ball.ang);
-  S.ball.dist = p.dist; S.ball.ang = p.ang;
-  S.conf.ball = {x:p.x, z:p.z, dist:p.dist, ang:p.ang};
-  S.ballOk = true;
+export function confirmBall(st){
+  if (st.ballOk) return false;
+  const p = ballSpot(st.spec, st.ball.dist, st.ball.ang);
+  st.ball.dist = p.dist; st.ball.ang = p.ang;
+  st.conf.ball = {x:p.x, z:p.z, dist:p.dist, ang:p.ang};
+  st.ballOk = true;
   // (the wall stands where it is from the ball: confirmed again for the ball's new place)
-  S.wallOk = false; S.conf.wall = null;
+  st.wallOk = false; st.conf.wall = null;
   return true;
 }
 // the wall's preview changed (only once the ball is confirmed; a change to a confirmed wall opens it again, the ball
 // staying confirmed). The ball is never touched
-export function previewWall(S, w){
-  if (!S.ballOk) return false;
-  if (S.wallOk){ S.wallOk = false; S.conf.wall = null; }
-  if (w.n != null) S.wall.n = clamp(Math.round(+w.n), 0, S.maxWall);
-  if (w.on != null) S.wall.on = !!w.on;
-  if (w.dist != null) S.wall.dist = clamp(+w.dist, FK.WDMIN, FK.WDMAX);
-  if (w.off != null) S.wall.off = clamp(+w.off, -FK.WOFF, FK.WOFF);
-  if (w.align != null) S.wall.align = w.align === "centre" ? "centre" : "post";
+export function previewWall(st, w){
+  if (!st.ballOk) return false;
+  if (st.wallOk){ st.wallOk = false; st.conf.wall = null; }
+  if (w.n != null) st.wall.n = clamp(Math.round(+w.n), 0, st.maxWall);
+  if (w.on != null) st.wall.on = !!w.on;
+  if (w.dist != null) st.wall.dist = clamp(+w.dist, FK.WDMIN, FK.WDMAX);
+  if (w.off != null) st.wall.off = clamp(+w.off, -FK.WOFF, FK.WOFF);
+  if (w.align != null) st.wall.align = w.align === "centre" ? "centre" : "post";
   return true;
 }
-export function confirmWall(S){
-  if (!S.ballOk || S.wallOk) return false;
-  S.conf.wall = Object.assign({}, S.wall);
-  S.wallOk = true;
+export function confirmWall(st){
+  if (!st.ballOk || st.wallOk) return false;
+  st.conf.wall = Object.assign({}, st.wall);
+  st.wallOk = true;
   return true;
 }
 // Adjust Placement: both open again, the previews where they were
-export function adjust(S){ S.ballOk = false; S.wallOk = false; S.conf.ball = null; S.conf.wall = null; S.go = false; return true; }
-export const canStart = S => !!(S && S.ballOk && S.wallOk);
+export function adjust(st){ st.ballOk = false; st.wallOk = false; st.conf.ball = null; st.conf.wall = null; st.go = false; return true; }
+export const canStart = st => !!(st && st.ballOk && st.wallOk);
 // the live indicators: the preview ball's distance to goal, the preview wall's from the ball (the confirmed ball once
 // there is one), and both as placed
-export function measures(S){
-  const p = S.ballOk ? S.conf.ball : ballSpot(S.spec, S.ball.dist, S.ball.ang);
-  const W = wallOf(S.spec, p, S.wall);
-  return {ball:{x:p.x, z:p.z}, ballGoal:r2(goalDistance(S.spec, p)), wall:W.spots, wallBall:W.spots.length ? r2(wallDistance(p, W.spots)) : null, valid:validBall(S.spec, p)};
+export function measures(st){
+  const p = st.ballOk ? st.conf.ball : ballSpot(st.spec, st.ball.dist, st.ball.ang);
+  const W = wallOf(st.spec, p, st.wall);
+  return {ball:{x:p.x, z:p.z}, ballGoal:r2(goalDistance(st.spec, p)), wall:W.spots, wallBall:W.spots.length ? r2(wallDistance(p, W.spots)) : null, valid:validBall(st.spec, p)};
 }
 // the configuration with the placement in it (what a confirm hands the runner, and what a preset keeps)
-export function applyPlace(config, S){
+export function applyPlace(config, st){
   const c = JSON.parse(JSON.stringify(config));
-  c.opts = Object.assign({}, c.opts, {ballDist:S.ball.dist, ballAng:S.ball.ang, wallDist:S.wall.dist, wallOff:S.wall.off, wallAlign:S.wall.align, wallOn:S.wall.on});
-  c.wall = S.wall.n;
+  c.opts = Object.assign({}, c.opts, {ballDist:st.ball.dist, ballAng:st.ball.ang, wallDist:st.wall.dist, wallOff:st.wall.off, wallAlign:st.wall.align, wallOn:st.wall.on});
+  c.wall = st.wall.n;
   return validate("freekick", c);
 }
 
@@ -200,7 +200,7 @@ export function fitConfig(config, notes = null){
   return validate("freekick", c);
 }
 // who a place is in the plan: {team: 'mine' | 'theirs', i} (i -1: me)
-const refOf = (S, p) => p === S.me ? {team:"mine", i:-1} : S.mates.includes(p) ? {team:"mine", i:S.mates.indexOf(p)} : {team:"theirs", i:S.opps.indexOf(p)};
+const refOf = (st, p) => p === st.me ? {team:"mine", i:-1} : st.mates.includes(p) ? {team:"mine", i:st.mates.indexOf(p)} : {team:"theirs", i:st.opps.indexOf(p)};
 /* build(config, env) -> the runner's setup. The goal attacked is always +x (team 0 attacks it: the side that takes it
    is team 0). env.spec: the cage's pitch */
 export function build(config, env = {}){
@@ -211,27 +211,27 @@ export function build(config, env = {}){
   const cb = o.wallOn ? c : Object.assign({}, c, {wall:0});
   const s0 = setupFromConfig("freekick", cb, {spec, seed:env.seed});
   const n = counts("freekick", cb), meAtt = c.role !== "defender";
-  const S = {me:Object.assign({}, s0.me), mates:s0.mates.map(p => Object.assign({}, p)), opps:s0.opps.map(p => Object.assign({}, p))};
-  const att = meAtt ? [S.me, ...S.mates] : S.opps, def = meAtt ? S.opps : [S.me, ...S.mates];
+  const st = {me:Object.assign({}, s0.me), mates:s0.mates.map(p => Object.assign({}, p)), opps:s0.opps.map(p => Object.assign({}, p))};
+  const att = meAtt ? [st.me, ...st.mates] : st.opps, def = meAtt ? st.opps : [st.me, ...st.mates];
   // the wall: the last n.wall of the defending side's computer players (teams.js puts them last), me among them
   // when I stand in it (in the first man's place, he a free defender in mine)
-  const defNpc = meAtt ? S.opps : S.mates;
+  const defNpc = meAtt ? st.opps : st.mates;
   let wall = n.wall > 0 ? defNpc.slice(defNpc.length - n.wall) : [];
-  if (!meAtt && o.meWall && wall.length){ const w0 = wall[0]; wall = [S.me, ...wall.slice(1)]; w0.x = S.me.x; w0.z = S.me.z; }
+  if (!meAtt && o.meWall && wall.length){ const w0 = wall[0]; wall = [st.me, ...wall.slice(1)]; w0.x = st.me.x; w0.z = st.me.z; }
   // the takers: me or the side's first; the second taker me (receiver) or the next
-  const npcAtt = att.filter(p => p !== S.me);
-  const taker = c.role === "taker" ? S.me : npcAtt[0] || null;
+  const npcAtt = att.filter(p => p !== st.me);
+  const taker = c.role === "taker" ? st.me : npcAtt[0] || null;
   const action = FK_ACTIONS.includes(o.second) ? o.second : null;
-  const second = action ? (c.role === "receiver" ? S.me : npcAtt.find(p => p !== taker) || null) : null;
+  const second = action ? (c.role === "receiver" ? st.me : npcAtt.find(p => p !== taker) || null) : null;
   const P = {kind:"free", attTeam:0, role:c.role, strike:c.role === "taker" ? null : o.strike, action:second ? action : null,
-    taker:taker ? refOf(S, taker) : null, second:second ? refOf(S, second) : null, wallRefs:wall.map(p => refOf(S, p)),
+    taker:taker ? refOf(st, taker) : null, second:second ? refOf(st, second) : null, wallRefs:wall.map(p => refOf(st, p)),
     wall:wallSpecOf({n:wall.length, on:o.wallOn, dist:o.wallDist, off:o.wallOff, align:o.wallAlign}),
-    base:[], time:o.time, replay:!!o.replay, meWall:!meAtt && !!o.meWall && wall.includes(S.me), spot:null, measure:null};
+    base:[], time:o.time, replay:!!o.replay, meWall:!meAtt && !!o.meWall && wall.includes(st.me), spot:null, measure:null};
   // everyone else's configured spot, kept for the layout
-  for (const p of [S.me, ...S.mates, ...S.opps]) if (p !== taker && p !== second && !wall.includes(p)) P.base.push({ref:refOf(S, p), x:p.x, z:p.z});
+  for (const p of [st.me, ...st.mates, ...st.opps]) if (p !== taker && p !== second && !wall.includes(p)) P.base.push({ref:refOf(st, p), x:p.x, z:p.z});
   const setup = {myTeam:s0.myTeam, role:c.role === "receiver" ? "Second taker" : ROLE_NAMES[c.role] || "Player", seed:s0.seed,
     laws:{out:"stop", offside:false, goals:goalsLawOf(spec), restarts:true},
-    me:S.me, mates:S.mates, opps:S.opps, keeper:s0.keeper ? Object.assign({}, s0.keeper, {side:meAtt ? "theirs" : "mine"}) : null,
+    me:st.me, mates:st.mates, opps:st.opps, keeper:s0.keeper ? Object.assign({}, s0.keeper, {side:meAtt ? "theirs" : "mine"}) : null,
     ball:{x:0, y:R, z:0, vx:0, vy:0, vz:0, wx:0, wy:0, wz:0, free:false}, poss:null, notes:[...notes, ...(s0.notes || [])],
     tempo:Object.assign({}, TEMPO[2], {shotBias:1}), plan:P, config:c};
   layout(setup, spec, {dist:o.ballDist, ang:o.ballAng});
