@@ -1,86 +1,103 @@
-# PC status: P9-B (AI refinement), branch `pc/p9b`
+# PC status: P9-A (Animation refinement), branch `pc/p9a`
 
-**State: finished; ready for the cloud to merge (after `pc/p7a`).** Built on `pc/p7a` as asked: it carries P7-A, whose own status is on
-`pc/p7a`. `HOOKS.md` holds P9-B's requests (the `GK_DISTRIB_LIVE` flag, the `tr4-attrs` row, the run.mjs suites, and the
-contract for P9-A).
+**State: partly done; safe to merge.**
+- **Branch:** `pc/p10b` with `pc/p9b` merged, as asked. P9-A animates P9-B's keeper acts.
+- **Every item has a fix and a check** (`tr9-anim`, `tr9-gkanim`), and the plan's regression suites pass, except two
+  that fail the same way on origin.
+- **Still open, recorded with numbers and causes:** a clip handing back to the gait, strike contact timing, the slow
+  lateral jockey, and the hands in view.
+- **The root-cause record** for every item is `plan/notes/p9a-rootcause.md`, which `qa/tr9-sheets.mjs` checks.
+  `HOOKS.md` has the integrator's lines.
 
-## What changed (P9-B's own files)
+## What changed (P9-A's own files)
 
-- **Keeper distribution by `gk.distrib` (ATTR-1).** The rules are documented in `gkbrain.js`'s header, "distribution".
-  `distrib` changes three things, centred on a typical match keeper (distrib about his overall, about 70), who plays as
-  before:
-  - **The choice:**
-    - how safe a throw or a roll must be (a weak distributor throws only the safest balls);
-    - the throw's range (26 m at 30, 30 at 70, 32 at 90);
-    - how long his punt goes (40 to 48 m at 30, 48 to 58 at 90): a weak distributor kicks long less often to a far
-      target.
-  - **The accuracy:**
-    - a normal scatter on where he means it to go: 1.8 m for a throw or roll at 30, 0.3 m at 90, more for a punt;
-    - his punts and goal kicks are struck with passing numbers that move with distrib (`gkKicking`: -32 at 30, +16 at
-      90), from the keeper's own copy of his numbers, never the configuration's.
-- **Keeper throws and rolls are acts (GK-3, the contract for P9-A).**
-  - The act is `a.act = {kind: 'gkthrow' | 'gkroll', target, aim, recv, tRelease, dur}`.
-  - The ball stays in his hands (`holdAt`, high for a throw) until `tRelease`, then `distRelease` lets it go.
-  - The timings are those of the existing `gkmoves.js gkdistribute` clip (throw 0.55 of 0.9 s, roll 0.45 of 0.8 s), so
-    P9-A's release event lines up with them.
-  - The punt is unchanged.
-- **Two bugs found by the new checks, both fixed:**
-  - **Keepers never threw.** A throw was judged as a backspun lob at a fixed 14 m/s, which carries about 20 m, so a
-    full-back (26 to 28 m out) was never safe to throw to.
-    - Throws are now judged as throws: `brain.js passModel` takes kind `'throw'` (from head height, no backspin:
-      `strike.js` has that table).
-    - They are judged at the speed they are released at, which is now enough to carry (1.2 sqrt(g d), at most
-      22 m/s).
-    - The threshold is on `passModel`'s own scale for a dropping ball.
-  - **The AI shot from too far.** About a quarter of its shots came from 30 to 35 m. Beyond 28 m a shot's value now
-    fades by exp(-(d - 28)/4) (`BRAIN.LONG`). The user's U9 shooting zone, square on up to 28 m, is untouched, and so is
-    the harness's stand-in for the player.
+- **MV-9 jockey** (`view.js locoOf`): a jockeying body uses the gait's jockey style, side-on lead and trail steps up to
+  3.4 m/s:
+  - the AI's pressMove stance (state `'jockey'`);
+  - yours, the strafe your held jockey asks for.
 
-## `qa/tr9-ai.mjs` (new; Node, 16 full matches, all 46 team drills x 2 seeds, 200 paired distributions)
+  It applies only going sideways or back; going forward at the man it runs.
+- **MV-9 dribble touches** (`view.js dribbleTouches`): every dribble touch the simulation makes sends the drawn body's
+  next swing through the ball (`gait.js touch`), aimed at where the ball will be when the foot gets there.
+- **MV-14** (`actions.js`): the striker's speed through a strike follows `strikeRoot`, the clip's own root curve (a pure
+  copy, since the simulation can't load the drawing code). The planted foot no longer skates under a body still moving
+  at the run-up's pace.
+- **MV-15, the body:**
+  - the match's and Training's first-person body gets the life body's neck fix (`me.js neckFix`, now exported) and the
+    arms-in every frame (`fpPose`, `V.fpSpy`);
+  - fatigue is 0 to 1 from the breath (`view.js fatigueOf`). A standing body above 0.7 takes the tired stance and leaves
+    it below 0.7; yours and the AI's alike.
+- **MV-15 camAction** (`matchcam.js clipCam`): the camera's backswing, slide, chest and landing springs fire once, on your
+  own clip's moment (a strike's plant, a slide's landing, a chest receive's contact, a header's landing).
+- **GK-3:**
+  - **Hands without a dive** (`view.js gkHands`), each from the step its state begins:
+    - a claim shows `gkcatch` (high, on the claim's time), or `gkpunch` once he punched;
+    - the spread shows `gkcollect` smother;
+    - a ball gathered shows `gkcollect` scoop, or `gkcatch` chest above it;
+    - a tip over without a dive shows `gktip`.
+  - **Throw and roll:** P9-B's `gkthrow` and `gkroll` acts play `gkdistribute` on the act's own clock, its release on
+    `tRelease`. The drawn ball sits in his right hand (`moves.js handBall`) until the release, then eases onto the
+    simulation's.
+  - **Training passes the saves on** (`training.js`): it now hands the view the simulation's saves and goals, as the match
+    does. Before, a keeper's dive in Training showed no outcome and a punch showed the ready stance.
 
-| Check | Result |
+## Tests on this PC
+
+| Test | Result |
 |---|---|
-| Swarming, per 50k loose-ball team-steps, at or below 101 | see below |
-| Obvious idling: a playable free ball within 5 m and nobody going to it for over 1 s | 0 episodes (matches and drills) |
-| Share of the computer's shots from beyond 25 m, band 0.05 to 0.35 | about 0.20 to 0.26 |
-| Pass completion by passing (low, middle, high) in bands, higher for the best passers | about 0.78 / 0.78 / 0.82 |
-| Keeper save rate on target by kind of shot (close, middle, long, headers) | see below |
-| Distribution error at distrib 30 at least 1.5 times that at 90 | about 10.5 m vs 5.3 m (x2.0) |
-| Distribution completion higher at 90 | about 0.43 vs 0.70 |
-| The choice as documented: shorter punts and fewer throws at 30 | punts about 43 m vs 53 m; throws and rolls 29% vs 60% |
-| Throws and rolls are acts that hold the ball to `tRelease` | every one (88 of 88 in the 100-pair run) |
+| `qa/tr9-anim.mjs` (new) | 19 of 26 |
+| `qa/tr9-gkanim.mjs` (new) | 7 of 8 |
+| `qa/tr9-sheets.mjs` (new) | 5 / 5 |
+| Regression: `wpB-feet`, `wpB-life`, `wpF-feel`, `tr2-gait`, `tr2-startstop`, `tr2-clipexit`, `tr6-receive-anim`, `tr3-runner`, `lint`, unit | pass (but the Windows-only unit `daily` and `presets`, fixed on `pc/integ`) |
+| Regression: `wpK-throw` | passes once its Windows output path is fixed (done on `pc/integ`) |
+| Regression: `wpK-gk`, `wpK-strike` | fail, the same on `pc/integ` without P9-A: hand-to-plan 2.8 cm (limit 2); a volley, a side volley, a rabona and a scissor kick that never plant |
 
-**How swarming is counted (please read).** The plan gives only the P1 probe's number: "3 same-side bodies within 3 m of a
-loose ball only 101 times" in 50,290 loose-ball team-steps. P1's probe isn't in the repo.
-- **Unfiltered,** today's code gives about 150 to 230 per 50k on these seeds.
-- **What those crowds are:**
-  - about 45% have the ball in the air (crosses over the box);
-  - about 40% fall within 3 s of a set piece into the box;
-  - about 60% of the ground cases have the ball going through a group faster than 6 m/s (a pass or a deflection).
-- **No double chasers:** two players of one side never both had a chase plan. The one-chaser rule holds.
-- **The test** counts a crowd only round a playable ball (on the ground, at 6 m/s or less, in open play) over P1's
-  denominator: about 46 per 50k. It reports the unfiltered figure beside it.
-- **The cloud's call:** whether that definition is the one wanted.
+**`tr9-anim` passes:**
+- the bots ran every category;
+- no stuck clip;
+- the jockey style in 100% of jockeying frames, no crossover;
+- dribble touches: every one asked for the same frame, and the drawn foot meets the drawn ball;
+- the first-person body: the neck fix and arms-in every frame, and no joint within 0.12 m in front of the camera
+  looking down to -60 degrees;
+- tired: the stance comes and goes within 1 s, the AI's too;
+- camAction: exactly one backswing, slide, chest and land, with the camera's roll under 2 degrees;
+- the keeper's throw: the ball in his hand to the release, and the clip's release within 1 frame.
 
-## Harness
+**`tr9-gkanim` passes:**
+- planted feet in 49% of his moving frames;
+- each claim, collect and spread shows its pose within 2 frames;
+- 13 throws and 13 rolls;
+- back in his ready stance 2.0 to 2.5 s after a dive;
+- no teleport.
 
-`node qa/harness.mjs --n 1000` on this branch (10 workers, 2,097 s): **60 of 62 checks pass**, above the 57 required.
-- **The misses:**
-  - winger touches 28.4 against 15 to 26 (origin's code misses it too: 27.6 on `pc/p7a`);
-  - striker defensive actions 4.015 against 1 to 4.
-- **What moved, all in band:**
-  - goals 2.74 a match (2.88 before), shots 15.3 (16.5), on target 8.29, save rate 0.716;
-  - counters 4.67, sequences of 5+ passes 6.97, crosses 10.3, final-third free kicks 2.13;
-  - striker touches, a miss before (22.17), now pass.
-- **Keepers' distribution in a match:** throws 19.9 a match (throw-ins included), rolls 0.5, punts 2.3 (3.8 before).
+## Open (measured, cause found or narrowed, not fixed here)
 
-## Other tests on this branch
+1. **A clip handing back to the gait** (`tr9-anim` "no bone turns more than 0.25 rad / 0.3 rad at a change").
+   - The first gait pose after a receive or a strike can turn a leg bone up to 1.6 to 1.9 rad from the clip's last pose.
+   - The legs' IK runs after the blend into locomotion (`human.js`), so the blend doesn't cover them.
+   - Most other large one-frame changes are far bodies posed less often (level of detail); the check now spreads those
+     over the frames since the last pose.
+2. **Strike contact timing** (`tr9-anim` "at contact the kicking foot is within 0.12 m of the drawn ball", 2 of 14).
+   - The strike clip's contact is on its own clock, rate-adjusted toward the simulation's. From a stride adjust or a
+     first-time ball, it can be a frame or more off the simulation's contact.
+   - Fix: pin the clip's contact to the act's `tc`, as the keeper's distribution now is.
+3. **The slow lateral jockey:**
+   - at 1 and 2 m/s sideways a planted foot is carried with the body (0.22 m and 0.43 m over its plant);
+   - at 1 m/s the feet come within 0.04 m of each other;
+   - backward at every speed, and sideways at 3.2 m/s, are clean.
+   - The cause is in the gait's shuffle at low speed (`gait.js`, its slip allowance); not traced further.
+4. **The hands in view:** looking down at a run, the hands come into the middle half of the view in 11 of 600 frames.
+   They're there when the arms-in pulls them in front of the hips.
+5. **No punch** in `tr9-gkanim`'s crosses, even with four men within 1 m of the target. The keeper claims, catches or
+   parries every time. The punch pose is wired (`gkHands`) and reached from the simulation's punch, but no run of the
+   sets produced one.
+6. **The plant-slide figure** in `tr9-anim`'s generic check still reads as large (metres) for a few bodies. A body posed
+   rarely enough can lift a foot and set it down again between two poses without its own time down dropping. The
+   check needs the gait's plant count, not its time down. Treat that number as a test limit, not a skate. The jockey
+   section's plant check (one body posed every frame) is the reliable one.
 
-- `qa/unit/gk.mjs` 20 / 20.
-- Lint: 17 / 17 rules.
-- nodash: 0 em dashes on P9-B's files.
-- **`qa/unit/rules.mjs`: 61 / 62.** The miss is not the AI. Its "every restart within its limit + 5 s" case waits up to
-  160 s for play to reach the corner-taking side's attacking third. With this branch's match flow, seed 25's team 1
-  never gets there, so the test puts the corner 70 m from the ball. The fetcher's carry of it (`rules.js`, not P9-B's)
-  takes 13.02 s, 0.02 s over the limit. A request to make the test take the next seed in that case is in `HOOKS.md`.
-- The same two Windows-only unit failures as before (`daily.mjs`, `presets.mjs`).
+## Next steps (for the cloud)
+
+- Apply `HOOKS.md` item 2 (P9-B's roll threshold on `passModel`'s scale), and re-run `tr9-ai` and the harness.
+- Open items 1 and 2 are the next animation work: the legs' IK inside the locomotion blend, and the strike clip's contact
+  pinned to the simulation's.
