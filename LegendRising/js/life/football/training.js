@@ -67,7 +67,7 @@ import * as VW from "./view.js";
 import * as HUD from "./fphud.js";
 import * as CAM from "./matchcam.js";
 import {ssgShow, ssgFrame, ssgGoal, ssgHide, ssgState} from "./ssghud.js";
-import {auraInit, auraFrame, auraDispose, AURA} from "./aura.js";
+import {auraInit, auraFrame, AURA} from "./aura.js";
 
 /* the kits as worn, by team index (home: team 0's), for a career host (acts.js kits(): {home: the club's training kit,
    away: [the bib colour it would like, ...]}). Your side is always in the club's kit and the other side in bibs over
@@ -510,8 +510,9 @@ registerMode("train", {
     T.board = boardOf(T, k);
     if (bug && (!T.item.score || T.board)) bug.style.display = "none";
     if (T.board) ssgShow(T.board);
-    // the team-mate you look at gets the soft red aura, as in a match (aura.js, UF-B U8; UF2-B U15)
-    auraInit(W.scene);
+    // the team-mate you look at gets the soft red aura, as in a match (aura.js, UF-B U8; UF2-B U15). Made once for the
+    // place and kept between items (hidden while none plays), so starting, restarting and stopping build nothing
+    if (!AURA.mesh || AURA.scene !== W.scene || !AURA.mesh.parent) auraInit(W.scene);
     // the life HUD's hand, crosshair and compass step aside (the clock and the needs stay)
     document.body.classList.add("drillview");
     // a HUD setting changed in the pause menu applies at once, as in a match
@@ -528,7 +529,7 @@ registerMode("train", {
     FLAGS.lockLost = false;
     try { CAM.camDispose(); } catch(e){ console.error(e); }
     try { HUD.hudDispose(); } catch(e){ console.error(e); }
-    try { ssgHide(); auraDispose(); } catch(e){ console.error(e); }
+    try { ssgHide(); if (AURA.mesh){ AURA.mesh.visible = false; AURA.target = -1; AURA.alpha = 0; AURA.pick = -1; } } catch(e){ console.error(e); }
     if (T){
       // you stay where your agent was (P has mirrored it all along); the squad's bodies take their agents' places
       handBack(T);
