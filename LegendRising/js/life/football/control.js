@@ -35,7 +35,8 @@
      Chip high contact (a chipped shot, a lofted pass), Curl the finesse. The gestures through a release still shape it.
    - One meter for a shot and a held pass (U18, U19: CTRL.meter, drawn by fphud.js near the crosshair): it fills while
      the button is held and marks the sweet spot, the power that suits the distance for a shot (meterBand) and the
-     weight that suits it for a pass. Let go inside it and the strike is clean (rq.clean): your plant is forgiven
+     weight that suits it for a pass. Let go inside it and, with the assists, the strike is clean (rq.clean; off, the
+     spot is the power or the weight to use and the stride still counts): your plant is forgiven
      (actions.js kickCtx) and it goes where you look, without the reticle's sway. Its width grows with the assists.
    - Passing (U19): a tap is weighted for the distance as before; the assists widen the pass cone to the team-mate
      nearest where you look and send it to him without the sway, and a placed pass is never lofted for you.
@@ -874,7 +875,7 @@ function strike(ms, me, what, held, opts){
     // strike goes where you look, without the reticle's sway, and the plant is forgiven (actions.js kickCtx)
     eyeOf(me, G.any ? G.yaw0 : P.yaw, G.any ? G.pitch0 : P.pitch); aimPoint(ms, me, RP); eyeOf(me);
     const band = meterBand(Math.hypot(RP.x - b.p.x, RP.z - b.p.z), techniqueOf(at), ak, MB);
-    const clean = held >= CN.TAP && p >= band.lo && p <= band.hi;
+    const inSpot = held >= CN.TAP && p >= band.lo && p <= band.hi, clean = inSpot && ak > 0;
     // where it goes: the reticle (your look plus its sway); with a gesture, the look from before the sweep
     let tgt;
     if (clean) tgt = {x:RP.x, y:RP.y, z:RP.z};
@@ -901,8 +902,10 @@ function strike(ms, me, what, held, opts){
     // held past full: you lean back and it rises (with the over-hit's sigma, strike.js)
     if (over > 0 && kind === "shot"){ const d = Math.hypot(tgt.x - b.p.x, tgt.z - b.p.z); tgt.y += over*(.6 + .05*d); shape += " over"; }
     const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact:ctc, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal, shape, over, kick:KT};
+    // (with the assists the spot is a clean strike: the plant and the stride forgiven, actions.js; the harder setting keeps
+    // the spot as the power for the distance and asks for the stride as well)
     if (clean){ rq.clean = true; rq.shape = shape = shape + " clean"; }
-    CTRL.clean.seq++; CTRL.clean.ok = clean; CTRL.clean.kind = "shot"; CTRL.clean.p = held >= CN.TAP ? 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2) : 0;
+    CTRL.clean.seq++; CTRL.clean.ok = inSpot; CTRL.clean.full = clean; CTRL.clean.kind = "shot"; CTRL.clean.p = held >= CN.TAP ? 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2) : 0;
     if (curl != null) rq.curl = curl;
     if (bend != null) rq.bend = bend;
     if (chip) rq.chip = true;
@@ -964,8 +967,8 @@ function strike(ms, me, what, held, opts){
   if (KT === "curl" && !G.curl && shape !== "lofted") shape = shape + " curl";
   const rq = {kind, target:{x:tp.x, y:.11, z:tp.z}, recv:o ? o.id : -1, contact:ctc, finesse, charged, sweet, firstTime:ms.poss.ctl !== me.id, shape, kick:KT};
   // (a held pass let go in the meter's sweet spot is clean, as a shot is: the plant forgiven)
-  if (sweet){ rq.clean = true; }
-  CTRL.clean.seq++; CTRL.clean.ok = sweet; CTRL.clean.kind = "pass"; CTRL.clean.p = charged ? Math.min(1, held/CN.PASS_FULL) : 0;
+  if (sweet && ak > 0){ rq.clean = true; }
+  CTRL.clean.seq++; CTRL.clean.ok = sweet; CTRL.clean.full = sweet && ak > 0; CTRL.clean.kind = "pass"; CTRL.clean.p = charged ? Math.min(1, held/CN.PASS_FULL) : 0;
   if (G.curl){ rq.bend = G.curl; rq.shape = shape + " curl"; }
   if (kind === "pass" || kind === "through"){ rq.speed = clamp(speed, CN.PASS_MIN, vmax); if (!charged) rq.weightSigma = .004; }
   queueStrike(ms, me, rq);

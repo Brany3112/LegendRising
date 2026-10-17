@@ -382,7 +382,7 @@ function meterFrame(s, dt, over){
   const C = c.clean;
   if (C && C.seq !== D.meterSeq){
     // a release: the meter holds on it (a tap has nothing to show)
-    if (D.meterSeq >= 0 && D.meterA > .05 && C.p > 0){ D.meterHold = .7; D.meterRelP = C.p; D.meterOk = !!C.ok; }
+    if (D.meterSeq >= 0 && D.meterA > .05 && C.p > 0){ D.meterHold = .7; D.meterRelP = C.p; D.meterOk = !!C.ok; D.meterFull = !!C.full; }
     D.meterSeq = C.seq;
   }
   const on = !!M.on;
@@ -399,7 +399,8 @@ function meterFrame(s, dt, over){
   E.meter.classList.toggle("over", on && bad);
   E.meterRel.style.left = (p*100).toFixed(1) + "%"; E.meterRel.style.opacity = on ? "0" : "1";
   put("meterLab", E.meterLab, D.meterKind === "pass" ? "Weight" : "Power");
-  put("meterSay", E.meterSay, on ? "" : D.meterOk ? "Clean" : "");
+  // (in the spot with the assists: a clean strike; without them, the power or the weight was right, the stride still counts)
+  put("meterSay", E.meterSay, on ? "" : D.meterFull ? "Clean" : D.meterOk ? (D.meterKind === "pass" ? "Good weight" : "Good power") : "");
   // (under the crosshair, or over it when the ball is there: the HUD never covers the ball)
   const w = s.w || innerWidth, h = s.h || innerHeight, k = SET.hudScale || 1, cx = w/2, below = h/2 + METER_OFF*k;
   let up = false;
