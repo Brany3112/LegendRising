@@ -107,6 +107,10 @@ export const BRAIN = Object.freeze({
   // out) the shot is worth SIGHT[3] more than the bare xG says (the whole goal to aim at, the keeper unsighted through
   // the bodies in front); from a wide angle beyond SIGHT[4] m out (more than SIGHT[0] m off the axis) SIGHT[5] of it
   SIGHT: [11, 12, 28, 1.1, 22, 0.55],
+  // (P9-B, decisions near goal) beyond LONG[0] m the AI's shot fades by exp(-(d - LONG[0])/LONG[1]): a team-mate is
+  // nearly always the better ball from 30 m and more (half the AI's shots came from beyond 25 m, a quarter from 30 to
+  // 35). The harness's stand-in for the player keeps his own range (ME_RANGE)
+  LONG: [28, 4],
   // (U9) holding the shape in possession, an attacker or a midfielder with a man within SPACE[0] m of his place in it
   // finds space: up to SPACE[1] m off his place, away from that man, never offside (TR-3+U fix round 2: 3 m, not 5, the
   // shape kept tighter; at 5 m goals per match and the striker's touches went above their harness bands)
@@ -167,7 +171,8 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   // keeps moving meanwhile (a man pressing him closes in), so every arrival is raced against the ball's time plus it.
   let tw = 0;
   if (passer && ms.ball.state === 'free'){ const cs = canStrike(passer, ms.ball); tw = cs.ok ? cs.tc : 0.35; }
-  const tArrive0 = ground ? rollTime(v0, d, roll) : flightTime(kind === 'cross' ? 'cross' : 'lob', d, v0, roll);
+  // ((P9-B) a keeper's throw flies as a throw: from head height, no backspin)
+  const tArrive0 = ground ? rollTime(v0, d, roll) : flightTime(kind === 'cross' ? 'cross' : kind === 'throw' ? 'throw' : 'lob', d, v0, roll);
   const tArrive = tArrive0 + tw;
   out.tArrive = Number.isFinite(tArrive) ? tArrive : 99;
   let margin = 9, who = -1, mx = to.x, mz = to.z;
@@ -497,6 +502,15 @@ function planHeader(ms, a, hr){
 function planFirst(ms, a){
   const p = a.plan, dir = ms.dirs[a.team], gx = dir*ms.spec.hx;
   const dGoal = hypot(gx - p.x, p.z);
+  // (P7-A) a free kick's part: the man the routine plays it to strikes it first time, or takes it on into space
+  if (a.fkNext && ms.restart !== a.fkNext.R0 && a.plan.kind === 'receive'){
+    if (a.fkNext.kind === 'shoot' && p.y < 0.9){
+      const tz = (ms.r() < 0.5 ? -1 : 1)*(3.66 - 0.5);
+      p.first = {kind: 'shot', target: {x: gx, y: 0.5 + ms.r()*0.9, z: tz}, power: 0.88, contact: 0, firstTime: true};
+      return;
+    }
+    if (a.fkNext.kind === 'carry'){ p.push = {x: dir, z: 0}; return; }
+  }
   if (dGoal < 13 && p.y < 0.9 && a.plan.kind !== 'intercept' && goalOn(ms, a.team)){
     const xg = xgAt(ms, a.team, p.x, p.z);
     if (xg > 0.11 && ms.r() < 0.55 + xg){
@@ -568,7 +582,8 @@ function* carrierOptions(ms, a){
     // (U9) square on, from the edge of the box and the D, a shot is the thing to do; from a wide angle at range it is not
     const lat = Math.abs(m.z), S9 = BRAIN.SIGHT;
     const sight = lat <= S9[0] && dGoal >= S9[1] && dGoal <= S9[2] ? S9[3] : lat > S9[0] && dGoal > S9[4] ? S9[5] : 1;
-    const V = xg*(0.6 + 0.6*at.accuracy/100)*bias*sight;
+    const far = !meShot && dGoal > BRAIN.LONG[0] ? exp(-(dGoal - BRAIN.LONG[0])/BRAIN.LONG[1]) : 1;
+    const V = xg*(0.6 + 0.6*at.accuracy/100)*bias*sight*far;
     add({kind: 'shot', V, xg});
   }
   // 2. passes, through balls and crosses to every team-mate
@@ -1505,6 +1520,14 @@ export function restartShape(ms){
   }
   // the wall for a free kick in range (3.2.8): 5 at 22 m or closer, 4 to 28 m, 3 to 32 m, minus 2 at a wide angle;
   // 9.15 m from the ball on the line to the near post plus 0.6 m, 0.62 m apart
+  // (P7-A) Training's free kick hands the wall in (R0.wallSpec): its size, distance, offset and alignment, and who
+  // stands in it; the second taker (R0.second) has his spot and his part
+  if ((R0.kind === 'free' || R0.kind === 'indirect') && R0.wallSpec && !R0.kickIn){
+    specWall(ms, R0, sp, gxA, def);
+    if (R0.second >= 0) secondShape(ms, R0, sp, gxA);
+    return;
+  }
+  if ((R0.kind === 'free' || R0.kind === 'indirect') && R0.second >= 0 && !R0.kickIn) secondShape(ms, R0, sp, gxA);
   if ((R0.kind === 'free' || R0.kind === 'indirect') && !R0.wallSet && !R0.kickIn){
     R0.wallSet = true;
     const dGoal = hypot(gxA - sp.x, sp.z);
@@ -1528,6 +1551,178 @@ export function restartShape(ms){
     }
   }
 }
+/* ---------- (P7-A) the wall as Training configures it, the second taker, the corner plan ----------
+   wallSpots(sp, gx, spec, bounds) -> {spots: [{x, z}], face: {x, z}, dist, ux, uz, px, pz}: where a wall of spec.n
+   (0 to 6) stands for a free kick from sp at the goal on the line x = gx. spec = {n, on (false: no wall), dist (m from
+   the ball, 9.15 by the laws), off (m across, + toward the goal's middle), align: 'post' (the line to just outside the
+   near post, the wall running inward from it) | 'centre' (the line to the goal's middle, the wall centred on it)}.
+   bounds {hx, hz} keeps every man inside the lines. The men stand WALL_GAP apart (more than two shoulder radii, so
+   they never overlap), at least WALL_BALL plus a shoulder from the ball. Pure: qa/unit/fkwall.mjs runs it. */
+export const WALL_SPEC = Object.freeze({N: 6, D0: 9.15, DMIN: 3, DMAX: 20, OFF: 6, BALL: 0.5, ALIGN: Object.freeze(['post', 'centre'])});
+const SEP = 0.30;
+export function wallSpots(sp, gx, spec, bounds){
+  const s = spec || {}, n = s.on === false ? 0 : clamp(Math.round(+s.n || 0), 0, WALL_SPEC.N);
+  const dist = clamp(Number.isFinite(+s.dist) && s.dist !== null ? +s.dist : WALL_SPEC.D0, WALL_SPEC.DMIN, WALL_SPEC.DMAX);
+  const off = clamp(+s.off || 0, -WALL_SPEC.OFF, WALL_SPEC.OFF), align = s.align === 'centre' ? 'centre' : 'post';
+  const side = sp.z > 0 ? 1 : sp.z < 0 ? -1 : 1, mouth = 3.66;
+  const tz = align === 'post' ? side*(mouth + RULES.WALL_POST) : 0;
+  const vx = gx - sp.x, vz = tz - sp.z, vl = hypot(vx, vz) || 1, ux = vx/vl, uz = vz/vl;
+  // across the line, pointing in toward the goal's middle (for a ball dead in the middle, toward -z)
+  let px = -uz, pz = ux;
+  const inward = Math.abs(sp.z) > 1e-9 ? -side : -1;
+  if (pz*inward < 0){ px = -px; pz = -pz; }
+  const spots = [];
+  for (let i = 0; i < n; i++){
+    const k = (align === 'post' ? i : i - (n - 1)/2)*RULES.WALL_GAP + off;
+    spots.push({x: sp.x + ux*dist + px*k, z: sp.z + uz*dist + pz*k});
+  }
+  // inside the lines and clear of the ball, the wall always moved as one (its spacing and its line kept): into the
+  // lines along the pitch's axes; then, when a man is nearer the ball than WALL_BALL plus his shoulder (a ball hard
+  // by a line), across, away from the ball, a step at a time
+  const minB = WALL_SPEC.BALL + SEP;
+  const into = () => {
+    if (!bounds || !spots.length) return;
+    const mx = bounds.hx - SEP, mz = bounds.hz - SEP;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const q of spots){ if (q.x < x0) x0 = q.x; if (q.x > x1) x1 = q.x; if (q.z < z0) z0 = q.z; if (q.z > z1) z1 = q.z; }
+    const dx = x1 > mx ? mx - x1 : x0 < -mx ? -mx - x0 : 0, dz = z1 > mz ? mz - z1 : z0 < -mz ? -mz - z0 : 0;
+    if (dx || dz) for (const q of spots){ q.x += dx; q.z += dz; }
+  };
+  const near = () => { for (const q of spots) if (hypot(q.x - sp.x, q.z - sp.z) < minB) return true; return false; };
+  into();
+  if (near()){
+    // away from the ball across the line (toward the goal's middle when the wall's middle is level with the ball)
+    let cx = 0, cz = 0; for (const q of spots){ cx += q.x; cz += q.z; }
+    const along = ((cx/spots.length - sp.x)*px + (cz/spots.length - sp.z)*pz);
+    const sx = (along >= 0 ? 1 : -1)*px, sz = (along >= 0 ? 1 : -1)*pz;
+    for (let k = 0; k < 400 && near(); k++){
+      for (const q of spots){ q.x += sx*0.05; q.z += sz*0.05; }
+      // (a line in the way: the other way along it)
+      if (bounds && spots.some(q => Math.abs(q.x) > bounds.hx - SEP || Math.abs(q.z) > bounds.hz - SEP)){
+        for (const q of spots){ q.x -= sx*0.05; q.z -= sz*0.05; }
+        for (let j = 0; j < 400 && near(); j++) for (const q of spots){ q.x -= sx*0.05; q.z -= sz*0.05; }
+        break;
+      }
+    }
+    into();
+  }
+  return {spots, face: {x: -ux, z: -uz}, dist, ux, uz, px, pz, n};
+}
+// the wall of a Training free kick: R0.wallSpec's size and place, its men the ones it names (spec.ids, the
+// defending side's) and then the nearest; the others kept clear of it and of the ball
+function specWall(ms, R0, sp, gx, def){
+  const WS = R0.wallSpec, W = wallSpots(sp, gx, WS, {hx: ms.spec.hx, hz: ms.spec.hz});
+  if (!R0.wallSet){
+    R0.wallSet = true;
+    const ok = o => o && o.team === def && o.onPitch && !o.isGK && !o.leaving && o.role === 'player';
+    const ids = Array.isArray(WS.ids) ? WS.ids.filter(id => ok(ms.agents[id])) : [];
+    if (ids.length < W.n){
+      const rest = ms.agents.filter(o => ok(o) && !ids.includes(o.id) && !o.isMe).sort((p, q) => hypot(p.m.x - W.spots[0].x, p.m.z - W.spots[0].z) - hypot(q.m.x - W.spots[0].x, q.m.z - W.spots[0].z) || p.id - q.id);
+      for (const o of rest){ if (ids.length >= W.n) break; ids.push(o.id); }
+    }
+    R0.wall = ids.slice(0, W.spots.length);
+    R0.wallSpots = W.spots.slice(0, R0.wall.length);
+  }
+  R0.wall.forEach((id, i) => {
+    const o = ms.agents[id], q = R0.wallSpots[i];
+    if (!o || !q) return;
+    o.wall = true;
+    if (!o.isMe || ms.meAI) o.set = {x: q.x, z: q.z, role: 'wall', face: W.face, gait: 'jog', stop: 0.12};
+  });
+  // nobody else inside the wall, nor on the ball (the taker and the second taker apart)
+  const keep = 2*SEP + 0.25;
+  for (const a of ms.agents){
+    if (!a.set || a.wall || !a.onPitch || a.isGK || a.id === R0.taker || a.id === R0.second) continue;
+    for (let pass = 0; pass < 2; pass++){
+      for (const q of R0.wallSpots){
+        const ex = a.set.x - q.x, ez = a.set.z - q.z, e = hypot(ex, ez);
+        if (e >= keep) continue;
+        // to the goal's side of the wall (an attacker on the line, a defender behind it)
+        a.set.x = q.x + W.ux*keep*(e > 1e-6 && ex*W.ux + ez*W.uz < 0 ? -1 : 1); a.set.z = q.z + W.uz*keep*(e > 1e-6 && ex*W.ux + ez*W.uz < 0 ? -1 : 1);
+      }
+    }
+    const bx = a.set.x - sp.x, bz = a.set.z - sp.z, bd = hypot(bx, bz), minB = a.team === def ? RULES.WALL_D : WALL_SPEC.BALL + SEP + 0.4;
+    if (bd < minB && a.team === def){ const k = (minB + 0.3)/(bd || 1); a.set.x = sp.x + bx*k; a.set.z = sp.z + bz*k; }
+    else if (bd < minB){ const k = minB/(bd || 1); a.set.x = sp.x + bx*k; a.set.z = sp.z + bz*k; }
+  }
+}
+/* the second taker of a free kick (R0.second, R0.secondAction), once when the restart is first shaped:
+     'pass'   he plays it to the main taker, who strikes it (the restart is his: R0.taker becomes him, R0.fkMain the
+              main taker)
+     'decoy'  he runs over the ball (RULES-free: a dead ball is never touched) and on past it; the main taker strikes
+     'short'  the main taker plays it to him, and he shoots
+     'carry'  the main taker plays it to him, and he runs with it
+   and his spot: at the ball's side (pass, decoy) or a few metres wide of it (short, carry). a.fkNext is what the man
+   who gets it does with it (planFirst and brainStep's carrier), for FK_NEXT s after the restart is taken */
+export const FK_ACTIONS = Object.freeze(['pass', 'decoy', 'short', 'carry']);
+const FK_NEXT = 4;
+function secondShape(ms, R0, sp, gx){
+  if (!R0.fkInit){
+    R0.fkInit = true;
+    const tk = ms.agents[R0.taker], sec = ms.agents[R0.second], act = R0.secondAction;
+    const ok = o => o && o.team === R0.team && o.onPitch && !o.isGK && !o.leaving && o.role === 'player';
+    if (!ok(tk) || !ok(sec) || tk === sec || !FK_ACTIONS.includes(act)){ R0.second = -1; return; }
+    R0.fkMain = tk.id;
+    if (act === 'pass'){ R0.taker = sec.id; R0.fkPasser = sec.id; fkNext(ms, tk, 'shoot', R0); }
+    else if (act === 'short') fkNext(ms, sec, 'shoot', R0);
+    else if (act === 'carry') fkNext(ms, sec, 'carry', R0);
+  }
+  if (R0.second < 0) return;
+  const main = ms.agents[R0.fkMain], sec = ms.agents[R0.second], act = R0.secondAction;
+  const vx = gx - sp.x, vz = -sp.z, vl = hypot(vx, vz) || 1, ux = vx/vl, uz = vz/vl;
+  // across, toward the goal's middle
+  let px = -uz, pz = ux; if (pz*(sp.z > 0 ? -1 : 1) < 0){ px = -px; pz = -pz; }
+  const face = {x: ux, z: uz};
+  const put = (a, x, z, role, gait = 'jog') => { if (a && (!a.isMe || ms.meAI)) a.set = {x: clamp(x, -ms.spec.hx + 0.4, ms.spec.hx - 0.4), z: clamp(z, -ms.spec.hz + 0.4, ms.spec.hz - 0.4), role, face, gait, stop: 0.15}; };
+  if (act === 'pass'){
+    // the passer behind the ball; the main taker back and across, to strike it as it comes to him
+    if (R0.stage !== 'wait' && R0.stage !== 'go') put(sec, sp.x - ux*0.9, sp.z - uz*0.9, 'taker');
+    put(main, sp.x - ux*1.2 + px*2.6, sp.z - uz*1.2 + pz*2.6, 'fkmain');
+  } else if (act === 'decoy'){
+    // beside the main taker, then (R0.decoyGo) over the ball, a shoulder wide of it, and on 5 m past it
+    if (R0.decoyGo) put(sec, sp.x + ux*5.5 - px*0.75, sp.z + uz*5.5 - pz*0.75, 'decoy', 'sprint');
+    else put(sec, sp.x - ux*2.2 - px*1.6, sp.z - uz*2.2 - pz*1.6, 'fksecond');
+  } else {
+    // wide of the ball, level with it, for the short one
+    put(sec, sp.x + px*5 - ux*0.5, sp.z + pz*5 - uz*0.5, 'fksecond');
+  }
+}
+function fkNext(ms, a, kind, R0){ a.fkNext = {kind, R0, until: -1}; ms.fkPend = (ms.fkPend || 0) + 1; }
+// the set-piece parts end FK_NEXT s after the restart is taken (or with any other restart)
+function fkExpire(ms){
+  let left = 0;
+  for (const a of ms.agents){
+    const f = a.fkNext; if (!f) continue;
+    if (ms.restart === f.R0){ left++; continue; }
+    // (his part played: he has struck it, or is striking it)
+    if (a.act && a.act.kind === 'kick'){ a.fkNext = null; continue; }
+    if (f.until < 0) f.until = ms.t + FK_NEXT;
+    if (ms.t > f.until || ms.restart){ a.fkNext = null; continue; }
+    left++;
+  }
+  ms.fkPend = left;
+}
+const fkLive = (ms, a, kind) => !!(a.fkNext && a.fkNext.kind === kind && ms.restart !== a.fkNext.R0 && ms.phase === 'live');
+
+/* cornerPlan(ms, R0, spec) -> {recv, marking}: a corner's designated receiver and marking scheme (the Phase 7
+   contract, for P7-B's corners). spec = {recv: agent id or -1, marking: 'zonal' | 'man' | 'mixed', zone}: the
+   receiver asked for when he is one of the side's outfield players on the pitch (and not the taker), else the side's
+   best in the air in the box (heading and jumping, as cornerSlot ranks them); the marking asked for, else man to man.
+   Pure, no random draw: a match never calls it */
+export const MARKINGS = Object.freeze(['zonal', 'man', 'mixed']);
+export function cornerPlan(ms, R0, spec = {}){
+  if (!ms || !R0) return null;
+  const team = R0.team, ok = o => o && o.team === team && o.onPitch && !o.isGK && !o.leaving && o.role === 'player' && o.id !== R0.taker;
+  let recv = spec && spec.recv != null && spec.recv >= 0 && ok(ms.agents[spec.recv]) ? spec.recv : -1;
+  if (recv < 0){
+    let best = null;
+    for (const o of ms.agents) if (ok(o) && (!best || o.at.heading + o.at.jumping > best.at.heading + best.at.jumping || o.at.heading + o.at.jumping === best.at.heading + best.at.jumping && o.id < best.id)) best = o;
+    recv = best ? best.id : -1;
+  }
+  const marking = spec && MARKINGS.includes(spec.marking) ? spec.marking : 'man';
+  return {recv, marking};
+}
+
 // a free kick in range: the order players take their places on the line (the best in the air first; for the defence,
 // the defenders first), the rest stay back or keep their shape
 function fkSlot(ms, a, attacking){
@@ -1623,6 +1818,15 @@ function decideRestart(ms, a){
     case 'free': case 'indirect': {
       const dGoal = hypot(gx - b.p.x, b.p.z), angle = Math.abs(b.p.z)/Math.max(1, Math.abs(gx - b.p.x));
       const goal = goalOn(ms, team);
+      // (P7-A) Training's free kick: the second taker's routine, and what the configuration asks the taker to play
+      if (R0.second >= 0 && fkRoutine(ms, a, R0)) return;
+      const want = R0.plan && R0.plan.strike;
+      if (want === 'shot' || want === 'cross'){
+        if (want === 'shot'){ fkShot(ms, a, R0); return; }
+        const tx = gx - dir*(7 + r()*5), tz = (r() - 0.5)*8;
+        startKick(ms, a, {kind: 'cross', target: {x: tx, y: 1.7, z: tz}, recv: -1, contact: 1, speed: loftSpeedFor(hypot(tx - b.p.x, tz - b.p.z))*1.05});
+        return;
+      }
       if (goal && R0.kind === 'free' && dGoal < 30 && angle < 0.8 && r() < 0.75){
         const side = b.p.z > 0 ? -1 : 1, tz = side*(3.66 - 0.5), ty = 1.6 + r()*0.6;
         startKick(ms, a, {kind: 'shot', target: {x: gx, y: ty, z: tz}, power: 0.84, contact: 0, finesse: true, curl: 1, fk: true});
@@ -1650,6 +1854,43 @@ function decideRestart(ms, a){
       if (o) carrierAct(ms, a, o);
     }
   }
+}
+// (P7-A) a free kick at goal: over the wall to the far side of it, or round it, with curl (the match's own strike)
+function fkShot(ms, a, R0){
+  const b = ms.ball, r = ms.r, gx = ms.dirs[a.team]*ms.spec.hx;
+  const side = b.p.z > 0 ? -1 : b.p.z < 0 ? 1 : (r() < 0.5 ? -1 : 1), tz = side*(3.66 - 0.45 - 0.25*r()), ty = 1.5 + r()*0.7;
+  startKick(ms, a, {kind: 'shot', target: {x: gx, y: ty, z: tz}, power: 0.84, contact: 0, finesse: true, curl: 1, fk: true});
+}
+// the taker's part in a two-man free kick (secondShape). true when it is handled this step: a kick started, or the
+// main taker waiting on the decoy (nothing is struck yet)
+function fkRoutine(ms, a, R0){
+  const act = R0.secondAction, b = ms.ball, main = ms.agents[R0.fkMain], sec = ms.agents[R0.second];
+  if (!main || !sec) return false;
+  const lead = (o, k) => { const gx = ms.dirs[o.team]*ms.spec.hx, vx = gx - o.m.x, vz = -o.m.z, vl = hypot(vx, vz) || 1; return {x: o.m.x + vx/vl*k, y: R, z: o.m.z + vz/vl*k}; };
+  if (act === 'pass'){
+    // the passer (the restart's taker now) rolls it into the main taker's path
+    const tg = lead(main, 0.9), d = hypot(tg.x - b.p.x, tg.z - b.p.z);
+    startKick(ms, a, {kind: 'pass', target: tg, recv: main.id, contact: 0, speed: passSpeedFor(d, 6)});
+    return true;
+  }
+  if (act === 'short' || act === 'carry'){
+    const tg = lead(sec, act === 'carry' ? 1.5 : 0.6), d = hypot(tg.x - b.p.x, tg.z - b.p.z);
+    startKick(ms, a, {kind: 'pass', target: tg, recv: sec.id, contact: 0, speed: passSpeedFor(d, act === 'carry' ? 7 : 6)});
+    return true;
+  }
+  if (act === 'decoy'){
+    if (!R0.decoyGo){ R0.decoyGo = true; R0.decoyT = ms.t; restartShape(ms); R0.shapeStep = ms.step; R0.fkWait = true; return true; }
+    if (!decoyPast(ms, R0, sec) && ms.t - R0.decoyT < 2.6){ R0.fkWait = true; return true; }
+    R0.fkWait = false;
+    fkShot(ms, a, R0);
+    return true;
+  }
+  return false;
+}
+// the decoy is past the ball: a metre beyond it on the way to goal
+function decoyPast(ms, R0, sec){
+  const sp = R0.spot, gx = ms.dirs[R0.team]*ms.spec.hx, vx = gx - sp.x, vz = -sp.z, vl = hypot(vx, vz) || 1;
+  return ((sec.m.x - sp.x)*vx + (sec.m.z - sp.z)*vz)/vl > 1.0;
 }
 // a carrier's decision from a dead ball (free kicks far out): only kicks count, the best of them
 function decideCarrierFrom(ms, a){
@@ -1699,6 +1940,7 @@ function forwardTarget(ms, a, dmin, dmax){
 export function brainStep(ms, h){
   let heavy = BRAIN.HEAVY - (ms.heavyUsed || 0);
   ms.heavyUsed = 0;
+  if (ms.fkPend) fkExpire(ms);
   const phase = ms.phase;
   if (phase === 'restart' || phase === 'kickoff' || phase === 'goal'){
     setPieceStep(ms, h);
@@ -1727,6 +1969,16 @@ export function brainStep(ms, h){
   const c = ctlAgent(ms);
   let E = ms.carrierEval;
   if (E && (!c || E.agent !== c.id || c.act || c.pendKick || ms.ball.state !== 'free')) E = ms.carrierEval = null;
+  // (P7-A) a free kick's part, for the man who has it under control: the shot, or a run with it of a few metres
+  if (c && isAI(ms, c) && !c.isGK && c.fkNext && !c.act && !c.pendKick && ms.ball.state === 'free'){
+    if (fkLive(ms, c, 'shoot')){ c.fkNext = null; E = ms.carrierEval = null; carrierAct(ms, c, {kind: 'shot'}); }
+    else if (fkLive(ms, c, 'carry')){
+      c.fkNext = null; E = ms.carrierEval = null;
+      const vx = ms.dirs[c.team]*ms.spec.hx - c.m.x, vz = -c.m.z, vl = hypot(vx, vz) || 1;
+      carrierAct(ms, c, {kind: 'dribble', dir: {x: vx/vl, z: vz/vl}, space: 10});
+      if (c.drib) c.drib.commit = ms.t + 1.4;
+    }
+  }
   if (c && isAI(ms, c) && !c.isGK){
     // (a take-on under way is seen through: he does not stop to think again until he is past his man or has lost it)
     const due = (ms.t >= c.brain.next || c.brain.pending) && !c.pendKick && !(c.drib && c.drib.commit > ms.t);
@@ -1844,9 +2096,18 @@ function setPieceStep(ms, h){
     const tk = ms.agents[R0.taker];
     if (tk && isAI(ms, tk) && !tk.act){
       if (tk.isGK && R0.kind !== 'goalkick') return;
+      R0.fkWait = false;
       decideRestart(ms, tk);
-      // free kick: the wall jumps at the kick, each with probability 0.6
-      if (R0.kind === 'free') for (const id of R0.wall){ const w = ms.agents[id]; if (w && !w.act && ms.r() < RULES.WALL_JUMP) startHeader(ms, w, 0.35, 'clear', null, 0); }
+      // free kick: the wall jumps at the kick, each with probability 0.6 ((P7-A) at a strike, not at a two-man
+      // routine's pass nor while the main taker waits on his decoy)
+      const routine = R0.second >= 0 || !!R0.wallSpec;
+      if (R0.kind === 'free' && (!routine || !R0.fkWait && tk.act && tk.act.action && tk.act.action.kind === 'shot'))
+        for (const id of R0.wall){ const w = ms.agents[id]; if (w && !w.act && !(w.isMe && !ms.meAI) && ms.r() < RULES.WALL_JUMP) startHeader(ms, w, 0.35, 'clear', null, 0); }
+    }
+    // (P7-A) my own free kick with a decoy: he goes a moment after it is ready, so my run-up follows his
+    else if (tk && !isAI(ms, tk) && R0.second >= 0 && R0.secondAction === 'decoy' && !R0.decoyGo){
+      if (R0.readyAt == null) R0.readyAt = ms.t;
+      if (ms.t - R0.readyAt >= 1.2){ R0.decoyGo = true; R0.decoyT = ms.t; restartShape(ms); R0.shapeStep = ms.step; }
     }
   }
 }

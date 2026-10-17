@@ -1,154 +1,52 @@
-# P8-A hook requests, and the contract P8-B builds on
+# P9-B hook requests (for the integrator)
 
-## 1. `LegendRising/js/life/football/rng.js` (not P8-A's file), needed for an exact Reset Current Half
+P9-B only edited the files it owns (`brain.js`, `gkbrain.js`, and its new `qa/tr9-ai.mjs`). These lines go into files it does
+not own. Branch `pc/p9b` is built on `pc/p7a`, so P7-A's own requests (its `HOOKS.md`, on `pc/p7a`) still stand.
 
-`gauss` keeps each generator's second normal in a private `SPARE` map, which a half-start snapshot can't see, so a
-restored half could draw differently from its first normal on. Add, just above `export function gauss(r){`:
+## 1. `LegendRising/js/life/football/attrs.js`: show the keeper's distribution in the attribute editor
 
-```js
-// (P8-A hook, sim.js halfSnapshot and restoreHalf) a generator's cached second normal, read and put back, so a match
-// restored to the start of a half draws exactly what the half drew
-export const spareOf = r => SPARE.get(r);
-export function setSpare(r, v){ if (v === undefined) SPARE.delete(r); else SPARE.set(r, v); }
-```
-
-- **Applied on this branch:** commit `ec869a8`, labelled `[hook]`. Keep it, or drop it and apply the lines yourself.
-- **Merge order:** `sim.js` reads these through a namespace import (`import * as RNG`) and only when they exist, so either
-  order works.
-- **What the hook buys:** without it, a reset half is still the same state, but its play can differ from the original
-  from the first normal draw.
-- **No other change:** nothing else in `rng.js`, and the generator's sequence is unchanged (`ms.r` is the same mulberry32,
-  its word now kept in `ms.rng.s`).
-
-## 2. For P8-B (`fullmatch.js`, `cage.js`, `quick.js`, `admin.js`, `hub.js`): what P8-A gives and expects
-
-- **The entry:** `FP.enterTraining(cfg, {zone, kind, start: 'kickoff' | 'bench', host, kits, subOn})`.
-  - `cfg` is a createMatch cfg (`teams.js cfgFromConfig('fullmatch', config).cfg`).
-  - The controller sets `htAuto: false` itself.
-  - A bench start sets `me.role = 'sub'` and `roleTimes.subOn` (default 60).
-  - If the cfg's teams have a bench and its rules give no `subs`, the real match's 5 are allowed. Training's own laws
-    allow 0, and a bench start's change would otherwise never be made.
-  - `teams.js` builds no bench today. P8-B has to add the benches to the cfg (the tests add five a side).
-- **The training host** (what P8-B's `fullmatch.js` builds), every member optional:
-  - `look()` and `kits()`;
-  - `bodies(ms, kits, meLook)`, returning `{bodyOf, fp, fourth}`: give it `pool.js matchBodies(ms, myTeam)`;
-  - `kickoff()`, `now()`, `note(text)`, `relock()`, `speed()`, `setSpeed(v)`;
-  - `ended('fulltime')`, called after the full-time card's Continue: go back to the hub there.
-  - The controller never calls `setup`, `leave`, `around`, `htCard` or `ftCard` on it, and never the career's host
-    (`tr8-reset` spies on it).
-- **The resets:** `FP.resetMatch()`, `FP.resetHalf()`, `FP.restartKickoff()`, each returning `true` when done. Each one
-  puts up its own cover and lifts it two frames later.
-- **The bench:**
-  - Register it with `stadium.js registerBench("cage", {seats() -> [{side, x, z?}], seatZ, standZ, fourthOfficial(spec)
-    -> {x, z}, dugout(side) -> {x, z, yaw}, crowd() -> null})`.
-  - The controller asks `benchOf(FP.training.zone)`, so pass `zone: "cage"` to `enterTraining`.
-  - The cage's own bench spots must carry `stadium: true`. The match mode only targets spots with it
-    (`FLAGS_MATCH.targeting`).
-- **The pool:**
-  - After entry, `poolStats().size` = 25 + the substitutes + 1, **plus 1 for the fourth official**. He is a body too,
-    taken from the pool so that nothing is built outside it.
-  - On Return to Hub, call `FP.exit()` and then `pool.js poolTrim()`, under the fade. That brings it back to 14, and
-    `bodies()` to 16.
-
----
-
-# P8-B hook requests (this branch builds on `pc/p8a`; everything above still applies)
-
-## 3. `LegendRising/index.html` importmap and `LegendRising/js/life/train/index.js`
-
-```
-    "./js/life/train/fullmatch.js": "./js/life/train/fullmatch.js?v=<build>",
-```
-```js
-import "./fullmatch.js";
-```
-
-Applied on this branch in commit `49fae31`, labelled `[hook]`.
-
-## 4. `LegendRising/js/life/football/controller.js` (P8-A's file), for the match's pause card and the cage's bench
-
-Applied on this branch in commit `3f490a8`, labelled `[hook]`:
-
-- **The pause card.** In the `fp-match` task, when the pause card goes up or down: if `FS.host.pause(on)` returns true,
-  the host drew its own card (Training's quick menu) and the controller draws none. With no such host, the controller
-  behaves exactly as before.
-- **The cage's bench.** Two new `FP` members: `FP.bench(side)` (calls `sitDown(side)`) and `FP.benchOk(side)`
-  (`FS.state === "bench" && !FS.seated && !FS.called`). The Full cage's bench spots use them, as the stadium's spots
-  use its `on.bench` and `on.benchOk`.
-
-## 5. A fix to P8-A's own files, found by P8-B's test (commit `161cdc8`, labelled "P8-A fix")
-
-- `sim.js markHalfStart(ms)`. `controller.js` calls it after `enterTraining` and `resetMatch` set the match up.
-- A reset now zeroes your own walk's speed.
-
-Together these make Reset Current Half in the **first** half exact. `tr8-reset` covered the second half.
-
-## Notes
-
-- **Presets.** `config.js` fixes `pitch: 'full'` and `out: 'stop'` for `fullmatch`. They go into a preset with the rest
-  of the validated configuration, but they're always forced on load, so a preset never changes them. Keeping them out
-  of the stored record would need a change in `presets.js` (P4-B's).
-- **`teams.js` builds no bench** for `fullmatch`. `fullmatch.js matchConfigOf` adds five a side (one keeper among
-  them), the real match's 5 changes, the half's length and my position.
-
-## 6. `LegendRising/qa/tr3-hub.mjs` (P3-B's test)
-
-Its check "a category with nothing registered shows no buttons that do nothing" counted only the runner's scenarios.
-Full Match's two entries are the hub's own (`hub.js registerEntry`), so line 64 counts them too:
+The plan names `attredit.js`, but the flag is in `attrs.js`:
 
 ```js
-      const registered = await page.evaluate(i => { const id = window.__trainRun.CATEGORIES[i].id, H = window.__trainHub; return window.__trainRun.scenariosOf(id).length + (H && H.entriesOf ? H.entriesOf(id).length : 0); }, i);
+export const GK_DISTRIB_LIVE = true;
 ```
 
-Applied on this branch in commit `34be84d`, labelled `[hook]`. With it, `tr3-hub` passes.
+`gk.distrib` now changes play (ATTR-1): his choice between throw, roll and punt, the scatter of where it goes, and the
+passing numbers his punts and goal kicks are struck with. So the editor should show it.
 
----
+## 2. `LegendRising/qa/tr4-attrs.mjs`: the keeper distribution row
 
-# P10-B hook requests and findings for other owners (this branch builds on `pc/p8b`; everything above still applies)
+Add the row "Keeper distribution 30 vs 90 | distribution error and completion differ". Use the same measurement as
+`qa/tr9-ai.mjs` section 3 (`distOne`):
+- a match a few seconds in, with the ball put in team 0's keeper's hands (`gkbrain.js gkCollect`) and his own hold;
+- seeded, paired runs at distrib 30 and 90, everything else equal;
+- the mean landing error from `gk.gk.distAim` (where he meant it to go) is at least 1.5 times larger at 30;
+- completion (`ev.res === 'ok'`) is higher at 90.
 
-No hook commit on this branch for P10-B itself. Two commits touch P8-A's files, both labelled "P8-A fix":
+## 3. `LegendRising/qa/run.mjs`, named suites
 
-- `161cdc8`, from P8-B;
-- the half-start snapshot made opt-in (`cfg.halfSnaps`). It was found by P10-B's reset budget: every drill restart
-  copied its whole match.
+```js
+  tr9: ["tr9-ai", "tr9-anim", "tr9-gkanim", "tr9-sheets"],
+  tr9b: ["tr9-ai"],
+```
 
-Below are the budgets P10-B could not meet with its own files. Each one needs a change in a file it doesn't own.
+(`tr9a` is P9-A's.)
 
-1. **`js/life/world.js` (P3-A's), the CPU under Training's sheets.**
-   - Under the hub, the configuration sheet or the presets sheet, nothing is drawn, posed or stepped now. P10-B guards
-     `training.js` and `view.js fpPose` with `quality.js overlayCovered()`.
-   - The world's own tick still runs: the scheduler's tasks, the sky, the camera owner's frame, the life HUD. That costs
-     0.7 to 1.0 ms a frame on this PC, against a budget of 0.5.
-   - Suggestion: in `world.js tick`, when `overlayCovered()` and no reveal is pending, run only the scheduler's keep
-     tasks and skip `step()`, as the lifeHub stop does. P3-A's perf-4 rule (never skip under a reveal) still applies.
-2. **Allocations: about 155 to 170 KB a frame, against 16 KB.**
-   - The top sites per frame:
-     - `gait.js gaitLegs` 8 to 12 KB, `planLanding` 6.6, `cycleStep` 5.2, `gaitStep` 5, `swingAt` 3.3;
-     - `rig.js solveLeg` 5.3;
-     - `zone.js` about 4;
-     - `chunks.js occFrame` 8.5 (P10-B's file, but its occlusion structures need a rewrite to pool them);
-     - `view.js contactStep` 4.2 and `human.js animateHuman` 3.7 (P10-B's: closures in the pose path);
-     - three.js `getParameters` 6.2.
-   - The three.js item means three re-reads a material's program parameters every frame, which happens when some
-     material's version or the lights' state changes every frame. I didn't find the source.
-   - `gait.js`, `rig.js` and `zone.js` belong to the animation and engine owners (P2-B, P9-A).
-3. **The reset: 5.7 to 7.2 ms of main-thread CPU, against 4 ms.**
-   - The JavaScript parts are small: restoring the 14 pooled bodies about 0.6 ms, `createMatch` 0.1, `createAgent`
-     0.2.
-   - Most of the time is native ("(program)" in the profile): style and layout from the HUD redraw (`thud.js`) and the
-     view's new meshes.
-   - The reset is already pooled, nothing is built, and no snapshot is copied any more.
-4. **`js/life/sky.js`, shadows on High.**
-   - The humans cast, but the stadium-context shadow map is only redrawn when the sun's angle steps or something
-     requests it.
-   - In the cage that's 0 redraws in 300 frames, so the people's shadows don't follow them. The cap of 15 a second
-     holds, trivially.
-   - For moving shadows on High, the match or training view would have to request a redraw (at most `P.shadow.stadium.hz`)
-     while bodies move.
-5. **perf-9 (the merge poll on a dirty flag): not done.**
-   - The cage turns merging off (`W.noMerge`, P3-A), so Training never runs the poll.
-   - A correct dirty flag for the life zones needs a hook wherever a merged mesh is moved or re-materialed (`home.js`,
-     `npc.js`, and others).
-6. **The JS heap grows about 2.9 MB over 10 Training visits and 50 resets**, after a forced GC.
-   - It's the same with and without P10-B's changes, so it predates them. I haven't found the cause yet.
-   - Suspects: the human `SHAPES` cache (perf.md section 6.4) and three's program and binding caches.
+## 3b. `LegendRising/qa/unit/rules.mjs`: the restart-limit case's corner
+
+The case "every restart in the full simulation resolves within its limit + 5 s" plays up to 160 s waiting for the play
+to reach the corner-taking side's attacking third. With P9-B's match flow, seed 25 (team 1's corner) never gets there.
+The corner is then put 70 m from the ball, and carrying it there takes 13.02 s (limit 8 + 5). Suggested fix: when the
+wait times out, try the next seed (`configFor(20 + i + 100*k)`) instead of taking a corner the setup never meant.
+
+## 4. For P9-A: the keeper's distribution acts (the Phase 9 contract)
+
+- **When:** while the keeper holds the ball and has chosen a throw or a roll.
+- **The act:** `a.act = {kind: 'gkthrow' | 'gkroll', t, tRelease, dur, target: {x, y, z}, aim: {x, z}, recv, done}`.
+  - `tRelease`: 0.55 s for a throw, 0.45 s for a roll (the release of `gkmoves.js gkdistribute`).
+  - `dur`: 0.9 s and 0.8 s (the clip's length).
+  - `target`: where it is let go to, with his error in it. `aim`: where he meant it to go.
+- **The ball** stays in his hands (`rules.js holdAt`, held high for a throw) until `act.t >= tRelease`. At that step
+  `gkbrain.js distRelease` lets it go and sets `act.done` and `act.tReleased`.
+- **The clock:** `actions.js` steps the act's clock (its default branch) and clears it at `dur`.
+- **The punt** is the volley act it always was.
