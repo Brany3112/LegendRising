@@ -66,6 +66,23 @@ export const STADIUM = {tier:-1, spec:null, pitch:null, crowd:null, stands:[], b
   score(o){ if (STADIUM.board) STADIUM.board.draw(o); }
 };
 
+/* ---------- the bench providers (P8-A, BUILD-PLAN Phase 8 contract registerBench) ----------
+   A place a match can be played in says where its substitutes sit and stand, and where the fourth official waits:
+   registerBench(zone, {seats() -> [{side: 'home' | 'away', x, z?}], seatZ, standZ, fourthOfficial(spec) -> {x, z},
+   dugout(side) -> {x, z, yaw} (where a substitute stands by it), crowd() -> the seated substitutes' impostors or null}).
+   The match controller asks benchOf(zone) for the place it plays in; the stadium registers its own dugouts here (the
+   seats as built, z -37.4, standing at -36.6, the fourth official by the halfway line), and Training's Full cage its
+   own (P8-B, cage.js). A zone with none registered plays with the stadium's numbers. */
+const BENCHES = new Map();
+export function registerBench(zone, b){ if (typeof zone === "string" && b) BENCHES.set(zone, Object.freeze(Object.assign({}, b))); }
+export const benchOf = zone => BENCHES.get(zone) || BENCHES.get("stadium");
+registerBench("stadium", {
+  seats:() => STADIUM.bench || [], seatZ:-37.4, standZ:-36.6,
+  fourthOfficial:spec => ({x:0, z:-(spec.hz + 1.45)}),
+  dugout:side => ({x:side === "away" ? 10 : -10, z:-36.6, yaw:Math.PI}),
+  crowd:() => STADIUM.crowd
+});
+
 /* ---------- small geometry: flat quads poured into the batches ---------- */
 const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _n = new THREE.Vector3();
 function pour(){

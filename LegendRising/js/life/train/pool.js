@@ -25,7 +25,14 @@
    body exactly as it was built, nothing carried over from the last go, and nothing is built. bodyData(h) is that
    state as plain data (the runner's digest hashes it).
 
-   P5-A (Training Mode Phase 5): replaceMe(look), your two bodies built again for a new height, under the fade. */
+   P5-A (Training Mode Phase 5): replaceMe(look), your two bodies built again for a new height, under the fade.
+
+   P8-A (Training Mode Phase 8, BUILD-PLAN P8-A "The pool for 11 v 11"; TRAINING-SPEC 0 and 5): a Full Match needs a body
+   for every agent that is not 'off' (22 players, the referee and his 2 assistants), one for each substitute, and the rig
+   in your eyes. matchBodies(ms, myTeam) grows the pool to that (poolEnsure: only what is missing is built, the drill
+   bodies are used first) under the entry's cover, and hands the view its bodyOf(agent): you; my side's outfield players
+   in my bib (A); theirs in theirs (B); a keeper's kit for each side (KA mine, the drill keeper and KB theirs); the
+   officials in theirs (OFF). poolTrim() takes it back to the 14 drill bodies (Return to Hub, under the fade). */
 import {onBegin, W} from "../build.js";
 import {human, lookFor} from "../human.js";
 import {FADE} from "../core/state.js";
@@ -36,7 +43,7 @@ export const POOL_GROUPS = Object.freeze({me:1, fp:1, A:5, B:6, keeper:1});
 // the two training bibs: [shirt, shorts]
 export const KITS = Object.freeze({mine:Object.freeze(["#2c66b8", "#ffffff"]), theirs:Object.freeze(["#d8ff3a", "#1c2430"])});
 
-const POOL = {me:null, fp:null, A:[], B:[], keeper:null, used:new Set(), meKey:"", meLook:null, built:false};
+const POOL = {me:null, fp:null, A:[], B:[], keeper:null, KA:[], KB:[], OFF:[], used:new Set(), meKey:"", meLook:null, built:false};
 
 /* ---------- a body's own state, as built ----------
    What is a body's own data: everything on the human() record but its meshes, bones and look (made once and kept),
@@ -101,7 +108,7 @@ export function bodyData(h){
   for (const k of Object.keys(h).sort()){ if (KEEP.has(k)) continue; const c = plain(h[k]); if (c !== undefined) o[k] = c; }
   return o;
 }
-const all = () => [POOL.me, POOL.fp, ...POOL.A, ...POOL.B, POOL.keeper].filter(Boolean);
+const all = () => [POOL.me, POOL.fp, ...POOL.A, ...POOL.B, POOL.keeper, ...POOL.KA, ...POOL.KB, ...POOL.OFF].filter(Boolean);
 const park = h => { if (h.g.parent) h.g.parent.remove(h.g); h.g.visible = false; h.ast = {mode:"idle"}; };
 
 /* builds whatever is missing (all of it the first time). meLook: your body's look (a human.js look, in my side's bib).
@@ -143,7 +150,8 @@ export function replaceMe(look){
   if (reveal) reveal.then(() => { if (FADE.boot) return; o.style.transition = "opacity 200ms ease"; o.style.opacity = "0"; FADE.v = 0; });
   return n;
 }
-export const poolReady = () => POOL.built && all().length === POOL_DRILL;
+// (the drill's groups whole: a pool grown for a Full Match is ready for a drill too, which takes the first of each)
+export const poolReady = () => POOL.built && !!POOL.me && !!POOL.fp && !!POOL.keeper && POOL.A.length >= POOL_GROUPS.A && POOL.B.length >= POOL_GROUPS.B;
 
 /* the bodies a scenario needs: {mine: team-mates (0..5), theirs: opponents (0..6), keeper: true|false}, and always
    you and your rig, each put back to the state it was built in. Returns {me, fp, mine: [], theirs: [], keeper} or null
@@ -162,14 +170,74 @@ export function returnBodies(){
   POOL.used.clear();
 }
 export function poolStats(){
-  return {size:all().length, inUse:POOL.used.size, byKit:{me:POOL.me ? 1 : 0, fp:POOL.fp ? 1 : 0, A:POOL.A.length, B:POOL.B.length, keeper:POOL.keeper ? 1 : 0}};
+  return {size:all().length, inUse:POOL.used.size, byKit:{me:POOL.me ? 1 : 0, fp:POOL.fp ? 1 : 0, A:POOL.A.length, B:POOL.B.length, keeper:POOL.keeper ? 1 : 0,
+    KA:POOL.KA.length, KB:POOL.KB.length, OFF:POOL.OFF.length}};
+}
+
+/* ---------- Full Match (P8-A) ---------- */
+const OFF_N = 3;
+const kitCols = () => [...KITS.mine, ...KITS.theirs];
+// builds what is missing for counts {A, B, KA, KB, OFF} (KB: their keepers beyond the drill keeper). Returns the number built
+export function poolEnsure(n){
+  let k = 0;
+  const avoid = kitCols();
+  while (POOL.A.length < (n.A || 0)){ const i = POOL.A.length; const h = keepFresh(human(lookFor("footballer", 9101 + i, {kit:KITS.mine, number:2 + i, sex:"m"}), {cast:true})); park(h); POOL.A.push(h); k++; }
+  while (POOL.B.length < (n.B || 0)){ const i = POOL.B.length; const h = keepFresh(human(lookFor("footballer", 9201 + i, {kit:KITS.theirs, number:2 + i, sex:"m"}), {cast:true})); park(h); POOL.B.push(h); k++; }
+  while (POOL.KA.length < (n.KA || 0)){ const i = POOL.KA.length; const h = keepFresh(human(lookFor("goalkeeper", 9311 + i, {kit:KITS.mine, avoid, number:1 + i*12, sex:"m"}), {cast:true})); park(h); POOL.KA.push(h); k++; }
+  while (POOL.KB.length < (n.KB || 0)){ const i = POOL.KB.length; const h = keepFresh(human(lookFor("goalkeeper", 9321 + i, {kit:KITS.theirs, avoid, number:13 + i, sex:"m"}), {cast:true})); park(h); POOL.KB.push(h); k++; }
+  while (POOL.OFF.length < (n.OFF || 0)){ const i = POOL.OFF.length; const h = keepFresh(human(i === 0 ? lookFor("referee", 22, {avoid, sex:"m"}) : lookFor("linesman", 40 + i, {avoid, sex:"m"}), {cast:true})); park(h); POOL.OFF.push(h); k++; }
+  return k;
+}
+/* the bodies of a match: what it needs counted from it (everyone on the pitch, both benches, the officials), the pool
+   grown to that, every body put back to its built state. myTeam: my side (my bib). Returns {bodyOf(agent), fp}, or null
+   when the pool has not been built (the view then builds its own) */
+export function matchBodies(ms, myTeam = 0){
+  if (!poolReady()) return null;
+  const n = {A:0, B:0, KA:0, KB:0, OFF:0};
+  for (const a of ms.agents){
+    if (a.role === "off") continue;
+    if (a.team < 0){ n.OFF++; continue; }
+    if (a.isMe) continue;
+    if (a.isGK) a.team === myTeam ? n.KA++ : n.KB++;
+    else a.team === myTeam ? n.A++ : n.B++;
+  }
+  for (const t of [0, 1]) for (const p of ms.bench[t]){
+    if (p.isMe) continue;
+    if (p.isGK) t === myTeam ? n.KA++ : n.KB++;
+    else t === myTeam ? n.A++ : n.B++;
+  }
+  // (their first keeper is the drill keeper)
+  poolEnsure({A:n.A, B:n.B, KA:n.KA, KB:Math.max(0, n.KB - 1), OFF:Math.min(OFF_N, n.OFF)});
+  returnBodies();
+  const free = {A:POOL.A.slice(), B:POOL.B.slice(), KA:POOL.KA.slice(), KB:[POOL.keeper, ...POOL.KB], OFF:POOL.OFF.slice()};
+  const take = h => { if (!h) return null; bodyFresh(h); POOL.used.add(h); h.gen = W.ticks; return h; };
+  const byId = new Map();
+  take(POOL.me); take(POOL.fp);
+  const bodyOf = a => {
+    if (byId.has(a.id)) return byId.get(a.id);
+    let h = null;
+    if (a.isMe) h = POOL.me;
+    else if (a.team < 0) h = take(free.OFF.shift());
+    else if (a.isGK) h = take((a.team === myTeam ? free.KA : free.KB).shift());
+    else h = take((a.team === myTeam ? free.A : free.B).shift());
+    byId.set(a.id, h);
+    return h;
+  };
+  return {bodyOf, fp:POOL.fp};
+}
+// back to the drill's 14 (Return to Hub from a Full Match, under the fade): the match's extra bodies disposed
+export function poolTrim(){
+  returnBodies();
+  const extra = [...POOL.A.splice(POOL_GROUPS.A), ...POOL.B.splice(POOL_GROUPS.B), ...POOL.KA.splice(0), ...POOL.KB.splice(0), ...POOL.OFF.splice(0)];
+  for (const h of extra) h.dispose();
+  return extra.length;
 }
 // is this body one of the pool's (tests: every drawn body of a drill is)
 export const pooled = h => all().includes(h);
 // every body disposed (Training left)
 export function poolDispose(){
   for (const h of all()) h.dispose();
-  POOL.me = POOL.fp = POOL.keeper = null; POOL.A.length = 0; POOL.B.length = 0; POOL.used.clear(); POOL.meKey = ""; POOL.meLook = null; POOL.built = false;
+  POOL.me = POOL.fp = POOL.keeper = null; POOL.A.length = 0; POOL.B.length = 0; POOL.KA.length = 0; POOL.KB.length = 0; POOL.OFF.length = 0; POOL.used.clear(); POOL.meKey = ""; POOL.meLook = null; POOL.built = false;
 }
 
 // a new place: the pool's bodies belong to it (human.js would otherwise dispose a body left out of the old scene)
