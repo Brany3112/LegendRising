@@ -64,9 +64,9 @@ export const BRAIN = Object.freeze({
   // to 12, W up 8 to 13, AM tackle 1 to 0.9, CM shoot 1.3 to 1.6 and up 2 to 3, DF tackle 1 to 1.2, after the
   // possession rework moved the forwards' defensive actions and touches up and the defenders' down)
   ME: {
-    ST: {shoot: 1.8, dribble: 1.2, tackle: 1.0, back: 3, seek: 12, up: 5, drop: 2},
-    W: {shoot: 3.2, dribble: 1, tackle: 1, back: 1, seek: 60, up: 13, drop: 0},
-    AM: {shoot: 6, dribble: 1.8, tackle: 0.9, back: 1, seek: 3, up: 4, drop: 8},
+    ST: {shoot: 2.5, dribble: 1.2, tackle: 1.0, back: 3, seek: 12, up: 5, drop: 2},
+    W: {shoot: 3.6, dribble: 1, tackle: 1, back: 1, seek: 60, up: 13, drop: 0},
+    AM: {shoot: 6.8, dribble: 1.8, tackle: 0.9, back: 1, seek: 3, up: 4, drop: 8},
     CM: {shoot: 1.6, dribble: 1.2, tackle: 6.5, back: 1, seek: 2, up: 3, drop: 0},
     DF: {shoot: 1, dribble: 1, tackle: 1.2, back: 1, seek: 12, up: 0, drop: 0}
   },
@@ -588,10 +588,12 @@ function* carrierOptions(ms, a){
     const tx = clamp(om.x + om.vx*0.35, -ms.spec.hx + 1, ms.spec.hx - 1), tz = clamp(om.z + om.vz*0.35, -ms.spec.hz + 1, ms.spec.hz - 1);
     const d = hypot(tx - m.x, tz - m.z);
     // (P6-B) the player himself is weighed at any distance (he sees the user: a pass to him is always one of the
-    // options, valued by the same pass model, so one that cannot arrive is worth little and is not made); the AI
-    // stand-in of the harness keeps the AI's own range
-    const meOpt = o.isMe && !ms.meAI;
-    if (d >= (meOpt ? 1 : BRAIN.PASS_MIN) && (meOpt || d <= BRAIN.PASS_MAX)){
+    // options, valued by the same pass model); the AI stand-in of the harness keeps the AI's own range. Out of the
+    // range any team-mate is passed to (closer than PASS_MIN, further than PASS_MAX) it is made only when he calls
+    // for it (onCall: the softmax leaves it out otherwise), so he is never given a ball an AI player in his place
+    // would not get
+    const meOpt = o.isMe && !ms.meAI, inRange = d >= BRAIN.PASS_MIN && d <= BRAIN.PASS_MAX;
+    if (inRange || meOpt && d >= 1){
       const v0 = passSpeedFor(d, 9, ms.ball.rollDecel);
       let pm = passModel(ms, org, {x: tx, z: tz}, 'pass', v0, o);
       let kind = 'pass', pOK = pm.pOK, spd = v0;
@@ -606,8 +608,8 @@ function* carrierOptions(ms, a){
       if (ua - u > 15) V *= directMul;
       // perceived offside: x0.1, and the free kick it gives away is a turnover where he stands
       if (seenOff) V = (V > 0 ? V*0.1 : V) - lose(L - uOf(ms, team, om.x), Wd - wOf(ms, team, om.z), L, Wd, 1);
-      add({kind, V, recv: o.id, target: {x: tx, y: R, z: tz}, speed: kind === 'pass' ? undefined : spd, contact: kind === 'lob' ? 1 : 0, off: seenOff, pOK, isMe: o.isMe});
-      if (V > bestPass) bestPass = V;
+      add({kind, V, recv: o.id, target: {x: tx, y: R, z: tz}, speed: kind === 'pass' ? undefined : spd, contact: kind === 'lob' ? 1 : 0, off: seenOff, pOK, isMe: o.isMe, onCall: !inRange});
+      if (V > bestPass && inRange) bestPass = V;
     }
     // a through ball to a runner already on his way, or into the space a runner holding the line is about to attack
     const fwd = dir*om.vx, run = o.task.run, holding = !!run && !run.go && ms.t < run.until;
@@ -744,7 +746,7 @@ function* carrierOptions(ms, a){
   }
   // 6. hold or shield when nothing is worth 0.6 of where he is
   let vmax = 0;
-  for (const o of opts) if (o.V > vmax) vmax = o.V;
+  for (const o of opts) if (o.V > vmax && !o.onCall) vmax = o.V;
   if (vmax < BRAIN.HOLD_K*here){
     // holding it costs nothing unpressed; shielding it under pressure is worth what keeping it is, less the chance he
     // is robbed where he stands: the man on him wins a challenge with the shield formula (TRAINING-SPEC 3, duel.js
@@ -763,7 +765,7 @@ function* carrierOptions(ms, a){
   // the softmax, with and without the preference (same draw)
   const T = BRAIN.TEMP*(1 - clamp(at.decision, 0, 119)/120);
   let best = -Infinity;
-  for (const o of opts) if (o.V > best) best = o.V;
+  for (const o of opts) if (o.V > best && !o.onCall) best = o.V;
   // (Vb: with the bias of chemistry and trust only; Vp: with the player's call heard as well, U10)
   for (const o of opts){
     const toMe = o.isMe && (o.kind === 'pass' || o.kind === 'through' || o.kind === 'lob') && !o.off;
@@ -771,15 +773,17 @@ function* carrierOptions(ms, a){
     o.Vp = toMe ? o.Vb + callPull(ms, a, o, best) : o.Vb;
   }
   const draw = ms.r();
+  // (an onCall option, a pass to the player out of the usual range, takes part only while his call pulls it: Vp)
+  const live = (o, key) => !o.onCall || key === 'Vp' && o.Vp > o.Vb;
   const pick = (key) => {
-    let top = -Infinity;
-    for (const o of opts) if (o[key] > top) top = o[key];
+    let top = -Infinity, last = null;
+    for (const o of opts) if (live(o, key) && o[key] > top) top = o[key];
     const base = Math.max(1e-4, Math.abs(top));
     let sum = 0;
-    for (const o of opts){ o.w = exp(clamp((o[key] - top)/(base*T), -30, 0)); sum += o.w; }
+    for (const o of opts){ o.w = live(o, key) ? exp(clamp((o[key] - top)/(base*T), -30, 0)) : 0; sum += o.w; if (o.w > 0) last = o; }
     let acc = draw*sum;
-    for (const o of opts){ acc -= o.w; if (acc <= 0) return o; }
-    return opts[opts.length - 1];
+    for (const o of opts){ if (!o.w) continue; acc -= o.w; if (acc <= 0) return o; }
+    return last || {kind: 'hold'};
   };
   const chosen = pick('Vp');
   // the QA harness's window on decisions (qa/harness.mjs --decisions); nothing in the game sets it

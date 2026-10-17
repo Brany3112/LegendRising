@@ -11,8 +11,9 @@
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random (ms.r = mulberry32(cfg.seed)).
 //
 // LEVEL, the one calibration knob of live play outside the tempo table (DESIGN D28): at kick-off every AI player of
-// each side has his attributes moved LEVEL (0.82; 0.74 before the TR-2b possession rework, whose tackles and duels
-// turn on the ratings more) of the way from his side's mean overall toward the middle of the two sides' (with cfg.ovr;
+// each side has his attributes moved LEVEL (0.90; 0.74 before the TR-2b possession rework, whose tackles and duels
+// turn on the ratings more, and 0.82 before P6-A's first touch, whose aerial touches now rest where Ball Control says
+// rather than all running long alike) of the way from his side's mean overall toward the middle of the two sides' (with cfg.ovr;
 // attrs.js levelled). Without it a side 10 overall higher wins about 80% of the time (79% of the
 // 46 such matches in a 300-match harness run with LEVEL 0), against the 55 to 62% that 2.3 WP-E asks for, because over
 // a whole simulated match every small edge in pace, passing and finishing compounds. It is frozen at kick-off like the
@@ -51,15 +52,17 @@ const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60, R = BALL.R;
 
 // The tempo table (3.2.10), keyed by S.speed: frozen at kick-off, the harness's only runtime knobs (no director).
+// (Standard's shot bias 1.7: 1.9 before P6-A's first touch, whose surer aerial touches and the closer levelling
+// (LEVEL) that came with them left the goals above their band)
 export const TEMPO = Object.freeze({
-  2: Object.freeze({directness: 1.25, shotBias: 1.9, pressMul: 1.15}),
+  2: Object.freeze({directness: 1.25, shotBias: 1.7, pressMul: 1.15}),
   1: Object.freeze({directness: 1.15, shotBias: 1.2, pressMul: 1.08}),
   4: Object.freeze({directness: 1.4, shotBias: 1.55, pressMul: 1.25})
 });
 // The levelling of a match (calibration, 2.3 WP-E: a side 10 overall higher wins 55 to 62%): the AI players of each
 // side play this share of the gap between the two sides' mean overalls nearer the middle. The player himself plays
 // with his own numbers.
-export const LEVEL = 0.82;
+export const LEVEL = 0.90;
 // half length in real seconds by S.speed (1.5.5): Standard 600, Long 900, Short 360; which are calibrated
 export const HALF_REAL = Object.freeze({2: 600, 1: 900, 4: 360});
 export const CALIBRATED = Object.freeze({2: true, 1: false, 4: false});

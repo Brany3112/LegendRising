@@ -16,6 +16,11 @@
 //   4. input is never locked more than 0.35 s after the contact: the receive clip hands the body back within 0.35 s of
 //      the simulation's touch, and a real W pressed at the touch moves the player (his mover's target) within 0.35 s;
 //   5. a contact sheet per drill (qa/out/tr6-anim-<drill>-<moment>.png: as it comes, the contact, after);
+//   (1 to 5 over 21 drills: on the ground standing, moving, fast, from either side, facing away, under pressure and
+//   shielding; the thigh, the chest, the raised foot, a high ball, a low and a high bounce, slightly ahead on the run,
+//   a ball off the line; a clip that starts again on a contact that moved is held to 3 at every start, and no receive
+//   clip is posed past its contact moment without the simulation's touch. Headers and first-time strikes have no
+//   receive clip: their own clips are the header's and the strike's.)
 //   6. the feeder's first ball: for a ground pass, a driven pass, a cross and a loft from the configured passer (a
 //      team-mate), the launch speed is within 2% and the apex within 5 cm of the configured launch (feeder.js plan()),
 //      and the ball leaves the passer's foot at his strike's contact (the striking part within 0.12 m of the ball);
@@ -71,13 +76,19 @@ const HELPERS = async () => {
         if (T6.steer && !S.touch) steer(ms(), me());
         L.stepN(1, 1/120);
         const R = rec(), c = R && R.clip && R.clip.mode === "receive" ? R.clip : null, C = R && R.h.mv, m = me(), M = ms();
-        if (c && !S.clip){
-          // the clip's start: its contact point against the body, and R for the ball there
+        if (c && (!S.clip || S.clip.id !== c.id) && !S.contact){
+          // the clip's start (or its start again on a contact that moved: another part, or later than it can follow):
+          // its contact point against the body, and R for the ball there
           const RA = {m:{x:m.m.x, z:m.m.z, yaw:m.m.yaw, vx:m.m.vx, vz:m.m.vz}, at:m.at, scale:m.scale || 1, fac:m.fac, y:0, st:m.st};
           const r = Z.R(RA, {p:{x:c.ball.x, y:c.ball.y, z:c.ball.z}, v:M.ball.v}, M, {angle:false});
-          S.clip = {t:M.t, part:c.part, side:c.side, dStart:c.dStart, rStart:c.rStart, rNow:r, dNow:Math.hypot(c.ball.x - m.m.x, c.ball.z - m.m.z), ball:[c.ball.x, c.ball.y, c.ball.z].map(r3)};
-          if (what === "clip") return S;
+          const first = !S.clip;
+          S.clip = {id:c.id, t:M.t, part:c.part, side:c.side, dStart:c.dStart, rStart:c.rStart, rNow:r, dNow:Math.hypot(c.ball.x - m.m.x, c.ball.z - m.m.z), ball:[c.ball.x, c.ball.y, c.ball.z].map(r3)};
+          (S.starts || (S.starts = [])).push({t:r3(M.t), part:c.part, dStart:r3(c.dStart), rStart:r3(c.rStart)});
+          if (what === "clip" && first) return S;
         }
+        // (a clip posed while the simulation has not taken the ball, past its contact moment by more than a step:
+        // an animation where the ball is not)
+        if (c && !S.touch && C && C.key === "receive" && C.contactDone && M.t > c.tSim + 2/60 + 1e-6 && !c.done) S.ghost = (S.ghost || 0) + 1;
         // the simulation's touch: its moment and point
         if (!S.touch){
           for (let k = S.ev || 0; k < M.events.length; k++){
@@ -139,17 +150,21 @@ try {
   const DRILLS = [
     ["feet", "receive-feet", null], ["left", "receive-left", null], ["adjust", "receive-adjust", {steer: true}], ["slow", "receive-slow", null],
     ["thigh", "receive-thigh", null], ["chest", "receive-chest", null], ["footair", "receive-footair", {steer: true}],
-    ["jog", "receive-jog", {keys: ["w"]}], ["sprint", "receive-sprint", {keys: ["w", "shift"]}]
+    ["jog", "receive-jog", {keys: ["w"]}], ["sprint", "receive-sprint", {keys: ["w", "shift"]}],
+    ["moving", "receive-moving", {keys: ["w"]}], ["fast", "receive-fast", null], ["right", "receive-right", null],
+    ["high", "receive-high", {steer: true}], ["lowbounce", "receive-lowbounce", {steer: true}], ["highbounce", "receive-highbounce", {steer: true}],
+    ["slightlyahead", "receive-slightlyahead", {keys: ["w"]}], ["pressure", "receive-pressure", null], ["shield", "receive-shield", {keys: ["c"], look: false}],
+    ["away", "receive-away", null]
   ];
   for (const [name, id, o] of DRILLS){
-    if (ONLY && !name.includes(ONLY)) continue;
+    if (ONLY && !ONLY.split(",").some(o => o && name === o)) continue;
     await page.evaluate(([id]) => { window.__t6.reset(); window.__t6.start(id, window.__t6.cfg(id)); }, [id]);
     await ready();
     await lockPointer(page);
     await freeze(page);
     await page.evaluate(([st]) => { window.__t6.whole(); window.__t6.steer = !!st; }, [!!(o && o.steer)]);
     // (the run of a moving drill: its keys held as the player's would be, looking along the run)
-    if (o && o.keys) await page.evaluate(async keys => { const CT = await import("/js/life/football/control.js"); for (const k of keys) CT.CTRL.held[k] = true; window.__life.P.yaw = -Math.PI/2; }, o.keys);
+    if (o && o.keys) await page.evaluate(async ([keys, look]) => { const CT = await import("/js/life/football/control.js"); for (const k of keys) CT.CTRL.held[k] = true; if (look) window.__life.P.yaw = -Math.PI/2; }, [o.keys, o.look !== false]);
     let S = await page.evaluate(() => window.__t6.run("clip", 1600));
     const shot = async m => {
       await page.evaluate(() => { const T6 = window.__t6, p = T6.me(); T6.look(p.x, p.z, 2.6, 1.5, 2.6); });
@@ -171,13 +186,14 @@ try {
   }
   const D = Object.entries(res.drills);
   const withTouch = D.filter(([, S]) => S.touch);
-  check(withTouch.length >= Math.min(D.length, 7), "the drills' balls are taken by the receiver (the simulation's touch)", D.map(([n, S]) => [n, !!S.touch]));
+  check(withTouch.length >= Math.min(D.length, 16), "the drills' balls are taken by the receiver (the simulation's touch)", D.map(([n, S]) => [n, !!S.touch]));
   const far = withTouch.filter(([, S]) => !S.contact || !(S.contact.d <= .12));
   check(withTouch.length && !far.length, "at every contact the contact part is within 0.12 m of the ball (the simulation's own contact point)", withTouch.map(([n, S]) => [n, S.contact && S.contact.part, S.contact && S.contact.d, S.contact && S.contact.done]));
   const off = D.filter(([n]) => n === "adjust" || n === "footair");
-  check(off.length && off.every(([, S]) => (S.steps || 0) >= 1), "a ball off the line gets at least one adjustment footfall (the support foot's plant)", off.map(([n, S]) => [n, S.steps]));
+  if (!ONLY || off.length) check(off.length && off.every(([, S]) => (S.steps || 0) >= 1), "a ball off the line gets at least one adjustment footfall (the support foot's plant)", off.map(([n, S]) => [n, S.steps]));
   const starts = D.filter(([, S]) => S.clip);
-  check(starts.length && starts.every(([, S]) => S.clip.dStart <= S.clip.rStart + .3), "no clip starts with the ball's contact point more than R + 0.3 m from the body", starts.map(([n, S]) => [n, r3(S.clip.dStart), r3(S.clip.rStart)]));
+  check(starts.length && starts.every(([, S]) => S.starts.every(c => c.dStart <= c.rStart + .3)), "no clip starts (or starts again) with the ball's contact point more than R + 0.3 m from the body", starts.map(([n, S]) => [n, S.starts]));
+  check(!D.some(([, S]) => S.ghost), "no receive clip is posed past its contact without the simulation's touch (never an animation where the ball is not)", D.filter(([, S]) => S.ghost).map(([n, S]) => [n, S.ghost]));
   const partOk = withTouch.filter(([, S]) => S.contact && S.touch && ({inside: "foot", sole: "foot", air: "foot", thigh: "thigh", chest: "chest"})[S.contact.part] === S.touch.part);
   check(partOk.length === withTouch.length, "the clip's part is the part the simulation took the ball with", withTouch.map(([n, S]) => [n, S.contact && S.contact.part, S.touch.part]));
   const rel = withTouch.filter(([, S]) => S.released && S.released.dt <= .35 + 1e-6);

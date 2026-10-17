@@ -1,8 +1,11 @@
 /* ============ Training Mode: the feeder ============
    Owner: P6-A (Training Mode Phase 6: Ball Receiving and First Touch). Contract: BUILD-PLAN P6-A work item 2 ("an AI
-   passer playing real passes, or the coach feed, along configured trajectories. It never teleports the ball. It reads
-   the same ball.launch config field that the runner applies today with an agent -1 kick. With a passer configured, the
-   passer's own strike plays that launch from his foot instead"); TRAINING-SPEC 2 (ball physics: never teleport the
+   passer playing real passes, or the coach feed, along configured trajectories. It never teleports the ball"; the plan
+   has it read the ball.launch field the runner applies with an agent -1 kick. It does not: a receive drill's launch is
+   solved here from the drill's own options (receive.js: where from, how, how hard, how high, to where on the
+   receiver), since a pass to a man on the run has to be aimed where he will be, which a fixed ball.launch target cannot
+   say. The coach's feed is the same kind of kick as the runner's launch, and with a passer configured his own strike
+   plays it from his foot); TRAINING-SPEC 2 (ball physics: never teleport the
    ball), 4 (ball placement and trajectory: every setting changes the real configuration) and 5 (a configurable passer,
    direction, speed, height, ground, bouncing or aerial).
 

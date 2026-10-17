@@ -188,9 +188,7 @@ export function build(config, env){
    setupFromConfig setup (its keeper and people); used by build and by the tests */
 export function plan(c, spec, s = null, notes = []){
   const {o, want} = shapeOf(c, notes);
-  const A = spec.area || {x0:-spec.hx, x1:spec.hx, z0:-spec.hz, z1:spec.hz};
   const cx0 = -spec.hx + 1.5, cx1 = spec.hx - 2, cz = spec.hz - 2;
-  void A;
   // where you take it: 20 m out from the goal you attack (a cross from the wing: wide, 14 m out)
   const wide = o.then === "cross";
   const rx = clamp(spec.hx - (wide ? 14 : 20), cx0 + 4, cx1 - 2), rz = wide ? clamp((o.from === "right" || o.from === "angleR" ? -1 : 1)*Math.min(20, cz - 4), -cz, cz) : 0;
@@ -301,7 +299,7 @@ export function judge(ms, G){
     const mine = e.agent === me.id;
     if (e.kind === "touch" && !mine && e.team !== me.team && (e.how === "control" || e.how === "block" || e.how === "dribble")) return end(false, G.ctl ? "He took it off you." : "He got there first.", "opp");
     if (e.kind === "tackle" && e.won && e.agent !== me.id && e.team !== me.team) return end(false, "He won it off you.", "tackled");
-    if (e.kind === "out") return end(then === "shoot" || then === "firstShot" ? false : false, "It went out of play.", "out");
+    if (e.kind === "out") return end(false, "It went out of play.", "out");
     if (e.kind === "goal" && !e.disallowed && e.team === me.team && (then === "shoot" || then === "firstShot")) return end(true, "Goal!", "goal");
     if (e.kind === "touch" && mine && e.how === "control" && !G.ctl){
       G.ctl = e; G.ctlAt = ms.t; G.part = e.part; G.q = e.quality; G.ctlX = me.m.x; G.ctlZ = me.m.z;

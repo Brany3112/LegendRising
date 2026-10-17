@@ -1284,9 +1284,10 @@ const RECV = {inside:{dur:.62, contact:.32}, sole:{dur:.58, contact:.30}, air:{d
 // STEP: how far the support foot may be from its spot before it steps (m, x height); LIFT: its step's height; REACH:
 // the most the hips move to bring the part onto the ball; POST: the clip's end after the contact (on the run, RUN_POST)
 // (the chest and the thigh: the body steps in to the ball, the support foot planted under where the hips will be, BODY_BACK
-// m short of the ball's centre, chest or thigh, and the hips go on to it by at most REACH_BODY)
+// m short of the ball's centre, chest or thigh, and the hips go on to it by at most REACH_BODY; a foot's ball further
+// out than FOOT_BACK m from the hips at the contact: the hips go in toward it with the support foot's step by the rest)
 export const RCV = Object.freeze({STEP:.16, LIFT:.07, REACH:.32, POST:.3, RUN_POST:.16, RUN_V:2.2, SUP_BACK:.18, SUP_OUT:.2, SUP_MAX:.62,
-  BODY_BACK:{chest:.26, thigh:.3}, REACH_BODY:.5});
+  BODY_BACK:{chest:.26, thigh:.3}, REACH_BODY:.5, FOOT_BACK:.5, FOOT_RUN:[5, 2.5]});
 const RECV_EV = [];
 function recvSpec(st){
   const R0 = RECV[st.part] || RECV.inside, v = st.rootV ? Math.hypot(st.rootV.x, st.rootV.z) : 0;
@@ -1302,6 +1303,24 @@ function partB(h, T, part, s, out){
   else { frameOf(h, T, LEG(s)[2], _M); partLocal(part === "air" ? "inside" : part, s, _pl); _V.set(_pl[0], _pl[1], _pl[2]); }
   _V.applyMatrix4(_M); out.x = _V.x; out.y = _V.y; out.z = _V.z;
   return out;
+}
+// (the receive clip's keyframes, every frame for every receiving body: on scratch arrays, not new ones each call)
+const KF4 = [[0, 0], [0, 0], [0, 0], [0, 0]], KF3 = [[0, 0], [0, 0], [0, 0]];
+function kf4(t, a0, v0, a1, v1, a2, v2, a3, v3){
+  KF4[0][0] = a0; KF4[0][1] = v0; KF4[1][0] = a1; KF4[1][1] = v1; KF4[2][0] = a2; KF4[2][1] = v2; KF4[3][0] = a3; KF4[3][1] = v3;
+  return kf(t, KF4);
+}
+function kf3(t, a0, v0, a1, v1, a2, v2){
+  KF3[0][0] = a0; KF3[0][1] = v0; KF3[1][0] = a1; KF3[1][1] = v1; KF3[2][0] = a2; KF3[2][1] = v2;
+  return kf(t, KF3);
+}
+// the receive clip's legs onto its feet (the support foot's knee eased as it plants, the receiving foot's as it lands)
+function recvLegs(h, T, F, d, tau, j){
+  for (let k = 0; k < 2; k++){
+    const f = F[k], sk = k ? -1 : 1;
+    kneeBlend(f, tau, k === j ? d.step && tau > d.tDown - .12 && tau < d.tDown : tau > d.tLand - .12 && tau < d.tLand);
+    legW(h, T, sk, f.x, f.y, f.z, f.yaw, f.pitch, f.roll, 0, f.kb);
+  }
 }
 function receive(h, T, st, dt){
   const part = RECV[st.part] ? st.part : "inside", sp = recvSpec(st);
@@ -1348,6 +1367,14 @@ function receive(h, T, st, dt){
     px += tx/tl*RCV.SUP_BACK*sc; pz += tz/tl*RCV.SUP_BACK*sc;
     // (the chest and the thigh are taken square on, the support foot under the body)
     d.ax = 0; d.az = 0; d.along = 0;
+    if (part === "inside" || part === "sole" || part === "air"){
+      // (a ball further out than a leg reaches from where the hips are (FOOT_BACK): the hips go in toward it with the
+      // support foot's step, the weight onto that foot, so the foot is put on it rather than a leg stretched for it;
+      // at a sprint the stride itself carries him onto it, so less of it, none from FOOT_RUN[0] + FOOT_RUN[1] m/s)
+      const bx = d.bx - rx, bz = d.bz - rz, bl = Math.hypot(bx, bz) || 1, rv = Math.hypot(d.rv.x, d.rv.z);
+      const kRun = clamp(1 - (rv - RCV.FOOT_RUN[0])/RCV.FOOT_RUN[1], 0, 1);
+      d.ax = bx/bl; d.az = bz/bl; d.along = kRun*Math.min(RCV.SUP_MAX*sc, Math.max(0, bl - RCV.FOOT_BACK*sc));
+    }
     if (part === "chest" || part === "thigh"){
       // (stepped in to it: under where the hips take the ball, BODY_BACK short of its centre)
       const bx = d.bx - rx, bz = d.bz - rz, bl = Math.hypot(bx, bz) || 1;
@@ -1408,7 +1435,7 @@ function receive(h, T, st, dt){
     Fk.down = tau < lift0 || uOut >= 1;
   } else if (part === "thigh"){
     // the thigh comes up under the ball (the knee as high as the ball asks) and drops away with it
-    const lift = kf(tau, [[0, 0], [ct, 1], [ct + .15, .7], [dur, 0]]), hb = clamp((d.by - d.gy)/sc - .4, 0, .6)/.55;
+    const lift = kf4(tau, 0, 0, ct, 1, ct + .15, .7, dur, 0), hb = clamp((d.by - d.gy)/sc - .4, 0, .6)/.55;
     // (from where it stood, carried in with the body's step to the ball)
     const ein = ease(clamp(tau/Math.max(.1, ct), 0, 1));
     toB(d.kx0 + d.ax*d.along*ein, d.ky0, d.kz0 + d.az*d.along*ein, _b3);
@@ -1431,7 +1458,7 @@ function receive(h, T, st, dt){
   T[60] = sup*.045*sstep(0, d.tDown, tau)*(1 - sstep(ct, ct + .2, tau))*wIn;
   // (the chest and the thigh: the hips go in with the step to the ball and come part of the way back after)
   if (d.along > 0){
-    dirB(d.ax, d.az, _d2); const k = d.along*kf(tau, [[0, 0], [ct, 1], [ct + .12, 1], [dur, .35]]);
+    dirB(d.ax, d.az, _d2); const k = d.along*kf4(tau, 0, 0, ct, 1, ct + .12, 1, dur, .35);
     T[60] += _d2.x*k; T[62] += _d2.z*k;
   }
   R3(T, B.hips, .04*wIn, turn*.38*wIn, 0);
@@ -1440,9 +1467,9 @@ function receive(h, T, st, dt){
   // arms out for balance: the side of the receiving leg out and a little back, the other forward across the body; for
   // the chest both out wide and clear of the ball (no handball)
   if (part === "chest"){
-    const arch = kf(tau, [[0, 0], [ct - .06, -.3], [ct + .1, -.2], [dur, 0]]);
+    const arch = kf4(tau, 0, 0, ct - .06, -.3, ct + .1, -.2, dur, 0);
     R3(T, B.spine, arch*.6, turn*.14*wIn, 0); R3(T, B.chest, arch*.5, turn*.1*wIn, 0);
-    const o = kf(tau, [[0, .3], [ct, 1.25], [dur, .35]]);
+    const o = kf3(tau, 0, .3, ct, 1.25, dur, .35);
     armPose(T, 1, o, .15, .6); armPose(T, -1, o, .15, .6);
   } else {
     armPose(T, s, .3 + .45*wIn, -.15*wIn, .4); armPose(T, sup, .25 + .3*wIn, .35*wIn, .55);
@@ -1451,14 +1478,7 @@ function receive(h, T, st, dt){
   const bn = st.ballNow || {x:d.bx, y:d.by, z:d.bz};
   lookAt(h, T, bn.x, bn.y, bn.z, 1 - .5*sstep(ct + .1, dur, tau));
   // legs onto the feet; then the part onto the ball: the hips move (at most REACH) to put it there at the contact
-  const solve = () => {
-    for (let k = 0; k < 2; k++){
-      const f = F[k], sk = k ? -1 : 1;
-      kneeBlend(f, tau, k === j ? d.step && tau > d.tDown - .12 && tau < d.tDown : tau > d.tLand - .12 && tau < d.tLand);
-      legW(h, T, sk, f.x, f.y, f.z, f.yaw, f.pitch, f.roll, 0, f.kb);
-    }
-  };
-  solve();
+  recvLegs(h, T, F, d, tau, j);
   if (wC > .02 && (tau < ct + .1)){
     // where the part is in the pose, against where it has to be (the ball's centre, its own face on the ball's surface)
     partB(h, T, part, s, _rp);
@@ -1469,8 +1489,8 @@ function receive(h, T, st, dt){
     // (the feet stay down: the hips go no lower than a bent knee allows, and for a foot the leg reaches as well)
     const el = Math.hypot(ex, ey, ez), mx = body ? RCV.REACH_BODY : RCV.REACH;
     if (el > mx){ ex *= mx/el; ey *= mx/el; ez *= mx/el; }
-    T[60] += ex*wC; T[61] += clamp(ey, -.12, .06)*wC; T[62] += ez*wC;
-    solve();
+    T[60] += ex*wC; T[61] += clamp(ey, -.12, body ? .1 : .06)*wC; T[62] += ez*wC;
+    recvLegs(h, T, F, d, tau, j);
   }
   rateHips(h, T, dt, 2.2);
   rateLegs(h, T, C, dt);

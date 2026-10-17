@@ -549,9 +549,12 @@ function reconsiderSource(ms, R0){
   const fc = ms.agents[R0.fetcher], curV = R0.ballFrom === 'spare' ? 0 : hypot(b.v.x, b.v.z);
   if (fc && best.t < Infinity && curV < 2 && hypot(fc.m.x - cur.x, fc.m.z - cur.z) < 8) return;
   const gain = R0.ballFrom === 'spare' && best.t < Infinity ? 2 : ms.t - R0.t0 > 2 ? 1.5 : 1;
+  // (a change from a ball still to be had only for a clear gain; from one that cannot be had (out of reach, or flying
+  // away), simply the quickest of the others, not the first one listed)
+  const lost = best.t === Infinity;
   for (const c of cands){
     const e = sourceCost(ms, R0, c.x, c.z);
-    if (e.t + gain < best.t || best.t === Infinity && e.t < Infinity){ best = e; from = c.i >= 0 ? 'spare' : 'game'; spare = c.i; src = {x: c.x, z: c.z}; }
+    if (lost ? e.t < best.t : e.t + gain < best.t){ best = e; from = c.i >= 0 ? 'spare' : 'game'; spare = c.i; src = {x: c.x, z: c.z}; }
   }
   R0.ballFrom = from; R0.spare = spare; R0.src = src;
   if (best.who >= 0) R0.fetcher = best.who;

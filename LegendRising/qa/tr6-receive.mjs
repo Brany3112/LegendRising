@@ -12,7 +12,8 @@
 //      the ball as it is then, or where it is later in that step, as actions.js envAhead takes it);
 //   2. the touch rests at touchDist(q) +-0.3 m in the intended direction: the touch's way is the bot's own (its keys,
 //      else its look) within 12 degrees, and the ball's farthest lead over him along it (its flight from the touch on
-//      open grass, him running on as he was) is within 0.3 m of the touch distance, in at least 85% of the touches;
+//      open grass, him running on as he was; for a man standing, where it comes to rest) is within 0.3 m of the touch
+//      distance, at every touch;
 //   3. queued first-time passes and shots fire (a kick of the receiver's with no touch before it, in at least 80% of
 //      their runs);
 //   4. the body part follows the real height: every control's part is touch.js touchPart's for the ball's height and
@@ -136,6 +137,16 @@ function run(v, seed){
             if (tx*rcv.run.x + tz*rcv.run.z > 0.3) look = yawOf(tx, tz);
             else if (m.t < 1.2){ keys.length = 0; look = turnTo(P.yaw, yawOf(b.p.x - me.m.x, b.p.z - me.m.z), 8*H); }
           }
+          // a ball played slightly behind him: where it crosses his line (him standing) comes up within his braking
+          // distance, so he checks the run, turns to it and steps back across onto it
+          if (o.into === "behind"){
+            const s = meetOf(ms, me.m.x, me.m.z, 3);
+            const ahead = s ? (s.x - me.m.x)*rcv.run.x + (s.z - me.m.z)*rcv.run.z : 9;
+            if (s && ahead < me.m.speed*me.m.speed/8 + 0.4){
+              keys.length = 0; look = turnTo(P.yaw, yawOf(b.p.x - me.m.x, b.p.z - me.m.z), 8*H);
+              if (s.d > 0.4 && s.t > 0.1) keys.push(...keysFor(s.x - me.m.x, s.z - me.m.z, look));
+            }
+          }
         }
       }
       else if (o.move === "side"){ look = P.yaw; keys.push(...keysFor(rcv.run.x, rcv.run.z, look)); }
@@ -191,11 +202,13 @@ function run(v, seed){
         if (tc > 0.6 && st.rmbAt < 0){ B.mouse(2, true); st.rmbAt = ms.t; }
         if (st.rmbAt >= 0 && ms.t - st.rmbAt > 0.06) B.mouse(2, false);
       } else if (rcv.then === "shoot"){
-        look = turnTo(P.yaw, goalYaw(), 6*H); P.pitch = -0.02;
-        // (onto the ball first, then the shot as it sits in front of the striking foot)
-        const db = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z);
-        if (db > 0.7) keys.push(...keysFor(b.p.x - me.m.x, b.p.z - me.m.z, look));
-        if (tc > 0.3 && db <= 1.3 && Math.abs(wrapA(P.yaw - goalYaw())) < 0.3 && st.lmbAt < 0){ B.mouse(0, true); st.lmbAt = ms.t; }
+        // (onto the ball first, running at it while it goes on toward goal, then the shot as it sits in front of the
+        // striking foot and he faces the goal; pressed again if the first press found it out of reach)
+        const gy = goalYaw(), db = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), by = yawOf(b.p.x - me.m.x, b.p.z - me.m.z);
+        look = turnTo(P.yaw, db > 0.5 && Math.abs(wrapA(by - gy)) < 1.0 ? by : gy, 6*H); P.pitch = -0.02;
+        if (db > 0.7){ keys.push(...keysFor(b.p.x - me.m.x, b.p.z - me.m.z, look)); if (db > 1.6) keys.push("shift"); }
+        if (st.lmbAt >= 0 && ms.t - st.lmbAt > 1.0) st.lmbAt = -1;
+        if (tc > 0.3 && db <= 1.4 && Math.abs(wrapA(by - P.yaw)) < 0.45 && Math.abs(wrapA(P.yaw - gy)) < 0.6 && st.lmbAt < 0){ B.mouse(0, true); st.lmbAt = ms.t; }
         if (st.lmbAt >= 0 && ms.t - st.lmbAt > 0.3) B.mouse(0, false);
       }
       if (rcv.shield) keys.push("c");
@@ -257,16 +270,20 @@ function touchLead(ball, me, kx, kz, spec){
   const OPEN = createBallWorld({});
   const c = createBall({x:ball.p.x, y:ball.p.y, z:ball.p.z, rollDecel:ball.rollDecel});
   c.v.x = ball.v.x; c.v.y = ball.v.y; c.v.z = ball.v.z; c.state = "free"; c.grounded = ball.grounded;
-  const vx = me.m.vx, vz = me.m.vz;
   // (the step has already moved the ball once since the touch: the lead is measured from the body as it was then)
-  let peak = (c.p.x - me.m.x)*kx + (c.p.z - me.m.z)*kz;
+  // (a man standing, barely moving or moving against the touch's way (he checks his run to go with it), touch.js
+  // firstTouch takes as standing: he cushions a ball met further out than the touch distance back toward him, and the
+  // lead is where it comes to rest from where he took it; a runner's is its farthest lead over him running on)
+  const still = me.m.vx*kx + me.m.vz*kz < 0.5;
+  const vx = still ? 0 : me.m.vx, vz = still ? 0 : me.m.vz;
+  let peak = (c.p.x - me.m.x)*kx + (c.p.z - me.m.z)*kz, lead = peak;
   for (let i = 1; i <= 150; i++){
     ballStep(c, OPEN, H);
-    const lead = (c.p.x - me.m.x - vx*i*H)*kx + (c.p.z - me.m.z - vz*i*H)*kz;
+    lead = (c.p.x - me.m.x - vx*i*H)*kx + (c.p.z - me.m.z - vz*i*H)*kz;
     if (lead > peak) peak = lead;
   }
   void spec;
-  return peak;
+  return still ? lead : peak;
 }
 
 /* ---------- the runs ---------- */
@@ -293,8 +310,8 @@ check(allCtl.length > 100 && !outR.length, "every control touch is taken with th
 const keepIds = new Set(all.filter(x => RC.drillConfig(x.v.drill, x.v.extra || {}).opts.then === "keep").map(x => x.v.id));
 const keepCtl = allCtl.filter(c => keepIds.has(c.id));
 const wayOk = keepCtl.filter(c => c.ang <= 12), leadOk = keepCtl.filter(c => c.ang <= 12 && Math.abs(c.lead - c.td) <= 0.3);
-check(keepCtl.length > 40 && wayOk.length >= 0.95*keepCtl.length && leadOk.length >= 0.85*keepCtl.length,
-  "the touch goes the way the bot meant (its keys, else its look) and rests at touchDist(q) within 0.3 m (85% of the touches)",
+check(keepCtl.length > 40 && wayOk.length >= 0.95*keepCtl.length && leadOk.length === keepCtl.length,
+  "the touch goes the way the bot meant (its keys, else its look) and rests at touchDist(q) within 0.3 m (every touch)",
   {touches:keepCtl.length, way:r3(wayOk.length/Math.max(1, keepCtl.length)), lead:r3(leadOk.length/Math.max(1, keepCtl.length)),
     worst:keepCtl.filter(c => !(c.ang <= 12 && Math.abs(c.lead - c.td) <= 0.3)).slice(0, 8).map(c => ({id:c.id, part:c.part, ang:c.ang, lead:c.lead, td:c.td}))});
 // 3. queued first-time passes and shots fire

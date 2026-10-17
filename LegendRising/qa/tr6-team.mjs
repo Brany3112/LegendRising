@@ -250,7 +250,8 @@ function callTrial(seed, o = {}){
   if (o.how === "behind"){ put(me, -1.6, 10 + jit, -Math.PI/2); me.m.vx = 6; me.m.speed = 6; put(defs[0], 0, -8, Math.PI/2); put(defs[1], 0.5, 0, Math.PI/2); }
   const b = ms.ball; b.p.x = -11.4; b.p.z = 0; b.p.y = 0.11; b.state = "free"; liveRoll(b); setCtl(ms, pa); ms.cutStep = ms.step; refreshPred(ms);
   const point = o.how === "behind" ? {x:8, z:12 + jit} : null;
-  const pm = passModel(ms, b.p, o.how === "behind" ? point : {x:me.m.x, z:me.m.z}, o.how === "behind" ? "through" : "pass", o.how === "behind" ? passSpeedFor(Math.hypot(point.x - b.p.x, point.z - b.p.z), BRAIN.THROUGH_ARRIVE) : 14, me);
+  // (read now: passModel answers in a scratch object that the carrier's own decisions in the steps below write over)
+  const pOK = passModel(ms, b.p, o.how === "behind" ? point : {x:me.m.x, z:me.m.z}, o.how === "behind" ? "through" : "pass", o.how === "behind" ? passSpeedFor(Math.hypot(point.x - b.p.x, point.z - b.p.z), BRAIN.THROUGH_ARRIVE) : 14, me).pOK;
   let decisions = 0, withMe = 0;
   ms.onDecide = (a, opts) => { if (a !== pa) return; decisions++; if (opts.some(x => x.recv === me.id)) withMe++; };
   callFor(ms, me, o.how || "here", point);
@@ -261,7 +262,7 @@ function callTrial(seed, o = {}){
     simStep(ms, H);
     for (const e of ms.events.slice(n0)) if (e.kind === "kick" && e.agent === pa.id){ if (e.recv === me.id){ passed = true; kind = e.intent; } else other = true; }
   }
-  return {pOK:pm.pOK, passed, kind, decisions, withMe, offside:offsidePosition(ms, me, 0).off};
+  return {pOK, passed, kind, decisions, withMe, offside:offsidePosition(ms, me, 0).off};
 }
 {
   const open = {runs:0, passed:0, decisions:0, withMe:0}, blocked = {runs:0, passed:0}, offs = {runs:0, passed:0}, behind = {runs:0, through:0};
@@ -277,7 +278,7 @@ function callTrial(seed, o = {}){
     if (bh.pOK >= .5){ behind.runs++; if (bh.passed && bh.kind === "through") behind.through++; }
   }
   check(open.runs >= 15 && open.passed >= .8*open.runs, `open, onside, a clear lane, called for: the AI carrier passes to me within 2 s in ${open.passed} of ${open.runs} (at least 80%)`, open);
-  check(blocked.runs >= 10 && blocked.passed === 0, `the lane blocked (pass model under 0.3): never passed (${blocked.passed} of ${blocked.runs})`, blocked);
+  check(blocked.runs === 20 && blocked.passed === 0, `the lane blocked (pass model under 0.3): never passed (${blocked.passed} of ${blocked.runs})`, blocked);
   check(offs.passed === 0, `me offside with offside played: never passed (${offs.passed} of ${offs.runs})`, offs);
   check(behind.runs >= 10 && behind.through >= .6*behind.runs, `"In behind!" on an onside run that beats the line: a through ball in ${behind.through} of ${behind.runs} (at least 60% where one is on)`, behind);
   check(open.decisions > 0 && open.withMe === open.decisions, "sees the user: I am among the carrier's pass candidates in every decision of the call trials", {decisions:open.decisions, withMe:open.withMe});
