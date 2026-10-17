@@ -94,11 +94,15 @@ export const DAY = Object.freeze({
    note(text), relock()} */
 let HOST = null;
 export function fpHost(h){ HOST = h; }
+// (P8-A, MF-10) the host of the match being played: the career's for a match of the career and its test fixtures, the
+// one an entry hands in for Training (FS.host, set at each entry), none at all for an entry that brings none. Every call
+// to a host during a match goes through FS.host; outside a match (the settings) the career's, when there is one
+const hostNow = () => FS.state ? FS.host : HOST;
 
 /* ---------- the state of the day ---------- */
 const FS = {
   state: null,            // 'travel'|'dressing'|'walkout'|'kickoff'|'live'|'bench'|'entering'|'halftime'|'fulltime'|'leaving'
-  ms: null, V: null, f: null, M: null, cfg: null, test: null, real: false,
+  ms: null, V: null, f: null, M: null, cfg: null, test: null, real: false, host: null, training: null,
   evq: [], offs: [], acc: 0, ffRate: 1, timeScale: 1, slow: null, renderT: 0,
   own: null, ownPrm: null, ownSt: null, ownFac: {}, onPitch: false,
   walkers: null, koT: 0, ready: false, nagT: 0,
@@ -207,7 +211,7 @@ function enter(f, o){
   if (FS.state) return false;
   if (typeof f === "string" && f.startsWith("test:")) return enterTest(f.slice(5), o);
   if (!HOST || !f) return false;
-  FS.real = true; FS.test = null; FS.f = f; FS.done = false; FS.R = null;
+  FS.real = true; FS.test = null; FS.f = f; FS.done = false; FS.R = null; FS.host = HOST; FS.training = null;
   const ko = HOST.kickoff(f), now = HOST.now(), trav = HOST.travel(f);
   const arrive = now + trav;
   const late = arrive > ko - DAY.LATE;
@@ -273,7 +277,7 @@ function startMatch(cfg, kits){
   // (your own look on your own body; a test fixture of a career wears it too, in the home kit its side plays in, so what
   // a test sees through your eyes is what a match shows: your first-person body under the eye)
   const meRec = recOfMe(cfg);
-  const meLook = HOST ? HOST.look(kits && (FS.real && FS.M ? (FS.M.home ? kits.home : kits.away) : kits.home), meRec ? meRec.number : 9) : null;
+  const meLook = FS.host ? FS.host.look(kits && (FS.real && FS.M ? (FS.M.home ? kits.home : kits.away) : kits.home), meRec ? meRec.number : 9) : null;
   // your height (MV-10): the body you are drawn as is the one the simulation moves, so reach, headers and your eye agree
   if (meRec) meRec.scale = meLook && meLook.height ? +meLook.height : heightOf(meRec);
   FS.meScale = meRec && meRec.scale ? meRec.scale : 1;
@@ -380,7 +384,7 @@ function manager(){ if (FS.state !== "dressing") return; note(`Manager: "${MANAG
 // E at the door: time passes to kick-off minus 5, then the walk-out
 function headOut(){
   if (FS.state !== "dressing") return;
-  const ko = HOST ? HOST.kickoff(FS.f) : 0, now = HOST ? HOST.now() : 0, to = ko - DAY.HEAD_OUT;
+  const ko = FS.host ? FS.host.kickoff(FS.f) : 0, now = FS.host ? FS.host.now() : 0, to = ko - DAY.HEAD_OUT;
   coverScreen();
   if (FS.real && now < to) pass(to - now, "idle");
   walkout();
@@ -502,7 +506,7 @@ function frame(dt, real){
       if (FS.real) pass(real*.5, "idle");
       ownWalk(dt, true);
       // past kick-off minus 2 the manager sends everyone out
-      if (FS.real && HOST && HOST.now() >= HOST.kickoff(FS.f) - 2) headOut();
+      if (FS.real && FS.host && FS.host.now() >= FS.host.kickoff(FS.f) - 2) headOut();
       break;
     case "walkout": {
       ownWalk(dt, true);
@@ -898,7 +902,7 @@ function recvPoint(ms, me){
   return FS.recvAt;
 }
 // the offside pip's setting (1.5.10): Auto shows it in a player's first 5 matches (and the tests), On always, Off never
-const pipShown = () => SET.offsidePip === "on" || (SET.offsidePip === "auto" && (isTest() || !!(HOST && HOST.early && HOST.early())));
+const pipShown = () => SET.offsidePip === "on" || (SET.offsidePip === "auto" && (isTest() || !!(FS.host && FS.host.early && FS.host.early())));
 // the hints off the ball's play: on the bench, walking out, in the dressing room (the records kept, the verbs changed
 // in place: written ten times a second at most)
 const OH = {walkout: [{key: "W", verb: "go to your position"}, {key: "E", verb: "ready"}], walkSub: [{key: "W", verb: "walk to the bench"}],
@@ -1349,7 +1353,7 @@ function cardDone(){
   FS.freed = false;
   if (!want || FS.relock === false || document.pointerLockElement) return;
   relockWait(true);
-  if (HOST) HOST.relock(); else if (window.lifeRelock) window.lifeRelock();
+  if (FS.host) FS.host.relock(); else if (window.lifeRelock) window.lifeRelock();
 }
 // the wait for the lock asked back is real time on a timer, not the frames' dt, and it starts once the page is free again:
 // the browser answers between tasks, so frames stepped in one go (a skip's catch-up, a page stepping the match itself)
@@ -1371,8 +1375,8 @@ function showHalftimeCard(){
   const rating = me && me.on.length ? liveRating(ms, me) : null;
   const drift = me && me.acc.oop > 30 && me.acc.oopFar/me.acc.oop > .35;
   let html;
-  if (HOST && FS.real){
-    html = HOST.htCard(FS.M, {rating, drift, drinks: HOST.drinks()});
+  if (FS.host && FS.real){
+    html = FS.host.htCard(FS.M, {rating, drift, drinks: FS.host.drinks()});
   } else {
     const T = FS.cfg.teams;
     html = `<div class="eyebrow">Half time</div><h2>${esc(T[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(T[1].name)}</h2>`;
@@ -1440,20 +1444,20 @@ function fulltime(dt, real){
 function settle(){
   if (FS.R || !FS.real) return FS.R;
   const out = finish(FS.ms);
-  if (HOST) out.around = HOST.around(FS.f);
+  if (FS.host) out.around = FS.host.around(FS.f);
   FS.R = out;
   return out;
 }
 function showFulltimeCard(){
   const ms = FS.ms;
   let html;
-  if (HOST && FS.real && FS.R && FS.R.R){
-    html = HOST.ftCard(FS.M, Object.assign({}, FS.R.R, {around: FS.R.around || []}));
+  if (FS.host && FS.real && FS.R && FS.R.R){
+    html = FS.host.ftCard(FS.M, Object.assign({}, FS.R.R, {around: FS.R.around || []}));
   } else {
     const T = FS.cfg.teams;
     html = `<div class="eyebrow">Full time</div><h2>${esc(T[0].name)} ${ms.score[0]} - ${ms.score[1]} ${esc(T[1].name)}</h2>`;
   }
-  const press = !!(HOST && FS.real && HOST.pressOpen && HOST.pressOpen());
+  const press = !!(FS.host && FS.real && FS.host.pressOpen && FS.host.pressOpen());
   // (Continue first in the footer's markup, so Tab reaches it first; it is drawn on the right, MF-4)
   const o = hudOverlay(cardBox(html, `<button class="btn" data-ft="go">Continue</button>${press ? `<button class="btn ghost" data-ft="press">🎙 Talk to the press</button>` : ""}`), "ft");
   if (o){
@@ -1461,7 +1465,7 @@ function showFulltimeCard(){
       const b = e.target.closest("button"); if (!b) return;
       if (b.dataset.ft === "go"){ leave(); return; }
       // the interview (awards.js): its answers run their own onclick (A.press), then it is back to the card
-      if (b.dataset.ft === "press"){ cardUp(hudOverlay(cardBox(HOST.press(), `<button class="btn ghost" data-ft="back">Back</button>`), "ft")); return; }
+      if (b.dataset.ft === "press"){ cardUp(hudOverlay(cardBox(FS.host.press(), `<button class="btn ghost" data-ft="back">Back</button>`), "ft")); return; }
       if (b.dataset.ft === "back" || b.classList.contains("media")){ showFulltimeCard(); return; }
       if (b.dataset.clip != null) playHighlight(+b.dataset.clip);
     };
@@ -1488,7 +1492,7 @@ function leave(){
   const real = FS.real;
   teardown();
   exitMode("done");
-  if (real && HOST) HOST.leave(fat);
+  if (real && FS.host) FS.host.leave(fat);
 }
 function teardown(){
   for (const f of FS.offs) try { f(); } catch(e){ console.error(e); }
@@ -1511,7 +1515,7 @@ function teardown(){
   clearMatchFlags();
   if (FLAGS.lockLost) FLAGS.lockLost = false;
   FS.ms = null; FS.state = null; FS.walkers = null; FS.skipping = null; FS.seated = false; FS.benchKept = null; FS.called = false; FS.onPitch = false;
-  FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null;
+  FS.test = null; FS.real = false; FS.slow = null; FS.timeScale = 1; FS.lockLook = false; FS.testDriver = null; FS.testInfo = null; FS.host = null; FS.training = null;
   FS.prevState = null; FS.htCard = FS.ftCard = false; FS.freed = FS.exitAsked = false; relockWait(false); FS.lockUsed = false; FS.atFourth = false; FS.autoWalk = false; FS.callT = 0;
   FS.pauseShown = false;
   document.body.classList.remove("fp-match");
@@ -1646,7 +1650,7 @@ function liftCover(ms = 500){
   FADE.v = 0;
   if (o){ o.style.transition = `opacity ${ms}ms ease`; o.style.opacity = "0"; delete o.dataset.tun; }
 }
-function note(t){ if (HOST && HOST.note) HOST.note(t); }
+function note(t){ if (FS.host && FS.host.note) FS.host.note(t); }
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
 // a task that runs whatever the mode's step does (the pause, E held on the bench)
@@ -1670,10 +1674,10 @@ SCHED.task({id: "fp-match", kind: "keep", run: dt => {
 const LENGTHS = {4: "Short (6 minute halves)", 2: "Standard (10 minute halves)", 1: "Long (15 minute halves)"};
 export function fpSettingsHTML(){
   const lengths = [4, 2, 1].filter(k => CALIBRATED[k]).map(k => [k, LENGTHS[k]]);
-  return settingsHTML({speed: HOST && HOST.speed ? HOST.speed() : 2, lengths});
+  return settingsHTML({speed: hostNow() && hostNow().speed ? hostNow().speed() : 2, lengths});
 }
 export function fpSet(k, v){
-  if (k === "speed"){ if (HOST && HOST.setSpeed && CALIBRATED[v]) HOST.setSpeed(v); }
+  if (k === "speed"){ if (hostNow() && hostNow().setSpeed && CALIBRATED[v]) hostNow().setSpeed(v); }
   else if (k === "hide"){ const h = Object.assign({}, SET.hide || {}); h[v] = !h[v]; saveSet({hide: h}); }
   else saveSet({[k]: v});
   if (k === "volume") AUD.volume(SET.volume);
@@ -1774,7 +1778,7 @@ function testConfig(name, o = {}){
     ovr: [o.ovr || 60, o.ovr || 60], visible: visibleFn};
 }
 function enterTest(name, o){
-  FS.test = name; FS.real = false; FS.f = null; FS.M = null; FS.R = null;
+  FS.test = name; FS.real = false; FS.f = null; FS.M = null; FS.R = null; FS.host = HOST; FS.training = null;
   enterMode("match");
   coverScreen();
   // (o.kits: a fixture's own pair, resolved as a real match's are)
