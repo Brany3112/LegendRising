@@ -468,6 +468,24 @@ function chooseSource(ms, R0){
   }
   R0.fetcher = best.who >= 0 ? best.who : R0.taker;
 }
+// A dead ball rolling out through the gap in the boards in front of the dugouts (pitchspec BOARDS.gaps; the boards
+// elsewhere stand on the runoff's edge and stop it themselves) is stopped there by the bench, on the runoff's edge
+// where a player can still get to it. It used to roll on into the dugouts, out of every player's reach (reachable),
+// and the restart went to a spare on a cone across the pitch (a throw-in 5.6 s over its limit + 5 in the harness, seed
+// 79). Only on a pitch with boards, only on the grass, only as it crosses that edge going out
+function benchStop(ms, b){
+  const bd = ms.spec.colliders && ms.spec.colliders.boards;
+  if (b.state !== 'dead' || b.p.y > R + 0.05 || !bd || !bd.length) return;
+  const ro = ms.spec.runoff, ex = Math.abs(b.p.x) - (ro.hx - R), ez = Math.abs(b.p.z) - (ro.hz - R);
+  if (ex > 0 && ex < 0.5 && b.p.x*b.v.x > 0 && !boardAcross(bd, b.p.x > 0 ? 'x+' : 'x-', b.p.z)) b.v.x = 0;
+  if (ez > 0 && ez < 0.5 && b.p.z*b.v.z > 0 && !boardAcross(bd, b.p.z > 0 ? 'z+' : 'z-', b.p.x)) b.v.z = 0;
+}
+// is there a board on that side (pitchspec boardPlanes) across the ball's line, a along it: then it meets the board
+function boardAcross(bd, side, a){
+  const z = side[0] === 'x';
+  for (const B of bd) if (B.side === side && a >= (z ? B.bounds.z0 : B.bounds.x0) && a <= (z ? B.bounds.z1 : B.bounds.x1)) return true;
+  return false;
+}
 // a dead ball still in the air and fast (struck as the whistle went)
 const flyingAway = b => b.p.y > R + 0.2 && hypot(b.v.x, b.v.z) > RULES.FLYING;
 // the time to carry a ball d metres in the hands (a jog near the spot, a run further out): further out at CARRY_FAR,
@@ -632,6 +650,7 @@ export function restartStep(ms, h){
   const R0 = ms.restart;
   if (!R0 || R0.taken) return;
   const b = ms.ball, tk = ms.agents[R0.taker];
+  benchStop(ms, b);
   if (!tk || !tk.onPitch || tk.leaving || tk.injured && !tk.isMe){
     // a new taker; a ball the old one had (in his hands, or on its way to him) is put down and fetched again
     R0.taker = pickTaker(ms, R0.kind, R0.team, R0.spot);
