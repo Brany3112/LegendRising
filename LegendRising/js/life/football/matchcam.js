@@ -175,9 +175,11 @@ function fpFrame(dt, cam){
   const x = e ? e.x : P.x, z = e ? e.z : P.z, y0 = e ? e.y : P.eye;
   const ahead = eyeAhead(P.pitch, s), f = dirOf(P.yaw);
   // the first-person body under the eye, posed first so its pelvis this frame gives the bob (its arms kept nearer the
-  // body as you look down at a run, as me.js does for the life body: V.fpArms, from the gait as the last frame left it)
+  // body as you look down at a run, as me.js does for the life body: V.fpArms, from the gait as the last frame left it;
+  // (P9-A, MV-15) and looking down at any pace, standing and walking too: a hand at your side came into the middle of
+  // the view as you looked down at the ball at your feet)
   let ev = 0, h = null;
-  if (V && V.fp){ const G0 = V.fp.gait, run = G0 ? (G0.R || 0)*(G0.mvA || 0) : 0, brk = G0 ? Math.max(sstep(0, 3.3, -(G0.acc || 0)), G0.brakeW || 0) : 0; V.fpArms = run*Math.max(sstep(.1, .6, -P.pitch), brk); }
+  if (V && V.fp){ const G0 = V.fp.gait, run = G0 ? (G0.R || 0)*(G0.mvA || 0) : 0, brk = G0 ? Math.max(sstep(0, 3.3, -(G0.acc || 0)), G0.brakeW || 0) : 0; V.fpArms = Math.max(sstep(.1, .6, -P.pitch), run*brk); }
   if (V && V.fp && SRC.pose){ ev = SRC.pose(x, z, P.yaw, dt) || 0; h = V.fp; }
   if (V) clipCam(V, ev);
   // the eye rides on the body's own head (UF2-A, U12): a slide, a fall, a header's dive take it down with them

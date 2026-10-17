@@ -53,6 +53,7 @@ import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
 import {AUD} from "./audio.js";
 import {overlayCovered} from "../core/quality.js";
+import {ARM} from "../rig.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -1057,7 +1058,12 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   // way in the group's own frame, and the blend into the new pose starts from where the body really was drawn. Without
   // it the blend carried the slide's whole travel: the body shot out ahead of the eye and slid back over a second
   rebase(h, V.fpBase || (V.fpBase = {x:0, z:0, at:false, ok:false}), st !== FPST && !!st.groupAt);
-  const mask = animateHuman(h, dt, st).mask;
+  // ((P9-A, MV-15) a receive or a strike in your eyes keeps its hands out of the middle of the view as you look down,
+  // as the gait's arms-in does: fpClipArms, at V.fpArms, for this pose only; the clip is your whole body's too)
+  const armFix = st !== FPST && (st.mode === "receive" || st.mode === "strike") && V.fpArms > 0 && !st.correct;
+  if (armFix){ FPARM.k = V.fpArms; st.correct = fpClipArms; }
+  let mask;
+  try { mask = animateHuman(h, dt, st).mask; } finally { if (armFix) st.correct = null; }
   // ((P9-A, MV-15) the clip posed in your eyes this frame, for the camera's action springs: matchcam.js clipCam)
   V.fpClipNow = st === FPST ? null : st;
   // (U12) your clip ends where it plays: in your eyes. Your whole body is not drawn while you look through them (its
@@ -1067,6 +1073,24 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   if (a && st !== FPST && (mask & EV.END)){ const R = V.rec[a.id]; if (R && R.clip === st){ R.doneAct = R.clip.ref; R.clip = null; } }
   if (a && V.rec[a.id]) throwBall(V, V.rec[a.id], a, ms, h, dt, "thwFP");
   return mask;
+}
+
+/* (P9-A, MV-15) the arms of a clip in your eyes eased toward hanging back and out at your sides, the forearms
+   straighter (the gait's arms-in, gait.js: the upper arm 0.3 rad back and 0.3 out, the elbow at 0.25), by FPARM.k
+   times 0.85: a receive's or a strike's arms out for balance put a hand in the middle of the view as you looked down
+   at the ball */
+const FPARM = {k:0}, _fqa = new THREE.Quaternion(), _fqb = new THREE.Quaternion(), _fea = new THREE.Euler();
+function fpClipArms(h, Q){
+  const k = clamp(FPARM.k, 0, 1)*.85; if (!(k > 0)) return;
+  for (let s = 1; s >= -1; s -= 2){
+    const A = ARM(s);
+    for (let j = 0; j < 2; j++){
+      const b = A[j]*4;
+      if (j === 0) _fea.set(.3, 0, s*.3, "XYZ"); else _fea.set(-.25, -s*.25, 0, "XYZ");
+      _fqb.setFromEuler(_fea); _fqa.set(Q[b], Q[b + 1], Q[b + 2], Q[b + 3]).slerp(_fqb, k);
+      Q[b] = _fqa.x; Q[b + 1] = _fqa.y; Q[b + 2] = _fqa.z; Q[b + 3] = _fqa.w;
+    }
+  }
 }
 
 /* ---------- events the view keeps an eye on (controller.js wires them) ---------- */
