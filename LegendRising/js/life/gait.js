@@ -118,7 +118,7 @@ export function gaitInit(h){
     ev:{mask:0, at:0, side:null, reachErr:0, impact:0}, falls:[], over:[null, null], via:[null, null], belt:0, ext:false,
     // (and the ones the steps fill in as they go, here from the start: one shape for every body's gait, NaN for none)
     accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
-    start:0, tick:0, turnN:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0, stopW:0,
+    start:0, tick:0, turnN:0, shLead:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0, stopW:0,
     // (the pelvis's own yaw in the world, UF-A U1: it follows the feet, see pelvisStep)
     pel:NaN};
   return h.gait;
@@ -282,10 +282,24 @@ function planLanding(h, f, i, rem, out){
     // closed stance and wide enough that the closing foot comes down clear of where the leading one has just left. The
     // leading foot lands (S + c)/2 out and leaves from under its hip; the closing one lands (S - c)/2 in and leaves as
     // far out on its own side: neither reaches further from its hip than the other, at any speed
-    const lead = Math.sin(p.h)*Math.cos(tYaw) - Math.cos(p.h)*Math.sin(tYaw) > 0 ? (s > 0) : (s < 0);   // travelling to this foot's side
+    // ((P9-A, MV-9) the jockey goes back as well as sideways: the feet keep their own sides of the body, each its stance's
+    // half width out from the line of travel by as much as that line runs along the body's facing, so going straight
+    // back they step side by side and staggered, never on one line; and going back or forward (the travel within 30
+    // degrees of the facing's line) the foot that leads stays the one that led, or that is further along the way as it
+    // begins, rather than whichever side the travel happened to lean to that frame. Before, both feet were put on the
+    // line of travel, the lead taken from the sign of a sideways share near nothing: going back they changed over every
+    // step and passed within 3 cm of each other)
+    const sd = Math.sin(p.h - tYaw);
+    if (Math.abs(sd) > .5){ G.shLead = sd > 0 ? 1 : -1; }
+    else if (!G.shLead){
+      const o = G.feet[1 - i], po = (o.x - G.rx)*fx + (o.z - G.rz)*fz, pf = (f.x - G.rx)*fx + (f.z - G.rz)*fz;
+      G.shLead = (pf >= po) === (s > 0) ? 1 : -1;
+    }
+    const lead = G.shLead === s;
     const L = 2*step, c = duty*L, S = Math.max(.3*sc, L/2 + .11*sc);
+    const lx = Math.cos(tYaw), lz = -Math.sin(tYaw), ld = lx*fx + lz*fz, w = s*halfW(D, 0)*sc;
     along = lead ? (S + c)/2 : -(S - c)/2; lat = 0; yaw = tYaw + s*.05; roll = -.04;
-    ax = p.x + fx*along; az = p.z + fz*along;
+    ax = p.x + fx*along + (lx - ld*fx)*w; az = p.z + fz*along + (lz - ld*fz)*w;
   } else {
     const back = G.style === "back";
     const c = duty*2*step, rs = reachSpan(G, D, v/sc), aM = rs[0], bM = rs[1];
@@ -586,6 +600,8 @@ export function gaitStep(h, dt, st){
   // (st.style "backpedal", human.js's name for it, is the gait's "back")
   const style = st.style === "jockey" ? "shuffle" : st.style === "backpedal" ? "back" : st.style && st.style !== "normal" ? st.style : ar > 120*Math.PI/180 ? "back" : side ? "shuffle" : "fwd";
   if (v > .2 || G.state === "STAND") G.style = style;
+  // (the shuffle's leading foot, kept while it shuffles: planLanding)
+  if (G.style !== "shuffle") G.shLead = 0;
   // (the hips turn into the way of travel by at most 0.8 rad with their own swing to and fro on top, DESIGN 3.5.9, P2-B
   // MV-16: further round, the legs step across the body's line, the crossover, rather than the pelvis twisting against
   // the chest)
