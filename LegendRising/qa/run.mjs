@@ -63,7 +63,10 @@ const NAMED = {
   // Phase 7 (TR-7): P7-A's free kicks, P7-B's corners, throw-ins and penalties
   tr7: ["tr7-freekick", "tr7-corner", "tr7-throw", "tr7-penalty"],
   tr7a: ["tr7-freekick"],
-  tr7b: ["tr7-corner", "tr7-throw", "tr7-penalty"]
+  tr7b: ["tr7-corner", "tr7-throw", "tr7-penalty"],
+  // Phase 8 (TR-8): P8-A's resets, P8-B's Full Match in Training
+  tr8: ["tr8-reset", "tr8-fullmatch"],
+  tr8a: ["tr8-reset"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){
