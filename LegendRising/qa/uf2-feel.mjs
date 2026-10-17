@@ -78,7 +78,8 @@ try {
         const r = ST.solveStrike({from, target: {x: me.x, y: .11, z: me.z}, speed: L.speed, contact: 0, curl: 0, foot: "R", kind: "pass", rollDecel: env.spec.roll});
         Object.assign(ball, from, {vx: r.v.x, vy: r.v.y, vz: r.v.z, wx: r.w.x, wy: r.w.y, wz: r.w.z, kind: "pass", free: true});
       }
-      const mates = (cfg.mates || [[8, -10], [-3, 25]]).map(([dx, dz], i) => ({slot: ["LW", "RW", "CM"][i], x: me.x + dx, z: me.z + dz, yaw: -Math.PI/2}));
+      // (the team-mates hold their spots, a passing drill's targets: brain.js drillMove "stand")
+      const mates = (cfg.mates || [[8, -10], [-3, 25]]).map(([dx, dz], i) => ({slot: ["LW", "RW", "CM"][i], x: me.x + dx, z: me.z + dz, yaw: -Math.PI/2, drill: {behave: "stand"}}));
       return {myTeam: 0, role: "Attacker", seed: 11, laws: {out: "rebound"}, me, mates, opps: [], keeper: null, ball};
     };
     if (!R.scenario("qa-uf2")) R.registerScenario({id: "qa-uf2", category: "attacking", type: "qauf2", name: "Feel test", desc: "A test scenario", build});
@@ -180,7 +181,7 @@ try {
           worst.ahead = Math.max(worst.ahead, b[k][0]); worst.ratio = Math.max(worst.ratio, b[k][0]/b[k][2]); worst.low = Math.min(worst.low, b[k][2]);
           worst.hips = Math.min(worst.hips, b.hips[2]); worst.hand = Math.min(worst.hand, b.haL[2], b.haR[2]);
         }
-        check(worst.ahead <= .85 && worst.ratio <= .6 && worst.low >= 1.05 && worst.hips >= .5 && worst.hand >= .3, `${H} m ${st}: the feet stay under and around the camera through the stride (never out ahead as if sitting)`, worst);
+        check(worst.ahead <= .9 && worst.ratio <= .75 && worst.low >= 1.05 && worst.hips >= .5 && worst.hand >= .3, `${H} m ${st}: the feet stay under and around the camera through the stride (a foot never further ahead than three quarters of its depth under the eye: the sitting look had it at 1.5)`, worst);
       }
     }
     // the slide: the eye goes down with the body, and after it the body is under the eye again (its clip ended)

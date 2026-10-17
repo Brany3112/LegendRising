@@ -65,7 +65,7 @@ export const TOUCH = Object.freeze({
 // played PITCH below the look (radians) so it drops onto the feet in front, with an aim error of (1 - heading/110) x ERR
 export const CUSHION = Object.freeze({MAX: 3.0, MIN: 0.6, K_IN: 0.08, K_SKILL: 1.2, PITCH: 28*DEG, ERR: 8*DEG});
 // UF2-A (U17): the settle and close control (see the header). Metres scaled by the body's height
-export const SETTLE = Object.freeze({D: 0.38, Q: 0.3, LAT: 0.12, ERR: 0.7, ANG: 0.6});
+export const SETTLE = Object.freeze({D: 0.38, Q: 0.3, LAT: 0.06, ERR: 0.7, ANG: 0.6});
 export const CLOSE = Object.freeze({L0: 0.3, LV: 0.07});
 
 /* ---------- the part a touch is made with (P6-A) ----------
@@ -237,7 +237,11 @@ export function firstTouch(agent, ball, intent, ctx, r){
   const along = Math.max(0, pv.x*dx + pv.z*dz), crossX = pv.x - (pv.x*dx + pv.z*dz)*dx, crossZ = pv.z - (pv.x*dx + pv.z*dz)*dz;
   const rd = ctx.rollDecel != null ? +ctx.rollDecel : (ball.rollDecel || 1.1);
   // (UF2-A, U17) the settle: killed onto the preferred foot, a short touch to its side with less error
-  const st = clamp(+ctx.settle || 0, 0, 1);
+  // (a ball on the grass only: one taken in the air, off the thigh, the chest or a raised foot, already drops dead in
+  // front of him, P6-A, and is played as before)
+  const vy = T.BODY_POP[part] || 0;
+  const yA = P.y - R, airT = yA > 0.05 || vy > 0 ? (vy + Math.sqrt(vy*vy + 2*G*Math.max(0, yA)))/G : 0;
+  const st = airT > 0 ? 0 : clamp(+ctx.settle || 0, 0, 1);
   const lenErr = truncNormal(r, T.LEN_ERR*(1 - qq)*(1 - SETTLE.ERR*st), 2.5);
   const Ls = (SETTLE.D + SETTLE.Q*(1 - qq))*sc;
   const L = (touchDist(qq) + (Math.min(touchDist(qq), Ls) - touchDist(qq))*st)*Math.max(0.5, 1 + lenErr);
@@ -249,10 +253,8 @@ export function firstTouch(agent, ball, intent, ctx, r){
   const ahead0 = (P.x - m.x)*dx + (P.z - m.z)*dz;
   // met further out than the touch distance: a man standing (or barely moving) cushions it back toward him to rest at
   // it; a man on the run cannot pull it in closer than where he met it, so it is carried on with him from there
-  const vy = T.BODY_POP[part] || 0;
   // a ball that leaves the touch in the air (off the thigh or the chest, or a raised foot's) falls first, then rolls:
-  // its lead is the flight's and the roll's after it (airLead, P6-A), not a roll's from the touch
-  const yA = P.y - R, airT = yA > 0.05 || vy > 0 ? (vy + Math.sqrt(vy*vy + 2*G*Math.max(0, yA)))/G : 0;
+  // its lead is the flight's and the roll's after it (airLead, P6-A), not a roll's from the touch (vy, airT above)
   const u0 = airT > 0 ? speedForAirGap(L, ahead0, along, rd, airT, G*airT - vy)
     : L - ahead0 >= 0 ? speedForGap(L - ahead0, along, rd) : along < 0.5 ? -Math.sqrt(2*rd*(ahead0 - L)) : along;
   const sig = (1 - ctrl/110)*0.35*vRel/15*(1 - SETTLE.ANG*st);

@@ -43,7 +43,10 @@ function restOf(ballPos, v, roll = 1.1){
     const want = SETTLE.D + SETTLE.Q*(1 - set.q);
     check(set.settle === 1 && Math.abs(b.d - set.dist) < .1 && set.dist <= Math.min(touchDist(set.q), want)*1.12 + 1e-9 && b.d <= .75 && b.d < a.d,
       `control ${ctrl}, a ${speed} m/s pass: the settle rests it ${r3(b.d)} m out (within reach, 0.75 m at most), the push ${r3(a.d)} m`, {settle: r3(b.d), push: r3(a.d), q: r3(set.q)});
-    check(b.right > 0.02 && b.ahead > 0.2, `control ${ctrl}: the settle puts it ahead and to the right foot's side (a right-footer)`, {ahead: r3(b.ahead), right: r3(b.right)});
+    // (to the foot's side on average over 40 seeds: a single touch's direction error can be as large as the offset)
+    let side = 0;
+    for (let k = 0; k < 40; k++) side += restOf(ball.p, firstTouch(agent, ball, {dir: null}, {pressure01: 0, bF: 1, settle: 1}, mulberry32(300 + k)).v).right/40;
+    check(side > 0.02 && b.ahead > 0.2, `control ${ctrl}: the settle puts it ahead and to the right foot's side (a right-footer)`, {ahead: r3(b.ahead), right: r3(side)});
   }
   // a left-footer: to the left
   const L = firstTouch({x: 0, z: 0, yaw: FACE_MX, vx: 0, vz: 0, at: at(70), foot: 'L'}, {p: {x: -0.5, y: R, z: 0}, v: {x: 11, y: 0, z: 0}, rollDecel: 1.1}, {dir: null}, {pressure01: 0, bF: 1, settle: 1}, mulberry32(5));

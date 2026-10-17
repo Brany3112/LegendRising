@@ -759,7 +759,6 @@ export function controlStep(ms, me, h, opts = {}){
     // within reach, the way you look; with the assists, standing with no keys held does too
     const ak = assistK(), fOn = !!CTRL.held.f || ms.t - CTRL.fT < METER.SETTLE_LATCH;
     p.settle = fOn ? 1 : !len && me.m.speed < 1.5 ? ak : 0;
-    if (p.settle > 0){ p.part = "foot"; if (!len){ p.push.x = -Math.sin(P.yaw); p.push.z = -Math.cos(P.yaw); } }
     if (p.first && ms.t - (p.firstT || 0) > 1.2) p.first = null;
   } else if (me.plan && me.plan.kind === "receive") me.plan = null;
   gestureStep();
