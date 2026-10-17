@@ -317,6 +317,18 @@ export function goalScored(ms, d){
 // Begin a restart. kind: 'kickoff' | 'throw' | 'goalkick' | 'corner' | 'free' | 'indirect' | 'penalty' | 'drop'.
 // Chooses the taker and the ball (the game ball within 6 m of the spot, else the nearest spare on a cone), and who
 // fetches it; the clock keeps running (1.5.5).
+// The set-piece options (BUILD-PLAN Phase 7 contract, P7-B; Training Mode's set pieces hand them in, a match never does):
+//   opt.taker         the agent who takes it, when he is one of the side's players on the pitch (else pickTaker's man)
+//   opt.second        a free kick's second taker (an agent id) and opt.secondAction what he does: 'pass' | 'decoy' |
+//                     'short' | 'carry' (P7-A, brain.js reads them off the restart)
+//   opt.side          the side of the pitch it is taken on, +1 or -1 across (a corner's flag, a throw's touchline)
+//   opt.noKeeper      no keeper keeps the goal it is taken at (Training's empty-goal penalty)
+//   opt.wallSpec      a free kick's wall as Training configured it, passed to brain.js as it is
+//   opt.plan          a set piece's plan as Training configured it (a corner's designated receiver and marking, a
+//                     throw's receiver): plain data kept on the restart for the brains (brain.js cornerPlan, P7-A)
+//   opt.hold          the go is given from outside: with an AI taker the restart is never ready by itself, so his
+//                     brain never picks the delivery; the scenario that holds it starts his kick or throw itself
+//                     (actions.js startKick / startThrow), which takes the restart as any kick does
 export function startRestart(ms, kind, team, spot, opt = {}){
   // no set pieces (laws.restarts): every restart but a kick-off is a kick-in from where it happened (an indirect free
   // kick with no wall and no set-piece line-up: R0.kickIn)
@@ -351,6 +363,16 @@ export function startRestart(ms, kind, team, spot, opt = {}){
     first: !!opt.first, after: !!opt.after, placed: false, foul: opt.foul || null, offender: opt.offender != null ? opt.offender : -1,
     taken: false, lowerT: 0, tTake: -1, carrier: -1, kickIn, nearT: 0, nagged: false, nagT: -1};
   R0.taker = pickTaker(ms, kind, team, spot);
+  // (Phase 7 contract) the set-piece options, plain data on the restart
+  const tk0 = opt.taker != null ? ms.agents[opt.taker] : null;
+  if (tk0 && tk0.team === team && tk0.onPitch && tk0.role === 'player' && !tk0.sentOff && !tk0.leaving) R0.taker = tk0.id;
+  R0.second = opt.second != null && opt.second >= 0 ? opt.second : -1;
+  R0.secondAction = typeof opt.secondAction === 'string' ? opt.secondAction : null;
+  R0.side = opt.side === 1 || opt.side === -1 ? opt.side : (spot.z >= 0 ? 1 : -1);
+  R0.noKeeper = !!opt.noKeeper;
+  R0.wallSpec = opt.wallSpec && typeof opt.wallSpec === 'object' ? opt.wallSpec : null;
+  R0.plan = opt.plan && typeof opt.plan === 'object' ? opt.plan : null;
+  R0.hold = !!opt.hold; R0.set = false;
   R0.special = kind === 'free' && hypot(ms.dirs[team]*ms.spec.hx - spot.x, spot.z) < 35;
   chooseSource(ms, R0);
   ms.phase = kind === 'kickoff' ? 'kickoff' : 'restart';
@@ -834,6 +856,8 @@ export function restartStep(ms, h){
         R0.ready = true;
         break;
       }
+      // (Phase 7 contract) a held restart is given its go from outside (opt.hold): R0.set says everyone is in place
+      if (R0.hold){ R0.ready = false; R0.set = ready; break; }
       const tkD = hypot(tk.m.x - b.p.x, tk.m.z - b.p.z), tkAt = R0.kind === 'throw' || tkD <= RULES.TAKER_AT;
       if (ready || el >= R0.limit && tkAt){ R0.ready = true; R0.stage = 'go'; }
       else if (el >= R0.limit && R0.kind !== 'throw' && R0.kind !== 'penalty' && tkD > RULES.HANDOVER){
