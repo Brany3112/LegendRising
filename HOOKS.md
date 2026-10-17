@@ -1,52 +1,35 @@
-# P9-B hook requests (for the integrator)
+# P9-A hook requests (for the integrator)
 
-P9-B only edited the files it owns (`brain.js`, `gkbrain.js`, and its new `qa/tr9-ai.mjs`). These lines go into files it does
-not own. Branch `pc/p9b` is built on `pc/p7a`, so P7-A's own requests (its `HOOKS.md`, on `pc/p7a`) still stand.
+P9-A edited only the files it owns, and added its new files: the three tests and the root-cause record
+`plan/notes/p9a-rootcause.md`. The branch is `pc/p10b` with `pc/p9b` merged in (as asked), so P10-B's, P8-A's, P8-B's,
+P7-A's and P9-B's own requests (their branches' `HOOKS.md`) still stand.
 
-## 1. `LegendRising/js/life/football/attrs.js`: show the keeper's distribution in the attribute editor
-
-The plan names `attredit.js`, but the flag is in `attrs.js`:
-
-```js
-export const GK_DISTRIB_LIVE = true;
-```
-
-`gk.distrib` now changes play (ATTR-1): his choice between throw, roll and punt, the scatter of where it goes, and the
-passing numbers his punts and goal kicks are struck with. So the editor should show it.
-
-## 2. `LegendRising/qa/tr4-attrs.mjs`: the keeper distribution row
-
-Add the row "Keeper distribution 30 vs 90 | distribution error and completion differ". Use the same measurement as
-`qa/tr9-ai.mjs` section 3 (`distOne`):
-- a match a few seconds in, with the ball put in team 0's keeper's hands (`gkbrain.js gkCollect`) and his own hold;
-- seeded, paired runs at distrib 30 and 90, everything else equal;
-- the mean landing error from `gk.gk.distAim` (where he meant it to go) is at least 1.5 times larger at 30;
-- completion (`ev.res === 'ok'`) is higher at 90.
-
-## 3. `LegendRising/qa/run.mjs`, named suites
+## 1. `LegendRising/qa/run.mjs`, named suites
 
 ```js
   tr9: ["tr9-ai", "tr9-anim", "tr9-gkanim", "tr9-sheets"],
-  tr9b: ["tr9-ai"],
+  tr9a: ["tr9-anim", "tr9-gkanim", "tr9-sheets"],
 ```
 
-(`tr9a` is P9-A's.)
+(`tr9b` is P9-B's.) `tr9-sheets` reads `plan/notes/p9a-rootcause.md`, one level above `LegendRising/`.
 
-## 3b. `LegendRising/qa/unit/rules.mjs`: the restart-limit case's corner
+## 2. For P9-B (`js/life/football/gkbrain.js`): the roll's threshold
 
-The case "every restart in the full simulation resolves within its limit + 5 s" plays up to 160 s waiting for the play
-to reach the corner-taking side's attacking third. With P9-B's match flow, seed 25 (team 1's corner) never gets there.
-The corner is then put 70 m from the ball, and carrying it there takes 13.02 s (limit 8 + 5). Suggested fix: when the
-wait times out, try the next seed (`configFor(20 + i + 100*k)`) instead of taking a corner the setup never meant.
+`DIST.ROLL_NEED` (0.85 for a typical keeper) is on the scale of P9-B's original numbers. On `brain.js passModel`'s scale it
+is out of reach for most receivers:
+- a pass to an open centre-back 9.5 m away, with nobody within 40 m, rates 0.76 for a drill's player;
+- the receiver's first touch (`RECV_CTRL`: 0.31 + 0.7 q) caps a pass near 0.8 unless his control is near the top.
 
-## 4. For P9-A: the keeper's distribution acts (the Phase 9 contract)
+So a keeper in a drill never rolls, and in a match he rolls 0.5 times a match (P9-B's harness). Suggested:
 
-- **When:** while the keeper holds the ball and has chosen a throw or a roll.
-- **The act:** `a.act = {kind: 'gkthrow' | 'gkroll', t, tRelease, dur, target: {x, y, z}, aim: {x, z}, recv, done}`.
-  - `tRelease`: 0.55 s for a throw, 0.45 s for a roll (the release of `gkmoves.js gkdistribute`).
-  - `dur`: 0.9 s and 0.8 s (the clip's length).
-  - `target`: where it is let go to, with his error in it. `aim`: where he meant it to go.
-- **The ball** stays in his hands (`rules.js holdAt`, held high for a throw) until `act.t >= tRelease`. At that step
-  `gkbrain.js distRelease` lets it go and sets `act.done` and `act.tReleased`.
-- **The clock:** `actions.js` steps the act's clock (its default branch) and clears it at `dur`.
-- **The punt** is the volley act it always was.
+```js
+ROLL_NEED: [0.72, 0.10],   // (0.72 for a typical keeper: passModel's own scale, as THROW_NEED was moved to)
+```
+
+The animation tests give their roll seeds sure-touch centre-backs for now, so they test the roll's animation regardless.
+The integrator should apply this with P9-B's other numbers and re-run `tr9-ai` and the harness.
+
+## 3. For the Training host: nothing to apply
+
+`training.js` (P9-A owns it) now hands the view the simulation's saves and goals, as `controller.js` does. A keeper's dive
+shows its outcome in Training, and a punch its pose.
