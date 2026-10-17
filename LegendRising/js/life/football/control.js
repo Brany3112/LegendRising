@@ -152,7 +152,11 @@ export const AIM = Object.freeze({SW0: .0035, SW1: .019, PR: .6, BR: .8, WEAK: 1
    centred on the power for the distance (SHOT_C0 at SHOT_D0 m to SHOT_C1 at SHOT_D1 m), SHOT_W wide with no assists
    and SHOT_WA wider with them, a little wider with Technique, always under the over-hit; a held pass's is the weight
    for the distance (the ideal launch speed's share of the range), PASS_W0 + PASS_W1 Passing/100 wide, PASS_WA times
-   wider with the assists. SETTLE_LATCH: a press of F this long before the ball arrives still settles it. CONE_A: how
+   wider with the assists. GOLD: the perfect spot in the middle of a shot's sweet spot, this share of its width (at least
+   GOLD_MIN). A shot let go outside the sweet spot is scuffed; in it but off the gold it is a good shot, a little off the
+   aim (GOOD_DEG degrees at the gold's edge to GOOD_DEG + GOOD_DEG1 at the spot's); in the gold it is perfect, as true as
+   your skills allow. A scuff is SCUFF_DEG + SCUFF_DEG1 degrees off (at least SCUFF_MIN m), skied when over-hit and weak
+   along the grass when under-hit (SCUFF_P of the power). SETTLE_LATCH: a press of F this long before the ball arrives still settles it. CONE_A: how
    much wider the pass cone is with the assists (a share of it) */
 export const KICKS = Object.freeze([
   Object.freeze({id:"chip", label:"Chip", contact:1}),
@@ -163,14 +167,30 @@ export const KICKS = Object.freeze([
 ]);
 const KICK_OF_CONTACT = {"-1":"driven", "0":"normal", "1":"chip"};
 export const METER = Object.freeze({SHOT_C0:.55, SHOT_C1:.86, SHOT_D0:8, SHOT_D1:30, SHOT_W:.12, SHOT_WA:.14, TECH_W:.04, SHOT_MAX:.91,
+  GOLD:.35, GOLD_MIN:.04, GOOD_DEG:1, GOOD_DEG1:1.5, SCUFF_DEG:5, SCUFF_DEG1:5, SCUFF_MIN:1.2, SCUFF_P:.75,
   PASS_W0:.10, PASS_W1:.25, PASS_WA:.6, SETTLE_LATCH:.5, CONE_A:.8});
 // the shot's sweet band for a strike d metres to its target, a Technique (0..99) and an assist share (0..1): {lo, hi}
-// in charge units (the power the meter fills with). Pure: the unit tests check it
-export function meterBand(d, tech = 50, ak = 1, out = {lo:0, hi:0, c:0}){
+// in charge units (the power the meter fills with), and its gold (perfect) spot in the middle, {glo, ghi}. Pure: the
+// unit tests check it
+export function meterBand(d, tech = 50, ak = 1, out = {lo:0, hi:0, c:0, glo:0, ghi:0}){
   const k = clamp(((+d || 0) - METER.SHOT_D0)/(METER.SHOT_D1 - METER.SHOT_D0), 0, 1);
   const c = METER.SHOT_C0 + (METER.SHOT_C1 - METER.SHOT_C0)*k;
   const w = METER.SHOT_W + METER.SHOT_WA*clamp(ak, 0, 1) + METER.TECH_W*clamp(tech, 0, 99)/99;
   out.c = c; out.hi = Math.min(METER.SHOT_MAX, c + w/2); out.lo = Math.max(.2, out.hi - w);
+  const m = (out.lo + out.hi)/2, g = Math.max(METER.GOLD_MIN, (out.hi - out.lo)*METER.GOLD)/2;
+  out.glo = m - g; out.ghi = m + g;
+  return out;
+}
+// how a shot let go at charge p sits on its band: {grade: "perfect" | "good" | "scuff", e: how far off, 0..1, over: past
+// the spot}. Pure: the unit tests check it
+export function shotGrade(p, band, out = {grade:"good", e:0, over:false}){
+  out.over = p > band.hi;
+  if (p >= band.glo && p <= band.ghi){ out.grade = "perfect"; out.e = 0; }
+  else if (p >= band.lo && p <= band.hi){
+    out.grade = "good";
+    out.e = p < band.glo ? (band.glo - p)/Math.max(1e-6, band.glo - band.lo) : (p - band.ghi)/Math.max(1e-6, band.hi - band.ghi);
+  } else { out.grade = "scuff"; out.e = clamp((p < band.lo ? band.lo - p : p - band.hi)/.15, 0, 1); }
+  out.e = clamp(out.e, 0, 1);
   return out;
 }
 // a held pass's sweet band: the ideal launch speed's share of the range from PASS_MIN to vmax, its width with Passing
@@ -215,7 +235,7 @@ export const CTRL = {ctx:"free", walk:false, scan:null, shield:false, note:null,
   // (UF2-A) the kick type (an index into KICKS, Normal to start); the meter (on while a shot
   // or a pass is held: kind, fill p, the sweet band lo..hi, whether the fill is in it); F's last press (the settle's
   // latch, in match seconds); the last strike's verdict on the meter (clean, at, kind) for the HUD's flash
-  kick:2, meter:{on:false, kind:null, p:0, lo:0, hi:0, sweet:false}, fT:-99, clean:{seq:0, ok:false, kind:null, p:0}};
+  kick:2, meter:{on:false, kind:null, p:0, lo:0, hi:0, glo:-1, ghi:-1, sweet:false, gold:false}, fT:-99, clean:{seq:0, ok:false, kind:null, p:0, grade:null}};
 
 /* ---------- input (router events, and the bots' through __fp.input) ---------- */
 /* (U20) how far a wheel event moves the kick type: -1, 0 or 1. A notched mouse wheel sends one event a notch (about
@@ -449,12 +469,12 @@ function reticleStep(ms, me, ctx){
 }
 // the meter (UF2-A): on while a shot or a pass is held, with the sweet band for the distance to what it is aimed at
 // now; a throw-in held fills it too, as how far it will go (throwShare), with no band (a throw is not struck clean)
-const MB = {lo:0, hi:0, c:0};
+const MB = {lo:0, hi:0, c:0, glo:0, ghi:0}, SG = {grade:"good", e:0, over:false};
 // how much of its reach a throw-in held this long (s) gets: a quarter for a flick, all of it at PASS_FULL less a quarter
 const throwShare = held => Math.min(1, held/CN.PASS_FULL + .25);
 function meterStep(ms, me){
   const M = CTRL.meter, ch = CTRL.charge, b = ms.ball.p;
-  if (ch && ch.kind === "throw"){ M.on = true; M.kind = "throw"; M.p = throwShare(ch.t || 0); M.lo = M.hi = -1; M.sweet = false; return M; }
+  if (ch && ch.kind === "throw"){ M.on = true; M.kind = "throw"; M.p = throwShare(ch.t || 0); M.lo = M.hi = M.glo = M.ghi = -1; M.sweet = false; return M; }
   if (!ch || (ch.kind !== "shot" && ch.kind !== "pass")){ M.on = false; M.kind = ch ? ch.kind : null; M.p = ch ? ch.p : 0; M.sweet = false; return M; }
   M.on = true; M.kind = ch.kind; M.p = ch.p;
   if (ch.kind === "shot"){
@@ -463,8 +483,9 @@ function meterStep(ms, me){
   } else {
     const tp = CTRL.target.point || CTRL.ground, w = passWeights(ms, me, Math.hypot(tp.x - b.x, tp.z - b.z), CTRL.target.through);
     passBand(w.ideal, w.vmax, me.at.passing, assistK(), MB);
+    MB.glo = MB.ghi = -1;
   }
-  M.lo = MB.lo; M.hi = MB.hi; M.sweet = M.p >= MB.lo && M.p <= MB.hi;
+  M.lo = MB.lo; M.hi = MB.hi; M.glo = MB.glo; M.ghi = MB.ghi; M.gold = M.p >= MB.glo && M.p <= MB.ghi; M.sweet = M.p >= MB.lo && M.p <= MB.hi;
   return M;
 }
 // a pass's weights for a distance: the launch speed that arrives at 9 m/s (8 for a through ball) and the most you can
@@ -901,7 +922,7 @@ function strike(ms, me, what, held, opts){
     const tgt = {x:b.p.x + (g.x - b.p.x)/dd*d, y:.11, z:b.p.z + (g.z - b.p.z)/dd*d};
     me.intent.action = {kind:"throw", target:tgt, recv:CTRL.target.agent};
     // (the meter holds a moment on how far it was thrown)
-    CTRL.clean.seq++; CTRL.clean.ok = false; CTRL.clean.full = false; CTRL.clean.kind = "throw"; CTRL.clean.p = share;
+    CTRL.clean.seq++; CTRL.clean.ok = false; CTRL.clean.full = false; CTRL.clean.kind = "throw"; CTRL.clean.grade = null; CTRL.clean.p = share;
     CTRL.last = "throw"; use("throw"); return;
   }
   const Rz = CTRL.resolve, contact = CTRL.contact, fKey = !!CTRL.held.f;
@@ -921,6 +942,9 @@ function strike(ms, me, what, held, opts){
     eyeOf(me, G.any ? G.yaw0 : P.yaw, G.any ? G.pitch0 : P.pitch); aimPoint(ms, me, RP); eyeOf(me);
     const band = meterBand(Math.hypot(RP.x - b.p.x, RP.z - b.p.z), techniqueOf(at), ak, MB);
     const inSpot = held >= CN.TAP && p >= band.lo && p <= band.hi, clean = inSpot && ak > 0;
+    // (the meter's grade: a held shot let go off the sweet spot is scuffed, in it a good shot a little off the aim, in its
+    // gold middle a perfect one; a tap is a placed side-foot and is not graded)
+    const grade = held >= CN.TAP ? shotGrade(p, band, SG).grade : null, gE = SG.e, gOver = SG.over;
     // where it goes: the reticle (your look plus its sway); with a gesture, the look from before the sweep
     let tgt;
     if (clean) tgt = {x:RP.x, y:RP.y, z:RP.z};
@@ -946,11 +970,28 @@ function strike(ms, me, what, held, opts){
     if (G.curl){ finesse = true; bend = G.curl; shape = shape === "placed" || shape === "struck" || shape === "power" ? "curl" : shape + " curl"; }
     // held past full: you lean back and it rises (with the over-hit's sigma, strike.js)
     if (over > 0 && kind === "shot"){ const d = Math.hypot(tgt.x - b.p.x, tgt.z - b.p.z); tgt.y += over*(.6 + .05*d); shape += " over"; }
+    // the grade moves the aim: a good shot a degree or two off it, a scuff well off it (skied over-hit, along the grass
+    // under-hit); the way it goes off is the reticle's sway, or the step's parity when it is still
+    let scuff = false;
+    if (grade && grade !== "perfect" && kind === "shot"){
+      const dx = tgt.x - b.p.x, dz = tgt.z - b.p.z, d = Math.max(1, Math.hypot(dx, dz)), sg = Math.sign(Ret.sy || 0) || ((ms.step || 0) & 1 ? 1 : -1);
+      const deg = grade === "good" ? METER.GOOD_DEG + METER.GOOD_DEG1*gE : METER.SCUFF_DEG + METER.SCUFF_DEG1*gE;
+      let off = d*Math.tan(deg*DEG);
+      if (grade === "scuff"){
+        off = Math.max(off, METER.SCUFF_MIN); scuff = true;
+        if (gOver) tgt.y += 1.5 + .08*d;
+        else { tgt.y = Math.min(tgt.y, .3); p *= METER.SCUFF_P; }
+        shape += " scuffed";
+      } else tgt.y = Math.max(.15, tgt.y + .35*off*(((ms.step || 0) >> 1) & 1 ? 1 : -1));
+      tgt.x += sg*dz/d*off; tgt.z -= sg*dx/d*off;
+    }
     const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact:ctc, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal, shape, over, kick:KT};
     // (with the assists the spot is a clean strike: the plant and the stride forgiven, actions.js; the harder setting keeps
     // the spot as the power for the distance and asks for the stride as well)
     if (clean){ rq.clean = true; rq.shape = shape = shape + " clean"; }
-    CTRL.clean.seq++; CTRL.clean.ok = inSpot; CTRL.clean.full = clean; CTRL.clean.kind = "shot"; CTRL.clean.p = held >= CN.TAP ? 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2) : 0;
+    if (grade && kind === "shot") rq.grade = grade;
+    if (scuff) rq.scuff = true;
+    CTRL.clean.seq++; CTRL.clean.ok = inSpot; CTRL.clean.full = clean; CTRL.clean.kind = "shot"; CTRL.clean.grade = kind === "shot" ? grade : null; CTRL.clean.p = held >= CN.TAP ? 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2) : 0;
     if (curl != null) rq.curl = curl;
     if (bend != null) rq.bend = bend;
     if (chip) rq.chip = true;
@@ -1014,7 +1055,7 @@ function strike(ms, me, what, held, opts){
   const rq = {kind, target:{x:tp.x, y:.11, z:tp.z}, recv:o ? o.id : -1, contact:ctc, finesse, charged, sweet, firstTime:ms.poss.ctl !== me.id, shape, kick:KT};
   // (a held pass let go in the meter's sweet spot is clean, as a shot is: the plant forgiven)
   if (sweet && ak > 0){ rq.clean = true; }
-  CTRL.clean.seq++; CTRL.clean.ok = sweet; CTRL.clean.full = sweet && ak > 0; CTRL.clean.kind = "pass"; CTRL.clean.p = charged ? Math.min(1, held/CN.PASS_FULL) : 0;
+  CTRL.clean.seq++; CTRL.clean.ok = sweet; CTRL.clean.full = sweet && ak > 0; CTRL.clean.kind = "pass"; CTRL.clean.grade = null; CTRL.clean.p = charged ? Math.min(1, held/CN.PASS_FULL) : 0;
   if (G.curl){ rq.bend = G.curl; rq.shape = shape + " curl"; }
   if (kind === "pass" || kind === "through"){ rq.speed = clamp(speed, CN.PASS_MIN, vmax); if (!charged) rq.weightSigma = .004; }
   queueStrike(ms, me, rq);
@@ -1103,7 +1144,7 @@ export function hintsFor(ms, me){
   } else if (ctx === "attack"){
     if (ms.poss.ctl === me.id){
       // (A1.7: the wind-up, the release on your plant, the shape through it)
-      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go in the green", "release"); add("Mouse", "sweep to curl, lift to chip", "shape"); }
+      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go on the gold for a perfect shot", "release"); add("Mouse", "sweep to curl, lift to chip", "shape"); }
       else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }

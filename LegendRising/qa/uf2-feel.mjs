@@ -258,7 +258,7 @@ try {
     await pressReal(page, "2"); await step(2);
     M.kick = await page.evaluate(() => (document.querySelector("#fpHud .fp-kick li.on") || {}).textContent);
     const mstate = () => page.evaluate(() => { const C = window.__uf2.C.CTRL, r = window.__uf2.rect("#fpHud .fp-meter"), sw = window.__uf2.rect("#fpHud .fp-meter-sweet"), f = document.querySelector("#fpHud .fp-meter-fill");
-      return {on: C.meter.on, p: C.meter.p, lo: C.meter.lo, hi: C.meter.hi, sweet: C.meter.sweet, rect: r, sweetW: sw ? sw.x1 - sw.x0 : 0, fill: f ? f.style.transform : null, say: (document.querySelector("#fpHud .fp-meter-say") || {}).textContent || "", ball: window.__uf2.ballScreen(), w: innerWidth, h: innerHeight}; });
+      return {on: C.meter.on, p: C.meter.p, lo: C.meter.lo, hi: C.meter.hi, sweet: C.meter.sweet, gold: C.meter.gold, glo: C.meter.glo, ghi: C.meter.ghi, rect: r, sweetW: sw ? sw.x1 - sw.x0 : 0, fill: f ? f.style.transform : null, say: (document.querySelector("#fpHud .fp-meter-say") || {}).textContent || "", ball: window.__uf2.ballScreen(), w: innerWidth, h: innerHeight}; });
     M.rest = await mstate();
     check(!M.rest.on && M.rest.rect.op < .05, "the meter is out of the way until you hold a button", M.rest);
     // hold LMB (real): it fills, the sweet spot marked; let go inside it
@@ -271,7 +271,7 @@ try {
       await step(1);
       const s = await mstate(); fills.push(s.p);
       if (i === 6) M.early = s;
-      if (s.sweet && s.p >= (s.lo + s.hi)/2){ inSweet = s; break; }
+      if (s.gold){ inSweet = s; break; }
     }
     await page.mouse.up();
     M.inSweet = inSweet; M.fills = fills.slice(0, 12);
@@ -282,12 +282,12 @@ try {
     await step(30);
     M.after = await mstate();
     const k1 = await page.evaluate(ev0 => window.__uf2.kickEv(ev0)[0] || null, ev0);
-    M.clean = k1 ? {clean: k1.clean, strike: k1.strike, shape: k1.shape, line: (document => "")()} : null;
+    M.clean = k1 ? {clean: k1.clean, strike: k1.strike, shape: k1.shape, grade: k1.grade} : null;
     M.cam = await page.evaluate(cam0 => (window.__uf2.M.MC.cleanN || 0) - cam0, cam0);
     M.camDbg = await page.evaluate(() => { const MC = window.__uf2.M.MC, ms = window.__uf2.ms(); return {kseq: ms.kick && ms.kick.seq, agent: ms.kick && ms.kick.agent, me: ms.me, on: MC.on, mcKeys: Object.keys(MC).join()}; });
     M.line = await page.evaluate(() => (document.querySelector("#fpHud .fp-sline") || {}).textContent || "");
-    check(!!inSweet && !!k1 && k1.clean === true && k1.strike >= .9, "let go in the sweet spot, the strike is clean (logged clean, a sweet contact)", {inSweet, k1: M.clean});
-    check(M.cam === 1 && /Clean strike/.test(M.line) && M.after.say === "Clean", "a clean strike is felt and shown: the camera's kick, Clean strike! under the crosshair, Clean on the meter", {cam: M.cam, line: M.line, say: M.after.say, dbg: M.camDbg, kick: M.kick});
+    check(!!inSweet && inSweet.glo > inSweet.lo && inSweet.ghi < inSweet.hi && !!k1 && k1.clean === true && k1.grade === "perfect" && k1.strike >= .9, "let go in the gold spot in the middle of the sweet spot, the strike is perfect (logged clean and perfect, a sweet contact)", {inSweet, k1: M.clean});
+    check(M.cam === 1 && /Perfect shot/.test(M.line) && M.after.say === "Perfect", "a perfect strike is felt and shown: the camera's kick, Perfect shot! under the crosshair, Perfect on the meter", {cam: M.cam, line: M.line, say: M.after.say, dbg: M.camDbg, kick: M.kick});
     // into the net: it ripples
     let rip = null;
     for (let i = 0; i < 160 && !rip; i++){ await step(2); rip = await page.evaluate(() => { const V = window.__uf2.T().V; return V.ripRing && V.ripRing.visible ? {ring: true, mesh: !!V.rip, t: V.ripRing.userData.t} : null; }); }
@@ -304,8 +304,9 @@ try {
     for (let i = 0; i < 90; i++){ await step(1); const s = await mstate(); if (s.p > s.hi + .04) break; }
     await page.mouse.up(); await step(30);
     const k2 = await page.evaluate(ev1 => window.__uf2.kickEv(ev1)[0] || null, ev1);
-    M.late = k2 ? {clean: !!k2.clean, shape: k2.shape} : null;
-    check(!!k2 && !k2.clean, "let go past the sweet spot, the strike is not clean", M.late);
+    M.late = k2 ? {clean: !!k2.clean, shape: k2.shape, grade: k2.grade, scuff: k2.scuff, ty: k2.ty} : null;
+    M.lateSay = (await mstate()).say;
+    check(!!k2 && !k2.clean && k2.grade === "scuff" && k2.scuff === true && M.lateSay === "Scuffed", "let go past the sweet spot, the shot is scuffed (not clean, logged scuffed, Scuffed on the meter)", {late: M.late, say: M.lateSay});
     // the meter never covers the ball: looking down at it as the button is held, over a range of looks
     await reset();
     M.cover = [];

@@ -96,7 +96,7 @@ export function hudInit(cfg){
       <span class="fp-curl">&#x293A;</span>
     </div>
     <div class="fp-sline"></div>
-    <div class="fp-meter" aria-hidden="true"><span class="fp-meter-lab"></span><div class="fp-meter-bar"><i class="fp-meter-sweet"></i><i class="fp-meter-fill"></i><i class="fp-meter-rel"></i></div><b class="fp-meter-say"></b></div>
+    <div class="fp-meter" aria-hidden="true"><span class="fp-meter-lab"></span><div class="fp-meter-bar"><i class="fp-meter-sweet"></i><i class="fp-meter-gold"></i><i class="fp-meter-fill"></i><i class="fp-meter-rel"></i></div><b class="fp-meter-say"></b></div>
     <div class="fp-kick" data-part="kick"><b class="fp-kick-h">Kick</b><ol>${KICKS.map(k => `<li data-k="${k.id}"><i></i>${esc(k.label)}</li>`).join("")}</ol><span class="fp-kick-tip">Scroll to change</span></div>
     <div class="fp-stam" data-part="stamina"><div class="fp-stam-bar"><i class="fp-cap"></i><i class="fp-breath"></i></div><div class="fp-energy"><i></i></div></div>
     <div class="fp-hints" data-part="hints"></div>
@@ -126,7 +126,7 @@ export function hudInit(cfg){
     warm:q(".fp-warm"), warmB:q(".fp-warm b"), warmS:q(".fp-warm span"), wu:q(".fp-wu"), wuName:q(".fp-wu-name"), wuN:q(".fp-wu-n"), wuHow:q(".fp-wu-how"),
     goal:q(".fp-goal"), goalB:q(".fp-goal b"), goalC:q(".fp-goalc"), goalCI:q(".fp-goalc i"), goalCB:q(".fp-goalc b"),
     wuBar:q(".fp-wu-bar i"), wuDots:q(".fp-wu-dots"), wuW:q(".fp-wu-w"), pops:q(".fp-pops"), say:q(".fp-say"), sayB:q(".fp-say b"), sayS:q(".fp-say span"),
-    meter:q(".fp-meter"), meterLab:q(".fp-meter-lab"), meterSweet:q(".fp-meter-sweet"), meterFill:q(".fp-meter-fill"), meterRel:q(".fp-meter-rel"), meterSay:q(".fp-meter-say"),
+    meter:q(".fp-meter"), meterLab:q(".fp-meter-lab"), meterSweet:q(".fp-meter-sweet"), meterGold:q(".fp-meter-gold"), meterFill:q(".fp-meter-fill"), meterRel:q(".fp-meter-rel"), meterSay:q(".fp-meter-say"),
     kick:q(".fp-kick"), kickItems:[...r.querySelectorAll(".fp-kick li")], kickTip:q(".fp-kick-tip")});
   const sides = [q(".fp-home i"), q(".fp-away i")];
   sides[0].style.background = cfg.home.kit[0]; sides[1].style.background = cfg.away.kit[0];
@@ -332,10 +332,11 @@ const Q_LINE = [[.8, "Sweet contact."], [.55, "Decent contact."], [.3, "Not clea
 export function strikeText(ev){
   if (!ev) return "";
   if (ev.whiff) return "Air kick. The ball wasn't there.";
-  if (ev.scuff) return "Scuffed it.";
+  if (ev.scuff) return ev.grade === "scuff" ? "Scuffed it! Let go in the blue." : "Scuffed it.";
   const sh = String(ev.shape || ""), q = ev.strike != null ? +ev.strike : 1, shot = ev.intent === "shot";
-  // (UF2-A: a release in the meter's sweet spot is a clean strike, and the line says so first)
-  const first = /clean/.test(sh) ? "Clean strike!" : (Q_LINE.find(r => q >= r[0]) || Q_LINE[3])[1];
+  // (UF2-A: a release in the meter's sweet spot is a clean strike, and the line says so first; a shot's grade, the
+  // gold spot perfect, before that)
+  const first = ev.grade === "perfect" ? "Perfect shot!" : ev.grade === "good" ? "Good shot." : /clean/.test(sh) ? "Clean strike!" : (Q_LINE.find(r => q >= r[0]) || Q_LINE[3])[1];
   let then = "";
   if (/over/.test(sh)) then = "Leaned back on it.";
   else if (/chip/.test(sh)) then = "Chipped.";
@@ -370,25 +371,36 @@ function meterFrame(s, dt, over){
   const C = c.clean;
   if (C && C.seq !== D.meterSeq){
     // a release: the meter holds on it (a tap has nothing to show)
-    if (D.meterSeq >= 0 && D.meterA > .05 && C.p > 0){ D.meterHold = .7; D.meterRelP = C.p; D.meterOk = !!C.ok; D.meterFull = !!C.full; }
+    if (D.meterSeq >= 0 && D.meterA > .05 && C.p > 0){ D.meterHold = .7; D.meterRelP = C.p; D.meterOk = !!C.ok; D.meterFull = !!C.full; D.meterGrade = C.grade || null; }
     D.meterSeq = C.seq;
   }
   const on = !!M.on;
-  if (on){ D.meterA = Math.min(1, D.meterA + dt/.1); D.meterHold = 0; D.meterKind = M.kind; D.meterLo = M.lo; D.meterHi = M.hi; D.meterP = M.p; }
+  if (on){ D.meterA = Math.min(1, D.meterA + dt/.1); D.meterHold = 0; D.meterKind = M.kind; D.meterLo = M.lo; D.meterHi = M.hi; D.meterGlo = M.glo; D.meterGhi = M.ghi; D.meterP = M.p; }
   else if (D.meterHold > 0) D.meterHold -= dt;
   else D.meterA = Math.max(0, D.meterA - dt/.25);
   E.meter.style.opacity = D.meterA.toFixed(3);
   if (D.meterA <= 0) return;
   const lo = clamp(D.meterLo || 0, 0, 1), hi = clamp(D.meterHi || 0, 0, 1), p = clamp(on ? M.p : D.meterRelP != null ? D.meterRelP : D.meterP || 0, 0, 1);
   E.meterSweet.style.left = (lo*100).toFixed(1) + "%"; E.meterSweet.style.width = (Math.max(0, hi - lo)*100).toFixed(1) + "%";
+  // (a shot's gold spot, the perfect one, in the middle of its sweet spot)
+  const glo = D.meterGlo != null ? D.meterGlo : -1, ghi = D.meterGhi != null ? D.meterGhi : -1, hasGold = D.meterKind === "shot" && ghi > glo && glo >= 0;
+  if (E.meterGold){
+    E.meterGold.style.display = hasGold ? "" : "none";
+    if (hasGold){ E.meterGold.style.left = (clamp(glo, 0, 1)*100).toFixed(1) + "%"; E.meterGold.style.width = ((clamp(ghi, 0, 1) - clamp(glo, 0, 1))*100).toFixed(1) + "%"; }
+  }
   E.meterFill.style.transform = `scaleX(${p.toFixed(4)})`;
-  const inSweet = p >= lo && p <= hi, bad = over > .05 || (D.meterKind === "shot" && p > .92);
+  const inSweet = p >= lo && p <= hi, inGold = hasGold && p >= glo && p <= ghi, bad = over > .05 || (D.meterKind === "shot" && p > .92);
+  const gr = on ? null : D.meterKind === "shot" ? D.meterGrade : null;
   E.meter.classList.toggle("sweet", on ? inSweet : !!D.meterOk);
+  E.meter.classList.toggle("gold", on ? inGold : gr === "perfect");
+  E.meter.classList.toggle("scuff", !on && gr === "scuff");
   E.meter.classList.toggle("over", on && bad);
   E.meterRel.style.left = (p*100).toFixed(1) + "%"; E.meterRel.style.opacity = on ? "0" : "1";
   put("meterLab", E.meterLab, D.meterKind === "pass" ? "Weight" : D.meterKind === "throw" ? "Distance" : "Power");
   // (in the spot with the assists: a clean strike; without them, the power or the weight was right, the stride still counts)
-  put("meterSay", E.meterSay, on ? "" : D.meterFull ? "Clean" : D.meterOk ? (D.meterKind === "pass" ? "Good weight" : "Good power") : "");
+  // (a shot says its grade: Perfect in the gold, Good in the sweet spot, Scuffed off it)
+  put("meterSay", E.meterSay, on ? "" : gr === "perfect" ? "Perfect" : gr === "good" ? "Good" : gr === "scuff" ? "Scuffed" :
+    D.meterFull ? "Clean" : D.meterOk ? (D.meterKind === "pass" ? "Good weight" : "Good power") : "");
   // (under the crosshair, or over it when the ball is there: the HUD never covers the ball)
   const w = s.w || innerWidth, h = s.h || innerHeight, k = SET.hudScale || 1, cx = w/2, below = h/2 + METER_OFF*k;
   let up = false;

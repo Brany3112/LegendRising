@@ -308,6 +308,10 @@ body.gfx-low .fp-wu{background:rgba(9,15,24,.85)}
 .fp-meter-bar{position:relative;flex:1 1 auto;height:calc(8px*var(--s));border-radius:4px;background:rgba(9,15,24,.6);
   box-shadow:0 0 0 1px rgba(255,255,255,.35),0 1px 3px rgba(0,0,0,.6);overflow:hidden}
 .fp-meter-sweet{position:absolute;top:0;bottom:0;left:0;width:0;z-index:2;background:rgba(95,212,122,.3);box-shadow:inset 0 0 0 2px var(--fp-good)}
+.fp-meter-gold{position:absolute;top:0;bottom:0;left:0;width:0;z-index:3;background:rgba(255,206,74,.55);box-shadow:inset 0 0 0 2px #ffce4a,0 0 6px rgba(255,206,74,.8)}
+.fp-meter.gold .fp-meter-bar .fp-meter-fill{background:#ffce4a}
+.fp-meter.gold .fp-meter-say{color:#ffce4a}
+.fp-meter.scuff .fp-meter-say{color:var(--fp-bad)}
 .fp-meter-fill{z-index:1;position:absolute;left:0;top:0;bottom:0;width:100%;transform:scaleX(0);transform-origin:0 50%;background:rgba(255,255,255,.88)}
 .fp-meter.sweet .fp-meter-fill{background:var(--fp-good)}
 .fp-meter.over .fp-meter-fill{background:var(--fp-bad)}

@@ -281,7 +281,10 @@ function strikeContact(ms, a, act, scuff){
   const kind = rq.kind;
   const K = kickRequest(ms, a, act, scuff, b.p, foot), req = K.req;
   const tx = K.tx, ty = K.ty, tz = K.tz, dist = K.dist, isShot = K.isShot, ctxKind = K.ctxKind, acc = K.acc, contact = K.contact;
-  const ctx = kickCtx(ms, a, act, K, b.p, r.ahead, weak, scuff);
+  // (the player's shot let go off the meter's sweet spot is scuffed, rq.scuff: control.js has already moved its aim
+  // and its power, here it strikes as a scuff does, wider and dull)
+  const mis = !scuff && !!rq.scuff;
+  const ctx = kickCtx(ms, a, act, K, b.p, r.ahead, weak, scuff || mis);
   if (act.devZ) ctx.z = act.devZ;
   // the player's decision, recorded with his options as they were at the strike (judged later: 3.2.11)
   if (a.isMe && !rq.noRecord && (isShot || kind === 'pass' || kind === 'through' || kind === 'cross' || kind === 'lob')){
@@ -304,7 +307,7 @@ function strikeContact(ms, a, act, scuff){
   a.drib = null;
   refreshPred(ms);
   const extra = {intent: kind === 'roll' ? 'roll' : kind, recv: rq.recv != null ? rq.recv : -1, speed: Math.round(hypot(L.v.x, L.v.y, L.v.z)*100)/100,
-    contact, finesse: !!rq.finesse, firstTime: ctx.firstTime, dist: Math.round(dist*10)/10, scuff: !!scuff, curl: req.curl,
+    contact, finesse: !!rq.finesse, firstTime: ctx.firstTime, dist: Math.round(dist*10)/10, scuff: !!(scuff || mis), curl: req.curl,
     tx: Math.round(tx*100)/100, ty: Math.round(ty*100)/100, tz: Math.round(tz*100)/100};
   if (isShot || rq.atGoal){
     extra.xg = Math.round(xgAt(ms, a.team, b.p.x, b.p.z)*1000)/1000;
@@ -320,9 +323,10 @@ function strikeContact(ms, a, act, scuff){
     extra.shape = rq.shape; extra.rhythm = rq.rhythm || 0;
     // (UF2-A: the meter's verdict and the kick type, for the HUD's flash, the sound and the camera)
     if (rq.clean) extra.clean = true;
+    if (rq.grade) extra.grade = rq.grade;
     if (rq.kick) extra.kick = rq.kick;
     const over = isShot && rq.power > 0.92 ? 3*(rq.power - 0.92) : 0;
-    extra.strike = Math.round(clamp(1 - 1.8*ctx.plantErr - over - (scuff ? 0.5 : 0) - 0.25*(1 - ctx.bF) - 0.2*(rq.over || 0), 0, 1)*100)/100;
+    extra.strike = Math.round(clamp(1 - 1.8*ctx.plantErr - over - (scuff || mis ? 0.5 : 0) - 0.25*(1 - ctx.bF) - 0.2*(rq.over || 0), 0, 1)*100)/100;
   }
   if (rq.fk) extra.fk = true;
   if (rq.pen) extra.pen = true;

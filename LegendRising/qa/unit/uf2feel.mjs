@@ -11,7 +11,7 @@ import {firstTouch, dribbleTouch, SETTLE, CLOSE, ctrlLead} from "../../js/life/f
 import {touchDist} from "../../js/life/football/zone.js";
 import {BALL, createBall, createBallWorld, ballStep, ballKick} from "../../js/life/football/ball.js";
 import {mulberry32} from "../../js/life/football/rng.js";
-import {meterBand, passBand, METER, KICKS, CN, ASSISTS, CTRL, setKick, kickType, eyeAhead, eyeDrop, wheelStep, controlInput} from "../../js/life/football/control.js";
+import {meterBand, shotGrade, passBand, METER, KICKS, CN, ASSISTS, CTRL, setKick, kickType, eyeAhead, eyeDrop, wheelStep, controlInput} from "../../js/life/football/control.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const res = {name: "unit-uf2feel", checks: [], ok: true};
@@ -82,6 +82,14 @@ function restOf(ballPos, v, roll = 1.1){
   // in time: the charge p = 1 - (1 - t/0.85)^2 stays in the spot for at least 0.15 s with the assists on, 0.06 s off
   const tOf = p => CN.SHOT_FULL*(1 - Math.sqrt(1 - p));
   check(tOf(far.hi) - tOf(far.lo) >= .15 && tOf(off.hi) - tOf(off.lo) >= .06, "the window to let go in is readable: 0.15 s or more with the assists, 0.06 s or more without", {on: r3(tOf(far.hi) - tOf(far.lo)), off: r3(tOf(off.hi) - tOf(off.lo))});
+  // the gold (perfect) spot in the middle of the sweet spot, smaller; off the spot a scuff, in it but off the gold good
+  const g = b => shotGrade(b, far, {}).grade, mid = (far.lo + far.hi)/2;
+  check(far.glo > far.lo && far.ghi < far.hi && Math.abs((far.glo + far.ghi)/2 - mid) < 1e-9 && far.ghi - far.glo < (far.hi - far.lo)/2,
+    "the gold spot sits in the middle of the sweet spot and is smaller than half of it", {far});
+  check(g(mid) === "perfect" && g((far.lo + far.glo)/2) === "good" && g((far.ghi + far.hi)/2) === "good" && g(far.lo - .02) === "scuff" && g(far.hi + .02) === "scuff",
+    "a shot let go in the gold is perfect, in the sweet spot good, before or after it scuffed", {mid: g(mid), early: g(far.lo - .02), late: g(far.hi + .02)});
+  const e1 = shotGrade(far.glo - .01, far, {}).e, e2 = shotGrade(far.lo + .001, far, {}).e, o = shotGrade(far.hi + .05, far, {});
+  check(e1 < e2 && o.over && !shotGrade(far.lo - .05, far, {}).over, "the further from the gold the further off it goes; past the spot is over-hit, before it under-hit", {e1, e2});
   const pb1 = passBand(14, 25, 50, 1), pb0 = passBand(14, 25, 50, 0);
   check(Math.abs(pb1.c - pb0.c) < 1e-12 && pb1.hi - pb1.lo > pb0.hi - pb0.lo && pb1.lo < pb1.c && pb1.hi > pb1.c, "a held pass's spot is centred on the weight for its distance, wider with the assists", {on: pb1, off: pb0});
   check(KICKS.map(k => k.id).join() === "chip,curl,normal,placed,driven" && ASSISTS.join() === "on,low,off", "the kick types top to bottom and the assist levels", KICKS.map(k => k.label));
