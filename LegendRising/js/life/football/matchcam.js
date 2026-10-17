@@ -257,12 +257,15 @@ function fpFrame(dt, cam){
    goes under TP.MIN_Y. From your eyes to behind you, and back, it eases (TP.RATE a second): no cut when an activity
    starts or its setting changes. Your whole body is drawn and the first-person one is not (view.js V.tp) from half way.
    The setting: control.js SET.footCam ('third' by default, 'first' for your own eyes); the bench keeps its seat. */
-export const TP = Object.freeze({BACK: 4, UP: 1.8, HEAD: .12, AIM_MAX: 40, AIM_MIN: 4, FAR: 30, MIN_Y: .45, MARGIN: .3, RATE: 3});
+export const TP = Object.freeze({BACK: 4, UP: 1.8, HEAD: .12, AIM_MAX: 40, AIM_MIN: 4, FAR: 30, MIN_Y: .45, MARGIN: .3, RATE: 3, SPEED: 7});
 const _tq = new THREE.Quaternion(), _tm = new THREE.Matrix4(), _te = new THREE.Vector3(), _ta = new THREE.Vector3(), _tc = new THREE.Vector3(), _tu = new THREE.Vector3(0, 1, 0);
 export const tpWanted = a => !!a && SET.footCam !== "first";
 function tpFrame(a, V, x, y0, z, s, dt, cam){
   const want = tpWanted(a) ? 1 : 0;
-  MC.tpK += (want - MC.tpK)*(1 - Math.exp(-TP.RATE*Math.max(0, dt)));
+  // (eased, and never faster than TP.SPEED m/s over the way between the eyes and behind you: the eased curve's steepest
+  // is 1.5 times its share, so the most the camera moves in a 60 Hz frame is under 0.15 m)
+  const way = Math.hypot(TP.BACK, TP.UP + TP.HEAD), dkMax = TP.SPEED*Math.max(0, dt)/(1.5*way);
+  MC.tpK += clamp((want - MC.tpK)*(1 - Math.exp(-TP.RATE*Math.max(0, dt))), -dkMax, dkMax);
   if (Math.abs(want - MC.tpK) < 2e-3) MC.tpK = want;
   const k = MC.tpK, T = MC.tp;
   T.on = k > .5;

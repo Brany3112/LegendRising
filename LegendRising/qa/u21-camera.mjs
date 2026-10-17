@@ -31,12 +31,12 @@ const shot = async name => { await page.screenshot({path: path.join(DIR, name + 
 // real frames, recording the camera every frame: the largest move in one frame, and where it ended
 const watch = n => page.evaluate(n => new Promise(res => {
   const cam = window.__life.cam, raf = window.__qa && window.__qa.realRAF ? window.__qa.realRAF : requestAnimationFrame;
-  let k = 0, last = null, maxJump = 0, maxTurn = 0, q0 = cam.quaternion.clone();
-  const f = () => {
+  let k = 0, last = null, maxJump = 0, maxTurn = 0, maxSpeed = 0, t0 = 0, q0 = cam.quaternion.clone();
+  const f = now => {
     const p = cam.position;
-    if (last){ maxJump = Math.max(maxJump, Math.hypot(p.x - last.x, p.y - last.y, p.z - last.z)); maxTurn = Math.max(maxTurn, cam.quaternion.angleTo(q0)); }
-    last = {x: p.x, y: p.y, z: p.z}; q0.copy(cam.quaternion);
-    if (++k >= n) res({maxJump, maxTurn, at: last}); else raf(f);
+    if (last){ const d = Math.hypot(p.x - last.x, p.y - last.y, p.z - last.z), dt = Math.max(1/240, (now - t0)/1000); maxJump = Math.max(maxJump, d); maxSpeed = Math.max(maxSpeed, d/dt); maxTurn = Math.max(maxTurn, cam.quaternion.angleTo(q0)); }
+    last = {x: p.x, y: p.y, z: p.z}; q0.copy(cam.quaternion); t0 = now;
+    if (++k >= n) res({maxJump, maxSpeed, maxTurn, at: last}); else raf(f);
   };
   raf(f);
 }), n);
@@ -86,9 +86,9 @@ try {
   const W0 = await watch(75);
   const S0 = await page.evaluate(() => window.__u21.state());
   res.start = {W0, S0, life0};
-  // (a cut is the whole way, about 4.4 m, in one frame; eased, the most in a frame is under 1 m even at the slow frames of
-  // a headless page)
-  check(W0.maxJump < 1 && W0.maxTurn < .35, "the start eases from your eyes to behind you: no cut (largest move in a frame under 1 m of the 4.4, turn under 20 degrees)", W0);
+  // (a cut is the whole way, about 4.4 m, in one frame: an endless speed; eased it never goes faster than matchcam.js TP.SPEED,
+  // 7 m/s, under 0.15 m a 60 Hz frame; measured over the real frames' own times, with a margin for their jitter)
+  check(W0.maxSpeed < 10 && W0.maxTurn < .35, "the start eases from your eyes to behind you: no cut (never faster than 10 m/s, under 0.17 m a 60 Hz frame; turn under 20 degrees a frame)", W0);
   check(S0.on && S0.tpK === 1, "a football activity is in third person by default", {tpK: S0.tpK});
   check(S0.back > 2.6 && S0.back < 4.4 && S0.up > 1.2 && S0.up < 2.3 && Math.abs(S0.side) < .4, "the camera is about 4 m behind you and 1.8 m above your head", {back: S0.back, up: S0.up, side: S0.side});
   // (looking level the aim is far ahead at eye height, and the camera, over your head, looks down past you to it; looking
@@ -171,8 +171,8 @@ try {
   const S4 = await page.evaluate(() => window.__u21.state());
   res.setting = {W3, S3: {tpK: S3.tpK, fp: S3.fp, whole: S3.whole}, W4, S4: {tpK: S4.tpK}, row};
   check(row, "the settings have Football camera (Third person / First person)", row);
-  check(S3.tpK === 0 && S3.fp && !S3.whole && W3.maxJump < 1, "Football camera = First person: your eyes again, eased (no cut), your first-person body under them", res.setting);
-  check(S4.tpK === 1 && W4.maxJump < 1, "Third person again: eased back behind you", {tpK: S4.tpK, W4});
+  check(S3.tpK === 0 && S3.fp && !S3.whole && W3.maxSpeed < 10, "Football camera = First person: your eyes again, eased (no cut), your first-person body under them", res.setting);
+  check(S4.tpK === 1 && W4.maxSpeed < 10, "Third person again: eased back behind you", {tpK: S4.tpK, W4});
 
   /* ---------- life: first person; behind you while you have the ball ---------- */
   await page.evaluate(() => window.__trainRun.stopScenario("hub"));

@@ -28,6 +28,9 @@ const savePng = (name, url) => { fs.mkdirSync(OUT, {recursive: true}); const f =
 let ok = false;
 try {
   await career(page, {zone: "ground", min: 15*60});
+  // (U21: football is third person by default; this suite checks what you see through your own eyes, so it plays with
+  // the Football camera setting on First person, control.js SET.footCam)
+  await page.evaluate(async () => { const C = await import("./js/life/football/control.js"); C.saveSet({footCam: "first"}); });
   await freeze(page);
   await page.evaluate(async () => {
     const L = window.__life, F = window.__fp;

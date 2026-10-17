@@ -42,9 +42,27 @@ nothing is left for anyone else to apply.
 
 | Test | Result |
 |---|---|
-| `qa/u21-camera.mjs` (new, real input) | see below |
-| `node qa/run.mjs uf2` | see below |
-| football groups | see below |
+| `qa/u21-camera.mjs` (new, real input) | all checks pass |
+| `node qa/run.mjs uf2` | 3 / 3 (`uf2-feel`, `uf2-ssg-sim`, `uf2-ssg`) |
+| `node qa/run.mjs unit lint nodash smoke uf tr2 tr2b tr3 tr6` | 67 of 71 after the fixes below |
+
+**The 4 that still fail fail the same way on origin's code** (run on `pc/p9b`, whose camera and UI code are origin's):
+- `qa/unit/daily.mjs` and `qa/unit/presets.mjs`: a bare `d:` import on Windows;
+- `qa/nodash.mjs`: its I0 baseline isn't rebuilt on this PC (the git worktree and tar step); U21's files have no dash;
+- `uf-aura`: "looking at an opponent: he is not lit";
+- `tr2b-shield`: "the tip does not show a second time" (the full-screen tip card).
+
+**Suites that checked first person** now set the Football camera to First person for their run:
+- `uf2-feel` (U12: the first-person body under the eye);
+- `uf-anim` (your first-person body drawn);
+- `uf-aura` (the aura seen through your eyes);
+- `tr3-runner` (the eye's owner, its height, the ball's size at 40 m).
+
+They pass as they did.
+
+**The ease is capped at 7 m/s** (`TP.SPEED`): under 0.15 m in a 60 Hz frame, so tr3-runner's "the camera never moves
+more than 0.15 m in a frame outside a cut" holds in third person too. `u21-camera` measures the speed over the real
+frames' own times.
 
 `qa/u21-camera.mjs` checks, with real mouse input (the pointer locked by a real click):
 - **The start eases into third person:** no frame moves more than 1 m of the 4.4 m way (a cut is the whole way at
