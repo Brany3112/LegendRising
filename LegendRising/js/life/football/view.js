@@ -39,12 +39,12 @@
    ring spreading on the mesh where it went in) and, where nobody else plays the net's sound, it is heard; your clean
    strike (control.js, the meter's sweet spot) rings out over the kick. */
 import {THREE} from "../build.js";
-import {human, animateHuman, lookFor, EV} from "../human.js";
+import {human, animateHuman, lookFor, EV, touch as gaitTouch} from "../human.js";
 import {SCHED} from "../core/sched.js";
 import {ballMesh} from "./pitchmesh.js";
 import {STADIUM} from "./stadium.js";
 import {predAt, ACT} from "./actions.js";
-import {kindOf, windHold, windUpper, heldBall, HAND, RECV} from "../moves.js";
+import {kindOf, windHold, windUpper, heldBall, handBall, HAND, RECV} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
 import {R as zoneR, part as zonePart, playableFrom} from "./zone.js";
@@ -53,6 +53,7 @@ import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
 import {AUD} from "./audio.js";
 import {overlayCovered} from "../core/quality.js";
+import {neckFix} from "../core/me.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -156,6 +157,7 @@ export function makeFP(V){
    view test of the cones' balls). The bodies themselves are posed by their SCHED actors (animAgent), at their tier. */
 export function viewFrame(V, ms, alpha, dt, cam){
   V.alpha = alpha; V.t += dt;
+  if (!V.src) dribbleTouches(V, ms);
   for (const a of ms.agents){
     if (!drawn(V, a)) continue;
     const R = V.rec[a.id] || bodyFor(V, a);
@@ -189,6 +191,7 @@ export function viewFrame(V, ms, alpha, dt, cam){
   // its actor, so the hands are the ones drawn this frame; your own, first person, fpPose does after the camera)
   const th = !V.src && ms.ball.state === "held" ? ms.agents[ms.ball.holder] : null, TR = th ? V.rec[th.id] : null;
   if (TR && !TR.hidden) throwBall(V, TR, th, ms, TR.h, dt, "thw");
+  if (!V.src) gkBall(V, ms);
   // (UF2-A) the net when the ball goes in, and your clean strike heard
   netFrame(V, ms, dt);
   cleanFeel(V, ms);
@@ -329,6 +332,32 @@ function spares(V, ms){
   for (let i = extra; i < V.extra.length; i++) V.extra[i].mesh.visible = false;
 }
 
+/* ---------- (P9-A, MV-9) dribble touches by the drawn foot ----------
+   Every dribble touch the simulation makes (a 'touch' event, how 'dribble') sends the drawn body's next swing (gait.js
+   touch: the foot whose swing passes u = 0.7 soonest, within 0.5 s) through the ball where it will then be: the
+   simulation's ball rolled on for the swing's time (its speed falling at the grass's roll). The drawn foot meets the
+   drawn ball, and the legs keep their own clock. V.touchSpy keeps each one for qa/tr9-anim.mjs */
+const _tb = {x:0, y:.11, z:0};
+function dribbleTouches(V, ms){
+  const E = ms.events;
+  if (V.evTouch == null || V.evTouch > E.length) V.evTouch = E.length;
+  for (let i = V.evTouch; i < E.length; i++){
+    const e = E[i];
+    if (e.kind !== "touch" || e.how !== "dribble" || e.agent < 0) continue;
+    const R = V.rec[e.agent]; if (!R || !R.h || R.hidden) continue;
+    const b = ms.ball, v = Math.hypot(b.v.x, b.v.z);
+    _tb.x = b.p.x; _tb.z = b.p.z;
+    const r = gaitTouch(R.h, {ball:_tb});
+    if (r && v > .05){
+      // where the ball will be at the drawn contact
+      const t = r.tContact, roll = b.rollDecel || 1.1, go = Math.max(0, v*t - .5*roll*t*t), G = R.h.gait;
+      for (const via of G.via) if (via && via.x === _tb.x && via.z === _tb.z){ via.x = b.p.x + b.v.x/v*go; via.z = b.p.z + b.v.z/v*go; }
+    }
+    if (V.touchSpy) V.touchSpy.push({t:ms.t, agent:e.agent, ok:!!r, tContact:r ? r.tContact : null});
+  }
+  V.evTouch = E.length;
+}
+
 /* ---------- one body's pose ---------- */
 const PB = {x:0, y:0, z:0};
 // (P10-B, perf-6) a clip's direction, ball and group points are written into objects the clip keeps (c._dir, c._ball,
@@ -420,6 +449,20 @@ function liveSt(V, R, a, ms, dt){
       c.mode = "gkdive"; c.plan = g.plan; c.at = g.diveT + alpha*H; c.steer = g.steer; c.outcome = outcomeOf(V, a, g); c.groupY = 0;
       return c;
     }
+    // (P9-A, GK-3) a throw or a roll from his hands (gkbrain.js's act, P9-B): the distribution clip, its release (the
+    // clip's contact: gkmoves.js 0.55 of 0.9 s for a throw, 0.45 of 0.8 for a roll) counted down on the act's own
+    // tRelease, so the hand lets go on the step the simulation does
+    if (act && (act.kind === "gkthrow" || act.kind === "gkroll")){
+      const c = clipFor(R, "gkdist", act);
+      c.mode = "gkdistribute"; c.kind = act.kind === "gkthrow" ? "throw" : "roll"; c.dir = dirTo(c, act.target.x - a.m.x, act.target.z - a.m.z);
+      c.power = act.kind === "gkthrow" ? .7 : .6; c.tc = act.done ? undefined : act.tRelease - (act.t + alpha*H);
+      return c;
+    }
+    // (P9-A, GK-3) his hands without a dive: the claim of a high ball (gkcatch, high; gkpunch when he punched it), the
+    // spread at a man's feet (gkcollect, smother), a ball gathered into his hands (gkcollect: a scoop off the grass, a
+    // catch at the chest above the knees) and a tip over without a dive (gktip)
+    const hc = gkHands(V, R, a, g, ms, alpha);
+    if (hc) return hc;
     if (act && act.kind === "kick" && act.action && (act.action.kind === "punt" || act.action.kind === "roll") && !act.adjust){
       const c = clipFor(R, "gkdist", act);
       c.mode = "gkdistribute"; c.kind = act.action.kind === "punt" ? "punt" : "roll"; c.dir = act.action.target ? dirTo(c, act.action.target.x - a.m.x, act.action.target.z - a.m.z) : null; c.power = .8;
@@ -450,6 +493,7 @@ function liveSt(V, R, a, ms, dt){
       return c;
     }
   }
+  if (!a.isGK){ const td = tiredSt(R, a); if (td) return td; }
   if (act && act !== R.actRef){ R.actRef = act; R.clip = null; }
   // your wind-up (A1.7): standing or walking, the strike clip held at its backswing (moves.js windHold), the same
   // clip in your eyes, from outside and in a replay; on the run the stride keeps the legs (windUpper, below). Let go
@@ -586,13 +630,95 @@ function sideOf(a, p){ const f = dirOf(a.m.yaw); return (p.x - a.m.x)*-f.z + (p.
    0 when nothing is asked of it: a stop starts from that, not from the legs guessing it from the slowing root); and a
    backpedal when it goes backwards with its facing held (st.style: the gait's backwards steps from the first frame,
    rather than once its smoothed heading has swung round) */
+// (P9-A, MV-9) jockeying (the AI's pressMove stance, state 'jockey'; yours, the strafe your held jockey asks for) is the
+// gait's jockey style: side-on lead and trail steps, the lead foot never crossing, up to 3.2 m/s. (MV-15) fatigue is
+// 0 to 1 from the breath (fatigueOf), so the tired stance (moves.js 'tired', above 0.7) can be reached
+export const fatigueOf = a => a.st ? clamp(1 - (a.st.B || 0)/60, 0, 1) : 0;
+const jockeying = a => a.state === "jockey" || (a.isMe && !!a.intent && !!a.intent.strafe);
 function locoOf(st, a){
   const m = a.m;
   st.mode = "move"; st.speed = m.speed;
   st.intent = m.target > 0 ? m.target : 0;
-  st.style = m.speed > .3 && Math.abs(Math.atan2(Math.sin(m.heading - m.yaw), Math.cos(m.heading - m.yaw))) > 2.1 ? "backpedal" : undefined;
-  st.fatigue = a.st ? clamp(1 - (a.st.B || 0)/60, 0, 1)*.6 : 0;
+  st.style = jockeying(a) && m.speed <= 3.4 ? "jockey"
+    : m.speed > .3 && Math.abs(Math.atan2(Math.sin(m.heading - m.yaw), Math.cos(m.heading - m.yaw))) > 2.1 ? "backpedal" : undefined;
+  st.fatigue = fatigueOf(a);
   return st;
+}
+/* (P9-A, MV-15) tired: standing (under TIRED_V m/s) with fatigue above TIRED_ON, hands on the thighs (moves.js
+   'tired'), until it falls below TIRED_OFF or he moves or acts. The same rule for every body: the AI's and yours */
+const TIRED_ON = .7, TIRED_OFF = .7, TIRED_V = .3;
+function tiredSt(R, a){
+  const f = fatigueOf(a), on = !a.act && a.m.speed < TIRED_V && (R.tired ? f > TIRED_OFF - 1e-9 : f > TIRED_ON);
+  if (!on){ if (R.tired){ if (R.clip === R.tired) R.clip = null; R.tired = null; } return null; }
+  if (!R.tired) R.tired = {mode:"tired", key:"tired", id:++CLIP_N, ref:null};
+  R.clip = R.tired;
+  return R.tired;
+}
+/* (P9-A, GK-3) a keeper's hands without a dive. Each state shows its pose from the step it begins:
+     claim   gkcatch (high, the ball where he meets it, the contact on the claim's own time), or gkpunch once the
+             simulation logs his punch
+     spread  gkcollect smother, down at the man's feet
+     hold    (gathered, not from a dive or a claim) gkcollect scoop for a ball off the grass, gkcatch chest above it,
+             for the clip's length from the step he gathered it
+     a tip over the bar without a dive: gktip */
+const GKC = {scoop:.75, chest:.6};
+function gkHands(V, R, a, g, ms, alpha){
+  const prev = R.gkPrev; R.gkPrev = g.state;
+  const sv = V.saves.get(a.id), now = ms.t + alpha*H;
+  if (g.state === "claim" && g.claim){
+    const punched = sv && sv.outcome === "punch" && sv.t >= g.claim.at - 1e-6;
+    const c = clipFor(R, punched ? "gkpunch" : "gkcatch", g.claim);
+    c.mode = punched ? "gkpunch" : "gkcatch"; c.height = "high"; c.jump = 1; c.hands = 2;
+    c.ball = xz(c._ball || (c._ball = {x:0, y:2.3, z:0}), g.claim.x, g.claim.z); c.ball.y = clamp(ms.ball.p.y, 1.6, 2.75);
+    c.tc = punched ? undefined : g.claim.t - (now - g.claim.at);
+    R.gkCol = null;
+    return c;
+  }
+  if (sv && sv.outcome === "punch" && now - sv.t < .6 && !g.plan){
+    const c = clipFor(R, "gkpunch", sv); c.mode = "gkpunch"; c.hands = 2; c.jump = 1; return c;
+  }
+  if (sv && sv.outcome === "tip" && now - sv.t < .7 && !g.plan){
+    const c = clipFor(R, "gktip", sv); c.mode = "gktip"; return c;
+  }
+  if (g.state === "spread"){
+    const c = clipFor(R, "gksmother", R.gkSpread || (R.gkSpread = {}));
+    c.mode = "gkcollect"; c.style = "smother"; c.side = (a.id % 2) ? 1 : -1;
+    return c;
+  }
+  if (R.gkSpread && g.state !== "spread") R.gkSpread = null;
+  // gathered: the step his state turns to hold from anything but a dive or a claim
+  if (g.state === "hold" && prev && prev !== "hold" && prev !== "dive" && prev !== "catch" && prev !== "ground" && prev !== "getUp" && prev !== "claim" && !g.plan){
+    const b = ms.ball.p, low = b.y < .55;
+    R.gkCol = {t0:now, low, ball:{x:b.x, y:b.y, z:b.z}};
+  }
+  const K = R.gkCol;
+  if (K && g.state === "hold" && now - K.t0 < (K.low ? GKC.scoop : GKC.chest)){
+    const c = clipFor(R, K.low ? "gkcollect" : "gkcatch", K);
+    c.mode = K.low ? "gkcollect" : "gkcatch"; c.style = "scoop"; c.height = "chest"; c.ball = K.ball; c.tc = 0;
+    return c;
+  }
+  if (K && g.state !== "hold") R.gkCol = null;
+  return null;
+}
+// (P9-A, GK-3) a keeper's throw or roll: the ball drawn in his throwing hand (the right) while the act holds it, and for
+// GK_BLEND s after the release from where the hand let it go onto the simulation's own (its release point is the
+// simulation's hands, a little off the drawn hand's)
+const GK_BLEND = .12, _gh = {x:0, y:0, z:0};
+function gkBall(V, ms){
+  const bm = V.ball.mesh;
+  for (const id of ms.gks || []){
+    const a = ms.agents[id], R = a ? V.rec[a.id] : null; if (!R || R.hidden) continue;
+    const act = a.act;
+    if (act && (act.kind === "gkthrow" || act.kind === "gkroll") && !act.done && ms.ball.state === "held" && ms.ball.holder === a.id){
+      if (handBall(R.h, -1, _gh)){ bm.position.set(_gh.x, _gh.y, _gh.z); R.gkHand = {x:_gh.x, y:_gh.y, z:_gh.z, t:-1}; }
+    } else if (R.gkHand){
+      if (R.gkHand.t < 0) R.gkHand.t = ms.t;
+      const k = (ms.t - R.gkHand.t)/GK_BLEND;
+      if (k >= 1){ R.gkHand = null; continue; }
+      const w = 1 - k*k*(3 - 2*k), p = bm.position, q = R.gkHand;
+      p.set(p.x + (q.x - p.x)*w, p.y + (q.y - p.y)*w, p.z + (q.z - p.z)*w);
+    }
+  }
 }
 // a clip's state object, one per action (a new action, a new clip: st.id)
 function clipFor(R, key, ref){
@@ -867,8 +993,12 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     else { FPST.speed = o.speed || 0; FPST.intent = FPST.speed; FPST.style = undefined; }
     // (the arms kept nearer the body as you look down at a run: matchcam.js hands in its share, V.fpArms, as me.js
     // does for the life body; a caller's own armsIn wins)
-    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn != null ? o.armsIn : V.fpArms || 0; FPST.correct = o.correct || null;
-    FPST.fatigue = a && a.st ? clamp(1 - a.st.B/60, 0, 1)*.6 : 0;
+    // ((P9-A, MV-15) and the neck fix the life body has, me.js neckFix: if anything brings the neck up to the eye, the
+    // body gives way in its own frame; a caller's own wins. V.fpSpy counts both, for qa/tr9-anim.mjs)
+    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn != null ? o.armsIn : V.fpArms || 0; FPST.correct = o.correct || neckFix;
+    FPST.fatigue = a ? fatigueOf(a) : 0;
+    const sp = V.fpSpy || (V.fpSpy = {calls:0, neck:0, arms:0});
+    sp.calls++; if (FPST.correct === neckFix) sp.neck++; if (Number.isFinite(FPST.armsIn)) sp.arms++;
     // (shielding: your arms come out wide and back, at the edges of your view, P2b-B; the ball of your throw-in in your
     // hands, and your hand up in front of you as you ask for the ball, UF-A U6 and U10)
     const R = a ? V.rec[a.id] : null, hold = R ? throwHold(V, R, a, ms) : null, hand = R ? handUp(R, a, ms, true) : null;

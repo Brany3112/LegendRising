@@ -162,7 +162,8 @@ function gaitState(look, armsIn = 0, correct = null){
 const _nfk = newFK();
 // (how far the body gave way backwards last frame, world metres, eased: gaitState plans the feet from there)
 const NECK = {back:0};
-function neckFix(h, Q){
+// (exported, P9-A MV-15: the match's and Training's first-person body gets the same fix, view.js fpPose)
+export function neckFix(h, Q){
   fkQ(h, Q, _nfk, 5);
   const s = h.scale, g = h.g, ry = g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), o = BONE.neck*7, cam = RT.cam.position;
   const nx = _nfk[o], ny = _nfk[o + 1], nz = _nfk[o + 2];
