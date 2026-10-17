@@ -24,7 +24,26 @@
    released in your stride's rhythm it is clean, out of it the plant is forced (a wider window with Technique). How
    you move through the release shapes it: a sweep of the mouse curls it, a flick down dips it (topspin), a lift
    chips it, a tap is a placed side-foot, a full wind-up is power; looking low at the goal drives it low. Passes and
-   crosses speak the same language. Each choice is a real launch parameter for actions.js and strike.js. */
+   crosses speak the same language. Each choice is a real launch parameter for actions.js and strike.js.
+
+   UF2-A (stage UF2, USER-ISSUES U17 to U20: easier, readable, rewarding; assists on by default, a harder setting kept):
+   - Assists (SET.assist: "on", "low" or "off", this device's setting; assistK 1, 0.5, 0). Everything below that helps
+     you scales with it, and "off" plays as it did before.
+   - The kick type (U20): Normal, Placed, Driven, Chip or Curl (KICKS), chosen with the mouse wheel or 1, 2, 3 (Driven,
+     Normal, Chip: the old Low, Normal and High contact, CTRL.contact kept in step) before you strike; fphud.js shows it
+     in a corner all the time. Each is a real launch: Placed a side-foot at a controlled pace, Driven low contact,
+     Chip high contact (a chipped shot, a lofted pass), Curl the finesse. The gestures through a release still shape it.
+   - One meter for a shot and a held pass (U18, U19: CTRL.meter, drawn by fphud.js near the crosshair): it fills while
+     the button is held and marks the sweet spot, the power that suits the distance for a shot (meterBand) and the
+     weight that suits it for a pass. Let go inside it and the strike is clean (rq.clean): your plant is forgiven
+     (actions.js kickCtx) and it goes where you look, without the reticle's sway. Its width grows with the assists.
+   - Passing (U19): a tap is weighted for the distance as before; the assists widen the pass cone to the team-mate
+     nearest where you look and send it to him without the sway, and a placed pass is never lofted for you.
+   - The first touch (U17): F held (or pressed in the last SETTLE_LATCH s) as the ball arrives kills it onto your
+     preferred foot, within reach, the way you look (me.plan.settle; touch.js firstTouch ctx.settle). With assists on,
+     a ball coming to you while you stand with no keys held is settled the same way. F never slides you into a ball
+     that is coming to you first. Dribbling below a sprint keeps it close to your foot (me.drib.close, touch.js
+     dribbleTouch): only a sprint pushes it on. */
 import {P} from "../core/state.js";
 import {dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {canStrike, predAt, VOLLEY, pressureOn, ACT as ACTN} from "./actions.js";
@@ -46,7 +65,7 @@ const DEG = Math.PI/180;
 /* ---------- this device's settings (1.6, 3.4.7, A1.2, A1.4) ---------- */
 export const SET_KEY = "freyaFootball.ctrl";
 export const SET_DEF = Object.freeze({sens:1.0, invertY:false, fov:78, speech:true, offsidePip:"auto", volume:.8, hints:true,
-  motion:1, hudScale:1, hudOpacity:1, palette:"normal", radar:false, hide:{}});
+  motion:1, hudScale:1, hudOpacity:1, palette:"normal", radar:false, hide:{}, assist:"on"});
 function loadSet(){
   let o = {};
   try { o = JSON.parse(localStorage.getItem(SET_KEY) || "{}") || {}; } catch(e){ o = {}; }
@@ -55,10 +74,15 @@ function loadSet(){
   s.motion = clamp(s.motion == null ? 1 : +s.motion, 0, 1); s.hudScale = clamp(+s.hudScale || 1, .75, 1.4); s.hudOpacity = clamp(s.hudOpacity == null ? 1 : +s.hudOpacity, .35, 1);
   if (!["auto", "on", "off"].includes(s.offsidePip)) s.offsidePip = "auto";
   if (!["normal", "cb"].includes(s.palette)) s.palette = "normal";
+  if (!ASSISTS.includes(s.assist)) s.assist = "on";
   s.hide = Object.assign({}, s.hide || {});
   return s;
 }
+// (UF2-A) the assist levels and how much each helps (0..1)
+export const ASSISTS = Object.freeze(["on", "low", "off"]);
+const ASSIST_K = Object.freeze({on:1, low:.5, off:0});
 export const SET = loadSet();
+export const assistK = () => ASSIST_K[SET.assist] != null ? ASSIST_K[SET.assist] : 1;
 export function saveSet(patch = {}){
   Object.assign(SET, patch);
   const o = {}; for (const k of Object.keys(SET_DEF)) o[k] = SET[k];
@@ -107,7 +131,51 @@ export const CN = Object.freeze({
    power. CHIP: a chip's share of the wind-up's power. LOFT: a pass looked at above the horizon is lofted. */
 export const AIM = Object.freeze({SW0: .0035, SW1: .019, PR: .6, BR: .8, WEAK: 1.35, BOTH: 1.1, CH: Object.freeze([.45, .75]),
   OVER: .6, TREMBLE: .011, LEAN: .045, GEST_N: 9, GEST_MIN: 3*DEG, GEST_FULL: 11*DEG,
-  RHY_V: 1.2, RHY_LATE: .06, RHY_W0: .07, RHY_W1: .15, LOW_Y: .6, PLACED: .5, CHIP: .72, LOFT: .02});
+  RHY_V: 1.2, RHY_LATE: .06, RHY_W0: .07, RHY_W1: .15, LOW_Y: .6, PLACED: .5, CHIP: .72, LOFT: .02,
+  PLACED_MAX: .72, DRIVEN: 12});
+/* ---------- the kick type and the meter (UF2-A, U18 to U20) ----------
+   KICKS: the types the wheel goes through, top to bottom (a wheel turned down goes down the list, toward the lower
+   strikes, as it lowered the contact before), each with the contact it strikes with. METER: the shot's sweet spot is
+   centred on the power for the distance (SHOT_C0 at SHOT_D0 m to SHOT_C1 at SHOT_D1 m), SHOT_W wide with no assists
+   and SHOT_WA wider with them, a little wider with Technique, always under the over-hit; a held pass's is the weight
+   for the distance (the ideal launch speed's share of the range), PASS_W0 + PASS_W1 Passing/100 wide, PASS_WA times
+   wider with the assists. SETTLE_LATCH: a press of F this long before the ball arrives still settles it. CONE_A: how
+   much wider the pass cone is with the assists (a share of it) */
+export const KICKS = Object.freeze([
+  Object.freeze({id:"chip", label:"Chip", contact:1}),
+  Object.freeze({id:"curl", label:"Curl", contact:0}),
+  Object.freeze({id:"normal", label:"Normal", contact:0}),
+  Object.freeze({id:"placed", label:"Placed", contact:0}),
+  Object.freeze({id:"driven", label:"Driven", contact:-1})
+]);
+const KICK_OF_CONTACT = {"-1":"driven", "0":"normal", "1":"chip"};
+export const METER = Object.freeze({SHOT_C0:.55, SHOT_C1:.86, SHOT_D0:8, SHOT_D1:30, SHOT_W:.12, SHOT_WA:.14, TECH_W:.04, SHOT_MAX:.91,
+  PASS_W0:.10, PASS_W1:.25, PASS_WA:.6, SETTLE_LATCH:.5, CONE_A:.6});
+// the shot's sweet band for a strike d metres to its target, a Technique (0..99) and an assist share (0..1): {lo, hi}
+// in charge units (the power the meter fills with). Pure: the unit tests check it
+export function meterBand(d, tech = 50, ak = 1, out = {lo:0, hi:0, c:0}){
+  const k = clamp(((+d || 0) - METER.SHOT_D0)/(METER.SHOT_D1 - METER.SHOT_D0), 0, 1);
+  const c = METER.SHOT_C0 + (METER.SHOT_C1 - METER.SHOT_C0)*k;
+  const w = METER.SHOT_W + METER.SHOT_WA*clamp(ak, 0, 1) + METER.TECH_W*clamp(tech, 0, 99)/99;
+  out.c = c; out.hi = Math.min(METER.SHOT_MAX, c + w/2); out.lo = Math.max(.2, out.hi - w);
+  return out;
+}
+// a held pass's sweet band: the ideal launch speed's share of the range from PASS_MIN to vmax, its width with Passing
+// (0..100) and the assists
+export function passBand(ideal, vmax, passing = 50, ak = 1, out = {lo:0, hi:0, c:0}){
+  const c = clamp((ideal - CN.PASS_MIN)/(vmax - CN.PASS_MIN), 0, 1);
+  const w = (METER.PASS_W0 + METER.PASS_W1*clamp(passing, 0, 100)/100)*(1 + METER.PASS_WA*clamp(ak, 0, 1));
+  out.c = c; out.lo = c - w/2; out.hi = c + w/2;
+  return out;
+}
+export const kickType = () => KICKS[CTRL.kick] || KICKS[2];
+// the kick type by its id; the contact follows it (1, 2, 3 and the lessons' Low and High contact)
+export function setKick(id){
+  const i = KICKS.findIndex(k => k.id === id);
+  if (i < 0) return;
+  CTRL.kick = i; CTRL.contact = KICKS[i].contact; CTRL.kickT = typeof performance !== "undefined" ? performance.now() : 0;
+  use("contact");
+}
 // the strike's Technique (A1.7: it widens the rhythm window): the Clean strike skill (aero), Curve and Ball Control
 export const techniqueOf = at => clamp(.4*(at.aero || 0) + .3*(at.curve || 50) + .3*(at.ctrl || at.dribbling || 50), 0, 99);
 // the keys this mode answers (1.6); every one has its default stopped in a match
@@ -130,7 +198,11 @@ export const CTRL = {ctx:"free", walk:false, scan:null, shield:false, note:null,
   // side), the look's turns per step (the gestures) and the look at the start of each step, and the last strike's shape
   ret:{on:false, x:0, y:0, z:0, ok:false, sy:0, sp:0, a:0, beat:0, kind:"shot"},
   wind:{p:0, over:0, side:"R", kind:null},
-  gx:new Float64Array(16), gy:new Float64Array(16), hy:new Float64Array(16), hp:new Float64Array(16), gi:0, shape:null};
+  gx:new Float64Array(16), gy:new Float64Array(16), hy:new Float64Array(16), hp:new Float64Array(16), gi:0, shape:null,
+  // (UF2-A) the kick type (an index into KICKS, Normal to start) and when it last changed; the meter (on while a shot
+  // or a pass is held: kind, fill p, the sweet band lo..hi, whether the fill is in it); F's last press (the settle's
+  // latch, in match seconds); the last strike's verdict on the meter (clean, at, kind) for the HUD's flash
+  kick:2, kickT:0, meter:{on:false, kind:null, p:0, lo:0, hi:0, sweet:false}, fT:-99, clean:{seq:0, ok:false, kind:null, p:0}};
 
 /* ---------- input (router events, and the bots' through __fp.input) ---------- */
 // a key pressed with Ctrl, Alt or Meta held: set by controller.js's capture listener for the same browser event
@@ -155,9 +227,9 @@ export function controlInput(ev){
       if (ev.repeat) return true;
       CTRL.held[k] = true;
       if (k === "x") CTRL.walk = !CTRL.walk;
-      else if (k === "1" || k === "2" || k === "3"){ CTRL.contact = +k - 2; use("contact"); }
+      else if (k === "1" || k === "2" || k === "3") setKick(KICK_OF_CONTACT[String(+k - 2)]);
       else if (k === "v") CTRL.queue.push({k:"scan"});
-      else if (k === "f") CTRL.queue.push({k:"f"});
+      else if (k === "f"){ CTRL.queue.push({k:"f"}); CTRL.fDown = true; }
       else if (k === "space") CTRL.queue.push({k:"space"});
       // R: the call registers on the press itself (U10): "Here!" at once, every time; held on to 0.4 s it becomes "In
       // behind!" to the point under the crosshair. (It used to wait for the release, so a press whose key-up was
@@ -177,9 +249,12 @@ export function controlInput(ev){
       if (ev.button === 0 && CTRL.lmb){ CTRL.lmb = false; CTRL.queue.push({k:"lup", t:CTRL.lmbT}); }
       else if (ev.button === 2 && CTRL.rmb){ CTRL.rmb = false; CTRL.queue.push({k:"rup", t:CTRL.rmbT}); }
       return true;
-    case "wheel":
-      CTRL.contact = clamp(CTRL.contact + (ev.deltaY > 0 ? -1 : 1), -1, 1); use("contact");
+    case "wheel": {
+      // (UF2-A, U20) down the list of kick types turned down, up it turned up; the corner of the HUD shows it
+      const i = clamp(CTRL.kick + (ev.deltaY > 0 ? 1 : -1), 0, KICKS.length - 1);
+      setKick(KICKS[i].id);
       return true;
+    }
     case "move": {
       const y0 = P.yaw, p0 = P.pitch;
       look(ev.dx || 0, ev.dy || 0);
@@ -201,7 +276,7 @@ export function look(dx, dy){
 export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
   CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
-  CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null;
+  CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null; CTRL.meter.on = false; CTRL.meter.kind = null; CTRL.fT = -99; CTRL.fDown = false;
   CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
   // (P4-B) the look's history per step and the aim points start again from where you look now (a reset is a cut)
   CTRL.gi = 0; CTRL.hy.fill(P.yaw); CTRL.hp.fill(P.pitch);
@@ -332,6 +407,31 @@ function reticleStep(ms, me, ctx){
   const rh = rhythmOf(me, W.side);
   R.beat = rh.on ? Math.max(0, 1 - rh.ts/.15) : 0;
 }
+// the meter (UF2-A): on while a shot or a pass is held; the sweet band for the distance to what it is aimed at now
+const MB = {lo:0, hi:0, c:0};
+function meterStep(ms, me){
+  const M = CTRL.meter, ch = CTRL.charge, b = ms.ball.p;
+  if (!ch || (ch.kind !== "shot" && ch.kind !== "pass")){ M.on = false; M.kind = ch ? ch.kind : null; M.p = ch ? ch.p : 0; M.sweet = false; return M; }
+  M.on = true; M.kind = ch.kind; M.p = ch.p;
+  if (ch.kind === "shot"){
+    const tg = CTRL.aim.ok ? CTRL.aim : CTRL.ground;
+    meterBand(Math.hypot(tg.x - b.x, tg.z - b.z), techniqueOf(me.at), assistK(), MB);
+  } else {
+    const tp = CTRL.target.point || CTRL.ground, w = passWeights(ms, me, Math.hypot(tp.x - b.x, tp.z - b.z), CTRL.target.through);
+    passBand(w.ideal, w.vmax, me.at.passing, assistK(), MB);
+  }
+  M.lo = MB.lo; M.hi = MB.hi; M.sweet = M.p >= MB.lo && M.p <= MB.hi;
+  return M;
+}
+// a pass's weights for a distance: the launch speed that arrives at 9 m/s (8 for a through ball) and the most you can
+// give it (the same numbers the strike uses)
+const PW = {ideal:0, vmax:0, roll:1.1, dm:1};
+function passWeights(ms, me, d, through){
+  const at = me.at, roll = ms.ball.rollDecel || 1.1, dm = 1 - .0045*clamp(at.aero || 0, 0, 99);
+  PW.roll = roll; PW.dm = dm; PW.vmax = 22 + .06*(at.passing || 50);
+  PW.ideal = rollSpeedFor(Math.max(1, d), through ? 8 : 9, roll, dm);
+  return PW;
+}
 // the next step's gesture bucket, and the look it starts from
 function gestureStep(){
   const i = CTRL.gi = (CTRL.gi + 1)%16;
@@ -383,7 +483,8 @@ function coneTarget(ms, me){
     if (o === me || o.team !== me.team || !o.onPitch || o.role !== "player" || o.leaving) continue;
     const dx = o.m.x - me.m.x, dz = o.m.z - me.m.z, d = Math.hypot(dx, dz);
     if (d < 2 || d > 70) continue;
-    const ang = Math.abs(wrapA(yawOf(dx, dz) - yaw)), lim = d < CN.CONE_NEAR_D ? CN.CONE_NEAR : CN.CONE;
+    // ((UF2-A, U19) the assists widen it: the team-mate nearest where you look is found from further off the line)
+    const ang = Math.abs(wrapA(yawOf(dx, dz) - yaw)), lim = (d < CN.CONE_NEAR_D ? CN.CONE_NEAR : CN.CONE)*(1 + METER.CONE_A*assistK());
     if (ang > lim + (o.id === CTRL.target.agent ? CN.HYST : 0)) continue;
     const s = ang + d*.002;
     if (o.id === CTRL.target.agent) cur = s - CN.HYST;
@@ -551,6 +652,8 @@ export function controlStep(ms, me, h, opts = {}){
     else if (cone >= 0) CTRL.target.point = passPoint(ms, me, ms.agents[cone], CTRL.target.point || {x:0, y:0, z:0});
     else CTRL.target.point = null;
   } else if (!CTRL.rmb){ CTRL.target.through = false; }
+  // the meter (UF2-A, U18 and U19): what is filling, and its sweet spot for what you aim at now
+  meterStep(ms, me);
   // the timing ring of a volley or an acrobatic strike (A1.5): it closes on the moment the ball will be met
   const R = CTRL.resolve;
   if (R && R.kind !== "ground" && R.kind !== "header" && R.kind !== "divingHeader"){
@@ -566,7 +669,7 @@ export function controlStep(ms, me, h, opts = {}){
       case "scan": CTRL.scan = {yaw0:P.yaw}; use("scan"); break;
       case "unscan": if (CTRL.scan){ CTRL.scanBack = {from:P.yaw, to:CTRL.scan.yaw0, t:0}; CTRL.scan = null; } break;
       case "rtap": call(ms, me, "here"); break;
-      case "f": slide(ms, me, ctx); break;
+      case "f": CTRL.fT = ms.t; slide(ms, me, ctx); break;
       case "space": space(ms, me); break;
       case "ldown": if (ctx === "defend") tackle(ms, me); break;
       case "lup": if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
@@ -624,6 +727,8 @@ export function controlStep(ms, me, h, opts = {}){
       const d = me.drib || (me.drib = {dx:0, dz:0, gait:"jog", speed:0, t:ms.t, commit:0, small:false, start:me.m.speed < 1.5});
       // (the speed the touch is weighed for: the gait you go at, so a touch from standing is not left under your feet)
       d.dx = I.dx; d.dz = I.dz; d.gait = I.gait; d.small = CTRL.small;
+      // (UF2-A, U17) close control: below a sprint the touches keep it near your foot, as much as the assists say
+      d.close = I.gait === "sprint" ? 0 : assistK();
       // the run bends a little towards the ball (at most 12 degrees off the keys' way, only while it is in front), so a
       // touch that went a little wide is followed rather than run past: the ball stays yours until you choose otherwise
       const b = ms.ball, bx = b.p.x + b.v.x*.25 - me.m.x, bz = b.p.z + b.v.z*.25 - me.m.z, bl = Math.hypot(bx, bz);
@@ -650,6 +755,11 @@ export function controlStep(ms, me, h, opts = {}){
     if (len){ p.push.x = I.dx; p.push.z = I.dz; }
     else { p.push.x = -Math.sin(bodyYaw); p.push.z = -Math.cos(bodyYaw); }
     p.part = CTRL.held.f ? "foot" : null;
+    // (UF2-A, U17) the settle: F held, or pressed a moment before the ball arrives, kills it onto your preferred foot
+    // within reach, the way you look; with the assists, standing with no keys held does too
+    const ak = assistK(), fOn = !!CTRL.held.f || ms.t - CTRL.fT < METER.SETTLE_LATCH;
+    p.settle = fOn ? 1 : !len && me.m.speed < 1.5 ? ak : 0;
+    if (p.settle > 0){ p.part = "foot"; if (!len){ p.push.x = -Math.sin(P.yaw); p.push.z = -Math.cos(P.yaw); } }
     if (p.first && ms.t - (p.firstT || 0) > 1.2) p.first = null;
   } else if (me.plan && me.plan.kind === "receive") me.plan = null;
   gestureStep();
@@ -695,7 +805,10 @@ function tackle(ms, me){
 function slide(ms, me, ctx){
   const c = ms.agents[ms.poss.ctl], b = ms.ball;
   const loose = !c && b.state === "free" && b.p.y < .4;
-  const contest = loose && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z) < 3);
+  // (a 50/50 is one a man of theirs gets to first: a ball coming to you first is yours to settle with F, UF2-A U17,
+  // never a slide into it)
+  const contest = loose && ms.agents.some(o => o.team !== me.team && o.team >= 0 && o.onPitch && o.role === "player" && Math.hypot(o.m.x - b.p.x, o.m.z - b.p.z) < 3) &&
+    rivalNearer(ms, me, b, Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z));
   if (ctx !== "defend" && !(contest && !CTRL.charge)) return;
   // (down from a slide you are getting up; in any other move, a tackle, a strike or a header, you are finishing it)
   if (me.act){ noteWhy(ms, "busy"); if (me.act.kind === "slide") CTRL.note.slide = true; else CTRL.note.key = "F"; return; }
@@ -746,6 +859,8 @@ function strike(ms, me, what, held, opts){
     CTRL.last = "throw"; use("throw"); return;
   }
   const Rz = CTRL.resolve, contact = CTRL.contact, fKey = !!CTRL.held.f;
+  // (UF2-A, U18 to U20) the kick type you chose, and how much the assists help
+  const KT = kickType().id, ak = assistK();
   // the body shape through the release (A1.7): the gesture of the last few steps, and the aim from before it began
   const G = gesture(), Ret = CTRL.ret;
   if (G.any) use("shape");
@@ -755,11 +870,17 @@ function strike(ms, me, what, held, opts){
     // the charge: p = 1 - (1 - t/0.85)^2 (1.5.3); past 0.92 the over-hit is the solver's sigma (power above 0.92)
     let p = 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2);
     const over = clamp((held - CN.SHOT_FULL)/AIM.OVER, 0, 1);
+    // the meter (UF2-A, U18): let go inside its sweet spot (the power for the distance you aim at) and it is clean: the
+    // strike goes where you look, without the reticle's sway, and the plant is forgiven (actions.js kickCtx)
+    eyeOf(me, G.any ? G.yaw0 : P.yaw, G.any ? G.pitch0 : P.pitch); aimPoint(ms, me, RP); eyeOf(me);
+    const band = meterBand(Math.hypot(RP.x - b.p.x, RP.z - b.p.z), techniqueOf(at), ak, MB);
+    const clean = held >= CN.TAP && p >= band.lo && p <= band.hi;
     // where it goes: the reticle (your look plus its sway); with a gesture, the look from before the sweep
     let tgt;
-    if (G.any){ eyeOf(me, G.yaw0 + Ret.sy, G.pitch0 + Ret.sp); aimPoint(ms, me, RP); eyeOf(me); tgt = {x:RP.x, y:RP.y, z:RP.z}; }
+    if (clean) tgt = {x:RP.x, y:RP.y, z:RP.z};
+    else if (G.any){ eyeOf(me, G.yaw0 + Ret.sy, G.pitch0 + Ret.sp); aimPoint(ms, me, RP); eyeOf(me); tgt = {x:RP.x, y:RP.y, z:RP.z}; }
     else tgt = {x:Ret.x, y:Ret.y, z:Ret.z};
-    const toGoal = G.any ? RP.ok : Ret.ok;
+    const toGoal = clean || G.any ? RP.ok : Ret.ok;
     if (Rz && Rz.mirrored) tgt = mirrorAim(me, tgt, {x:0, y:0, z:0});
     // a lofted ball with contact High at a point on the grass: a cross or a chip, picking a zone in the box (3.1.7)
     let kind = "shot";
@@ -768,14 +889,20 @@ function strike(ms, me, what, held, opts){
     // full wind-up is power; looked at low on goal with Normal contact it is driven low
     let shape = held < CN.TAP ? "placed" : p >= .97 ? "power" : "struck", ctc = contact, finesse = fKey, curl = null, bend = null, style = null, chip = false;
     if (shape === "placed"){ p = AIM.PLACED; finesse = true; curl = 0; style = "side"; }
-    if (G.lift && kind === "shot"){ shape = "chip"; ctc = 1; chip = true; p *= AIM.CHIP; style = "chip"; }
+    // the kick type (U20): Placed a side-foot at a controlled pace, Curl the finesse, Driven low contact, Chip a chip
+    else if (KT === "placed"){ shape = "placed"; p = Math.min(p, AIM.PLACED_MAX); finesse = true; curl = 0; style = "side"; }
+    if (KT === "curl" && !G.curl){ finesse = true; if (shape === "struck" || shape === "power") shape = "curl"; }
+    if (KT === "driven" && kind === "shot" && shape !== "placed"){ ctc = -1; shape = shape === "power" ? "power driven" : "driven"; }
+    if ((G.lift || KT === "chip") && kind === "shot"){ shape = "chip"; ctc = 1; chip = true; p *= AIM.CHIP; style = "chip"; }
     else if (G.dip){ shape = "dip"; ctc = -1; }
-    else if (kind === "shot" && ctc === 0 && toGoal && tgt.y < AIM.LOW_Y && shape !== "placed"){ shape = shape === "power" ? "power low" : "low"; ctc = -1; }
+    else if (kind === "shot" && ctc === 0 && toGoal && tgt.y < AIM.LOW_Y && shape !== "placed" && KT !== "curl"){ shape = shape === "power" ? "power low" : "low"; ctc = -1; }
     if (kind !== "shot"){ ctc = 1; shape = "lofted"; }
     if (G.curl){ finesse = true; bend = G.curl; shape = shape === "placed" || shape === "struck" || shape === "power" ? "curl" : shape + " curl"; }
     // held past full: you lean back and it rises (with the over-hit's sigma, strike.js)
     if (over > 0 && kind === "shot"){ const d = Math.hypot(tgt.x - b.p.x, tgt.z - b.p.z); tgt.y += over*(.6 + .05*d); shape += " over"; }
-    const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact:ctc, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal, shape, over};
+    const rq = {kind, target:tgt, recv:-1, power:clamp(p, .05, 1), contact:ctc, finesse, firstTime:ms.poss.ctl !== me.id, atGoal:toGoal, shape, over, kick:KT};
+    if (clean){ rq.clean = true; rq.shape = shape = shape + " clean"; }
+    CTRL.clean.seq++; CTRL.clean.ok = clean; CTRL.clean.kind = "shot"; CTRL.clean.p = held >= CN.TAP ? 1 - Math.pow(1 - Math.min(1, held/CN.SHOT_FULL), 2) : 0;
     if (curl != null) rq.curl = curl;
     if (bend != null) rq.bend = bend;
     if (chip) rq.chip = true;
@@ -791,42 +918,54 @@ function strike(ms, me, what, held, opts){
     return;
   }
   // a pass: a tap is weighted for you (arrival 9 m/s), held it is charged with a sweet zone (1.5.3)
+  // (the cone is wider with the assists, U19: the team-mate nearest where you look)
   const tgtId = CTRL.target.agent >= 0 ? CTRL.target.agent : coneTarget(ms, me);
   const o = ms.agents[tgtId];
   let tp = CTRL.target.point && o ? CTRL.target.point : null;
   if (!tp && o) tp = passPoint(ms, me, o, {x:0, y:0, z:0});
   if (!tp){ tp = {x:CTRL.ground.x, y:.11, z:CTRL.ground.z}; }
-  // the reticle's sway turns the pass about the ball (A1.7): where it was pointing at the release
-  if (Ret.sy){ const b0 = b.p, dx = tp.x - b0.x, dz = tp.z - b0.z, c = Math.cos(Ret.sy), sn = Math.sin(Ret.sy); tp = {x:b0.x + dx*c + dz*sn, y:.11, z:b0.z - dx*sn + dz*c}; }
+  // the reticle's sway turns the pass about the ball (A1.7): where it was pointing at the release. With the assists a
+  // pass to a team-mate goes to him (U19: the aim assist), a share of the sway with them low
+  const sy = o ? Ret.sy*(1 - ak) : Ret.sy;
+  if (sy){ const b0 = b.p, dx = tp.x - b0.x, dz = tp.z - b0.z, c = Math.cos(sy), sn = Math.sin(sy); tp = {x:b0.x + dx*c + dz*sn, y:.11, z:b0.z - dx*sn + dz*c}; }
   const d = Math.hypot(tp.x - b.p.x, tp.z - b.p.z), roll = b.rollDecel || 1.1;
-  const vmax = 22 + .06*(at.passing || 50);
   const through = CTRL.target.through && o;
   // (the ball you strike carries your Clean strike: ball.js ballKick sets its drag to 1 - 0.0045 aero, so it rolls
   // further than a default ball, and the weight is worked out for that ball)
-  const dm = 1 - .0045*clamp(at.aero || 0, 0, 99);
-  const ideal = rollSpeedFor(Math.max(1, d), through ? 8 : 9, roll, dm);
+  const PWr = passWeights(ms, me, d, through), vmax = PWr.vmax, dm = PWr.dm;
+  const ideal = PWr.ideal;
   // a tap is weighted for you: its error is in what it arrives at, 9 m/s give or take with your Passing, held within 8
-  // to 10 (1.5.3), not a share of the launch, which over 40 m would arrive anywhere
+  // to 10 (1.5.3), not a share of the launch, which over 40 m would arrive anywhere. A driven pass (U20) arrives zipped,
+  // at DRIVEN m/s
   const zA = Math.sqrt(-2*Math.log(Math.max(1e-9, ms.r())))*Math.cos(2*Math.PI*ms.r());
-  const arrive = clamp((through ? 8 : 9) + zA*.6*(1 - (at.passing || 50)/120), through ? 7.5 : 8, through ? 9.5 : 10);
+  const base = KT === "driven" ? AIM.DRIVEN : through ? 8 : 9;
+  const arrive = clamp(base + zA*.6*(1 - (at.passing || 50)/120)*(1 - .5*ak), base - 1, base + 1);
   let speed = rollSpeedFor(Math.max(1, d), arrive, roll, dm), charged = false, sweet = false;
   if (held >= CN.TAP){
-    const c = Math.min(1, held/CN.PASS_FULL), cIdeal = clamp((ideal - CN.PASS_MIN)/(vmax - CN.PASS_MIN), 0, 1), w = .10 + .25*(at.passing || 50)/100;
+    // the meter's sweet spot (U19: the same as a shot's meter shows, wider with the assists)
+    const c = Math.min(1, held/CN.PASS_FULL), pb = passBand(ideal, vmax, at.passing, ak, MB);
     charged = true;
-    if (Math.abs(c - cIdeal) <= w/2){ sweet = true; speed = ideal; }
+    if (c >= pb.lo && c <= pb.hi){ sweet = true; speed = KT === "driven" ? rollSpeedFor(Math.max(1, d), AIM.DRIVEN, roll, dm) : ideal; }
     else speed = CN.PASS_MIN + (vmax - CN.PASS_MIN)*c;
   }
   // along the grass unless the lane is blocked (pOK under 0.6) or it needs more than you can give; then lofted. The
   // same language as a shot (A1.7): a lift through the release (or a look above the horizon) lofts it, a sweep curls it
   let kind = through ? "through" : "pass", ctc = contact, shape = charged ? (sweet ? "weighted" : "struck") : "tapped";
+  if (KT === "driven" && shape !== "struck") shape = "driven";
+  else if (KT === "placed") shape = charged && !sweet ? "struck" : "placed";
   const lift = G.lift || (ctc === 0 && P.pitch > AIM.LOFT && d > 12);
   if (ctc > 0 || lift){ kind = inBoxPoint(ms, me, tp) ? "cross" : "lob"; ctc = 1; if (lift) shape = "lofted"; }
-  else if (o){
+  // (a placed pass is never lofted for you, U20; the rest are when the lane is shut or it is too far to roll)
+  else if (o && KT !== "placed"){
     const pm = passModel(ms, me, {x:tp.x, z:tp.z}, "pass", speed, o);
     if ((pm && pm.pOK < .6 && d > 12) || ideal > vmax){ kind = "lob"; ctc = 1; }
   }
-  const finesse = fKey || !!G.curl;
-  const rq = {kind, target:{x:tp.x, y:.11, z:tp.z}, recv:o ? o.id : -1, contact:ctc, finesse, charged, sweet, firstTime:ms.poss.ctl !== me.id, shape};
+  const finesse = fKey || !!G.curl || KT === "curl";
+  if (KT === "curl" && !G.curl && shape !== "lofted") shape = shape + " curl";
+  const rq = {kind, target:{x:tp.x, y:.11, z:tp.z}, recv:o ? o.id : -1, contact:ctc, finesse, charged, sweet, firstTime:ms.poss.ctl !== me.id, shape, kick:KT};
+  // (a held pass let go in the meter's sweet spot is clean, as a shot is: the plant forgiven)
+  if (sweet){ rq.clean = true; }
+  CTRL.clean.seq++; CTRL.clean.ok = sweet; CTRL.clean.kind = "pass"; CTRL.clean.p = charged ? Math.min(1, held/CN.PASS_FULL) : 0;
   if (G.curl){ rq.bend = G.curl; rq.shape = shape + " curl"; }
   if (kind === "pass" || kind === "through"){ rq.speed = clamp(speed, CN.PASS_MIN, vmax); if (!charged) rq.weightSigma = .004; }
   queueStrike(ms, me, rq);
@@ -853,7 +992,8 @@ function queueStrike(ms, me, rq){
   // (a ball you still have to reach is struck after the stride adjust: the rhythm of the release is still yours)
   if (!air){
     const rh = rhythmOf(me, cs.foot);
-    if (rh.on){ rq.rhythm = Math.round(rh.rhythm*1000)/1000; if (rh.tc != null && cs.ok) rq.tcWant = rh.tc; }
+    // (a clean release in the meter's sweet spot, UF2-A U18: the stride is forgiven, the strike still lands on the plant)
+    if (rh.on){ rq.rhythm = rq.clean ? 0 : Math.round(rh.rhythm*1000)/1000; if (rh.tc != null && cs.ok) rq.tcWant = rh.tc; }
   }
   me.intent.action = rq;
 }
@@ -922,6 +1062,10 @@ export function hintsFor(ms, me){
     }
     else if (CTRL.resolve && CTRL.resolve.kind === "header"){ add("Space", "head it", "header"); add("F+Space", "cushion it down to your feet", "cushion"); }
     else if (CTRL.resolve && CTRL.resolve.kind !== "ground") add("LMB", "volley it", "shoot");
+    else if (me.plan && me.plan.kind === "receive" && ms.ball.state === "free" && approaching(ms, me) && Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z) < 18){
+      // (UF2-A, U17) a ball on its way to you: how to kill it dead
+      add("F", "hold to stop it at your feet", "settle"); add("W A S D", "take it away", "touch"); add("RMB", "pass it first time", "pass");
+    }
     else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); add("V", "hold to look over your shoulder", "scan"); }
   } else if (ctx === "defend"){
     const c = ms.agents[ms.poss.ctl];

@@ -179,6 +179,7 @@ function fpFrame(dt, cam){
   // the wind-up as the view feels it (A1.7: your body draws it, moves.js), and the head following your own strike
   windup(dt);
   follow(a, V, x, y0, z, dt);
+  cleanKick(a, V, motion);
   speedFx(v/top, B, motion, dt);
   // the bob (3.5.9, 1.5.9): the pelvis against its running mean, held within 0.006 + 0.0016 v; heavier and uneven when
   // the breath is gone (A1.3); nothing standing still
@@ -318,6 +319,20 @@ function follow(a, V, x, y, z, dt){
   // (the time is up: off, and what is left of the turn eases back above, never in one frame)
   if (F.t > K.HOLD + K.BACK) F.on = false;
   F.yaw = P.yaw; F.pitch = P.pitch;
+}
+
+/* ---------- your clean strike felt (UF2-A, U18) ----------
+   A release in the meter's sweet spot (control.js, the kick logged clean) gives the view a small kick: CLEAN.PITCH
+   degrees up into the spring of core/camera.js, and a touch of trauma, both times the motion setting */
+const CLEAN = Object.freeze({PITCH: .9*DEG, W: 26, TRAUMA: .1});
+function cleanKick(a, V, motion){
+  const ms = V && V.ms, K = ms && ms.kick;
+  if (!a || !K || K.seq === MC.cleanSeq) return;
+  MC.cleanSeq = K.seq;
+  if (K.agent !== a.id || !K.ev || !K.ev.clean) return;
+  camKick({pitch:CLEAN.PITCH*(.4 + .6*motion), w:CLEAN.W});
+  MC.trauma = clamp(MC.trauma + CLEAN.TRAUMA*motion, 0, 1);
+  MC.cleanN = (MC.cleanN || 0) + 1;
 }
 
 /* ---------- match-bench ---------- */

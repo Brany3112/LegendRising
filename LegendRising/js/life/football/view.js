@@ -31,7 +31,13 @@
    contact moment and point, with touch.js touchPart's part (the foot, the raised foot, the thigh, the chest); it is kept
    on that contact as it is worked out again, put on the simulation's own point once the touch is taken, and over at
    most 0.35 s after it. A ball on its way to a body a second or so off brings the upper body's 'ready' gesture. A strike
-   at a dead ball begins on the walk-up, on the moment the simulation's window says, so the run-up is the clip's. */
+   at a dead ball begins on the walk-up, on the moment the simulation's window says, so the run-up is the clip's.
+   UF2-A (stage UF2, USER-ISSUES U12 and U18): your body in your eyes ends its clips where they play (a clip of a strike,
+   a tackle or a slide was kept after its act: your whole body is not drawn in first person, so its actor never saw the
+   clip end), takes a slide from where it began and jumps with you, and stands at ease while the simulation is held
+   (fpHeld). A ball into the net ripples it (netRipple: the nets' own mesh pushed back round the ball for a moment, and a
+   ring spreading on the mesh where it went in) and, where nobody else plays the net's sound, it is heard; your clean
+   strike (control.js, the meter's sweet spot) rings out over the kick. */
 import {THREE} from "../build.js";
 import {human, animateHuman, lookFor, EV} from "../human.js";
 import {SCHED} from "../core/sched.js";
@@ -45,6 +51,7 @@ import {R as zoneR, part as zonePart, playableFrom} from "./zone.js";
 import {touchPart} from "./touch.js";
 import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
+import {AUD} from "./audio.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -181,6 +188,100 @@ export function viewFrame(V, ms, alpha, dt, cam){
   // its actor, so the hands are the ones drawn this frame; your own, first person, fpPose does after the camera)
   const th = !V.src && ms.ball.state === "held" ? ms.agents[ms.ball.holder] : null, TR = th ? V.rec[th.id] : null;
   if (TR && !TR.hidden) throwBall(V, TR, th, ms, TR.h, dt, "thw");
+  // (UF2-A) the net when the ball goes in, and your clean strike heard
+  netFrame(V, ms, dt);
+  cleanFeel(V, ms);
+}
+
+/* ---------- the net and the clean strike (UF2-A, U18: a strike that feels rewarding) ---------- */
+// RIP: how long the ripple lasts (s), how far round the ball the net gives (m), how far it is pushed at most (m), its
+// wobble (rad/s); the ring spreading where the ball went in (its largest radius, m)
+const RIP = Object.freeze({T:.9, R:1.2, A:.22, W:15, RING:1.1});
+function netFrame(V, ms, dt){
+  const b = V.src ? null : ms.ball;
+  if (b){
+    if (b.netHit && !V.netWas){
+      const x = b.p.x + V.ox, y = b.p.y, z = b.p.z + V.oz;
+      netRipple(V, x, y, z, b.v);
+      // (heard where nobody else plays it: a match's controller does, a training item does not)
+      const subs = ms.subsFn && ms.subsFn.net;
+      if (!(subs && subs.length)) try { AUD.cue("net", {x, y, z}, .9); } catch(e){}
+    }
+    V.netWas = !!b.netHit;
+  }
+  rippleStep(V, dt);
+}
+// the nets' meshes in the world (pitchmesh.js names them "pitch-nets"; one merged into a batch is not there to move)
+function netMeshes(V){
+  if (V.nets && V.nets.length && V.nets.every(m => m.parent)) return V.nets;
+  let root = V.scene; while (root && root.parent) root = root.parent;
+  const out = [];
+  if (root) root.traverse(o => { if (o.isMesh && o.name === "pitch-nets" && o.geometry && o.geometry.attributes.position) out.push(o); });
+  return (V.nets = out);
+}
+const _rp = new THREE.Vector3(), _rv = new THREE.Vector3(), _rq = new THREE.Quaternion();
+export function netRipple(V, x, y, z, v){
+  if (!V || !V.scene) return null;
+  const vl = Math.hypot(v.x, v.y, v.z) || 1;
+  // the mesh the ball went into: its own vertices pushed back round the ball (its rest positions kept to put them back)
+  let hit = null;
+  for (const m of netMeshes(V)){
+    m.updateMatrixWorld(true);
+    _rp.set(x, y, z); m.worldToLocal(_rp);
+    const g = m.geometry; if (!g.boundingBox) g.computeBoundingBox();
+    if (g.boundingBox.distanceToPoint(_rp) < .6){ hit = m; break; }
+  }
+  if (V.rip && V.rip.m){ V.rip.m.geometry.attributes.position.array.set(V.rip.base); V.rip.m.geometry.attributes.position.needsUpdate = true; }
+  V.rip = null;
+  if (hit){
+    const pos = hit.geometry.attributes.position, base = hit.userData.netBase || (hit.userData.netBase = Float32Array.from(pos.array));
+    _rv.set(v.x/vl, v.y/vl, v.z/vl); _rq.copy(hit.quaternion).invert(); _rv.applyQuaternion(_rq);
+    V.rip = {m:hit, base, lx:_rp.x, ly:_rp.y, lz:_rp.z, dx:_rv.x, dy:_rv.y, dz:_rv.z, t:0, a:RIP.A*Math.min(1, .35 + vl/22)};
+  }
+  // the ring spreading on the net where it went in (facing the way the ball came)
+  let ring = V.ripRing;
+  if (!ring){
+    ring = V.ripRing = new THREE.Mesh(new THREE.RingGeometry(.86, 1, 40), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide}));
+    ring.userData.noMerge = true; ring.renderOrder = 3; ring.name = "net-ripple";
+    let root = V.scene; while (root && root.parent) root = root.parent;
+    (root || V.scene).add(ring);
+  }
+  ring.position.set(x, y, z); _rv.set(x + v.x/vl, y + v.y/vl, z + v.z/vl); ring.lookAt(_rv);
+  ring.visible = true; ring.scale.setScalar(.05); ring.userData.t = 0;
+  return V.rip;
+}
+function rippleStep(V, dt){
+  const R = V.rip;
+  if (R){
+    R.t += Math.max(0, dt || 0);
+    const pos = R.m.geometry.attributes.position, a = pos.array, base = R.base, k = R.t/RIP.T;
+    if (k >= 1 || !R.m.parent){ a.set(base); pos.needsUpdate = true; V.rip = null; }
+    else {
+      const env = (1 - k)*(1 - k), wave = Math.cos(R.t*RIP.W)*R.a*env, r2 = RIP.R*RIP.R;
+      for (let i = 0; i < a.length; i += 3){
+        const ex = base[i] - R.lx, ey = base[i + 1] - R.ly, ez = base[i + 2] - R.lz, d2 = ex*ex + ey*ey + ez*ez;
+        if (d2 >= r2){ a[i] = base[i]; a[i + 1] = base[i + 1]; a[i + 2] = base[i + 2]; continue; }
+        const w = (1 - d2/r2)*(1 - d2/r2)*wave;
+        a[i] = base[i] + R.dx*w; a[i + 1] = base[i + 1] + R.dy*w*.4; a[i + 2] = base[i + 2] + R.dz*w;
+      }
+      pos.needsUpdate = true;
+    }
+  }
+  const ring = V.ripRing;
+  if (ring && ring.visible){
+    const t = (ring.userData.t += Math.max(0, dt || 0)), k = Math.min(1, t/.55);
+    ring.scale.setScalar(.05 + RIP.RING*k); ring.material.opacity = .55*(1 - k);
+    if (k >= 1) ring.visible = false;
+  }
+}
+// your clean strike (the meter's sweet spot, control.js): a bright ring on top of the kick the caller plays
+function cleanFeel(V, ms){
+  const K = !V.src && ms.kick;
+  if (!K || K.seq === V.cleanSeq) return;
+  V.cleanSeq = K.seq;
+  const ev = K.ev;
+  if (!ev || !ev.clean || K.agent !== V.me) return;
+  try { AUD.cue("tick", {x:ev.x + V.ox, y:.3, z:ev.z + V.oz}, 1.8); AUD.cue("kick", {x:ev.x + V.ox, y:.2, z:ev.z + V.oz}, .45); } catch(e){}
 }
 /* the ball never smaller on screen than BALL_MIN_PX across (TRAINING-SPEC 2, "ball readable"): far off, a real ball
    (22 cm) is under 3 px at 40 m in a 720-pixel-high view; beyond the distance where it would be, it is drawn a little
@@ -803,7 +904,10 @@ export function viewDispose(V){
   // (each ball's geometry and material are its own, pitchmesh.js ballMesh: they go with the view, P2-B perf-2; the
   // blob under it is shared and stays)
   for (const b of [V.ball].concat(V.extra)) if (b){ if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); }
-  for (const k of ["ringSpot", "ringRecv"]) if (V[k]){ V[k].geometry.dispose(); V[k].material.dispose(); if (V[k].parent) V[k].parent.remove(V[k]); V[k] = null; }
+  for (const k of ["ringSpot", "ringRecv", "ripRing"]) if (V[k]){ V[k].geometry.dispose(); V[k].material.dispose(); if (V[k].parent) V[k].parent.remove(V[k]); V[k] = null; }
+  // (a net still rippling is put back as it was)
+  if (V.rip && V.rip.m){ V.rip.m.geometry.attributes.position.array.set(V.rip.base); V.rip.m.geometry.attributes.position.needsUpdate = true; }
+  V.rip = null; V.nets = null;
   V.extra.length = 0;
 }
 // a pose of the view's bodies for a replay frame (replay.js): src = {agents: [{x, z, y, yaw, speed, on, mode, st, cid}], ball}

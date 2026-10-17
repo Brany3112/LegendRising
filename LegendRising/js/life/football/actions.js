@@ -54,8 +54,10 @@ export const ACT = Object.freeze({
                                                // (P2b-A: 0.45 s, was 1.0, now the ball can be taken off a man who waits on it)
   AERIAL_FOUL: [1.1, 0.15, 0.25, 0.25],        // an aerial duel with the bodies within 1.1 m: a foul by the loser 15% of the time,
                                                // severity 0.25 to 0.5
-  RHYTHM: [0.12, 0.06]                         // A1.7: a strike released out of the stride's rhythm (rhythm 1) adds this much plant
+  RHYTHM: [0.12, 0.06],                        // A1.7: a strike released out of the stride's rhythm (rhythm 1) adds this much plant
                                                // error, a shot and a pass (the player's controls set action.rhythm)
+  CLEAN_PLANT: 0.03                            // UF2-A (U18): a clean release (the meter's sweet spot) leaves at most this much plant
+                                               // error
 });
 
 /* ---------- the shared ball path cache (1.5.6) ---------- */
@@ -213,8 +215,11 @@ function kickCtx(ms, a, act, K, bp, ahead, weak, scuff){
   const kdir = yawOf(K.tx - bp.x, K.tz - bp.z);
   const bodyAngleDeg = Math.abs(wrapA(kdir - a.m.yaw))/DEG;
   // (a volley's timing from the ring, A1.5: 0 on the moment, 1 at the ring's edge or beyond, widens it as a bad plant)
-  const plantErr = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1) +
+  // (UF2-A, U18: the player's release in the meter's sweet spot is a clean strike, rq.clean: his plant is forgiven, at
+  // most CLEAN_PLANT of it left; a scuff is still a scuff. Only the player's controls ever ask for it)
+  const plant0 = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1) +
     ACT.RHYTHM[K.isShot ? 0 : 1]*clamp(+rq.rhythm || 0, 0, 1);
+  const plantErr = rq.clean && !scuff ? Math.min(plant0, ACT.CLEAN_PLANT) : plant0;
   const sp = hypot(b.v.x, b.v.y, b.v.z);
   const air = b.p.y > R + 0.05;
   const ballState = !air ? (sp < 0.4 ? 'still' : 'rolling') : (b.v.y < 0 && b.p.y > 0.35 ? 'volley' : 'bouncing');
@@ -303,6 +308,9 @@ function strikeContact(ms, a, act, scuff){
   // contact's sound and hit-stop
   if (rq.shape){
     extra.shape = rq.shape; extra.rhythm = rq.rhythm || 0;
+    // (UF2-A: the meter's verdict and the kick type, for the HUD's flash, the sound and the camera)
+    if (rq.clean) extra.clean = true;
+    if (rq.kick) extra.kick = rq.kick;
     const over = isShot && rq.power > 0.92 ? 3*(rq.power - 0.92) : 0;
     extra.strike = Math.round(clamp(1 - 1.8*ctx.plantErr - over - (scuff ? 0.5 : 0) - 0.25*(1 - ctx.bF) - 0.2*(rq.over || 0), 0, 1)*100)/100;
   }
@@ -358,12 +366,15 @@ export function pressureOn(ms, a){
 export function receive(ms, a, push = null, pushK = 0.5){
   const b = ms.ball, fac = a.fac || {};
   const vIn = hypot(b.v.x, b.v.y, b.v.z);
+  // (UF2-A, U17: the player's settle, his plan's settle share: the ball killed onto his preferred foot, touch.js)
+  const settle = a.plan && a.plan.kind === 'receive' && a.plan.settle > 0 ? clamp(+a.plan.settle, 0, 1) : 0;
   const ft = firstTouch(a, b, {dir: push, push: pushK}, {pressure01: pressureOn(ms, a), bF: fac.bF != null ? fac.bF : 1,
-    rollDecel: b.rollDecel}, ms.r);
+    rollDecel: b.rollDecel, settle}, ms.r);
   ballKick(b, ft.v, null, {agent: a.id, team: a.team, kind: 'control', aero: 0, t: ms.t});
   const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'control', quality: Math.round(ft.quality*100)/100, heavy: ft.heavy,
     part: ft.part, vIn: Math.round(vIn*10)/10, vRel: Math.round(ft.vRel*10)/10, td: Math.round(ft.dist*100)/100,
     dx: Math.round(ft.dir.x*1000)/1000, dz: Math.round(ft.dir.z*1000)/1000, a0: Math.round(ft.ahead0*100)/100});
+  if (settle > 0) ev.settle = Math.round(settle*100)/100;
   chainControl(ms, a, 'control', ev);
   onTouch(ms, a, 'control', ev);
   setCtl(ms, a);
@@ -682,8 +693,9 @@ function dribbleKick(ms, a){
   }
   let kx = a.m.x + ox + ux*along - b.p.x, kz = a.m.z + oz + uz*along - b.p.z;
   const kl = hypot(kx, kz) || 1; kx /= kl; kz /= kl;
+  // (UF2-A, U17: d.close, the player's close control below a sprint, touch.js dribbleTouch)
   const dt = dribbleTouch(a, b, {x: kx, z: kz}, vv, {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
-    walk: vv < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small}, ms.r);
+    walk: vv < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small, close: +d.close || 0}, ms.r);
   ballKick(b, dt.v, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
   const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: dt.heavy ? 0.5 : 1, heavy: !!dt.heavy});
   chainKeep(ms, a);

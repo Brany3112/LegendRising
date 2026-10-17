@@ -30,8 +30,19 @@
    offsets updated per frame. Settings (this device's, control.js SET): HUD scale, opacity, a colour-blind palette,
    each element hidden on its own.
    P6-B (Training Mode Phase 6, BUILD-PLAN P6-B work item 6b; TRAINING-SPEC 2, subtle team-mate calls): a call tag on
-   the screen edge is only as wide as its chevron (the name shows when he is in view). */
-import {SET} from "./control.js";
+   the screen edge is only as wide as its chevron (the name shows when he is in view).
+   UF2-A (stage UF2, USER-ISSUES U18 to U20; the same HUD for a match, a training session, the first day's lessons and
+   Training Mode):
+     the meter     one bar just under the crosshair (above it when the ball would be under it: the HUD never covers
+                   the ball) while a shot or a pass is held: it fills as the button is held, the sweet spot marked on it
+                   (control.js CTRL.meter: the power for the distance, the weight for a pass), green while the fill is
+                   in it; let go and it holds a moment on where you released, saying Clean when that was in it. It
+                   replaces the thin arc round the reticle and the contact pips
+     the kick type a small list in the right edge above the hints, always there: Chip, Curl, Normal, Placed, Driven,
+                   the one you will strike with lit (control.js KICKS, the mouse wheel or 1, 2, 3 change it before the
+                   kick), with a short "scroll to change" until you have used it a few times
+     the settings  an Assists row (On, Low, Off: control.js SET.assist) */
+import {SET, KICKS} from "./control.js";
 import {RT} from "../core/state.js";
 import {FX} from "./matchcam.js";
 import {minuteOf} from "./events.js";
@@ -43,7 +54,7 @@ const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
 
 // the elements a player may hide one by one (A1.4)
-export const HUD_PARTS = Object.freeze({score:"Scorebug", stamina:"Stamina", hints:"Control hints", calls:"Team-mates' calls", cards:"Event cards", scenario:"Scenario line", glyph:"Action glyph", fx:"Speed lines and vignette"});
+export const HUD_PARTS = Object.freeze({score:"Scorebug", stamina:"Stamina", hints:"Control hints", calls:"Team-mates' calls", cards:"Event cards", scenario:"Scenario line", glyph:"Action glyph", fx:"Speed lines and vignette", kick:"Kick type"});
 
 const D = {root:null, el:{}, cfg:null, txt:{}, t:0, tText:0, calls:[], cards:[], scen:null, scenT:-99, lastScen:-99, notice:null,
   tab:false, hidden:false, arcShown:0, staminaShown:0, drainT:0, lastB:100, chargeA:0, lastCharge:null, lastP:0, ring:0,
@@ -90,6 +101,8 @@ export function hudInit(cfg){
       <div class="fp-contact"><i></i><i></i><i></i></div><span class="fp-curl">&#x293A;</span>
     </div>
     <div class="fp-sline"></div>
+    <div class="fp-meter" aria-hidden="true"><span class="fp-meter-lab"></span><div class="fp-meter-bar"><i class="fp-meter-sweet"></i><i class="fp-meter-fill"></i><i class="fp-meter-rel"></i></div><b class="fp-meter-say"></b></div>
+    <div class="fp-kick" data-part="kick"><b class="fp-kick-h">Kick</b><ol>${KICKS.map(k => `<li data-k="${k.id}"><i></i>${esc(k.label)}</li>`).join("")}</ol><span class="fp-kick-tip">Scroll to change</span></div>
     <div class="fp-stam" data-part="stamina"><div class="fp-stam-bar"><i class="fp-cap"></i><i class="fp-breath"></i></div><div class="fp-energy"><i></i></div></div>
     <div class="fp-hints" data-part="hints"></div>
     <div class="fp-calls" data-part="calls"></div>
@@ -117,7 +130,9 @@ export function hudInit(cfg){
     energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:ov,
     warm:q(".fp-warm"), warmB:q(".fp-warm b"), warmS:q(".fp-warm span"), wu:q(".fp-wu"), wuName:q(".fp-wu-name"), wuN:q(".fp-wu-n"), wuHow:q(".fp-wu-how"),
     goal:q(".fp-goal"), goalB:q(".fp-goal b"), goalC:q(".fp-goalc"), goalCI:q(".fp-goalc i"), goalCB:q(".fp-goalc b"),
-    wuBar:q(".fp-wu-bar i"), wuDots:q(".fp-wu-dots"), wuW:q(".fp-wu-w"), pops:q(".fp-pops"), say:q(".fp-say"), sayB:q(".fp-say b"), sayS:q(".fp-say span")});
+    wuBar:q(".fp-wu-bar i"), wuDots:q(".fp-wu-dots"), wuW:q(".fp-wu-w"), pops:q(".fp-pops"), say:q(".fp-say"), sayB:q(".fp-say b"), sayS:q(".fp-say span"),
+    meter:q(".fp-meter"), meterLab:q(".fp-meter-lab"), meterSweet:q(".fp-meter-sweet"), meterFill:q(".fp-meter-fill"), meterRel:q(".fp-meter-rel"), meterSay:q(".fp-meter-say"),
+    kick:q(".fp-kick"), kickItems:[...r.querySelectorAll(".fp-kick li")], kickTip:q(".fp-kick-tip")});
   const sides = [q(".fp-home i"), q(".fp-away i")];
   sides[0].style.background = cfg.home.kit[0]; sides[1].style.background = cfg.away.kit[0];
   D.el.hs.textContent = cfg.home.short; D.el.as.textContent = cfg.away.short;
@@ -129,6 +144,7 @@ export function hudInit(cfg){
   D.el.ring.style.strokeDasharray = `${D.ringLen} ${D.ringLen}`;
   D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null; D.retA = 0; D.kickSeq = -1; D.slineT = 0; D.desat = 0;
   D.pops = []; D.sayT = 0; D.wuKind = null; D.wuEl = {};
+  D.meterA = 0; D.meterHold = 0; D.meterSeq = -1; D.meterUp = false; D.kickShown = -1; D.kickFlash = 0;
   applySettings();
   return r;
 }
@@ -249,27 +265,13 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   const over = s.ctrl && s.ctrl.wind ? s.ctrl.wind.over : 0;
   E.retC.setAttribute("r", (7 + 2.5*(ret ? ret.beat : 0)).toFixed(2));
   E.retC.classList.toggle("over", over > .05);
-  // the power arc round the reticle: only while charging a shot or a pass; the sweet spot from the target distance
-  if (ch && (ch.kind === "shot" || ch.kind === "pass" || ch.kind === "throw")){
-    D.chargeA = Math.min(1, D.chargeA + dt/.12); D.lastCharge = ch.kind; D.lastP = ch.p;
-  } else D.chargeA = Math.max(0, D.chargeA - dt/.45);
-  E.arcG.style.opacity = D.chargeA.toFixed(3);
-  const p = ch ? ch.p : D.lastP;
-  E.arcFill.style.strokeDasharray = `${(D.arcLen*clamp(p, 0, 1)).toFixed(2)} ${D.arcC.toFixed(2)}`;
-  E.arcFill.classList.toggle("over", !!ch && (over > .05 || ch.kind === "shot" && p > .92));
-  if (s.sweet && ch){
-    const a = clamp(s.sweet.lo, 0, 1), b = clamp(s.sweet.hi, 0, 1);
-    E.arcSweet.style.strokeDasharray = `0 ${(a*D.arcLen).toFixed(2)} ${((b - a)*D.arcLen).toFixed(2)} ${D.arcC.toFixed(2)}`;
-    E.arcSweet.style.opacity = "1";
-  } else E.arcSweet.style.opacity = "0";
-  if (s.tick != null && ch){
-    // the tick on the arc at the power that carries it the distance
-    E.arcTick.setAttribute("transform", `rotate(${(ARC_START + ARC_SPAN*clamp(s.tick, 0, 1)).toFixed(1)})`);
-    E.arcTick.style.opacity = "1";
-  } else E.arcTick.style.opacity = "0";
-  // the contact pips and the curl glyph while charging
-  const ct = s.ctrl ? s.ctrl.contact : 0;
-  if (slow){ E.contact.className = "fp-contact c" + (ct + 2) + (D.chargeA > .05 ? " on" : ""); E.curl.classList.toggle("on", !!(s.ctrl && s.ctrl.finesse && D.chargeA > .05)); }
+  // (the charge, for the curl glyph: the meter below shows the power and the sweet spot, UF2-A)
+  if (ch && (ch.kind === "shot" || ch.kind === "pass" || ch.kind === "throw")){ D.chargeA = Math.min(1, D.chargeA + dt/.12); D.lastCharge = ch.kind; D.lastP = ch.p; }
+  else D.chargeA = Math.max(0, D.chargeA - dt/.45);
+  E.arcG.style.opacity = "0";
+  if (slow){ E.contact.className = "fp-contact"; E.curl.classList.toggle("on", !!(s.ctrl && (s.ctrl.finesse || (KICKS[s.ctrl.kick] || {}).id === "curl") && D.chargeA > .05)); }
+  meterFrame(s, dt, over);
+  kickFrame(s, dt, slow);
   // the line on how you struck it (A1.7): your own kick, the moment it is logged
   strikeLine(s.ms, s.me, dt);
   // the timing ring (A1.5) and the bench's hold-E ring, round the crosshair: the timing ring closes on the moment the
@@ -344,19 +346,21 @@ export function strikeText(ev){
   if (ev.whiff) return "Air kick. The ball wasn't there.";
   if (ev.scuff) return "Scuffed it.";
   const sh = String(ev.shape || ""), q = ev.strike != null ? +ev.strike : 1, shot = ev.intent === "shot";
-  const first = (Q_LINE.find(r => q >= r[0]) || Q_LINE[3])[1];
+  // (UF2-A: a release in the meter's sweet spot is a clean strike, and the line says so first)
+  const first = /clean/.test(sh) ? "Clean strike!" : (Q_LINE.find(r => q >= r[0]) || Q_LINE[3])[1];
   let then = "";
   if (/over/.test(sh)) then = "Leaned back on it.";
   else if (/chip/.test(sh)) then = "Chipped.";
   else if (/dip/.test(sh)) then = "Topspin on it, it'll dip.";
   else if (/curl/.test(sh)) then = shot ? "Curled." : "Bent round.";
   else if (/placed/.test(sh)) then = "Side-footed, placed.";
+  else if (/driven/.test(sh)) then = shot ? "Driven, low and hard." : "Zipped along the grass.";
   else if (/low/.test(sh)) then = "Kept it low.";
   else if (/power/.test(sh)) then = "Hit with everything.";
   else if (/lofted/.test(sh)) then = "Lofted.";
   else if ((ev.rhythm || 0) > .5) then = "Off your stride.";
   // (an ordinary pass says nothing unless something went wrong with it)
-  if (!shot && !then && q >= .55) return "";
+  if (!shot && !then && q >= .55 && !/clean/.test(sh)) return "";
   return then ? first + " " + then : first;
 }
 function strikeLine(ms, me, dt){
@@ -367,6 +371,53 @@ function strikeLine(ms, me, dt){
     if (t){ put("sline", E.sline, t); E.sline.classList.add("in"); D.slineT = 2.4; }
   }
   if (D.slineT > 0 && (D.slineT -= dt) <= 0) E.sline.classList.remove("in");
+}
+/* ---------- the meter and the kick type (UF2-A, U18 to U20) ---------- */
+// the meter: a bar just under the crosshair while a shot or a pass is held (control.js CTRL.meter), above it when the
+// ball would be under it; held a moment after the release on where you let go, saying Clean when it was in the spot
+const METER_W = 132, METER_H = 26, METER_OFF = 40;
+function meterFrame(s, dt, over){
+  const E = D.el, c = s.ctrl, M = c && c.meter;
+  if (!E.meter || !M) return;
+  const C = c.clean;
+  if (C && C.seq !== D.meterSeq){
+    // a release: the meter holds on it (a tap has nothing to show)
+    if (D.meterSeq >= 0 && D.meterA > .05 && C.p > 0){ D.meterHold = .7; D.meterRelP = C.p; D.meterOk = !!C.ok; }
+    D.meterSeq = C.seq;
+  }
+  const on = !!M.on;
+  if (on){ D.meterA = Math.min(1, D.meterA + dt/.1); D.meterHold = 0; D.meterKind = M.kind; D.meterLo = M.lo; D.meterHi = M.hi; D.meterP = M.p; }
+  else if (D.meterHold > 0) D.meterHold -= dt;
+  else D.meterA = Math.max(0, D.meterA - dt/.25);
+  E.meter.style.opacity = D.meterA.toFixed(3);
+  if (D.meterA <= 0) return;
+  const lo = clamp(D.meterLo || 0, 0, 1), hi = clamp(D.meterHi || 0, 0, 1), p = clamp(on ? M.p : D.meterRelP != null ? D.meterRelP : D.meterP || 0, 0, 1);
+  E.meterSweet.style.left = (lo*100).toFixed(1) + "%"; E.meterSweet.style.width = (Math.max(0, hi - lo)*100).toFixed(1) + "%";
+  E.meterFill.style.transform = `scaleX(${p.toFixed(4)})`;
+  const inSweet = p >= lo && p <= hi, bad = over > .05 || (D.meterKind === "shot" && p > .92);
+  E.meter.classList.toggle("sweet", on ? inSweet : !!D.meterOk);
+  E.meter.classList.toggle("over", on && bad);
+  E.meterRel.style.left = (p*100).toFixed(1) + "%"; E.meterRel.style.opacity = on ? "0" : "1";
+  put("meterLab", E.meterLab, D.meterKind === "pass" ? "Weight" : "Power");
+  put("meterSay", E.meterSay, on ? "" : D.meterOk ? "Clean" : "");
+  // (under the crosshair, or over it when the ball is there: the HUD never covers the ball)
+  const w = s.w || innerWidth, h = s.h || innerHeight, k = SET.hudScale || 1, cx = w/2, below = h/2 + METER_OFF*k;
+  let up = false;
+  const b = s.ms && s.ms.ball && s.proj ? s.proj(s.ms.ball.p.x, s.ms.ball.p.y, s.ms.ball.p.z) : null;
+  if (b && b.front && Math.abs(b.x - cx) < (METER_W/2 + 26)*k && Math.abs(b.y - below) < (METER_H/2 + 26)*k) up = true;
+  if (up !== D.meterUp){ D.meterUp = up; E.meter.classList.toggle("up", up); }
+}
+// the kick type, always in its corner: the one you will strike with lit, a short flash when it changes
+function kickFrame(s, dt, slow){
+  const E = D.el, c = s.ctrl;
+  if (!E.kick || !c) return;
+  if (c.kick !== D.kickShown){
+    if (D.kickShown >= 0) D.kickFlash = .6;
+    D.kickShown = c.kick;
+    E.kickItems.forEach((li, i) => li.classList.toggle("on", i === c.kick));
+  }
+  if (D.kickFlash > 0){ D.kickFlash -= dt; if (D.kickFlash <= 0) E.kick.classList.remove("flash"); else E.kick.classList.add("flash"); }
+  if (slow) E.kickTip.style.display = (c.uses && (c.uses.contact || 0) >= 3) ? "none" : "";
 }
 function callsFrame(s, now){
   const E = D.el, ms = s.ms;
@@ -613,6 +664,8 @@ export function settingsHTML(o = {}){
   const rows = [];
   if (lengths.length > 1) rows.push(["Match length", seg("speed", lengths, o.speed)]);
   else if (lengths.length === 1) rows.push(["Match length", `<span>${esc(lengths[0][1])}</span>`]);
+  // (UF2-A: how much the game helps you: the first touch, the pass's aim and the meter's sweet spot)
+  rows.push(["Assists", seg("assist", [["on", "On"], ["low", "Low"], ["off", "Off"]], SET.assist)]);
   rows.push(["Mouse sensitivity", range("sens", .4, 2.5, .05, SET.sens)]);
   rows.push(["Invert mouse", seg("invertY", [[false, "Off"], [true, "On"]], SET.invertY)]);
   rows.push(["Field of view", range("fov", 70, 90, 1, SET.fov)]);
