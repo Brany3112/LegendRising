@@ -63,7 +63,7 @@ export function setSpare(r, v){ if (v === undefined) SPARE.delete(r); else SPARE
 import "./fullmatch.js";
 ```
 
-Applied on this branch in commit `aac72ab`, labelled `[hook]`.
+Applied on this branch in commit `49fae31`, labelled `[hook]`.
 
 ## 4. `LegendRising/js/life/football/controller.js` (P8-A's file), for the match's pause card and the cage's bench
 
@@ -76,7 +76,7 @@ Applied on this branch in commit `3f490a8`, labelled `[hook]`:
   (`FS.state === "bench" && !FS.seated && !FS.called`). The Full cage's bench spots use them, as the stadium's spots
   use its `on.bench` and `on.benchOk`.
 
-## 5. A fix to P8-A's own files, found by P8-B's test (commit `39af9db`'s parent, labelled "P8-A fix")
+## 5. A fix to P8-A's own files, found by P8-B's test (commit `161cdc8`, labelled "P8-A fix")
 
 - `sim.js markHalfStart(ms)`. `controller.js` calls it after `enterTraining` and `resetMatch` set the match up.
 - A reset now zeroes your own walk's speed.
