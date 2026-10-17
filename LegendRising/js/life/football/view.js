@@ -38,10 +38,10 @@ import {SCHED} from "../core/sched.js";
 import {ballMesh} from "./pitchmesh.js";
 import {STADIUM} from "./stadium.js";
 import {predAt, ACT} from "./actions.js";
-import {kindOf, windHold, windUpper, heldBall, HAND} from "../moves.js";
+import {kindOf, windHold, windUpper, heldBall, HAND, RECV} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
-import {R as zoneR, part as zonePart} from "./zone.js";
+import {R as zoneR, part as zonePart, playableFrom} from "./zone.js";
 import {touchPart} from "./touch.js";
 import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
@@ -512,8 +512,9 @@ function outcomeOf(V, a, g){
    recvFor: a first touch about to happen. The contact is found the way the simulation takes it (actions.js touchCheck
    and envAhead): step by step ahead, the ball where it will be at the start of each step (or at its end, or half way
    through it, in envAhead's order and with its LATER_MIN), his body where his run takes him by that step's end, inside his control radius (zone.js R for the ball as
-   it will be then). The first such step is the contact: its time and the ball's centre then are the clip's st.tc and
-   st.ball. The clip starts when that contact is under RECV_LEAD s away and he is the one to take it; its part is
+   it will be then), never before the simulation lets him play it (zone.js playableFrom: a lost 50/50, his own touch a
+   moment ago, a stagger), his body carried on at the pace it really went over the last step (a shove included). The
+   first such step is the contact: its time and the ball's centre then are the clip's st.tc and st.ball. The clip starts when that contact is under RECV_LEAD s away and he is the one to take it; its part is
    touch.js touchPart's (the simulation's own rule: the foot, the raised foot for a ball in the air out to his side or
    when he asks for the foot, the thigh, the chest), on the side of his body the ball is on (his own foot for a ball
    straight at him). Up to the contact the clip is kept on the contact as it is worked out again every frame (a ball
@@ -549,11 +550,16 @@ function contactStep(a, ms, tMax){
   M.yaw = a.m.yaw; M.vx = a.m.vx; M.vz = a.m.vz; M.speed = a.m.speed;
   const bv = ms.ball.v; RBALL.v.x = bv.x; RBALL.v.y = bv.y; RBALL.v.z = bv.z;
   const N = Math.ceil(tMax/H);
+  // (no step before the simulation lets him play it: a lost 50/50, his own touch a moment ago, a stagger)
+  const tFree = playableFrom(ms, a, H);
+  if (!(tFree <= ms.t + N*H + 1e-9)) return null;
+  const v = bodyV(a);
   predSync(ms);
-  for (let n = 0; n <= N; n++){
-    // (his body at the end of that step: the simulation moves him before it looks at the ball)
+  for (let n = Math.max(0, Math.ceil((tFree - ms.t)/H - 1e-6)); n <= N; n++){
+    // (his body at the end of that step: the simulation moves him before it looks at the ball, at the pace he went
+    // over the last step, a shove from the man on his back included)
     const tb = (n + 1)*H;
-    M.x = a.m.x + a.m.vx*tb; M.z = a.m.z + a.m.vz*tb;
+    M.x = a.m.x + v.x*tb; M.z = a.m.z + v.z*tb;
     for (const f of HALF3){
       predOn(ms, (n + f)*H, PB);
       RBALL.p.x = PB.x; RBALL.p.y = PB.y; RBALL.p.z = PB.z;
@@ -570,6 +576,19 @@ function contactStep(a, ms, tMax){
   }
   return null;
 }
+// the body's own pace over the simulation's last step (its mover's velocity, and the pushes of separation, which the
+// mover's velocity does not carry: a defender leaning on his back moves him); the mover's for a jump in place (a
+// restart's placement)
+const BV = {x:0, z:0};
+function bodyV(a){
+  const m = a.m;
+  BV.x = m.vx; BV.z = m.vz;
+  if (a.x0 != null && isFinite(a.x0) && isFinite(a.z0)){
+    const vx = (m.x - a.x0)/H, vz = (m.z - a.z0)/H;
+    if (Math.hypot(vx, vz) < 12){ BV.x = vx; BV.z = vz; }
+  }
+  return BV;
+}
 // the drawn moment now, in the simulation's time: between the last two steps
 const drawnT = (V, ms) => ms.t - H + V.alpha*H;
 const mineFor = (a, ms) => { const p = a.plan; return a.isMe || (p && (p.kind === "receive" || p.kind === "chase" || p.kind === "intercept")) || (ms.kick && ms.kick.ev && ms.kick.ev.recv === a.id); };
@@ -577,8 +596,8 @@ function recvFor(V, R, a, ms){
   if (!mineFor(a, ms)) return null;
   const c0 = R.clip && R.clip.mode === "receive" ? R.clip : null;
   if (c0 && ms.t < c0.until) return recvKeep(V, R, c0, a, ms);
-  // (the ball his already: a dribble, not a first touch)
-  if (ms.poss.ctl === a.id) return null;
+  // (the ball his already: a dribble, not a first touch; somebody else's: his to win off him, not to receive)
+  if (ms.poss.ctl >= 0) return null;
   const k = contactStep(a, ms, RECV_LEAD);
   if (!k) return null;
   return recvStart(V, R, a, ms, k);
@@ -587,7 +606,8 @@ function recvFor(V, R, a, ms){
 // then) and the clip's own name for it: the foot's inside, the sole on a slow ball at the grass, the raised foot
 const RP = {zpart:"", part:"", side:""};
 function recvPart(a, ms, k){
-  RA.m.x = a.m.x + a.m.vx*(k.t + H); RA.m.z = a.m.z + a.m.vz*(k.t + H);
+  const v = bodyV(a);
+  RA.m.x = a.m.x + v.x*(k.t + H); RA.m.z = a.m.z + v.z*(k.t + H);
   RBALL.p.x = k.x; RBALL.p.y = k.y; RBALL.p.z = k.z;
   const part0 = touchPart(RA, RBALL, a.plan && a.plan.part);
   const f = dirOf(a.m.yaw), lat = (k.x - RA.m.x)*-f.z + (k.z - RA.m.z)*f.x, sc = a.scale || 1;
@@ -596,21 +616,28 @@ function recvPart(a, ms, k){
   RP.side = Math.abs(lat) < .1 ? (a.foot === "L" ? "L" : "R") : lat >= 0 ? "R" : "L";
   return RP;
 }
-// a receive clip on the contact k (a new one: moves.js starts it afresh on its id)
+// a receive clip on the contact k (a new one: moves.js starts it afresh on its id). A contact nearer than the clip's
+// own lead at RECV_PACE times its pace (a ball that has only just become his: a deflection, a tackle that ran loose
+// to him) starts the clip part of the way in (st.skip, at most RECV_SKIP of the way to its contact moment): the
+// anticipation is cut short, so the part still gets to the ball at the simulation's moment
+const RECV_PACE = 1.2, RECV_SKIP = .6;
 function recvStart(V, R, a, ms, k){
   const P = recvPart(a, ms, k);
   if (P.zpart === "head"){ R.clip = null; return null; }
   const push = a.plan && a.plan.push ? {x:a.plan.push.x, z:a.plan.push.z} : null;
-  R.clip = {key:"receive", ref:ms.predSeq, id:++CLIP_N, mode:"receive", part:P.part, zpart:P.zpart, side:P.side, ball:{x:k.x, y:k.y, z:k.z}, tc:Math.max(0, ms.t + k.t - drawnT(V, ms)),
-    dStart:k.d, rStart:k.r, ballV:{x:ms.ball.v.x, y:ms.ball.v.y, z:ms.ball.v.z}, cushion:.7, push, rootV:{x:a.m.vx, z:a.m.vz}, ballNow:{x:0, y:0, z:0},
-    tSim:ms.t + k.t, t0:ms.t, until:ms.t + k.t + RECV_HOLD, lost:0, done:false};
+  const tc = Math.max(0, ms.t + k.t - drawnT(V, ms)), ct = (RECV[P.part] || RECV.inside).contact;
+  const skip = Math.min(RECV_SKIP*ct, Math.max(0, ct - RECV_PACE*tc)), v = bodyV(a);
+  R.clip = {key:"receive", ref:ms.predSeq, id:++CLIP_N, mode:"receive", part:P.part, zpart:P.zpart, side:P.side, ball:{x:k.x, y:k.y, z:k.z}, tc, skip,
+    dStart:k.d, rStart:k.r, ballV:{x:ms.ball.v.x, y:ms.ball.v.y, z:ms.ball.v.z}, cushion:.7, push, rootV:{x:v.x, z:v.z}, ballNow:{x:0, y:0, z:0},
+    tSim:ms.t + k.t, t0:ms.t, reach:(ct - skip)/RECV_SLOW, until:ms.t + k.t + RECV_HOLD, lost:0, done:false};
   ballNow(V, ms, R.clip.ballNow);
   return R.clip;
 }
 // (a contact with another part, or one the clip can no longer get to in time, is another contact: the clip starts
-// again on it. moves.js's clock runs a clip at 0.7 to 1.4 times its own pace, so a contact more than RECV_REACH s
-// after the clip began (its contact moment over 0.7: 0.32 to 0.34 s) would be posed early, where the ball is not yet)
-const RECV_REACH = .46;
+// again on it. moves.js's clock runs a clip at RECV_SLOW (0.7) to 1.4 times its own pace, so a contact more than
+// c.reach s after the clip began (what is left of the way to its contact moment over 0.7) would be posed early,
+// where the ball is not yet; one sooner than the clip can get to at 1.4 times its pace would be posed late)
+const RECV_SLOW = .7, RECV_FAST = 1.4;
 // a receive under way: kept on the contact up to it (the simulation's own once it has taken the touch), the head on the ball
 function recvKeep(V, R, c, a, ms){
   ballNow(V, ms, c.ballNow);
@@ -633,9 +660,13 @@ function recvKeep(V, R, c, a, ms){
   c.lost = 0;
   const P = recvPart(a, ms, k);
   if (P.zpart === "head"){ R.clip = null; return null; }
-  if (P.zpart !== c.zpart || ms.t + k.t - c.t0 > RECV_REACH) return recvStart(V, R, a, ms, k);
-  c.ball.x = k.x; c.ball.y = k.y; c.ball.z = k.z; c.tSim = ms.t + k.t; c.tc = Math.max(0, c.tSim - drawnT(V, ms));
-  c.until = c.tSim + RECV_HOLD; c.rootV.x = a.m.vx; c.rootV.z = a.m.vz;
+  if (P.zpart !== c.zpart || ms.t + k.t - c.t0 > c.reach) return recvStart(V, R, a, ms, k);
+  const tc = Math.max(0, ms.t + k.t - drawnT(V, ms)), C = R.h && R.h.mv;
+  if (C && C.key === "receive" && C.id === c.id && !C.contactDone && tc*RECV_FAST < C.contact - C.tau - .04 &&
+    Math.min(RECV_SKIP*C.contact, C.contact - RECV_PACE*tc) > C.tau + .02) return recvStart(V, R, a, ms, k);
+  const v = bodyV(a);
+  c.ball.x = k.x; c.ball.y = k.y; c.ball.z = k.z; c.tSim = ms.t + k.t; c.tc = tc;
+  c.until = c.tSim + RECV_HOLD; c.rootV.x = v.x; c.rootV.z = v.z;
   if (a.plan && a.plan.push){ c.push = c.push || {x:0, z:0}; c.push.x = a.plan.push.x; c.push.z = a.plan.push.z; }
   return c;
 }

@@ -153,6 +153,20 @@ export function canPlay(ms, a){
   if (a.isGK && a.gk && (a.gk.state === 'dive' || a.gk.state === 'hold')) return false;
   return true;
 }
+// The earliest simulation time canPlay's timed bars let him play the ball (the step whose ball check runs at that
+// time), as things stand: a lost 50/50 (noTouch), a tackle he is getting up from (recoverT), his own touch a moment ago
+// (ghosted: GHOST_T after it), a stagger (the mover takes h off it each step before the ball is looked at, and it bars
+// him above 0.2). Infinity for a man on the ground. h: the step (1/60). Read by the view (P6-A) so a first touch is
+// never posed before the simulation can take it.
+export function playableFrom(ms, a, h){
+  if (a.state === 'ground') return Infinity;
+  let t = Math.max(ms.t, a.noTouch || 0, a.recoverT || 0);
+  const L = ms.ball.last;
+  if (a.id === L.agent && L.kind !== 'dribble' && L.kind !== 'control') t = Math.max(t, L.t + GHOST_T);
+  const sg = a.m.stagger || 0;
+  if (sg > 0.2) t = Math.max(t, ms.t + Math.ceil((sg - 0.2)/h - 1 - 1e-9)*h);
+  return t;
+}
 
 // The arrival time of agent a on the ball's predicted path (ms.pred, ball.js ballPredict): when, from now, his mover
 // (acceleration, top speed, turning: ball.js firstReach on mover.js timeToPointQ) can first have the ball inside his

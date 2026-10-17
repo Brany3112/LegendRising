@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {ratings, fSpeed, fHeight, fAngle, fFatigue, radius, R as zoneR, part, q, touchDist, arrivals, arrivalOf, canPlay} from "../../js/life/football/zone.js";
+import {ratings, fSpeed, fHeight, fAngle, fFatigue, radius, R as zoneR, part, q, touchDist, arrivals, arrivalOf, canPlay, playableFrom, GHOST_T} from "../../js/life/football/zone.js";
 import {TUNE} from "../../js/life/football/tune.js";
 import {createMatch, simStep} from "../../js/life/football/sim.js";
 import {attrsForAI} from "../../js/life/football/attrs.js";
@@ -125,6 +125,23 @@ function race(seed, dz2){
   let none = 0, firstWins = 0;
   for (let s = 1; s <= 8; s++){ const r = race(s, 2.4); if (!r.duel) none++; if (r.who >= 0 && r.who === 1) firstWins++; }
   check(none === 8, "a man 1.45 m further from it (more than 0.15 s) gives no duel", {none});
+}
+
+/* ---------- playableFrom: when canPlay's timed bars lift (TR-6 fix round 2: the view's receive clip reads it) ---------- */
+{
+  const h = 1/60, ms = {t: 10, ball: {last: {agent: 3, kind: "deflect", t: 9.95}}};
+  const a = {id: 3, state: "stand", noTouch: 10.1, recoverT: 0, m: {stagger: 0}};
+  const t1 = playableFrom(ms, a, h);
+  a.noTouch = 0; ms.ball.last.kind = "control";
+  const t2 = playableFrom(ms, a, h);
+  a.m.stagger = 0.35;
+  const t3 = playableFrom(ms, a, h), n3 = Math.round((t3 - ms.t)/h);
+  // (the mover takes h off the stagger each step before the ball is looked at: at step n it is stagger - (n + 1) h)
+  const blockedAt = n => a.m.stagger - (n + 1)*h > 0.2, lifts = !blockedAt(n3) && blockedAt(n3 - 1);
+  a.m.stagger = 0; a.state = "ground";
+  const t4 = playableFrom(ms, a, h);
+  check(near(t1, 9.95 + GHOST_T) && near(t2, 10) && lifts && t4 === Infinity,
+    "playableFrom: his own deflection bars him GHOST_T, his own control does not, a stagger lifts on the step canPlay lets him play, on the ground never", {t1: r4(t1), t2, n3, lifts, ground: String(t4)});
 }
 
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});

@@ -139,7 +139,7 @@ export function rateHips(h, T, dt, vmax = 1.2){
 // the legs of the feet not held (w 0) under the speed limit
 // (a held leg too: the plant pass solves it after, but when the hold ends the pose's own leg takes over from the drawn
 // one, and kept within a frame's turn of it there is no snap at the hand-over)
-function rateLegs(h, T, C, dt){ if (!C.feet) return; rateLimit(h, T, LEGB_L, dt); rateLimit(h, T, LEGB_R, dt); }
+function rateLegs(h, T, C, dt, rate = RATE.max){ if (!C.feet) return; rateLimit(h, T, LEGB_L, dt, rate); rateLimit(h, T, LEGB_R, dt, rate); }
 
 /* ---------- small curves ---------- */
 // Hermite from p0 to p1 over u in [0, 1] with end tangents m0, m1 (already times the segment's duration)
@@ -1280,7 +1280,7 @@ function acroBody(h, T, C, d, k, K, s, tau, ball){
    - recovery and transition: the receiving foot comes down where the next stride will put it (ahead of the root on
      the run) and the hips come back up; the clip is over at most POST s after the contact (the view hands the body
      back to the gait then), so the body is never held in it longer than that. */
-const RECV = {inside:{dur:.62, contact:.32}, sole:{dur:.58, contact:.30}, air:{dur:.64, contact:.32}, thigh:{dur:.64, contact:.32}, chest:{dur:.66, contact:.34}};
+export const RECV = Object.freeze({inside:{dur:.62, contact:.32}, sole:{dur:.58, contact:.30}, air:{dur:.64, contact:.32}, thigh:{dur:.64, contact:.32}, chest:{dur:.66, contact:.34}});
 // STEP: how far the support foot may be from its spot before it steps (m, x height); LIFT: its step's height; REACH:
 // the most the hips move to bring the part onto the ball; POST: the clip's end after the contact (on the run, RUN_POST)
 // (the chest and the thigh: the body steps in to the ball, the support foot planted under where the hips will be, BODY_BACK
@@ -1292,9 +1292,12 @@ const RECV_EV = [];
 function recvSpec(st){
   const R0 = RECV[st.part] || RECV.inside, v = st.rootV ? Math.hypot(st.rootV.x, st.rootV.z) : 0;
   _spec.contact = R0.contact; _spec.dur = Math.min(R0.dur, R0.contact + (v > RCV.RUN_V ? RCV.RUN_POST : RCV.POST));
-  _spec.pre = 0; _spec.begin = null; _spec.events = RECV_EV;
+  _spec.pre = 0; _spec.begin = st.skip > 0 ? recvBegin : null; _spec.events = RECV_EV;
   return _spec;
 }
+// (a late start, the view's st.skip: the clip begins that far in, at most 0.6 of the way to its contact moment; its
+// step, its reach and its lift are timed from there)
+function recvBegin(h, C, st){ C.tau0 = clamp(+st.skip || 0, 0, .6*C.contact); }
 const _rp = {x:0, y:0, z:0}, _rq = {x:0, y:0, z:0};
 // a part's point in body space (from the pose being written: T)
 function partB(h, T, part, s, out){
@@ -1327,7 +1330,7 @@ function receive(h, T, st, dt){
   const C = clock(h, "receive", st, sp);
   setBT(h);
   const D = h.D, sc = BT.sc, d = C.data, s = st.side === "L" || st.side === 1 ? 1 : -1, i = s > 0 ? 0 : 1, j = 1 - i, sup = -s;
-  const ct = sp.contact, dur = sp.dur, tau = C.tau;
+  const ct = sp.contact, dur = sp.dur, tau = C.tau, t0 = Math.min(C.tau0 || 0, ct - .08);
   const groundY = BT.gy + D.ankY*sc;
   // the ball: where the simulation meets it (kept on it by the view up to the contact)
   // (read up to and including the frame of the contact: the view puts it on the simulation's own point then)
@@ -1390,7 +1393,8 @@ function receive(h, T, st, dt){
     d.pyaw = clamp(wrap(faceYaw*.6), -1.1, 1.1);
     // does it need the step? (on the run it always does: it is the stride's plant)
     d.step = d.run || Math.hypot(Fs.x - px, Fs.z - pz) > RCV.STEP*sc || Math.abs(wrap(Fs.yaw - d.pyaw)) > .7;
-    d.tUp = d.run ? 0 : .03; d.tDown = Math.max(.12, ct - .1);
+    // (a late start, t0: the step from where the clip began, still down before the contact)
+    d.tUp = t0 + (d.run ? 0 : .03); d.tDown = Math.min(ct - .03, Math.max(d.tUp + .09, ct - .1));
     if (!d.step){ d.px = Fs.x; d.pz = Fs.z; d.pyaw = Fs.yaw; }
     d.steps = 0; d.plantT = -1;
     // the receiving foot comes down after the contact where the next stride puts it: beside the support foot, ahead of
@@ -1415,7 +1419,7 @@ function receive(h, T, st, dt){
   // --- the receiving part: to the ball for the contact, giving with it, then down where the next stride lands
   const gk = sstep(ct, ct + .14, tau)*(1 - sstep(ct + .16, dur, tau)*.4);
   const gx = (d.vx*.7 + d.ux*.3)*d.give*gk, gz = (d.vz*.7 + d.uz*.3)*d.give*gk;
-  const lift0 = d.run ? 0 : .06;                                // (standing, the weight goes onto the support foot first)
+  const lift0 = t0 + (d.run || t0 > 0 ? 0 : .06);              // (standing, the weight goes onto the support foot first)
   const uIn = clamp((tau - lift0)/Math.max(.08, ct - lift0), 0, 1), eIn = ease(uIn);
   const uOut = clamp((tau - ct - .1)/Math.max(.06, d.tLand - ct - .1), 0, 1), eOut = ease(uOut);
   if (part === "inside" || part === "sole" || part === "air"){
@@ -1435,15 +1439,15 @@ function receive(h, T, st, dt){
     Fk.down = tau < lift0 || uOut >= 1;
   } else if (part === "thigh"){
     // the thigh comes up under the ball (the knee as high as the ball asks) and drops away with it
-    const lift = kf4(tau, 0, 0, ct, 1, ct + .15, .7, dur, 0), hb = clamp((d.by - d.gy)/sc - .4, 0, .6)/.55;
+    const lift = kf4(tau, t0, 0, ct, 1, ct + .15, .7, dur, 0), hb = clamp((d.by - d.gy)/sc - .4, 0, .6)/.55;
     // (from where it stood, carried in with the body's step to the ball)
-    const ein = ease(clamp(tau/Math.max(.1, ct), 0, 1));
+    const ein = ease(clamp((tau - t0)/Math.max(.08, ct - t0), 0, 1));
     toB(d.kx0 + d.ax*d.along*ein, d.ky0, d.kz0 + d.az*d.along*ein, _b3);
     toW(_b3.x, D.ankY + (.1 + .14*hb)*lift, _b3.z + (.14 + .16*hb)*lift, _w3);
     Fk.x = _w3.x; Fk.y = _w3.y; Fk.z = _w3.z; Fk.yaw = 0; Fk.pitch = .6*lift; Fk.roll = 0; Fk.down = lift <= 0;
   } else {
     // the chest: both feet stay (the support foot set under the body), the receiving foot steps back a touch to brace
-    const u = clamp((tau - .04)/.2, 0, 1), e = ease(u);
+    const u = clamp((tau - t0 - .04)/Math.max(.08, Math.min(.2, ct - t0 - .04)), 0, 1), e = ease(u);
     // (it follows the body's step in to the ball by half, behind the support foot)
     toB(d.kx0 + d.ax*d.along*.5*e, d.ky0, d.kz0 + d.az*d.along*.5*e, _b3);
     toW(_b3.x, D.ankY, _b3.z - .08*e, _w3);
@@ -1455,10 +1459,10 @@ function receive(h, T, st, dt){
   const wC = Math.exp(-Math.pow((tau - ct)/.12, 2));
   const turn = clamp(faceYaw, -1.4, 1.4);
   T[61] = -(.035 + (part === "inside" || part === "sole" ? .03 : 0))*wIn - .03*wC;
-  T[60] = sup*.045*sstep(0, d.tDown, tau)*(1 - sstep(ct, ct + .2, tau))*wIn;
+  T[60] = sup*.045*sstep(t0, d.tDown, tau)*(1 - sstep(ct, ct + .2, tau))*wIn;
   // (the chest and the thigh: the hips go in with the step to the ball and come part of the way back after)
   if (d.along > 0){
-    dirB(d.ax, d.az, _d2); const k = d.along*kf4(tau, 0, 0, ct, 1, ct + .12, 1, dur, .35);
+    dirB(d.ax, d.az, _d2); const k = d.along*kf4(tau, t0, 0, ct, 1, ct + .12, 1, dur, .35);
     T[60] += _d2.x*k; T[62] += _d2.z*k;
   }
   R3(T, B.hips, .04*wIn, turn*.38*wIn, 0);
@@ -1467,7 +1471,7 @@ function receive(h, T, st, dt){
   // arms out for balance: the side of the receiving leg out and a little back, the other forward across the body; for
   // the chest both out wide and clear of the ball (no handball)
   if (part === "chest"){
-    const arch = kf4(tau, 0, 0, ct - .06, -.3, ct + .1, -.2, dur, 0);
+    const arch = kf4(tau, Math.min(t0, ct - .07), 0, ct - .06, -.3, ct + .1, -.2, dur, 0);
     R3(T, B.spine, arch*.6, turn*.14*wIn, 0); R3(T, B.chest, arch*.5, turn*.1*wIn, 0);
     const o = kf3(tau, 0, .3, ct, 1.25, dur, .35);
     armPose(T, 1, o, .15, .6); armPose(T, -1, o, .15, .6);
@@ -1481,19 +1485,31 @@ function receive(h, T, st, dt){
   recvLegs(h, T, F, d, tau, j);
   if (wC > .02 && (tau < ct + .1)){
     // where the part is in the pose, against where it has to be (the ball's centre, its own face on the ball's surface)
-    partB(h, T, part, s, _rp);
     // (the foot's face where the foot was put on the ball above; the thigh and the chest on the ball's near surface)
-    const body = part === "chest" || part === "thigh";
+    const body = part === "chest" || part === "thigh", mx = body ? RCV.REACH_BODY : RCV.REACH;
     if (body) toB(d.bx + d.vx*BR*.5, d.by, d.bz + d.vz*BR*.5, _rq); else toB(d.tx, d.ty, d.tz, _rq);
-    let ex = _rq.x - _rp.x, ey = _rq.y - _rp.y, ez = _rq.z - _rp.z;
-    // (the feet stay down: the hips go no lower than a bent knee allows, and for a foot the leg reaches as well)
-    const el = Math.hypot(ex, ey, ez), mx = body ? RCV.REACH_BODY : RCV.REACH;
-    if (el > mx){ ex *= mx/el; ey *= mx/el; ez *= mx/el; }
-    T[60] += ex*wC; T[61] += clamp(ey, -.12, body ? .1 : .06)*wC; T[62] += ez*wC;
-    recvLegs(h, T, F, d, tau, j);
+    // (the thigh and the chest twice: the legs solved again after the first move leave a little of it, the planted
+    // support leg's knee giving; a foot once, its own leg reaching the rest of the way)
+    let used = 0;
+    for (let it = 0; it < (body ? 2 : 1) && used < mx - 1e-3; it++){
+      partB(h, T, part, s, _rp);
+      let ex = _rq.x - _rp.x, ey = clamp(_rq.y - _rp.y, -.12, body ? .1 : .06), ez = _rq.z - _rp.z;
+      // (the feet stay down: the hips go no lower than a bent knee allows, and for a foot the leg reaches as well)
+      const el = Math.hypot(ex, ey, ez), lim = mx - used;
+      if (el < .005) break;
+      if (el > lim){ ex *= lim/el; ey *= lim/el; ez *= lim/el; }
+      used += Math.min(el, lim);
+      T[60] += ex*wC; T[61] += ey*wC; T[62] += ez*wC;
+      // (the thigh's foot is off the ground under it: it goes with the hips, so the thigh moves as they do rather than
+      // pivoting about a foot left behind)
+      if (part === "thigh"){ toW(0, 0, 0, _w3); const x0 = _w3.x, y0 = _w3.y, z0 = _w3.z; toW(ex*wC, ey*wC, ez*wC, _w3); Fk.x += _w3.x - x0; Fk.y += _w3.y - y0; Fk.z += _w3.z - z0; }
+      recvLegs(h, T, F, d, tau, j);
+    }
   }
-  rateHips(h, T, dt, 2.2);
-  rateLegs(h, T, C, dt);
+  // (a late start: the same moves in less time, so the hips and the legs may go as much faster as the clip is shorter)
+  const quick = t0 > 0 ? ct/Math.max(.08, ct - t0) : 1;
+  rateHips(h, T, dt, 2.2*quick);
+  rateLegs(h, T, C, dt, RATE.max*quick);
   for (let k = 0; k < 2; k++){
     const f = F[k];
     if (f.down && !f.wasDown) f.landT = tau;

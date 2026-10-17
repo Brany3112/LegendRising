@@ -1365,6 +1365,8 @@ Merge order: P6-A, then P6-B. Scenario modules register their config types throu
 
    Configurable: passer, receiver, stationary or moving, defender and distance, direction, speed, initial height, ground, bouncing or aerial, intended control type, the follow-up (control, redirect, pass or shoot) and attributes.
 2. **feeder.js:** an AI passer playing real passes, or the coach feed, along configured trajectories. It never teleports the ball. It reads the same `ball.launch` config field that the runner applies today with an agent -1 kick (P4-A teams.js, P4-B runner). With a passer configured, the passer's own strike plays that launch from his foot instead.
+
+   *Recorded deviation (TR-6 fix round 2, integrator).* The receiving drills are of type `receive` (receive.js), whose options (where from, how, how hard, how high, to where on the receiver) solve the launch in feeder.js, because a pass to a man on the run has to be aimed where he will be, which a fixed `ball.launch` target cannot say. The runner's agent -1 launch and the feeder's coach kick are the same ball.js kick. The Phase 4 type `receiving` in config.js stays as the generic type of the category with its `ball.launch` field (tr4-config checks every Phase 4 type, and a scenario that wants a fixed flight can still use it); no drill registers it today. A configured passer's strike plays the solved launch exactly (no deviation, no speed spread: the acceptance holds the launch within 2% and the apex within 5 cm), so his attributes shape the flight through his ball's drag and curl only.
 3. **touch.js:**
    - a cushioned header (today every header leaves at 6 m/s or more);
    - foot control of a ball above 0.6 m within R.
@@ -1428,6 +1430,8 @@ Merge order: P6-A, then P6-B. Scenario modules register their config types throu
 7. **Instant replay** in training, and the **OFF-2** offside notice in thud.
 
 **Hook requests:** importmap entries, and `import './scen-team.js';`, `import './scen-attack.js';`, `import './scen-defend.js';` and `import './scen-match.js';` in `js/life/train/index.js`, all to the integrator. Changes to rules.js are not expected; if one is needed, it is a hook to the integrator.
+
+*Recorded (TR-6 fix rounds, integrator work).* The TR-6 fix rounds act as the integrator for Phase 6 and edited files neither package owns: sim.js (LEVEL 0.82 to 0.90 and Standard tempo shotBias 1.9 to 1.7, the harness recalibration after P6-A's aerial first touch), rules.js (reconsiderSource: the quickest spare ball when the game ball is out of reach), zone.js (playableFrom, the time canPlay's timed bars lift, read by the view's receive clip) and brain.js (the harness stand-in's archetype table, and CALL_MIN for a pass to the player on his call).
 
 **Acceptance**
 - **`qa/tr6-team.mjs`** (Node, every scenario x 10 seeds):

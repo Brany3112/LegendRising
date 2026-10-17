@@ -64,8 +64,8 @@ export const BRAIN = Object.freeze({
   // to 12, W up 8 to 13, AM tackle 1 to 0.9, CM shoot 1.3 to 1.6 and up 2 to 3, DF tackle 1 to 1.2, after the
   // possession rework moved the forwards' defensive actions and touches up and the defenders' down)
   ME: {
-    ST: {shoot: 2.5, dribble: 1.2, tackle: 1.0, back: 3, seek: 12, up: 5, drop: 2},
-    W: {shoot: 3.6, dribble: 1, tackle: 1, back: 1, seek: 60, up: 13, drop: 0},
+    ST: {shoot: 2.5, dribble: 1.2, tackle: 1.0, back: 3, seek: 12, up: 9, drop: 2},
+    W: {shoot: 3.6, dribble: 1, tackle: 1, back: 1, seek: 60, up: 20, drop: 0},
     AM: {shoot: 6.8, dribble: 1.8, tackle: 0.9, back: 1, seek: 3, up: 4, drop: 8},
     CM: {shoot: 1.6, dribble: 1.2, tackle: 6.5, back: 1, seek: 2, up: 3, drop: 0},
     DF: {shoot: 1, dribble: 1, tackle: 1.2, back: 1, seek: 12, up: 0, drop: 0}
@@ -99,6 +99,9 @@ export const BRAIN = Object.freeze({
   // (U10) the player's call heard by the carrier: a pass to him that is on (its pOK from CALL_ON[0], fully from CALL_ON[1])
   // gains CALL_ADD of the best option's worth while the call stands; never to a man seen offside, never a pass that is not on
   CALL_ON: [0.5, 0.7], CALL_ADD: 0.2,
+  // (P6-B) a pass to the player on his call from outside the usual range is never from closer than CALL_MIN m (to
+  // where it is played, and to where he stands now): from a yard away a pass reads as no pass at all
+  CALL_MIN: 3,
   // (U9) where a shot is worth taking from: square on to goal (within SIGHT[0] m of the long axis, SIGHT[1] to SIGHT[2] m
   // out) the shot is worth SIGHT[3] more than the bare xG says (the whole goal to aim at, the keeper unsighted through
   // the bodies in front); from a wide angle beyond SIGHT[4] m out (more than SIGHT[0] m off the axis) SIGHT[5] of it
@@ -591,9 +594,9 @@ function* carrierOptions(ms, a){
     // options, valued by the same pass model); the AI stand-in of the harness keeps the AI's own range. Out of the
     // range any team-mate is passed to (closer than PASS_MIN, further than PASS_MAX) it is made only when he calls
     // for it (onCall: the softmax leaves it out otherwise), so he is never given a ball an AI player in his place
-    // would not get
+    // would not get, and never from point-blank range (CALL_MIN)
     const meOpt = o.isMe && !ms.meAI, inRange = d >= BRAIN.PASS_MIN && d <= BRAIN.PASS_MAX;
-    if (inRange || meOpt && d >= 1){
+    if (inRange || meOpt && d >= BRAIN.CALL_MIN && hypot(om.x - m.x, om.z - m.z) >= BRAIN.CALL_MIN){
       const v0 = passSpeedFor(d, 9, ms.ball.rollDecel);
       let pm = passModel(ms, org, {x: tx, z: tz}, 'pass', v0, o);
       let kind = 'pass', pOK = pm.pOK, spd = v0;
