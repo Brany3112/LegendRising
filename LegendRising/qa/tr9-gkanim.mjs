@@ -29,7 +29,9 @@ try {
   const sc = await page.evaluate(() => { const s = window.__trainRun.scenariosOf("attacking").find(x => (x.config || {}).keeper); return s ? s.id : "att-midfield"; });
   const S = {moveFrames:0, planted:0, used:{gkcatch:0, gkcollect:0, gkpunch:0, gktip:0, gkdive:0}, states:[], late:[], dives:0, back:[], tele:0, teleMax:0, acts:{gkthrow:0, gkroll:0}, far:[], rel:[]};
   for (let seed = 1; seed <= 26; seed++){
-    await page.evaluate(([id, seed]) => { const R = window.__trainRun; if (R.RUN.cur) R.stopScenario("restart"); R.startScenario(id, Object.assign({}, R.scenario(id).config, {seed, keeper:true})); }, [sc, seed]);
+    // (the crosses' seeds (k 3 and 4, below) with four defenders: the drill's own two and the crowd a punch needs)
+    const crowd = seed % 6 === 3 || seed % 6 === 4 ? {defenders:4} : {};
+    await page.evaluate(([id, seed, crowd]) => { const R = window.__trainRun; if (R.RUN.cur) R.stopScenario("restart"); R.startScenario(id, Object.assign({}, R.scenario(id).config, {seed, keeper:true}, crowd)); }, [sc, seed, crowd]);
     await ready();
     const r = await page.evaluate(seed => {
       const G9 = window.__g9, L = G9.L, R0 = window.__trainRun.RUN.cur, Tn = R0.T, ms = Tn.ms, V = Tn.V, AC = G9.AC, me = ms.agents[ms.me];
@@ -86,10 +88,12 @@ try {
           me.m.x = gx - dir*12; me.m.z = sd*22; me.x0 = me.m.x; me.z0 = me.m.z;
           ballAt(me.m.x + dir*.3, .11, me.m.z - sd*.5);
           for (let i = 0; i < 6; i++) frame();
-          // (a crowd under it, your team-mates in the six-yard box: his to punch as often as to claim)
-          // (gkbrain.js punches a claim with GK.PUNCH_N men within GK.PUNCH_R m of where he meets it)
+          // (a crowd under it, four men in the six-yard box: his to punch as often as to claim)
+          // (gkbrain.js punches a claim with GK.PUNCH_N men within GK.PUNCH_R m of where he meets it. The drill has two
+          // defenders of its own, so these seeds start with four (crowd, above); each is held on his spot (brain.js
+          // drillMove 'stand'), else they ran off before the ball came down and no cross was ever punched)
           const tx = gx - dir*(3 + rep), tz = -sd*(rep - 1);
-          ms.agents.filter(o => o !== me && o.onPitch && !o.isGK).slice(0, 4).forEach((o, i) => { o.m.x = tx + (i % 2 ? .9 : -.9); o.m.z = tz + (i < 2 ? .9 : -.9); o.x0 = o.m.x; o.z0 = o.m.z; o.m.vx = o.m.vz = 0; });
+          ms.agents.filter(o => o !== me && o.onPitch && !o.isGK).slice(0, 4).forEach((o, i) => { o.m.x = tx + (i % 2 ? .9 : -.9); o.m.z = tz + (i < 2 ? .9 : -.9); o.x0 = o.m.x; o.z0 = o.m.z; o.m.vx = o.m.vz = 0; if (!("dr0" in o)) o.dr0 = o.drill; o.drill = {behave:"stand", x:o.m.x, z:o.m.z}; });
           AC.startAction(ms, me, {kind:"cross", target:{x:tx, y:2.4, z:tz}, contact:1});
         } else {
           // a ball rolled at him from 14 m: his to gather
@@ -97,6 +101,8 @@ try {
         }
         for (let i = 0; i < 60*5.5; i++) frame();
       }
+      // (the crowd let go again: his distribution below has them as his back line)
+      for (const o of ms.agents) if ("dr0" in o){ o.drill = o.dr0; delete o.dr0; }
       return out;
     }, seed);
     if (!r) continue;
