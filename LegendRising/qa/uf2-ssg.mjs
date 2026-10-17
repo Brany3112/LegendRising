@@ -14,7 +14,8 @@
 // Checked in every game:
 //   - the scoreboard is up from the start to the end, on screen and not covered (by the need bars, the money or the drill
 //     card), and shows "You" and "Bibs", the simulation's score for each side and the time left (within a second); a
-//     goal's card comes down clear of the drill card; no team-mate runs into you as he takes his place;
+//     goal's card comes down clear of the drill card; no team-mate runs into you as he takes his place (before the ball is
+//     played);
 //   - the kits: your side's shirts are the club's, the other side's are the bibs, the two at least KIT_SUM_MIN apart
 //     (CIEDE2000), a keeper in each goal, each keeper clear of both; and every body wears the same shirt from the first
 //     second to the last,
@@ -100,8 +101,9 @@ const WATCH = () => {
     names: [B.mine, B.theirs], inView: !!r && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && r.width > 40,
     vis: !!cs && cs.visibility !== "hidden" && cs.display !== "none" && +cs.opacity > .5, covers,
     cardOver: card && drc && hit(card, drc) ? {card: [Math.round(card.top), Math.round(card.bottom)], drill: [Math.round(drc.top), Math.round(drc.bottom)]} : null});
-  // the nearest team-mate to you in the first seconds (he jogs to his place: never into you)
-  if (T.t < 5){
+  // the nearest team-mate to you while the squad takes its places, before anybody has played the ball (he jogs to his
+  // place: never into you). (Once the ball is in play, two of a side closing down the same man is football)
+  if (T.t < 5 && !(ms.ball.last && ms.ball.last.agent >= 0)){
     let dm = Infinity, who = null;
     for (const o of ms.agents) if (o.onPitch && o.team === me.team && o !== me && o.role === "player"){ const d = Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z); if (d < dm){ dm = d; who = o; } }
     if (W.nearMate == null || dm < W.nearMate){
@@ -230,7 +232,7 @@ try {
     check(!covered.length, `${N}: nothing of the HUD covers the scoreboard (the need bars, the money, the drill card) at ${SIZE}`, covered.slice(0, 3).map(s => ({t: s.t, by: s.covers})));
     const cardOver = B.filter(s => s.cardOver);
     check(!cardOver.length, `${N}: a goal's card comes down clear of the drill card at ${SIZE}`, cardOver.slice(0, 3).map(s => Object.assign({t: s.t}, s.cardOver)));
-    check(g.nearMate == null || g.nearMate > 1.2, `${N}: no team-mate runs into you in the first seconds (nearest ${g.nearMate == null ? "none" : g.nearMate.toFixed(2)} m)`, {d: g.nearMate, at: g.nearAt});
+    check(g.nearMate == null || g.nearMate > 1.2, `${N}: no team-mate runs into you as the squad takes its places (nearest ${g.nearMate == null ? "none" : g.nearMate.toFixed(2)} m)`, {d: g.nearMate, at: g.nearAt});
     check(B.every(s => s.names[0] === "You" && s.names[1] === "Bibs"), `${N}: it names the sides: You and Bibs`, B[0] && B[0].names);
     const badScore = B.filter(s => s.score[0] !== s.want[0] || s.score[1] !== s.want[1]);
     check(!badScore.length, `${N}: its score is the simulation's, yours first`, badScore.slice(0, 3));
