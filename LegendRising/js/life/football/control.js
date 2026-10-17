@@ -219,11 +219,17 @@ export function controlRelease(){
 if (typeof addEventListener === "function") addEventListener("blur", () => controlRelease());
 
 /* ---------- where you look ---------- */
-// the eye (matchcam's own numbers: 1.68 x scale, ahead of the neck) and the look direction
+// the eye (1.68 x scale over your feet, ahead of the neck) and the look direction. The eye's place over your feet is
+// worked out here for the aim and for the camera alike (matchcam.js): AHEAD of the neck at a level look, AHEAD_DOWN
+// more as you look down (the head tips forward), DROP lower (the neck bends), all times your height's scale. UF2-A
+// (USER-ISSUES U12): a little less forward than it was (0.22 at a full look down), so the feet stay under the eye
+export const EYE_AT = Object.freeze({AHEAD: .07, AHEAD_DOWN: .12, DROP: .05});
+export const eyeAhead = (pitch, s = 1) => (EYE_AT.AHEAD + EYE_AT.AHEAD_DOWN*sstep(.75, 1.35, -pitch))*s;
+export const eyeDrop = (pitch, s = 1) => EYE_AT.DROP*sstep(.3, 1.2, -pitch)*s;
 const EYE = {x:0, y:0, z:0}, LD = {x:0, y:0, z:-1};
 function eyeOf(me, yaw = P.yaw, pitch = P.pitch){
-  const s = me.scale || 1, ahead = (.07 + .15*sstep(.75, 1.35, -pitch))*s, sy = Math.sin(yaw), cy = Math.cos(yaw);
-  EYE.x = me.m.x - sy*ahead; EYE.y = 1.68*s + (me.y || 0); EYE.z = me.m.z - cy*ahead;
+  const s = me.scale || 1, ahead = eyeAhead(pitch, s), sy = Math.sin(yaw), cy = Math.cos(yaw);
+  EYE.x = me.m.x - sy*ahead; EYE.y = 1.68*s + (me.y || 0) - eyeDrop(pitch, s); EYE.z = me.m.z - cy*ahead;
   const c = Math.cos(pitch);
   LD.x = -sy*c; LD.y = Math.sin(pitch); LD.z = -cy*c;
 }

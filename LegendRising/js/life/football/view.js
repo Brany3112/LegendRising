@@ -693,6 +693,15 @@ function readyFor(V, R, a, ms){
 }
 
 /* ---------- your first-person body (matchcam.js calls this after placing the eye) ---------- */
+// (UF2-A, U12) is the simulation held: its clock has not moved for FP_HELD real seconds and no replay or walk-out is
+// drawn (a pause card, the pointer let go; a slow-motion hit-stop still steps well inside that)
+const FP_HELD = .25;
+function fpHeld(V, ms, dt){
+  if (!ms || V.src || V.pre){ V.fpStill = 0; V.fpT = ms ? ms.t : 0; return false; }
+  if (ms.t !== V.fpT){ V.fpT = ms.t; V.fpStill = 0; return false; }
+  V.fpStill = (V.fpStill || 0) + Math.max(0, dt || 0);
+  return V.fpStill > FP_HELD;
+}
 const FPST = {mode:"move", speed:0, root:{x:0, z:0}, armsIn:0, fatigue:0, correct:null, intent:0, style:undefined};
 // x, z: where you stand; yaw: where you look; dt; armsIn (0..1), correct (the neck fix); returns the pose's events
 export function fpPose(V, x, z, yaw, dt, o = {}){
@@ -703,18 +712,33 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   h.g.visible = !!(V.fpOn && !V.src && !V.hideAll);
   if (!h.g.visible) return 0;
   const s = h.scale || 1, back = o.back || 0;
-  h.g.position.set(x - dirOf(yaw).x*back, o.y || 0, z - dirOf(yaw).z*back); h.g.rotation.y = yaw + Math.PI;
+  // (UF2-A, USER-ISSUES U12) the body off the grass with you: your jump (the agent's own height, the eye's too) or the
+  // clip's own lift, as your whole body has it (animAgent), so the eye and the legs under it stay one body
+  h.g.position.set(x - dirOf(yaw).x*back, o.y != null ? o.y : a ? a.y || 0 : 0, z - dirOf(yaw).z*back); h.g.rotation.y = yaw + Math.PI;
+  // (U12) held: the simulation has not moved for a moment (the pause card, a lost pointer) while nobody replays. You
+  // stand where you are, at ease, rather than run on the spot or hang in the middle of a clip under a still camera
+  const held = fpHeld(V, ms, dt);
   let st = FPST;
-  if (a){
+  if (a && !held){
     const R = V.rec[a.id];
     // a strike, a tackle, a header, a receive: the same clip as your whole body, seen from inside it
     const clip = R && R.clip && R.clip.mode !== "celebrate" ? R.clip : null;
-    if (clip) st = clip;
+    // (U12: the clip's own root, as your whole body has it, animAgent. A slide carries the body along its curve from
+    // where it began: posed from where you are now it was carried that far again, and the legs lay out ahead of the
+    // eye as if you were sitting back on the grass)
+    if (clip){
+      st = clip;
+      if (clip.groupY != null) h.g.position.y = clip.groupY;
+      if (clip.groupAt){ h.g.position.x = clip.groupAt.x; h.g.position.z = clip.groupAt.z; }
+    }
   }
   if (st === FPST){
-    if (a) locoOf(FPST, a);
+    if (a && !held) locoOf(FPST, a);
+    else if (held){ FPST.mode = "move"; FPST.speed = 0; FPST.intent = 0; FPST.style = undefined; }
     else { FPST.speed = o.speed || 0; FPST.intent = FPST.speed; FPST.style = undefined; }
-    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn || 0; FPST.correct = o.correct || null;
+    // (the arms kept nearer the body as you look down at a run: matchcam.js hands in its share, V.fpArms, as me.js
+    // does for the life body; a caller's own armsIn wins)
+    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn != null ? o.armsIn : V.fpArms || 0; FPST.correct = o.correct || null;
     FPST.fatigue = a && a.st ? clamp(1 - a.st.B/60, 0, 1)*.6 : 0;
     // (shielding: your arms come out wide and back, at the edges of your view, P2b-B; the ball of your throw-in in your
     // hands, and your hand up in front of you as you ask for the ball, UF-A U6 and U10)
@@ -722,7 +746,13 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     FPST.upper = hold || (a && shielding(a) ? UP_SHIELD : hand);
   }
   void s;
+  V.fpHeldNow = held;
   const mask = animateHuman(h, dt, st).mask;
+  // (U12) your clip ends where it plays: in your eyes. Your whole body is not drawn while you look through them (its
+  // actor poses it at tier 4, which runs no clip and so never says it ended, animAgent), so the clip of a strike, a
+  // tackle or a slide was kept after its act, and the body in your eyes stood frozen in its last pose (lying back
+  // after a slide, the legs out ahead of you) until your next action
+  if (a && st !== FPST && (mask & EV.END)){ const R = V.rec[a.id]; if (R && R.clip === st){ R.doneAct = R.clip.ref; R.clip = null; } }
   if (a && V.rec[a.id]) throwBall(V, V.rec[a.id], a, ms, h, dt, "thwFP");
   return mask;
 }

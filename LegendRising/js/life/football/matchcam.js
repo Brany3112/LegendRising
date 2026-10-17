@@ -30,8 +30,9 @@
 import {P, RT} from "../core/state.js";
 import {camPush, camPop, camKick} from "../core/camera.js";
 import {dirOf, wrapA} from "./pitchspec.js";
-import {EV} from "../human.js";
-import {CTRL} from "./control.js";
+import {EV, BONE} from "../human.js";
+import {THREE} from "../build.js";
+import {CTRL, eyeAhead, eyeDrop} from "./control.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
@@ -105,6 +106,9 @@ export const MC = {
   // the trauma of a hit (0..1, squared for the amplitude), and the offsets this frame (for the tests)
   trauma:0, tt:0, off:{p:0, y:0, r:0, dy:0, dz:0}, last:{p:0, y:0, r:0},
   tilt:0, sway:0, t:0,
+  // the eye taken down or across with the body's own head (U12): the offset now, its spring's speed, and the body's
+  // eye against the standing one (for the tests)
+  head:{x:0, y:0, z:0, vx:0, vy:0, vz:0, dy:0},
   // the cinematic shot (A1.5): {t, dur, frame(dt, cam, k)} while one runs
   cine:null
 };
@@ -115,6 +119,7 @@ export function camInit(src){
   MC.bob.mean = null; MC.bob.x = MC.bob.y = 0; MC.trauma = 0; MC.cine = null;
   MC.wind.k = MC.wind.over = 0; const F = MC.follow; F.on = false; F.y = F.p = 0; F.seq = -1;
   const a = MC.act; for (const k in a) a[k] = 0;
+  const hd = MC.head; for (const k in hd) hd[k] = 0;
   camPush(FP_OWNER);
   MC.on = true;
 }
@@ -162,10 +167,14 @@ function fpFrame(dt, cam){
   // the eye: over your feet (the agent between its steps, or the controller's own walk), ahead of the neck
   const e = SRC.eye ? SRC.eye(_v) : null;
   const x = e ? e.x : P.x, z = e ? e.z : P.z, y0 = e ? e.y : P.eye;
-  const ahead = (.07 + .15*sstep(.75, 1.35, -P.pitch))*s, f = dirOf(P.yaw);
-  // the first-person body under the eye, posed first so its pelvis this frame gives the bob
+  const ahead = eyeAhead(P.pitch, s), f = dirOf(P.yaw);
+  // the first-person body under the eye, posed first so its pelvis this frame gives the bob (its arms kept nearer the
+  // body as you look down at a run, as me.js does for the life body: V.fpArms, from the gait as the last frame left it)
   let ev = 0, h = null;
+  if (V && V.fp){ const G0 = V.fp.gait, run = G0 ? (G0.R || 0)*(G0.mvA || 0) : 0, brk = G0 ? Math.max(sstep(0, 3.3, -(G0.acc || 0)), G0.brakeW || 0) : 0; V.fpArms = run*Math.max(sstep(.1, .6, -P.pitch), brk); }
   if (V && V.fp && SRC.pose){ ev = SRC.pose(x, z, P.yaw, dt) || 0; h = V.fp; }
+  // the eye rides on the body's own head (UF2-A, U12): a slide, a fall, a header's dive take it down with them
+  headFollow(h, x, y0, z, s, dt);
   const v = SRC.speed ? SRC.speed() : 0, top = SRC.top ? Math.max(1, SRC.top()) : 8, B = SRC.breath ? SRC.breath() : 100;
   // the wind-up as the view feels it (A1.7: your body draws it, moves.js), and the head following your own strike
   windup(dt);
@@ -219,7 +228,8 @@ function fpFrame(dt, cam){
   MC.off.dy = clamp(ody, -CAM.ACT_MAX_D, CAM.ACT_MAX_D); MC.off.dz = clamp(odz + WK.DZ*wk, -CAM.ACT_MAX_D, CAM.ACT_MAX_D);
   // place it: the eye with the bob across the view (x) and up (y), then the offsets about its own axes
   const c = Math.cos(P.yaw), sn = Math.sin(P.yaw);
-  cam.position.set(x + f.x*ahead + c*bob.x, y0 - .035*sstep(.3, 1.2, -P.pitch), z + f.z*ahead - sn*bob.x);
+  const HF = MC.head;
+  cam.position.set(x + f.x*ahead + c*bob.x + HF.x, y0 - eyeDrop(P.pitch, s) + HF.y, z + f.z*ahead - sn*bob.x + HF.z);
   const Fo = MC.follow;
   cam.rotation.set(clamp(P.pitch + Fo.p, -1.45, 1.45), P.yaw + Fo.y, 0, "YXZ");
   cam.rotateY(MC.off.y); cam.rotateX(MC.off.p); cam.rotateZ(MC.off.r);
@@ -229,6 +239,39 @@ function fpFrame(dt, cam){
   if (SRC.after) SRC.after(dt, cam);
 }
 const FP_OWNER = {id:"match-fp", priority:40, frame:fpFrame, fov:() => Math.round(MC.fov*20)/20, near:CAM.NEAR};
+
+/* ---------- the eye over your feet (UF2-A, USER-ISSUES U12) ----------
+   Standing, the eye is a little ahead of the neck (the head is ahead of the spine), more as you look down (the head
+   tips forward over the toes) and a little lower (the neck bends): control.js eyeAhead and eyeDrop, the one place the
+   aim (control.js eyeOf) and the camera take it from. Your feet stay under the eye at every height (all of it scaled
+   by your body's).
+   The body's own head: the first-person body ends at the shoulders, and its neck is where the head would sit. A clip
+   that takes the body down (a slide, a fall, a dive) or a jump takes the eye with it: HEAD.UP over the neck along the
+   spine, eased by a critically damped spring (HEAD.W a second), only beyond HEAD.DEAD of the standing height (the gait's
+   own bob stays the bob's), and across only as far as the body has gone down (HEAD.FROM to HEAD.FULL), so a lean into
+   a sprint never moves the view. The eye stayed at standing height while the body lay back in a slide: looking down,
+   the legs ran out ahead of the camera as if you were sitting on the grass */
+export const HEAD = Object.freeze({UP: .2, DEAD: .035, FROM: .06, FULL: .25, W: 16});
+const _nk = new THREE.Vector3(), _ck = new THREE.Vector3();
+function headFollow(h, x, y0, z, s, dt){
+  const HF = MC.head;
+  let tx = 0, ty = 0, tz = 0;
+  HF.dy = 0;
+  if (h && h.bones && h.g.visible){
+    h.bones[BONE.neck].getWorldPosition(_nk); h.bones[BONE.chest].getWorldPosition(_ck);
+    // the head's way: along the spine, chest to neck
+    let ux = _nk.x - _ck.x, uy = _nk.y - _ck.y, uz = _nk.z - _ck.z;
+    const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+    const ex = _nk.x + ux*HEAD.UP*s, ey = _nk.y + uy*HEAD.UP*s, ez = _nk.z + uz*HEAD.UP*s;
+    // how far the body's eye is from the standing one: up and down beyond the dead band, across as it goes down
+    const dy = ey - y0, ady = Math.abs(dy) - HEAD.DEAD*s;
+    ty = ady > 0 ? Math.sign(dy)*ady : 0;
+    const w = sstep(HEAD.FROM*s, HEAD.FULL*s, -dy);
+    tx = (ex - x)*w; tz = (ez - z)*w;
+    HF.dy = dy;
+  }
+  toward(HF, "x", "vx", tx, HEAD.W, dt); toward(HF, "y", "vy", ty, HEAD.W, dt); toward(HF, "z", "vz", tz, HEAD.W, dt);
+}
 
 /* ---------- the wind-up as the view feels it (A1.7) ----------
    The leg cocked, the hips opening and the lean back are your body's own pose: the strike clip's held backswing
