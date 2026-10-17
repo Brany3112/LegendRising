@@ -871,7 +871,7 @@ function proj(x, y, z){
 }
 const PJ = {x: 0, y: 0, on: false, front: false}, OFF = {pip: null, x: null};
 const HUDS = {ms: null, me: null, ctrl: CTRL, dt: 0, B: 100, cap: 100, energy: 100, hints: null, proj, w: 0, h: 0, yaw: 0, cam: {x: 0, z: 0}, offPip: null,
-  cards: 0, sweet: null, tick: null, glyph: "", ringAt: RING_T, offX: null, hold: null};
+  cards: 0, glyph: "", ringAt: RING_T, offX: null, hold: null};
 function hud(dt){
   const ms = FS.ms, me = liveMe();
   const cv = RT.renderer && RT.renderer.domElement;
@@ -883,14 +883,13 @@ function hud(dt){
   // card says what there is to do
   if (offPlay()){
     HUDS.B = me ? me.st.B : FS.ownSt ? FS.ownSt.B : 100; HUDS.cap = me ? me.st.cap : FS.ownSt ? FS.ownSt.cap : 100;
-    HUDS.offPip = null; HUDS.offX = null; HUDS.sweet = HUDS.tick = null; HUDS.glyph = ""; HUDS.hold = null; HUDS.hints = OH.none;
+    HUDS.offPip = null; HUDS.offX = null; HUDS.glyph = ""; HUDS.hold = null; HUDS.hints = OH.none;
   } else if (me){
     HUDS.B = me.st.B; HUDS.cap = me.st.cap; HUDS.energy = me.energy; HUDS.cards = me.booked || 0; HUDS.red = !!me.sentOff;
     if (slow){ HUDS.hints = hintsFor(ms, me); HUDS.glyph = glyphFor(ms, me); offsideHud(ms, me, pipShown(), OFF); HUDS.offPip = OFF.pip; HUDS.offX = OFF.x; }
-    sweetFor(ms, me);
     HUDS.hold = null;
   } else {
-    HUDS.B = FS.ownSt ? FS.ownSt.B : 100; HUDS.cap = FS.ownSt ? FS.ownSt.cap : 100; HUDS.offPip = null; HUDS.offX = null; HUDS.sweet = HUDS.tick = null; HUDS.glyph = "";
+    HUDS.B = FS.ownSt ? FS.ownSt.B : 100; HUDS.cap = FS.ownSt ? FS.ownSt.cap : 100; HUDS.offPip = null; HUDS.offX = null; HUDS.glyph = "";
     if (slow) HUDS.hints = warmHints() || offHints();
     // E held on the bench: the ring fills to the skip; Tab held through the warm-up fills it to the finish
     HUDS.hold = FS.eDown && FS.state === "bench" && FS.seated && !FS.skipping ? clamp(FS.eHeld/DAY.E_HOLD, 0, 1) : warmDrilling() && warmTab() > 0 ? clamp(warmTab(), 0, 1) : null;
@@ -961,24 +960,6 @@ function glyphFor(ms, me){
   if (c && c.team !== me.team && Math.hypot(c.m.x - me.m.x, c.m.z - me.m.z) < CN.TACKLE_D) return "LMB TACKLE";
   return "";
 }
-// the pass sweet zone and the shot's power tick for the target distance (A1.4)
-const SWEET = {lo: 0, hi: 0};
-function sweetFor(ms, me){
-  const ch = CTRL.charge;
-  HUDS.sweet = null; HUDS.tick = null;
-  if (!ch) return;
-  if (ch.kind === "pass" && CTRL.target.point){
-    const tp = CTRL.target.point, d = Math.hypot(tp.x - ms.ball.p.x, tp.z - ms.ball.p.z);
-    const vmax = 22 + .06*(me.at.passing || 50), roll = ms.ball.rollDecel || 1.1;
-    const ideal = Math.sqrt(9*9 + 2*roll*d), c = clamp((ideal - CN.PASS_MIN)/(vmax - CN.PASS_MIN), 0, 1), w = .10 + .25*(me.at.passing || 50)/100;
-    HUDS.sweet = SWEET; SWEET.lo = c - w/2; SWEET.hi = c + w/2;
-  } else if (ch.kind === "shot" && CTRL.aim.ok){
-    const d = Math.hypot(CTRL.aim.x - ms.ball.p.x, CTRL.aim.z - ms.ball.p.z);
-    // the power that reaches it in a good second (a long shot wants more): 0.55 at 8 m to 0.95 at 30 m
-    HUDS.tick = clamp(.55 + .4*(d - 8)/22, .45, .97);
-  }
-}
-
 /* ---------- the bench (3.4.2) ---------- */
 function bench(dt, real){
   const ms = FS.ms;

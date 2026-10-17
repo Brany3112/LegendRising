@@ -116,6 +116,8 @@ export const BRAIN = Object.freeze({
   // shape kept tighter; at 5 m goals per match and the striker's touches went above their harness bands)
   SPACE: [4, 3],
   ME_FIRST: 1.0,             // (P2-A, AI-2) a pass to the player is left to him unless a team-mate gets to it this many s sooner
+  ME_ROOM: 2.5,              // (UF2 round 1) a team-mate's place off the ball is at least this far (m) from the player (not in a match)
+  ME_OWN: 1.5,               // (UF2 round 1) for this long (s) a touch of the player's that got away is his to chase (not in a match)
   PRESS_STOP: 1.6, JOCKEY_V: 3.2, TACKLE_D: 1.6, SLIDE_V: 4,
   TACKLE_RATE: [2.5, 0.5, 0.16],  // per second: a ball out of his feet, a shielded one, and the factor from behind (TR-2b refit: 0.12)
   SLIDE_RATE: 0.55,              // per second, chasing a ball out in front of the carrier
@@ -390,6 +392,8 @@ function reachLB(ms, a, reachY, react){
 // worked out exactly (nearest first): the plans are the same as working out all eleven. The path cache may be a few
 // steps old: its times run from ms.predT, so everyone's reaction carries that age and the plan's times are from now.
 const CAND = [];
+// the ways a touch of the player's leaves the ball loose by him (ball.last.kind)
+const OWN_TOUCH = new Set(['deflect', 'control', 'dribble', 'touch']);
 function ballPlans(ms, team){
   const b = ms.ball, ctl = ms.poss.ctl;
   // whoever was already going for it has reacted: his new estimate carries no second reaction time. (The player's own
@@ -449,6 +453,19 @@ function ballPlans(ms, team){
     const mates = Math.min(bestT[team], headT[team]);
     if (mr && !(mates + BRAIN.ME_FIRST < mr.t)){ standDown(ms, team, null); return; }
   }
+  // (UF2 round 1) a touch of the player's own that got away from him (a first touch off his shin, a knock too far, a
+  // ball off him) is his to chase for a moment, by the same rule: his team-mates leave it unless one is clearly first.
+  // At training only (the small-sided games, the drills, Training Mode): a team-mate going for the same loose ball ran
+  // into you. The match keeps its own rule, fitted to the harness bands
+  const lt = b.last;
+  if (!recv && ms.mode !== 'match' && !ms.meAI && lt && lt.agent >= 0 && ms.t - lt.t < BRAIN.ME_OWN && OWN_TOUCH.has(lt.kind)){
+    const mine = ms.agents[lt.agent];
+    if (mine && mine.isMe && mine.team === team && mine.onPitch && !mine.sentOff && mine.state !== 'ground'){
+      const s = mine.scale || 1, mr = reachOf(ms, mine, 1.45*s, (mine.react || 0) + age, Infinity);
+      const mates = Math.min(bestT[team], headT[team]);
+      if (mr && !(mates + BRAIN.ME_FIRST < mr.t)){ standDown(ms, team, null); return; }
+    }
+  }
   const hd = heads[team];
   if (hd && headR[team] && (!fr || headR[team].t + 0.1 < fr.t)){
     const hr = headR[team];
@@ -464,6 +481,38 @@ function ballPlans(ms, team){
   planFirst(ms, who);
 }
 
+// (UF2 round 1) at training (not in a match: its shape is fitted to the harness bands) a team-mate's place off the ball
+// is never on top of the player: one that falls within ME_ROOM m of him is moved out to that far, along the line from
+// him to it (to the man himself when it is right on him). The team's shape put a man's place where the player was
+// standing, and he jogged into him and nudged him back
+function clearOfMe(ms, a, T){
+  if (ms.mode === 'match' || ms.meAI || !(ms.me >= 0)) return;
+  const me = ms.agents[ms.me];
+  if (!me || me === a || me.team !== a.team || !me.onPitch) return;
+  const R0 = BRAIN.ME_ROOM, dx = T.x - me.m.x, dz = T.z - me.m.z, d = hypot(dx, dz);
+  if (d >= R0) return;
+  let ux = 0, uz = 1;
+  if (d > 0.05){ ux = dx/d; uz = dz/d; }
+  else { const ax = a.m.x - me.m.x, az = a.m.z - me.m.z, ad = hypot(ax, az); if (ad > 0.05){ ux = ax/ad; uz = az/ad; } }
+  T.x = clamp(me.m.x + ux*R0, -ms.spec.hx + 0.5, ms.spec.hx - 0.5); T.z = clamp(me.m.z + uz*R0, -ms.spec.hz + 0.5, ms.spec.hz - 0.5);
+}
+// (UF2 round 1) and on his way there he goes round the player, not through him: when the player stands within ME_ROOM m
+// of his straight line ahead, he makes for the point ME_ROOM m to the player's other side first (out: {x, z}; true
+// while he does). At training only, as clearOfMe
+const WAY = {x: 0, z: 0};
+function aroundMe(ms, a, T, out){
+  if (ms.mode === 'match' || ms.meAI || !(ms.me >= 0)) return false;
+  const me = ms.agents[ms.me];
+  if (!me || me === a || me.team !== a.team || !me.onPitch) return false;
+  const dx = T.x - a.m.x, dz = T.z - a.m.z, L = hypot(dx, dz);
+  if (L < 0.5) return false;
+  const ux = dx/L, uz = dz/L, px = me.m.x - a.m.x, pz = me.m.z - a.m.z;
+  const along = px*ux + pz*uz, side = -px*uz + pz*ux, R0 = BRAIN.ME_ROOM;
+  if (along <= 0 || along >= L || Math.abs(side) >= R0) return false;
+  const k = side >= 0 ? -R0 : R0;
+  out.x = clamp(me.m.x - uz*k, -ms.spec.hx + 0.5, ms.spec.hx - 0.5); out.z = clamp(me.m.z + ux*k, -ms.spec.hz + 0.5, ms.spec.hz - 0.5);
+  return true;
+}
 // (P6-B) one man of a side goes for a loose ball: when the side's plan now sends someone else (or leaves it to the
 // player), a team-mate still running to meet it with his head from an earlier plan stands down, unless he has already
 // left the ground for it. (A header plan used to outlive the plan that replaced it: two of a side went for one ball.)
@@ -2063,13 +2112,15 @@ export function brainStep(ms, h){
     if ((ms.step % BRAIN.OFFBALL_EVERY) === (a.id % BRAIN.OFFBALL_EVERY) || !a.tgtSet){
       const t = decideOffBall(ms, a);
       a.tgt.x = t.x; a.tgt.z = t.z; a.tgt.gait = t.gait; a.tgt.face = t.face; a.tgt.stop = t.stop; a.tgtSet = true;
+      clearOfMe(ms, a, a.tgt);
     }
     const T = a.tgt;
     // never into the ball's way when a team-mate has it at his feet: hold the target
     let gait = T.gait;
     if ((a.st.B < 25) && gait === 'sprint') gait = 'run';
     const face = T.face || (hypot(T.x - a.m.x, T.z - a.m.z) < 2 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, a.faceV) : null);
-    steer(a, T.x, T.z, gait, T.stop, face);
+    if (aroundMe(ms, a, T, WAY)) steer(a, WAY.x, WAY.z, gait, 0, null);
+    else steer(a, T.x, T.z, gait, T.stop, face);
     a.state = a.m.speed > 0.3 ? 'run' : 'idle';
   }
 }
@@ -2086,8 +2137,9 @@ function setPieceStep(ms, h){
     if (!s){ standStill(a); continue; }
     const d = hypot(s.x - a.m.x, s.z - a.m.z);
     // the taker sprints to a far spot, and to any but the last few metres once the restart is past its limit (a corner
-    // taker picked for his delivery may have the length of the pitch to come)
-    const hurry = s.role === 'taker' && (d > RULES.SPRINT_D || d > 6 && !!R0 && ms.t - R0.t0 > R0.limit);
+    // taker picked for his delivery may have the length of the pitch to come) or from the start when the restart is in a
+    // hurry (R0.hurry: a training game's kick-off after a goal, ssgplay.js)
+    const hurry = s.role === 'taker' && (d > RULES.SPRINT_D || d > 6 && !!R0 && (R0.hurry || ms.t - R0.t0 > R0.limit));
     const gait = s.gait === 'sprint' || hurry ? 'sprint' : s.gait === 'run' || d > 6 ? 'run' : s.gait === 'walk' ? 'walk' : 'jog';
     const face = s.face || (d < 1.5 ? faceTo(a, ms.ball.p.x, ms.ball.p.z, a.faceV) : null);
     steer(a, s.x, s.z, gait, s.stop != null ? s.stop : 0.3, face, s.speedCap != null ? s.speedCap : Infinity);

@@ -15,6 +15,23 @@ function hudEl(){ return document.getElementById("lifeDrill"); }
 // one gym set takes this much of the clock (the gym hints and the first day's G4 line read it)
 export const SET_MINS = 45;
 
+/* where the drill card ends (px from the top), kept on #lifeRoot as --dr-card-b while the card is up, so what has to
+   come down under it (a goal's card in first-person training, css/fp.css) knows how tall it is now: a long title wraps
+   on a phone, the line under it changes from one go to the next */
+const CARD = {el:null, ro:null};
+function cardTrack(el){
+  const card = el.querySelector(".dr-card"), root = document.getElementById("lifeRoot");
+  if (!card || !root || CARD.el === card) return;
+  cardUntrack();
+  const put = () => { if (card.isConnected) root.style.setProperty("--dr-card-b", Math.round(card.offsetTop + card.offsetHeight) + "px"); };
+  CARD.el = card; put();
+  if (typeof ResizeObserver !== "undefined"){ CARD.ro = new ResizeObserver(put); CARD.ro.observe(card); }
+}
+function cardUntrack(){
+  if (CARD.ro) CARD.ro.disconnect();
+  CARD.ro = null; CARD.el = null;
+  const root = document.getElementById("lifeRoot"); if (root) root.style.removeProperty("--dr-card-b");
+}
 export function hudSet(d, o = {}){
   const el = hudEl(); if (!el) return;
   clearTimeout(hudClose._t);
@@ -28,6 +45,7 @@ export function hudSet(d, o = {}){
   el.querySelector(".dr-reps").textContent = `${Math.min(d.rep + 1, d.reps)} / ${d.reps}`;
   el.querySelector(".dr-pips").innerHTML = Array.from({length:d.reps}, (_, i) => `<i class="${i < d.scores.length ? (d.scores[i] >= .7 ? "hi" : d.scores[i] >= .35 ? "mid" : "lo") : i === d.rep ? "now" : ""}"></i>`).join("");
   if (o.hint != null) el.querySelector(".dr-hint").textContent = o.hint;
+  cardTrack(el);
 }
 export function hudResult(text, sub, good){
   const el = hudEl(), r = el && el.querySelector(".dr-result"); if (!r) return;
@@ -43,7 +61,7 @@ export function hudTiming(show, zone, mark){
   const z = t.querySelector(".dr-zone"); z.style.left = ((zone.c - zone.w/2)*100) + "%"; z.style.width = (zone.w*100) + "%";
   t.querySelector(".dr-mark").style.left = (mark*100) + "%";
 }
-export function hudClose(){ const el = hudEl(); if (!el) return; el.classList.remove("on"); clearTimeout(hudClose._t); hudClose._t = setTimeout(() => { if (!el.classList.contains("on")){ el.innerHTML = ""; delete el.dataset.on; } }, 350); }
+export function hudClose(){ const el = hudEl(); if (!el) return; el.classList.remove("on"); clearTimeout(hudClose._t); hudClose._t = setTimeout(() => { if (!el.classList.contains("on")){ el.innerHTML = ""; delete el.dataset.on; cardUntrack(); } }, 350); }
 
 /* What a first-person drill draws is made once and compiled when you arrive at the ground (world.js warm draws this
    group once, hidden), so starting a drill never compiles a shader in the middle of play: the one ball look of every

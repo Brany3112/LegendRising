@@ -109,3 +109,36 @@ but when doing your life you are in first person"
   shown on the pitch ahead). Keep a setting to go back to first person for football (Settings: Football camera =
   Third person (default) / First person), and keep the existing view toggle key working. Replays and cut-scenes are
   unchanged.
+
+## Round 4 (Oct 17 night, playing build 2026.10.17q in third person)
+
+User's words: "right now the third person animations are janky as they look smudging when i move like having blur or
+vibrating really fast and its annoying, it doesnt do that when i am still, the shadow of the player is lagging too as if
+i do 2 steps the shadow doesnt follow behind it teleports from time to time, the legs still dont make proper contact
+with the ball"
+
+- U22 Third-person jitter while moving: the player's body looks smeared or vibrating fast when moving (fine when still).
+  Likely cause: the third-person camera (matchcam.js tpFrame) is placed from one position (x, y0, z passed in) while the
+  body is drawn from another (simulation tick versus the interpolated render position, or the first-person bob and
+  head follow leaking into it), so the two beat against each other every frame. Fix: take the camera target from the
+  same interpolated root the drawn body uses, keep the first-person bob out of the third-person camera, and give the
+  camera a light critically damped follow. Test: in a browser at 60 and 144 Hz, the drawn body's screen position while
+  running straight must change smoothly (no frame-to-frame back and forth over 1 px of jitter).
+- U23 The player's shadow lags and teleports: the sun's shadow map is not redrawn every frame (core/quality.js
+  autoUpdate false, sky.js SHADOW scheduler), and P10-B made people cast the sun shadow. A moving player's shadow is
+  then redrawn only now and then. Fix: whoever moves (you above all, in third person) must never use the stale sun
+  shadow: either redraw the shadow map every frame in football zones on the presets that show people's shadows, or
+  draw a moving person's shadow as the blob or contact shadow (as npc.js does for moving NPCs). The shadow must stay
+  under the feet at full running speed.
+- U24 The legs still do not make proper contact with the ball, now seen from third person: check the strike, pass,
+  receive and dribble clips on the body that third person shows (not only the first-person body), with the foot within
+  about 0.1 m of the ball at contact, from the camera's view; add a contact-sheet test from the third-person camera.
+- U25 Shooting in third person: raising the aim makes the camera move weirdly, not smoothly upward. Cause (matchcam.js
+  tpFrame, build 2026.10.17q): the camera looks at an aim point on the pitch at distance (eye height / -dy), clamped to
+  TP.AIM_MIN 4 to TP.AIM_MAX 40, and switches to TP.FAR 30 the moment the look rises above about horizontal (dy > -0.02).
+  The distance shoots from 4 m to 40 m over a few degrees of pitch and then jumps back to 30 m, so the camera's tilt is
+  far from proportional to the mouse and jumps near the horizon. Fix: make the camera's pitch follow the aim's pitch
+  smoothly and continuously (an orbit: the camera behind and above, tilting with the aim, with a fixed or smoothly
+  varying look distance), and show where the shot goes with the aim marker, not by swinging the camera. Test: sweep
+  the pitch from looking down to looking up in small steps; the camera's pitch must change monotonically with no step
+  larger than a fixed fraction of the mouse step.

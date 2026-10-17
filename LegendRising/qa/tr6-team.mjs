@@ -296,8 +296,12 @@ function callTrial(seed, o = {}){
         const {ms} = matchOf(setup, spec, "train", {aiMe});
         ms.meAI = false;
         const mine = ms.agents.find(a => a.team === setup.myTeam && a.pid === 1);
-        // (a decision with no pass option at all, a clearance or a dribble under pressure, says nothing about seeing me)
-        if (!aiMe) ms.onDecide = (a, opts) => { if (a.team !== mine.team) return; if (!opts.some(x => x.recv >= 0)){ noPass++; return; } dec++; if (!opts.some(x => x.recv === mine.id)) missing++; };
+        // (a pass to where I am going that would be under a metre long is never made, brain.js: "never from point-blank
+        // range"; such a decision does not count. Nor does one with no pass option at all, a clearance or a dribble
+        // under pressure: it says nothing about seeing me)
+        const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        const blank = a => { const m = mine.m, tx = cl(m.x + m.vx*0.35, -ms.spec.hx + 1, ms.spec.hx - 1), tz = cl(m.z + m.vz*0.35, -ms.spec.hz + 1, ms.spec.hz - 1); return Math.hypot(tx - a.m.x, tz - a.m.z) < 1; };
+        if (!aiMe) ms.onDecide = (a, opts) => { if (a.team !== mine.team || blank(a)) return; if (!opts.some(x => x.recv >= 0)){ noPass++; return; } dec++; if (!opts.some(x => x.recv === mine.id)) missing++; };
         const J = goState(ms);
         for (let k = 0; k < 60*10; k++){
           if (!aiMe && k % 15 === 0){ const t = decideOffBall(ms, mine); mine.botT = t; }

@@ -1009,6 +1009,7 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     FPST.upper = hold || (a && shielding(a) ? UP_SHIELD : hand);
   }
   void s;
+  // (whether your body stands at ease this frame, held: what qa/uf2-feel.mjs reads to see a paused scenario's stance)
   V.fpHeldNow = held;
   // (U12) a clip that carries the body from its own start (a slide, groupAt) given up or taken on: the body's group
   // moves from that start to where you are (or back) in one frame, so the last pose's hips are moved by as much the other

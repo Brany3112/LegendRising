@@ -497,7 +497,7 @@ function bindInput(cv){
     mx = mouseAxis(MA.x, mx); my = mouseAxis(MA.y, my);
     if (mx || my) routeInput({type:"move", dx:mx, dy:my, locked:true}, lifeInput);
   });
-  addEventListener("wheel", e => { if (LIFE.running && lockedHere()) routeInput({type:"wheel", deltaY:e.deltaY, locked:true}); }, {passive:true});
+  addEventListener("wheel", e => { if (LIFE.running && lockedHere()) routeInput({type:"wheel", deltaY:e.deltaY, deltaMode:e.deltaMode, t:e.timeStamp, locked:true}); }, {passive:true});
   addEventListener("keydown", e => {
     const t = e.target, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
     if (typing || !document.body.classList.contains("life")) return;
