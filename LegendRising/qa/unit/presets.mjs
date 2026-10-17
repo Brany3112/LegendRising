@@ -6,7 +6,7 @@
 //   node qa/unit/presets.mjs        exits 1 on any failed check; writes qa/out/unit-presets.json
 import fs from "node:fs";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const res = {name: "unit-presets", checks: [], ok: true};
@@ -16,8 +16,8 @@ const check = (pass, name, value) => {
   console.log(`${pass ? "ok  " : "FAIL"} ${name}${value === undefined ? "" : ": " + JSON.stringify(value).slice(0, 400)}`);
 };
 
-const P = await import(path.join(ROOT, "js/life/train/presets.js"));
-const CFG = await import(path.join(ROOT, "js/life/train/config.js"));
+const P = await import(pathToFileURL(path.join(ROOT, "js/life/train/presets.js")).href);
+const CFG = await import(pathToFileURL(path.join(ROOT, "js/life/train/config.js")).href);
 
 // a storage stand-in (localStorage's interface) and a clock that moves on a second a call
 class Mem { constructor(){ this.m = new Map(); this.writes = []; } getItem(k){ return this.m.has(k) ? this.m.get(k) : null; } setItem(k, v){ this.writes.push(k); this.m.set(k, String(v)); } removeItem(k){ this.writes.push(k); this.m.delete(k); } clear(){ this.m.clear(); } }

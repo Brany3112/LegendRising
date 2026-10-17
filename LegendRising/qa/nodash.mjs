@@ -152,7 +152,8 @@ function reportText(src, rows){
   ].join("\n") + "\n";
 }
 export function readBaseline(file = BASELINE){
-  const txt = fs.readFileSync(file, "utf8").split("\n");
+  // (split on either line end: on Windows the checkout gives the golden file CRLF, and every row kept its "\r")
+  const txt = fs.readFileSync(file, "utf8").split(/\r?\n/);
   const rows = txt.filter(l => l && !l.startsWith("#")).map(l => {
     const [loc, dashes, cls, ...rest] = l.split("\t"), k = loc.lastIndexOf(":");
     return {file: loc.slice(0, k), line: +loc.slice(k + 1), dashes: +dashes, cls, text: rest.join("\t"), raw: l};
