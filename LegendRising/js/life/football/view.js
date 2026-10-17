@@ -52,6 +52,7 @@ import {touchPart} from "./touch.js";
 import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
 import {AUD} from "./audio.js";
+import {overlayCovered} from "../core/quality.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -314,7 +315,9 @@ function spares(V, ms){
   const cones = STADIUM.cones || [];
   let extra = 0;
   for (let i = 0; i < cones.length; i++){
-    const has = ms.spares.some(q => q.cone === i && q.state === "cone" && q.ball !== ms.ball);
+    // (a plain loop: no closure made per cone every frame, P10-B perf-6)
+    let has = false;
+    for (const q of ms.spares) if (q.cone === i && q.state === "cone" && q.ball !== ms.ball){ has = true; break; }
     if (cones[i].put && cones[i].take){ if (has) cones[i].put(); else cones[i].take(); }
   }
   if (!V.src) for (const q of ms.spares){
@@ -328,6 +331,11 @@ function spares(V, ms){
 
 /* ---------- one body's pose ---------- */
 const PB = {x:0, y:0, z:0};
+// (P10-B, perf-6) a clip's direction, ball and group points are written into objects the clip keeps (c._dir, c._ball,
+// c._at), not made afresh every frame while it plays
+const xz = (o, x, z) => { o.x = x; o.z = z; return o; };
+const dirTo = (c, x, z) => xz(c._dir || (c._dir = {x:0, z:0}), x, z);
+const yawDir = (c, yaw) => xz(c._dir || (c._dir = {x:0, z:0}), -Math.sin(yaw), -Math.cos(yaw));
 function animAgent(V, R, dt, tier){
   const a = R.a, h = R.h, ms = V.ms;
   if (R.hidden && !(a.isMe && V.fp)){ if (dt > 0) animateHuman(h, dt, R.st, {tier:4}); return; }
@@ -414,12 +422,12 @@ function liveSt(V, R, a, ms, dt){
     }
     if (act && act.kind === "kick" && act.action && (act.action.kind === "punt" || act.action.kind === "roll") && !act.adjust){
       const c = clipFor(R, "gkdist", act);
-      c.mode = "gkdistribute"; c.kind = act.action.kind === "punt" ? "punt" : "roll"; c.dir = act.action.target ? {x:act.action.target.x - a.m.x, z:act.action.target.z - a.m.z} : null; c.power = .8;
+      c.mode = "gkdistribute"; c.kind = act.action.kind === "punt" ? "punt" : "roll"; c.dir = act.action.target ? dirTo(c, act.action.target.x - a.m.x, act.action.target.z - a.m.z) : null; c.power = .8;
       return c;
     }
     if (act && act.kind === "throw"){
       const c = clipFor(R, "gkthrow", act);
-      c.mode = "gkdistribute"; c.kind = "throw"; c.dir = {x:act.target.x - a.m.x, z:act.target.z - a.m.z}; c.power = .7;
+      c.mode = "gkdistribute"; c.kind = "throw"; c.dir = dirTo(c, act.target.x - a.m.x, act.target.z - a.m.z); c.power = .7;
       return c;
     }
     // a dive the brain has finished with (he is up and ready) runs on to the clip's own end, then blends into the stance
@@ -477,7 +485,7 @@ function liveSt(V, R, a, ms, dt){
           const tcl = walkTc >= 0 ? walkTc : Math.max(0, act.tc - act.t - alpha*H);
           c.tc = tcl;
           predAt(ms, tcl, PB); c.ball = c.ball || {x:0, y:0, z:0}; c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
-          const tg = rq.target; c.dir = tg ? {x:tg.x - PB.x, z:tg.z - PB.z} : dirOf(a.m.yaw);
+          const tg = rq.target; c.dir = tg ? dirTo(c, tg.x - PB.x, tg.z - PB.z) : yawDir(c, a.m.yaw);
         } else c.tc = 0;
         return c;
       }
@@ -505,7 +513,7 @@ function liveSt(V, R, a, ms, dt){
         contactOf(ms, a, act, c.tc, c.target || (c.target = {x:0, y:0, z:0}));
         c.side = act.side === "L" || act.side === "R" ? act.side : sideOf(a, c.target);
         // the clip slides the body along its own curve from where the slide began: the group stays there
-        c.groupAt = {x:act.x0, z:act.z0};
+        c.groupAt = xz(c._at || (c._at = {x:0, z:0}), act.x0, act.z0);
         return c;
       }
       case "header": {
@@ -513,8 +521,8 @@ function liveSt(V, R, a, ms, dt){
         c.mode = "header"; c.take = act.dive ? "dive" : act.standing ? "stand" : "jump";
         c.jump = clamp((act.v0*act.v0/(2*9.81))/(.55*(a.scale || 1)), .1, 1.2);
         c.tc = Math.max(0, act.tc - act.t - alpha*H);
-        predAt(ms, c.tc, PB); c.ball = {x:PB.x, y:PB.y, z:PB.z};
-        const tg = act.target; c.dir = tg ? {x:tg.x - a.m.x, z:tg.z - a.m.z} : dirOf(a.m.yaw);
+        predAt(ms, c.tc, PB); c.ball = c._ball || (c._ball = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
+        const tg = act.target; c.dir = tg ? dirTo(c, tg.x - a.m.x, tg.z - a.m.z) : yawDir(c, a.m.yaw);
         c.groupY = act.dive ? 0 : (a.y || 0);
         return c;
       }
@@ -827,6 +835,8 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   // (the charge being wound up, control.js CTRL.wind: your body poses it from the next frame, liveSt)
   if (o.wind !== undefined) V.wind = o.wind;
   const h = V.fp; if (!h) return 0;
+  // (P10-B, spec 8: under one of Training's own opaque sheets nothing is drawn, so your body is not posed)
+  if (overlayCovered()) return 0;
   const ms = V.ms, a = ms.agents[V.me];
   h.g.visible = !!(V.fpOn && !V.src && !V.hideAll);
   if (!h.g.visible) return 0;

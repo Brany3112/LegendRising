@@ -49,7 +49,8 @@ const POOL = {me:null, fp:null, A:[], B:[], keeper:null, KA:[], KB:[], OFF:[], u
    What is a body's own data: everything on the human() record but its meshes, bones and look (made once and kept),
    its functions, and what the place or the pool set (gen, ast). Typed arrays, arrays and plain objects are data; any
    other object (three.js) is a reference that stays as it is */
-const KEEP = new Set(["g", "look", "D", "bones", "skel", "near", "far", "lod3m", "num", "dispose", "rest", "restA", "id", "isHuman", "gen", "scale", "noHead", "ast"]);
+// (P10-B: castOpt and castNow follow the meshes' castShadow, which a reset does not touch)
+const KEEP = new Set(["g", "look", "D", "bones", "skel", "near", "far", "lod3m", "num", "dispose", "rest", "restA", "id", "isHuman", "gen", "scale", "noHead", "ast", "castOpt", "castNow"]);
 const FRESH = new WeakMap();
 const isData = v => v === null || typeof v !== "object" || ArrayBuffer.isView(v) || Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null;
 function dataOf(v){

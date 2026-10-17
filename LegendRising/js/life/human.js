@@ -77,6 +77,7 @@
    close), one more for all the blobs together. LOD distances, shirt numbers and the animation tiers follow GFX.P.
 */
 import {THREE, W, lambertFor} from "./build.js";
+import {RT} from "./core/state.js";
 import {SCHED} from "./core/sched.js";
 import {qualityScales} from "./core/quality.js";
 import {TAU, D2R, clamp, lerp, sstep, wrap, kf, BN, PAR, BONE, B, ARM, LEG, NP, NQ, dims, restPos, restOffsets, R3, frameOf, legIK, armIK, plantHand, leanTo, PALM, UPV as _UPV,
@@ -1153,6 +1154,7 @@ export function human(look = {}, opts = {}){
     m.bind(skel, IDENT);
     m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, .9, 0), 2.1);
     m.userData.keep = true; m.receiveShadow = true; m.castShadow = !!opts.cast;
+    // (P10-B) whether it casts follows the preset where it stands (the frame's hook, peopleCast): built to cast or not
     g.add(m); return m;
   };
   const near = mk(spN), far = spF ? mk(spF) : null, lod3m = sp3 ? mk(sp3) : null;
@@ -1163,7 +1165,7 @@ export function human(look = {}, opts = {}){
   if (og.number && !og.bib && !noHead){ num = numberMesh(spN, og.number, pal, D.chestY); bones[B.chest].add(num); }
   const r = rng((look.seed | 0) + 77);
   const RO = restOffsets(rest);
-  const h = {g, look, D, bones, skel, near, far, lod3m, num, isHuman:true, id:++HID,
+  const h = {g, look, D, bones, skel, near, far, lod3m, num, isHuman:true, id:++HID, castOpt:!!opts.cast, castNow:!!opts.cast,
     pose:new Float32Array(NQ), posePrev:new Float32Array(NQ), te:new Float32Array(NP), tq:new Float32Array(NQ), base:new Float32Array(3), baseOk:false,
     lpSame:false, lpAt:new Float64Array(3), rt:new Float64Array(6), rtOk:false, drawn:new Float64Array(4),
     rest:RO.V, restA:RO.A, inz:{on:false, t:0, w:1, x:new Float64Array(63), v:new Float64Array(63)}, upper:{w:0, g:null, st:null},
@@ -1331,7 +1333,12 @@ function hook(scene){
     // quality.js Q.lod) draws them all a little nearer
     const GP = typeof GFX === "object" && GFX && GFX.P, L0 = GP && GP.lod ? GP.lod : LOD_DEF, ql = qualityScales().lod;
     const Ld = ql === 1 ? L0 : (_ld.near = L0.near*ql, _ld.back = L0.back*ql, _ld.lod3 = L0.lod3*ql, _ld), numD = (GP && GP.shirtNumDist || 9.5)*ql;
+    // (P10-B, shadows by preset) people cast where the preset's shadows have them: everywhere a life zone has a shadow
+    // map; in a stadium's or a cage's sky (sky.js where 'stadium') only on High ('bowl', P.shadow.stadium.humans), never
+    // on Medium's map of the statics. Set on a change only
+    const SK = RT.SKY, SS = GP && GP.shadow && GP.shadow.stadium, peopleCast = !(SK && SK.where === "stadium") || !!(SS && SS.humans);
     for (const h of LIVE){
+      if (h.castOpt && h.castNow !== peopleCast){ h.castNow = peopleCast; if (h.near) h.near.castShadow = peopleCast; if (h.far) h.far.castShadow = peopleCast; }
       // where is it: in this scene, and shown?
       let o = h.g, vis = true;
       while (o.parent){ if (!o.visible) vis = false; o = o.parent; }

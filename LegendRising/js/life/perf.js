@@ -39,7 +39,10 @@ export const VIEWS = {
   park:{zone:"home", at:{x:24, z:52.8, y:.12, yaw:Math.PI}, pitch:-.05},
   yard:{zone:"ground", at:{x:0, z:22, y:0, yaw:0}, pitch:0},
   pitch:{zone:"ground", at:{x:0, z:-1, y:0, yaw:0}, pitch:-.1},
-  "town-road":{zone:"town", at:{x:0, z:4, y:.12, yaw:Math.PI/2}, pitch:0}
+  "town-road":{zone:"town", at:{x:0, z:4, y:.12, yaw:Math.PI/2}, pitch:0},
+  // (P10-B) Training's cage (the Half cage, cage.js: the zone 'cage', its kind from the view), looking across the pitch
+  // at the +x goal from the halfway line's side, as a drill's player sees it
+  cage:{zone:"cage", kind:"half", at:{x:-18, z:-6, y:0, yaw:-1.35}, pitch:-.06}
 };
 
 /* ---------- the wrappers ---------- */
@@ -122,7 +125,7 @@ function snapshot(frames = 300, {hand = false} = {}){
 function setView(name){
   const v = VIEWS[name], L = window.__life; if (!v || !L) return false;
   for (const k in L.keys) L.keys[k] = false;
-  if (L.LIFE.zone !== v.zone || typeof v.at === "string") L.enterZone(v.zone, typeof v.at === "string" ? v.at : "bus");
+  if (L.LIFE.zone !== v.zone || typeof v.at === "string") L.enterZone(v.zone, typeof v.at === "string" ? v.at : "bus", v.kind ? {kind:v.kind} : undefined);
   if (typeof v.at === "object") L.place(v.at);
   L.P.pitch = v.pitch || 0;
   return true;

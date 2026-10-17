@@ -44,6 +44,7 @@
 import {THREE, W, mat, onBegin} from "../build.js";
 import {P, LIFE, RT, ME, FLAGS} from "../core/state.js";
 import {registerMode, enterMode, exitMode, mode, pushInput, popInput, persistNow} from "../core/modes.js";
+import {overlayCovered} from "../core/quality.js";
 import {SCHED} from "../core/sched.js";
 import {animateHuman, EV} from "../human.js";
 import {GROUND} from "../ground.js";
@@ -543,8 +544,12 @@ registerMode("train", {
   slice(h){ const T = RUN.T; if (T && !T.fixed) sliceItem(T, h); },
   step(dt, real){
     const T = RUN.T; if (!T) return;
-    if (T.fixed && T.V && !T.done) viewFrame(T.V, T.ms, SCHED.alpha(T.fixed), dt, RT.cam);
-    frameItem(T, dt, real);
+    // (P10-B, spec 8 "nothing inactive running": under one of Training's own opaque sheets, the hub, the configuration or
+    // the presets (quality.js overlayCovered: never the black fade, whose reveal waits on frames), nothing is drawn, so
+    // the bodies are not posed and the HUD and the aura not worked out; the first frame after the sheet goes poses them)
+    const hid = overlayCovered();
+    if (T.fixed && T.V && !T.done && !hid) viewFrame(T.V, T.ms, SCHED.alpha(T.fixed), dt, RT.cam);
+    frameItem(T, dt, real, hid);
   },
   input(ev){ return false; },
   flags:{clock:"own", movement:"own", targeting:false, tunnel:false, closing:false, homeTick:false, compass:false, saves:"defer", tp:false,
@@ -636,7 +641,7 @@ function hudOf(T, dt){
 }
 
 // once a frame: you where your agent is (for the camera, your body, everyone round you), the HUD, the clock
-function frameItem(T, dt, real){
+function frameItem(T, dt, real, hid = false){
   const ms = T.ms, a = T.me, al = clamp(T.acc/H, 0, 1);
   const x = a.x0 + (a.m.x - a.x0)*al, z = a.z0 + (a.m.z - a.z0)*al;
   const w = worldOf(T, x, z);
@@ -648,10 +653,12 @@ function frameItem(T, dt, real){
   if (ME.fp) ME.fp.g.visible = false;
   if (ME.tp) ME.tp.g.visible = false;
   if (CT.scanStep) CT.scanStep(dt);
-  try { hudOf(T, dt); } catch(e){ console.error(e); }
-  // the small-sided game's scoreboard (the score, the time left) and the aura on the team-mate you look at
-  if (T.board) ssgFrame(ms.score, T.board.real != null ? T.board.real - T.t : null);
-  try { auraFrame(real, RT.cam, ms, a, (id, out) => auraPosOf(T, id, out)); } catch(e){ console.error(e); }
+  if (!hid){
+    try { hudOf(T, dt); } catch(e){ console.error(e); }
+    // the small-sided game's scoreboard (the score, the time left) and the aura on the team-mate you look at
+    if (T.board) ssgFrame(ms.score, T.board.real != null ? T.board.real - T.t : null);
+    try { auraFrame(real, RT.cam, ms, a, (id, out) => auraPosOf(T, id, out)); } catch(e){ console.error(e); }
+  }
   if (T.script && T.script.frame) T.script.frame(T, real);
   feelStep(T, real);
   if (T.rate > 0) T.host.pass(real*T.rate);
