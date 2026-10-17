@@ -81,7 +81,7 @@ P7-B's change, so the second merge sees no conflict there. `HOOKS.md` has the in
 | `qa/tr7-freekick.mjs` (Node and browser) | 45 / 45 |
 | `node qa/run.mjs unit lint smoke` | lint 17 / 17 rules; see below |
 | `qa/nodash.mjs` on every P7-A file | 0 em dashes |
-| `qa/harness.mjs --n 1000` | see "Harness" below |
+| `qa/harness.mjs --n 1000` | 60 / 62 (57 required) |
 
 `tr7-freekick` covers:
 - **The placement grid:** 1,575 setups (16 to 35 m, -40 to 40 degrees, no wall, small and large walls, wall distances 5
@@ -108,7 +108,14 @@ import by a bare `d:` path; `daily.mjs` is fixed on `pc/p10a`.
 
 ## Harness
 
-(filled in below once the n=1000 run on this branch is done)
+`node qa/harness.mjs --n 1000` on this branch (7 workers, 2,354 s): **60 of 62 checks pass**, above the 57 required.
+- **The two misses** are a fraction over their bands:
+  - winger touches 27.6 against 15 to 26;
+  - striker touches 22.17 against 12 to 22.
+- **They aren't P7-A's.** Every new path in `brain.js` is gated on options a match never sets (`R0.wallSpec`,
+  `R0.second`, `R0.plan`). The match code a match runs is origin's, and the harness's own determinism check (same seed,
+  same event log) passes.
+- **Goals per match:** 2.879, inside 2.3 to 2.9.
 
 ## Left for a person to check
 
