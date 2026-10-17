@@ -101,3 +101,54 @@ Full Match's two entries are the hub's own (`hub.js registerEntry`), so line 64 
 ```
 
 Applied on this branch in commit `34be84d`, labelled `[hook]`. With it, `tr3-hub` passes.
+
+---
+
+# P10-B hook requests and findings for other owners (this branch builds on `pc/p8b`; everything above still applies)
+
+No hook commit on this branch for P10-B itself. Two commits touch P8-A's files, both labelled "P8-A fix":
+
+- `161cdc8`, from P8-B;
+- the half-start snapshot made opt-in (`cfg.halfSnaps`). It was found by P10-B's reset budget: every drill restart
+  copied its whole match.
+
+Below are the budgets P10-B could not meet with its own files. Each one needs a change in a file it doesn't own.
+
+1. **`js/life/world.js` (P3-A's), the CPU under Training's sheets.**
+   - Under the hub, the configuration sheet or the presets sheet, nothing is drawn, posed or stepped now. P10-B guards
+     `training.js` and `view.js fpPose` with `quality.js overlayCovered()`.
+   - The world's own tick still runs: the scheduler's tasks, the sky, the camera owner's frame, the life HUD. That costs
+     0.7 to 1.0 ms a frame on this PC, against a budget of 0.5.
+   - Suggestion: in `world.js tick`, when `overlayCovered()` and no reveal is pending, run only the scheduler's keep
+     tasks and skip `step()`, as the lifeHub stop does. P3-A's perf-4 rule (never skip under a reveal) still applies.
+2. **Allocations: about 155 to 170 KB a frame, against 16 KB.**
+   - The top sites per frame:
+     - `gait.js gaitLegs` 8 to 12 KB, `planLanding` 6.6, `cycleStep` 5.2, `gaitStep` 5, `swingAt` 3.3;
+     - `rig.js solveLeg` 5.3;
+     - `zone.js` about 4;
+     - `chunks.js occFrame` 8.5 (P10-B's file, but its occlusion structures need a rewrite to pool them);
+     - `view.js contactStep` 4.2 and `human.js animateHuman` 3.7 (P10-B's: closures in the pose path);
+     - three.js `getParameters` 6.2.
+   - The three.js item means three re-reads a material's program parameters every frame, which happens when some
+     material's version or the lights' state changes every frame. I didn't find the source.
+   - `gait.js`, `rig.js` and `zone.js` belong to the animation and engine owners (P2-B, P9-A).
+3. **The reset: 5.7 to 7.2 ms of main-thread CPU, against 4 ms.**
+   - The JavaScript parts are small: restoring the 14 pooled bodies about 0.6 ms, `createMatch` 0.1, `createAgent`
+     0.2.
+   - Most of the time is native ("(program)" in the profile): style and layout from the HUD redraw (`thud.js`) and the
+     view's new meshes.
+   - The reset is already pooled, nothing is built, and no snapshot is copied any more.
+4. **`js/life/sky.js`, shadows on High.**
+   - The humans cast, but the stadium-context shadow map is only redrawn when the sun's angle steps or something
+     requests it.
+   - In the cage that's 0 redraws in 300 frames, so the people's shadows don't follow them. The cap of 15 a second
+     holds, trivially.
+   - For moving shadows on High, the match or training view would have to request a redraw (at most `P.shadow.stadium.hz`)
+     while bodies move.
+5. **perf-9 (the merge poll on a dirty flag): not done.**
+   - The cage turns merging off (`W.noMerge`, P3-A), so Training never runs the poll.
+   - A correct dirty flag for the life zones needs a hook wherever a merged mesh is moved or re-materialed (`home.js`,
+     `npc.js`, and others).
+6. **The JS heap grows about 2.9 MB over 10 Training visits and 50 resets**, after a forced GC.
+   - It's the same with and without P10-B's changes, so it predates them. I haven't found the cause yet.
+   - Suspects: the human `SHAPES` cache (perf.md section 6.4) and three's program and binding caches.
