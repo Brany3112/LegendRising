@@ -90,3 +90,14 @@ Together these make Reset Current Half in the **first** half exact. `tr8-reset` 
   of the stored record would need a change in `presets.js` (P4-B's).
 - **`teams.js` builds no bench** for `fullmatch`. `fullmatch.js matchConfigOf` adds five a side (one keeper among
   them), the real match's 5 changes, the half's length and my position.
+
+## 6. `LegendRising/qa/tr3-hub.mjs` (P3-B's test)
+
+Its check "a category with nothing registered shows no buttons that do nothing" counted only the runner's scenarios.
+Full Match's two entries are the hub's own (`hub.js registerEntry`), so line 64 counts them too:
+
+```js
+      const registered = await page.evaluate(i => { const id = window.__trainRun.CATEGORIES[i].id, H = window.__trainHub; return window.__trainRun.scenariosOf(id).length + (H && H.entriesOf ? H.entriesOf(id).length : 0); }, i);
+```
+
+Applied on this branch in commit `34be84d`, labelled `[hook]`. With it, `tr3-hub` passes.
