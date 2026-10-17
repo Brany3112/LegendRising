@@ -32,6 +32,13 @@ Add the row "Keeper distribution 30 vs 90 | distribution error and completion di
 
 (`tr9a` is P9-A's.)
 
+## 3b. `LegendRising/qa/unit/rules.mjs`: the restart-limit case's corner
+
+The case "every restart in the full simulation resolves within its limit + 5 s" plays up to 160 s waiting for the play
+to reach the corner-taking side's attacking third. With P9-B's match flow, seed 25 (team 1's corner) never gets there.
+The corner is then put 70 m from the ball, and carrying it there takes 13.02 s (limit 8 + 5). Suggested fix: when the
+wait times out, try the next seed (`configFor(20 + i + 100*k)`) instead of taking a corner the setup never meant.
+
 ## 4. For P9-A: the keeper's distribution acts (the Phase 9 contract)
 
 - **When:** while the keeper holds the ball and has chosen a throw or a roll.

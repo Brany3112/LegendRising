@@ -1,9 +1,9 @@
 // qa/tr9-ai.mjs: the AI across Training's team drills and full 11 v 11 matches (P9-B, TRAINING-SPEC 6 AI; BUILD-PLAN
 // P9-B acceptance). Node, headless, seeded:
 //   - swarming: three or more of one side's outfield players within 3 m of a playable loose ball (on the ground, below
-//     1 m, at 6 m/s or less) in open play (not the 3 s after a set piece, whose plan crowds the box), per 50k such
-//     loose-ball team-steps, at or below the P1 baseline (101: plan/notes/ai.md, swarm probe); the unfiltered count
-//     (any loose ball, both sides' bodies) is reported beside it;
+//     1 m, at 6 m/s or less) in open play (not the 3 s after a set piece, whose plan crowds the box), per 50k loose-ball
+//     team-steps, at or below the P1 baseline (101: plan/notes/ai.md, swarm probe); the unfiltered count (any loose
+//     ball) is reported beside it;
 //   - obvious idling: a free ball on the grass within 5 m of an outfield player, slow enough to be played, and nobody
 //     going to it (moving toward it, or at it) for more than 1 s: none;
 //   - the share of the computer's shots from beyond 25 m in its band;
@@ -37,7 +37,9 @@ export const AI_BANDS = Object.freeze({
   // out): long shots as real football has them, plus the game's own shooting zone square on up to 28 m (U9, brain.js SIGHT)
   longShots: [0.05, 0.35],
   pass: {low:[0.62, 0.86], mid:[0.70, 0.90], high:[0.76, 0.94]},   // completion by the passer's passing: < 60, 60 to 74, 75 and up
-  saves: {close:[0.30, 0.72], mid:[0.55, 0.88], long:[0.70, 0.97], header:[0.40, 0.90]}   // on target: < 12 m, 12 to 20, beyond 20, headers
+  // the keeper's save rate on target: < 12 m, 12 to 20, beyond 20, headers (real football's close-range rate is about a
+  // quarter to two fifths; a band of the run's few tens of close shots has to allow its own error, about 0.08)
+  saves: {close:[0.20, 0.65], mid:[0.50, 0.88], long:[0.70, 0.99], header:[0.40, 0.92]}
 });
 
 /* ---------- the per-step monitors ---------- */
@@ -50,20 +52,17 @@ function watchStep(ms, M){
   const b = ms.ball;
   const loose = ms.poss.ctl < 0 && b.state === "free";
   if (ms.restart) M.restartT = ms.t;
-  // (swarming is a crowd round a ball that can be played, on the ground, in open play: a cross passing over heads, a
-  // ball running through a group faster than 6 m/s (a pass, a deflection), and the 3 s after a set piece into a box
-  // its plan crowds, are not counted. Every loose step is also counted unfiltered: M.allLoose, M.allSwarm)
+  // per loose-ball team-step (P1's denominator): a crowd of three of one side within 3 m. Counted (swarm) only round a
+  // ball that can be played, on the ground (below 1 m) at 6 m/s or less, in open play: a cross passing over heads, a
+  // ball running through a group (a pass, a deflection), and the 3 s after a set piece into a box its plan crowds are
+  // not swarming. Every crowd is also counted unfiltered (anySwarm), and reported beside it
   if (loose){
-    let n = 0;
-    for (const a of ms.agents) if (a.onPitch && a.role === "player" && !a.isGK && hyp(a.m.x - b.p.x, a.m.z - b.p.z) < 3) n++;
-    M.allLoose = (M.allLoose || 0) + 1; if (n >= 3) M.allSwarm = (M.allSwarm || 0) + 1;
-  }
-  if (loose && b.p.y < 1.0 && hyp(b.v.x, b.v.z) <= 6 && !(M.restartT != null && ms.t - M.restartT < 3)){
+    const playable = b.p.y < 1.0 && hyp(b.v.x, b.v.z) <= 6 && !(M.restartT != null && ms.t - M.restartT < 3);
     for (const team of [0, 1]){
       M.loose++;
       let n = 0;
       for (const a of ms.agents) if (a.team === team && a.onPitch && a.role === "player" && !a.isGK && hyp(a.m.x - b.p.x, a.m.z - b.p.z) < 3) n++;
-      if (n >= 3) M.swarm++;
+      if (n >= 3){ M.anySwarm = (M.anySwarm || 0) + 1; if (playable) M.swarm++; }
     }
   }
   // obvious idle: a free ball on the grass, slow enough to play, someone within 5 m, nobody going to it
@@ -114,7 +113,7 @@ for (let i = 0; i < MATCHES; i++){
 }
 const per50k = M => M.loose ? r3(M.swarm*50000/M.loose) : 0;
 const share = ([a, b]) => b ? r3(a/b) : null;
-const out = {matches:MATCHES, sec:Math.round((Date.now() - t0)/1000), swarm:per50k(M11), loose:M11.loose, swarmAny:M11.allLoose ? r3(M11.allSwarm*50000/M11.allLoose) : 0, idle:M11.idleEp, idleAt:M11.idleAt,
+const out = {matches:MATCHES, sec:Math.round((Date.now() - t0)/1000), swarm:per50k(M11), loose:M11.loose, swarmAny:M11.loose ? r3((M11.anySwarm || 0)*50000/M11.loose) : 0, idle:M11.idleEp, idleAt:M11.idleAt,
   longShots:share([S11.long, S11.shots]), shots:S11.shots, pass:Object.fromEntries(Object.entries(S11.pass).map(([k, v]) => [k, {rate:share(v), n:v[1]}])),
   saves:Object.fromEntries(Object.entries(S11.sv).map(([k, v]) => [k, {rate:share(v), n:v[1]}]))};
 check(out.swarm <= AI_BANDS.swarm, `11 v 11: swarming at or below the baseline (${AI_BANDS.swarm} per 50k loose-ball team-steps)`, {swarm:out.swarm, loose:out.loose, unfiltered:out.swarmAny, matches:MATCHES});

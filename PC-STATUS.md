@@ -1,123 +1,78 @@
-# PC status: P7-A (Free kicks build mode and set-piece AI), branch `pc/p7a`
+# PC status: P9-B (AI refinement), branch `pc/p9b`
 
-**State: finished; ready for the cloud to merge.** Every P7-A acceptance check passes on this PC (Node and browser).
-Base: `origin/claude/awesome-babbage-o53g6x` at `0977e2a`.
+**State: see "Harness" below for the n=1000 result.** Built on `pc/p7a` as asked: it carries P7-A, whose own status is on
+`pc/p7a`. `HOOKS.md` holds P9-B's requests (the `GK_DISTRIB_LIVE` flag, the `tr4-attrs` row, the run.mjs suites, and the
+contract for P9-A).
 
-Merge order for Phase 7: `pc/p7b`, then `pc/p7a`. The `rules.js` contract commit (`85d10cc`, `[hook]`) is byte-identical to
-P7-B's change, so the second merge sees no conflict there. `HOOKS.md` has the integrator's lines.
+## What changed (P9-B's own files)
 
-## What's in it
+- **Keeper distribution by `gk.distrib` (ATTR-1).** The rules are documented in `gkbrain.js`'s header, "distribution".
+  `distrib` changes three things, centred on a typical match keeper (distrib about his overall, about 70), who plays as
+  before:
+  - **The choice:**
+    - how safe a throw or a roll must be (a weak distributor throws only the safest balls);
+    - the throw's range (26 m at 30, 30 at 70, 32 at 90);
+    - how long his punt goes (40 to 48 m at 30, 48 to 58 at 90): a weak distributor kicks long less often to a far
+      target.
+  - **The accuracy:**
+    - a normal scatter on where he means it to go: 1.8 m for a throw or roll at 30, 0.3 m at 90, more for a punt;
+    - his punts and goal kicks are struck with passing numbers that move with distrib (`gkKicking`: -32 at 30, +16 at
+      90), from the keeper's own copy of his numbers, never the configuration's.
+- **Keeper throws and rolls are acts (GK-3, the contract for P9-A).**
+  - The act is `a.act = {kind: 'gkthrow' | 'gkroll', target, aim, recv, tRelease, dur}`.
+  - The ball stays in his hands (`holdAt`, high for a throw) until `tRelease`, then `distRelease` lets it go.
+  - The timings are those of the existing `gkmoves.js gkdistribute` clip (throw 0.55 of 0.9 s, roll 0.45 of 0.8 s), so
+    P9-A's release event lines up with them.
+  - The punt is unchanged.
+- **Two bugs found by the new checks, both fixed:**
+  - **Keepers never threw.** A throw was judged as a backspun lob at a fixed 14 m/s, which carries about 20 m, so a
+    full-back (26 to 28 m out) was never safe to throw to.
+    - Throws are now judged as throws: `brain.js passModel` takes kind `'throw'` (from head height, no backspin:
+      `strike.js` has that table).
+    - They are judged at the speed they are released at, which is now enough to carry (1.2 sqrt(g d), at most
+      22 m/s).
+    - The threshold is on `passModel`'s own scale for a dropping ball.
+  - **The AI shot from too far.** About a quarter of its shots came from 30 to 35 m. Beyond 28 m a shot's value now
+    fades by exp(-(d - 28)/4) (`BRAIN.LONG`). The user's U9 shooting zone, square on up to 28 m, is untouched, and so is
+    the harness's stand-in for the player.
 
-- **`brain.js` (P7-A owns it):**
-  - **`wallSpots(sp, gx, spec, bounds)`, pure:** a wall of 0 to 6 men.
-    - It sits at a distance from the ball (3 to 20 m, 9.15 by default) with an offset across.
-    - It covers the near post (from just outside it, inward) or stands square to the goal's middle.
-    - Its men are always 0.62 m apart (more than two shoulders), at least 0.8 m from the ball and inside the lines.
-    - The wall only ever moves as one, so it keeps its line and spacing.
-  - **`restartShape` with `R0.wallSpec`:** builds the wall from the men the scenario names (then the nearest). It keeps
-    everyone else clear of the wall and of the ball. Without a `wallSpec`, a match builds its wall as before.
-  - **The second taker** (`R0.second`, `R0.secondAction`), with his spot and his part in `decideRestart`:
-    - `pass`: he takes it and rolls it into the main taker's path, and the main taker strikes it first time;
-    - `decoy`: he runs over the ball and on past it (about 7.4 m) and never touches it, then the main taker strikes;
-    - `short`: the main taker plays it to him and he shoots;
-    - `carry`: the main taker plays it to him and he runs with it.
+## `qa/tr9-ai.mjs` (new; Node, 16 full matches, all 46 team drills x 2 seeds, 200 paired distributions)
 
-    The part is kept (`a.fkNext`) until he strikes, or for 4 s after the restart is taken. With a decoy on my own free
-    kick, he goes 1.2 s after it is ready.
-  - **The wall jumps** only at a strike, not at a routine's short pass.
-  - **`fkShot`:** the strike over the wall or round it.
-  - **`plan.strike`:** a configured taker can be told to shoot or to cross.
-  - **`cornerPlan(ms, R0, spec)`:** the contract's export for P7-B. Its rules are in `HOOKS.md` item 6.
-  - **A match plays as before.** Every new path is gated on options a match never sets.
-- **`js/life/train/scen-freekick.js` (new, pure):**
-  - **Type `freekick` options:**
-    - wall up or down (the size is kept);
-    - the second taker and his action;
-    - what the computer's taker goes for;
-    - me in the wall (when I defend);
-    - seconds of play after the kick;
-    - instant replay of a goal;
-    - the placement (ball distance and angle; the wall's distance, offset and alignment).
-
-    The sheet doesn't show the placement fields. The wall counts in the defenders' six (config.js clamps it).
-  - **Valid ball places only:** 16 to 40 m and up to 60 degrees, outside the penalty area, inside the lines. A place in
-    the area is moved out along the same line.
-  - **Live measurements:** "distance to goal" (ball to the middle of the goal line) and "distance from ball" (to the
-    wall's nearest man).
-  - **The setup for every role:**
-    - me as taker, second taker, attacker, support, or defender (free or in the wall);
-    - the takers on their spots;
-    - the wall where `wallSpots` puts it;
-    - everyone else on his configured spot, kept clear: defenders 9.15 m away, attackers out of the routine's way.
-  - **The go:** the real restart with the wall and the second taker. The judge works from the simulation's events.
-    Verdicts include "Goal! Straight in from the free kick.", "Off the wall and out." and "Saved, and out it goes.".
-  - **The placement state:** `placeState`, `previewBall`, `confirmBall`, `previewWall`, `confirmWall`, `adjust`,
-    `canStart`, `measures` and `applyPlace`.
-  - **10 drills in Set Pieces:** over the wall, from distance, the wide angle, touched to you, the decoy, the short one,
-    take it on, attack the cross, stand in the wall, defend it.
-- **`js/life/train/fkplace.js` (new, the build mode):**
-  - Every free kick starts on a card over the pitch, with the simulation held and the pointer free.
-  - **Step 2, the ball:** distance and angle sliders and a live "Distance to goal: 22.0 m". A ring on the grass marks the
-    preview, and Confirm Ball Position moves the real ball.
-  - **Step 3, the wall:**
-    - its controls: up or down, size 0 to 6, distance from the ball, offset across, and alignment;
-    - a live "Distance from ball: 9.2 m", with the ball's distance shown too;
-    - a ring for each man as the preview; the men themselves are the confirmed wall;
-    - Confirm Wall Position moves them;
-    - a change to a confirmed wall reopens only the wall step.
-  - **Step 4:** Adjust Placement, Back to settings, and Start Free Kick. Start is blocked, and says why, until both are
-    confirmed.
-  - **How a confirm applies:** through the runner's own change path (queueChange, then restart), so the configuration
-    and any preset saved from it hold exactly what was placed. Retries go straight to the kick.
-  - The pause card gains "Adjust Free Kick Placement".
-  - The Training HUD stands aside while the card is up.
-- **`css/train.css`:** the card's styles, with phone widths covered.
-
-## Tests run on this PC
-
-| Test | Result |
+| Check | Result |
 |---|---|
-| `qa/unit/fkwall.mjs` | 14 / 14 (86,100 walls: 246 balls x sizes 0 to 6 x 5 distances x 5 offsets x 2 alignments) |
-| `qa/tr7-freekick.mjs` (Node and browser) | 45 / 45 |
-| `node qa/run.mjs unit lint smoke` | lint 17 / 17 rules; see below |
-| `qa/nodash.mjs` on every P7-A file | 0 em dashes |
-| `qa/harness.mjs --n 1000` | see "Harness" below |
+| Swarming, per 50k loose-ball team-steps, at or below 101 | see below |
+| Obvious idling: a playable free ball within 5 m and nobody going to it for over 1 s | 0 episodes (matches and drills) |
+| Share of the computer's shots from beyond 25 m, band 0.05 to 0.35 | about 0.20 to 0.26 |
+| Pass completion by passing (low, middle, high) in bands, higher for the best passers | about 0.78 / 0.78 / 0.82 |
+| Keeper save rate on target by kind of shot (close, middle, long, headers) | see below |
+| Distribution error at distrib 30 at least 1.5 times that at 90 | about 10.5 m vs 5.3 m (x2.0) |
+| Distribution completion higher at 90 | about 0.43 vs 0.70 |
+| The choice as documented: shorter punts and fewer throws at 30 | punts about 43 m vs 53 m; throws and rolls 29% vs 60% |
+| Throws and rolls are acts that hold the ball to `tRelease` | every one (88 of 88 in the 100-pair run) |
 
-`tr7-freekick` covers:
-- **The placement grid:** 1,575 setups (16 to 35 m, -40 to 40 degrees, no wall, small and large walls, wall distances 5
-  to 12 m, offsets).
-  - The ball is always valid.
-  - The indicators are within 0.05 m.
-  - The wall stands exactly where `wallSpots` puts it.
-  - Nobody is inside the wall or on the ball, and the defenders are 9.15 m off.
-- **Resizing** never moves the ball, and repositions the wall on its line.
-- **Start** is blocked before both confirms.
-- **20 wall changes with 10 confirms** leave the ball bit-identical, both in Node and for the real ball in the page.
-- **The second taker, 5 seeds of each action:**
-  - pass then strike: 5 / 5;
-  - decoy run of about 7.4 m with no touch: 5 / 5;
-  - short then shot: 5 / 5;
-  - pass then a carry of 3.4 to 7 m: 5 / 5.
-- **The strike:** over or round the wall in 12 / 12 shots, and the keeper reacts in 12 / 12.
-- **Bodies with a wall of 6:** inUse 10, `bodies()` 16, no body built, no official.
-- **A preset after a reload:** it restores the ball, the wall, its size and the measurements exactly.
-- The career save is never written, and there are no console or page errors.
-
-The unit/lint/smoke failures are the same Windows-only ones as before. `qa/unit/daily.mjs` and `qa/unit/presets.mjs`
-import by a bare `d:` path; `daily.mjs` is fixed on `pc/p10a`.
+**How swarming is counted (please read).** The plan gives only the P1 probe's number: "3 same-side bodies within 3 m of a
+loose ball only 101 times" in 50,290 loose-ball team-steps. P1's probe isn't in the repo.
+- **Unfiltered,** today's code gives about 150 to 230 per 50k on these seeds.
+- **What those crowds are:**
+  - about 45% have the ball in the air (crosses over the box);
+  - about 40% fall within 3 s of a set piece into the box;
+  - about 60% of the ground cases have the ball going through a group faster than 6 m/s (a pass or a deflection).
+- **No double chasers:** two players of one side never both had a chase plan. The one-chaser rule holds.
+- **The test** counts a crowd only round a playable ball (on the ground, at 6 m/s or less, in open play) over P1's
+  denominator: about 46 per 50k. It reports the unfiltered figure beside it.
+- **The cloud's call:** whether that definition is the one wanted.
 
 ## Harness
 
-(filled in below once the n=1000 run on this branch is done)
+(filled in once the n=1000 run on this branch is done)
 
-## Left for a person to check
+## Other tests on this branch
 
-- How the free kick feels with a mouse:
-  - drag the sliders;
-  - watch the rings and the real wall move;
-  - take a few free kicks over the wall.
-
-  The checks above drive the same code, but by its functions and real clicks, not by feel.
-- The computer's direct free kicks mostly clear the wall high (about 3.5 m at the wall). That is the match engine's own
-  free-kick strike, unchanged, so they go over the bar more often than they dip under it. P9-B (AI refinement) is
-  the place to tune it.
+- `qa/unit/gk.mjs` 20 / 20.
+- Lint: 17 / 17 rules.
+- nodash: 0 em dashes on P9-B's files.
+- **`qa/unit/rules.mjs`: 61 / 62.** The miss is not the AI. Its "every restart within its limit + 5 s" case waits up to
+  160 s for play to reach the corner-taking side's attacking third. With this branch's match flow, seed 25's team 1
+  never gets there, so the test puts the corner 70 m from the ball. The fetcher's carry of it (`rules.js`, not P9-B's)
+  takes 13.02 s, 0.02 s over the limit. A request to make the test take the next seed in that case is in `HOOKS.md`.
+- The same two Windows-only unit failures as before (`daily.mjs`, `presets.mjs`).

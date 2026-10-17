@@ -454,9 +454,9 @@ const throwSpeed = d => clamp(Math.sqrt(9.81*d)*1.2, 8, 22);
 // D0 (a typical keeper's are his own). His own copy of his numbers, made once; the configuration's are not touched
 function gkKicking(a){
   a.gkKick = true;
-  const A = a.at; if (!A || !A.gk) return;
+  const own = a.at; if (!own || !own.gk) return;
   const dv = DIST.KICK*100*(distOf(a) - DIST.D0);
-  a.at = Object.assign({}, A, {passAcc: clamp(Math.round((+A.passAcc || 50) + dv), 1, 99), passing: clamp(Math.round((+A.passing || 50) + dv), 1, 99)});
+  a.at = Object.assign({}, own, {passAcc: clamp(Math.round((+own.passAcc || 50) + dv), 1, 99), passing: clamp(Math.round((+own.passing || 50) + dv), 1, 99)});
 }
 function distribute(ms, a){
   const g = a.gk, b = ms.ball, dir = ms.dirs[a.team], D = distOf(a);
