@@ -325,9 +325,10 @@ try {
       // (the ball yours first; then the look set just before the tap, so the team-mate has not moved off the line since)
       await step(30);
       const aim = await page.evaluate(off => { const ms = window.__uf2.ms(), me = ms.agents[ms.me], o = ms.agents.find(a => a.team === me.team && a !== me && !a.isGK);
-        // ("cone": 0.85 of the cone the assists give at his distance now, outside the cone without them and its hold)
+        // ("cone": 0.85 of the cone the assists give at his distance now, outside the cone without them and its hold;
+        // turned away from the goal, so no through ball can be read from the look)
         const d = Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z), C = window.__uf2.C, base = d < C.CN.CONE_NEAR_D ? C.CN.CONE_NEAR : C.CN.CONE, a = off === "cone" ? .85*base*(1 + C.METER.CONE_A) : off;
-        const yaw = Math.atan2(-(o.m.x - me.m.x), -(o.m.z - me.m.z)) + a; window.__uf2.look(yaw, -.15); return {mate: o.id, d, off: a*180/Math.PI, outside: a > base + C.CN.HYST}; }, yawOff);
+        const yaw = Math.atan2(-(o.m.x - me.m.x), -(o.m.z - me.m.z)) + a; window.__uf2.look(yaw, -.15); return {mate: o.id, d, off: a*180/Math.PI, outside: Math.abs(a) > base + C.CN.HYST}; }, yawOff);
       await step(1);
       const ev0 = await page.evaluate(() => window.__uf2.ms().events.length);
       await page.mouse.down({button: "right"}); await step(4); await page.mouse.up({button: "right"});

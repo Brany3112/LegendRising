@@ -337,6 +337,7 @@ function animAgent(V, R, dt, tier){
   const st = S ? replaySt(R, S) : Q ? preSt(R, Q) : liveSt(V, R, a, ms, dt);
   if (st.groupY != null) h.g.position.y = st.groupY;
   if (st.groupAt){ h.g.position.x = st.groupAt.x; h.g.position.z = st.groupAt.z; }
+  rebase(h, R.base || (R.base = {x:0, z:0, at:false, ok:false}), !!st.groupAt);
   const ev = animateHuman(h, dt, st, {tier:R.hidden ? 4 : tier});
   // (a clip that has played to its end is not started again for the same act: a slide or a header is not replayed
   // while its act lingers, UF-A U7)
@@ -793,6 +794,23 @@ function readyFor(V, R, a, ms){
   return c;
 }
 
+/* ---------- a body's group moved under its pose (UF2-A, U12) ----------
+   A clip that carries the body from its own start (a slide: groupAt) is given up or taken on: the group moves from that
+   start to where the agent is (or back) in one frame, so the last pose's hips (Q 80..82, in the group's own frame) and
+   the group as it was drawn are moved by as much the other way, and the blend into the new pose starts from where the
+   body really was drawn. Without it the blend carried the slide's whole travel: the body shot out ahead and slid back
+   over a second. B: the body's own record of its group {x, z, at, ok}; at: a groupAt clip now */
+function rebase(h, B, at){
+  if (B.ok && B.at !== at && h.posed){
+    const dx = B.x - h.g.position.x, dz = B.z - h.g.position.z, ry = h.g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), sc = h.scale || 1;
+    const lx = (c*dx - sn*dz)/sc, lz = (sn*dx + c*dz)/sc;
+    for (const Pq of [h.pose, h.posePrev]) if (Pq){ Pq[80] += lx; Pq[82] += lz; }
+    // (and the group as it was drawn is the new one: the feet found from that pose stay where they were, human.js)
+    if (h.drawn){ h.drawn[0] = h.g.position.x; h.drawn[2] = h.g.position.z; }
+  }
+  B.x = h.g.position.x; B.z = h.g.position.z; B.at = at; B.ok = true;
+}
+
 /* ---------- your first-person body (matchcam.js calls this after placing the eye) ---------- */
 // (UF2-A, U12) is the simulation held: its clock has not moved for FP_HELD real seconds and no replay or walk-out is
 // drawn (a pause card, the pointer let go; a slow-motion hit-stop still steps well inside that)
@@ -852,15 +870,7 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   // moves from that start to where you are (or back) in one frame, so the last pose's hips are moved by as much the other
   // way in the group's own frame, and the blend into the new pose starts from where the body really was drawn. Without
   // it the blend carried the slide's whole travel: the body shot out ahead of the eye and slid back over a second
-  const atNow = st !== FPST && !!st.groupAt, B = V.fpBase || (V.fpBase = {x:0, z:0, at:false, ok:false});
-  if (B.ok && B.at !== atNow && h.posed){
-    const dx = B.x - h.g.position.x, dz = B.z - h.g.position.z, ry = h.g.rotation.y, c = Math.cos(ry), sn = Math.sin(ry), sc = h.scale || 1;
-    const lx = (c*dx - sn*dz)/sc, lz = (sn*dx + c*dz)/sc;
-    for (const Pq of [h.pose, h.posePrev]) if (Pq){ Pq[80] += lx; Pq[82] += lz; }
-    // (and the group as it was drawn is the new one: the feet found from that pose stay where they were, human.js)
-    if (h.drawn){ h.drawn[0] = h.g.position.x; h.drawn[2] = h.g.position.z; }
-  }
-  B.x = h.g.position.x; B.z = h.g.position.z; B.at = atNow; B.ok = true;
+  rebase(h, V.fpBase || (V.fpBase = {x:0, z:0, at:false, ok:false}), st !== FPST && !!st.groupAt);
   const mask = animateHuman(h, dt, st).mask;
   // (U12) your clip ends where it plays: in your eyes. Your whole body is not drawn while you look through them (its
   // actor poses it at tier 4, which runs no clip and so never says it ended, animAgent), so the clip of a strike, a

@@ -490,7 +490,8 @@ function coneTarget(ms, me){
     if (o.id === CTRL.target.agent) cur = s - CN.HYST;
     if (s < bs){ bs = s; best = o.id; }
   }
-  if (CTRL.target.agent >= 0 && cur <= bs + 1e-9) best = CTRL.target.agent;
+  // (the current one only while he is still in the cone himself: with nobody in it, a pass went to the last man aimed at)
+  if (CTRL.target.agent >= 0 && cur < Infinity && cur <= bs + 1e-9) best = CTRL.target.agent;
   return best;
 }
 // a through ball: the crosshair's point on the grass within 8 m of a team-mate's run (where he will be over the next
