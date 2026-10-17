@@ -18,6 +18,9 @@ const t = await trainLaunch({seed: 9});
 const {page} = t;
 try {
   await enterByButton(page);
+  // (U21: football is third person by default; this suite checks the eye (its owner, its height, the ball's size at
+  // 40 m), so it plays with the Football camera setting on First person; qa/u21-camera.mjs checks third person)
+  await page.evaluate(async () => { const C = await import("/js/life/football/control.js"); C.saveSet({footCam: "first"}); });
   await pressReal(page, "Escape");
   await page.waitForFunction(() => !window.__trainHub.hubOpen(), null, {timeout: 10000});
   // the Half cage, and the test scenarios (through the runner's registerScenario, as a scenario module would)

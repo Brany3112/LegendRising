@@ -32,7 +32,8 @@ import {camPush, camPop, camKick} from "../core/camera.js";
 import {dirOf, wrapA} from "./pitchspec.js";
 import {EV, BONE} from "../human.js";
 import {THREE} from "../build.js";
-import {CTRL, eyeAhead, eyeDrop} from "./control.js";
+import {CTRL, SET, eyeAhead, eyeDrop} from "./control.js";
+import {camCast} from "../core/collide.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
@@ -110,7 +111,10 @@ export const MC = {
   // eye against the standing one (for the tests)
   head:{x:0, y:0, z:0, vx:0, vy:0, vz:0, dy:0},
   // the cinematic shot (A1.5): {t, dur, frame(dt, cam, k)} while one runs
-  cine:null
+  cine:null,
+  // (U21) third person: how far the view is from your eyes to behind you (0 first person, 1 third, eased between),
+  // and where it was this frame (the aim point it looks at, the camera, for the tests)
+  tpK:0, tp:{on:false, aim:{x:0, y:0, z:0}, at:{x:0, y:0, z:0}, pulled:false}
 };
 
 // once per match (controller.js)
@@ -120,6 +124,8 @@ export function camInit(src){
   MC.wind.k = MC.wind.over = 0; const F = MC.follow; F.on = false; F.y = F.p = 0; F.seq = -1; F.ev = null;
   const a = MC.act; for (const k in a) a[k] = 0;
   const hd = MC.head; for (const k in hd) hd[k] = 0;
+  // (U21: every activity starts through your eyes and eases back behind you, so it never cuts)
+  MC.tpK = 0; MC.tp.on = false;
   camPush(FP_OWNER);
   MC.on = true;
 }
@@ -238,6 +244,8 @@ function fpFrame(dt, cam){
   if (MC.off.dy) cam.translateY(MC.off.dy);
   if (MC.off.dz) cam.translateZ(-MC.off.dz);
   MC.fov = (SRC.fov ? SRC.fov() : CAM.FOV) + FX.fov;
+  // (U21) third person: eased in from your eyes, out again when it is turned off
+  tpFrame(a, V, x, y0, z, s, dt, cam);
   if (SRC.after) SRC.after(dt, cam);
 }
 /* (P9-A, MV-15) the action springs on your own clip's moments, once each, on the frame the clip says it happens:
@@ -254,6 +262,51 @@ function clipCam(V, ev){
   if (!kind) return;
   camAction(kind);
   (MC.camActs || (MC.camActs = [])).push({kind, t:MC.t, clip:c.id});
+}
+/* ---------- third person (USER-ISSUES U21) ----------
+   Every football moment (a match, a drill, a lesson, the team session, Training) is seen from behind you: TP.BACK m
+   back and TP.UP m above your head, looking at your aim point, where the line you aim along (your eyes, P.yaw and
+   P.pitch: the aim is the same as in first person, so the shot meter, the kick types, the pass assist and the crosshair
+   all work unchanged) meets the pitch, at most TP.AIM_MAX m out (TP.FAR ahead when you look level or up). The screen's
+   middle, where the crosshair is, is that point on the pitch. It turns with the mouse as the aim does. Whatever is
+   between your head and it (the fence, a goal, a wall, the stand) pulls it in (core/collide.js camCast), and it never
+   goes under TP.MIN_Y. From your eyes to behind you, and back, it eases (TP.RATE a second): no cut when an activity
+   starts or its setting changes. Your whole body is drawn and the first-person one is not (view.js V.tp) from half way.
+   The setting: control.js SET.footCam ('third' by default, 'first' for your own eyes); the bench keeps its seat. */
+export const TP = Object.freeze({BACK: 4, UP: 1.8, HEAD: .12, AIM_MAX: 40, AIM_MIN: 4, FAR: 30, MIN_Y: .45, MARGIN: .3, RATE: 3, SPEED: 7});
+const _tq = new THREE.Quaternion(), _tm = new THREE.Matrix4(), _te = new THREE.Vector3(), _ta = new THREE.Vector3(), _tc = new THREE.Vector3(), _tu = new THREE.Vector3(0, 1, 0);
+export const tpWanted = a => !!a && SET.footCam !== "first";
+function tpFrame(a, V, x, y0, z, s, dt, cam){
+  const want = tpWanted(a) ? 1 : 0;
+  // (eased, and never faster than TP.SPEED m/s over the way between the eyes and behind you: the eased curve's steepest
+  // is 1.5 times its share, so the most the camera moves in a 60 Hz frame is under 0.15 m)
+  const way = Math.hypot(TP.BACK, TP.UP + TP.HEAD), dkMax = TP.SPEED*Math.max(0, dt)/(1.5*way);
+  MC.tpK += clamp((want - MC.tpK)*(1 - Math.exp(-TP.RATE*Math.max(0, dt))), -dkMax, dkMax);
+  if (Math.abs(want - MC.tpK) < 2e-3) MC.tpK = want;
+  const k = MC.tpK, T = MC.tp;
+  T.on = k > .5;
+  if (V) V.tp = T.on;
+  if (k <= 0) return;
+  // the aim: from your eyes along where you look, to the pitch
+  _te.copy(cam.position);
+  const cp = Math.cos(P.pitch), dx = -Math.sin(P.yaw)*cp, dy = Math.sin(P.pitch), dz = -Math.cos(P.yaw)*cp;
+  const tAim = dy < -.02 ? clamp((_te.y - .11)/(-dy), TP.AIM_MIN, TP.AIM_MAX) : TP.FAR;
+  _ta.set(_te.x + dx*tAim, Math.max(.11, _te.y + dy*tAim), _te.z + dz*tAim);
+  // behind and above your head, pulled in by whatever is in the way
+  const hx = x, hy = y0 + TP.HEAD*s, hz = z, f = dirOf(P.yaw);
+  let cx = -f.x*TP.BACK, cy = TP.UP, cz = -f.z*TP.BACK;
+  const L = Math.hypot(cx, cy, cz);
+  cx /= L; cy /= L; cz /= L;
+  let len = L;
+  T.pulled = false;
+  try { const hit = camCast(hx, hy, hz, cx, cy, cz, L + TP.MARGIN); if (hit < L + TP.MARGIN){ len = Math.max(.6, hit - TP.MARGIN); T.pulled = true; } } catch(e){ /* no collision world here */ }
+  _tc.set(hx + cx*len, Math.max(TP.MIN_Y, hy + cy*len), hz + cz*len);
+  // eased from your eyes: the place, and the turn (toward looking at the aim point)
+  _tm.lookAt(_tc, _ta, _tu); _tq.setFromRotationMatrix(_tm);
+  const e = k*k*(3 - 2*k);
+  cam.position.lerp(_tc, e);
+  cam.quaternion.slerp(_tq, e);
+  T.aim.x = _ta.x; T.aim.y = _ta.y; T.aim.z = _ta.z; T.at.x = cam.position.x; T.at.y = cam.position.y; T.at.z = cam.position.z;
 }
 const FP_OWNER = {id:"match-fp", priority:40, frame:fpFrame, fov:() => Math.round(MC.fov*20)/20, near:CAM.NEAR};
 

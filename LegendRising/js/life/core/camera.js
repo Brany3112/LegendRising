@@ -6,6 +6,7 @@
    P.yaw / P.pitch stay the only look state: the camera starts every frame turned to them, an owner may then place and
    turn it as its shot needs, and the kicks go on top without ever being written back. */
 import {P, RT, spring} from "./state.js";
+import {THREE} from "../build.js";
 
 const STACK = [];
 /* e = {id, priority, frame(dt, cam), fov?, near?}: fov and near are numbers or functions read every frame, applied when
@@ -53,10 +54,22 @@ function kickStep(dt, cam){
 /* ---------- once a frame (world.js step) ---------- */
 const APPLIED = {owner:null, fov:null, near:null};
 const val = v => typeof v === "function" ? v() : v;
+/* (USER-ISSUES U21) a football activity starting or ending: the camera eases from where it was to where its new owner
+   puts it over HANDOVER.T s, between the football camera (match-fp, third person behind you) and life's own (first
+   person, its third person, a drill's view), so it never cuts. Replays, cut-scenes and build mode keep their cuts */
+export const HANDOVER = Object.freeze({T: .45, FOOT: Object.freeze(["match-fp"]), LIFE: Object.freeze(["life-fp", "life-tp", "drill-view"])});
+const HO = {t:0, on:false, p:null, q:null};
+const sideOf = id => HANDOVER.FOOT.includes(id) ? "foot" : HANDOVER.LIFE.includes(id) ? "life" : null;
 export function camApply(dt){
   const cam = RT.cam, top = STACK[STACK.length - 1];
   if (!cam || !top) return;
-  const fresh = APPLIED.owner !== top; APPLIED.owner = top;
+  const fresh = APPLIED.owner !== top;
+  if (fresh && APPLIED.owner){
+    const a = sideOf(APPLIED.owner.id), b = sideOf(top.id);
+    if (a && b && a !== b){ HO.p = HO.p || new THREE.Vector3(); HO.q = HO.q || new THREE.Quaternion(); HO.p.copy(cam.position); HO.q.copy(cam.quaternion); HO.t = 0; HO.on = true; }
+    else if (!a || !b) HO.on = false;
+  }
+  APPLIED.owner = top;
   const fov = val(top.fov), near = val(top.near);
   let proj = false;
   if (fov != null && (fresh || fov !== APPLIED.fov) && cam.fov !== fov){ cam.fov = fov; proj = true; }
@@ -65,5 +78,13 @@ export function camApply(dt){
   if (proj) cam.updateProjectionMatrix();
   cam.rotation.set(P.pitch, P.yaw, 0, "YXZ");
   top.frame(dt, cam);
+  if (HO.on){
+    HO.t += Math.max(0, dt || 0);
+    const k = Math.min(1, HO.t/HANDOVER.T), e = k*k*(3 - 2*k);
+    if (k >= 1) HO.on = false;
+    else { cam.position.lerpVectors(HO.p, cam.position, e); _hq.copy(cam.quaternion); cam.quaternion.copy(HO.q).slerp(_hq, e); }
+  }
   kickStep(dt, cam);
 }
+const _hq = new THREE.Quaternion();
+export const camHandover = () => HO.on ? Math.min(1, HO.t/HANDOVER.T) : 1;

@@ -70,7 +70,9 @@ const NAMED = {
   // Phase 9 (TR-9): P9-B's AI, P9-A's animation
   tr9: ["tr9-ai", "tr9-anim", "tr9-gkanim", "tr9-sheets"],
   tr9a: ["tr9-anim", "tr9-gkanim", "tr9-sheets"],
-  tr9b: ["tr9-ai"]
+  tr9b: ["tr9-ai"],
+  // USER-ISSUES U21: the camera by activity (third person for football, first person for life)
+  u21: ["u21-camera"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){

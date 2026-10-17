@@ -42,6 +42,9 @@ try {
     const Rn = window.__trainRun, L = window.__life, HM = await import("/js/life/human.js"), MC = (await import("/js/life/football/matchcam.js")).MC;
     const VW = await import("/js/life/football/view.js"), AC = await import("/js/life/football/actions.js"), GB = await import("/js/life/football/gkbrain.js");
     const MV = await import("/js/life/moves.js"), C = await import("/js/life/football/control.js");
+    // (U21: football is third person by default; MV-15's checks are of the first-person body and its camera, so this suite
+    // plays with the Football camera setting on First person; qa/u21-camera.mjs checks third person)
+    C.saveSet({footCam: "first"}); MC.tpK = 0;
     const B = HM.BONE, Vec = L.cam.position.constructor, Q = L.cam.quaternion.constructor;
     const v1 = new Vec(), v2 = new Vec();
     const start = (id, cfg) => { if (Rn.RUN.cur) Rn.stopScenario("restart"); const sc = Rn.scenario(id); return Rn.startScenario(id, Object.assign({}, sc.config, cfg || {})); };

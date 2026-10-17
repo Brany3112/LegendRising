@@ -359,7 +359,8 @@ export function viewStep(dt){
   ME.short = ahead0 - ahead;                                // a wall in the way: the body leans back from it instead
   _cv.set(P.x + cos*B.x - sin*ahead, P.eye + B.y + P.drillY + P.bobY - .035*sstep(.3, 1.2, -P.pitch), P.z - sin*B.x - cos*ahead);
   // anything else nearer than r moves the eye (fpEye: only while the first-person view is the one you see, or blended in)
-  const want = viewPref() === "tp" && !forcedFP() ? 1 : 0;
+  // ((U21) and behind you whenever you have the ball, hand.js ME.footBall, unless the football camera is first person)
+  const want = (viewPref() === "tp" || (ME.footBall && ME.footCam !== "first")) && !forcedFP() ? 1 : 0;
   // a panel, the bus, a drill: straight into first person; V: a short glide either way
   if (!want && (FLAGS.modal || FLAGS.busy || !modeFlags().tp || fadeOn())) ME.camT = 0;
   else ME.camT = want ? Math.min(1, ME.camT + dt/.38) : Math.max(0, ME.camT - dt/.28);

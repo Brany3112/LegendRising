@@ -66,6 +66,10 @@ try {
   await page.evaluate(async () => {
     const R = window.__trainRun;
     const C = await import("/js/life/football/control.js"), M = await import("/js/life/football/matchcam.js"), ST = await import("/js/life/football/strike.js");
+    // (U21: football is third person by default; this suite checks the first-person body under the eye, U12, and the HUD
+    // as first person places it, so it plays with the Football camera setting on First person. qa/u21-camera.mjs checks
+    // the meter, the kick type and the pass assist in third person)
+    C.saveSet({footCam: "first"});
     const {THREE} = await import("/js/life/build.js");
     const build = (cfg, env) => {
       const hx = env.spec.hx, me = {slot: "ST", x: hx - 22, z: 0, yaw: -Math.PI/2};

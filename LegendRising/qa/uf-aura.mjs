@@ -14,6 +14,9 @@ const {check, done} = checker("uf-aura");
 const KITS = {home: ["#6b1f7a", "#ffffff"], away: ["#1b3fa0", "#ffffff"]};
 const T = await openFixture("test:11v11", {seed: 3, kits: KITS});
 const {page} = T;
+// (U21: football is third person by default; this suite checks what you see through your own eyes, so it plays with
+// the Football camera setting on First person, control.js SET.footCam)
+await page.evaluate(async () => { const C = await import("./js/life/football/control.js"), M = await import("./js/life/football/matchcam.js"); C.saveSet({footCam: "first"}); M.MC.tpK = 0; });
 let ok = false;
 // aim the view at an agent's chest (what a mouse move does), after the frames have moved him; returns where he is on screen
 const aimAt = id => page.evaluate(id => {

@@ -670,6 +670,8 @@ export function settingsHTML(o = {}){
   rows.push(["Mouse sensitivity", range("sens", .4, 2.5, .05, SET.sens)]);
   rows.push(["Invert mouse", seg("invertY", [[false, "Off"], [true, "On"]], SET.invertY)]);
   rows.push(["Field of view", range("fov", 70, 90, 1, SET.fov)]);
+  // (U21) third person for every football moment (the default), or through your own eyes
+  rows.push(["Football camera", seg("footCam", [["third", "Third person"], ["first", "First person"]], SET.footCam)]);
   rows.push(["Camera motion and effects", range("motion", 0, 1, .05, SET.motion)]);
   rows.push(["Control hints", seg("hints", [[true, "On"], [false, "Off"]], SET.hints)]);
   rows.push(["Offside marker", seg("offsidePip", [["auto", "Auto"], ["on", "On"], ["off", "Off"]], SET.offsidePip)]);
