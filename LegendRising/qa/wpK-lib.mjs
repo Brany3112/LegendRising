@@ -9,13 +9,23 @@
 //   import {openKit, savePng} from "./wpK-lib.mjs";
 import fs from "node:fs";
 import path from "node:path";
-import {chromium} from "/opt/node22/lib/node_modules/playwright/index.mjs";
 import {ensureServer} from "./serve.mjs";
+
+// Playwright from the Linux path first, else the globally installed package; on Windows the real GPU, not SwiftShader
+const WIN = process.platform === "win32";
+async function playwright(){
+  try { return await import("/opt/node22/lib/node_modules/playwright/index.mjs"); }
+  catch(e){
+    const {execSync} = await import("node:child_process"), {pathToFileURL} = await import("node:url");
+    return await import(pathToFileURL(path.join(execSync("npm root -g", {encoding: "utf8"}).trim(), "playwright", "index.mjs")).href);
+  }
+}
+const {chromium} = await playwright();
 
 export const PORT = +(process.env.QA_PORT || 8769);
 export const BASE = `http://127.0.0.1:${PORT}/`;
 export const OUT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "out");
-const ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"];
+const ARGS = WIN ? ["--ignore-gpu-blocklist"] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"];
 
 export async function openKit(){
   fs.mkdirSync(OUT, {recursive: true});
