@@ -1004,6 +1004,8 @@ function headerTry(ms, a, act){
 /* ---------- throw-ins ---------- */
 
 // the throw: from 2.0 m at up to 8 + 0.07 passing m/s, released at 0.62 s of a 1.0 s clip
+// (a throw to a man's height goes at about 20 degrees: tan and cos squared of it)
+const THROW_TAN = 0.36397, THROW_COS2 = 0.88302;
 export function startThrow(ms, a, target, recv = -1){
   a.act = {kind: 'throw', t: 0, dur: ACT.THROW_DUR, tc: ACT.THROW_REL, target, recv, done: false, pre: null, preReq: null};
   a.state = 'throw'; a.stateT = 0;
@@ -1016,8 +1018,16 @@ function throwRequest(ms, a, act){
   const vmax = 8 + 0.07*a.at.passing;
   const from = {x: b.p.x, y: Math.max(1.6, b.p.y), z: b.p.z};
   const d = hypot(tg.x - from.x, tg.z - from.z);
-  const sp = clamp(Math.sqrt(9.81*Math.max(2, d)/0.9396926207859083)*0.92, 5, vmax);
-  return {from, target: {x: tg.x, y: R, z: tg.z}, speed: sp, contact: 0, curl: 0, foot: 'R', kind: 'throw', rollDecel: b.rollDecel};
+  // (P7-B) a target with a height is thrown to arrive there, on a flatter line (about 20 degrees: a throw to a man's
+  // thigh, Training's set pieces; the lob's speed would leave the solver the high arc, which only a header meets);
+  // without one, onto the grass at the point on the lob, as always
+  const ty = tg.y != null && Number.isFinite(+tg.y) && +tg.y > R + 0.05 ? clamp(+tg.y, R, 2) : R;
+  let sp = clamp(Math.sqrt(9.81*Math.max(2, d)/0.9396926207859083)*0.92, 5, vmax);
+  if (ty > R){
+    const dd = Math.max(2, d), q = dd*THROW_TAN - (ty - from.y);
+    sp = clamp(Math.sqrt(9.81*dd*dd/(2*THROW_COS2*Math.max(0.3, q)))*1.04, 5, vmax);
+  }
+  return {from, target: {x: tg.x, y: ty, z: tg.z}, speed: sp, contact: 0, curl: 0, foot: 'R', kind: 'throw', rollDecel: b.rollDecel};
 }
 const sameReq = (p, q) => p.from.x === q.from.x && p.from.y === q.from.y && p.from.z === q.from.z && p.target.x === q.target.x &&
   p.target.z === q.target.z && p.speed === q.speed && p.rollDecel === q.rollDecel;
