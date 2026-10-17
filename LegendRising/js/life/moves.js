@@ -171,7 +171,10 @@ function newClip(h, key, st, spec){
   // (USER-ISSUES U24) a contact sooner than the clip can reach at its fastest (CLIP_RATE_MAX times its own pace): it
   // begins that much further into its swing (a shorter backswing), so the foot meets the ball when the simulation
   // strikes it. Begun at the top, a strike struck within 0.18 s of being asked had its leg still swinging as the ball left
-  if (!C.legacy && st.tc != null && isFinite(st.tc) && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*st.tc) C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*st.tc);
+  // (C.late: the clip time it began at when it began late so, else -Infinity; the strike's swing and its plant step go
+  // from where the feet are at that moment, strike(): begun part way along their paths, they were drawn there at once)
+  C.late = -Infinity;
+  if (!C.legacy && st.tc != null && isFinite(st.tc) && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*st.tc){ C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*st.tc); C.late = C.tau; }
   if (!C.legacy){ C.tcAt = st.tc != null && isFinite(st.tc) ? Math.max(0, h.at - C.base + st.tc) : (C.contact - C.tau)/C.post; }
   return C;
 }
@@ -864,7 +867,10 @@ function strike(h, T, st, dt){
     const ball = st.ball || defaultBall(h, kickS, f);
     d.bx = ball.x; d.by = ball.y != null ? ball.y : BR; d.bz = ball.z;
     const Fp = C.feet[iS];
-    const p = C.fromHold ? {x:Fp.x, z:Fp.z, yaw:BT.ry + Fp.yaw} : st.plant || plantSpot(k, kickS > 0 ? "L" : "R", {x:d.bx, y:d.by, z:d.bz}, f, sc, {x:0, z:0, yaw:0});
+    // ((USER-ISSUES U24) begun late, at or past the plant's moment: struck off the foot he stands on, where it is; a
+    // plant spot elsewhere had that foot drawn there in one frame)
+    const late = !C.fromHold && C.late > -(C.back || 0) - 1e-6;
+    const p = C.fromHold || late ? {x:Fp.x, z:Fp.z, yaw:BT.ry + Fp.yaw} : st.plant || plantSpot(k, kickS > 0 ? "L" : "R", {x:d.bx, y:d.by, z:d.bz}, f, sc, {x:0, z:0, yaw:0});
     // (from a held wind-up the support foot stays planted where the hold had it; every joint goes on from the held pose
     // under the same speed limit, so the hand-over needs no blend)
     if (C.fromHold) h.heldAt = null;
@@ -909,15 +915,18 @@ function strike(h, T, st, dt){
   const tPre = -C.pre;
   const groundY = d.gy + D.ankY*sc;
   const tP = -(C.back || 0);                                // the plant comes down
+  // ((USER-ISSUES U24) a clip begun late, part way into the plant step (C.late), steps from where the foot is then over
+  // what is left of it, rather than from the step's own start)
+  const t0 = C.late > tPre ? C.late : tPre, sT = C.late > tPre ? Math.max(1e-3, tP - t0) : Math.max(.05, tP - tPre);
   if (tau < tP && d.sw){
     // a run-up's last swing, taken over from the gait in flight: the same path it was on (from where the swing began,
     // over the ground with zero speed at both ends, the foot lifted at mid-swing), now ending on the plant exactly
-    const v = clamp((tau - tPre)/Math.max(.05, tP - tPre), 0, 1), w = d.sw, u = w.u0 + (1 - w.u0)*v, k = ease(Math.min(1, u/.95));
+    const v = clamp((tau - t0)/sT, 0, 1), w = d.sw, u = w.u0 + (1 - w.u0)*v, k = ease(Math.min(1, u/.95));
     Fs.x = w.x0 + (d.px - w.x0)*k; Fs.z = w.z0 + (d.pz - w.z0)*k;
     Fs.y = lerp(w.y0, groundY, ease(u)) + w.lift*Math.sin(Math.PI*u)*(1 - sstep(.85, 1, u));
     Fs.yaw = lerp(d.syaw0, d.pyaw, ease(v)); Fs.pitch = lerp(d.sp0, 0, ease(v)); Fs.roll = 0; Fs.down = v >= 1;
   } else if (tau < tP){
-    const u = clamp((tau - tPre)/Math.max(.05, tP - tPre), 0, 1), e = ease(u);
+    const u = clamp((tau - t0)/sT, 0, 1), e = ease(u);
     Fs.x = lerp(d.sx0, d.px, e); Fs.z = lerp(d.sz0, d.pz, e); Fs.y = lerp(d.sy0, groundY, e) + .07*sc*bump(u);
     Fs.yaw = lerp(d.syaw0, d.pyaw, e); Fs.pitch = -.15*bump(u); Fs.roll = 0; Fs.down = u >= 1;
   } else {
@@ -1124,7 +1133,11 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   // a strike from a stand lifts it as the plant comes down) through the backswing to the ball, arriving along the aim at
   // the foot's speed; then up into the follow-through and down onto its landing. (One cubic each side of the contact,
   // so no joint has to turn faster than about 0.3 rad a frame at 60 Hz.)
-  const tK0 = C.back ? -C.back - .03 : 0, W = Math.max(.12, ct - tK0);
+  // ((USER-ISSUES U24) a clip begun late, past the swing's own start (C.late), swings from where the foot is then
+  // over the time left to the contact, a shorter backswing: begun part way along the curve, the foot was drawn there at
+  // once)
+  const tKs = C.back ? -C.back - .03 : 0, lateK = !C.fromHold && C.late > tKs;
+  const tK0 = lateK ? C.late : tKs, W = lateK ? Math.max(1e-3, ct - tK0) : Math.max(.12, ct - tK0);
   const vend = clamp(.55*d.vFoot, 3.5, 8.5)*sc;
   // (the follow-through takes at most 45% of what is left after the contact; the landing has the rest)
   const dft = Math.hypot(tx - ax, ty - ay, tz - az), Tft = Math.min(clamp(dft/(.4*d.vFoot), .28, .4), (dur - ct)*.45);
