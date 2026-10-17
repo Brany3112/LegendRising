@@ -10,9 +10,9 @@
                    ring round it; a tiny glyph of what you can do now
      reticle       (A1.7, WP-F2) where a strike would go now: your look plus its sway (Finishing, Composure under
                    pressure, breath, the weak foot), on the goal mouth or the grass; it pulses as your support foot
-                   plants (the rhythm to release on). While you wind up a thin power arc runs round it with the sweet
-                   spot for the distance (a pass's sweet zone), the contact pips and the curl glyph; it turns red held
-                   past full. After your strike a short line under it says how you struck it
+                   plants (the rhythm to release on), with the curl glyph beside it while a curler is wound up; it
+                   turns red held past full (the power itself is the meter's, UF2-A below). After your strike a short
+                   line under it says how you struck it
      lower left    the stamina: a bright breath fill over the darker cap (the late match), faint while full, brighter
                    while it drains, a heartbeat when low; the energy line under it
      bottom right  the hints (a key and a verb, three at most; a key alone after five uses; H hides them): the shield
@@ -36,8 +36,9 @@
      the meter     one bar just under the crosshair (above it when the ball would be under it: the HUD never covers
                    the ball) while a shot or a pass is held: it fills as the button is held, the sweet spot marked on it
                    (control.js CTRL.meter: the power for the distance, the weight for a pass), green while the fill is
-                   in it; let go and it holds a moment on where you released, saying Clean when that was in it. It
-                   replaces the thin arc round the reticle and the contact pips
+                   in it; let go and it holds a moment on where you released, saying Clean when that was in it. A
+                   throw-in held fills it too, as Distance, with no sweet spot (how far the throw goes is how long it
+                   is held). It replaces the thin arc that ran round the reticle and its contact pips
      the kick type a small list in the right edge above the hints, always there: Chip, Curl, Normal, Placed, Driven,
                    the one you will strike with lit (control.js KICKS, the mouse wheel or 1, 2, 3 change it before the
                    kick), with a short "scroll to change" until you have used it a few times
@@ -57,7 +58,7 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp
 export const HUD_PARTS = Object.freeze({score:"Scorebug", stamina:"Stamina", hints:"Control hints", calls:"Team-mates' calls", cards:"Event cards", scenario:"Scenario line", glyph:"Action glyph", fx:"Speed lines and vignette", kick:"Kick type"});
 
 const D = {root:null, el:{}, cfg:null, txt:{}, t:0, tText:0, calls:[], cards:[], scen:null, scenT:-99, lastScen:-99, notice:null,
-  tab:false, hidden:false, arcShown:0, staminaShown:0, drainT:0, lastB:100, chargeA:0, lastCharge:null, lastP:0, ring:0,
+  tab:false, hidden:false, staminaShown:0, drainT:0, lastB:100, chargeA:0, ring:0,
   retA:0, kickSeq:-1, slineT:0, desat:0};
 
 // cfg = {home:{short, kit:[shirt, shorts]}, away:{...}, us: 0 | 1, pip: 'auto' | 'on' | 'off' (the setting resolved),
@@ -91,14 +92,8 @@ export function hudInit(cfg){
     <div class="fp-ret" data-part="reticle">
       <svg class="fp-arc" viewBox="-40 -40 80 80" aria-hidden="true">
         <circle class="fp-ret-c" r="7"/>
-        <g class="fp-arcg">
-          <circle class="fp-arc-bg" r="${ARC_R}"/>
-          <circle class="fp-arc-sweet" r="${ARC_R}"/>
-          <circle class="fp-arc-fill" r="${ARC_R}"/>
-          <line class="fp-arc-tick" x1="${ARC_R - 4}" y1="0" x2="${ARC_R + 4}" y2="0"/>
-        </g>
       </svg>
-      <div class="fp-contact"><i></i><i></i><i></i></div><span class="fp-curl">&#x293A;</span>
+      <span class="fp-curl">&#x293A;</span>
     </div>
     <div class="fp-sline"></div>
     <div class="fp-meter" aria-hidden="true"><span class="fp-meter-lab"></span><div class="fp-meter-bar"><i class="fp-meter-sweet"></i><i class="fp-meter-fill"></i><i class="fp-meter-rel"></i></div><b class="fp-meter-say"></b></div>
@@ -124,9 +119,9 @@ export function hudInit(cfg){
   const q = s => r.querySelector(s);
   Object.assign(D.el, {vig:q(".fp-vig"), lines:q(".fp-lines"), bug:q(".fp-bug"), hs:q(".fp-hs"), as:q(".fp-as"), sh:q(".fp-sh"), sa:q(".fp-sa"),
     min:q(".fp-min"), add:q(".fp-add"), off:q(".fp-off"), bk:q(".fp-bk"), scen:q(".fp-scen"), cards:q(".fp-cards"), cross:q(".fp-cross"),
-    arc:q(".fp-arc"), arcFill:q(".fp-arc-fill"), arcSweet:q(".fp-arc-sweet"), arcTick:q(".fp-arc-tick"), ring:q(".fp-ring"), ringWin:q(".fp-ring-win"),
-    hold:q(".fp-hold"), ret:q(".fp-ret"), retC:q(".fp-ret-c"), arcBg:q(".fp-arc-bg"), arcG:q(".fp-arcg"), sline:q(".fp-sline"),
-    contact:q(".fp-contact"), curl:q(".fp-curl"), glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
+    ring:q(".fp-ring"), ringWin:q(".fp-ring-win"),
+    hold:q(".fp-hold"), ret:q(".fp-ret"), retC:q(".fp-ret-c"), sline:q(".fp-sline"),
+    curl:q(".fp-curl"), glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
     energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:ov,
     warm:q(".fp-warm"), warmB:q(".fp-warm b"), warmS:q(".fp-warm span"), wu:q(".fp-wu"), wuName:q(".fp-wu-name"), wuN:q(".fp-wu-n"), wuHow:q(".fp-wu-how"),
     goal:q(".fp-goal"), goalB:q(".fp-goal b"), goalC:q(".fp-goalc"), goalCI:q(".fp-goalc i"), goalCB:q(".fp-goalc b"),
@@ -136,10 +131,6 @@ export function hudInit(cfg){
   const sides = [q(".fp-home i"), q(".fp-away i")];
   sides[0].style.background = cfg.home.kit[0]; sides[1].style.background = cfg.away.kit[0];
   D.el.hs.textContent = cfg.home.short; D.el.as.textContent = cfg.away.short;
-  // the power arc: 300 degrees of a circle round the reticle, open at the bottom, filling clockwise from the lower left
-  D.arcC = 2*Math.PI*ARC_R; D.arcLen = D.arcC*ARC_SPAN/360;
-  D.el.arcBg.style.strokeDasharray = `${D.arcLen.toFixed(2)} ${D.arcC.toFixed(2)}`;
-  for (const p of [D.el.arcFill, D.el.arcSweet]){ p.style.strokeDasharray = `0 ${D.arcC.toFixed(2)}`; }
   D.ringLen = 2*Math.PI*17;
   D.el.ring.style.strokeDasharray = `${D.ringLen} ${D.ringLen}`;
   D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null; D.retA = 0; D.kickSeq = -1; D.slineT = 0; D.desat = 0;
@@ -223,9 +214,9 @@ export function hudShow(on){ if (D.root) D.root.classList.toggle("fp-off", !on);
    frame's dt; s, optional, is the caller's view of the rest (kept by the caller, filled in place each frame):
    s = {B, cap, energy, hints: [{key, verb}], aim: {x, y, z}, target agent,
    proj(x, y, z) -> {x, y, on}, w, h, yaw, offPip: 'onside' | 'near' | 'off' | null, cards, rate (bench fast-forward),
-   cam: {x, z}, sweet: {lo, hi} (pass charge units) | null, tick (shot power units) | null, glyph: '', offX: the offside
+   cam: {x, z}, glyph: '', offX: the offside
    line's x for the overview | null, hold: 0 to 1 while E is held on the bench (the ring fills) | null } */
-const S_DEF = {B:null, hints:null, proj:null, w:0, h:0, yaw:0, cam:{x:0, z:0}, offPip:null, offX:null, cards:0, sweet:null, tick:null, glyph:"", hold:null};
+const S_DEF = {B:null, hints:null, proj:null, w:0, h:0, yaw:0, cam:{x:0, z:0}, offPip:null, offX:null, cards:0, glyph:"", hold:null};
 export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   if (!D.root || !ms) return;
   s.ms = ms; s.me = me; s.ctrl = ctrl; s.dt = dt;
@@ -266,10 +257,9 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   E.retC.setAttribute("r", (7 + 2.5*(ret ? ret.beat : 0)).toFixed(2));
   E.retC.classList.toggle("over", over > .05);
   // (the charge, for the curl glyph: the meter below shows the power and the sweet spot, UF2-A)
-  if (ch && (ch.kind === "shot" || ch.kind === "pass" || ch.kind === "throw")){ D.chargeA = Math.min(1, D.chargeA + dt/.12); D.lastCharge = ch.kind; D.lastP = ch.p; }
+  if (ch && (ch.kind === "shot" || ch.kind === "pass")) D.chargeA = Math.min(1, D.chargeA + dt/.12);
   else D.chargeA = Math.max(0, D.chargeA - dt/.45);
-  E.arcG.style.opacity = "0";
-  if (slow){ E.contact.className = "fp-contact"; E.curl.classList.toggle("on", !!(s.ctrl && (s.ctrl.finesse || (KICKS[s.ctrl.kick] || {}).id === "curl") && D.chargeA > .05)); }
+  if (slow){ E.curl.classList.toggle("on", !!(s.ctrl && (s.ctrl.finesse || (KICKS[s.ctrl.kick] || {}).id === "curl") && D.chargeA > .05)); }
   meterFrame(s, dt, over);
   kickFrame(s, dt, slow);
   // the line on how you struck it (A1.7): your own kick, the moment it is logged
@@ -329,8 +319,6 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   // the warm-up (A1.8): its panel and guide, the pops, the lines, the Warm mark
   warmFrame(s, dt, now, slow);
 }
-// the power arc's circle (A1.7): its radius, the angle it starts at (SVG degrees, clockwise from three o'clock) and its span
-const ARC_R = 18, ARC_START = 120, ARC_SPAN = 300;
 // the picture greyed a little near an empty tank (A1.3, A1.6): a CSS filter on the canvas, set only when it changes
 function desaturate(v){
   const k = Math.round(clamp(v || 0, 0, 1)*50)/50;
@@ -373,7 +361,7 @@ function strikeLine(ms, me, dt){
   if (D.slineT > 0 && (D.slineT -= dt) <= 0) E.sline.classList.remove("in");
 }
 /* ---------- the meter and the kick type (UF2-A, U18 to U20) ---------- */
-// the meter: a bar just under the crosshair while a shot or a pass is held (control.js CTRL.meter), above it when the
+// the meter: a bar just under the crosshair while a shot, a pass or a throw-in is held (control.js CTRL.meter), above it when the
 // ball would be under it; held a moment after the release on where you let go, saying Clean when it was in the spot
 const METER_W = 132, METER_H = 26, METER_OFF = 40;
 function meterFrame(s, dt, over){
@@ -398,7 +386,7 @@ function meterFrame(s, dt, over){
   E.meter.classList.toggle("sweet", on ? inSweet : !!D.meterOk);
   E.meter.classList.toggle("over", on && bad);
   E.meterRel.style.left = (p*100).toFixed(1) + "%"; E.meterRel.style.opacity = on ? "0" : "1";
-  put("meterLab", E.meterLab, D.meterKind === "pass" ? "Weight" : "Power");
+  put("meterLab", E.meterLab, D.meterKind === "pass" ? "Weight" : D.meterKind === "throw" ? "Distance" : "Power");
   // (in the spot with the assists: a clean strike; without them, the power or the weight was right, the stride still counts)
   put("meterSay", E.meterSay, on ? "" : D.meterFull ? "Clean" : D.meterOk ? (D.meterKind === "pass" ? "Good weight" : "Good power") : "");
   // (under the crosshair, or over it when the ball is there: the HUD never covers the ball)

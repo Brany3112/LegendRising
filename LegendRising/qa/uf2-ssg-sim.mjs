@@ -4,7 +4,8 @@
 // under about 6 s of dead time).
 //
 // Each game is built as training.js buildItem builds it (the whole training pitch, trainspec.js areaPitch; four a
-// side, the keeper lent to the other side, the training laws: no offside, no set pieces, both goals count) and played
+// side counting the keepers: the squad's keeper in the bibs' goal, one of your team-mates in yours (mateSlots 'GK');
+// the training laws: no offside, no set pieces, both goals count) and played
 // the way the mode train plays it: every restart but the kick-off after a goal cleared at once, the kick-off run by
 // ssgplay.js (the module training.js calls), a dead ball replaced by a new one (the coach's, played to the player here
 // as a ball at his feet). The player is the AI's stand-in (meAI). Over SEEDS seeds of Lesson 6 (120 s) and of the
@@ -15,7 +16,9 @@
 //   - each goal is followed by a kick-off from the centre spot by the side that conceded, taken within SSG.DEAD_MAX
 //     seconds of the goal, by an AI outfield man (never the player);
 //   - in that time nobody of either side stands frozen: every AI outfield man either moves (more than 1 m) or is
-//     already at his kick-off place (within 2.5 m of it).
+//     already at his kick-off place (within 2.5 m of it);
+//   - the games are fair (USER-ISSUES Round 2, Overall: rewarding, not tedious): your side wins at least as many as it
+//     loses (a goal with nobody in it, as when the only keeper played for the bibs, lost most of them).
 //
 //   node qa/uf2-ssg-sim.mjs [--seeds 8]       exits 1 on any failed check; writes qa/out/uf2-ssg-sim.json
 import {createMatch, simStep, REF, AR1, AR2, TEMPO} from "../js/life/football/sim.js";
@@ -144,4 +147,7 @@ const slow = kos.filter(k => k.dead == null || k.dead > TS.SSG.DEAD_MAX || k.for
 check(!slow.length, `every kick-off after a goal is taken within ${TS.SSG.DEAD_MAX} s of the goal`, {slow: slow.slice(0, 4), max: Math.max(...kos.map(k => k.dead || 99))});
 check(games.every(g => !g.meTaker), "the player never has to take the kick-off himself (an AI team-mate takes it)", games.map(g => g.meTaker));
 check(!frozen.length, "nobody stands frozen while the kick-off is set up (each AI outfield man moves or is already in place)", frozen.slice(0, 6));
+const tally = games.reduce((o, g) => { const a = g.score[0], b = g.score[1]; o[a > b ? "won" : a < b ? "lost" : "drawn"]++; o.for += a; o.against += b; return o; }, {won: 0, drawn: 0, lost: 0, for: 0, against: 0});
+res.tally = tally;
+check(tally.won >= tally.lost, "the games are fair: your side wins at least as many as it loses (both goals have a keeper)", tally);
 process.exit(done() ? 0 : 1);

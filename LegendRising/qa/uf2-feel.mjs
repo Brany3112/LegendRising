@@ -11,6 +11,8 @@
 //        idle-<h>.png and paused.png
 //   U20  the kick type always in its corner (visible with nothing held), the wheel (real) and 1, 2, 3 change it before
 //        the kick, and the strike is the type chosen (a Chip is chipped)
+//   (UF2 round 1) a throw-in of yours held with RMB (real) fills the same meter, labelled Distance, more the longer
+//        it is held, and it goes when you let go
 //   U18  holding LMB (real) fills one meter under the crosshair with its sweet spot marked; let go in it and the strike
 //        is clean (the kick logged clean, Clean strike!, the camera's kick); past it, not; the meter never covers the
 //        ball; a shot into the net ripples it
@@ -80,7 +82,7 @@ try {
       }
       // (the team-mates hold their spots, a passing drill's targets: brain.js drillMove "stand")
       const mates = (cfg.mates || [[8, -10], [-3, 25]]).map(([dx, dz], i) => ({slot: ["LW", "RW", "CM"][i], x: me.x + dx, z: me.z + dz, yaw: -Math.PI/2, drill: {behave: "stand"}}));
-      return {myTeam: 0, role: "Attacker", seed: 11, laws: {out: "rebound"}, me, mates, opps: [], keeper: null, ball};
+      return {myTeam: 0, role: "Attacker", seed: 11, laws: cfg.throwin ? {out: "stop", restarts: true} : {out: "rebound"}, me, mates, opps: [], keeper: null, ball};
     };
     if (!R.scenario("qa-uf2")) R.registerScenario({id: "qa-uf2", category: "attacking", type: "qauf2", name: "Feel test", desc: "A test scenario", build});
     const BN = ["root", "hips", "spine", "chest", "neck", "head", "uaL", "faL", "haL", "uaR", "faR", "haR", "thL", "shL", "ftL", "toL", "thR", "shR", "ftR", "toR"];
@@ -401,6 +403,35 @@ try {
     check(T0.sprint.mean > T0.jog.mean + .2, "only a sprint pushes it further ahead", {jog: T0.jog.mean, sprint: T0.sprint.mean});
     check(T0.jogOff.mean >= T0.jog.mean, "the assists' close control is what keeps it close (off, the jog's lead is longer)", {on: T0.jog.mean, off: T0.jogOff.mean});
     await page.evaluate(() => window.__uf2.C.saveSet({assist: "on"}));
+  }
+
+  /* ---------- a throw-in held: the meter shows how far it will go (UF2 round 1 fix) ---------- */
+  if (on("throw")){
+    const Th = res.throwin = {};
+    await page.evaluate(() => window.__uf2.start({throwin: true}));
+    await page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 60000});
+    await unfreeze(page); await frames(page, 10); await lock(); await freeze(page);
+    await step(20);
+    // the ball goes out by you: your throw (rules.js startRestart; you are the taker)
+    Th.restart = await page.evaluate(async () => {
+      const RU = await import("/js/life/football/rules.js"), ms = window.__uf2.ms(), me = ms.agents[ms.me];
+      RU.startRestart(ms, "throw", me.team, {x: me.m.x, z: ms.spec.hz});
+      if (ms.restart) ms.restart.taker = me.id;
+      return ms.restart ? {kind: ms.restart.kind, taker: ms.restart.taker === me.id} : null;
+    });
+    await step(2);
+    const tstate = () => page.evaluate(() => { const C = window.__uf2.C.CTRL, r = window.__uf2.rect("#fpHud .fp-meter"), f = document.querySelector("#fpHud .fp-meter-fill");
+      return {on: C.meter.on, kind: C.meter.kind, p: C.meter.p, charge: C.charge ? C.charge.kind : null, op: r ? r.op : 0, fill: f ? f.style.transform : null, lab: (document.querySelector("#fpHud .fp-meter-lab") || {}).textContent || ""}; });
+    await page.mouse.down({button: "right"});
+    await step(6); Th.early = await tstate();
+    await step(24); Th.late = await tstate();
+    await page.mouse.up({button: "right"});
+    await step(2); Th.after = await tstate();
+    check(!!Th.restart && Th.restart.kind === "throw" && Th.restart.taker, "a throw-in of yours is set up", Th.restart);
+    check(Th.early.charge === "throw" && Th.early.on && Th.early.kind === "throw" && Th.early.op > .5 && Th.early.lab === "Distance",
+      "holding RMB for a throw-in brings up the meter, as Distance", Th.early);
+    check(Th.late.p > Th.early.p + .2 && Th.early.p >= .25, "it fills the longer it is held (a quarter at once, all of it held long enough)", {early: Th.early.p, late: Th.late.p});
+    check(!Th.after.on, "let go, the meter goes", Th.after);
   }
 
   res.console = page.errors.slice();

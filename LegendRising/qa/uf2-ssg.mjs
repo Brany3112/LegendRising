@@ -12,10 +12,12 @@
 // a real click on the view. Aim is a write to P.yaw and P.pitch, which is what a mouse move does (world.js look()), as
 // in qa/tr2-realmatch.mjs. The world is stepped by hand (__life.stepN) with real frames drawn for the screenshots.
 // Checked in every game:
-//   - the scoreboard is up from the start to the end, on screen and not covered, and shows "You" and "Bibs", the
-//     simulation's score for each side and the time left (within a second);
+//   - the scoreboard is up from the start to the end, on screen and not covered (by the need bars, the money or the drill
+//     card), and shows "You" and "Bibs", the simulation's score for each side and the time left (within a second); a
+//     goal's card comes down clear of the drill card; no team-mate runs into you as he takes his place;
 //   - the kits: your side's shirts are the club's, the other side's are the bibs, the two at least KIT_SUM_MIN apart
-//     (CIEDE2000), the keeper clear of both; and every body wears the same shirt from the first second to the last,
+//     (CIEDE2000), a keeper in each goal, each keeper clear of both; and every body wears the same shirt from the first
+//     second to the last,
 //     through every goal and kick-off;
 //   - every shot by an AI player is aimed at the end his side attacks, and every goal went into the end its scorers
 //     attack (an own goal is reported, not failed: the ball can go in off anyone);
@@ -25,7 +27,8 @@
 // Screenshots in qa/out/uf2-ssg/: each game's start (the scoreboard and the two sides), a moment after a goal, and the
 // bibs up close.
 //
-//   QA_PORT=8901 node qa/uf2-ssg.mjs [--games 3]     exits 1 on any failed check
+//   QA_PORT=8901 node qa/uf2-ssg.mjs [--games 3] [--w 390 --h 844]     exits 1 on any failed check (screenshots of
+//   another size than 1280x720 are named with it)
 import fs from "node:fs";
 import path from "node:path";
 import {launch, career, freeze, OUT} from "./lib.mjs";
@@ -37,15 +40,16 @@ import {SSG} from "../js/life/football/trainspec.js";
 const OUTDIR = path.join(OUT, "uf2-ssg");
 fs.mkdirSync(OUTDIR, {recursive: true});
 const {check, done, res} = checker("uf2-ssg");
-const argv = process.argv.slice(2), gi = argv.indexOf("--games");
+const argv = process.argv.slice(2), gi = argv.indexOf("--games"), arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? +argv[i + 1] : d; };
+const VW = arg("--w", 1280), VH = arg("--h", 720), SIZE = `${VW}x${VH}`;
 const GAMES = [{kind: "lesson", name: "Lesson 6"}, {kind: "session", name: "session small-sided block"}, {kind: "lesson", name: "Lesson 6 again"}].slice(0, gi >= 0 ? +argv[gi + 1] : 3);
 const hex = c => typeof c === "number" ? "#" + c.toString(16).padStart(6, "0") : String(c).toLowerCase();
 const STEP = 12;
 
-const {page, close, errors} = await launch({gfx: "low", seed: 11, w: 1280, h: 720});
+const {page, close, errors} = await launch({gfx: "low", seed: 11, w: VW, h: VH});
 const shot = async name => {
   await page.evaluate(() => { const L = window.__life; if (L && L.renderer() && L.LIFE.running) L.renderer().render(L.scene(), L.cam); });
-  await page.screenshot({path: path.join(OUTDIR, name + ".png"), timeout: 180000});
+  await page.screenshot({path: path.join(OUTDIR, (SIZE === "1280x720" ? "" : SIZE + "-") + name + ".png"), timeout: 180000});
 };
 // what the bot does at the keys: the keys it holds now, the buttons
 const held = new Set();
@@ -85,9 +89,19 @@ const WATCH = () => {
   const B = TR.ssgState(), left = T.board && T.board.real != null ? T.board.real - T.t : null;
   const el = document.getElementById("ssgBoard"), r = el && el.getBoundingClientRect();
   const cs = el && getComputedStyle(el);
+  // what could cover it: the life HUD's money and need bars (top right) and the drill card; and a goal's card against
+  // the drill card (each only while it is shown)
+  const shownRect = q => { const n = document.querySelector(q); if (!n) return null; const c = getComputedStyle(n); if (c.display === "none" || c.visibility === "hidden" || +c.opacity < .2) return null; const x = n.getBoundingClientRect(); return x.width > 2 && x.height > 2 ? x : null; };
+  const hit = (a, b) => !!a && !!b && a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+  const covers = [["needs", "#lifeRoot .hud-needs"], ["money", "#lifeRoot .hud-money"], ["drill card", "#lifeDrill.on .dr-card"]].filter(([, q]) => hit(r, shownRect(q))).map(([n]) => n);
+  const card = [...document.querySelectorAll("#fpHud .fp-cards .fp-card.in")].map(n => n.getBoundingClientRect()).find(x => x.height > 2);
+  const drc = shownRect("#lifeDrill.on .dr-card");
   W.board.push({t: Math.round(T.t*10)/10, shown: !!B.shown, score: B.score, want: [ms.score[T.myTeam], ms.score[1 - T.myTeam]], time: B.time, left: left == null ? null : Math.max(0, Math.ceil(left)),
     names: [B.mine, B.theirs], inView: !!r && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && r.width > 40,
-    vis: !!cs && cs.visibility !== "hidden" && cs.display !== "none" && +cs.opacity > .5});
+    vis: !!cs && cs.visibility !== "hidden" && cs.display !== "none" && +cs.opacity > .5, covers,
+    cardOver: card && drc && hit(card, drc) ? {card: [Math.round(card.top), Math.round(card.bottom)], drill: [Math.round(drc.top), Math.round(drc.bottom)]} : null});
+  // the nearest team-mate to you in the first seconds (he jogs to his place: never into you)
+  if (T.t < 5){ let dm = Infinity; for (const o of ms.agents) if (o.onPitch && o.team === me.team && o !== me && o.role === "player") dm = Math.min(dm, Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z)); W.nearMate = Math.min(W.nearMate == null ? Infinity : W.nearMate, dm); }
   // the events: shots, goals, kick-offs
   for (; W.ev < ms.events.length; W.ev++){
     const e = ms.events[W.ev];
@@ -182,7 +196,7 @@ async function playGame(g, gIdx){
   await releaseAll(); if (lmb){ await page.mouse.up({button: "left"}); lmb = 0; }
   const W = await page.evaluate(() => {
     const W = window.__uf2w, T = W.T;
-    return {board: W.board, shots: W.shots, goals: W.goals, kos: W.kos, frozen: W.frozen, lookChanges: W.lookChanges, shirts: W.shirts,
+    return {board: W.board, nearMate: W.nearMate, shots: W.shots, goals: W.goals, kos: W.kos, frozen: W.frozen, lookChanges: W.lookChanges, shirts: W.shirts,
       kits: T ? T.kits : null, myTeam: T ? T.myTeam : 0, koLog: T ? T.koLog || [] : [], end: T ? T.ssgEnd || null : null, real: T && T.board ? T.board.real : null, tEnd: T ? T.t : 0};
   });
   return Object.assign(out, W);
@@ -202,6 +216,11 @@ try {
     // the scoreboard
     const B = g.board;
     check(B.length > 100 && B.every(s => s.shown && s.inView && s.vis), `${N}: the scoreboard is up and on screen all game`, {samples: B.length, off: B.filter(s => !(s.shown && s.inView && s.vis)).slice(0, 3)});
+    const covered = B.filter(s => s.covers && s.covers.length);
+    check(!covered.length, `${N}: nothing of the HUD covers the scoreboard (the need bars, the money, the drill card) at ${SIZE}`, covered.slice(0, 3).map(s => ({t: s.t, by: s.covers})));
+    const cardOver = B.filter(s => s.cardOver);
+    check(!cardOver.length, `${N}: a goal's card comes down clear of the drill card at ${SIZE}`, cardOver.slice(0, 3).map(s => Object.assign({t: s.t}, s.cardOver)));
+    check(g.nearMate == null || g.nearMate > 1.2, `${N}: no team-mate runs into you in the first seconds (nearest ${g.nearMate == null ? "none" : g.nearMate.toFixed(2)} m)`, g.nearMate);
     check(B.every(s => s.names[0] === "You" && s.names[1] === "Bibs"), `${N}: it names the sides: You and Bibs`, B[0] && B[0].names);
     const badScore = B.filter(s => s.score[0] !== s.want[0] || s.score[1] !== s.want[1]);
     check(!badScore.length, `${N}: its score is the simulation's, yours first`, badScore.slice(0, 3));
@@ -211,8 +230,9 @@ try {
     // the kits
     const K = g.kits, mine = g.myTeam === 0 ? K.home : K.away, theirs = g.myTeam === 0 ? K.away : K.home;
     const sh = Object.values(g.shirts), mates = sh.filter(s => s.team === g.myTeam && !s.gk), opps = sh.filter(s => s.team !== g.myTeam && !s.gk), gks = sh.filter(s => s.gk);
-    check(mates.length >= 3 && mates.every(s => hex(s.s) === hex(mine[0])), `${N}: your team-mates wear the club's shirt`, {club: mine[0], mates: mates.map(s => s.s)});
-    check(opps.length >= 4 && opps.every(s => hex(s.s) === hex(theirs[0])), `${N}: the other side all wear the bibs`, {bib: theirs[0], opps: opps.map(s => s.s)});
+    check(mates.length >= 2 && mates.every(s => hex(s.s) === hex(mine[0])), `${N}: your team-mates wear the club's shirt`, {club: mine[0], mates: mates.map(s => s.s)});
+    check(opps.length >= 3 && opps.every(s => hex(s.s) === hex(theirs[0])), `${N}: the other side all wear the bibs`, {bib: theirs[0], opps: opps.map(s => s.s)});
+    check(gks.length === 2 && gks.some(s => s.team === g.myTeam) && gks.some(s => s.team !== g.myTeam), `${N}: both goals have a keeper (four a side, keepers in)`, gks.map(s => ({team: s.team, s: s.s})));
     const d = deltaE(mine[0], theirs[0]);
     check(d >= KIT_SUM_MIN, `${N}: the two sides' colours are clearly apart (CIEDE2000 ${Math.round(d)} >= ${KIT_SUM_MIN})`, {mine: mine[0], theirs: theirs[0]});
     check(gks.every(s => deltaE(s.s, mine[0]) >= GK_MIN && deltaE(s.s, theirs[0]) >= GK_MIN), `${N}: the keeper stands out from both sides`, gks.map(s => s.s));

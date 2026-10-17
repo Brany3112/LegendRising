@@ -32,6 +32,9 @@ body.mode-match #lifeRoot > .hud-tl, body.mode-match #lifeRoot > .hud-tr, body.m
 body.mode-match #lifeRoot > .lf-keys, body.mode-match #lifeRoot > .lf-hand, body.mode-match #lifeRoot > .lf-inv,
 body.mode-match #lifeRoot > .lf-feed, body.mode-match #lifeRoot > .lf-compass, body.mode-match #lifeRoot > .lf-match,
 body.mode-match #lifeRoot > .lf-drill{display:none !important}
+/* first-person training (the drills, the session, the lessons) keeps the life HUD, but not its walking keys: the
+   football hints in the corner are the keys there */
+body.mode-train #lifeRoot > .lf-keys{display:none !important}
 
 .fp-hud{position:absolute;inset:0;pointer-events:none;z-index:6;color:var(--fp-ink);font-family:var(--fp-text);
   opacity:var(--fp-op,1);--s:var(--fp-scale,1)}
@@ -82,9 +85,11 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-k-offside{border-left-color:var(--fp-warn)}.fp-k-card{border-left-color:#ffd400}.fp-k-red{border-left-color:var(--fp-bad)}
 .fp-no-cards .fp-cards{display:none}
 /* (UF2 integration) while a drill's card is up at the top (the first day's lessons, the session's blocks, a small-sided
-   game) a goal's card comes down under it instead of covering the lesson's title and line */
-#lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:calc(var(--fp-pad) + 104px)}
-@media (max-width:640px){ #lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:calc(var(--fp-pad) + 262px)} }
+   game) a goal's card comes down under it instead of covering the lesson's title and line
+   (--dr-card-b: where the drill card ends, kept by drills.js as the card grows with a longer title or line; the fixed
+   places are the least it comes down) */
+#lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:max(calc(var(--fp-pad) + 104px), calc(var(--dr-card-b, 0px) + 8px))}
+@media (max-width:640px){ #lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:max(calc(var(--fp-pad) + 262px), calc(var(--dr-card-b, 0px) + 8px))} }
 
 /* the crosshair: a dot where you look; round it the timing ring of a volley and the bench's hold-E ring */
 .fp-cross{position:absolute;left:50%;top:50%;width:0;height:0}

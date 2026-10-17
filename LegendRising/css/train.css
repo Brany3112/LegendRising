@@ -132,7 +132,8 @@
 
 /* the small-sided game scoreboard (UF2-B, USER-ISSUES U13 and U15; js/life/football/ssghud.js): your side first in its
    colour, the score, the other side in its bibs, the time left. It sits in the life HUD's top-left column under the
-   clock, so it never covers the drill card in the middle, the needs on the right or the ball */
+   clock, so it never covers the drill card in the middle, the needs on the right or the ball (narrower than 460 px it
+   stacks into two rows, see the end of this section) */
 .ssg-board{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:var(--hud-r,12px);background:rgba(9,15,24,.78);
   border:1px solid var(--hud-line,rgba(255,255,255,.14));color:#fff;font:800 .95rem/1 var(--display);letter-spacing:.04em;text-transform:uppercase;
   white-space:nowrap;pointer-events:none;transition:box-shadow .3s,border-color .3s}
@@ -150,3 +151,15 @@
 .ssg-board.ssg-for{border-color:rgba(200,240,96,.8);box-shadow:0 0 0 2px rgba(200,240,96,.35)}
 .ssg-board.ssg-against{border-color:rgba(255,138,122,.7);box-shadow:0 0 0 2px rgba(255,138,122,.25)}
 @media (max-width:640px){ .ssg-board{font-size:.82rem;gap:6px;padding:4px 8px} .ssg-score{font-size:1rem} }
+/* a phone held upright: the need bars come down the right side as far as the board's row, so the one line would run
+   under them. The board stacks into a scorebug: your side and its score over theirs, the time left beside both */
+@media (max-width:460px){
+  .ssg-board{display:grid;grid-template-columns:auto auto auto auto;align-items:center;column-gap:6px;row-gap:3px;padding:4px 8px;font-size:.8rem}
+  .ssg-board .ssg-side,.ssg-board .ssg-score{display:contents}
+  .ssg-score em{display:none}
+  .ssg-mine i{grid-area:1/1} .ssg-mine b{grid-area:1/2} .ssg-a{grid-area:1/3}
+  .ssg-theirs i{grid-area:2/1} .ssg-theirs b{grid-area:2/2} .ssg-b{grid-area:2/3}
+  .ssg-a,.ssg-b{min-width:1.5em;padding:1px 4px;border-radius:4px;background:rgba(255,255,255,.08);text-align:center;font-size:.95rem;font-variant-numeric:tabular-nums}
+  .ssg-time{grid-area:1/4/3/5;min-width:2.4em;padding-left:6px;border-left:1px solid var(--hud-line,rgba(255,255,255,.14));align-self:stretch;display:flex;align-items:center;justify-content:flex-end}
+  .ssg-time:empty{display:none}
+}

@@ -13,6 +13,8 @@
    what it shows changes); ssgGoal(team) flashes the side that scored; ssgHide() takes it down. ssgState() is what it
    shows (tests). */
 
+import {clockText} from "./trainspec.js";
+
 const SB = {el:null, us:0, txt:{}, score:[0, 0], left:null, shown:false, flashT:0};
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
 const col = c => typeof c === "number" ? "#" + c.toString(16).padStart(6, "0") : String(c || "#888");
@@ -48,7 +50,7 @@ export function ssgFrame(score, left){
   if (t !== SB.left){
     SB.left = t;
     const el = d.querySelector(".ssg-time");
-    el.textContent = t == null ? "" : `${Math.floor(t/60)}:${String(t % 60).padStart(2, "0")}`;
+    el.textContent = t == null ? "" : clockText(t);
     el.classList.toggle("low", t != null && t <= 10);
   }
 }

@@ -259,6 +259,12 @@ function playerRec(p, slot, me = false){
     at:me ? p.at : attrsForAI({id:p.pid, ovr:p.ovr, pos}), energy:me ? p.energy : 100, fatigue:me ? p.fatigue : 0, prefFoot:p.prefFoot || "Right", items:me ? p.items : null};
 }
 
+/* a team-mate's slot in an item: a small-sided game puts one of yours in goal (trainspec.js, mateSlots 'GK') only when
+   the squad's keeper is in the other goal; with no keeper lent nobody goes in goal, so neither goal has one */
+function mateSlot(item, i, keeper){
+  const s = (item.mateSlots || [])[i] || "CM";
+  return s === "GK" && !keeper ? "CM" : s;
+}
 /* the simulation for an item. who = {mates:[body], opps:[body], keeper:body|null}: the borrowed squad bodies (their
    records from the squad), placed where each stands now. Your agent starts where you stand. */
 function buildItem(item, who, opts = {}){
@@ -278,7 +284,7 @@ function buildItem(item, who, opts = {}){
   const bodiesOf = [[], []];          // per team, in the order of its players: the body each agent stands for (null: you)
   const add = (team, rec, body) => { teams[team].players.push(rec); bodiesOf[team].push(body); };
   add(myTeam, playerRec(meRec, meRec.slot, true), null);
-  (who.mates || []).forEach((b, i) => { const p = nextSquad(); add(myTeam, Object.assign(playerRec(p, (item.mateSlots || [])[i] || "CM"), {scale:b.scale || 1}), b); });
+  (who.mates || []).forEach((b, i) => { const p = nextSquad(); add(myTeam, Object.assign(playerRec(p, mateSlot(item, i, !!who.keeper)), {scale:b.scale || 1}), b); });
   (who.opps || []).forEach((b, i) => { const p = nextSquad(); add(oppTeam, Object.assign(playerRec(p, (item.oppSlots || [])[i] || "CB"), {scale:b.scale || 1}), b); });
   if (who.keeper){
     const p = squad.find(q => q.pos === "GK") || nextSquad();
@@ -458,7 +464,10 @@ export function viewOpts(T, look, lookOf = null){
 }
 /* the scoreboard an item shows (ssghud.js ssgShow's argument), or null: a small-sided game's (UF2-B U13: you in the
    club's colour, the other side by its bibs, the score, the time left), or a host item's own T.item.board ({mine:
-   {name, kit}, theirs: {name, kit}, real?: seconds}) */
+   {name, kit}, theirs: {name, kit}, real?: seconds}). (Training Mode has no small-sided game of its own yet: its team
+   scenarios are objective drills that end on their objective, the first goal for most, with the objective and its
+   time on the Training HUD, thud.js. A Training Mode game that is played to a score hands its board in as
+   T.item.board) */
 function boardOf(T, kits){
   const it = T.item, own = it.board;
   if (!own && !TS.isSSG(it)) return null;
@@ -613,7 +622,7 @@ function ssgStep(T){
 // the HUD's frame (fphud.js hudFrame): what it shows of you and the item; screen points from the item's frame
 const _pv = new THREE.Vector3(), PJ = {x:0, y:0, on:false, front:false}, OFF = {pip:null, x:null};
 const HS = {ms:null, me:null, ctrl:CTRL, dt:0, B:100, cap:100, energy:100, hints:null, proj:null, w:0, h:0, yaw:0, cam:{x:0, z:0}, offPip:null,
-  cards:0, sweet:null, tick:null, glyph:"", ringAt:.2, offX:null};
+  cards:0, glyph:"", ringAt:.2, offX:null};
 function hudOf(T, dt){
   const ms = T.ms, me = T.me, cv = RT.renderer && RT.renderer.domElement;
   HS.ms = ms; HS.me = me; HS.dt = dt; HS.w = cv ? cv.clientWidth : innerWidth; HS.h = cv ? cv.clientHeight : innerHeight;
@@ -651,7 +660,7 @@ function frameItem(T, dt, real){
   try { hudOf(T, dt); } catch(e){ console.error(e); }
   // the small-sided game's scoreboard (the score, the time left) and the aura on the team-mate you look at
   if (T.board) ssgFrame(ms.score, T.board.real != null ? T.board.real - T.t : null);
-  try { auraFrame(real, RT.cam, ms, a, (id, out) => auraPosOf(T, id, out)); } catch(e){ console.error(e); }
+  try { auraFrame(real, RT.cam, ms, a, T.auraPos || (T.auraPos = (id, out) => auraPosOf(T, id, out))); } catch(e){ console.error(e); }
   if (T.script && T.script.frame) T.script.frame(T, real);
   feelStep(T, real);
   if (T.rate > 0) T.host.pass(real*T.rate);
@@ -697,7 +706,8 @@ function events(T){
       if (HUD.hudNotice){
         // (a small-sided game: whose goal, the score as it stands, and who kicks off; UF2-B U13, U16)
         const sc = T.ms.score, us = sc[T.myTeam] | 0, them = sc[1 - T.myTeam] | 0, mine = e.team === T.myTeam;
-        const who = e.scorer === me ? "Your goal!" : mine ? "Goal!" : "They score";
+        // (an own goal: the scorer is the man who put it in his own net, so it is never "your goal" when it went in yours)
+        const who = e.ownGoal ? (mine ? "Goal!" : "Own goal") : e.scorer === me ? "Your goal!" : mine ? "Goal!" : "They score";
         HUD.hudNotice("goal", T.board ? who : mine ? "Goal" : "They score", T.board ? `${us}-${them} · ${mine ? "their" : "your"} kick-off` : "");
       }
       if (e.scorer === me && CAM.camTrauma) CAM.camTrauma(.12);
@@ -769,6 +779,8 @@ function gatherTick(run, dt){
   run.state = "play";
   run.play(run);
 }
+// how far from you (m) a slot spread over the ground is kept: never where you are standing
+const SLOT_CLEAR = 4;
 // where the squad stands for an item: given spots (mateAt, oppAt), else the slots spread over its ground; the keeper
 // on his goal line, in the goal you attack
 function spotsFor(item, lent){
@@ -778,11 +790,14 @@ function spotsFor(item, lent){
   field.slice(0, nm + no).forEach((b, i) => {
     const mate = i < nm, j = mate ? i : i - nm;
     const given = mate ? item.mateAt && item.mateAt[j] : item.oppAt && item.oppAt[j];
-    const slot = mate ? (item.mateSlots || [])[j] : (item.oppSlots || [])[j];
+    const slot = mate ? (item.mateSlots || [])[j] && mateSlot(item, j, !!(keeper && item.keeper)) : (item.oppSlots || [])[j];
     let sp = given || TS.slotSpot(TS.SLOT_POS[slot] || {x:50, y:50}, item.area, item.dir, mate ? 0 : 1);
     // the callers of the third lesson come round behind and beside you
     if (item.kind === "call" && item.start){ const s = item.start; sp = j === 0 ? {x:s.x - 7, z:s.z + 4} : {x:s.x - 2, z:s.z - 9}; }
     const w = TS.toWorld(sp.x, sp.z);
+    // a slot that falls where you stand is moved off you (a team-mate jogging to it would end up in your face and nudge
+    // you back), out along the line from you to it; the spots a drill gives are its own
+    if (!given){ const dx = w.x - P.x, dz = w.z - P.z, d = Math.hypot(dx, dz); if (d < SLOT_CLEAR){ const k = d > .05 ? SLOT_CLEAR/d : 0; w.x = P.x + (k ? dx*k : 0); w.z = P.z + (k ? dz*k : SLOT_CLEAR); } }
     out.push({b, x:w.x, z:w.z, mate});
   });
   if (keeper && item.keeper){ const w = TS.toWorld(item.dir*(TP.L/2 - 1.2), 0); out.push({b:keeper, x:w.x, z:w.z, keeper:true, face:item.dir > 0 ? -Math.PI/2 : Math.PI/2}); }

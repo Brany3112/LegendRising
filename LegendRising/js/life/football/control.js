@@ -174,7 +174,7 @@ export const kickType = () => KICKS[CTRL.kick] || KICKS[2];
 export function setKick(id){
   const i = KICKS.findIndex(k => k.id === id);
   if (i < 0) return;
-  CTRL.kick = i; CTRL.contact = KICKS[i].contact; CTRL.kickT = typeof performance !== "undefined" ? performance.now() : 0;
+  CTRL.kick = i; CTRL.contact = KICKS[i].contact;
   use("contact");
 }
 // the strike's Technique (A1.7: it widens the rhythm window): the Clean strike skill (aero), Curve and Ball Control
@@ -200,12 +200,31 @@ export const CTRL = {ctx:"free", walk:false, scan:null, shield:false, note:null,
   ret:{on:false, x:0, y:0, z:0, ok:false, sy:0, sp:0, a:0, beat:0, kind:"shot"},
   wind:{p:0, over:0, side:"R", kind:null},
   gx:new Float64Array(16), gy:new Float64Array(16), hy:new Float64Array(16), hp:new Float64Array(16), gi:0, shape:null,
-  // (UF2-A) the kick type (an index into KICKS, Normal to start) and when it last changed; the meter (on while a shot
+  // (UF2-A) the kick type (an index into KICKS, Normal to start); the meter (on while a shot
   // or a pass is held: kind, fill p, the sweet band lo..hi, whether the fill is in it); F's last press (the settle's
   // latch, in match seconds); the last strike's verdict on the meter (clean, at, kind) for the HUD's flash
-  kick:2, kickT:0, meter:{on:false, kind:null, p:0, lo:0, hi:0, sweet:false}, fT:-99, clean:{seq:0, ok:false, kind:null, p:0}};
+  kick:2, meter:{on:false, kind:null, p:0, lo:0, hi:0, sweet:false}, fT:-99, clean:{seq:0, ok:false, kind:null, p:0}};
 
 /* ---------- input (router events, and the bots' through __fp.input) ---------- */
+/* (U20) how far a wheel event moves the kick type: -1, 0 or 1. A notched mouse wheel sends one event a notch (about
+   100 px, or 3 lines in line mode), and each notch is one step. A precision trackpad (or a free-spinning wheel) sends a
+   stream of events a frame apart for one swipe, so those are added up and a swipe moves one step at most: a new swipe
+   is a turn the other way or one after a pause of WHEEL.GAP ms. A scroll with no up or down in it (sideways) is no turn */
+export const WHEEL = {NOTCH:50, FINE:30, STREAM:25, GAP:220, acc:0, t:-1e9, done:false};
+export function wheelStep(ev){
+  const dy = (+ev.deltaY || 0)*(ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 600 : 1);
+  if (!dy) return 0;
+  const now = ev.t != null ? ev.t : typeof performance !== "undefined" ? performance.now() : 0, dir = dy > 0 ? 1 : -1;
+  const gap = now - WHEEL.t;
+  WHEEL.t = now;
+  if (gap > WHEEL.GAP || dir !== Math.sign(WHEEL.acc)){ WHEEL.acc = 0; WHEEL.done = false; }
+  WHEEL.acc += dy;
+  // a notch on its own (not part of a stream): a step each
+  if (Math.abs(dy) >= WHEEL.NOTCH && gap > WHEEL.STREAM){ WHEEL.done = true; return dir; }
+  if (WHEEL.done || Math.abs(WHEEL.acc) < WHEEL.FINE) return 0;
+  WHEEL.done = true;
+  return dir;
+}
 // a key pressed with Ctrl, Alt or Meta held: set by controller.js's capture listener for the same browser event
 export const MOD = {on:false};
 // the event itself was pressed with Ctrl, Alt or Meta held (the guard's one test, D9). In full screen with the keyboard
@@ -230,7 +249,7 @@ export function controlInput(ev){
       if (k === "x") CTRL.walk = !CTRL.walk;
       else if (k === "1" || k === "2" || k === "3") setKick(KICK_OF_CONTACT[String(+k - 2)]);
       else if (k === "v") CTRL.queue.push({k:"scan"});
-      else if (k === "f"){ CTRL.queue.push({k:"f"}); CTRL.fDown = true; }
+      else if (k === "f") CTRL.queue.push({k:"f"});
       else if (k === "space") CTRL.queue.push({k:"space"});
       // R: the call registers on the press itself (U10): "Here!" at once, every time; held on to 0.4 s it becomes "In
       // behind!" to the point under the crosshair. (It used to wait for the release, so a press whose key-up was
@@ -252,8 +271,8 @@ export function controlInput(ev){
       return true;
     case "wheel": {
       // (UF2-A, U20) down the list of kick types turned down, up it turned up; the corner of the HUD shows it
-      const i = clamp(CTRL.kick + (ev.deltaY > 0 ? 1 : -1), 0, KICKS.length - 1);
-      setKick(KICKS[i].id);
+      const step = wheelStep(ev);
+      if (step) setKick(KICKS[clamp(CTRL.kick + step, 0, KICKS.length - 1)].id);
       return true;
     }
     case "move": {
@@ -277,7 +296,7 @@ export function look(dx, dy){
 export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
   CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
-  CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null; CTRL.meter.on = false; CTRL.meter.kind = null; CTRL.fT = -99; CTRL.fDown = false;
+  CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null; CTRL.meter.on = false; CTRL.meter.kind = null; CTRL.fT = -99; WHEEL.acc = 0; WHEEL.t = -1e9;
   CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
   // (P4-B) the look's history per step and the aim points start again from where you look now (a reset is a cut)
   CTRL.gi = 0; CTRL.hy.fill(P.yaw); CTRL.hp.fill(P.pitch);
@@ -408,10 +427,14 @@ function reticleStep(ms, me, ctx){
   const rh = rhythmOf(me, W.side);
   R.beat = rh.on ? Math.max(0, 1 - rh.ts/.15) : 0;
 }
-// the meter (UF2-A): on while a shot or a pass is held; the sweet band for the distance to what it is aimed at now
+// the meter (UF2-A): on while a shot or a pass is held, with the sweet band for the distance to what it is aimed at
+// now; a throw-in held fills it too, as how far it will go (throwShare), with no band (a throw is not struck clean)
 const MB = {lo:0, hi:0, c:0};
+// how much of its reach a throw-in held this long (s) gets: a quarter for a flick, all of it at PASS_FULL less a quarter
+const throwShare = held => Math.min(1, held/CN.PASS_FULL + .25);
 function meterStep(ms, me){
   const M = CTRL.meter, ch = CTRL.charge, b = ms.ball.p;
+  if (ch && ch.kind === "throw"){ M.on = true; M.kind = "throw"; M.p = throwShare(ch.t || 0); M.lo = M.hi = -1; M.sweet = false; return M; }
   if (!ch || (ch.kind !== "shot" && ch.kind !== "pass")){ M.on = false; M.kind = ch ? ch.kind : null; M.p = ch ? ch.p : 0; M.sweet = false; return M; }
   M.on = true; M.kind = ch.kind; M.p = ch.p;
   if (ch.kind === "shot"){
@@ -853,10 +876,12 @@ function strike(ms, me, what, held, opts){
   if (R0 && !R0.taken && !mine) return;
   const at = me.at, b = ms.ball;
   if (what === "throw"){
-    const vmax = 8 + .07*(at.passing || 50), d = Math.min(Math.hypot(CTRL.ground.x - b.p.x, CTRL.ground.z - b.p.z), 6 + vmax*vmax/9.81*.8*Math.min(1, held/CN.PASS_FULL + .25));
+    const share = throwShare(held), vmax = 8 + .07*(at.passing || 50), d = Math.min(Math.hypot(CTRL.ground.x - b.p.x, CTRL.ground.z - b.p.z), 6 + vmax*vmax/9.81*.8*share);
     const g = CTRL.ground, dd = Math.hypot(g.x - b.p.x, g.z - b.p.z) || 1;
     const tgt = {x:b.p.x + (g.x - b.p.x)/dd*d, y:.11, z:b.p.z + (g.z - b.p.z)/dd*d};
     me.intent.action = {kind:"throw", target:tgt, recv:CTRL.target.agent};
+    // (the meter holds a moment on how far it was thrown)
+    CTRL.clean.seq++; CTRL.clean.ok = false; CTRL.clean.full = false; CTRL.clean.kind = "throw"; CTRL.clean.p = share;
     CTRL.last = "throw"; use("throw"); return;
   }
   const Rz = CTRL.resolve, contact = CTRL.contact, fKey = !!CTRL.held.f;
@@ -941,8 +966,9 @@ function strike(ms, me, what, held, opts){
   // to 10 (1.5.3), not a share of the launch, which over 40 m would arrive anywhere. A driven pass (U20) arrives zipped,
   // at DRIVEN m/s
   const zA = Math.sqrt(-2*Math.log(Math.max(1e-9, ms.r())))*Math.cos(2*Math.PI*ms.r());
-  const base = KT === "driven" ? AIM.DRIVEN : through ? 8 : 9;
-  const arrive = clamp(base + zA*.6*(1 - (at.passing || 50)/120)*(1 - .5*ak), base - 1, base + 1);
+  // (held within 7.5 to 9.5 for a through ball, as before the assists; a driven one within a metre a second of DRIVEN)
+  const drv = KT === "driven", base = drv ? AIM.DRIVEN : through ? 8 : 9;
+  const arrive = clamp(base + zA*.6*(1 - (at.passing || 50)/120)*(1 - .5*ak), through && !drv ? 7.5 : base - 1, through && !drv ? 9.5 : base + 1);
   let speed = rollSpeedFor(Math.max(1, d), arrive, roll, dm), charged = false, sweet = false;
   if (held >= CN.TAP){
     // the meter's sweet spot (U19: the same as a shot's meter shows, wider with the assists)

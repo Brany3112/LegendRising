@@ -122,7 +122,7 @@ export const BLOCKS = Object.freeze([
     area: {x0: 0, x1: 36, z0: -24, z1: 24}, dir: 1, mates: 4, mateSlots: ['CB', 'CM', 'LW', 'ST'], opps: 0, keeper: true},
   {kind: 'ssg', mode: 'ssg', title: "Small-sided game", line: "Small-sided game · four against four", mins: 35, real: 180,
     coach: "Four against four now, bibs against the rest. Win it back quick when you lose it.",
-    area: null, dir: 1, mates: 3, mateSlots: ['CB', 'CM', 'ST'], opps: 4, oppSlots: ['CB', 'CM', 'LW', 'ST'], keeper: true},
+    area: null, dir: 1, mates: 3, mateSlots: ['GK', 'CB', 'ST'], opps: 3, oppSlots: ['CB', 'CM', 'ST'], keeper: true},
   {kind: 'finishing', mode: 'finishing', title: "Finishing", line: "Finishing · rebounds are live", mins: 15, real: 90,
     coach: "Finishing to end with. Rebounds are live, so follow everything in.",
     area: null, dir: 1, mates: 2, mateSlots: ['LW', 'RW'], opps: 1, oppSlots: ['CB'], keeper: true}
@@ -180,7 +180,7 @@ export const LESSONS = Object.freeze([
     area: null, dir: 1, start: {x: -4, z: 8}, mates: 1, mateSlots: ['CM'], opps: 2, oppSlots: ['CB', 'CB'], keeper: true, offside: true},
   {n: 6, kind: 'ssg', mode: 'lesson', title: "Small-sided game",
     line: "Two minutes, four against four. You're in our colours, the bibs are against you. Show me what you've got.",
-    area: null, dir: 1, mates: 3, mateSlots: ['CB', 'CM', 'ST'], opps: 4, oppSlots: ['CB', 'CM', 'LW', 'ST'], keeper: true, real: 120}
+    area: null, dir: 1, mates: 3, mateSlots: ['GK', 'CB', 'ST'], opps: 3, oppSlots: ['CB', 'CM', 'ST'], keeper: true, real: 120}
 ]);
 export const LESSON_TRIES = 3;
 export const LESSON_DONE_LINE = "That'll do for day one. Same time tomorrow.";
@@ -376,7 +376,10 @@ export const dist = (ax, az, bx, bz) => hypot(ax - bx, az - bz);
    on a small scoreboard with the time left, your side in the club's training kit and the other side in bibs of one
    colour clearly apart from it (the U11 rule, kitclash.js CIEDE2000), the same all game; after a goal the side that
    conceded kicks off from the centre spot at once (a fresh ball from the coach's bag), the rest jog back to their
-   shape, and play is going again inside SSG.DEAD_MAX seconds.
+   shape, and play is going again inside SSG.DEAD_MAX seconds. Both goals have a keeper: the squad's own keeper in the
+   one you attack and one of your team-mates in the gloves in yours (mateSlots 'GK'), so four a side counts the
+   keepers. (The ground's squad is one keeper and seven outfield men; with the keeper on the bibs' side only, your
+   goal stood empty and the bibs won most games.)
      CELEB     how long the goal stands before the kick-off is called (s): the match's own is 3
      KO_LIMIT  the kick-off is taken this long after the goal (s) at the latest, once the taker is at the ball, however
                far the others still have to jog (they carry on into shape as play goes on)
