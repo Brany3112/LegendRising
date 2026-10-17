@@ -1012,6 +1012,8 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   // it the blend carried the slide's whole travel: the body shot out ahead of the eye and slid back over a second
   rebase(h, V.fpBase || (V.fpBase = {x:0, z:0, at:false, ok:false}), st !== FPST && !!st.groupAt);
   const mask = animateHuman(h, dt, st).mask;
+  // ((P9-A, MV-15) the clip posed in your eyes this frame, for the camera's action springs: matchcam.js clipCam)
+  V.fpClipNow = st === FPST ? null : st;
   // (U12) your clip ends where it plays: in your eyes. Your whole body is not drawn while you look through them (its
   // actor poses it at tier 4, which runs no clip and so never says it ended, animAgent), so the clip of a strike, a
   // tackle or a slide was kept after its act, and the body in your eyes stood frozen in its last pose (lying back
