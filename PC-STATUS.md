@@ -1,76 +1,106 @@
 # PC status: P7-B (Corners, throw-ins and penalties), branch `pc/p7b`
 
-**State: not finished.** The engine work and the scenarios are in. The hub hooks, the acceptance scripts and the browser
-checks are not done. Base: `6c5db89` (UF2 integration, with the user's fix round).
+**State: finished; ready for the cloud to merge.** Every P7-B acceptance check passes on this PC (Node and browser).
+Base: `6c5db89` (UF2 integration, with the user's fix round).
 
-## Done
+## What's in it
 
-- **Phase 7 contract (`rules.js`)**, commit `561cc03`: `startRestart(ms, kind, team, spot, opt)` keeps `opt.taker` (a
-  valid man of that side takes it), `opt.second`, `opt.secondAction`, `opt.side`, `opt.noKeeper`, `opt.wallSpec` and
-  `opt.plan` on the restart as plain data. With `opt.hold`, an AI taker's restart is never ready by itself (`R0.set` says
-  everyone is in place) and the scenario gives the go. A match passes none of them, so match behaviour is unchanged
-  (`qa/unit/rules.mjs` and `laws.mjs` pass).
+- **Phase 7 contract (`rules.js`):**
+  - `startRestart(ms, kind, team, spot, opt)` keeps `opt.taker`, `opt.second`, `opt.secondAction`, `opt.side`,
+    `opt.noKeeper`, `opt.wallSpec` and `opt.plan` on the restart as plain data;
+  - with `opt.hold`, an AI taker's restart is never ready by itself (`R0.set` says everyone is in place) and the
+    scenario gives the go;
+  - a match passes none of these, so it plays exactly as before.
 - **`js/life/train/setpiece.js` (new, pure):**
   - config types `corner`, `throw` and `penalty` (presets are kept apart by type, and the Load list has its own line);
-  - a setup for every spec role:
-    - corners: taker, attacker in the box, designated receiver, support on the edge, defender;
-    - throw-ins: thrower, receiver, run down the line, mark the receiver, second ball;
-    - penalties: taker, follow in for the rebound, defend the rebound;
-  - corners can be taken at either flag, and at either goal on the full pitch;
-  - the ball is dead on the real spot. The corner ball is 0.57 m from the corner, inside the arc;
-  - the real restart starts with the Phase 7 options;
-  - while the ball is dead, everyone holds a set-piece spot, and a man-marker stays goal side of his man;
-  - the AI taker delivers to the designated man:
-    - corners: a cross at head height, or low for a volley one time in three; or a short corner;
-    - throw-ins: a throw to the man's feet, or into the space ahead of his run;
-  - the attackers make their runs as the ball is struck;
-  - the judge reads the simulation's own events: goals, saves, keeper claims, out of play, fouls, possession;
-  - each go records headers, volleys, clearances, second balls and saves;
-  - corners have an instant replay through the runner.
-- **Config types guarantee the people a role needs.** If a configuration is short of them, they are added with a note
-  (`fitConfig`, `NEEDS`).
-- **`scen-corner.js`, `scen-throw.js` and `scen-penalty.js` (new):** 15 drills in Set Pieces: 6 corner drills, 5 throw-in
-  drills and 4 penalty drills, including the empty-goal penalty.
+  - a setup for every spec role;
+  - the real restart, started with the Phase 7 options;
+  - set-piece spots held while the ball is dead: man-markers goal side of their man, zonal defenders in their zones,
+    9.15 m kept at a corner;
+  - the computer's delivery to the designated man:
+    - corners: the runs start first, and the cross is struck as the receiver nears his zone, at head height or low for
+      a volley; or a short corner;
+    - throw-ins: a throw to the man's feet, or led into a runner's path;
+  - the judge works from the simulation's own events, including fouls during play;
+  - each go is tagged with headers, volleys, clearances, second balls and saves;
+  - corners have an instant replay;
+  - `fitConfig` adds the people a role needs (an AI taker, a receiver), with a note saying so.
+  - P7-A's `brain.js cornerPlan`, when it exists, can override the receiver and the marking. `setpiece.js` imports it
+    through a namespace import, so the merge order doesn't matter.
+- **Scenarios, 15 drills in Set Pieces:**
+  - `scen-corner.js`: take it, attack the box, the target, the edge of the box, the short one, defend it;
+  - `scen-throw.js`: throw it, take it in, run down the line, mark the receiver, the second ball;
+  - `scen-penalty.js`: take it, empty goal, follow it in, theirs.
 - **`actions.js`:** a throw aimed at a height goes on a flatter line, about 20 degrees, so the receiver can control it.
-  The old lob's speed made the solver pick a high arc that only a header could meet. AI and player throws without a
-  height are unchanged.
-- **`qa/tr7-lib.mjs` (new):** the Node harness. It plays a set piece on `matchOf` with the runner's own `setStep` and
-  `judge`.
+  AI and player throws without a height are unchanged.
+- **Unchanged:** `gkbrain.js`, because the keeper's attributes already change the penalty save rate (measured below).
+  `view.js` and `moves.js`, because UF-A had already aligned the throw-in clip; `tr7-throw` confirms it.
+- **Tests (new):**
+  - `qa/tr7-lib.mjs`: the Node harness, which plays a set piece with the runner's own per-step calls;
+  - `qa/tr7-corner.mjs`, `qa/tr7-throw.mjs` and `qa/tr7-penalty.mjs`: each runs its Node part, then its browser part
+    from `qa/tr7-browser.mjs` (`--node` runs the Node part only).
 - **PC test setup:** `qa/lib.mjs`, `qa/wpC-det.mjs` and `qa/wpK-lib.mjs` try the Linux Playwright path first, then the
   global package. On Windows they use the real GPU. Linux behaviour is unchanged.
 
-## Not done (next steps)
+## For the integrator
 
-1. **Hooks:** apply `HOOKS.md` (the importmap entries and the `index.js` imports). Until then the drills don't show in the hub.
-2. **Acceptance scripts:** `qa/tr7-corner.mjs`, `qa/tr7-throw.mjs` and `qa/tr7-penalty.mjs` are not written yet.
-   `qa/tr7-lib.mjs` is ready for the Node parts. The browser parts (presets surviving a reload with an equal
-   `RUN.digest()`, the corner replay, the ball within 0.15 m of the hands at release) need writing too. Model the hands
-   check on `qa/uf-throwin.mjs`.
-3. **Corner delivery accuracy:** not tuned or verified. In a 10-seed Node probe the AI's cross often did not reach the
-   designated receiver: its median closest approach was 4.5 to 7.6 m, depending on the role. The acceptance check
-   "deliveries go toward the designated receiver" needs this looked at. Check the target used in `deliver()` (the run's
-   zone point) against where the receiver actually is at the kick.
-4. **Keeper attributes vs penalty save rate:** not measured yet. If the rate doesn't move enough, `gkbrain.js penaltyStep`
-   (owned by P7-B) could let a better keeper read the side more often.
-5. **The throw-in clip:** UF-A already aligned it, so `view.js` and `moves.js` were not touched. The tr7-throw hands
-   check is what confirms it.
-6. **Never seen played in the browser.** Nothing has been tried in the game yet.
+See `HOOKS.md`. The importmap entries and the `index.js` imports are applied in commit `5cff9a1`, labelled `[hook]`;
+keep it or apply the lines yourself. `qa/run.mjs` needs a `tr7b` suite (not applied).
 
-## Tests run on this PC
+## Tests run on this PC (Windows, Node 26.3.0, real GPU)
 
-- `node qa/run.mjs unit lint smoke`, on the base before P7-B: 28 of 30 pass.
-  - `qa/unit/daily.mjs` and `qa/unit/presets.mjs` fail on Windows only (`ERR_UNSUPPORTED_ESM_URL_SCHEME`: they import an
-    absolute `d:` path). It's a test-harness problem on Windows, not a game failure.
-  - After the `rules.js` change, `qa/unit/rules.mjs` passed in that same run. The full suite was **not** re-run after the
-    later changes.
-- Node probes of every role over 10 to 20 seeds: no crashes and every go reaches a verdict.
-  - penalties: 85 to 90% scored;
-  - throw to a receiver's feet: kept in 9 of 10 (16 of 20 in the earlier run);
-  - corners: headers, clearances, saves and second balls seen; volleys rare (1 in 20).
-- `node qa/nodash.mjs` over every file written or changed: 0.
-- No browser test has been run for P7-B.
+| Script | Node part | Browser part |
+|---|---|---|
+| `qa/tr7-corner.mjs` | 11 / 11 | 11 / 11 |
+| `qa/tr7-throw.mjs` | 7 / 7 | 13 / 13 |
+| `qa/tr7-penalty.mjs` | 6 / 6 | 10 / 10 |
 
-## Notes
+What the numbers mean (Node parts seeded, 12 seeds a role unless said otherwise):
 
-- Node on this PC is v26.3.0, not 22. Everything above ran fine on it.
-- The repository-local git identity is set to `Claude <noreply@anthropic.com>`, to match the cloud's commits.
+- **Corners:**
+  - both flags at each goal (half pitch, and both ends of the full pitch), the ball within 1 m of the corner;
+  - every role takes the corner and the go is decided;
+  - the computer's cross is aimed at the receiver's zone in 48 of 48 goes, and reaches him (within 2.5 m, before
+    anyone else touches it) in 37 of 48. The far post is the weakest, at 7 of 12;
+  - man and zonal marking hold;
+  - headers, volleys, clearances, second balls and saves all occur;
+  - the replay is requested only when its option is on;
+  - the same seed plays the same corner, event for event.
+- **Throw-ins:**
+  - every role works;
+  - believable trajectories: released overhead, within the arm's speed, a modest apex;
+  - no teleport of the ball, from the whistle to a second after the release;
+  - the receiver touches it first and controls it in 32 of 36 goes;
+  - my run down the line gets the ball first in 12 of 12.
+- **Penalties:**
+  - every role works;
+  - the empty goal has no keeper and nothing saves the shot;
+  - over 60 penalties each, a keeper of 20 saves 8 and a keeper of 99 saves 18;
+  - after every save the keeper doesn't hold, the ball stays live (14 such rebounds, 11 played again).
+- **Browser parts, by real clicks and typing:**
+  - the drills are in Set Pieces;
+  - a named preset of each type survives a reload, and its activation digest equals the saved setup's (only the
+    HUD's preset line differs);
+  - the corner replay plays, and the next corner starts in an identical state;
+  - the drawn throw-in ball is 0.05 m from the middle of the thrower's hands at the release, and leaves them after;
+  - retry restores the penalty setup, both after a decided go and mid-go;
+  - no career write, an empty career diff, and no console or page error.
+
+Other runs:
+
+- `node qa/run.mjs unit lint smoke`: 28 of 30 pass. `qa/unit/daily.mjs` and `qa/unit/presets.mjs` fail on Windows only
+  (`ERR_UNSUPPORTED_ESM_URL_SCHEME`: they import a bare `d:` path), exactly as on the base before P7-B, so it's not a
+  game failure. Smoke passes with 0 errors.
+- `node qa/oldsave.mjs`: passes.
+- `node qa/nodash.mjs` on every file written or changed: 0.
+
+## Known limits
+
+- **Corner delivery:** the AI cross reaches the far-post receiver less often (7 of 12) than the near post (8 of 8): the
+  ball has further to travel and passes defenders first.
+- **Corner goals are rare:** attackers score from about 5 to 15% of corners in the simulation. That's realistic, but a
+  drill might want it more generous later.
+- **Fixed role names:** the configuration sheet names the roles with the shared `ROLE_NAMES` ("Taker", "Attacker",
+  "Receiver", "Support", "Defender"), whatever the set piece. The scenario names and HUD lines say what each role means.
+  Per-type role labels would need a change in `configui.js`.
+- **No hands-on play:** nobody has played the drills in the game yet.

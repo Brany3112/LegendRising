@@ -22,6 +22,18 @@ import "./scen-penalty.js";
 
 Without these, `qa/unit/trainentry.mjs` fails and the 15 set-piece drills don't show in the hub.
 
+Items 1 and 2 are already applied on this branch, in commit `5cff9a1` labelled `[hook]`, so the tests could run. Keep that
+commit or drop it and apply these lines yourself, whichever suits the merge.
+
+## 2b. `LegendRising/qa/run.mjs`, named suites (next to `tr6b`)
+
+```js
+  tr7b: ["tr7-corner", "tr7-throw", "tr7-penalty"],
+```
+
+(and add them to `tr7` with P7-A's `tr7-freekick` once that exists). Each script runs its Node part, then its browser part;
+`--node` runs the Node part only.
+
 ## 3. For P7-A (`js/life/football/brain.js`), no edit required
 
 `setpiece.js` imports brain.js as a namespace (`import * as BR`) and calls `BR.cornerPlan(ms, R0, {recv, marking, zone})` only
