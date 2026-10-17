@@ -17,7 +17,9 @@
    cageEnter(kind) -> a promise of CAGE: the screen goes black, the cage of that kind is built in place of this one
    (the zone entered again: its meshes, colliders and spots are disposed with the old scene first), and the screen
    comes back after two drawn frames. */
-import {W, box, finishBatches} from "../build.js";
+import {W, box, spot, finishBatches} from "../build.js";
+import {registerBench} from "../football/stadium.js";
+import {FP} from "../football/controller.js";
 import {wireCage} from "../props.js";
 import {registerZone, revealAfterFrames, cancelReveal} from "../core/modes.js";
 import {RT, FADE} from "../core/state.js";
@@ -38,6 +40,8 @@ function buildCage(ctx, opts){
   // nothing here is merged into atlas pages: the cage is a handful of meshes drawn as they are (no merge polling)
   W.noMerge = true;
   const fence = wireCage(B.x0, B.z0, B.x1, B.z1, B.h);
+  // (P8-B) the Full cage's two dugouts by the halfway line, between the touchline and the fence, for Full Match
+  if (kind === "full") dugouts(spec);
   finishBatches();
   const SKY = RT.SKY;
   if (SKY && SKY.setContext) SKY.setContext("stadium", {box:{x0:B.x0 - 1, x1:B.x1 + 1, y0:0, y1:B.h, z0:B.z0 - 1, z1:B.z1 + 1}});
@@ -55,6 +59,40 @@ function buildCage(ctx, opts){
   }
   return {bus:sp, centre:{x:spec.frame.cx, y:0, z:spec.frame.cz, yaw:0}};
 }
+
+/* ---------- the Full cage's benches (P8-B, Full Match; the bench provider of stadium.js registerBench) ----------
+   Two dugouts on the -Z side, home at x -10 and away at x 10 as the stadium has them, between the touchline (hz) and the
+   fence (hz + 3): six seats each under a low roof, a step in front to stand on, the fourth official by the halfway line
+   in front of them. Each has a spot, offered to a substitute on his feet and not yet called (controller.js FP.benchOk),
+   that sits him down (FP.bench). Registered as the cage's bench, so the match controller seats you here */
+const DUG = Object.freeze({x:10, half:3, seats:6, back:.6, seatZ:1.75, standZ:1.25, fourth:1.45});
+function dugouts(spec){
+  const hz = spec.hz;
+  for (const side of [-1, 1]){
+    const cx = side*DUG.x, z0 = -(hz + 2.35), z1 = -(hz + 1.55);
+    // the bench, its back, the roof on two posts
+    box(cx - DUG.half, .38, z0 + .2, cx + DUG.half, .46, z1 - .3, 0x8a6a44, {ao:false});
+    box(cx - DUG.half, .46, z0, cx + DUG.half, 1.05, z0 + .12, 0x5c6470, {ao:false});
+    box(cx - DUG.half - .1, 2.05, z0 - .05, cx + DUG.half + .1, 2.15, z1 + .1, 0x3a4250, {ao:false});
+    for (const px of [cx - DUG.half, cx + DUG.half]) box(px - .06, 0, z0, px + .06, 2.05, z0 + .12, 0x3a4250, {ao:false});
+    const s = side < 0 ? "home" : "away";
+    spot({x:cx, y:.8, z:-(hz + DUG.standZ), r:2.4, near:true, stadium:true, label:"Bench", hint:"Sit down",
+      aim:[[cx - DUG.half, 0, z0], [cx + DUG.half, 2.1, z1]], when:() => !!(FP && FP.benchOk && FP.benchOk(s)), run:() => { if (FP && FP.bench) FP.bench(s); }});
+  }
+}
+registerBench("cage", {
+  seats:() => {
+    if (CAGE.kind !== "full" || !CAGE.spec) return [];
+    const out = [], z = -(CAGE.spec.hz + DUG.seatZ);
+    for (const side of [-1, 1]) for (let i = 0; i < DUG.seats; i++) out.push({side:side < 0 ? "home" : "away", x:side*DUG.x - DUG.half + .5 + i*(2*DUG.half - 1)/(DUG.seats - 1), z});
+    return out;
+  },
+  get seatZ(){ return CAGE.spec ? -(CAGE.spec.hz + DUG.seatZ) : -35.75; },
+  get standZ(){ return CAGE.spec ? -(CAGE.spec.hz + DUG.standZ) : -35.25; },
+  fourthOfficial:sp => ({x:0, z:-(sp.hz + DUG.fourth)}),
+  dugout:side => ({x:(side === "away" ? 1 : -1)*DUG.x, z:CAGE.spec ? -(CAGE.spec.hz + DUG.standZ) : -35.25, yaw:Math.PI}),
+  crowd:() => null
+});
 
 registerZone("cage", {
   build:(ctx, opts) => buildCage(ctx, opts || {}),

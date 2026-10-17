@@ -16,7 +16,12 @@
    (P4-A, work item 6) Configure opens the configuration sheet (configui.js) for any scenario whose type config.js
    knows, in the hub's place, the pointer staying free in between; its Start starts the scenario with what was set
    there, and the hub's own Start uses the same configuration (startScenario(id, config)). What was set is kept for
-   each scenario while you stay in Training (scenarioConfig, setScenarioConfig; presets that last are P4-B's). */
+   each scenario while you stay in Training (scenarioConfig, setScenarioConfig; presets that last are P4-B's).
+
+   (P8-B, Training Mode Phase 8) Entries that are not the runner's scenarios: Full Match plays the real match, not the
+   runner's drill mode, so fullmatch.js hands its two entries to registerEntry({id, category, type, name, desc, config,
+   start(config, {preset}) -> bool, playing() -> bool, end()}). The hub lists them with the category's scenarios and
+   gives them the same Configure, Presets and Start (and End it while one plays). */
 import {screenCover} from "../core/quality.js";
 import {CATEGORIES, categoryOf, scenariosOf, scenario, startScenario, stopScenario, restart, replay, RUN, onRunner, withPending} from "./runner.js";
 import {exitTraining, inTraining} from "./sandbox.js";
@@ -29,6 +34,18 @@ import {quickIsOpen, quickClose} from "./quick.js";
 import {FLAGS} from "../core/state.js";
 
 const HUB = {open:false, cat:null, key:null, release:true, cfg:new Map(), drawn:""};
+const ENTRIES = new Map();
+export function registerEntry(e){
+  if (!e || typeof e.id !== "string" || typeof e.start !== "function" || !categoryOf(e.category)) throw new Error("registerEntry: an entry needs an id, a category and start()");
+  ENTRIES.set(e.id, Object.freeze(Object.assign({playing:() => false, end:() => {}}, e)));
+  redraw();
+}
+const entriesOf = cat => [...ENTRIES.values()].filter(e => e.category === cat);
+// a scenario of the runner, or an entry of the hub's own
+const anyOf = id => scenario(id) || ENTRIES.get(id) || null;
+const isEntry = id => !scenario(id) && ENTRIES.has(id);
+// something is playing: a scenario, or an entry
+const entryPlaying = () => [...ENTRIES.values()].find(e => { try { return e.playing(); } catch(err){ return false; } }) || null;
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
 
 // the sheet's markup (js/ui/main.js openSheet calls it): what was drawn is kept, so a runner event that changes
@@ -41,23 +58,25 @@ function markup(){
   if (!HUB.cat){
     return `<div class="th"><h2>Training</h2><p class="muted">Practise anything on your own pitch. Nothing here touches your career.</p>${running}
       <div class="th-cats">${CATEGORIES.map(c => {
-        const n = scenariosOf(c.id).length;
+        const n = scenariosOf(c.id).length + entriesOf(c.id).length;
         return `<button class="opt th-cat" data-th="cat" data-id="${c.id}"><b>${esc(c.name)}</b><span class="muted small">${esc(c.desc)}</span>
           <span class="pill">${n ? `${n} to play` : "Coming soon"}</span></button>`;
       }).join("")}</div>
       <div class="th-foot"><span class="muted small">You can also walk up to a cone on the pitch and press E.</span><span class="grow"></span>
         <button class="btn ghost" data-th="exit">Exit to title</button></div></div>`;
   }
-  const c = categoryOf(HUB.cat), list = scenariosOf(c.id), last = RUN.last;
+  const c = categoryOf(HUB.cat), list = scenariosOf(c.id).concat(entriesOf(c.id)), last = RUN.last, ep = entryPlaying();
   const rows = list.map(s => {
-    const playing = cur && cur.id === s.id, other = cur && !playing;
+    const ent = isEntry(s.id);
+    const playing = ent ? !!ep && ep.id === s.id : cur && cur.id === s.id, other = (cur || ep) && !playing;
     const btns = [];
     if ((configurable(s) || s.configure) && !other) btns.push(`<button class="btn sm ghost" data-th="config" data-id="${s.id}">Configure</button>`);
-    if (configurable(s) && !cur) btns.push(`<button class="btn sm ghost" data-th="presets" data-id="${s.id}">Presets</button>`);
-    if (playing) btns.push(`<button class="btn sm" data-th="restart" data-id="${s.id}">Start again</button>`, `<button class="btn sm ghost" data-th="end">End it</button>`);
+    if (configurable(s) && !cur && !ep) btns.push(`<button class="btn sm ghost" data-th="presets" data-id="${s.id}">Presets</button>`);
+    if (playing && ent) btns.push(`<button class="btn sm ghost" data-th="endentry" data-id="${s.id}">End it</button>`);
+    else if (playing) btns.push(`<button class="btn sm" data-th="restart" data-id="${s.id}">Start again</button>`, `<button class="btn sm ghost" data-th="end">End it</button>`);
     else if (!other){
       btns.push(`<button class="btn sm" data-th="start" data-id="${s.id}">Start</button>`);
-      if (last && last.id === s.id) btns.push(`<button class="btn sm ghost" data-th="replay" data-id="${s.id}">Replay the last one</button>`);
+      if (!ent && last && last.id === s.id) btns.push(`<button class="btn sm ghost" data-th="replay" data-id="${s.id}">Replay the last one</button>`);
     }
     return `<div class="th-sc"><div><b>${esc(s.name)}</b><span class="muted small">${esc(s.desc)}</span></div>
       <div class="th-btns">${other ? `<span class="muted small">End or reset the one that's playing first.</span>` : btns.join("")}</div></div>`;
@@ -130,12 +149,12 @@ function redraw(){
    config.validate. A scenario of a type config.js does not know keeps its own config as it is. */
 const configurable = sc => !!(sc && typeOf(sc.type));
 export function scenarioConfig(id){
-  const sc = scenario(id); if (!sc) return null;
+  const sc = anyOf(id); if (!sc) return null;
   if (!configurable(sc)) return sc.config ? JSON.parse(JSON.stringify(sc.config)) : {};
   return validate(sc.type, HUB.cfg.get(id) || sc.config || defaults(sc.type));
 }
 export function setScenarioConfig(id, config){
-  const sc = scenario(id); if (!configurable(sc)) return null;
+  const sc = anyOf(id); if (!configurable(sc)) return null;
   const c = validate(sc.type, config);
   HUB.cfg.set(id, c);
   return c;
@@ -143,7 +162,16 @@ export function setScenarioConfig(id, config){
 // the configuration sheet for a scenario, with its configuration now (or the one given): Start starts it with what was
 // set there, Back comes back to the hub on its category. The hub goes first and the pointer stays free
 export function configureScenario(id, config = null){
-  const sc = scenario(id); if (!sc) return false;
+  const sc = anyOf(id); if (!sc) return false;
+  if (isEntry(id)){
+    if (RUN.cur || entryPlaying()) return false;
+    openConfig({type:sc.type, title:sc.name, config:config || scenarioConfig(id),
+      onStart:c => { setScenarioConfig(id, c); if (!sc.start(scenarioConfig(id))) openHub(sc.category); },
+      onBack:() => openHub(sc.category)});
+    closeHub(false);
+    idle();
+    return true;
+  }
   if (!configurable(sc)){ if (sc.configure){ closeHub(); sc.configure(); return true; } return false; }
   if (RUN.cur && RUN.cur.id !== id) return false;
   // (changes queued from the admin panel for this scenario, still waiting: the sheet shows them, as Start would play them)
@@ -159,19 +187,21 @@ export function configureScenario(id, config = null){
 // (integrator, P4-B hook) a scenario's presets in the hub's place: Load starts it with the preset (kept as its
 // configuration for this visit, and named on the Training HUD); Done brings the hub back on its category
 function presets(id){
-  const sc = scenario(id); if (!sc || !configurable(sc) || RUN.cur) return false;
+  const sc = anyOf(id); if (!sc || !configurable(sc) || RUN.cur || entryPlaying()) return false;
   return openPresets({type:sc.type, typeName:sc.name, scenarioId:sc.id, config:scenarioConfig(id),
     onLoad:(config, preset) => {
       setScenarioConfig(id, config);
       if (window.lifeModalSet) window.lifeModalSet(false);
-      if (!startScenario(id, scenarioConfig(id), {preset})) openHub(sc.category);
+      const ok = isEntry(id) ? sc.start(scenarioConfig(id), {preset}) : startScenario(id, scenarioConfig(id), {preset});
+      if (!ok) openHub(sc.category);
     }});
 }
 // a scenario from the hub: the hub goes, then it starts with its configuration
 function start(id){
-  const sc = scenario(id); if (!sc) return;
+  const sc = anyOf(id); if (!sc) return;
   closeHub();
-  if (!startScenario(id, scenarioConfig(id))) openHub(sc.category);
+  const ok = isEntry(id) ? sc.start(scenarioConfig(id)) : startScenario(id, scenarioConfig(id));
+  if (!ok) openHub(sc.category);
 }
 // what the hub's buttons do (one listener on the sheet, by data-th)
 function click(e){
@@ -188,6 +218,7 @@ function click(e){
   }
   else if (what === "replay"){ closeHub(); if (!replay()) openHub(HUB.cat); }
   else if (what === "end"){ stopScenario("quit"); }
+  else if (what === "endentry"){ const e = ENTRIES.get(id); if (e) e.end(); }
   else if (what === "config") configureScenario(id);
   else if (what === "presets") presets(id);
   else if (what === "exit"){ closeHub(); exitTraining(); }
@@ -212,5 +243,5 @@ if (typeof window !== "undefined"){
     if (configureScenario(d.id, d.config)) e.preventDefault();
   });
   addEventListener("train:exit", () => { if (HUB.open) closeHub(); HUB.cat = null; HUB.cfg.clear(); thudIdle(false); });
-  window.__trainHub = {openHub, closeHub, hubOpen, hubCategory, configureScenario, scenarioConfig, setScenarioConfig};
+  window.__trainHub = {openHub, closeHub, hubOpen, hubCategory, configureScenario, scenarioConfig, setScenarioConfig, registerEntry, entries:() => [...ENTRIES.keys()], entriesOf:cat => entriesOf(cat).map(e => e.id)};
 }

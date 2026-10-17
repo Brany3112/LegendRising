@@ -61,7 +61,8 @@ async function tabTo(page, sel, max = 20){
       await clickReal(page, '#sheetRoot [data-th="back"]');
       await page.waitForFunction(() => ((document.querySelector("#sheetRoot .th h2") || {}).textContent || "") === "Training", null, {timeout: 10000}).catch(() => {});
       const back = await hubState(page);
-      const registered = await page.evaluate(i => window.__trainRun.scenariosOf(window.__trainRun.CATEGORIES[i].id).length, i);
+      // ((P8-B hook) a category's entries of the hub's own, Full Match's, count as registered too)
+      const registered = await page.evaluate(i => { const id = window.__trainRun.CATEGORIES[i].id, H = window.__trainHub; return window.__trainRun.scenariosOf(id).length + (H && H.entriesOf ? H.entriesOf(id).length : 0); }, i);
       res.cats.push({name: CATS[i], opened: open.h2, buttons: dead, registered, back: back.h2});
     }
     check(res.cats.every(c => c.opened === c.name && c.back === "Training"), "each category opens and Back returns to the hub", res.cats);
