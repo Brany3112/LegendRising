@@ -681,6 +681,10 @@ function events(T){
   const ms = T.ms, me = T.me.id;
   for (let i = T.evSeen || 0; i < ms.events.length; i++){
     const e = ms.events[i];
+    // ((P9-A, GK-3) the view hears the saves and goals as the career match's does, controller.js events: a dive's outcome
+    // (the catch, the tip, the parry) and a punch are posed from them. Training never handed them on, so a keeper's
+    // dive showed no outcome and a punch the ready stance)
+    if ((e.kind === "save" || e.kind === "goal") && T.V && VW.viewEvent) VW.viewEvent(T.V, e);
     if (e.kind === "call"){
       const o = ms.agents[e.agent];
       // a team-mate calling for it: his voice from where he stands, his name on the HUD

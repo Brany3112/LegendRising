@@ -1965,6 +1965,19 @@ function upHoldBall(h, T, st){
 /* the ball held between the two hands of body h, as last posed (world point into out): the wrists' middle, carried on
    along the forearms to the palms */
 const _FKh = newFK();
+// (P9-A, GK-3) the ball in one hand (s: +1 left, -1 right): the palm a few centimetres on from the wrist along the
+// forearm, and the ball's centre a ball's radius beyond it, in the world (a keeper's throw or roll from his hand)
+export function handBall(h, s, out){
+  if (!h.posed) return null;
+  fkQ(h, h.pose, _FKh, 12);
+  const A = ARM(s), w = A[2]*7, e = A[1]*7;
+  let fx = _FKh[w] - _FKh[e], fy = _FKh[w + 1] - _FKh[e + 1], fz = _FKh[w + 2] - _FKh[e + 2];
+  const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+  const x = _FKh[w] + fx*.15, y = _FKh[w + 1] + fy*.15, z = _FKh[w + 2] + fz*.15;
+  const d = h.drawn, c = Math.cos(d[3]), sn = Math.sin(d[3]), sc = h.scale || 1;
+  out.x = d[0] + (x*c + z*sn)*sc; out.y = d[1] + y*sc; out.z = d[2] + (-x*sn + z*c)*sc;
+  return out;
+}
 export function heldBall(h, out){
   if (!h.posed) return null;
   fkQ(h, h.pose, _FKh, 12);

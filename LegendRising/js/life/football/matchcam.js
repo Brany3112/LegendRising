@@ -173,6 +173,7 @@ function fpFrame(dt, cam){
   let ev = 0, h = null;
   if (V && V.fp){ const G0 = V.fp.gait, run = G0 ? (G0.R || 0)*(G0.mvA || 0) : 0, brk = G0 ? Math.max(sstep(0, 3.3, -(G0.acc || 0)), G0.brakeW || 0) : 0; V.fpArms = run*Math.max(sstep(.1, .6, -P.pitch), brk); }
   if (V && V.fp && SRC.pose){ ev = SRC.pose(x, z, P.yaw, dt) || 0; h = V.fp; }
+  if (V) clipCam(V, ev);
   // the eye rides on the body's own head (UF2-A, U12): a slide, a fall, a header's dive take it down with them
   headFollow(h, x, y0, z, s, dt);
   const v = SRC.speed ? SRC.speed() : 0, top = SRC.top ? Math.max(1, SRC.top()) : 8, B = SRC.breath ? SRC.breath() : 100;
@@ -238,6 +239,21 @@ function fpFrame(dt, cam){
   if (MC.off.dz) cam.translateZ(-MC.off.dz);
   MC.fov = (SRC.fov ? SRC.fov() : CAM.FOV) + FX.fov;
   if (SRC.after) SRC.after(dt, cam);
+}
+/* (P9-A, MV-15) the action springs on your own clip's moments, once each, on the frame the clip says it happens:
+   'backswing' at a strike's plant (its backswing begins), 'slide' as a slide's body meets the grass (its LAND), 'chest'
+   at a chest receive's contact, 'land' at a header's landing. MC.camActs counts them for qa/tr9-anim.mjs */
+function clipCam(V, ev){
+  const c = V.fpClipNow;
+  if (!c || !ev) return;
+  let kind = null;
+  if (c.mode === "strike" && (ev & EV.PLANT)) kind = "backswing";
+  else if (c.mode === "tackle" && c.kind === "slide" && (ev & EV.LAND)) kind = "slide";
+  else if (c.mode === "receive" && c.part === "chest" && (ev & EV.CONTACT)) kind = "chest";
+  else if (c.mode === "header" && (ev & EV.LAND)) kind = "land";
+  if (!kind) return;
+  camAction(kind);
+  (MC.camActs || (MC.camActs = [])).push({kind, t:MC.t, clip:c.id});
 }
 const FP_OWNER = {id:"match-fp", priority:40, frame:fpFrame, fov:() => Math.round(MC.fov*20)/20, near:CAM.NEAR};
 

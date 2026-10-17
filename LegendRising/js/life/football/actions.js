@@ -151,6 +151,16 @@ export function canStrike(a, ball, style, out){
 // power (0..1 for shots, the speed in m/s for passes when speed is given), speed, contact, finesse, firstTime}.
 // Contact comes at the scheduled step: within 0.18 s with the ball in reach, else after a stride adjust of up to
 // 0.35 s, then a scuff if it is still not there.
+/* (P9-A, MV-14) the root's speed through a strike as a share of the approach speed: the same curve as moves.js
+   strikeRoot (3.5.7: 0.55 at contact, 0.40 at +0.25 s, then back to 1 by +0.6 s), kept here because the simulation is
+   pure (moves.js draws). Never under STRIKE_ROOT.MIN m/s, so a strike from a stand still shifts its weight */
+export const STRIKE_ROOT = Object.freeze({MIN: 0.3});
+const sstep01 = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
+export function strikeRoot(t, contact){
+  if (t < contact) return 1 + (0.55 - 1)*sstep01(contact - 0.18, contact, t);
+  if (t < contact + 0.25) return 0.55 + (0.40 - 0.55)*(t - contact)/0.25;
+  return 0.40 + (1 - 0.40)*sstep01(contact + 0.25, contact + 0.6, t);
+}
 export function startKick(ms, a, action){
   const cs = canStrike(a, ms.ball, action.style);
   // a dead ball (a set piece) is walked up to: the run-up has no 0.35 s limit, only a generous one; a ball in the air
@@ -1105,12 +1115,15 @@ export function actionStep(ms, a, h){
         if (!act.adjust && !act.done){
           const tg = act.action.target;
           if (tg){ const f = faceTo(a, tg.x, tg.z, a.faceV); I.face = f; }
-          I.speedCap = Math.min(I.speedCap, Math.max(1.5, a.m.speed*0.97));
+          // ((P9-A, MV-14) the root's speed through the strike is the clip's: strikeRoot of the approach speed, so the
+          // planted foot does not skate under a body still moving at the run-up's pace)
+          if (act.vIn == null) act.vIn = a.m.speed;
+          I.speedCap = Math.min(I.speedCap, Math.max(1.5, a.m.speed*0.97), Math.max(STRIKE_ROOT.MIN, act.vIn*strikeRoot(act.t, act.tc)));
           if (act.t >= act.tc - 1e-9) strikeContact(ms, a, act, false);
         }
         // the solve, a flight a step through the swing (a stride adjust included)
         if (!act.done) kickPresolve(ms, a, act);
-      } else I.speedCap = Math.min(I.speedCap, 2.5);
+      } else I.speedCap = Math.min(I.speedCap, 2.5, act.vIn != null ? Math.max(STRIKE_ROOT.MIN, act.vIn*strikeRoot(act.t, act.tc)) : 2.5);
       if (act.done && act.t >= act.dur){ a.act = null; a.state = 'idle'; }
       break;
     }
