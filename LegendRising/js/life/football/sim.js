@@ -27,7 +27,10 @@
 
 import {createBall, createBallWorld, ballStep, BALL} from "./ball.js";
 import {makePitch, inBox} from "./pitchspec.js";
-import {mulberry32, hashStr} from "./rng.js";
+import {hashStr} from "./rng.js";
+// (the generator's cached second normal, rng.js gauss, when rng.js gives access to it: a P8-A hook request; without it a
+// restored half may differ from the original from its first normal draw on)
+import * as RNG from "./rng.js";
 import {moverStep} from "../mover.js";
 import {stamStep, stamFactors, effortOf, effF, stamSetCap, energyPerMatchMinute, STAM} from "../stamina.js";
 import {phaseAdvanceQ, GQ, gaitModeStep} from "../gaitcore.js";
@@ -86,7 +89,7 @@ export function createMatch(cfg){
   const halfRealSec = cfg.halfRealSec || HALF_REAL[2];
   const rate = cfg.clockRate || 45*60/halfRealSec;
   const ms = {
-    cfg, r: mulberry32(cfg.seed >>> 0), t: 0, step: 0, spec,
+    cfg, r: null, rng: {s: rngSeed(cfg.seed)}, t: 0, step: 0, spec,
     mode: laws.mode, rules: laws,
     phase: 'pre', half: 1, clock: {sec: 0, rate, added: 0, addedSet: false, running: false},
     score: [0, 0], dirs: [1, -1],
@@ -115,6 +118,9 @@ export function createMatch(cfg){
     // the race's per-step cache (zone.js arrivals)
     zone: null, lapseT: -9, lapseBy: -1
   };
+  // (P8-A) the match's generator keeps its word in ms.rng, so a snapshot can hold it (the same sequence as rng.js
+  // mulberry32 of the seed)
+  ms.r = rngOf(ms.rng);
   ms.gkCollect = gkCollect;
   // the AI's lofted-flight tables (strike.js) are built on first use: build them here, never inside a step
   flightTime('cross', 20, 18); flightTime('throw', 10, 10);
@@ -181,11 +187,76 @@ export function createMatch(cfg){
   refreshPred(ms);
   for (const t of [0, 1]){ teamShape(ms, t); }
   placeForKickoff(ms);
+  HALF_SNAP.set(ms, halfSnapshot(ms));
   return ms;
 }
 
-// the bodies at their kick-off spots (a cut: only at creation and behind the half-time fade)
-function placeForKickoff(ms){
+/* ---------- the match's own generator (P8-A) ----------
+   rng.js mulberry32 step for step, its word kept in st.s (a plain record a snapshot copies) */
+const rngSeed = seed => (seed >>> 0) || 0x9e3779b9;
+function rngOf(st){
+  return () => {
+    st.s = (st.s + 0x6D2B79F5) >>> 0;
+    let t = st.s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0)/4294967296;
+  };
+}
+
+/* ---------- the half-start snapshot (P8-A, MF-10: Reset Current Half) ----------
+   At the start of each half (a match made, the second half's kick-off) the whole match state is copied: every field
+   of ms (the score and the goals in the events, the stats, the events, the agents on the pitch with their energy and
+   stamina, the subs used and planned, roleDone and callUp, the bench and its used flags, offside, advantage, the
+   bookings pending, the chain, the judge queue, the clock, the half and the ends, the restart, the ball and the spares)
+   but what belongs to the match object itself (KEEP: its configuration and pitch, the generator's function, the ball
+   worlds, the listeners, the bound helpers), and the generator's word. ms.agents only ever grows (a change pushes an
+   agent), so a restore never patches a match: restoreHalf makes a fresh one from the configuration and puts the copy
+   on it. HALF_FIELDS names the fields matchflow.md section 6 lists, for the tests (qa/unit/simreset.mjs). */
+export const HALF_KEEP = Object.freeze(["cfg", "spec", "r", "rng", "bw", "quiet", "subsFn", "liveRating", "gkCollect"]);
+export const HALF_FIELDS = Object.freeze(["score", "events", "flushed", "stats", "agents", "subs", "roleDone", "callUp", "bench", "offside", "advantage",
+  "pendingBook", "chain", "judgeQ", "clock", "half", "dirs", "restart", "phase", "ball", "spares", "poss", "me", "gks", "stoppage", "tm", "t", "step"]);
+const HALF_SNAP = new WeakMap(), HALF_DUE = new WeakSet();
+function snapDue(ms){ if (HALF_DUE.has(ms)){ HALF_DUE.delete(ms); HALF_SNAP.set(ms, halfSnapshot(ms)); } }
+// a deep copy of plain data: shared references stay shared, typed arrays, maps and sets copied, functions kept as they are
+function cloneData(v, seen){
+  if (v === null || typeof v !== "object") return v;
+  if (seen.has(v)) return seen.get(v);
+  let c;
+  if (ArrayBuffer.isView(v)){ c = v.slice(); seen.set(v, c); return c; }
+  if (v instanceof Map){ c = new Map(); seen.set(v, c); for (const [k, x] of v) c.set(cloneData(k, seen), cloneData(x, seen)); return c; }
+  if (v instanceof Set){ c = new Set(); seen.set(v, c); for (const x of v) c.add(cloneData(x, seen)); return c; }
+  c = Array.isArray(v) ? new Array(v.length) : Object.create(Object.getPrototypeOf(v));
+  seen.set(v, c);
+  for (const k of Object.keys(v)) c[k] = cloneData(v[k], seen);
+  return c;
+}
+// the data of a ball world (its nets, its prediction queues, its clock), never its functions or its pitch, which the
+// fresh match's own world keeps (they are bound to that match)
+const worldData = (w, seen) => { const o = {}; if (w) for (const k of Object.keys(w)) if (k !== "spec" && typeof w[k] !== "function") o[k] = cloneData(w[k], seen); return o; };
+export function halfSnapshot(ms){
+  const seen = new Map(), data = {};
+  for (const k of Object.keys(ms)) if (!HALF_KEEP.includes(k)) data[k] = cloneData(ms[k], seen);
+  return {half: ms.half, t: ms.t, rngS: ms.rng.s, spare: typeof RNG.spareOf === "function" ? RNG.spareOf(ms.r) : undefined, data, bw: worldData(ms.bw, seen), quiet: worldData(ms.quiet, seen)};
+}
+// the snapshot taken at the start of the half being played (null for a match made before P8-A)
+export const halfStart = ms => { snapDue(ms); return HALF_SNAP.get(ms) || null; };
+// a fresh match from the configuration, as the snapshot had it (the snapshot itself is left untouched, so the half can
+// be reset again); the restored match keeps the same snapshot as its own half start
+export function restoreHalf(cfg, snap){
+  const ms = createMatch(cfg);
+  const seen = new Map();
+  for (const k of Object.keys(snap.data)) ms[k] = cloneData(snap.data[k], seen);
+  for (const [w, d] of [[ms.bw, snap.bw], [ms.quiet, snap.quiet]]) if (w && d) for (const k of Object.keys(d)) w[k] = cloneData(d[k], seen);
+  ms.rng.s = snap.rngS;
+  if (typeof RNG.setSpare === "function") RNG.setSpare(ms.r, snap.spare);
+  HALF_SNAP.set(ms, snap);
+  return ms;
+}
+
+// the bodies at their kick-off spots (a cut: only at creation and behind the half-time fade). (P8-A) Exported for
+// Restart from Kickoff
+export function placeForKickoff(ms){
   restartShape(ms);
   for (const a of ms.agents){
     if (!a.onPitch) continue;
@@ -341,6 +412,7 @@ const EFF = {stamina: 50, eF: 1};
 // One fixed step of h seconds (1/60).
 export function simStep(ms, h = H){
   if (ms.phase === 'over') return;
+  snapDue(ms);
   const agents = ms.agents, n = agents.length;
   // the ball in play rolls on the grass again (a dead one is stopped sooner: rules.RULES.DEAD_ROLL)
   if (ms.phase === 'live') liveRoll(ms.ball);
@@ -546,6 +618,9 @@ export function secondHalf(ms){
   placeForKickoff(ms);
   ms.phase = 'kickoff';
   refreshPred(ms);
+  // (taken at the next step's start: the second half may begin inside a step, sim's own half time, and the snapshot is
+  // of the state between two steps; a reset asking for it sooner takes it then, halfStart)
+  HALF_DUE.add(ms);
 }
 // full time: everyone's time on the pitch closes, the phase ends
 function finishUp(ms){
