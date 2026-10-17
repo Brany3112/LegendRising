@@ -33,6 +33,10 @@ import "./scen-team.js";
 import "./scen-attack.js";
 import "./scen-defend.js";
 import "./scen-match.js";
+import "./setpiece.js";
+import "./scen-corner.js";
+import "./scen-throw.js";
+import "./scen-penalty.js";
 import {bodyLook} from "../look.js";
 import {sandboxLook, dressOpts} from "../core/me.js";
 
