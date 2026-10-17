@@ -735,11 +735,12 @@ function foodLines(id, n, src){
   for (const m of fx.mods) out.push(`${m.label}${m.k === "home" ? " (energy)" : ""} ${modPct(m.f)}`);
   if (fx.full){ out.push(FULL_LINE); return out; }
   const got = [];
-  if (fx.base.energy) got.push(`Energy ${fxAmt(Math.round(fx.energy))}`);
+  // (P10-A, FD-6) energy as it is applied, to one decimal when it is not whole (3.5, not a rounded 4)
+  if (fx.base.energy) got.push(`Energy ${fxAmt(fx.energy)}`);
   if (fx.base.hyd) got.push(`Hydration ${fxAmt(Math.round(fx.hyd))}`);
   if (fx.base.fatigue) got.push(`Fatigue ${fxAmt(fx.fatigue)}`);
   out.push(`You get: ${got.join(" · ")}`);
-  if (fx.gain > fx.energy + .5) out.push(`Energy is at ${Math.round(S.energy)}, so you only gain ${fxAmt(Math.round(fx.energy))}`);
+  if (fx.gain > fx.energy + .5) out.push(`Energy is at ${Math.round(S.energy)}, so you only gain ${fxAmt(fx.energy)}`);
   return out;
 }
 // eat or drink one: what foodEffect says, nothing else. Returns it for the chip
@@ -761,7 +762,7 @@ function consume(id, src){
   if (typeof motivationAte === "function") motivationAte(it, e0);
   dailyPass(it.mins, "idle");
   if (typeof save === "function") save();
-  return {ok:true, gain:Math.round(fx.energy), fat:Math.round(fx.fatigue*10)/10, hyd:Math.round(fx.hyd), item:it, mult:fx.keep, fx};
+  return {ok:true, gain:Math.round(fx.energy*10)/10, fat:Math.round(fx.fatigue*10)/10, hyd:Math.round(fx.hyd), item:it, mult:fx.keep, fx};
 }
 function spend(n){ n = Math.round(n); if (S.money < n) return false; S.money -= n; S.today.spent += n; return true; }
 function earn(n){ n = Math.round(n); S.money += n; S.today.earned += n; }

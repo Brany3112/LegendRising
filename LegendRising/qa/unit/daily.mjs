@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const OUT = path.join(ROOT, "qa", "out");
@@ -40,7 +40,7 @@ for (const f of ["js/data/clubs.js", "js/data/names.js", "js/data/game.js", "js/
   "js/career.js", "js/daily.js", "js/events.js", "js/ui/barber.js"])
   vm.runInThisContext(fs.readFileSync(path.join(ROOT, f), "utf8"), {filename: f});
 const run = src => vm.runInThisContext(src);
-const rent = await import(path.join(ROOT, "js/life/rent.js"));
+const rent = await import(pathToFileURL(path.join(ROOT, "js/life/rent.js")).href);
 const zone = z => { globalThis.LIFE.zone = z; };
 
 /* ---------- a career: the shell, then the creation (DESIGN 3.7.2, 1.4.19) ---------- */
@@ -307,7 +307,7 @@ run(`delete S.life.inMatch; myFixtures = () => []; WFX = {wk:-1, club:-2, season
 
 /* ---------- trust only through trustAdd (lint gate over WP-G's files) ---------- */
 {
-  const {loadRules, runRule} = await import(path.join(ROOT, "qa/lint.mjs"));
+  const {loadRules, runRule} = await import(pathToFileURL(path.join(ROOT, "qa/lint.mjs")).href);
   const cfg = loadRules(), rule = cfg.rules.find(r => r.id === "trust-writes");
   const mine = ["js/daily.js", "js/career.js", "js/events.js", "js/data/game.js", "js/ui/barber.js", "js/ui/panels.js", "js/ui/foodies.js"];
   const found = runRule(rule, cfg).found.filter(x => mine.includes(x.file) || x.file.startsWith("js/life/"));
