@@ -107,6 +107,10 @@ export const BRAIN = Object.freeze({
   // out) the shot is worth SIGHT[3] more than the bare xG says (the whole goal to aim at, the keeper unsighted through
   // the bodies in front); from a wide angle beyond SIGHT[4] m out (more than SIGHT[0] m off the axis) SIGHT[5] of it
   SIGHT: [11, 12, 28, 1.1, 22, 0.55],
+  // (P9-B, decisions near goal) beyond LONG[0] m the AI's shot fades by exp(-(d - LONG[0])/LONG[1]): a team-mate is
+  // nearly always the better ball from 30 m and more (half the AI's shots came from beyond 25 m, a quarter from 30 to
+  // 35). The harness's stand-in for the player keeps his own range (ME_RANGE)
+  LONG: [28, 4],
   // (U9) holding the shape in possession, an attacker or a midfielder with a man within SPACE[0] m of his place in it
   // finds space: up to SPACE[1] m off his place, away from that man, never offside (TR-3+U fix round 2: 3 m, not 5, the
   // shape kept tighter; at 5 m goals per match and the striker's touches went above their harness bands)
@@ -167,7 +171,8 @@ export function passModel(ms, from, to, kind, v0, recv = null, out = PM){
   // keeps moving meanwhile (a man pressing him closes in), so every arrival is raced against the ball's time plus it.
   let tw = 0;
   if (passer && ms.ball.state === 'free'){ const cs = canStrike(passer, ms.ball); tw = cs.ok ? cs.tc : 0.35; }
-  const tArrive0 = ground ? rollTime(v0, d, roll) : flightTime(kind === 'cross' ? 'cross' : 'lob', d, v0, roll);
+  // ((P9-B) a keeper's throw flies as a throw: from head height, no backspin)
+  const tArrive0 = ground ? rollTime(v0, d, roll) : flightTime(kind === 'cross' ? 'cross' : kind === 'throw' ? 'throw' : 'lob', d, v0, roll);
   const tArrive = tArrive0 + tw;
   out.tArrive = Number.isFinite(tArrive) ? tArrive : 99;
   let margin = 9, who = -1, mx = to.x, mz = to.z;
@@ -577,7 +582,8 @@ function* carrierOptions(ms, a){
     // (U9) square on, from the edge of the box and the D, a shot is the thing to do; from a wide angle at range it is not
     const lat = Math.abs(m.z), S9 = BRAIN.SIGHT;
     const sight = lat <= S9[0] && dGoal >= S9[1] && dGoal <= S9[2] ? S9[3] : lat > S9[0] && dGoal > S9[4] ? S9[5] : 1;
-    const V = xg*(0.6 + 0.6*at.accuracy/100)*bias*sight;
+    const far = !meShot && dGoal > BRAIN.LONG[0] ? exp(-(dGoal - BRAIN.LONG[0])/BRAIN.LONG[1]) : 1;
+    const V = xg*(0.6 + 0.6*at.accuracy/100)*bias*sight*far;
     add({kind: 'shot', V, xg});
   }
   // 2. passes, through balls and crosses to every team-mate

@@ -1,60 +1,45 @@
-# P7-A hook requests (for the integrator)
+# P9-B hook requests (for the integrator)
 
-P7-A only edited the files it owns (`brain.js`, `css/train.css` and its new files). These lines go into files it does not
-own.
+P9-B only edited the files it owns (`brain.js`, `gkbrain.js`, and its new `qa/tr9-ai.mjs`). These lines go into files it does
+not own. Branch `pc/p9b` is built on `pc/p7a`, so P7-A's own requests (its `HOOKS.md`, on `pc/p7a`) still stand.
 
-## 1. `LegendRising/index.html`, importmap (next to the other `js/life/train/` entries)
+## 1. `LegendRising/js/life/football/attrs.js`: show the keeper's distribution in the attribute editor
 
-```
-    "./js/life/train/scen-freekick.js": "./js/life/train/scen-freekick.js?v=<build>",
-    "./js/life/train/fkplace.js": "./js/life/train/fkplace.js?v=<build>",
-```
-
-## 2. `LegendRising/js/life/train/index.js` (after `import "./scen-match.js";`, and after P7-B's set-piece imports when both are in)
+The plan names `attredit.js`, but the flag is in `attrs.js`:
 
 ```js
-import "./scen-freekick.js";
-import "./fkplace.js";
+export const GK_DISTRIB_LIVE = true;
 ```
 
-Items 1 and 2 are already applied on this branch in commit `6014ff1`, labelled `[hook]`, so the tests could run.
-`qa/unit/trainentry.mjs` fails without them, and the 10 free-kick drills don't show in the hub.
+`gk.distrib` now changes play (ATTR-1): his choice between throw, roll and punt, the scatter of where it goes, and the
+passing numbers his punts and goal kicks are struck with. So the editor should show it.
 
-## 3. `LegendRising/js/life/football/rules.js`: the Phase 7 contract (no new edit)
+## 2. `LegendRising/qa/tr4-attrs.mjs`: the keeper distribution row
 
-P7-A needs `startRestart`'s set-piece options (`opt.taker`, `opt.second`, `opt.secondAction`, `opt.wallSpec`, `opt.plan`).
-P7-B owns `rules.js` and made that change on `pc/p7b`. This branch carries the same change, byte for byte, in commit
-`85d10cc` labelled `[hook]`, so the free kicks could run here. Merging `pc/p7b` and then `pc/p7a` brings in the same
-text twice, so git sees no conflict.
+Add the row "Keeper distribution 30 vs 90 | distribution error and completion differ". Use the same measurement as
+`qa/tr9-ai.mjs` section 3 (`distOne`):
+- a match a few seconds in, with the ball put in team 0's keeper's hands (`gkbrain.js gkCollect`) and his own hold;
+- seeded, paired runs at distrib 30 and 90, everything else equal;
+- the mean landing error from `gk.gk.distAim` (where he meant it to go) is at least 1.5 times larger at 30;
+- completion (`ev.res === 'ok'`) is higher at 90.
 
-## 4. `LegendRising/qa/run.mjs`, named suites (next to `tr6b`)
+## 3. `LegendRising/qa/run.mjs`, named suites
 
 ```js
-  tr7: ["tr7-corner", "tr7-throw", "tr7-penalty", "tr7-freekick"],
-  tr7a: ["tr7-freekick"],
+  tr9: ["tr9-ai", "tr9-anim", "tr9-gkanim", "tr9-sheets"],
+  tr9b: ["tr9-ai"],
 ```
 
-(`tr7b` is P7-B's.) `qa/unit/fkwall.mjs` is a unit test and runs with the other `qa/unit/` files. `tr7-freekick` runs its
-Node part and then its browser part; `--node` runs the Node part only.
+(`tr9a` is P9-A's.)
 
-## 5. `LegendRising/js/life/train/configui.js`, the sheet's live line (optional, BUILD-PLAN P7-A work item 1)
+## 4. For P9-A: the keeper's distribution acts (the Phase 9 contract)
 
-The plan asks the free-kick sheet to say "Defenders: 2 in the wall, 4 free". config.js already does the clamping (the wall
-counts in the defenders' six, with a note when it has to cut). This branch only relabels the two counts for the free-kick
-type ("Defenders in the wall", "Free defenders") with `registerType` labels. For the line itself, in `previewHTML(c)`,
-after the `who` line:
-
-```js
-  const fk = CF.type === "freekick" && n.wall > 0 ? ` Defenders: ${n.wall} in the wall, ${n.def - n.wall} free.` : "";
-```
-
-and append `fk` to the `<b>` text.
-
-## 6. For P7-B (`setpiece.js`), nothing to change
-
-`brain.js` now exports `cornerPlan(ms, R0, spec)` with the contract's signature. It returns `{recv, marking}`:
-- `recv`: the receiver asked for when he is one of the attacking side's outfield players on the pitch and not the taker,
-  else the side's best in the air;
-- `marking`: the marking asked for (`zonal`, `man` or `mixed`), else `man`.
-
-It draws no random numbers, and a match never calls it. `setpiece.js` already calls it through its namespace import.
+- **When:** while the keeper holds the ball and has chosen a throw or a roll.
+- **The act:** `a.act = {kind: 'gkthrow' | 'gkroll', t, tRelease, dur, target: {x, y, z}, aim: {x, z}, recv, done}`.
+  - `tRelease`: 0.55 s for a throw, 0.45 s for a roll (the release of `gkmoves.js gkdistribute`).
+  - `dur`: 0.9 s and 0.8 s (the clip's length).
+  - `target`: where it is let go to, with his error in it. `aim`: where he meant it to go.
+- **The ball** stays in his hands (`rules.js holdAt`, held high for a throw) until `act.t >= tRelease`. At that step
+  `gkbrain.js distRelease` lets it go and sets `act.done` and `act.tReleased`.
+- **The clock:** `actions.js` steps the act's clock (its default branch) and clears it at `dur`.
+- **The punt** is the volley act it always was.

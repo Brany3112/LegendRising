@@ -50,6 +50,7 @@ function gkRec(a){
   if (!a.gk) a.gk = {state: 'ready', t: 0, plan: null, errX: 0, errZ: 0, errT: -99, setT: -1, set: false, kickSeq: 0, read: null,
     hands: [{x: 0, y: 0, z: 0, r: 0.11, id: a.id, team: a.team, vx: 0, vy: 0, vz: 0}, {x: 0, y: 0, z: 0, r: 0.11, id: a.id, team: a.team, vx: 0, vy: 0, vz: 0}],
     handsOn: false, holdT: 0, steer: {x: 0, y: 0, z: 0}, noHands: false, claim: null, diveT: 0, pen: null};
+  if (!a.gkKick) gkKicking(a);
   return a.gk;
 }
 const goalX = (ms, a) => -ms.dirs[a.team]*ms.spec.hx;
@@ -425,59 +426,104 @@ function considerClaim(ms, a){
   }
 }
 
-/* ---------- distribution (1.5.4) ---------- */
-
+/* ---------- distribution (1.5.4; P9-B: ATTR-1, GK-3) ----------
+   What he does with the ball in his hands, by his distribution (gk.distrib, D = distrib/100; a keeper's own number,
+   about his overall in a match, so a typical one, D 0.7, plays as the keeper always has):
+     the choice   a throw to a full-back or a wing-back whose throw is safer than THROW_NEED (0.50 at D 0.7, 0.56 at
+                  D 0.3, 0.47 at D 0.9; passModel's own scale for a dropping ball, which a receiver has to bring down), within
+                  the throw's range (30 m at D 0.7, 26 at 0.3, 32 at 0.9); a roll to a
+                  centre-back safer than ROLL_NEED (0.85 at D 0.7, 0.89 at 0.3, 0.83 at 0.9); else a punt, as long as
+                  his kicking reaches (45 to 55 m at D 0.7, 40 to 48 at 0.3, 48 to 58 at 0.9): a weak distributor
+                  throws only the safest balls, and kicks long less often to a far target (his punt is aimed at the
+                  team-mate nearest the length he can reach)
+     the accuracy where he means it to go is scattered by a normal error of SCATTER m: 0.25 + 3.2 (1 - D)^2 for a throw
+                  or a roll (0.54 m at D 0.7, 1.82 at 0.3, 0.28 at 0.9), 14 (1 - D)^2 for a punt on top of the volley's
+                  own error (1.3 m at 0.7, 6.9 at 0.3, 0.14 at 0.9); and his punts and goal kicks are struck with
+                  passing numbers 0.8 points a point of distrib away from 70 (gkKicking: -32 at 30, +16 at 90)
+   A throw and a roll are acts (GK-3, the contract with P9-A): a.act = {kind: 'gkthrow' | 'gkroll', target, recv,
+   tRelease, dur}. The ball stays in his hands (rules.js holdAt) up to tRelease, when it is let go to where the act
+   says; the act runs on to dur (actions.js steps its clock, as it does a dive's). The punt is the volley it always was. */
+export const DIST = Object.freeze({THROW_NEED: [0.50, 0.15], ROLL_NEED: [0.85, 0.10], RANGE: [0.79, 0.30], SCATTER: [0.25, 3.2, 14],
+  THROW_T: [0.55, 0.9], ROLL_T: [0.45, 0.8], D0: 0.7, KICK: 0.8});   // (the release and length of gkmoves.js gkdistribute: throw 0.55 of 0.9 s, roll 0.45 of 0.8)
+const distOf = a => clamp((+at(a).distrib || 50)/100, 0.01, 0.99);
+// a throw's speed for a distance: enough that it carries there with the air's drag (1.05 sqrt(g d) fell short past
+// about 22 m)
+const throwSpeed = d => clamp(Math.sqrt(9.81*d)*1.2, 8, 22);
+// (ATTR-1) his kicking is his distribution: the passing numbers his punts and goal kicks are struck with (actions.js
+// reads passAcc for their aim and passing for their weight) move with distrib, by DIST.KICK points a point away from
+// D0 (a typical keeper's are his own). His own copy of his numbers, made once; the configuration's are not touched
+function gkKicking(a){
+  a.gkKick = true;
+  const A = a.at; if (!A || !A.gk) return;
+  const dv = DIST.KICK*100*(distOf(a) - DIST.D0);
+  a.at = Object.assign({}, A, {passAcc: clamp(Math.round((+A.passAcc || 50) + dv), 1, 99), passing: clamp(Math.round((+A.passing || 50) + dv), 1, 99)});
+}
 function distribute(ms, a){
-  const g = a.gk, b = ms.ball, dir = ms.dirs[a.team], KA = at(a);
-  // throw to a full-back over 0.8 within 30 m; roll to a centre-back over 0.85; else a punt of 45 to 55 m
+  const g = a.gk, b = ms.ball, dir = ms.dirs[a.team], D = distOf(a);
+  const reach = DIST.RANGE[0] + DIST.RANGE[1]*D;
+  const needT = DIST.THROW_NEED[0] + DIST.THROW_NEED[1]*(DIST.D0 - D), needR = DIST.ROLL_NEED[0] + DIST.ROLL_NEED[1]*(DIST.D0 - D);
   let best = null, bv = 0, kind = 'punt';
   for (const o of ms.agents){
     if (o.team !== a.team || o === a || !o.onPitch || o.leaving) continue;
     const d = hypot(o.m.x - a.m.x, o.m.z - a.m.z);
-    if (d < 6 || d > GK.THROW[1]) continue;
+    if (d < 6 || d > GK.THROW[1]*reach) continue;
     const fb = /^(LB|RB|LWB|RWB)$/.test(o.slot), cb = o.slot === 'CB';
     if (!fb && !cb) continue;
-    const pm = passModel(ms, a.m, o.m, fb ? 'lob' : 'pass', fb ? 14 : passSpeedFor(d, 8), o);
-    const need = fb ? GK.THROW[0] : GK.ROLL;
+    // (P9-B) a throw judged as the throw it is (from head height, no backspin: strike.js flightTime 'throw') at the
+    // speed it is let go at (distRelease): judged as a lob at 14 m/s it never carried past about 20 m, so a full-back
+    // (26 to 28 m out) was never safe to throw to and the keeper never threw
+    const pm = passModel(ms, a.m, o.m, fb ? 'throw' : 'pass', fb ? throwSpeed(d) : passSpeedFor(d, 8), o);
+    const need = fb ? needT : needR;
     if (pm.pOK > need && pm.pOK > bv){ bv = pm.pOK; best = o; kind = fb ? 'throw' : 'roll'; }
   }
-  const from = {x: b.p.x, y: b.p.y, z: b.p.z};
-  let ev;
-  if (best && kind === 'roll'){
-    const d = hypot(best.m.x - from.x, best.m.z - from.z), sp = passSpeedFor(d, 7);
-    const dx = (best.m.x - from.x)/d, dz = (best.m.z - from.z)/d;
+  if (best){
+    // where he means it to go, scattered by his distribution; then the act (the release comes at tRelease)
+    const sc = DIST.SCATTER[0] + DIST.SCATTER[1]*(1 - D)*(1 - D);
+    const tx = best.m.x + gauss(ms.r)*sc, tz = best.m.z + gauss(ms.r)*sc;
+    const T = kind === 'throw' ? DIST.THROW_T : DIST.ROLL_T;
+    g.distAim = {x: best.m.x, z: best.m.z, kind};
+    a.act = {kind: kind === 'throw' ? 'gkthrow' : 'gkroll', t: 0, tRelease: T[0], dur: T[1], target: {x: tx, y: R, z: tz}, aim: {x: best.m.x, z: best.m.z}, recv: best.id, done: false};
+    g.state = 'distribute'; g.t = 0; g.handsOn = false;
+    return null;
+  }
+  // the punt: drop it and volley it long toward the forwards, as far as his kicking reaches
+  const len = (GK.PUNT[0] + (GK.PUNT[1] - GK.PUNT[0])*ms.r())*reach;
+  let tz = 0, recv = -1, bvv = -Infinity;
+  for (const o of ms.agents){
+    if (o.team !== a.team || o === a || !o.onPitch) continue;
+    const d = hypot(o.m.x - a.m.x, o.m.z - a.m.z);
+    const v = -Math.abs(d - len) + 0.2*dir*o.m.x;
+    if (v > bvv){ bvv = v; tz = o.m.z; recv = o.id; }
+  }
+  const scP = DIST.SCATTER[2]*(1 - D)*(1 - D);
+  // (where he means it to go, before his error: what a distribution is measured against)
+  g.distAim = {x: clamp(a.m.x + dir*len*0.95, -ms.spec.hx + 5, ms.spec.hx - 5), z: clamp(tz*0.8, -ms.spec.hz + 4, ms.spec.hz - 4), kind: 'punt'};
+  const tx = a.m.x + dir*len*0.95 + gauss(ms.r)*scP, tz2 = tz*0.8 + gauss(ms.r)*scP;
+  // dropped from where his hands hold it (the volley meets it on the way down)
+  ballRelease(b, null, {x: 0, y: 0, z: 0}, null);
+  b.state = 'free';
+  clearCtl(ms);
+  startKick(ms, a, {kind: 'punt', target: {x: clamp(tx, -ms.spec.hx + 5, ms.spec.hx - 5), y: R, z: clamp(tz2, -ms.spec.hz + 4, ms.spec.hz - 4)},
+    recv, contact: 1, speed: loftSpeedFor(len)*1.02});
+  a.act.tc = 0.22; a.act.adjust = false;
+  g.state = 'distribute'; g.t = 0; g.handsOn = false;
+}
+// a throw or a roll let go at its tRelease: to the act's target (scattered when it was chosen), from where his hands
+// hold the ball now
+function distRelease(ms, a, act){
+  const b = ms.ball, from = {x: b.p.x, y: b.p.y, z: b.p.z}, tg = act.target;
+  const d = Math.max(1, hypot(tg.x - from.x, tg.z - from.z));
+  act.done = true; act.tReleased = act.t;
+  if (act.kind === 'gkroll'){
+    const sp = passSpeedFor(d, 7), dx = (tg.x - from.x)/d, dz = (tg.z - from.z)/d;
     // bowled from his hands: let go low and forward, it drops to the grass and rolls on (no jump of the ball)
     ballRelease(b, null, {x: dx*sp, y: -3.5, z: dz*sp}, null);
-    ev = released(ms, a, 'roll', best.id, sp, d);
-  } else if (best){
-    const d = hypot(best.m.x - from.x, best.m.z - from.z);
-    const L = solveStrike({from: {x: from.x, y: from.y, z: from.z}, target: {x: best.m.x, y: R, z: best.m.z}, speed: clamp(Math.sqrt(9.81*d)*1.05, 8, 20),
-      contact: 0, curl: 0, foot: 'R', kind: 'throw', rollDecel: b.rollDecel});
-    ballRelease(b, null, L.v, {x: 0, y: 0, z: 0});
-    ev = released(ms, a, 'throw', best.id, hypot(L.v.x, L.v.y, L.v.z), d);
-  } else {
-    // the punt: drop it and volley it long toward the forwards
-    const len = GK.PUNT[0] + (GK.PUNT[1] - GK.PUNT[0])*ms.r();
-    let tz = 0, recv = -1, bvv = -Infinity;
-    for (const o of ms.agents){
-      if (o.team !== a.team || o === a || !o.onPitch) continue;
-      const d = hypot(o.m.x - a.m.x, o.m.z - a.m.z);
-      const v = -Math.abs(d - len) + 0.2*dir*o.m.x;
-      if (v > bvv){ bvv = v; tz = o.m.z; recv = o.id; }
-    }
-    const tx = a.m.x + dir*len*0.95;
-    // dropped from where his hands hold it (the volley meets it on the way down)
-    ballRelease(b, null, {x: 0, y: 0, z: 0}, null);
-    b.state = 'free';
-    clearCtl(ms);
-    startKick(ms, a, {kind: 'punt', target: {x: clamp(tx, -ms.spec.hx + 5, ms.spec.hx - 5), y: R, z: clamp(tz*0.8, -ms.spec.hz + 4, ms.spec.hz - 4)},
-      recv, contact: 1, speed: loftSpeedFor(len)*1.02});
-    a.act.tc = 0.22; a.act.adjust = false;
-    g.state = 'distribute'; g.t = 0; g.handsOn = false;
-    return;
+    return released(ms, a, 'roll', act.recv, sp, d);
   }
-  g.state = 'ready'; g.handsOn = false;
-  return ev;
+  const L = solveStrike({from, target: {x: tg.x, y: R, z: tg.z}, speed: throwSpeed(d),
+    contact: 0, curl: 0, foot: 'R', kind: 'throw', rollDecel: b.rollDecel});
+  ballRelease(b, null, L.v, {x: 0, y: 0, z: 0});
+  return released(ms, a, 'throw', act.recv, hypot(L.v.x, L.v.y, L.v.z), d);
 }
 function released(ms, a, intent, recv, sp, d){
   const b = ms.ball;
@@ -554,9 +600,23 @@ export function gkStep(ms, a, h){
       if (g.t >= g.holdT) distribute(ms, a);
       return;
     }
-    case 'distribute':
+    case 'distribute': {
+      // (P9-B, GK-3) a throw or a roll: the ball in his hands, facing where it goes, until it is let go
+      const act = a.act;
+      if (act && (act.kind === 'gkthrow' || act.kind === 'gkroll')){
+        if (!act.done){
+          if (b.state === 'held' && b.holder === a.id){
+            holdAt(ms, a, act.kind === 'gkthrow', h);
+            standStill(a, faceTo(a, act.target.x, act.target.z, a.faceV));
+            if (ms.poss.ctl !== a.id) setCtl(ms, a);
+            if (act.t >= act.tRelease - 1e-9) distRelease(ms, a, act);
+          } else { act.done = true; a.act = null; }
+        } else standStill(a);
+        return;
+      }
       if (!a.act) g.state = 'ready';
       return;
+    }
     case 'claim': {
       const c = g.claim;
       if (!c || b.state !== 'free' || ms.t - c.at > c.t + 0.6){ g.state = 'ready'; g.claim = null; g.handsOn = false; break; }
