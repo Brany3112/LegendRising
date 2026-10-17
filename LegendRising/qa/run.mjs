@@ -66,7 +66,11 @@ const NAMED = {
   tr7b: ["tr7-corner", "tr7-throw", "tr7-penalty"],
   // Phase 8 (TR-8): P8-A's resets, P8-B's Full Match in Training
   tr8: ["tr8-reset", "tr8-fullmatch"],
-  tr8a: ["tr8-reset"]
+  tr8a: ["tr8-reset"],
+  // Phase 9 (TR-9): P9-B's AI, P9-A's animation
+  tr9: ["tr9-ai", "tr9-anim", "tr9-gkanim", "tr9-sheets"],
+  tr9a: ["tr9-anim", "tr9-gkanim", "tr9-sheets"],
+  tr9b: ["tr9-ai"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){

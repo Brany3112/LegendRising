@@ -290,12 +290,16 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   let worst = -1e9, allOk = true, ballJumps = 0, teleports = 0;
   for (let i = 0; i < kinds.length; i++){
     const [kind, team, spot] = kinds[i];
-    const ms = createMatch(configFor(20 + i));
     // play 40 s of the match, then the referee stops it for this restart where the ball happens to be (a corner once
-    // the play is in that side's attacking third, where corners come from: not with all 22 at the other end)
-    let n = 0;
-    while (ms.t < 40 && n++ < 10000) simStep(ms);
-    while ((ms.phase !== 'live' || kind === 'corner' && ms.dirs[team]*ms.ball.p.x < 25 && ms.t < 160) && n++ < 20000) simStep(ms);
+    // the play is in that side's attacking third, where corners come from: not with all 22 at the other end). (P9-B
+    // hook: a match whose play never gets there in 160 s is not the case meant: the next seed's match is taken instead)
+    let ms = null, n = 0;
+    for (let k = 0; k < 4; k++){
+      ms = createMatch(configFor(20 + i + 100*k)); n = 0;
+      while (ms.t < 40 && n++ < 10000) simStep(ms);
+      while ((ms.phase !== 'live' || kind === 'corner' && ms.dirs[team]*ms.ball.p.x < 25 && ms.t < 160) && n++ < 20000) simStep(ms);
+      if (kind !== 'corner' || ms.dirs[team]*ms.ball.p.x >= 25) break;
+    }
     ms.ball.last.team = 1 - team;
     const R0 = startRestart(ms, kind, team, spot, kind === 'kickoff' ? {after: true} : {});
     const t0 = ms.t;

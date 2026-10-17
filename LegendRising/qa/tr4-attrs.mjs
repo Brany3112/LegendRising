@@ -12,8 +12,8 @@
 //   Keeper reflexes and diving 30 vs 90  his save rate differs
 //   Keeper handling 30 vs 90             the share of catchable shots he spills or parries differs
 //   Keeper positioning 30 vs 90          his mean distance from the ideal set position at the moment of the shot differs
-// Every keeper attribute the editor shows (attrs.js gkEditKeys) has a row; distribution gets its row when P9-B wires
-// it (until then the editor does not show it).
+//   Keeper distribution 30 vs 90         distribution error and completion differ (P9-B wired it: the row from qa/tr9-ai.mjs)
+// Every keeper attribute the editor shows (attrs.js gkEditKeys) has a row.
 //
 //   node qa/tr4-attrs.mjs      exits 1 on any failed check; writes qa/out/tr4-attrs.json
 import fs from "node:fs";
@@ -180,8 +180,47 @@ const N = 60;
   res.rows.posit = {n: [lo.length, hi.length], meanFromIdeal: [r3(mean(lo)), r3(mean(hi))]};
   check(lo.length >= 50 && hi.length >= 50 && mean(lo) >= 1.5*mean(hi), `Keeper positioning 30 vs 90: at the shot he stands ${r3(mean(lo))} vs ${r3(mean(hi))} m from the ideal set position`, res.rows.posit);
 }
+/* ---------- 7. keeper distribution 30 vs 90 (P9-B hook; the measurement of qa/tr9-ai.mjs section 3) ----------
+   A match a few seconds in, the ball put in team 0's keeper's hands (gkbrain.js gkCollect) and his own hold, then what he
+   does with it: the landing error from where he meant it (gk.distAim: the first bounce, or where it was first met, or
+   for a roll how near it came) and whether a team-mate had it next (ev.res 'ok'). Seeded, paired at 30 and 90 */
+{
+  const {configFor} = await import("./harness.mjs");
+  const {gkCollect} = await import("../js/life/football/gkbrain.js");
+  const {clearCtl} = await import("../js/life/football/rules.js");
+  const one = (seed, distrib) => {
+    const cfg = configFor(7000 + seed), gkP = cfg.teams[0].players.find(p => p.isGK);
+    gkP.at = Object.assign({}, gkP.at, {gk: Object.assign({}, gkP.at.gk, {distrib})});
+    const ms = createMatch(cfg);
+    while (ms.t < 6 && ms.phase !== "over") simStep(ms);
+    const gk = ms.agents.find(a => a.team === 0 && a.isGK && a.onPitch);
+    clearCtl(ms); ms.restart = null; ms.phase = "live";
+    for (const a of ms.agents){ a.set = null; a.wall = false; if (a.act && a.act.kind === "kick") a.act = null; a.pendKick = null; a.drib = null; }
+    const b = ms.ball; b.p.x = gk.m.x + ms.dirs[0]*0.4; b.p.y = 1.0; b.p.z = gk.m.z; b.v.x = b.v.y = b.v.z = 0; b.state = "free";
+    gkCollect(ms, gk);
+    let ev = null, aim = null, kind = null, land = null, met = false, closest = Infinity;
+    for (let n = 0; n < 60*14 && ms.phase !== "over"; n++){
+      simStep(ms);
+      if (!ev){ ev = ms.events.slice(-4).find(e => e.kind === "kick" && e.agent === gk.id) || null; if (ev){ kind = ev.intent; aim = gk.gk.distAim ? {x: gk.gk.distAim.x, z: gk.gk.distAim.z} : null; } continue; }
+      if (aim){
+        const m2 = !met && ms.events.some((e, i) => i > ev.id && e.agent >= 0 && e.agent !== gk.id && (e.kind === "kick" || e.kind === "touch" || e.kind === "header"));
+        if (m2) met = true;
+        if (kind === "roll"){ const d = Math.hypot(b.p.x - aim.x, b.p.z - aim.z); if (d < closest) closest = d; }
+        else if (!land && (m2 || b.p.y <= 0.14 && b.v.y <= 0 && ms.t - ev.t > 0.2)) land = {x: b.p.x, z: b.p.z};
+      }
+      if (ev.res && (kind === "roll" ? ms.t - ev.t > 2.5 : land)) break;
+    }
+    const err = !aim ? null : kind === "roll" ? closest : land ? Math.hypot(land.x - aim.x, land.z - aim.z) : null;
+    return {err, ok: ev ? ev.res === "ok" : null};
+  };
+  const N2 = 60, lo = [], hi = [];
+  for (let s = 1; s <= N2; s++){ lo.push(one(s, 30)); hi.push(one(s, 90)); }
+  const mErr = L => mean(L.filter(x => x.err != null).map(x => x.err)), comp = L => L.filter(x => x.ok).length/Math.max(1, L.filter(x => x.ok != null).length);
+  res.rows.distrib = {n: N2, meanErr: [r3(mErr(lo)), r3(mErr(hi))], completion: [r3(comp(lo)), r3(comp(hi))]};
+  check(mErr(lo) >= 1.5*mErr(hi) && comp(hi) > comp(lo), `Keeper distribution 30 vs 90: distribution error ${r3(mErr(lo))} vs ${r3(mErr(hi))} m and completion ${r3(comp(lo))} vs ${r3(comp(hi))} differ`, res.rows.distrib);
+}
 // every keeper attribute the editor shows has its row above
-const rowsFor = {reflex: "saves", dive: "saves", handling: "handling", posit: "posit"};
+const rowsFor = {reflex: "saves", dive: "saves", handling: "handling", posit: "posit", distrib: "distrib"};
 check(gkEditKeys().every(k => res.rows[rowsFor[k]]), "every keeper attribute the editor shows has a behaviour row", gkEditKeys());
 
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});

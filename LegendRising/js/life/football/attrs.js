@@ -203,7 +203,7 @@ export const GK_KEYS = Object.freeze(["reflex", "dive", "handling", "posit", "di
 // gk.distrib reaches the keeper's distribution only once P9-B wires it (ATTR-1: today it changes nothing). Until then
 // the attribute editor leaves it out, since a setting that changes nothing would be a decorative one. P9-B's hook
 // request flips this
-export const GK_DISTRIB_LIVE = false;
+export const GK_DISTRIB_LIVE = true;
 // the keeper's attributes the editor shows
 export const gkEditKeys = () => GK_DISTRIB_LIVE ? GK_KEYS : GK_KEYS.filter(k => k !== "distrib");
 export const ATTR_MIN = 1, ATTR_MAX = 99;
