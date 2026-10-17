@@ -60,7 +60,9 @@ const NAMED = {
   uf2: ["uf2-feel", "uf2-ssg-sim", "uf2-ssg"],
   uf2a: ["uf2-feel"],
   uf2b: ["uf2-ssg-sim", "uf2-ssg"],
-  // Phase 7 (TR-7): P7-B's corners, throw-ins and penalties
+  // Phase 7 (TR-7): P7-A's free kicks, P7-B's corners, throw-ins and penalties
+  tr7: ["tr7-freekick", "tr7-corner", "tr7-throw", "tr7-penalty"],
+  tr7a: ["tr7-freekick"],
   tr7b: ["tr7-corner", "tr7-throw", "tr7-penalty"]
 };
 // a suite name to the scripts it runs: [{file, args}]

@@ -94,7 +94,9 @@ function rowHTML(k, c){
 function previewHTML(c){
   const n = counts(CF.type, c), meAtt = n.meSide === "att";
   const who = typeOf(CF.type).match ? "Eleven against eleven, both keepers on"
-    : `${countLine(CF.type, c)}. ${n.agents} on the pitch with you, ${meAtt ? "attacking" : "defending"}${n.wall ? `, ${n.wall} of them in the wall` : ""}.`;
+    : `${countLine(CF.type, c)}. ${n.agents} on the pitch with you, ${meAtt ? "attacking" : "defending"}${n.wall ? `, ${n.wall} of them in the wall` : ""}.`
+      // (P7-A hook: a free kick's sheet says how the six defenders are shared out)
+      + (CF.type === "freekick" && n.wall > 0 ? ` Defenders: ${n.wall} in the wall, ${n.def - n.wall} free.` : "");
   return `<p class="tcfg-preview" data-cf-preview><b>${esc(who)}</b></p>`;
 }
 const notesHTML = () => `<div class="tcfg-notes" data-cf-notes aria-live="polite">${CF.notes.map(t => `<p class="small">${esc(t)}</p>`).join("")}</div>`;
