@@ -1711,7 +1711,7 @@ export function fpSet(k, v){
   if (k === "volume") AUD.volume(SET.volume);
   // the setting cards open: a slider's value written beside it; anything else drawn again
   if (typeof document === "undefined") return;
-  const range = ["sens", "fov", "motion", "volume", "hudScale", "hudOpacity"].includes(k);
+  const range = ["sens", "fov", "motion", "volume", "hudScale", "hudOpacity", "tpDist", "tpHeight", "tpSide", "tpShake"].includes(k);
   for (const box of document.querySelectorAll(".fp-set")){
     if (range){ const sp = box.querySelector(`.fp-set-v[data-k="${k}"]`); if (sp) sp.textContent = fmtVal(k, SET[k]); }
     else box.outerHTML = fpSettingsHTML();

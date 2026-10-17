@@ -10,10 +10,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=2026.10.17a">
-<link rel="stylesheet" href="css/fp.css?v=2026.10.17a">
-<link rel="stylesheet" href="css/onb.css?v=2026.10.17a">
-<link rel="stylesheet" href="css/train.css?v=2026.10.17a">
+<link rel="stylesheet" href="css/style.css?v=2026.10.17s">
+<link rel="stylesheet" href="css/fp.css?v=2026.10.17s">
+<link rel="stylesheet" href="css/onb.css?v=2026.10.17s">
+<link rel="stylesheet" href="css/train.css?v=2026.10.17s">
 </head>
 <body>
 <!-- the stadium backdrop lives outside #app so re-drawing a screen never restarts it -->
@@ -49,141 +49,141 @@
 <div id="lifeDim"></div>
 <div id="lifePhone"><div class="lp-screen"><div id="app"></div></div><div class="lp-frame"></div></div>
 <div id="lifeFade"></div>
-<script>window.FF_BUILD = "2026.10.17a";</script>
+<script>window.FF_BUILD = "2026.10.17s";</script>
 <!-- the 3D world is ES modules that import each other by plain relative paths: this map gives every one of those
      imports this build's version, so a returning player never runs a fresh world.js against a cached build.js.
      Bump it together with FF_BUILD and every ?v= below. -->
 <script type="importmap">
 {
   "imports": {
-    "./js/life/barber.js": "./js/life/barber.js?v=2026.10.17a",
-    "./js/life/build.js": "./js/life/build.js?v=2026.10.17a",
-    "./js/life/buildmode.js": "./js/life/buildmode.js?v=2026.10.17a",
-    "./js/life/cars.js": "./js/life/cars.js?v=2026.10.17a",
-    "./js/life/chunks.js": "./js/life/chunks.js?v=2026.10.17a",
-    "./js/life/compass.js": "./js/life/compass.js?v=2026.10.17a",
-    "./js/life/core/acts.js": "./js/life/core/acts.js?v=2026.10.17a",
-    "./js/life/core/camera.js": "./js/life/core/camera.js?v=2026.10.17a",
-    "./js/life/core/cine.js": "./js/life/core/cine.js?v=2026.10.17a",
-    "./js/life/core/collide.js": "./js/life/core/collide.js?v=2026.10.17a",
-    "./js/life/core/hand.js": "./js/life/core/hand.js?v=2026.10.17a",
-    "./js/life/core/hud.js": "./js/life/core/hud.js?v=2026.10.17a",
-    "./js/life/core/keylock.js": "./js/life/core/keylock.js?v=2026.10.17a",
-    "./js/life/core/me.js": "./js/life/core/me.js?v=2026.10.17a",
-    "./js/life/core/modes.js": "./js/life/core/modes.js?v=2026.10.17a",
-    "./js/life/core/move.js": "./js/life/core/move.js?v=2026.10.17a",
-    "./js/life/core/quality.js": "./js/life/core/quality.js?v=2026.10.17a",
-    "./js/life/core/sched.js": "./js/life/core/sched.js?v=2026.10.17a",
-    "./js/life/core/state.js": "./js/life/core/state.js?v=2026.10.17a",
-    "./js/life/core/tunnel.js": "./js/life/core/tunnel.js?v=2026.10.17a",
-    "./js/life/drills.js": "./js/life/drills.js?v=2026.10.17a",
-    "./js/life/firstday.js": "./js/life/firstday.js?v=2026.10.17a",
-    "./js/life/football/actions.js": "./js/life/football/actions.js?v=2026.10.17a",
-    "./js/life/football/agent.js": "./js/life/football/agent.js?v=2026.10.17a",
-    "./js/life/football/attrs.js": "./js/life/football/attrs.js?v=2026.10.17a",
-    "./js/life/football/audio.js": "./js/life/football/audio.js?v=2026.10.17a",
-    "./js/life/football/aura.js": "./js/life/football/aura.js?v=2026.10.17a",
-    "./js/life/football/ball.js": "./js/life/football/ball.js?v=2026.10.17a",
-    "./js/life/football/brain.js": "./js/life/football/brain.js?v=2026.10.17a",
-    "./js/life/football/bridge.js": "./js/life/football/bridge.js?v=2026.10.17a",
-    "./js/life/football/cagespec.js": "./js/life/football/cagespec.js?v=2026.10.17a",
-    "./js/life/football/control.js": "./js/life/football/control.js?v=2026.10.17a",
-    "./js/life/football/controller.js": "./js/life/football/controller.js?v=2026.10.17a",
-    "./js/life/football/crowd.js": "./js/life/football/crowd.js?v=2026.10.17a",
-    "./js/life/football/detmath.js": "./js/life/football/detmath.js?v=2026.10.17a",
-    "./js/life/football/duel.js": "./js/life/football/duel.js?v=2026.10.17a",
-    "./js/life/football/events.js": "./js/life/football/events.js?v=2026.10.17a",
-    "./js/life/football/fphud.js": "./js/life/football/fphud.js?v=2026.10.17a",
-    "./js/life/football/gkbrain.js": "./js/life/football/gkbrain.js?v=2026.10.17a",
-    "./js/life/football/gkplan.js": "./js/life/football/gkplan.js?v=2026.10.17a",
-    "./js/life/football/harness.js": "./js/life/football/harness.js?v=2026.10.17a",
-    "./js/life/football/judge.js": "./js/life/football/judge.js?v=2026.10.17a",
-    "./js/life/football/kitclash.js": "./js/life/football/kitclash.js?v=2026.10.17a",
-    "./js/life/football/matchcam.js": "./js/life/football/matchcam.js?v=2026.10.17a",
-    "./js/life/football/pitchmesh.js": "./js/life/football/pitchmesh.js?v=2026.10.17a",
-    "./js/life/football/pitchspec.js": "./js/life/football/pitchspec.js?v=2026.10.17a",
-    "./js/life/football/replay.js": "./js/life/football/replay.js?v=2026.10.17a",
-    "./js/life/football/rng.js": "./js/life/football/rng.js?v=2026.10.17a",
-    "./js/life/football/rules.js": "./js/life/football/rules.js?v=2026.10.17a",
-    "./js/life/football/sim.js": "./js/life/football/sim.js?v=2026.10.17a",
-    "./js/life/football/ssghud.js": "./js/life/football/ssghud.js?v=2026.10.17a",
-    "./js/life/football/ssgplay.js": "./js/life/football/ssgplay.js?v=2026.10.17a",
-    "./js/life/football/stadium.js": "./js/life/football/stadium.js?v=2026.10.17a",
-    "./js/life/football/strike.js": "./js/life/football/strike.js?v=2026.10.17a",
-    "./js/life/football/tactics.js": "./js/life/football/tactics.js?v=2026.10.17a",
-    "./js/life/football/touch.js": "./js/life/football/touch.js?v=2026.10.17a",
-    "./js/life/football/training.js": "./js/life/football/training.js?v=2026.10.17a",
-    "./js/life/football/trainspec.js": "./js/life/football/trainspec.js?v=2026.10.17a",
-    "./js/life/football/tune.js": "./js/life/football/tune.js?v=2026.10.17a",
-    "./js/life/football/view.js": "./js/life/football/view.js?v=2026.10.17a",
-    "./js/life/football/warmup.js": "./js/life/football/warmup.js?v=2026.10.17a",
-    "./js/life/football/zone.js": "./js/life/football/zone.js?v=2026.10.17a",
-    "./js/life/fridge.js": "./js/life/fridge.js?v=2026.10.17a",
-    "./js/life/furniture.js": "./js/life/furniture.js?v=2026.10.17a",
-    "./js/life/gait.js": "./js/life/gait.js?v=2026.10.17a",
-    "./js/life/gaitcore.js": "./js/life/gaitcore.js?v=2026.10.17a",
-    "./js/life/gkmoves.js": "./js/life/gkmoves.js?v=2026.10.17a",
-    "./js/life/ground.js": "./js/life/ground.js?v=2026.10.17a",
-    "./js/life/gymclub.js": "./js/life/gymclub.js?v=2026.10.17a",
-    "./js/life/home.js": "./js/life/home.js?v=2026.10.17a",
-    "./js/life/human.js": "./js/life/human.js?v=2026.10.17a",
-    "./js/life/intro.js": "./js/life/intro.js?v=2026.10.17a",
-    "./js/life/inv.js": "./js/life/inv.js?v=2026.10.17a",
-    "./js/life/jobs.js": "./js/life/jobs.js?v=2026.10.17a",
-    "./js/life/leave.js": "./js/life/leave.js?v=2026.10.17a",
-    "./js/life/look.js": "./js/life/look.js?v=2026.10.17a",
-    "./js/life/mini.js": "./js/life/mini.js?v=2026.10.17a",
-    "./js/life/mover.js": "./js/life/mover.js?v=2026.10.17a",
-    "./js/life/moves.js": "./js/life/moves.js?v=2026.10.17a",
-    "./js/life/npc.js": "./js/life/npc.js?v=2026.10.17a",
-    "./js/life/parcels.js": "./js/life/parcels.js?v=2026.10.17a",
-    "./js/life/perf.js": "./js/life/perf.js?v=2026.10.17a",
-    "./js/life/phone.js": "./js/life/phone.js?v=2026.10.17a",
-    "./js/life/props.js": "./js/life/props.js?v=2026.10.17a",
-    "./js/life/rent.js": "./js/life/rent.js?v=2026.10.17a",
-    "./js/life/rig.js": "./js/life/rig.js?v=2026.10.17a",
-    "./js/life/roads.js": "./js/life/roads.js?v=2026.10.17a",
-    "./js/life/shops.js": "./js/life/shops.js?v=2026.10.17a",
-    "./js/life/sky.js": "./js/life/sky.js?v=2026.10.17a",
-    "./js/life/stamina.js": "./js/life/stamina.js?v=2026.10.17a",
-    "./js/life/store.js": "./js/life/store.js?v=2026.10.17a",
-    "./js/life/town.js": "./js/life/town.js?v=2026.10.17a",
-    "./js/life/train/cage.js": "./js/life/train/cage.js?v=2026.10.17a",
-    "./js/life/train/cones.js": "./js/life/train/cones.js?v=2026.10.17a",
-    "./js/life/train/hub.js": "./js/life/train/hub.js?v=2026.10.17a",
-    "./js/life/train/index.js": "./js/life/train/index.js?v=2026.10.17a",
-    "./js/life/train/pool.js": "./js/life/train/pool.js?v=2026.10.17a",
-    "./js/life/train/runner.js": "./js/life/train/runner.js?v=2026.10.17a",
-    "./js/life/train/sandbox.js": "./js/life/train/sandbox.js?v=2026.10.17a",
-    "./js/life/train/thud.js": "./js/life/train/thud.js?v=2026.10.17a",
-    "./js/life/train/config.js": "./js/life/train/config.js?v=2026.10.17a",
-    "./js/life/train/configui.js": "./js/life/train/configui.js?v=2026.10.17a",
-    "./js/life/train/attredit.js": "./js/life/train/attredit.js?v=2026.10.17a",
-    "./js/life/train/teams.js": "./js/life/train/teams.js?v=2026.10.17a",
-    "./js/life/train/presets.js": "./js/life/train/presets.js?v=2026.10.17a",
-    "./js/life/train/presetui.js": "./js/life/train/presetui.js?v=2026.10.17a",
-    "./js/life/train/quick.js": "./js/life/train/quick.js?v=2026.10.17a",
-    "./js/life/train/freeplay.js": "./js/life/train/freeplay.js?v=2026.10.17a",
-    "./js/life/train/keys.js": "./js/life/train/keys.js?v=2026.10.17a",
-    "./js/life/train/admin.js": "./js/life/train/admin.js?v=2026.10.17a",
-    "./js/life/train/feeder.js": "./js/life/train/feeder.js?v=2026.10.17a",
-    "./js/life/train/receive.js": "./js/life/train/receive.js?v=2026.10.17a",
-    "./js/life/train/scen-receive.js": "./js/life/train/scen-receive.js?v=2026.10.17a",
-    "./js/life/train/scen-freekick.js": "./js/life/train/scen-freekick.js?v=2026.10.17a",
-    "./js/life/train/fkplace.js": "./js/life/train/fkplace.js?v=2026.10.17a",
-    "./js/life/train/scen-team.js": "./js/life/train/scen-team.js?v=2026.10.17a",
-    "./js/life/train/scen-attack.js": "./js/life/train/scen-attack.js?v=2026.10.17a",
-    "./js/life/train/scen-defend.js": "./js/life/train/scen-defend.js?v=2026.10.17a",
-    "./js/life/train/scen-match.js": "./js/life/train/scen-match.js?v=2026.10.17a",
-    "./js/life/train/setpiece.js": "./js/life/train/setpiece.js?v=2026.10.17a",
-    "./js/life/train/scen-corner.js": "./js/life/train/scen-corner.js?v=2026.10.17a",
-    "./js/life/train/scen-throw.js": "./js/life/train/scen-throw.js?v=2026.10.17a",
-    "./js/life/train/scen-penalty.js": "./js/life/train/scen-penalty.js?v=2026.10.17a",
-    "./js/life/train/fullmatch.js": "./js/life/train/fullmatch.js?v=2026.10.17a",
-    "./js/life/units.js": "./js/life/units.js?v=2026.10.17a",
-    "./js/life/world.js": "./js/life/world.js?v=2026.10.17a",
-    "./vendor/three.core.js": "./vendor/three.core.js?v=2026.10.17a",
-    "./vendor/three.module.js": "./vendor/three.module.js?v=2026.10.17a"
+    "./js/life/barber.js": "./js/life/barber.js?v=2026.10.17s",
+    "./js/life/build.js": "./js/life/build.js?v=2026.10.17s",
+    "./js/life/buildmode.js": "./js/life/buildmode.js?v=2026.10.17s",
+    "./js/life/cars.js": "./js/life/cars.js?v=2026.10.17s",
+    "./js/life/chunks.js": "./js/life/chunks.js?v=2026.10.17s",
+    "./js/life/compass.js": "./js/life/compass.js?v=2026.10.17s",
+    "./js/life/core/acts.js": "./js/life/core/acts.js?v=2026.10.17s",
+    "./js/life/core/camera.js": "./js/life/core/camera.js?v=2026.10.17s",
+    "./js/life/core/cine.js": "./js/life/core/cine.js?v=2026.10.17s",
+    "./js/life/core/collide.js": "./js/life/core/collide.js?v=2026.10.17s",
+    "./js/life/core/hand.js": "./js/life/core/hand.js?v=2026.10.17s",
+    "./js/life/core/hud.js": "./js/life/core/hud.js?v=2026.10.17s",
+    "./js/life/core/keylock.js": "./js/life/core/keylock.js?v=2026.10.17s",
+    "./js/life/core/me.js": "./js/life/core/me.js?v=2026.10.17s",
+    "./js/life/core/modes.js": "./js/life/core/modes.js?v=2026.10.17s",
+    "./js/life/core/move.js": "./js/life/core/move.js?v=2026.10.17s",
+    "./js/life/core/quality.js": "./js/life/core/quality.js?v=2026.10.17s",
+    "./js/life/core/sched.js": "./js/life/core/sched.js?v=2026.10.17s",
+    "./js/life/core/state.js": "./js/life/core/state.js?v=2026.10.17s",
+    "./js/life/core/tunnel.js": "./js/life/core/tunnel.js?v=2026.10.17s",
+    "./js/life/drills.js": "./js/life/drills.js?v=2026.10.17s",
+    "./js/life/firstday.js": "./js/life/firstday.js?v=2026.10.17s",
+    "./js/life/football/actions.js": "./js/life/football/actions.js?v=2026.10.17s",
+    "./js/life/football/agent.js": "./js/life/football/agent.js?v=2026.10.17s",
+    "./js/life/football/attrs.js": "./js/life/football/attrs.js?v=2026.10.17s",
+    "./js/life/football/audio.js": "./js/life/football/audio.js?v=2026.10.17s",
+    "./js/life/football/aura.js": "./js/life/football/aura.js?v=2026.10.17s",
+    "./js/life/football/ball.js": "./js/life/football/ball.js?v=2026.10.17s",
+    "./js/life/football/brain.js": "./js/life/football/brain.js?v=2026.10.17s",
+    "./js/life/football/bridge.js": "./js/life/football/bridge.js?v=2026.10.17s",
+    "./js/life/football/cagespec.js": "./js/life/football/cagespec.js?v=2026.10.17s",
+    "./js/life/football/control.js": "./js/life/football/control.js?v=2026.10.17s",
+    "./js/life/football/controller.js": "./js/life/football/controller.js?v=2026.10.17s",
+    "./js/life/football/crowd.js": "./js/life/football/crowd.js?v=2026.10.17s",
+    "./js/life/football/detmath.js": "./js/life/football/detmath.js?v=2026.10.17s",
+    "./js/life/football/duel.js": "./js/life/football/duel.js?v=2026.10.17s",
+    "./js/life/football/events.js": "./js/life/football/events.js?v=2026.10.17s",
+    "./js/life/football/fphud.js": "./js/life/football/fphud.js?v=2026.10.17s",
+    "./js/life/football/gkbrain.js": "./js/life/football/gkbrain.js?v=2026.10.17s",
+    "./js/life/football/gkplan.js": "./js/life/football/gkplan.js?v=2026.10.17s",
+    "./js/life/football/harness.js": "./js/life/football/harness.js?v=2026.10.17s",
+    "./js/life/football/judge.js": "./js/life/football/judge.js?v=2026.10.17s",
+    "./js/life/football/kitclash.js": "./js/life/football/kitclash.js?v=2026.10.17s",
+    "./js/life/football/matchcam.js": "./js/life/football/matchcam.js?v=2026.10.17s",
+    "./js/life/football/pitchmesh.js": "./js/life/football/pitchmesh.js?v=2026.10.17s",
+    "./js/life/football/pitchspec.js": "./js/life/football/pitchspec.js?v=2026.10.17s",
+    "./js/life/football/replay.js": "./js/life/football/replay.js?v=2026.10.17s",
+    "./js/life/football/rng.js": "./js/life/football/rng.js?v=2026.10.17s",
+    "./js/life/football/rules.js": "./js/life/football/rules.js?v=2026.10.17s",
+    "./js/life/football/sim.js": "./js/life/football/sim.js?v=2026.10.17s",
+    "./js/life/football/ssghud.js": "./js/life/football/ssghud.js?v=2026.10.17s",
+    "./js/life/football/ssgplay.js": "./js/life/football/ssgplay.js?v=2026.10.17s",
+    "./js/life/football/stadium.js": "./js/life/football/stadium.js?v=2026.10.17s",
+    "./js/life/football/strike.js": "./js/life/football/strike.js?v=2026.10.17s",
+    "./js/life/football/tactics.js": "./js/life/football/tactics.js?v=2026.10.17s",
+    "./js/life/football/touch.js": "./js/life/football/touch.js?v=2026.10.17s",
+    "./js/life/football/training.js": "./js/life/football/training.js?v=2026.10.17s",
+    "./js/life/football/trainspec.js": "./js/life/football/trainspec.js?v=2026.10.17s",
+    "./js/life/football/tune.js": "./js/life/football/tune.js?v=2026.10.17s",
+    "./js/life/football/view.js": "./js/life/football/view.js?v=2026.10.17s",
+    "./js/life/football/warmup.js": "./js/life/football/warmup.js?v=2026.10.17s",
+    "./js/life/football/zone.js": "./js/life/football/zone.js?v=2026.10.17s",
+    "./js/life/fridge.js": "./js/life/fridge.js?v=2026.10.17s",
+    "./js/life/furniture.js": "./js/life/furniture.js?v=2026.10.17s",
+    "./js/life/gait.js": "./js/life/gait.js?v=2026.10.17s",
+    "./js/life/gaitcore.js": "./js/life/gaitcore.js?v=2026.10.17s",
+    "./js/life/gkmoves.js": "./js/life/gkmoves.js?v=2026.10.17s",
+    "./js/life/ground.js": "./js/life/ground.js?v=2026.10.17s",
+    "./js/life/gymclub.js": "./js/life/gymclub.js?v=2026.10.17s",
+    "./js/life/home.js": "./js/life/home.js?v=2026.10.17s",
+    "./js/life/human.js": "./js/life/human.js?v=2026.10.17s",
+    "./js/life/intro.js": "./js/life/intro.js?v=2026.10.17s",
+    "./js/life/inv.js": "./js/life/inv.js?v=2026.10.17s",
+    "./js/life/jobs.js": "./js/life/jobs.js?v=2026.10.17s",
+    "./js/life/leave.js": "./js/life/leave.js?v=2026.10.17s",
+    "./js/life/look.js": "./js/life/look.js?v=2026.10.17s",
+    "./js/life/mini.js": "./js/life/mini.js?v=2026.10.17s",
+    "./js/life/mover.js": "./js/life/mover.js?v=2026.10.17s",
+    "./js/life/moves.js": "./js/life/moves.js?v=2026.10.17s",
+    "./js/life/npc.js": "./js/life/npc.js?v=2026.10.17s",
+    "./js/life/parcels.js": "./js/life/parcels.js?v=2026.10.17s",
+    "./js/life/perf.js": "./js/life/perf.js?v=2026.10.17s",
+    "./js/life/phone.js": "./js/life/phone.js?v=2026.10.17s",
+    "./js/life/props.js": "./js/life/props.js?v=2026.10.17s",
+    "./js/life/rent.js": "./js/life/rent.js?v=2026.10.17s",
+    "./js/life/rig.js": "./js/life/rig.js?v=2026.10.17s",
+    "./js/life/roads.js": "./js/life/roads.js?v=2026.10.17s",
+    "./js/life/shops.js": "./js/life/shops.js?v=2026.10.17s",
+    "./js/life/sky.js": "./js/life/sky.js?v=2026.10.17s",
+    "./js/life/stamina.js": "./js/life/stamina.js?v=2026.10.17s",
+    "./js/life/store.js": "./js/life/store.js?v=2026.10.17s",
+    "./js/life/town.js": "./js/life/town.js?v=2026.10.17s",
+    "./js/life/train/cage.js": "./js/life/train/cage.js?v=2026.10.17s",
+    "./js/life/train/cones.js": "./js/life/train/cones.js?v=2026.10.17s",
+    "./js/life/train/hub.js": "./js/life/train/hub.js?v=2026.10.17s",
+    "./js/life/train/index.js": "./js/life/train/index.js?v=2026.10.17s",
+    "./js/life/train/pool.js": "./js/life/train/pool.js?v=2026.10.17s",
+    "./js/life/train/runner.js": "./js/life/train/runner.js?v=2026.10.17s",
+    "./js/life/train/sandbox.js": "./js/life/train/sandbox.js?v=2026.10.17s",
+    "./js/life/train/thud.js": "./js/life/train/thud.js?v=2026.10.17s",
+    "./js/life/train/config.js": "./js/life/train/config.js?v=2026.10.17s",
+    "./js/life/train/configui.js": "./js/life/train/configui.js?v=2026.10.17s",
+    "./js/life/train/attredit.js": "./js/life/train/attredit.js?v=2026.10.17s",
+    "./js/life/train/teams.js": "./js/life/train/teams.js?v=2026.10.17s",
+    "./js/life/train/presets.js": "./js/life/train/presets.js?v=2026.10.17s",
+    "./js/life/train/presetui.js": "./js/life/train/presetui.js?v=2026.10.17s",
+    "./js/life/train/quick.js": "./js/life/train/quick.js?v=2026.10.17s",
+    "./js/life/train/freeplay.js": "./js/life/train/freeplay.js?v=2026.10.17s",
+    "./js/life/train/keys.js": "./js/life/train/keys.js?v=2026.10.17s",
+    "./js/life/train/admin.js": "./js/life/train/admin.js?v=2026.10.17s",
+    "./js/life/train/feeder.js": "./js/life/train/feeder.js?v=2026.10.17s",
+    "./js/life/train/receive.js": "./js/life/train/receive.js?v=2026.10.17s",
+    "./js/life/train/scen-receive.js": "./js/life/train/scen-receive.js?v=2026.10.17s",
+    "./js/life/train/scen-freekick.js": "./js/life/train/scen-freekick.js?v=2026.10.17s",
+    "./js/life/train/fkplace.js": "./js/life/train/fkplace.js?v=2026.10.17s",
+    "./js/life/train/scen-team.js": "./js/life/train/scen-team.js?v=2026.10.17s",
+    "./js/life/train/scen-attack.js": "./js/life/train/scen-attack.js?v=2026.10.17s",
+    "./js/life/train/scen-defend.js": "./js/life/train/scen-defend.js?v=2026.10.17s",
+    "./js/life/train/scen-match.js": "./js/life/train/scen-match.js?v=2026.10.17s",
+    "./js/life/train/setpiece.js": "./js/life/train/setpiece.js?v=2026.10.17s",
+    "./js/life/train/scen-corner.js": "./js/life/train/scen-corner.js?v=2026.10.17s",
+    "./js/life/train/scen-throw.js": "./js/life/train/scen-throw.js?v=2026.10.17s",
+    "./js/life/train/scen-penalty.js": "./js/life/train/scen-penalty.js?v=2026.10.17s",
+    "./js/life/train/fullmatch.js": "./js/life/train/fullmatch.js?v=2026.10.17s",
+    "./js/life/units.js": "./js/life/units.js?v=2026.10.17s",
+    "./js/life/world.js": "./js/life/world.js?v=2026.10.17s",
+    "./vendor/three.core.js": "./vendor/three.core.js?v=2026.10.17s",
+    "./vendor/three.module.js": "./vendor/three.module.js?v=2026.10.17s"
   }
 }
 </script>
@@ -191,38 +191,38 @@
 <div id="phoneRoot" class="hidden"></div>
 <div id="tutRoot" class="tut"></div>
 <!-- Plain scripts (not modules) so the game also runs by double-clicking index.html. Order matters. -->
-<script src="js/data/clubs.js?v=2026.10.17a"></script>
-<script src="js/data/names.js?v=2026.10.17a"></script>
-<script src="js/data/game.js?v=2026.10.17a"></script>
-<script src="js/data/positions.js?v=2026.10.17a"></script>
-<script src="js/data/clothes.js?v=2026.10.17a"></script>
-<script src="js/util.js?v=2026.10.17a"></script>
-<script src="js/world.js?v=2026.10.17a"></script>
-<script src="js/firebase-config.js?v=2026.10.17a"></script>
-<script src="js/awards.js?v=2026.10.17a"></script>
-<script src="js/career.js?v=2026.10.17a"></script>
-<script src="js/daily.js?v=2026.10.17a"></script>
-<script src="js/events.js?v=2026.10.17a"></script>
-<script src="js/online.js?v=2026.10.17a"></script>
-<script src="js/social.js?v=2026.10.17a"></script>
-<script src="js/social_quick.js?v=2026.10.17a"></script>
-<script src="js/match.js?v=2026.10.17a"></script>
-<script src="js/ui/main.js?v=2026.10.17a"></script>
-<script src="js/ui/feed.js?v=2026.10.17a"></script>
-<script src="js/ui/panels.js?v=2026.10.17a"></script>
-<script src="js/ui/phone.js?v=2026.10.17a"></script>
-<script src="js/ui/smart.js?v=2026.10.17a"></script>
-<script src="js/ui/foodies.js?v=2026.10.17a"></script>
-<script src="js/ui/apps_social.js?v=2026.10.17a"></script>
-<script src="js/ui/apps_scout.js?v=2026.10.17a"></script>
-<script src="js/ui/apps_rank.js?v=2026.10.17a"></script>
-<script src="js/ui/apps_stats.js?v=2026.10.17a"></script>
-<script src="js/ui/office.js?v=2026.10.17a"></script>
-<script src="js/ui/barber.js?v=2026.10.17a"></script>
-<script src="js/ui/odo.js?v=2026.10.17a"></script>
-<script src="js/ui/admin.js?v=2026.10.17a"></script>
-<script src="js/life/phone.js?v=2026.10.17a"></script>
-<script type="module" src="js/life/world.js?v=2026.10.17a"></script>
-<script src="js/main.js?v=2026.10.17a"></script>
+<script src="js/data/clubs.js?v=2026.10.17s"></script>
+<script src="js/data/names.js?v=2026.10.17s"></script>
+<script src="js/data/game.js?v=2026.10.17s"></script>
+<script src="js/data/positions.js?v=2026.10.17s"></script>
+<script src="js/data/clothes.js?v=2026.10.17s"></script>
+<script src="js/util.js?v=2026.10.17s"></script>
+<script src="js/world.js?v=2026.10.17s"></script>
+<script src="js/firebase-config.js?v=2026.10.17s"></script>
+<script src="js/awards.js?v=2026.10.17s"></script>
+<script src="js/career.js?v=2026.10.17s"></script>
+<script src="js/daily.js?v=2026.10.17s"></script>
+<script src="js/events.js?v=2026.10.17s"></script>
+<script src="js/online.js?v=2026.10.17s"></script>
+<script src="js/social.js?v=2026.10.17s"></script>
+<script src="js/social_quick.js?v=2026.10.17s"></script>
+<script src="js/match.js?v=2026.10.17s"></script>
+<script src="js/ui/main.js?v=2026.10.17s"></script>
+<script src="js/ui/feed.js?v=2026.10.17s"></script>
+<script src="js/ui/panels.js?v=2026.10.17s"></script>
+<script src="js/ui/phone.js?v=2026.10.17s"></script>
+<script src="js/ui/smart.js?v=2026.10.17s"></script>
+<script src="js/ui/foodies.js?v=2026.10.17s"></script>
+<script src="js/ui/apps_social.js?v=2026.10.17s"></script>
+<script src="js/ui/apps_scout.js?v=2026.10.17s"></script>
+<script src="js/ui/apps_rank.js?v=2026.10.17s"></script>
+<script src="js/ui/apps_stats.js?v=2026.10.17s"></script>
+<script src="js/ui/office.js?v=2026.10.17s"></script>
+<script src="js/ui/barber.js?v=2026.10.17s"></script>
+<script src="js/ui/odo.js?v=2026.10.17s"></script>
+<script src="js/ui/admin.js?v=2026.10.17s"></script>
+<script src="js/life/phone.js?v=2026.10.17s"></script>
+<script type="module" src="js/life/world.js?v=2026.10.17s"></script>
+<script src="js/main.js?v=2026.10.17s"></script>
 </body>
 </html>
