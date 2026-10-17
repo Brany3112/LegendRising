@@ -49,3 +49,44 @@ export function setSpare(r, v){ if (v === undefined) SPARE.delete(r); else SPARE
     taken from the pool so that nothing is built outside it.
   - On Return to Hub, call `FP.exit()` and then `pool.js poolTrim()`, under the fade. That brings it back to 14, and
     `bodies()` to 16.
+
+---
+
+# P8-B hook requests (this branch builds on `pc/p8a`; everything above still applies)
+
+## 3. `LegendRising/index.html` importmap and `LegendRising/js/life/train/index.js`
+
+```
+    "./js/life/train/fullmatch.js": "./js/life/train/fullmatch.js?v=<build>",
+```
+```js
+import "./fullmatch.js";
+```
+
+Applied on this branch in commit `aac72ab`, labelled `[hook]`.
+
+## 4. `LegendRising/js/life/football/controller.js` (P8-A's file), for the match's pause card and the cage's bench
+
+Applied on this branch in commit `3f490a8`, labelled `[hook]`:
+
+- **The pause card.** In the `fp-match` task, when the pause card goes up or down: if `FS.host.pause(on)` returns true,
+  the host drew its own card (Training's quick menu) and the controller draws none. With no such host, the controller
+  behaves exactly as before.
+- **The cage's bench.** Two new `FP` members: `FP.bench(side)` (calls `sitDown(side)`) and `FP.benchOk(side)`
+  (`FS.state === "bench" && !FS.seated && !FS.called`). The Full cage's bench spots use them, as the stadium's spots
+  use its `on.bench` and `on.benchOk`.
+
+## 5. A fix to P8-A's own files, found by P8-B's test (commit `39af9db`'s parent, labelled "P8-A fix")
+
+- `sim.js markHalfStart(ms)`. `controller.js` calls it after `enterTraining` and `resetMatch` set the match up.
+- A reset now zeroes your own walk's speed.
+
+Together these make Reset Current Half in the **first** half exact. `tr8-reset` covered the second half.
+
+## Notes
+
+- **Presets.** `config.js` fixes `pitch: 'full'` and `out: 'stop'` for `fullmatch`. They go into a preset with the rest
+  of the validated configuration, but they're always forced on load, so a preset never changes them. Keeping them out
+  of the stored record would need a change in `presets.js` (P4-B's).
+- **`teams.js` builds no bench** for `fullmatch`. `fullmatch.js matchConfigOf` adds five a side (one keeper among
+  them), the real match's 5 changes, the half's length and my position.
