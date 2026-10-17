@@ -13,9 +13,10 @@ import fs from "node:fs";
 import path from "node:path";
 import {pathToFileURL} from "node:url";
 import {ensureServer, ROOT} from "./serve.mjs";
-import {PORT, BASE, ARGS, report} from "./lib.mjs";
+import {PORT, BASE, ARGS, report, PW} from "./lib.mjs";
 
-const {chromium} = await import("/opt/node22/lib/node_modules/playwright/index.mjs");
+// (Playwright from the Linux path, else the global package: lib.mjs)
+const {chromium} = PW;
 const res = {name: "wpC-det", checks: [], ok: true};
 const check = (pass, name, value, skip = false) => {
   res.checks.push({name, pass: skip ? null : !!pass, skipped: skip || undefined, value});
