@@ -129,6 +129,7 @@ try {
     return rows;
   }, [tier, power, label]);
   const num = (s, k) => { const m = new RegExp(`${k} ([+${MINUS}]?)(\\d+(?:\\.\\d)?)`).exec(s || ""); return m ? (m[1] === MINUS ? -1 : 1)*+m[2] : null; };
+  const fd6 = {frac:0};
   for (const [tier, power, label] of [[1, false, "tier 1"], [6, false, "tier 6"], [1, true, "power cut"], [3, false, "drink2"]]){
     const rows = await tip(tier, power, label);
     for (const r of rows){
@@ -138,6 +139,12 @@ try {
         const a = num(you, k), b = num(r.chip, k);
         if (a === null && b === null) continue;
         check(`${label}: ${r.id} ${k}: tooltip ${a}, chip ${b}`, a !== null && b !== null && Math.abs(a - b) <= .5, {you, chip:r.chip});
+        // (P10-A, FD-6) energy as applied, the same in both, to one decimal when it is not whole (3.5, never a rounded 4)
+        if (k === "Energy" && a !== null){
+          const frac = !Number.isInteger(a);
+          if (frac) fd6.frac++;
+          check(`FD-6 ${label}: ${r.id} energy the same in the tooltip and the chip (${a}), one decimal when not whole`, a === b && (!frac || (/Energy [+−]\d+\.\d\b/.test(you) && /Energy [+−]\d+\.\d\b/.test(r.chip))), {you, chip:r.chip});
+        }
       }
       if (power) check(`${label}: ${r.id} shows "Power outage ${MINUS}30%"`, r.lines.includes(`Power outage ${MINUS}30%`), r.lines);
       if (tier === 1) check(`${label}: ${r.id} shows "Fridge quality ${MINUS}50%"`, r.lines.includes(`Fridge quality ${MINUS}50%`), r.lines);
@@ -146,6 +153,7 @@ try {
     if (power) check("power cut: the door's hint names the outage", rows[0] && /Power outage −30%/.test(rows[0].doorHint), rows[0] && rows[0].doorHint);
     if (tier === 1 && !power) check("tier 1: the door's hint names the fridge quality", rows[0] && /Fridge quality −50%/.test(rows[0].doorHint), rows[0] && rows[0].doorHint);
   }
+  check("FD-6: some foods give a part of an energy point, and those show it to one decimal", fd6.frac > 0, fd6);
   check("no console or page errors", page.errors.length === 0, page.errors.slice(0, 5));
 } catch(e){
   check("the run completed", false, String(e && e.stack || e));

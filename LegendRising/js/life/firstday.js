@@ -33,7 +33,7 @@ import {HOME, APT} from "./home.js";
 import {GROUND, PITCH} from "./ground.js";
 import * as DRILLS from "./drills.js";
 import {STORE} from "./store.js";
-import {pieceOf, BED_HOLD} from "./furniture.js";
+import {pieceOf, BED_HOLD, setBedRefuse} from "./furniture.js";
 import * as INV from "./inv.js";
 import {LIFE, P, FLAGS} from "./core/state.js";
 import {setClockScale, persist} from "./core/modes.js";
@@ -274,6 +274,9 @@ const inStore = () => { const b = STORE.b; return LIFE.zone === "home" && P.x > 
 const onYou = id => INV.onYou(id);
 const carried = () => { const c = INV.carry(); return [c.hand, ...c.slots]; };
 const paidBulbOnYou = () => carried().some(it => it && it.id === "bulb" && !it.unpaid);
+// the paid bulb lying at the end of the counter (store.js puts what you paid for there), and where that is
+const tillBulb = () => INV.dropsOf("home").find(d => d.till && d.item && d.item.id === "bulb") || null;
+const COUNTER_END = {x:-19.25, z:.5};
 // the football lying at home (a drop of the item "ball")
 const ballDrop = () => INV.dropsOf("home").find(d => d.item && d.item.id === "ball") || null;
 // the shops and the workplace on your street (home.js and units.js fill W.places as the zone is built)
@@ -341,7 +344,9 @@ const STEPS = [
       speak(UNCLE, "Take it to the till. Put it on the belt, then pay at the card reader.");
     }},
 
-  {id:"H6", zone:"home", objective:() => "Pay for the bulb", at:() => ({x:READER.x, z:READER.z, zone:"home"}),
+  // (P10-A, FD-3) once it is paid for, the bulb waits at the end of the counter: the objective says so and points there
+  {id:"H6", zone:"home", objective:() => seen("paid") ? "Pick up your bulb at the end of the counter" : "Pay for the bulb",
+    at:() => { if (!seen("paid")) return {x:READER.x, z:READER.z, zone:"home"}; const d = tillBulb(); return d ? {x:d.x, z:d.z, zone:"home"} : {x:COUNTER_END.x, z:COUNTER_END.z, zone:"home"}; },
     tick(){
       if (!inStore()) return tip(null);
       if (seen("paid") || paidBulbOnYou()) tip(null);
@@ -424,7 +429,7 @@ const STEPS = [
   {id:"H14", zone:"home", objective:() => "Go back up and open your fridge",
     at:() => { const q = pieceOf("fridge"); return q && q.front ? {x:q.front.x, z:q.front.z, y:q.front.y, zone:"home"} : null; },
     tick(){
-      if (seen("fridgeOpen") && !seen("ate")) tip(`<span>Look at the food.</span>`);
+      if (seen("fridgeOpen") && !seen("ate")) tip(`<span>Look at the food, then eat or drink something (${kbd("E")}).</span>`);
       // an empty fridge has nothing to look at: opening it is the lesson then
       if (seen("fridgeOpen") && typeof invCount === "function" && invCount() === 0) mark("ate");
     },
@@ -596,14 +601,30 @@ function ball0(){
   persist();
 }
 
+// the night as daily.js isNight has it (the minutes of the day it starts and ends), found from isNight itself
+// (worked out when first asked, with a career loaded: isNight reads the clock for its default)
+let NIGHT_W = null;
+function nightWindow(){
+  if (NIGHT_W) return NIGHT_W;
+  if (typeof isNight !== "function") return [19*60, 5*60];
+  let a = 19*60, b = 5*60;
+  for (let m = 0; m < 1440; m++){ const n = isNight(m), p = isNight((m + 1439) % 1440); if (n && !p) a = m; if (!n && p) b = m; }
+  return (NIGHT_W = [a, b]);
+}
 // the bed's lines on day one, from the plan the bed itself sleeps by (daily.js sleepPlan)
 function bedLines(){
   const q = pieceOf("bed"), tier = q && q.f ? q.f.tier : 1, wake = typeof WAKE === "number" ? WAKE : 420;
   // a full night: seven and a half hours, the length a night's quality is reckoned from (daily.js sleepPlan)
   const nap = sleepPlan("nap", tier), night = sleepPlan("night", tier, wake - 7.5*60 + 1440), hold = BED_HOLD;
-  return `<div class="oh-lines"><span>Tap ${kbd("E")} for a two-hour nap. It takes ${Math.round(nap.rest)} fatigue off.</span>
-    <span>After ${time(19*60)}, a tap means sleep until ${time(wake)}. A full night here takes about ${Math.round(night.rest)} fatigue off and gives you back ${Math.round(night.fed)} energy. A better bed does more.</span>
-    <span>Hold ${kbd("E")} for about ${NUM[hold] || hold} seconds to sleep through a whole day. Exactly 24 hours pass.</span>
+  // (P10-A, FD-2) the nap's energy cost from its own plan, the whole night window (daily.js isNight: 7:00 PM to 5:00
+  // AM), and on a day the hold is refused (refuse 'sleepDay'), that it is not for today
+  const cost = Math.round(-nap.fed), [n0, n1] = nightWindow();
+  const holdLine = refuse("sleepDay")
+    ? `Holding ${kbd("E")} sleeps through a whole day, exactly 24 hours, but not today. The club expects you.`
+    : `Hold ${kbd("E")} for about ${NUM[hold] || hold} seconds to sleep through a whole day. Exactly 24 hours pass.`;
+  return `<div class="oh-lines"><span>Tap ${kbd("E")} for a two-hour nap. It takes ${Math.round(nap.rest)} fatigue off${cost > 0 ? ` and costs ${cost} energy` : ""}.</span>
+    <span>Between ${time(n0)} and ${time(n1)}, a tap means sleep until ${time(wake)}. A full night here takes about ${Math.round(night.rest)} fatigue off and gives you back ${Math.round(night.fed)} energy. A better bed does more.</span>
+    <span>${holdLine}</span>
     <span>The day changes at midnight.</span></div>`;
 }
 
@@ -941,6 +962,8 @@ function laterStep(){
 
 /* ---------- day one's rules ---------- */
 // holding E on the bed (a whole day asleep) is not for today
+// (P10-A, FD-2) the bed's prompt asks this too, so on day one it does not offer the hold it will refuse
+setBedRefuse(() => refuse("sleepDay"));
 export function refuse(what){
   // (not for a career whose first day was long ago and only the training centre's tour is left, S.onb.centre)
   if (what === "sleepDay" && active() && !OB().centre) return "Not today. The club expects you.";

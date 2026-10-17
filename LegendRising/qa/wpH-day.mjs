@@ -159,7 +159,15 @@ try {
     B.aimSpot("Checkout belt"); B.click(); B.idle(2.2);
   });
   s = await state(); check("H6: 'Wait for the beep, then press E on the card reader.'", /Wait for the beep, then press E on the card reader\./.test(s.hint), s);
-  await page.evaluate(() => { const B = __bot; B.aimSpot("Card reader"); B.key("e"); B.idle(2); B.place(-19.6, .02, 0, Math.PI); B.aimSpot(s => s.kind === "pick" && s.drop && s.drop.item.id === "bulb"); B.click(); B.idle(1); });
+  await page.evaluate(() => { const B = __bot; B.aimSpot("Card reader"); B.key("e"); B.idle(2); });
+  // (P10-A, FD-3) paid: the objective says where the bulb is, and the guide points at it on the counter
+  {
+    const g = await page.evaluate(() => { const G = __bot.fd.GOAL, d = __bot.inv.dropsOf("home").find(x => x.till && x.item && x.item.id === "bulb");
+      return {goal: __bot.fd.FD.goal(), at: G.at ? {x: G.at.x, z: G.at.z} : null, drop: d ? {x: d.x, z: d.z} : null}; });
+    check("FD-3: once paid, the objective is 'Pick up your bulb at the end of the counter', pointing at the bulb there",
+      g.goal === "Pick up your bulb at the end of the counter" && !!g.drop && !!g.at && Math.hypot(g.at.x - g.drop.x, g.at.z - g.drop.z) < .05, g);
+  }
+  await page.evaluate(() => { const B = __bot; B.place(-19.6, .02, 0, Math.PI); B.aimSpot(s => s.kind === "pick" && s.drop && s.drop.item.id === "bulb"); B.click(); B.idle(1); });
   await doneStep("H6", true);
 
   // H7 Carry it home: up to your door, where the neighbour slams his
@@ -222,7 +230,7 @@ try {
     const ux = f.front.x - f.wx, uz = f.front.z - f.wz, ul = Math.hypot(ux, uz) || 1;
     B.place(f.front.x + ux/ul*.9, f.front.y + .02, f.front.z + uz/ul*.9, 0); B.aimSpot("Fridge"); B.key("e"); B.idle(1.5);
   });
-  s = await state(); check("door open: 'Look at the food.'", /Look at the food\./.test(s.hint), s);
+  s = await state(); check("FD-1: door open: 'Look at the food, then eat or drink something (E).'", /Look at the food, then eat or drink something \(E\)\./.test(s.hint), s);
   await page.evaluate(() => { const B = __bot; B.aimSpot(s => s.item === "sandwich" || s.item === "fruit"); B.idle(3); });
   const tip = await page.evaluate(() => [...document.querySelectorAll("#lifePrompt .lp-lines *")].map(e => e.textContent));
   check("the food's tooltip shows the fridge's quality", tip.some(t => /Fridge quality −50%/.test(t)) && tip.some(t => /^You get: /.test(t)), tip);
@@ -233,7 +241,18 @@ try {
   // H15 Bed: the prompt on screen; then hold E: refused on day one
   await page.evaluate(() => { const B = __bot, q = B.furn.pieceOf("bed"), base = B.flat().base, f = B.flat().A; B.look();
     const x = q.wx + (q.wx > (f.x0 + f.x1)/2 ? -1.3 : 1.3); B.place(x, base + .02, q.wz, 0); B.aim(q.wx, base + .3, q.wz); B.idle(2); });
-  s = await state(); check("H15's lines from the sleep plan", /Tap E for a two-hour nap\. It takes \d+ fatigue off\./.test(s.hint) && /After 7:00 PM, a tap means sleep until 7:00 AM\. A full night here takes about \d+ fatigue off and gives you back \d+ energy\. A better bed does more\./.test(s.hint) && /Hold E for about two seconds to sleep through a whole day\. Exactly 24 hours pass\./.test(s.hint) && /The day changes at midnight\./.test(s.hint), s);
+  // (P10-A, FD-2) the lines worked out here from the plan the bed sleeps by (daily.js sleepPlan), the night window from
+  // daily.js isNight, and the hold refused on day one
+  s = await state();
+  const plan = await page.evaluate(() => { const q = __bot.furn.pieceOf("bed"), tier = q && q.f ? q.f.tier : 1, nap = sleepPlan("nap", tier), night = sleepPlan("night", tier, WAKE - 7.5*60 + 1440);
+    let a = -1, b = -1; for (let m = 0; m < 1440; m++){ const n = isNight(m), p = isNight((m + 1439) % 1440); if (n && !p) a = m; if (!n && p) b = m; }
+    return {napRest: Math.round(nap.rest), napCost: Math.round(-nap.fed), nightRest: Math.round(night.rest), nightFed: Math.round(night.fed), from: fmtTime(a), to: fmtTime(b), wake: fmtTime(WAKE)}; });
+  check("FD-2: H15's nap line gives the fatigue and the energy cost from sleepPlan('nap')", s.hint.includes(`Tap E for a two-hour nap. It takes ${plan.napRest} fatigue off and costs ${plan.napCost} energy.`), {plan, hint: s.hint});
+  check("FD-2: H15's night line gives the real window (isNight) and the night's numbers from sleepPlan('night')", plan.from === "7:00 PM" && plan.to === "5:00 AM" &&
+    s.hint.includes(`Between ${plan.from} and ${plan.to}, a tap means sleep until ${plan.wake}. A full night here takes about ${plan.nightRest} fatigue off and gives you back ${plan.nightFed} energy. A better bed does more.`), {plan, hint: s.hint});
+  check("FD-2: H15's hold line says it is not for today", s.hint.includes("Holding E sleeps through a whole day, exactly 24 hours, but not today. The club expects you.") && /The day changes at midnight\./.test(s.hint), s.hint);
+  const bp = await page.evaluate(() => { const sp = __bot.spot(x => x.long && /^(Mattress|Bed)$/.test(x.label)); return sp ? {lines: sp.lines.slice(), hold: sp.long.label} : null; });
+  check("FD-2: the bed's own prompt on day one says the hold is not for today (no 24-hour offer)", !!bp && bp.lines.includes("Hold E: not today. The club expects you.") && !bp.lines.some(l => l.startsWith("Hold E: sleep 24 hours")) && bp.hold === "not today", bp);
   await snap(page, "wpH-day-H15");
   const held = await page.evaluate(() => { const d0 = S.life.day, m0 = S.life.min; dispatchEvent(new KeyboardEvent("keydown", {key: "e", bubbles: true})); __bot.step(150); dispatchEvent(new KeyboardEvent("keyup", {key: "e", bubbles: true})); __bot.step(3);
     return {note: document.getElementById("lifeNote").textContent, day: S.life.day, d0, slept: S.life.min - m0 > 60}; });

@@ -325,9 +325,16 @@ const addSpot = (q, o) => { const sp = spot(o); q.spots.push(sp); return sp; };
    a nap, holding E for BED_HOLD seconds (after core/hand.js HOLD_GRACE) sleeps exactly twenty-four hours */
 export const BED_HOLD = 2;
 let BT = {key:"", v:null};
+/* (P10-A, FD-2) a rule that refuses the hold (firstday.js: day one's "Not today"): fn() -> the reason, or null. While
+   it refuses, the bed says so in place of offering 24 hours' sleep */
+// (kept on the function itself: firstday.js sets it as it loads, which may be before this module's body has run, the
+// two being in an import cycle through home.js)
+export function setBedRefuse(fn){ setBedRefuse.fn = typeof fn === "function" ? fn : null; }
+const bedRefused = () => { try { return setBedRefuse.fn ? setBedRefuse.fn() || null : null; } catch(e){ return null; } };
 export function bedText(t, m){
   m = ((Math.floor(m) % 1440) + 1440) % 1440;
-  const key = `${t}|${m}|${Math.round(S.fatigue*10)}|${Math.round(S.energy*10)}|${S.life.day}`;
+  const no = bedRefused();
+  const key = `${t}|${m}|${Math.round(S.fatigue*10)}|${Math.round(S.energy*10)}|${S.life.day}|${no || ""}`;
   if (BT.key === key) return BT.v;
   const night = isNight(m), tap = sleepPlan(night ? "night" : "nap", t, m), day = sleepPlan("day", t, m);
   const fe = p => `Fatigue ${fmtSigned(Math.round(p.fatigue))} · Energy ${fmtSigned(Math.round(p.energy))}`;
@@ -338,6 +345,7 @@ export function bedText(t, m){
   const mods = tap.mods.concat(day.mods.filter(d => !tap.mods.some(x => x.k === d.k)));
   for (const md of mods) lines.push(`${md.label} ${pct(md.f)}`);
   if (night && tap.crossesMidnight) lines.push("The day changes at midnight. Your day summary comes first.");
+  if (no){ lines.push(`Hold E: not today. ${no.replace(/^Not today\.\s*/, "")}`); BT = {key, v:{hint, lines, hold:"not today", tap, day}}; return BT.v; }
   lines.push(`Hold E: sleep 24 hours, to ${fmtTime(day.wake)} tomorrow · ${fe(day)}`);
   const miss = sleepMisses(m);
   if (miss.training) lines.push(`You will miss training (Manager trust ${fmtSigned(ATTEND.absent)})`);
