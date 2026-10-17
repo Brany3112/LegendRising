@@ -187,7 +187,9 @@ export function createMatch(cfg){
   refreshPred(ms);
   for (const t of [0, 1]){ teamShape(ms, t); }
   placeForKickoff(ms);
-  HALF_SNAP.set(ms, halfSnapshot(ms));
+  // (only a match whose halves can be reset keeps the snapshot, cfg.halfSnaps: Training's Full Match. A drill's
+  // restart makes a new match every go, and the copy is not free: P10-B measured it in the reset's 4 ms)
+  if (cfg.halfSnaps) HALF_SNAP.set(ms, halfSnapshot(ms));
   return ms;
 }
 
@@ -624,7 +626,7 @@ export function secondHalf(ms){
   refreshPred(ms);
   // (taken at the next step's start: the second half may begin inside a step, sim's own half time, and the snapshot is
   // of the state between two steps; a reset asking for it sooner takes it then, halfStart)
-  HALF_DUE.add(ms);
+  if (ms.cfg && ms.cfg.halfSnaps) HALF_DUE.add(ms);
 }
 // full time: everyone's time on the pitch closes, the phase ends
 function finishUp(ms){
