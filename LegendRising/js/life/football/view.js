@@ -163,7 +163,8 @@ export function viewFrame(V, ms, alpha, dt, cam){
     const Q = !S && V.pre ? V.pre[a.id] : null;
     R.pre = Q || null;
     const on = S ? S.on : Q ? !Q.hide : a.onPitch || a.leaving;
-    const hide = V.hideAll || !on || (a.isMe && V.fpOn && !V.src && !Q);
+    // ((U21) in third person, matchcam.js V.tp, your whole body is drawn; through your eyes it is the first-person one)
+    const hide = V.hideAll || !on || (a.isMe && V.fpOn && !V.tp && !V.src && !Q);
     R.hidden = hide;
     R.h.g.visible = !hide;
     if (S){ R.pos.x = S.x; R.pos.z = S.z; R.pos.y = S.y || 0; }
@@ -828,7 +829,7 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   if (o.wind !== undefined) V.wind = o.wind;
   const h = V.fp; if (!h) return 0;
   const ms = V.ms, a = ms.agents[V.me];
-  h.g.visible = !!(V.fpOn && !V.src && !V.hideAll);
+  h.g.visible = !!(V.fpOn && !V.tp && !V.src && !V.hideAll);
   if (!h.g.visible) return 0;
   const s = h.scale || 1, back = o.back || 0;
   // (UF2-A, USER-ISSUES U12) the body off the grass with you: your jump (the agent's own height, the eye's too) or the

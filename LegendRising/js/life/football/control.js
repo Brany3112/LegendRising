@@ -45,7 +45,7 @@
      a ball coming to you while you stand with no keys held is settled the same way. F never slides you into a ball
      that is coming to you first. Dribbling below a sprint keeps it close to your foot (me.drib.close, touch.js
      dribbleTouch): only a sprint pushes it on. */
-import {P} from "../core/state.js";
+import {P, ME} from "../core/state.js";
 import {dirOf, yawOf, wrapA} from "./pitchspec.js";
 import {canStrike, predAt, VOLLEY, pressureOn, ACT as ACTN} from "./actions.js";
 import {TOUCH} from "./touch.js";
@@ -66,7 +66,9 @@ const DEG = Math.PI/180;
 /* ---------- this device's settings (1.6, 3.4.7, A1.2, A1.4) ---------- */
 export const SET_KEY = "freyaFootball.ctrl";
 export const SET_DEF = Object.freeze({sens:1.0, invertY:false, fov:78, speech:true, offsidePip:"auto", volume:.8, hints:true,
-  motion:1, hudScale:1, hudOpacity:1, palette:"normal", radar:false, hide:{}, assist:"on"});
+  motion:1, hudScale:1, hudOpacity:1, palette:"normal", radar:false, hide:{}, assist:"on", footCam:"third"});
+// (U21) the football camera: "third" (behind and above you, the default) or "first" (through your eyes)
+export const FOOT_CAMS = Object.freeze(["third", "first"]);
 function loadSet(){
   let o = {};
   try { o = JSON.parse(localStorage.getItem(SET_KEY) || "{}") || {}; } catch(e){ o = {}; }
@@ -76,6 +78,7 @@ function loadSet(){
   if (!["auto", "on", "off"].includes(s.offsidePip)) s.offsidePip = "auto";
   if (!["normal", "cb"].includes(s.palette)) s.palette = "normal";
   if (!ASSISTS.includes(s.assist)) s.assist = "on";
+  if (!FOOT_CAMS.includes(s.footCam)) s.footCam = "third";
   s.hide = Object.assign({}, s.hide || {});
   return s;
 }
@@ -83,11 +86,14 @@ function loadSet(){
 export const ASSISTS = Object.freeze(["on", "low", "off"]);
 const ASSIST_K = Object.freeze({on:1, low:.5, off:0});
 export const SET = loadSet();
+// (U21) life reads the football camera through the shared state (me.js: the apartment ball), never this module
+ME.footCam = SET.footCam;
 export const assistK = () => ASSIST_K[SET.assist] != null ? ASSIST_K[SET.assist] : 1;
 export function saveSet(patch = {}){
   Object.assign(SET, patch);
   const o = {}; for (const k of Object.keys(SET_DEF)) o[k] = SET[k];
   try { localStorage.setItem(SET_KEY, JSON.stringify(o)); } catch(e){}
+  ME.footCam = SET.footCam;
   for (const f of SET_SUBS) try { f(SET); } catch(e){ console.error(e); }
   return SET;
 }

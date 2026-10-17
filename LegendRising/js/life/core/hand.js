@@ -351,7 +351,18 @@ function ballPush(b){
 }
 const _ax = new THREE.Vector3(), _bq = new THREE.Quaternion();
 // every slice of the world's frame, after your own movement (world.js step: SCHED.slice)
+/* (U21) you have the ball in life: in your hands, or a live one at your feet (within FOOT_BALL.ON m on your floor), and
+   for FOOT_BALL.HOLD s after it leaves them while it is within FOOT_BALL.OFF m (a kick and the run after it): me.js puts
+   the camera behind you for it, as every football moment has it, unless the football camera is set to first person */
+export const FOOT_BALL = Object.freeze({ON: 2.5, OFF: 9, HOLD: 3});
+function footBall(h){
+  let near = Infinity;
+  for (const e of BALLS){ if (e.d.zone !== LIFE.zone) continue; const b = e.b; if (Math.abs(b.p.y - BALL.R - (P.feet || 0)) > 1.2) continue; const d = Math.hypot(b.p.x - P.x, b.p.z - P.z); if (d < near) near = d; }
+  if (near < FOOT_BALL.ON) ME.footBallT = FOOT_BALL.HOLD; else ME.footBallT = Math.max(0, (ME.footBallT || 0) - h);
+  ME.footBall = !!(HELD.it && HELD.it.id === "ball") || (ME.footBallT > 0 && near < FOOT_BALL.OFF);
+}
 function ballsStep(h){
+  if (h > 0) footBall(h);
   if (!BALLS.length || !(h > 0)) return;
   const bw = ballWorld(), you = mode() === "life" && !locked();
   for (let i = 0; i < BALLS.length; i++){
