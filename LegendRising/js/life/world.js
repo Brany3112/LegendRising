@@ -241,6 +241,8 @@ function tick(real, t0, draw){
   if (fl.compass) compassStep(r10, P);
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
   if (W.shadowDirty && (shadowT -= real) <= 0){ W.shadowDirty = false; shadowT = .2; RT.renderer.shadowMap.needsUpdate = true; }
+  // (U23) a person who casts has moved: this frame, past the rate (sky.js SHADOW 'people')
+  if (W.shadowPeople){ W.shadowPeople = false; if (RT.SKY && RT.SKY.shadow) RT.SKY.shadow.request("people"); }
   // a mode may leave a frame undrawn (the bench watched above 1x is drawn at 30 Hz, controller.js): once, this frame.
   // (P3-A, perf-4) Nothing is drawn under an opaque overlay of our own (screenCover: Training's full-screen sheets),
   // except while a reveal waits for drawn frames (it resolves only after a real render, so skipping then would hold

@@ -210,7 +210,8 @@ export function createSky(renderer){
       // ('half'): at once, covered or not
       if ((SHADOW.fresh && why !== "sun") || why === "half"){ SHADOW.grant = true; SHADOW.grantFrame = SHADOW.frame; SHADOW.why = "warm"; return; }
       SHADOW.pending = true; SHADOW.why = why;
-      if (why !== "sun" && SHADOW.may()) SHADOW.give();
+      // ('people': a person who casts has moved, U23: every frame, or his shadow lags behind him)
+      if (why !== "sun" && SHADOW.may(why === "people")) SHADOW.give();
     },
     give(){ SHADOW.grant = true; SHADOW.pending = false; SHADOW.grantFrame = SHADOW.frame; },
     granted(){ return SHADOW.grant; },

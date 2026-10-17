@@ -642,7 +642,10 @@ function hudOf(T, dt){
 
 // once a frame: you where your agent is (for the camera, your body, everyone round you), the HUD, the clock
 function frameItem(T, dt, real, hid = false){
-  const ms = T.ms, a = T.me, al = clamp(T.acc/H, 0, 1);
+  // (the same point between the last two steps the view draws the bodies at: the runner's own scheduler task when it
+  // steps the item, T.fixed, whose steps leave T.acc at nothing. With T.acc the eye stayed on the last step while your
+  // body was drawn up to a step on from it, and in third person your body shook against the camera as you moved)
+  const ms = T.ms, a = T.me, al = T.fixed ? SCHED.alpha(T.fixed) : clamp(T.acc/H, 0, 1);
   const x = a.x0 + (a.m.x - a.x0)*al, z = a.z0 + (a.m.z - a.z0)*al;
   const w = worldOf(T, x, z);
   P.x = w.x; P.z = w.z; P.feet = a.y || 0; P.eye = P.feet + (1.68*(a.scale || 1));

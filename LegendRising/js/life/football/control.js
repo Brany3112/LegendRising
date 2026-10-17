@@ -309,9 +309,13 @@ export const EYE_AT = Object.freeze({AHEAD: .07, AHEAD_DOWN: .12, DROP: .05});
 export const eyeAhead = (pitch, s = 1) => (EYE_AT.AHEAD + EYE_AT.AHEAD_DOWN*sstep(.75, 1.35, -pitch))*s;
 export const eyeDrop = (pitch, s = 1) => EYE_AT.DROP*sstep(.3, 1.2, -pitch)*s;
 const EYE = {x:0, y:0, z:0}, LD = {x:0, y:0, z:-1};
+// (U21, U25) in third person the line you aim along starts at the camera (matchcam.js tpFrame writes where it is, in
+// the pitch's own frame): its middle, the crosshair, is then exactly where a pass or a shot goes, whatever its tilt
+export const TPR = {on:false, x:0, y:0, z:0, ox:0, oz:0};
 function eyeOf(me, yaw = P.yaw, pitch = P.pitch){
   const s = me.scale || 1, ahead = eyeAhead(pitch, s), sy = Math.sin(yaw), cy = Math.cos(yaw);
   EYE.x = me.m.x - sy*ahead; EYE.y = 1.68*s + (me.y || 0) - eyeDrop(pitch, s); EYE.z = me.m.z - cy*ahead;
+  if (TPR.on){ EYE.x = TPR.x - TPR.ox; EYE.y = TPR.y; EYE.z = TPR.z - TPR.oz; }
   const c = Math.cos(pitch);
   LD.x = -sy*c; LD.y = Math.sin(pitch); LD.z = -cy*c;
 }

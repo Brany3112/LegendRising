@@ -32,7 +32,7 @@ import {camPush, camPop, camKick} from "../core/camera.js";
 import {dirOf, wrapA} from "./pitchspec.js";
 import {EV, BONE} from "../human.js";
 import {THREE} from "../build.js";
-import {CTRL, SET, eyeAhead, eyeDrop} from "./control.js";
+import {CTRL, SET, eyeAhead, eyeDrop, TPR} from "./control.js";
 import {camCast} from "../core/collide.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -125,7 +125,7 @@ export function camInit(src){
   const a = MC.act; for (const k in a) a[k] = 0;
   const hd = MC.head; for (const k in hd) hd[k] = 0;
   // (U21: every activity starts through your eyes and eases back behind you, so it never cuts)
-  MC.tpK = 0; MC.tp.on = false;
+  MC.tpK = 0; MC.tp.on = false; MC.tp.y = null; TPR.on = false;
   camPush(FP_OWNER);
   MC.on = true;
 }
@@ -263,18 +263,23 @@ function clipCam(V, ev){
   camAction(kind);
   (MC.camActs || (MC.camActs = [])).push({kind, t:MC.t, clip:c.id});
 }
-/* ---------- third person (USER-ISSUES U21) ----------
-   Every football moment (a match, a drill, a lesson, the team session, Training) is seen from behind you: TP.BACK m
-   back and TP.UP m above your head, looking at your aim point, where the line you aim along (your eyes, P.yaw and
-   P.pitch: the aim is the same as in first person, so the shot meter, the kick types, the pass assist and the crosshair
-   all work unchanged) meets the pitch, at most TP.AIM_MAX m out (TP.FAR ahead when you look level or up). The screen's
-   middle, where the crosshair is, is that point on the pitch. It turns with the mouse as the aim does. Whatever is
-   between your head and it (the fence, a goal, a wall, the stand) pulls it in (core/collide.js camCast), and it never
-   goes under TP.MIN_Y. From your eyes to behind you, and back, it eases (TP.RATE a second): no cut when an activity
-   starts or its setting changes. Your whole body is drawn and the first-person one is not (view.js V.tp) from half way.
-   The setting: control.js SET.footCam ('third' by default, 'first' for your own eyes); the bench keeps its seat. */
-export const TP = Object.freeze({BACK: 4, UP: 1.8, HEAD: .12, AIM_MAX: 40, AIM_MIN: 4, FAR: 30, MIN_Y: .45, MARGIN: .3, RATE: 3, SPEED: 7});
-const _tq = new THREE.Quaternion(), _tm = new THREE.Matrix4(), _te = new THREE.Vector3(), _ta = new THREE.Vector3(), _tc = new THREE.Vector3(), _tu = new THREE.Vector3(0, 1, 0);
+/* ---------- third person (USER-ISSUES U21, U22, U25) ----------
+   Every football moment (a match, a drill, a lesson, the team session, Training) is seen from behind you, on an orbit
+   round your head: TP.BACK m back along where you look and TP.UP m above that line, tilting with your look. The camera
+   looks exactly where you look (P.yaw, P.pitch), so its tilt follows the mouse one for one, with no race or jump near
+   the horizon (U25). The aim's line starts at the camera (control.js TPR): the screen's middle, where the crosshair
+   is, is where a pass or a shot goes, and the shot meter, the kick types and the pass assist work on it unchanged.
+   (U22) Its anchor is your body as it is drawn this frame (its group), not your agent between its steps: the
+   scheduler poses the bodies before the mode works out this frame's place, so the camera on that place ran a frame
+   ahead of your body, and your body shook against it as the frames' lengths varied. Its height follows the body's
+   (a jump, a slide) through a critically damped spring (TP.W a second), and the first-person bob and head never come
+   into it. Whatever is between your head and it (the fence, a goal, a wall, the stand) pulls it in (core/collide.js
+   camCast), and it never goes under TP.MIN_Y. From your eyes to behind you, and back, it eases (TP.RATE a second): no
+   cut when an activity starts or its setting changes. Your whole body is drawn and the first-person one is not (view.js
+   V.tp) from half way. The setting: control.js SET.footCam ('third' by default, 'first' for your own eyes); the bench
+   keeps its seat. The orbit's place stops tilting beyond TP.PMIN and TP.PMAX (the look goes on) */
+export const TP = Object.freeze({BACK: 4, UP: 1.5, HEAD: .12, FAR: 60, MIN_Y: .45, MARGIN: .3, RATE: 3, SPEED: 7, W: 10, PMIN: -1.1, PMAX: .7});
+const _tq = new THREE.Quaternion(), _te = new THREE.Euler(0, 0, 0, "YXZ"), _tc = new THREE.Vector3(), _tg = new THREE.Vector3();
 export const tpWanted = a => !!a && SET.footCam !== "first";
 function tpFrame(a, V, x, y0, z, s, dt, cam){
   const want = tpWanted(a) ? 1 : 0;
@@ -286,27 +291,35 @@ function tpFrame(a, V, x, y0, z, s, dt, cam){
   const k = MC.tpK, T = MC.tp;
   T.on = k > .5;
   if (V) V.tp = T.on;
-  if (k <= 0) return;
-  // the aim: from your eyes along where you look, to the pitch
-  _te.copy(cam.position);
-  const cp = Math.cos(P.pitch), dx = -Math.sin(P.yaw)*cp, dy = Math.sin(P.pitch), dz = -Math.cos(P.yaw)*cp;
-  const tAim = dy < -.02 ? clamp((_te.y - .11)/(-dy), TP.AIM_MIN, TP.AIM_MAX) : TP.FAR;
-  _ta.set(_te.x + dx*tAim, Math.max(.11, _te.y + dy*tAim), _te.z + dz*tAim);
-  // behind and above your head, pulled in by whatever is in the way
-  const hx = x, hy = y0 + TP.HEAD*s, hz = z, f = dirOf(P.yaw);
-  let cx = -f.x*TP.BACK, cy = TP.UP, cz = -f.z*TP.BACK;
-  const L = Math.hypot(cx, cy, cz);
-  cx /= L; cy /= L; cz /= L;
+  if (k <= 0){ TPR.on = false; T.yv = 0; T.y = null; return; }
+  // the anchor: your body as drawn (its group's place in the world this frame), else your agent's
+  const R = V && a ? V.rec[a.id] : null, g = R && R.h && R.h.g;
+  let hx = x, hz = z, gy = y0 - 1.68*s;
+  if (g && g.parent && !R.hidden){ g.getWorldPosition(_tg); hx = _tg.x; hz = _tg.z; gy = _tg.y; }
+  // its height through the spring
+  if (T.y == null || !(dt > 0)){ T.y = gy; T.yv = 0; }
+  else { const w = TP.W, e = T.y - gy, f = Math.exp(-w*dt), v = T.yv; T.y = gy + (e + (v + w*e)*dt)*f; T.yv = (v - (v + w*e)*w*dt)*f; }
+  const hy = T.y + (1.68 + TP.HEAD)*s;
+  // the orbit: back along the look and up across it, the look's tilt held within PMIN..PMAX for the place only
+  const pp = clamp(P.pitch, TP.PMIN, TP.PMAX), sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), sp = Math.sin(pp), cp = Math.cos(pp);
+  let cx = sy*cp*TP.BACK + sy*sp*TP.UP, cyy = -sp*TP.BACK + cp*TP.UP, cz = cy*cp*TP.BACK + cy*sp*TP.UP;
+  const L = Math.hypot(cx, cyy, cz);
+  cx /= L; cyy /= L; cz /= L;
   let len = L;
   T.pulled = false;
-  try { const hit = camCast(hx, hy, hz, cx, cy, cz, L + TP.MARGIN); if (hit < L + TP.MARGIN){ len = Math.max(.6, hit - TP.MARGIN); T.pulled = true; } } catch(e){ /* no collision world here */ }
-  _tc.set(hx + cx*len, Math.max(TP.MIN_Y, hy + cy*len), hz + cz*len);
-  // eased from your eyes: the place, and the turn (toward looking at the aim point)
-  _tm.lookAt(_tc, _ta, _tu); _tq.setFromRotationMatrix(_tm);
+  try { const hit = camCast(hx, hy, hz, cx, cyy, cz, L + TP.MARGIN); if (hit < L + TP.MARGIN){ len = Math.max(.6, hit - TP.MARGIN); T.pulled = true; } } catch(e){ /* no collision world here */ }
+  _tc.set(hx + cx*len, Math.max(TP.MIN_Y, hy + cyy*len), hz + cz*len);
+  // it looks where you look; eased in from your eyes (the place, and the turn)
+  _te.set(clamp(P.pitch, -1.45, 1.45), P.yaw, 0); _tq.setFromEuler(_te);
   const e = k*k*(3 - 2*k);
   cam.position.lerp(_tc, e);
   cam.quaternion.slerp(_tq, e);
-  T.aim.x = _ta.x; T.aim.y = _ta.y; T.aim.z = _ta.z; T.at.x = cam.position.x; T.at.y = cam.position.y; T.at.z = cam.position.z;
+  // the aim's line from the camera (control.js eyeOf), and the point on the pitch it meets (60 m at most)
+  TPR.on = true; TPR.x = cam.position.x; TPR.y = cam.position.y; TPR.z = cam.position.z; TPR.ox = V ? V.ox || 0 : 0; TPR.oz = V ? V.oz || 0 : 0;
+  const dx = -sy*Math.cos(P.pitch), dy = Math.sin(P.pitch), dz = -cy*Math.cos(P.pitch);
+  const t = dy < -.01 ? Math.min(TP.FAR, (cam.position.y - .11)/-dy) : TP.FAR;
+  T.aim.x = cam.position.x + dx*t; T.aim.y = Math.max(.11, cam.position.y + dy*t); T.aim.z = cam.position.z + dz*t;
+  T.at.x = cam.position.x; T.at.y = cam.position.y; T.at.z = cam.position.z;
 }
 const FP_OWNER = {id:"match-fp", priority:40, frame:fpFrame, fov:() => Math.round(MC.fov*20)/20, near:CAM.NEAR};
 

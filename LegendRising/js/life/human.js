@@ -1337,12 +1337,13 @@ function hook(scene){
     // map; in a stadium's or a cage's sky (sky.js where 'stadium') only on High ('bowl', P.shadow.stadium.humans), never
     // on Medium's map of the statics. Set on a change only
     const SK = RT.SKY, SS = GP && GP.shadow && GP.shadow.stadium, peopleCast = !(SK && SK.where === "stadium") || !!(SS && SS.humans);
-    // (integration, P10-B finding 4) in a stadium's or a cage's sky on High the people's shadows follow them: the shadow
-    // map is asked for again while a casting body moves (world.js redraws it at most five times a second)
+    // (integration, P10-B finding 4; USER-ISSUES U23) in a stadium's or a cage's sky on High the people's shadows follow
+    // them: the shadow map is redrawn the frame a casting body moves (world.js W.shadowPeople), so a shadow stays under
+    // the feet at a full sprint. Redrawn five times a second it lagged behind a runner and jumped after him
     const follow = !!(SK && SK.where === "stadium" && SS && SS.humans);
     for (const h of LIVE){
       if (h.castOpt && h.castNow !== peopleCast){ h.castNow = peopleCast; if (h.near) h.near.castShadow = peopleCast; if (h.far) h.far.castShadow = peopleCast; }
-      if (follow && h.castNow && h.g.visible){ const p = h.g.position, q = h._shp || (h._shp = {x:NaN, z:NaN}); if (p.x !== q.x || p.z !== q.z){ q.x = p.x; q.z = p.z; W.shadowDirty = true; } }
+      if (follow && h.castNow && h.g.visible){ const p = h.g.position, q = h._shp || (h._shp = {x:NaN, z:NaN}); if (p.x !== q.x || p.z !== q.z){ q.x = p.x; q.z = p.z; W.shadowPeople = true; } }
       // where is it: in this scene, and shown?
       let o = h.g, vis = true;
       while (o.parent){ if (!o.visible) vis = false; o = o.parent; }

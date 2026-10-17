@@ -93,11 +93,12 @@ try {
   check(S0.back > 2.6 && S0.back < 4.4 && S0.up > 1.2 && S0.up < 2.3 && Math.abs(S0.side) < .4, "the camera is about 4 m behind you and 1.8 m above your head", {back: S0.back, up: S0.up, side: S0.side});
   // (looking level the aim is far ahead at eye height, and the camera, over your head, looks down past you to it; looking
   // a little down, the aim point is on the pitch)
-  const level = await page.evaluate(() => { const cam = window.__life.cam, v = cam.getWorldDirection(new cam.position.constructor()); return {down: v.y < -.01, pitch: window.__life.P.pitch}; });
+  const level = await page.evaluate(() => { const cam = window.__life.cam, v = cam.getWorldDirection(new cam.position.constructor()); return {camPitch: Math.asin(v.y), pitch: window.__life.P.pitch}; });
   await page.evaluate(() => window.__u21.look(null, -.12)); await frames(page, 20);
   const Sd = await page.evaluate(() => window.__u21.state());
   res.start.level = level; res.start.down = {aimScreen: Sd.aimScreen, aimY: Sd.aimY, aimDist: Sd.aimDist};
-  check(level.down, "looking level, the camera looks slightly down past you toward where you aim", level);
+  // (U25: the camera tilts with your look one for one, so it never races or jumps near the horizon)
+  check(Math.abs(level.camPitch - level.pitch) < .01, "the camera looks where you look (its tilt is your aim's)", level);
   check(Math.abs(Sd.aimScreen.x - .5) < .02 && Math.abs(Sd.aimScreen.y - .5) < .02 && Sd.aimY < .2 && Sd.aimDist > 4, "it looks at your aim point on the pitch ahead: the screen's middle (the crosshair) is that point", res.start.down);
   check(S0.whole && !S0.fp, "your whole body is drawn, the first-person one is not", {whole: S0.whole, fp: S0.fp});
   await shot("third-person");
