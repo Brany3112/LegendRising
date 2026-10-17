@@ -383,7 +383,10 @@ function holdShape(J, ms, setup){
   R0.shapeStep = ms.step;
   const tk = ms.agents[R0.taker];
   const striking = !!(tk && tk.act && (tk.act.kind === "kick" || tk.act.kind === "throw"));
-  if (striking && !J.runsGo) J.runsGo = true;
+  // the runs: as the taker strikes it; at my own corner, from a moment after it is ready (my run-up cannot be seen
+  // coming), so they are on their way or in their zones whenever I cross it
+  const mine = !!(tk && tk.isMe && !ms.meAI);
+  if (!J.runsGo && (striking || mine && R0.ready && ms.t - R0.t0 >= RUN_MINE)){ J.runsGo = true; J.runsAt = ms.t; }
   for (const sp of J.spots){
     const a = ms.agents[sp.id];
     if (!a || a.isGK || a.isMe && !ms.meAI) continue;
@@ -438,8 +441,16 @@ function deliver(J, ms, setup){
     J.delivered = true; J.kickAt = ms.t;
     return;
   }
-  // a corner: once everyone is set (2 s at least), else at 6 s
-  if (!(R0.set && el >= 2) && el < 6) return;
+  // a corner: once everyone is set (2 s at least, else at 6 s) the runners set off, and he crosses it as the receiver
+  // nears his zone (a cross takes about 1.5 s to arrive: struck any earlier, it beats the run; any later, the man
+  // waits in his zone), or after RUN_WAIT s
+  if (!J.runsGo){
+    if (!(R0.set && el >= 2) && el < 6) return;
+    J.runsGo = true; J.runsAt = ms.t;
+  }
+  const rr = recv ? J.runs.find(q => q.id === recv.id) : null;
+  const left = rr ? hypot2(recv.m.x - rr.x, recv.m.z - rr.z) : 0;
+  if (rr && left > RUN_NEAR && ms.t - J.runsAt < RUN_WAIT) return;
   const r = ms.r();
   const short = P.delivery === "short" || P.delivery === "mixed" && r < 0.35;
   const sm = agentOf(ms, setup, P.short);
@@ -456,6 +467,9 @@ function deliver(J, ms, setup){
   J.delivered = true; J.kickAt = ms.t;
 }
 const hypot2 = (x, z) => Math.sqrt(x*x + z*z);
+// the corner's timing (s, m): my corner's runners go this long after it is ready; the computer's taker crosses it once
+// the receiver is this near his zone, or this long after the runs began
+const RUN_MINE = 1.5, RUN_NEAR = 3.5, RUN_WAIT = 2.5;
 
 // after it is taken: the runners carry on to their zones until the ball arrives, and the record of what happens
 function watch(J, ms, setup){
