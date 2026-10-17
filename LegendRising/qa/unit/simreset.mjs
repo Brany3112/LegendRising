@@ -43,7 +43,8 @@ const dataKeys = ms => Object.keys(ms).filter(k => !HALF_KEEP.includes(k)).sort(
 const evSig = (ms, from = 0) => JSON.stringify(ms.events.slice(from).map(e => [e.kind, e.agent, e.team, Math.round(e.t*1000)]));
 
 // a short match (2 real minutes a half) on the harness's configuration, the second half started by the simulation
-const cfgOf = (seed, o = {}) => Object.assign(configFor(seed), {halfRealSec: 120, htAuto: true, htWait: 0}, o);
+// (halfSnaps: a match whose halves can be reset keeps their snapshots; P10-B made it opt-in)
+const cfgOf = (seed, o = {}) => Object.assign(configFor(seed), {halfRealSec: 120, htAuto: true, htWait: 0, halfSnaps: true}, o);
 const runTo = (ms, pred, maxT = 400) => { while (!pred(ms) && ms.t < maxT && ms.phase !== "over") simStep(ms); return ms; };
 
 /* ---------- 1. the generator: the match's own, step for step rng.js mulberry32 ---------- */

@@ -1881,7 +1881,8 @@ function enterTraining(cfg, o = {}){
   enterMode("match");
   coverScreen();
   const kits = matchKits(o.kits || (FS.host && FS.host.kits ? FS.host.kits() : {home: ["#2c66b8", "#ffffff"], away: ["#c8463a", "#ffffff"]}));
-  const c = Object.assign({}, cfg, {visible: visibleFn, htAuto: false});
+  // (its halves can be reset: the match keeps their snapshots, sim.js cfg.halfSnaps)
+  const c = Object.assign({}, cfg, {visible: visibleFn, htAuto: false, halfSnaps: true});
   // (the real match's changes when the configuration names a bench and no number of them: Training's own laws allow none,
   // rules.js LAWS.train, and a bench start's change would never be made)
   if ((c.teams || []).some(T => T && (T.bench || []).length) && (!c.rules || c.rules.subs == null)) c.rules = Object.assign({}, c.rules, {subs: 5});

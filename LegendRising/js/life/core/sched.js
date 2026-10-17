@@ -49,11 +49,11 @@ function frustumFrom(cam){
     let s = 0; for (let k = 0; k < 4; k++) s += p[k*4 + r]*v[c*4 + k];
     m[c*4 + r] = s;
   }
-  const row = i => [m[i], m[4 + i], m[8 + i], m[12 + i]];
-  const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
-  const planes = [[r3, r0, 1], [r3, r0, -1], [r3, r1, 1], [r3, r1, -1], [r3, r2, 1], [r3, r2, -1]];
+  // the six planes: the fourth row plus or minus each of the first three (left, right, bottom, top, near, far), read
+  // straight from the matrix (P10-B, perf-6: no row or plane arrays made every frame)
   for (let i = 0; i < 6; i++){
-    const [a, b, s] = planes[i], x = a[0] + s*b[0], y = a[1] + s*b[1], z = a[2] + s*b[2], w = a[3] + s*b[3], L = Math.hypot(x, y, z) || 1;
+    const k = i >> 1, sg = i & 1 ? -1 : 1;
+    const x = m[3] + sg*m[k], y = m[7] + sg*m[4 + k], z = m[11] + sg*m[8 + k], w = m[15] + sg*m[12 + k], L = Math.sqrt(x*x + y*y + z*z) || 1;
     FR[i*4] = x/L; FR[i*4 + 1] = y/L; FR[i*4 + 2] = z/L; FR[i*4 + 3] = w/L;
   }
   frOk = true;
