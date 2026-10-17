@@ -1262,7 +1262,7 @@ const A = {
   drink(id){
     const r = consume(id);
     if (!r.ok) return toast(r.why);
-    save(); renderHub(); toast(`${r.item.name} · Energy ${fmtSigned(r.gain)}`);
+    save(); renderHub(); toast(`${r.item.name} · Energy ${fmtSigned(r.gain, Number.isInteger(r.gain) ? 0 : 1)}`);
   },
   up(k){ const c = skillCost(S.skills[k]); if (S.sp < c || S.skills[k] >= 99) return; S.sp -= c; S.skills[k]++; meP().ovr = overall(); save(); refreshSheet(); renderHub(); },
   buy(id){

@@ -1,4 +1,8 @@
-# PC status: P10-A (First day), branch `pc/p10a`
+# pc/p10a: the PC's status and hook requests (moved here at integration)
+
+## PC-STATUS.md
+
+### PC status: P10-A (First day), branch `pc/p10a`
 
 **State: finished; ready for the cloud to merge.** Base: `origin/claude/awesome-babbage-o53g6x` at `6c5db89`, plus the
 PC's Playwright import fix (cherry-picked from `pc/p7b`, commit `7a2166f`).
@@ -68,3 +72,21 @@ PC's Playwright import fix (cherry-picked from `pc/p7b`, commit `7a2166f`).
    - the bed's three lines;
    - the bed's own prompt saying "Hold E: not today.";
    - after paying, "Pick up your bulb at the end of the counter" with the marker on the counter.
+
+## HOOKS.md
+
+### P10-A hook requests
+
+One optional line, outside P10-A's files.
+
+## `LegendRising/js/ui/main.js:1265` (the drink from your stock at the hub or at half time), for FD-6
+
+The toast rounds the energy to a whole number (`fmtSigned(r.gain)`), while `consume()` now returns it to one decimal, as
+the fridge tooltip and the eat chip show it. For the same number everywhere:
+
+```js
+    save(); renderHub(); toast(`${r.item.name} · Energy ${fmtSigned(r.gain, Number.isInteger(r.gain) ? 0 : 1)}`);
+```
+
+Drinks give whole numbers at the hub today (no fridge quality applies), so nothing visible changes until a food with a part
+point is drunk there. It's not required for P10-A's acceptance.
