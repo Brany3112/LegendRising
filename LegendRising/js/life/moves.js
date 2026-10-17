@@ -14,7 +14,7 @@
    ---- timing (3.5.7 contact scheduling) ----
    Clips are time based: each has dur and contact in seconds at rate 1. st.tc, when given, is the time from now to the
    contact the simulation has scheduled (a countdown, as view.js passes it: (stepContact - step - alpha)/60); the part
-   of the clip before contact plays at rate (contact - clipTime)/(time left), clamped to [0.7, 1.4], re-aimed every
+   of the clip before contact plays at rate (contact - clipTime)/(time left), clamped to [0.4, 2] (U24), re-aimed every
    call; after contact it plays at rate 1. The contact event fires at the scheduled moment whatever the pose: when the
    clamp kept the clip from getting there, h.ev.reachErr says by how much (clip seconds; 0 means the pose and the
    schedule agree). Without st.tc the clip runs at rate 1 (st.rate scales it). Legacy st.t (0..1 of the clip) is honoured.
@@ -152,6 +152,9 @@ const bump = u => u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI*u);
 /* ---------- the clip clock ----------
    h.mv: the clip running on this body. A new one starts when the mode changes (human.js sets h.at to 0), when st.id
    changes, or when the same mode's clock went backwards. */
+// (U24) how much faster or slower than its own pace a clip may play to meet the simulation's contact: at 0.7 to 1.4 a
+// strike asked late struck the ball with its leg still on the way, and one asked early had its foot 0.3 m past the ball
+const CLIP_RATE_MIN = .4, CLIP_RATE_MAX = 2;
 function newClip(h, key, st, spec){
   const C = h.mv || (h.mv = {});
   C.key = key; C.id = st.id; C.base = h.at; C.lastAt = h.at; C.lastT = 0; C.tau = spec.pre ? -spec.pre : 0; C.pre = spec.pre || 0; C.back = 0;
@@ -163,6 +166,10 @@ function newClip(h, key, st, spec){
   // (a clip may begin part of the way in: C.tau0, set by its begin, the strike let go from a held wind-up)
   C.tau0 = 0;
   if (spec.begin){ spec.begin(h, C, st); C.tau = C.pre ? -C.pre : C.tau0; }
+  // (USER-ISSUES U24) a contact sooner than the clip can reach at its fastest (CLIP_RATE_MAX times its own pace): it
+  // begins that much further into its swing (a shorter backswing), so the foot meets the ball when the simulation
+  // strikes it. Begun at the top, a strike struck within 0.18 s of being asked had its leg still swinging as the ball left
+  if (!C.legacy && st.tc != null && isFinite(st.tc) && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*st.tc) C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*st.tc);
   if (!C.legacy){ C.tcAt = st.tc != null && isFinite(st.tc) ? Math.max(0, h.at - C.base + st.tc) : (C.contact - C.tau)/C.post; }
   return C;
 }
@@ -197,7 +204,7 @@ function clock(h, key, st, spec){
   } else if (!C.contactDone){
     if (st.tc != null && isFinite(st.tc)) C.tcAt = T + st.tc;
     const rem = C.tcAt - T0;
-    const rate = rem > 1e-6 ? clamp((C.contact - C.tau)/rem, .7, 1.4) : 1.4;
+    const rate = rem > 1e-6 ? clamp((C.contact - C.tau)/rem, CLIP_RATE_MIN, CLIP_RATE_MAX) : CLIP_RATE_MAX;
     C.rate = rate;
     if (T >= C.tcAt - 1e-9){
       const tauC = C.tau + rate*Math.max(0, C.tcAt - T0);
@@ -882,6 +889,10 @@ function strike(h, T, st, dt){
     d.vFoot = K.pass ? 4 + 10*d.power : 6 + 14*d.power;
   }
   const tau = C.tau, ct = K.contact, dur = K.dur;
+  // (USER-ISSUES U24) up to contact the swing goes where the ball will be as the view says now (st.ball, the
+  // simulation's own prediction at its contact), not where it was thought to be when the strike began: a ball still
+  // moving, or a contact moved by a stride, left the foot short of it or wide. The planted foot stays where it went down
+  if (st.ball && tau < ct){ d.bx = st.ball.x; d.by = st.ball.y != null ? st.ball.y : BR; d.bz = st.ball.z; }
   const ball = _b4; ball.x = d.bx; ball.y = d.by; ball.z = d.bz;
   const fx = d.fx, fz = d.fz;
   leftOf(fx, fz, _l2); const lx = _l2.x, lz = _l2.z;
