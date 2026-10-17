@@ -15,7 +15,9 @@
    Clips are time based: each has dur and contact in seconds at rate 1. st.tc, when given, is the time from now to the
    contact the simulation has scheduled (a countdown, as view.js passes it: (stepContact - step - alpha)/60); the part
    of the clip before contact plays at rate (contact - clipTime)/(time left), clamped to [0.4, 2] (U24), re-aimed every
-   call; after contact it plays at rate 1. The contact event fires at the scheduled moment whatever the pose: when the
+   call, and waits at the contact for a contact later than that (it never plays past it before the contact); after
+   contact it plays at rate 1, from the contact pose in the call that reaches it (the time past it in that call is not
+   played on). The contact event fires at the scheduled moment whatever the pose: when the
    clamp kept the clip from getting there, h.ev.reachErr says by how much (clip seconds; 0 means the pose and the
    schedule agree). Without st.tc the clip runs at rate 1 (st.rate scales it). Legacy st.t (0..1 of the clip) is honoured.
    Events (EV from gait.js): PLANT (the support foot down), TAKEOFF, CONTACT, RELEASE, LAND, END, each with h.ev.at
@@ -206,13 +208,18 @@ function clock(h, key, st, spec){
     const rem = C.tcAt - T0;
     const rate = rem > 1e-6 ? clamp((C.contact - C.tau)/rem, CLIP_RATE_MIN, CLIP_RATE_MAX) : CLIP_RATE_MAX;
     C.rate = rate;
+    // ((USER-ISSUES U24) a clip that gets to its contact before the simulation does waits on it there, and the call that
+    // reaches the simulation's contact poses the contact itself: the time past it inside this call (under a frame) is
+    // not played on, the clip running that much behind from then, as the drawn ball is held on the contact for that
+    // frame (view.js kickHold). Played on, the foot was up to a frame past the ball in the frame the kick is drawn in,
+    // and a clip ahead of a late contact (a header waiting for the ball at his head) had already swung through)
     if (T >= C.tcAt - 1e-9){
-      const tauC = C.tau + rate*Math.max(0, C.tcAt - T0);
+      const tauC = Math.min(C.contact, C.tau + rate*Math.max(0, C.tcAt - T0));
       C.reachErr = Math.abs(C.contact - tauC) < 1e-6 ? 0 : C.contact - tauC;
-      C.tau = (C.reachErr === 0 ? C.contact : tauC) + (T - C.tcAt)*C.post;
+      C.tau = C.reachErr === 0 ? C.contact : tauC;
       C.contactDone = true;
       fire(h, C, EV.CONTACT, C.tcAt, adt, T);
-    } else C.tau += rate*dt;
+    } else C.tau = Math.max(C.tau, Math.min(C.contact, C.tau + rate*dt));
   } else C.tau += dt*C.post;
   // the clip's other moments, by its own time (their real time interpolated inside this step)
   if (C.events){
@@ -892,7 +899,8 @@ function strike(h, T, st, dt){
   // (USER-ISSUES U24) up to contact the swing goes where the ball will be as the view says now (st.ball, the
   // simulation's own prediction at its contact), not where it was thought to be when the strike began: a ball still
   // moving, or a contact moved by a stride, left the foot short of it or wide. The planted foot stays where it went down
-  if (st.ball && tau < ct){ d.bx = st.ball.x; d.by = st.ball.y != null ? st.ball.y : BR; d.bz = st.ball.z; }
+  // (and while the clip waits at its contact for the simulation's, moves.js clock)
+  if (st.ball && !C.contactDone){ d.bx = st.ball.x; d.by = st.ball.y != null ? st.ball.y : BR; d.bz = st.ball.z; }
   const ball = _b4; ball.x = d.bx; ball.y = d.by; ball.z = d.bz;
   const fx = d.fx, fz = d.fz;
   leftOf(fx, fz, _l2); const lx = _l2.x, lz = _l2.z;
@@ -1577,6 +1585,10 @@ function header(h, T, st, dt){
     else { toW(0, hp.take === "dive" ? .7 : 1.75 + (hp.v0*hp.v0/(2*G))/sc, hp.take === "dive" ? 1.2 : .12, _w3); d.bx = _w3.x; d.by = _w3.y; d.bz = _w3.z; }
     d.f0 = C.feet.map(f => ({x:f.x, y:f.y, z:f.z, yaw:f.yaw}));
   }
+  // (USER-ISSUES U24) up to contact the head goes where the ball will be as the view says now (st.ball, the
+  // simulation's own ball on the step it heads it), as a strike's foot does: the ball as first predicted, a cross still
+  // bending or dropping, left the brow up to a third of a metre off it when the simulation headed it
+  if (st.ball && !C.contactDone){ d.bx = st.ball.x; d.by = st.ball.y; d.bz = st.ball.z; }
   if (hp.take === "dive") return diveHeader(h, T, C, d, hp, st);
   // legacy drills ask for st.t with their own ball: the old clip's shape on the new timing
   const J = hp.take === "jump" ? jumpRoot({v0:hp.v0, tLoad:hp.tLoad}, tau, _jr) : null;
@@ -1599,7 +1611,9 @@ function header(h, T, st, dt){
   dirB(d.fx, d.fz, _d2);
   const tx = _b3.x - _d2.x*BR*.9/sc, tz = _b3.z - _d2.z*BR*.9/sc, ty = _b3.y;
   T[60] += clamp(tx - _V.x, -.3, .3)*wC; T[62] += clamp(tz - _V.z, -.3, .3)*wC;
-  if (!air) T[61] += clamp(ty - _V.y, -.25, 0)*wC;
+  // (in the air the hips may come up or down to it too, a quarter metre at most: the leap was sized by the simulation to
+  // a ball it predicted, and the jump curve here is the clip's own)
+  T[61] += clamp(ty - _V.y, -.25, air ? .25 : 0)*wC;
   // arms: up and forward for the leap (elbows out to the sides), down through the landing
   const aUp = J ? kf(tau, [[0, .2], [hp.tLoad*.8, -.4], [hp.tLoad + .1, 1.6], [ct, 1.3], [ct + .2, .5], [hp.dur, .15]]) : .3 + .3*wC;
   armPose(T, 1, J ? .5 + .2*sstep(hp.tLoad, ct, tau) : .35, aUp, 1.0); armPose(T, -1, J ? .5 + .2*sstep(hp.tLoad, ct, tau) : .35, aUp, 1.0);
