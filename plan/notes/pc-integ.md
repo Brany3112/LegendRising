@@ -123,3 +123,23 @@ merge into `claude/awesome-babbage-o53g6x`. This PC never pushed there.
    - `wpK-gk` (hand-to-plant 2.8 cm against 2);
    - `wpK-strike` (four kinds of kick that never plant);
    - the `tr2b-shield` tip.
+
+## After the integration (2026-10-17, evening)
+
+- **U22, U23 and U25 (`e69c922`):** pushed before word came that the cloud is fixing these three. Changed files:
+  `matchcam.js tpFrame` (the camera anchored on the drawn body, an orbit tilting with the aim), `control.js TPR`,
+  `training.js frameItem`, the shadow redraw for moving people (`human.js`, `world.js`, `sky.js`) and `qa/u21-smooth.mjs`.
+  - If the cloud's own fix replaces them, revert that commit first so the two don't collide in `matchcam.js`.
+- **U24 (`moves.js`):**
+  - The strike's swing follows the live ball prediction up to contact.
+  - A clip may play 0.4 to 2 times its own pace to meet the simulation's contact.
+  - A clip asked for sooner than it can reach begins that far into its swing.
+  - **Result:** `tr9-anim`'s "foot within 0.12 m of the drawn ball at contact" went from 14 of 16 contacts missed to
+    3 of 16.
+  - **Still open:** two shots a simulation step off the kick, and one header. The test's 5% bar still fails.
+- **The memory leak (`tr4-pitch`):** no geometry was ever found alive outside the scene.
+  - The growth was `renderer.info` counting a mesh first drawn on a later trip (a lazy first upload).
+  - The check now tracks every uploaded geometry: it fails on one kept alive outside the scene, or on the scene's own
+    count growing, and names where the geometry was made. It passes; so did six plain runs.
+- **Still intermittent:** `uf-callpass` (4 of 6 runs pass). In the other two, a few presses of R went unregistered
+  while the keeper held the ball for his roll (P9-B's `gkroll` hold).

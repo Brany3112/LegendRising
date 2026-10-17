@@ -29,6 +29,16 @@ try {
     for (const k of ["full", "half", "onegoal"]) R.registerScenario({id: "qa-pitch-" + k, category: "attacking", name: "Pitch " + k, desc: "A test scenario", config: {pitch: k}, build});
   });
   const base = await page.evaluate(async () => { const H = await import("/js/life/human.js"), PL = await import("/js/life/train/pool.js"); return {bodies: H.bodies().length, poolIds: H.bodies().filter(PL.pooled).map(h => h.id).sort((a, b) => a - b).join(), pool: window.__trainRun.poolStats().size}; });
+  // (every geometry the renderer has uploaded and not let go, with where it was made: a leak is one kept alive outside
+  // the scene, or the scene's own count growing; renderer.info also counts a mesh first drawn on a later trip)
+  await page.evaluate(async () => {
+    const {THREE} = await import("/js/life/build.js");
+    const G = THREE.BufferGeometry.prototype, live = window.__geoLive = new Map(), NL = String.fromCharCode(10);
+    const sa = G.setAttribute; G.setAttribute = function(n, a){ if (!this.__born) this.__born = new Error().stack.split(NL).slice(2, 6).map(x => x.trim().replace(/https?:[/][/][^/]+/, "")).join(" | "); return sa.call(this, n, a); };
+    const ae = G.addEventListener; G.addEventListener = function(t, f){ if (t === "dispose" && /onGeometryDispose/.test(f.name || "")) live.set(this, (this.type || "") + " " + (this.name || "") + " @ " + (this.__born || "?")); return ae.call(this, t, f); };
+    const re = G.removeEventListener; G.removeEventListener = function(t, f){ if (t === "dispose") live.delete(this); return re.call(this, t, f); };
+    window.__geoNow = () => { const inScene = new Set(); window.__life.scene().traverse(o => { if (o.geometry) inScene.add(o.geometry); }); const out = []; for (const [g, v] of live) if (!inScene.has(g) && !/pitchmesh[.]js.*blobGeo|blobGeo.*pitchmesh/.test(v)) out.push(v); return {scene: inScene.size, out}; };
+  });
   const first = {};
   for (let trip = 0; trip < 4; trip++){
     for (const kind of ["full", "half", "onegoal"]){
@@ -45,10 +55,10 @@ try {
         const cones = window.__trainCones.cones(), anchors = Object.entries(C.CAGE.anchors).flatMap(([cat, l]) => l.map(a => ({cat, x: a.x, z: a.z})));
         const at = cones.every(c => anchors.some(a => a.cat === c.cat && Math.abs(a.x - c.x) < 1e-6 && Math.abs(a.z - c.z) < 1e-6)) && cones.length === anchors.length && cones.length > 0;
         return {kind: C.CAGE.kind, goals: C.CAGE.goalEnds.length, cones: at, nCones: cones.length, bodies: H.bodies().length, poolIds: H.bodies().filter(PL.pooled).map(h => h.id).sort((a, b) => a - b).join(), pool: window.__trainRun.poolStats().size,
-          geo: m.geometries, tex: m.textures, specKind: window.__trainRun.RUN.cur.kind};
+          geo: m.geometries, tex: m.textures, specKind: window.__trainRun.RUN.cur.kind, live: window.__geoNow()};
       });
       s.trip = trip; s.want = kind;
-      if (trip === 1) first[kind] = {geo: s.geo, tex: s.tex};
+      if (trip === 1) first[kind] = {geo: s.geo, tex: s.tex, scene: s.live.scene};
       res.trips.push(s);
       if (trip === 0) await snap(page, "tr4-pitch-" + kind);
       // out: Esc, then the pause card's Return to Hub
@@ -98,7 +108,7 @@ try {
   check(T.every(s => s.bodies === base.bodies && s.poolIds === base.poolIds && s.pool === base.pool), "bodies() unchanged, and the pool's own bodies are the same ones: never rebuilt", {base, trips: T.map(s => [s.bodies, s.poolIds])});
   // (the first trip makes what the view makes once and keeps, the markers drawn on first use: the kinds' first values are
   // taken on the second, then three more round trips must come back to them)
-  check(T.filter(s => s.trip >= 1).every(s => s.geo === first[s.want].geo && s.tex === first[s.want].tex), "after 3 round trips, renderer.info geometries and textures are back at each kind's first value", T.map(s => [s.want, s.geo, s.tex]));
+  check(T.filter(s => s.trip >= 1).every(s => s.live.scene === first[s.want].scene && !s.live.out.length && s.tex === first[s.want].tex), "after 3 round trips, no geometry is kept alive outside the scene, the scene's own geometries and renderer.info's textures are back at each kind's first value", T.map(s => [s.want, s.live.scene, s.live.out.slice(0, 3), s.tex, s.geo]));
   check(T.every(s => s.hubKeeps), "Return to Hub does not switch the cage back", T.map(s => s.hubKeeps));
   check(!(await trainWrites(page)).length, "no career key written while Training ran", await trainWrites(page));
   const careerAfter = await careerSnapshot(page);
