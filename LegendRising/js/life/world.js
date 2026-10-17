@@ -193,6 +193,10 @@ function step(dt, real){
   if (RT.cam){ SV.cam = RT.cam; SV.cx = RT.cam.position.x; SV.cy = RT.cam.position.y; SV.cz = RT.cam.position.z; }
   SCHED.frame(real, SV);
   if (!FLAGS.lockLost) modeStep(dt, real);
+  // (integration, P10-B finding 1: under one of Training's own opaque sheets, with no reveal waiting on drawn frames,
+  // nothing of the view is seen: the camera, the aim and the HUD wait for the sheet to go. The scheduler's tasks and the
+  // mode still run, so a cage built under the hub goes on being built)
+  if (covered()) return;
   fovStep(dt, fl.movement !== "own");
   // the camera last, after anything (a drill) that moves or turns you: what the mouse did this frame is on screen this frame
   camApply(dt);
@@ -207,6 +211,7 @@ function step(dt, real){
   hud(FLAGS.held);
 }
 let last = 0, raf = null, frames = 0, presented = 0, keysT = 0, shadowT = 0;
+const covered = () => overlayCovered() && !revealPending();
 function loop(t){
   if (!LIFE.running) return;
   const t0 = performance.now(), real = Math.max(0, (t - last)/1000 || 0); last = t;
@@ -231,7 +236,7 @@ function tick(real, t0, draw){
     const run = P.moveMode === "run" || P.moveMode === "sprint";
     pass(r10*(FLAGS.moving ? TIME_RATE_MOVING : TIME_RATE)*clockScale(), run ? RUN_ACT() : FLAGS.moving ? "walk" : "idle");
   }
-  skyStep(r10);
+  if (!covered()) skyStep(r10);
   const zs = zoneSpec(LIFE.zone); if (zs && zs.tick) zs.tick(r10);
   if (fl.compass) compassStep(r10, P);
   // something that throws a shadow has moved (a door swinging): redraw the sun's shadows, at most five times a second
