@@ -28,8 +28,8 @@
    question with Yes and Cancel, the Yes runs it. The 'scenario' group's items show only while a scenario plays. */
 import {RUN, restart, replay, stopScenario, setPauseMenu, setPaused, onRunner} from "./runner.js";
 import {openHub, hubOpen} from "./hub.js";
-import {hudOverlay} from "../football/fphud.js";
-import {controlRelease} from "../football/control.js";
+import {hudOverlay, fmtVal} from "../football/fphud.js";
+import {controlRelease, SET, saveSet, TP_SET} from "../football/control.js";
 import {pushInput, popInput} from "../core/modes.js";
 
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
@@ -64,6 +64,22 @@ export function runItem(id){
   return true;
 }
 
+/* ---------- the camera, set from the card (the user's ask: change it live from Esc, kept for every match and the
+   career too: the same settings as the match's Settings sheet, stored on this device) ---------- */
+const CAM_ROWS = [["tpDist", "Camera distance", .1], ["tpHeight", "Camera height", .05], ["tpSide", "Over the shoulder", .05], ["tpShake", "Camera shake at a sprint", .05]];
+function camHTML(){
+  const third = SET.footCam !== "first";
+  const seg = `<div class="seg"><button type="button" aria-pressed="${third}" data-q="cam:third">Third person</button><button type="button" aria-pressed="${!third}" data-q="cam:first">First person</button></div>`;
+  const rows = third ? CAM_ROWS.map(([k, label, st]) => { const [lo, hi] = TP_SET[k];
+    return `<label class="fp-qcam-row"><span>${esc(label)}</span><input type="range" min="${lo}" max="${hi}" step="${st}" value="${SET[k]}" data-cam="${k}" aria-label="${esc(label)}"><span class="fp-set-v" data-k="${k}">${esc(fmtVal(k, SET[k]))}</span></label>`; }).join("") : "";
+  return `<div class="fp-qgroup fp-qcam" data-group="camera"><div class="eyebrow">Camera</div>${seg}${rows}<p class="muted small">Changes show straight away and are kept for every match and your career.</p></div>`;
+}
+function camInput(e){
+  const t = e.target; if (!t || !t.dataset || !t.dataset.cam || !Q.open) return;
+  const k = t.dataset.cam; saveSet({[k]: +t.value});
+  const sp = t.parentNode && t.parentNode.querySelector(`.fp-set-v[data-k="${k}"]`); if (sp) sp.textContent = fmtVal(k, SET[k]);
+}
+
 /* ---------- the card ---------- */
 const Q = {open:false, drawn:false, el:null, inp:null, obs:null, lockErr:null, lockOk:null, match:null, confirm:null};
 // (a sheet is up, or the presets' sheet is on its way up: it slides in on the next frame)
@@ -86,13 +102,13 @@ function html(){
   }).join("");
   const preset = presetName ? `Preset: ${esc(presetName)}` : "No preset";
   return `<div class="fp-box fp-cardbox" tabindex="-1"><div class="fp-box-foot row gap8 center"><button class="btn" data-q="resume">Resume</button></div>
-    <div class="fp-box-body"><div class="eyebrow">Paused</div><h2>${esc(title)}</h2><p class="muted small">${preset}</p>${groups}
+    <div class="fp-box-body"><div class="eyebrow">Paused</div><h2>${esc(title)}</h2><p class="muted small">${preset}</p>${groups}${camHTML()}
     ${M ? "" : `<p class="muted small">Backspace restarts from here too.</p>`}</div></div>`;
 }
 function draw(){
   const o = hudOverlay(html(), "card");
   if (!o) return false;
-  if (Q.el !== o){ if (Q.el) Q.el.removeEventListener("click", click); o.addEventListener("click", click); Q.el = o; }
+  if (Q.el !== o){ if (Q.el){ Q.el.removeEventListener("click", click); Q.el.removeEventListener("input", camInput); } o.addEventListener("click", click); o.addEventListener("input", camInput); Q.el = o; }
   Q.drawn = true;
   const box = o.querySelector(".fp-cardbox");
   if (box && !box.contains(document.activeElement)) try { box.focus({preventScroll:true}); } catch(e){}
@@ -136,7 +152,7 @@ export function quickClose({resume = false} = {}){
   const was = Q.open;
   if (Q.inp){ popInput(Q.inp); Q.inp = null; }
   watchSheet(false);
-  if (Q.el){ Q.el.removeEventListener("click", click); Q.el = null; }
+  if (Q.el){ Q.el.removeEventListener("click", click); Q.el.removeEventListener("input", camInput); Q.el = null; }
   if (Q.drawn) hudOverlay(null);
   Q.open = false; Q.drawn = false;
   if (resume && RUN.cur){ setPaused(false); relock(); }
@@ -186,7 +202,7 @@ export function matchCard(on, o = {}){
   }
   if (!Q.match) return true;
   if (Q.inp){ popInput(Q.inp); Q.inp = null; }
-  if (Q.el){ Q.el.removeEventListener("click", click); Q.el = null; }
+  if (Q.el){ Q.el.removeEventListener("click", click); Q.el.removeEventListener("input", camInput); Q.el = null; }
   if (Q.drawn) hudOverlay(null);
   Q.open = false; Q.drawn = false; Q.match = null; Q.confirm = null;
   return true;
@@ -196,7 +212,9 @@ function click(e){
   const b = e.target && e.target.closest && e.target.closest("[data-q]");
   if (!b || !Q.open) return;
   e.preventDefault();
-  act(b.dataset.q);
+  const q = b.dataset.q;
+  if (q === "cam:third" || q === "cam:first"){ saveSet({footCam: q.slice(4)}); draw(); return; }
+  act(q);
 }
 // the configuration sheet with this configuration: the scenario's own, else whoever listens, else the hub
 function openConfig(sc, config){

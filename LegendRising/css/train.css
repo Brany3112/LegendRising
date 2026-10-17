@@ -198,3 +198,8 @@ body:has(#fkPlace) #trainHud{visibility:hidden}
   .ssg-time{grid-area:1/4/3/5;min-width:2.4em;padding-left:6px;border-left:1px solid var(--hud-line,rgba(255,255,255,.14));align-self:stretch;display:flex;align-items:center;justify-content:flex-end}
   .ssg-time:empty{display:none}
 }
+/* the pause card's camera settings (live, kept for every match and the career) */
+.fp-qcam .seg{justify-content:center;margin:6px 0 4px}
+.fp-qcam-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,2fr) 92px;align-items:center;gap:10px;margin:4px 0;font-size:.85rem;text-align:left}
+.fp-qcam-row input[type=range]{width:100%}
+.fp-qcam-row .fp-set-v{text-align:right;opacity:.85;font-variant-numeric:tabular-nums}

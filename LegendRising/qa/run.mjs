@@ -60,6 +60,7 @@ const NAMED = {
   uf2: ["uf2-feel", "uf2-ssg-sim", "uf2-ssg"],
   uf2a: ["uf2-feel"],
   uf2b: ["uf2-ssg-sim", "uf2-ssg"],
+  uf3: ["uf3-pausecam"],
   // Phase 7 (TR-7): P7-A's free kicks, P7-B's corners, throw-ins and penalties
   tr7: ["tr7-freekick", "tr7-corner", "tr7-throw", "tr7-penalty"],
   tr7a: ["tr7-freekick"],

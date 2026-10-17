@@ -222,7 +222,7 @@ export const CTRL = {ctx:"free", walk:false, scan:null, shield:false, note:null,
    100 px, or 3 lines in line mode), and each notch is one step. A precision trackpad (or a free-spinning wheel) sends a
    stream of events a frame apart for one swipe, so those are added up and a swipe moves one step at most: a new swipe
    is a turn the other way or one after a pause of WHEEL.GAP ms. A scroll with no up or down in it (sideways) is no turn */
-export const WHEEL = {NOTCH:50, FINE:30, STREAM:25, GAP:220, acc:0, t:-1e9, done:false};
+export const WHEEL = {NOTCH:50, FINE:30, STREAM:25, GAP:220, acc:0, t:-1e9, done:false, clean:false};
 export function wheelStep(ev){
   const dy = (+ev.deltaY || 0)*(ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 600 : 1);
   if (!dy) return 0;
@@ -232,7 +232,11 @@ export function wheelStep(ev){
   if (gap > WHEEL.GAP || dir !== Math.sign(WHEEL.acc)){ WHEEL.acc = 0; WHEEL.done = false; }
   WHEEL.acc += dy;
   // a notch on its own (not part of a stream): a step each
-  if (Math.abs(dy) >= WHEEL.NOTCH && gap > WHEEL.STREAM){ WHEEL.done = true; return dir; }
+  // (a mouse turned fast sends its notches 10 ms apart: a clean notch, exactly 100 or 120 px or a whole number of them,
+  // straight after another clean notch is a step too; a trackpad's stream never comes in such even bites)
+  const clean = [100, 120].some(u => { const n = Math.abs(dy)/u; return n >= 1 && Math.abs(n - Math.round(n)) < .01; });
+  const prevClean = WHEEL.clean; WHEEL.clean = clean;
+  if (Math.abs(dy) >= WHEEL.NOTCH && (gap > WHEEL.STREAM || (clean && prevClean))){ WHEEL.done = true; return dir; }
   if (WHEEL.done || Math.abs(WHEEL.acc) < WHEEL.FINE) return 0;
   WHEEL.done = true;
   return dir;
