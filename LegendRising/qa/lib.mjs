@@ -14,14 +14,27 @@ import fs from "node:fs";
 import path from "node:path";
 import {ensureServer, ROOT, HOST} from "./serve.mjs";
 
-process.env.PLAYWRIGHT_BROWSERS_PATH ||= "/opt/pw-browsers";
-const {chromium} = await import("/opt/node22/lib/node_modules/playwright/index.mjs");
+// Playwright from the Linux path first; elsewhere (a Windows PC) the globally installed package (npm install -g
+// playwright), on the real GPU instead of SwiftShader
+const WIN = process.platform === "win32";
+if (!WIN) process.env.PLAYWRIGHT_BROWSERS_PATH ||= "/opt/pw-browsers";
+async function playwright(){
+  try { return await import("/opt/node22/lib/node_modules/playwright/index.mjs"); }
+  catch(e){
+    const {execSync} = await import("node:child_process"), {pathToFileURL} = await import("node:url");
+    const root = execSync("npm root -g", {encoding: "utf8"}).trim();
+    return await import(pathToFileURL(path.join(root, "playwright", "index.mjs")).href);
+  }
+}
+export const PW = await playwright();
+const {chromium} = PW;
 
 export {ROOT};
 export const PORT = +(process.env.QA_PORT || 8765);
 export const BASE = `http://${HOST}:${PORT}/`;
 export const OUT = path.join(ROOT, "qa", "out");
-export const ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-precise-memory-info"];
+export const ARGS = WIN ? ["--ignore-gpu-blocklist", "--enable-precise-memory-info"]
+  : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-precise-memory-info"];
 
 // runs in the page before any of its scripts, on every navigation: a seeded Math.random (the project's mulberry32,
 // the same generator as human.js rng()), the graphics setting, and a requestAnimationFrame that freeze() can stop
