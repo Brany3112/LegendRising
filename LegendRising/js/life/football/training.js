@@ -30,7 +30,17 @@
    that cannot leak into each other. The runner drives the mode with an item of its own (T.fixed: one SCHED.fixed
    task steps the simulation; T.bodyOf and T.fpBody: pooled bodies; T.officials false). The coach's ball to you is a
    chain pass whose receiver is you (AI-2 follow-up), so your team-mates leave it to you; his scheduler task runs only
-   while he is lent to a run or walking back to his post (perf-9). P4-B (TR-4): a host's pause callback (see "leaving"). */
+   while he is lent to a run or walking back to his post (perf-9). P4-B (TR-4): a host's pause callback (see "leaving").
+
+   UF2-B (user fix round 2, USER-ISSUES Round 2 U13 to U16: the small-sided game, the first day's Lesson 6 and the team
+   session's third block, and any item that says it is one): a small scoreboard (ssghud.js: the sides, the score, the
+   time left), your side in the club's kit and the other side in bibs of one colour clearly apart from it, the same all
+   game (kitsOf, dressFor: the U11 rule through trainspec.js bibKits and kitclash.js), the aura on the team-mate you
+   look at (aura.js, U8), and after a goal a quick kick-off from the side that conceded with everyone jogging back to
+   shape (ssgStep), the coach's new ball after the ball goes out played in from the line where he stands (ssgFeed).
+   The AI's attacking end was checked at its source (brain.js aims every shot, header and first-time finish at
+   dirs[team]; qa/uf2-ssg-sim.mjs counts them over many seeds): the side you saw shooting at its own goal was your own
+   team-mates in their own clothes or bibs and the other side in a near colour, which the kits above put right. */
 import {THREE, W, mat, onBegin} from "../build.js";
 import {P, LIFE, RT, ME, FLAGS} from "../core/state.js";
 import {registerMode, enterMode, exitMode, mode, pushInput, popInput, persistNow} from "../core/modes.js";
@@ -45,6 +55,7 @@ import {attrsForAI} from "./attrs.js";
 import {xgAt} from "./judge.js";
 import {refreshPred, startKick} from "./actions.js";
 import {startRestart} from "./rules.js";
+import * as SP from "./ssgplay.js";
 import {AUD} from "./audio.js";
 import {logEv, chainKick} from "./events.js";
 import * as TS from "./trainspec.js";
@@ -55,10 +66,39 @@ import {viewInit, viewFrame, viewDispose} from "./view.js";
 import * as VW from "./view.js";
 import * as HUD from "./fphud.js";
 import * as CAM from "./matchcam.js";
+import {ssgShow, ssgFrame, ssgGoal, ssgHide, ssgState} from "./ssghud.js";
+import {auraInit, auraFrame, AURA} from "./aura.js";
 
-// the host's kits as worn: kitclash.js resolves a clash (training bibs against the club's own colours, say) and picks
-// the keepers' and the referee's colours (UF-B, USER-ISSUES U11), as controller.js does for a match
-const kitsOf = host => { const R = resolveKits(host.kits()); return {home:R.home, away:R.away, gk:R.gk, ref:R.ref}; };
+/* the kits as worn, by team index (home: team 0's), for a career host (acts.js kits(): {home: the club's training kit,
+   away: [the bib colour it would like, ...]}). Your side is always in the club's kit and the other side in bibs over
+   the club's shorts, whichever way the item is played (UF2-B, USER-ISSUES U15): trainspec.js bibKits picks a bib colour
+   clearly apart from the club's kit by the U11 rule (CIEDE2000), and kitclash.js picks the keepers' and the referee's
+   colours clear of both (UF-B, U11), as controller.js does for a match. The same club gives the same kits every time,
+   so nobody changes colour after a goal, a reset or the next block. (Training Mode's runner hands in kits of its own:
+   T.kits.) */
+function kitsOf(host, myTeam = 0){
+  const k = host.kits() || {};
+  const B = TS.bibKits(k.home, k.away ? k.away[0] : null);
+  const R = resolveKits({home:B.mine, away:B.bibs});
+  const mine = R.home, theirs = R.away;
+  return myTeam === 1 ? {home:theirs, away:mine, gk:[R.gk[1], R.gk[0]], ref:R.ref, bib:B.bib, mine:1}
+    : {home:mine, away:theirs, gk:R.gk, ref:R.ref, bib:B.bib, mine:0};
+}
+/* what a borrowed squad body wears in an item (UF2-B, U15): his own face, hair and build (npc.js teamSession.lookOf),
+   dressed for his side: your side in the club's kit with no bib (the pair that was passing in bibs takes them off),
+   the other side in the bibs (its colour on the shirt and the bib over it, so it reads at any distance and level of
+   detail), a keeper in his side's keeper colour. kits: kitsOf's, by team index */
+export function dressFor(own, a, kits, myTeam){
+  if (!own || !own.outfit || !a || !kits) return own || null;
+  const K = a.team === 0 ? kits.home : kits.away;
+  const o = Object.assign({}, own.outfit);
+  if (a.isGK){
+    const c = kits.gk && kits.gk[a.team];
+    if (c){ o.shirt = c; o.socks = c; }
+  } else if (a.team === myTeam){ o.shirt = K[0]; o.shorts = K[1]; o.bib = false; }
+  else { o.shirt = K[0]; o.bib = K[0]; o.shorts = K[1]; }
+  return Object.assign({}, own, {outfit:o});
+}
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60, R = BALL.R;
@@ -244,8 +284,7 @@ function buildItem(item, who, opts = {}){
     const p = squad.find(q => q.pos === "GK") || nextSquad();
     add(oppTeam, Object.assign(playerRec(p, "GK"), {scale:who.keeper.scale || 1}), who.keeper);
   }
-  const kits = kitsOf(host);
-  const rules = Object.assign({goals:TS.goalsLaw(spec), offside:!!item.offside, restarts:!!item.restarts, cards:false, subs:0, halfTime:false, stoppage:false}, opts.rules || {});
+  const rules =Object.assign({goals:TS.goalsLaw(spec), offside:!!item.offside, restarts:!!item.restarts, cards:false, subs:0, halfTime:false, stoppage:false}, opts.rules || {});
   const cfg = {seed:host.seed(item.kind + ":" + (opts.n || 0)), mode:item.mode, spec, halfRealSec:1e6, tempo:Object.assign({}, TEMPO[2]),
     teams, me:{team:myTeam, slot:meRec.slot, prefFoot:meRec.prefFoot, chem:meRec.chem, trust:meRec.trust, traits:meRec.traits, staminaF:meRec.staminaF, role:"starter"},
     rules, kickoffTeam:myTeam, htAuto:true};
@@ -417,6 +456,26 @@ export function viewOpts(T, look, lookOf = null){
   if (T.officials === false) o.officials = false;
   return o;
 }
+/* the scoreboard an item shows (ssghud.js ssgShow's argument), or null: a small-sided game's (UF2-B U13: you in the
+   club's colour, the other side by its bibs, the score, the time left), or a host item's own T.item.board ({mine:
+   {name, kit}, theirs: {name, kit}, real?: seconds}) */
+function boardOf(T, kits){
+  const it = T.item, own = it.board;
+  if (!own && !TS.isSSG(it)) return null;
+  const mineK = T.myTeam === 0 ? kits.home : kits.away, theirK = T.myTeam === 0 ? kits.away : kits.home;
+  const b = {mine:{name:"You", kit:mineK}, theirs:{name:"Bibs", kit:theirK}, us:T.myTeam, real:it.real != null ? +it.real : null};
+  if (own) Object.assign(b, own, {us:T.myTeam});
+  b.left = b.real != null ? b.real : null;
+  return b;
+}
+// where the view draws an agent this frame, in the world (the aura's posOf), or null when he is not drawn
+function auraPosOf(T, id, out){
+  const R = T.V && T.V.rec[id];
+  if (!R || R.hidden || !R.h || !R.h.g.visible) return null;
+  const g = R.h.g.position; out.x = g.x + T.F.cx; out.y = g.y; out.z = g.z + T.F.cz;
+  return out;
+}
+
 registerMode("train", {
   enter(T){
     RUN.T = T;
@@ -427,12 +486,13 @@ registerMode("train", {
     g.name = "training"; g.position.set(T.F.cx, 0, T.F.cz); g.updateMatrixWorld(true);
     W.scene.add(g);
     const look = T.host.look();
-    // the borrowed squad bodies on your side (and a keeper) keep their own looks (npc.js teamSession.lookOf); the ones
-    // against you wear the other kit, as bibs would, so you can tell the sides apart
+    // the borrowed squad bodies keep their own faces (npc.js teamSession.lookOf), dressed for their side: yours in the
+    // club's kit, the other side in bibs, the same all game (dressFor, UF2-B U15)
     const sess = GROUND.session;
-    const lookOf = a => { if (a.team !== T.myTeam && !a.isGK) return null; const b = T.bodies.get(a.id); return b && b.h && sess && sess.lookOf ? sess.lookOf(b.h) : null; };
+    const kits = T.kits = T.kits || kitsOf(T.host, T.myTeam);
+    const lookOf = a => { const b = T.bodies.get(a.id), own = b && b.h && sess && sess.lookOf ? sess.lookOf(b.h) : null; return own ? dressFor(own, a, kits, T.myTeam) : null; };
     // (Training Mode's runner hands in pooled bodies and draws no officials, view.js)
-    T.V = viewInit(T.ms, g, T.kits || kitsOf(T.host), viewOpts(T, look, lookOf));
+    T.V = viewInit(T.ms, g, kits, viewOpts(T, look, lookOf));
     T.V.me = T.ms.me;
     // your eyes: match-fp (matchcam.js) over where your agent is, your first-person body under them
     CAM.camInit({me:() => T.me, view:() => T.V, eye:out => { out.x = P.x; out.z = P.z; out.y = P.eye; return out; },
@@ -441,10 +501,18 @@ registerMode("train", {
       pose:(x, z, yaw, dt) => VW.fpPose ? VW.fpPose(T.V, x - T.F.cx, z - T.F.cz, yaw, dt, {speed:T.me.m.speed, wind:CTRL.wind}) : 0,
       clip:() => { const R = T.V && T.V.rec[T.ms.me]; return !!(R && R.clip); }, after:() => {}});
     // the HUD: your breath, the power arc, the hints, the calls; a scorebug only where there is a score to keep
-    const k = T.kits || kitsOf(T.host);
+    const k = kits;
     HUD.hudInit({home:{short:T.myTeam === 0 ? T.host.clubShort() : "BIB", kit:k.home}, away:{short:T.myTeam === 0 ? "BIB" : T.host.clubShort(), kit:k.away}, us:T.myTeam});
     const root = HUD.hudRoot ? HUD.hudRoot() : null, bug = root && root.querySelector("[data-part=score]");
-    if (bug && !T.item.score) bug.style.display = "none";
+    // a small-sided game keeps its score on a scoreboard of its own (ssghud.js: the sides, the score, the time left;
+    // UF2-B U13), never the match's scorebug with its match clock. T.item.board (an item of a host's: {mine, theirs,
+    // real?}) asks for the same board
+    T.board = boardOf(T, k);
+    if (bug && (!T.item.score || T.board)) bug.style.display = "none";
+    if (T.board) ssgShow(T.board);
+    // the team-mate you look at gets the soft red aura, as in a match (aura.js, UF-B U8; UF2-B U15). Made once for the
+    // place and kept between items (hidden while none plays), so starting, restarting and stopping build nothing
+    if (!AURA.mesh || AURA.scene !== W.scene || !AURA.mesh.parent) auraInit(W.scene);
     // the life HUD's hand, crosshair and compass step aside (the clock and the needs stay)
     document.body.classList.add("drillview");
     // a HUD setting changed in the pause menu applies at once, as in a match
@@ -461,6 +529,7 @@ registerMode("train", {
     FLAGS.lockLost = false;
     try { CAM.camDispose(); } catch(e){ console.error(e); }
     try { HUD.hudDispose(); } catch(e){ console.error(e); }
+    try { ssgHide(); if (AURA.mesh){ AURA.mesh.visible = false; AURA.target = -1; AURA.alpha = 0; AURA.pick = -1; } } catch(e){ console.error(e); }
     if (T){
       // you stay where your agent was (P has mirrored it all along); the squad's bodies take their agents' places
       handBack(T);
@@ -522,13 +591,23 @@ function fixedItem(T){
   if (T.script && T.script.pre) T.script.pre(T);
   controlStep(ms, T.me, H, {traits:T.traits, live:true});
   simStep(ms, H);
+  // a small-sided game: a goal is followed by a quick kick-off from the side that conceded (UF2-B U16)
+  if (TS.isSSG(T.item)) ssgStep(T);
   // a drill has no restarts: whatever stopped play (a ball out, a goal) is the end of a go; the next one is a new ball
-  if (!T.item.restarts && !T.item.kickoff && (ms.restart || ms.phase !== "live")){
+  // (a small-sided game's kick-off after a goal is the one restart kept: ssgStep)
+  if (!T.item.restarts && !T.item.kickoff && (ms.restart || ms.phase !== "live") && !koPending(T)){
     ms.restart = null; ms.phase = "live";
     for (const a of ms.agents){ a.set = null; a.wall = false; }
   }
   if (T.script && T.script.post) T.script.post(T);
   T.t += H; T.tRep += H;
+}
+/* the small-sided game's restart after a goal (UF2-B U16, ssgplay.js): the quick kick-off from the side that
+   conceded, with a fresh ball out of the coach's bag on the centre spot (takeBall); T.ko and T.koLog are its record */
+const koPending = T => SP.koPending(T.ms, T);
+function ssgStep(T){
+  const scored = SP.ssgGoalStep(T.ms, T, (x, z) => takeBall(T, x, z, true));
+  if (scored >= 0 && T.board) ssgGoal(scored);
 }
 
 // the HUD's frame (fphud.js hudFrame): what it shows of you and the item; screen points from the item's frame
@@ -570,6 +649,9 @@ function frameItem(T, dt, real){
   if (ME.tp) ME.tp.g.visible = false;
   if (CT.scanStep) CT.scanStep(dt);
   try { hudOf(T, dt); } catch(e){ console.error(e); }
+  // the small-sided game's scoreboard (the score, the time left) and the aura on the team-mate you look at
+  if (T.board) ssgFrame(ms.score, T.board.real != null ? T.board.real - T.t : null);
+  try { auraFrame(real, RT.cam, ms, a, (id, out) => auraPosOf(T, id, out)); } catch(e){ console.error(e); }
   if (T.script && T.script.frame) T.script.frame(T, real);
   feelStep(T, real);
   if (T.rate > 0) T.host.pass(real*T.rate);
@@ -611,7 +693,15 @@ function events(T){
         if (shot && CAM.camTrauma) CAM.camTrauma(.18);
       }
     } else if (e.kind === "tackle" && (e.agent === me || e.on === me)){ if (CAM.camTrauma) CAM.camTrauma(e.result === "foul" ? .3 : .2); }
-    else if (e.kind === "goal" && !e.disallowed && T.item.score){ if (HUD.hudNotice) HUD.hudNotice("goal", e.team === T.myTeam ? "Goal" : "They score"); }
+    else if (e.kind === "goal" && !e.disallowed && (T.item.score || T.board)){
+      if (HUD.hudNotice){
+        // (a small-sided game: whose goal, the score as it stands, and who kicks off; UF2-B U13, U16)
+        const sc = T.ms.score, us = sc[T.myTeam] | 0, them = sc[1 - T.myTeam] | 0, mine = e.team === T.myTeam;
+        const who = e.scorer === me ? "Your goal!" : mine ? "Goal!" : "They score";
+        HUD.hudNotice("goal", T.board ? who : mine ? "Goal" : "They score", T.board ? `${us}-${them} · ${mine ? "their" : "your"} kick-off` : "");
+      }
+      if (e.scorer === me && CAM.camTrauma) CAM.camTrauma(.12);
+    }
   }
   T.evSeen = ms.events.length;
 }
@@ -754,7 +844,7 @@ export function startDrill(kind, host){
   if (D.feed.from) coachPrep(D.feed.from, D.spot);
   gather(run, item, r => {
     const T = buildItem(item, whoOf(r.spots), {n:0, host, ballAt:D.feed.at || D.feed.from, onEnd:t => drillEnd(run, t)});
-    T.rate = 0; T.kits = kitsOf(host);
+    T.rate = 0; T.kits = kitsOf(host, T.myTeam);
     T.script = drillScript(kind, D, run);
     run.T = T;
     enterMode("train", T);
@@ -904,11 +994,12 @@ function finishItem(T){
    you are in its ground. Esc steps out and keeps the blocks you finished; joining again carries on from the next. Its
    XP comes from what you did (trainspec.js involvements), brought into 60 to 90 for the whole session; its rewards
    come once, with the last block. */
-export function startSession(host){
+export function startSession(host, o = {}){
   if (RUN.cur) return false;
   const ss = host.attSess();
   const left = host.sessionEnd() - host.minute();
-  const todo = TS.blocksToRun(ss ? ss.blocks : 0, left);
+  // (o.from: the block to start at, for the tests that play one block: the small-sided game's, say)
+  const todo = TS.blocksToRun(o && o.from != null ? o.from : ss ? ss.blocks : 0, left);
   if (!todo.length){ host.note(`The session's nearly over. Join them tomorrow at ${host.sessionStartText()}.`); return false; }
   const run = {kind:"session", blocks:todo, i:0, lent:[], qs:[], xpRaw:0, xp:0, host};
   RUN.cur = run;
@@ -936,7 +1027,7 @@ function nextBlock(run){
   gather(run, Object.assign({}, B, {restarts:false}), r => {
     const item = r.item;
     const T = buildItem(item, whoOf(r.spots), {n:run.i, host:run.host, ballAt, onEnd:t => blockEnd(run, t)});
-    T.kits = kitsOf(run.host);
+    T.kits = kitsOf(run.host, T.myTeam);
     T.rate = B.mins/B.real;
     T.script = blockScript(B, run);
     run.T = T;
@@ -945,17 +1036,43 @@ function nextBlock(run){
   });
 }
 
+/* a small-sided game's ball gone dead for good (out of play, or stopped dead with nobody on it), with no kick-off after
+   a goal waiting: the coach plays a new one in (UF2-B U16: never while the kick-off is set up, and quickly) */
+const ssgDead = (T, wait = 2) => !koPending(T) && T.ms.phase === "live" && T.ms.ball.state === "dead" && ballDead(T) && T.tRep > wait;
+/* where the coach plays a new ball in from in a small-sided game: the nearest point of the touchline to where he stands
+   now (a step or two for him: he follows the play along the line), not a walk round to a set spot; a long way to you
+   is a ball in the air */
+function ssgFeedFrom(T){
+  const h = COACH.h, me = T.me;
+  if (!h || !h.g) return {x:clamp(me.m.x - 9, -T.spec.hx + 2, T.spec.hx - 2), z:clamp(me.m.z + 7, -T.spec.hz - 1, T.spec.hz + 1)};
+  const p = localOf(T, h.g.position.x, h.g.position.z), sz = p.z >= 0 ? 1 : -1;
+  return {x:clamp(p.x, -T.spec.hx + 3, T.spec.hx - 3), z:sz*(T.spec.hz + 1.2)};
+}
+function ssgFeed(T){
+  const me = T.me, from = ssgFeedFrom(T), d = Math.hypot(me.m.x - from.x, me.m.z - from.z);
+  T.tRep = 0; T.inPlay = false; T.stillT = 0;
+  coachFeed(T, d > 30 ? "cross" : "pass", from, {x:me.m.x, z:me.m.z}, true);
+}
+// how a small-sided game ended, on the result card (UF2-B U13): won, drawn or lost, and the score
+function ssgOver(T){
+  const sc = T.ms.score, r = TS.ssgResult(sc[T.myTeam], sc[1 - T.myTeam]);
+  hudResult(r.line, r.sub, !(sc[T.myTeam] < sc[1 - T.myTeam]));
+  T.ssgEnd = {score:[sc[T.myTeam] | 0, sc[1 - T.myTeam] | 0], line:r.line};
+}
+
 function blockScript(B, run){
   const S = {fed:false};
+  const ssg = TS.isSSG(B);
   return {
     post(T){
       // the coach plays the first ball in to you, and a fresh one whenever the last has gone dead for good
-      if (!T.feed && (!S.fed || T.ms.ball.state === "dead" && ballDead(T) && T.tRep > 4)){
+      if (!T.feed && ssg && S.fed && ssgDead(T)) ssgFeed(T);
+      else if (!T.feed && (!S.fed || !ssg && T.ms.ball.state === "dead" && ballDead(T) && T.tRep > 4)){
         const me = T.me, edge = !S.fed && T.opts.ballAt ? toArea(T, T.opts.ballAt) : {x:clamp(me.m.x - 9, -T.spec.hx - 1, T.spec.hx + 1), z:clamp(me.m.z + 7, -T.spec.hz - 1, T.spec.hz + 1)};
         S.fed = true; T.tRep = 0; T.inPlay = false; T.stillT = 0;
         coachFeed(T, "pass", edge, {x:me.m.x, z:me.m.z}, true);
       }
-      if (T.t >= B.real) finishItem(T);
+      if (T.t >= B.real){ if (ssg) ssgOver(T); finishItem(T); }
     },
     frame(T){
       const left = Math.max(0, Math.ceil(B.real - T.t));
@@ -1006,10 +1123,12 @@ function sessionEnd(run){
    the coach says its line at the start. Their end is the day's session (its rewards once, the time the rest of it
    would have taken), GameplayTutorialCompleted, and the coach's last word. Resolves when they are over (false when
    they were cut short: the day ended, or you left the training centre). */
-export function startFirstTraining(host){
+export function startFirstTraining(host, o = {}){
   if (RUN.cur) return Promise.resolve(false);
   return new Promise(res => {
-    const run = {kind:"lessons", i:0, tries:0, ok:[], lent:[], qs:[], mins:0, res, xp:0, bag:{}, xpRaw:0, host};
+    // (o.from: the lesson to start at, 0 to 5, for the tests that play one lesson: the small-sided game's, say)
+    const from = Math.max(0, Math.min(TS.LESSONS.length - 1, (o && o.from) | 0));
+    const run = {kind:"lessons", i:from, tries:0, ok:[], lent:[], qs:[], mins:0, res, xp:0, bag:{}, xpRaw:0, host};
     RUN.cur = run;
     // (the lessons are not left half-way with Esc: it lets the pointer go, which pauses them)
     run.quit = () => {};
@@ -1026,7 +1145,7 @@ function nextLesson(run){
   hudSet({title:`Lesson ${L.n} · ${L.title}`, rep:run.tries, reps:TRAIN.TRIES, scores:run.ok}, {hint:L.line});
   gather(run, Object.assign({}, L, {restarts:false, kickoff:false, keeper:!!L.keeper && run.lent.some(b => b.role === "keeper")}), r => {
     const T = buildItem(r.item, whoOf(r.spots), {n:run.i*10 + run.tries, host:run.host, ballAt:L.feed ? L.feed.from : TS.toLocal(P.x - 10, P.z + 6), onEnd:t => lessonEnd(run, t)});
-    T.kits = kitsOf(run.host);
+    T.kits = kitsOf(run.host, T.myTeam);
     T.rate = 6/60;                     // the day goes on: six minutes of the clock a real minute while you learn
     T.script = lessonScript(L, run);
     run.T = T;
@@ -1135,8 +1254,9 @@ function lessonScript(L, run){
         case "ssg": {
           if (!S.fed){ feedMe(T); card("Two minutes, four against four."); }
           if (T.feed) return;
-          if (T.ms.ball.state === "dead" && ballDead(T) && T.tRep > 4){ feedMe(T); }
-          if (T.t >= (L.real || 120)) return tryOver(T, true, "");
+          // (a ball out of play: the coach plays a new one in from the line; never while a kick-off is set up)
+          if (ssgDead(T)) ssgFeed(T);
+          if (T.t >= (L.real || 120)){ tryOver(T, true, ""); ssgOver(T); return; }
           return;
         }
       }
@@ -1197,5 +1317,7 @@ onBegin(() => {
 // tests (DESIGN 1.4.20 style): the run, the simulation in play, the coach
 if (typeof window !== "undefined") window.__train = {RUN, TRAIN, COACH, get T(){ return RUN.T; }, get ms(){ return RUN.T ? RUN.T.ms : null; }, get me(){ return RUN.T ? RUN.T.me : null; },
   // (the career's host is set here by acts.js when it loads this module: a test starting a drill itself gets that one)
-  host:null, startDrill:(kind, host) => startDrill(kind, host || window.__train.host), startSession:host => startSession(host || window.__train.host),
-  startFirstTraining:host => startFirstTraining(host || window.__train.host), inGround, input:ev => controlInput(ev), CTRL, TS};
+  host:null, startDrill:(kind, host) => startDrill(kind, host || window.__train.host), startSession:(host, o) => startSession(host || window.__train.host, o),
+  startFirstTraining:(host, o) => startFirstTraining(host || window.__train.host, o), inGround, input:ev => controlInput(ev), CTRL, TS,
+  // (UF2-B: the small-sided game's scoreboard as shown, the kits of the item in play, the aura, how a body is dressed)
+  ssgState, get kits(){ return RUN.T ? RUN.T.kits : null; }, AURA, dressFor};
