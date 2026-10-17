@@ -59,7 +59,9 @@ const NAMED = {
   // User fix round 2 (UF2): UF2-A's feel suite (first-person body, settle, meter, pass assist, kick type), UF2-B's small-sided game suites
   uf2: ["uf2-feel", "uf2-ssg-sim", "uf2-ssg"],
   uf2a: ["uf2-feel"],
-  uf2b: ["uf2-ssg-sim", "uf2-ssg"]
+  uf2b: ["uf2-ssg-sim", "uf2-ssg"],
+  // Phase 7 (TR-7): P7-B's corners, throw-ins and penalties
+  tr7b: ["tr7-corner", "tr7-throw", "tr7-penalty"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){
