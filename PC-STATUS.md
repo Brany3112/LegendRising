@@ -1,135 +1,108 @@
-# PC status: P8-A (Match reset API, training entry, training host, 11v11 pool), branch `pc/p8a`
+# PC status: P8-B (Full Match in Training Mode), branch `pc/p8b`
 
-**State: finished; ready for the cloud to merge.** Base: `origin/claude/awesome-babbage-o53g6x` at `6c5db89`, plus the
-PC's Playwright import fix (`009ecae`, cherry-picked). One `[hook]` commit (`ec869a8`, `rng.js`) is explained in
-`HOOKS.md`, together with the contract P8-B builds on.
+**State: finished; ready for the cloud to merge (after `pc/p8a`, which it builds on).** `HOOKS.md` lists P8-A's and
+P8-B's hook requests together. On this branch:
 
-## What changed (P8-A's own files)
+- three `[hook]` commits:
+  - `3f490a8`: `controller.js` (`host.pause`, `FP.bench`, `FP.benchOk`);
+  - `49fae31`: the `fullmatch.js` loader;
+  - `34be84d`: `qa/tr3-hub.mjs`;
+- one commit to P8-A's own files that P8-B's test found was needed: `161cdc8`, labelled "P8-A fix".
 
-### `sim.js`
+## What's in it (P8-B's own files)
 
-- **The match's generator** keeps its word in `ms.rng.s`. It's the same mulberry32 sequence, so determinism, goldens
-  and the harness are unchanged; `wpC-det` passes.
-- **`placeForKickoff` is exported.**
-- **The half-start snapshot:**
-  - `halfSnapshot`, `halfStart(ms)` and `restoreHalf(cfg, snap)` are new.
-  - The snapshot is a deep copy of every field of the match except the match object's own (`HALF_KEEP`: cfg, spec, the
-    generator function, the ball worlds' functions, the listeners, the bound helpers). It also holds the ball worlds'
-    data and the generator's word and spare.
-  - It's taken at the step boundary where each half begins.
-  - A restore builds a fresh match from the cfg and puts the copy on it (`ms.agents` only grows, so a match is never
-    patched).
-  - `HALF_FIELDS` names the matchflow.md section 6 fields for the test.
-
-### `controller.js`
-
-- **The host per entry:** `FS.host`. Every host call during a match goes through it. The career's own entry and the
-  crash recovery still use the career's host. `fpHost` and `tunnel.js` are untouched.
-- **`FP.enterTraining(cfg, {zone, kind, start, host, kits, subOn})`:**
-  - no career: `FS.real` is false, so there's no checkpoint, no settle and no career write;
-  - no warm-up;
-  - a start from the kick-off or the bench;
-  - the bodies from the host's pool;
-  - the real match's 5 changes when there's a bench and the cfg names none.
-- **`FP.resetMatch()`, `FP.resetHalf()` and `FP.restartKickoff()`** (G0 decision c's default). Every reset clears the
-  controller's own flags (cards, the skip, the call-up walk and the seat, the goal flags, the event queue), the replay,
-  `CTRL`, the warm-up, and pending reveals. Reveals are now cancellable (`FS.revealSeq`).
-- **Restart from Kickoff puts the ball on the centre spot before the restart starts.** Otherwise the rules send a man
-  to fetch it, and the kick-off shape leaves him out.
-- **`bindMatch`:** the simulation's listeners (kept apart in `FS.simOffs`), the view and the replay's record, bound
-  again on each reset to the same pooled bodies.
-- **The bench, its seat and stand spots, the fourth official and the dugout come from the bench provider.** The fourth
-  official's body comes from the host's pool when it has one.
-- **New test hooks:** `__fp.careerHost()` and `__fp.host()`.
-
-### `stadium.js`
-
-- `registerBench(zone, provider)` and `benchOf(zone)` are new. The stadium registers its own dugouts through them.
-
-### `pool.js`
-
-- `poolEnsure`, `matchBodies(ms, myTeam)` and `poolTrim()` are new:
-  - my side's outfield players in my bib, theirs in theirs;
-  - a keeper's kit for each side;
-  - the officials, including the fourth official.
-- `poolReady` now checks the drill groups, not an exact size, so a pool grown for a match is still ready for a drill.
-
-### Not changed
-
-- **`replay.js`, `warmup.js` and `view.js`.** The view already accepted pooled bodies (P3-B); the replay and the
-  warm-up are cleared through their existing calls (`skip`, `recInit`, `warmDispose`).
-
-### Tests
-
-- **`qa/unit/simreset.mjs`, 16 checks:**
-  - the generator;
-  - the snapshot holds every matchflow.md section 6 field by name, and every field but `HALF_KEEP`;
-  - a restore equals the half start field for field, and replays the same 40 s event for event;
-  - the snapshot is untouched by a restore;
-  - after a bench call-up, `roleDone`, `callUp` and the bench `used` flags go back as the half began.
-- **`qa/tr8-reset.mjs`, 30 checks:** the BUILD-PLAN list, in the real page with no career.
+- **`js/life/train/fullmatch.js` (new):**
+  - Full Match's options on config type `fullmatch`, registered here so `config.js` isn't edited:
+    - where I start (kick-off or bench; the help text says there's no warm-up in Training);
+    - the minute I come on;
+    - the half's length in real minutes;
+    - my position (never GK).
+  - `matchConfigOf(config)` builds on `teams.js cfgFromConfig`, adding:
+    - my position (swapped with the man who had it);
+    - a bench of five a side;
+    - the half's length;
+    - the real match's 5 changes.
+  - The training host (P8-A's contract):
+    - my look (the pool's: the created character in my bib), the bibs as kits, and the pool's bodies;
+    - notes and the pointer from the device;
+    - the quick menu's card as the pause card;
+    - `ended`, which goes back to the hub.
+  - `startFullMatch` switches to the Full cage first when another cage is up.
+  - `backToHub` runs under the fade: the match ends, the pool goes back to 14 and the sandbox mode returns.
+  - Two hub entries (from the kick-off, from the bench) and the quick menu's "match" items:
+    - Reset Current Half and Reset Match, each with its confirmation;
+    - Restart from Kickoff;
+    - Return to Hub.
+- **`hub.js`:** `registerEntry` for entries that aren't the runner's scenarios. They're listed with the category's
+  scenarios and get Configure, Presets, Start and End it.
+- **`quick.js`:**
+  - `matchCard(on, {title, preset})`: the match's pause card, with Resume and the match items;
+  - items can ask for a confirmation (Yes and Cancel in the card);
+  - the drill items show only while a drill plays.
+- **`admin.js`:** the Scenario and Match section shows the match's items during a Full Match, with the same
+  confirmations.
+- **`cage.js`:** the Full cage's two dugouts and their bench spots (6 seats a side, the fourth official by the halfway
+  line), registered as the cage's bench (`stadium.js registerBench`).
+- **`css/train.css`:** unchanged. The cards reuse the match's card styles.
 
 ## Tests run on this PC (Windows, Node 26.3.0, real GPU)
 
-### New tests
+### `qa/tr8-fullmatch.mjs`: 30 of 30
+
+**Part A, a fresh page with no career:**
+
+- **Hub and entry:** Full Match lists its 2 entries, and Start (a real click) plays the real match on the Full cage
+  with real lines and no career. The cage's bench has 12 seats, and every body is the pool's.
+- **Real lines:**
+  - a ball driven over the touchline gives `out` and a throw-in at the line, never sent back by the fence;
+  - over the goal line it gives a goal kick (the attackers last) or a corner (the defenders last).
+- **The pause card:** when the pointer is let go, the match's card comes up. These were clicked for real:
+  - Reset Match, after its Yes: clock 0, 0-0;
+  - Reset Current Half, after its Yes: the exact state of the half's start;
+  - Restart from Kickoff: a kick-off, with the clock and the 2-1 score kept.
+- **The admin panel:** the same three, by real clicks with the confirmations.
+- **Half time and full time:** from the kick-off, both played through by real clicks on their cards. Continue goes
+  back to the hub on Full Match, the pool is 14, `bodies()` 16, and the listeners +0.
+- **From the bench:**
+  - seated in the cage's dugout, called up, at the fourth official, on at a stoppage;
+  - one of me; the replaced man is `subbedOff`;
+  - control and camera handed over, and no duplicate body;
+  - never swapped for the keeper.
+- **The keeper:**
+  - with my keeper sent off (scripted), I'm never put in goal;
+  - the role and position pickers offer no keeper;
+  - my agent is never the keeper for any start and position.
+- **Presets:** the named `fullmatch` preset (LW, averages 70 and 55, 5-minute halves, the bench at 60') was saved by
+  real typing and clicks, survived a reload and was loaded by a real click. The configuration is identical, and the
+  match starts with those values.
+- **The career:** no `v2` write, the career diff is empty, and there are 0 console and page errors.
+
+**Part B, a career quit to the title:**
+
+- My body in the Full Match wears the created character's look (hair, skin, beard, build, height), with 0 errors.
+
+### Regression
 
 | Test | Result |
 |---|---|
-| `qa/unit/simreset.mjs` | 16 of 16 |
-| `qa/tr8-reset.mjs` | 30 of 30 |
+| `tr8-reset` (P8-A, re-run with the P8-A fix) | 30 / 30 |
+| `qa/unit/simreset.mjs` | 16 / 16 |
+| `tr3-hub` (with its `[hook]`) | pass |
+| `tr4-reset` | pass |
+| `tr4-presets` | pass |
+| `tr4-play` | pass |
+| `tr5-admin` | pass |
+| `node qa/run.mjs unit lint smoke` | 29 of 31 |
 
-What `tr8-reset` covers:
+- In the unit/lint/smoke run, the 2 failures are `qa/unit/daily.mjs` and `qa/unit/presets.mjs`. Both fail on Windows
+  only (they import a bare `d:` path), they aren't this package's files, and `daily.mjs` is fixed on `pc/p10a`.
 
-- **The pool:** 37 bodies = 25 + 10 substitutes + 1 + the fourth official, and `bodies()` that plus 2. The same after 3
-  Reset Match.
-- **Reset Match after a goal:** every listed item (clock 0, half 1, 0-0, the events of a new match, the kick-off places
-  within 1 mm, the same side to kick off, control on me, no AI plan or flag, fresh stamina, no extra ball).
-- **Reset Current Half in the second half after two goals:** the second half was reached by a real click on the
-  half-time card. The whole state equals the snapshot.
-- **The bench call-up:**
-  - called up and on through the fourth official;
-  - after the reset, `roleDone`, `callUp` and the `used` flags are as the half began, there's one of me, and I'm on the
-    bench seat with its camera, with no stale call-up state;
-  - a second call-up works.
-- **Restart from Kickoff at 2-1:** clock, half and score kept; the kick-off places within 1 mm; the half's side on the
-  ball; plans and the chain cleared; stamina kept.
-- **Half time and full time:** after each kind of reset, half time was played through by real clicks, with Esc on the
-  card first. Then full time, with its Continue clicked for real; the training host hears `ended`.
-- **20 cycles of all three resets:** listeners, timers, the scheduler's tasks and actors, and `renderer.info` +0.
-- **Return to Hub:** the pool is 14 and `bodies()` 16, and the geometries and textures are the same after a second Full
-  Match.
-- **The career:** it's never called, there's no `v2` write, the career diff is empty, and there are 0 console and page
-  errors.
+## Notes
 
-### Regression (the code P8-A touches), all passing
-
-| Test | Result |
-|---|---|
-| `tr2-halftime` | 113 / 113 |
-| `tr2-kickoff` | 12 / 12 |
-| `tr2-realmatch` | 9 / 9 |
-| `uf-sub` | 17 / 17 |
-| `uf-throwin` (career `test:11v11`) | 8 / 8 |
-| `wpC-det` (determinism) | 5 / 5 |
-| `oldsave` (including the mid-match recovery replay) | pass |
-| `tr6-team` | 25 / 25 |
-| `tr3-play` | 15 / 15 |
-
-- `node qa/run.mjs unit lint smoke`: see the bottom of this file.
-
-## Deviations and notes
-
-- **The pool count includes the fourth official** (+1 over the plan's 25 + subs + 1). The controller used to build him
-  with `human()`. He's now a pooled body, so nothing is built outside the pool.
-- **The half-time clicks use a real mouse click on the card's button, with Esc pressed on the card first**, under the
-  test's own pointer handling. A headless browser grants no real pointer lock, so "under pointer lock" is as close as
-  headless allows.
-- **The geometry baseline:** `renderer.info` geometries are compared between the first and the second Full Match's
-  Return to Hub. The pool's drill bodies are on the GPU once they've been drawn, and a body that was parked and never
-  drawn isn't counted, so the hub's figure before any match isn't comparable.
-
-## `node qa/run.mjs unit lint smoke`
-
-29 of 31 pass (`qa/unit/simreset.mjs` is among the passes; smoke passes). The 2 failures are `qa/unit/daily.mjs` and
-`qa/unit/presets.mjs`. Both fail only on Windows, because they import a bare `d:` path. They aren't P8-A's files, and
-the same 2 failed on the base. `daily.mjs` is fixed on `pc/p10a`.
+- **The pause card in a headless browser.** No real pointer lock is granted, so the test lets the pointer go the way
+  the world does: it releases the lock and sets `FLAGS.lockLost`. The card then comes up through the controller, and
+  every button press on it is a real mouse click.
+- **The walk to the fourth official.** The test places the player at the entry spot beside him, as the bench tests do,
+  instead of walking there key by key.
+- **Not seen by eye:** the dugouts' look in the Full cage. They're simple boxes, a seat, a back and a roof on two posts.
+  They're worth a glance in the game.
