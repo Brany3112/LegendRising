@@ -1,5 +1,5 @@
 // qa/unit/ssg.mjs: the small-sided games' pure pieces under plain node (trainspec.js: bibKits, clockText, ssgResult,
-// koTaker, isSSG, SSG). Owner: UF2-B (user fix round 2). Contract: USER-ISSUES.md Round 2 U13 (the scoreboard's time
+// koTaker, isSSG, SSG, mateSlotsFor). Owner: UF2-B (user fix round 2). Contract: USER-ISSUES.md Round 2 U13 (the scoreboard's time
 // and the result line), U15 (the bibs clearly apart from the club's kit by the U11 rule, the same every time) and U16
 // (the kick-off's taker: the conceding side's AI man nearest the spot, never the player).
 //
@@ -79,6 +79,23 @@ check(TS.isSSG(TS.LESSONS.find(L => L.n === 6)) && TS.isSSG(TS.BLOCKS.find(B => 
   "Lesson 6 and the session's third block are small-sided games; the rondo and the drills are not; an item can say it is one");
 check(TS.SSG.CELEB + TS.SSG.KO_LIMIT < TS.SSG.DEAD_MAX && TS.SSG.DEAD_MAX <= 6, "the kick-off is called and taken well inside the 6 s the restart may take", TS.SSG);
 check(/bibs/.test(TS.LESSONS[5].line) && /bibs/.test(TS.BLOCKS[2].coach), "the coach says who is in the bibs", [TS.LESSONS[5].line, TS.BLOCKS[2].coach]);
+
+// (UF2 round 1) four a side counting the keepers: one of yours in goal while the squad's keeper is in the other, and
+// the three outfield men round you cover the back, the middle and the front (never a second man in your line)
+{
+  const lines = a => a.map(s => s === "GK" ? "GK" : ({CB: "B", RB: "B", LB: "B", CM: "M", CAM: "M", CDM: "M", ST: "F", LW: "F", RW: "F"})[s]).sort().join("");
+  const L6 = TS.LESSONS[5], B3 = TS.BLOCKS[2], out = {};
+  let ok = L6.mates + 1 === L6.opps + (L6.keeper ? 1 : 0) && B3.mates + 1 === B3.opps + (B3.keeper ? 1 : 0);
+  for (const mine of ["ST", "LW", "CM", "CAM", "CB", "RB"]){
+    const m = TS.mateSlotsFor(L6.mateSlots, mine, true, true), n = TS.mateSlotsFor(B3.mateSlots, mine, true, true);
+    out[mine] = m.join();
+    ok = ok && lines(m.concat(mine)) === "BFGKM" && m.join() === n.join() && m.filter(s => s === "GK").length === 1;
+  }
+  const gk = TS.mateSlotsFor(L6.mateSlots, "GK", true, true), none = TS.mateSlotsFor(L6.mateSlots, "ST", false, true), drill = TS.mateSlotsFor(["CM", "ST"], "ST", true, false);
+  out.GK = gk.join(); out.noKeeper = none.join(); out.drill = drill.join();
+  ok = ok && !gk.includes("GK") && lines(gk) === "BFM" && !none.includes("GK") && drill.join() === "CM,ST" && TS.mateSlotsFor(["GK", "CM"], "ST", false, false).join() === "CM,CM";
+  check(ok, "a small-sided game is four a side counting the keepers: one of yours in goal, the others round you at the back, in the middle and up front (you in goal: nobody else is); no keeper lent, nobody in goal; a drill's slots stay as given", out);
+}
 
 fs.mkdirSync(path.join(ROOT, "qa/out"), {recursive: true});
 fs.writeFileSync(path.join(ROOT, "qa/out/unit-ssg.json"), JSON.stringify(res, null, 1));

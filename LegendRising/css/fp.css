@@ -105,23 +105,12 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-glyph:empty{display:none}
 .fp-no-glyph .fp-glyph{display:none}
 
-/* the reticle (A1.7): where a strike goes now (your look and its sway), the thin power arc round it while you wind up,
-   open at the bottom, with the sweet spot and the distance tick; red held past full. Moved by a transform each frame */
+/* the reticle (A1.7): where a strike goes now (your look and its sway); red held past full (the power and the sweet
+   spot are the meter's, UF2-A, under the crosshair). Moved by a transform each frame */
 .fp-ret{position:absolute;left:0;top:0;width:0;height:0;opacity:0;will-change:transform}
 .fp-arc{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible}
 .fp-ret-c{fill:none;stroke:rgba(255,255,255,.95);stroke-width:1.8;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.85));transition:stroke .1s}
 .fp-ret-c.over{stroke:var(--fp-bad)}
-.fp-arcg{opacity:0}
-.fp-arcg circle{fill:none;stroke-linecap:round;transform:rotate(120deg)}
-.fp-arc-bg{stroke:rgba(255,255,255,.2);stroke-width:1.5}
-.fp-arc-sweet{stroke:var(--fp-good);stroke-width:4;opacity:0;stroke-opacity:.55}
-.fp-arc-fill{stroke:var(--fp-charge);stroke-width:2;transition:stroke .1s;filter:drop-shadow(0 0 1px rgba(0,0,0,.8))}
-.fp-arc-fill.over{stroke:var(--fp-bad)}
-.fp-arc-tick{stroke:#fff;stroke-width:1.3;opacity:0}
-.fp-contact{position:absolute;left:calc(-31px*var(--s));top:-9px;display:flex;flex-direction:column-reverse;gap:3px;opacity:0;transition:opacity .15s}
-.fp-contact.on{opacity:1}
-.fp-contact i{display:block;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.25)}
-.fp-contact.c1 i:nth-child(1),.fp-contact.c2 i:nth-child(-n+2),.fp-contact.c3 i{background:#fff}
 .fp-curl{position:absolute;left:calc(25px*var(--s));top:-10px;font-size:14px;opacity:0;transition:opacity .15s;text-shadow:0 1px 2px #000}
 .fp-curl.on{opacity:.9}
 /* the line on how you struck it, under the middle of the view */

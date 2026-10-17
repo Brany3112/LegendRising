@@ -8,7 +8,8 @@
 // the training laws: no offside, no set pieces, both goals count) and played
 // the way the mode train plays it: every restart but the kick-off after a goal cleared at once, the kick-off run by
 // ssgplay.js (the module training.js calls), a dead ball replaced by a new one (the coach's, played to the player here
-// as a ball at his feet). The player is the AI's stand-in (meAI). Over SEEDS seeds of Lesson 6 (120 s) and of the
+// as a ball at his feet). The player is the AI's stand-in (meAI), up front, in the middle or at the back in turn (his
+// team-mates round him by trainspec.js mateSlotsFor). Over SEEDS seeds of Lesson 6 (120 s) and of the
 // session's small-sided block (180 s):
 //   - every shot and every header at goal by either side is aimed at the end that side attacks (its kick's target,
 //     and where its flight crosses a goal line), and none of either side's kicks of any kind is on its way into the
@@ -36,23 +37,25 @@ const H = 1/60, R = 0.11, HW = 3.66;
 const r2 = v => Math.round(v*100)/100;
 
 const POS_OF = {GK: "GK", CB: "DF", CM: "CM", ST: "ST", LW: "LW"};
+const MINE = ["ST", "CM", "CB"];
 const ARCH = {GK: "GK", DF: "DF", CM: "CM", LW: "W", ST: "ST"};
 const rec = (pid, slot, me = false) => ({pid, name: "P" + pid, number: pid % 30, slot, arch: ARCH[POS_OF[slot]], isGK: slot === "GK", isMe: me, scale: 1,
   at: attrsForAI({id: pid, ovr: 58 + (pid*7) % 12, pos: POS_OF[slot]}), energy: 100, fatigue: 0, prefFoot: "Right"});
 
 // one small-sided game as training.js builds and plays it; returns what the checks need
-function play(item, seed){
+function play(item, seed, mine = "CM"){
   const spec = TS.areaPitch(item.area, 3);
   const myTeam = item.dir < 0 ? 1 : 0, oppTeam = 1 - myTeam;
   const teams = [{name: "A", players: [], bench: []}, {name: "B", players: [], bench: []}];
   let pid = 10;
-  teams[myTeam].players.push(rec(1, "CM", true));
-  for (const s of item.mateSlots) teams[myTeam].players.push(rec(pid++, s));
+  teams[myTeam].players.push(rec(1, mine, true));
+  // (your team-mates round you as training.js buildItem has them: trainspec.js mateSlotsFor)
+  for (const s of TS.mateSlotsFor(item.mateSlots, mine, !!item.keeper, true)) teams[myTeam].players.push(rec(pid++, s));
   for (const s of item.oppSlots) teams[oppTeam].players.push(rec(pid++, s));
   if (item.keeper) teams[oppTeam].players.push(rec(pid++, "GK"));
   const rules = {goals: TS.goalsLaw(spec), offside: !!item.offside, restarts: false, cards: false, subs: 0, halfTime: false, stoppage: false};
   const ms = createMatch({seed, mode: item.mode, spec, halfRealSec: 1e6, tempo: Object.assign({}, TEMPO[2]), teams,
-    me: {team: myTeam, slot: "CM", prefFoot: "Right"}, rules, kickoffTeam: myTeam, htAuto: true, meAI: true});
+    me: {team: myTeam, slot: mine, prefFoot: "Right"}, rules, kickoffTeam: myTeam, htAuto: true, meAI: true});
   for (const id of [REF, AR1, AR2]) if (ms.agents[id]) ms.agents[id].onPitch = false;
   ms.restart = null; ms.phase = "live"; for (const a of ms.agents) a.set = null;
   const me = ms.agents[ms.me];
@@ -126,8 +129,9 @@ const lesson = TS.LESSONS.find(L => L.kind === "ssg"), block = TS.BLOCKS.find(B 
 const games = [];
 for (const [name, item] of [["lesson 6", lesson], ["session block", block]]){
   for (let s = 0; s < SEEDS; s++){
-    const g = play(item, 9001 + 37*s + (name === "lesson 6" ? 0 : 5000));
-    g.name = name; games.push(g);
+    // (you play up front, in the middle or at the back, a third of the games each)
+    const g = play(item, 9001 + 37*s + (name === "lesson 6" ? 0 : 5000), MINE[s % MINE.length]);
+    g.name = name; g.mine = MINE[s % MINE.length]; games.push(g);
   }
 }
 const all = k => games.flatMap(g => g[k].map(x => Object.assign({game: g.name, seed: g.seed}, x)));

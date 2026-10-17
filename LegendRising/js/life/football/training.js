@@ -259,12 +259,9 @@ function playerRec(p, slot, me = false){
     at:me ? p.at : attrsForAI({id:p.pid, ovr:p.ovr, pos}), energy:me ? p.energy : 100, fatigue:me ? p.fatigue : 0, prefFoot:p.prefFoot || "Right", items:me ? p.items : null};
 }
 
-/* a team-mate's slot in an item: a small-sided game puts one of yours in goal (trainspec.js, mateSlots 'GK') only when
-   the squad's keeper is in the other goal; with no keeper lent nobody goes in goal, so neither goal has one */
-function mateSlot(item, i, keeper){
-  const s = (item.mateSlots || [])[i] || "CM";
-  return s === "GK" && !keeper ? "CM" : s;
-}
+/* your team-mates' slots in an item (trainspec.js mateSlotsFor): one of yours in goal ('GK') only when the squad's keeper
+   is in the other goal, and in a small-sided game the outfield men round you cover the back, the middle and the front */
+const mateSlots = (item, mine, keeper) => TS.mateSlotsFor(item.mateSlots, mine, keeper, TS.isSSG(item));
 /* the simulation for an item. who = {mates:[body], opps:[body], keeper:body|null}: the borrowed squad bodies (their
    records from the squad), placed where each stands now. Your agent starts where you stand. */
 function buildItem(item, who, opts = {}){
@@ -284,7 +281,8 @@ function buildItem(item, who, opts = {}){
   const bodiesOf = [[], []];          // per team, in the order of its players: the body each agent stands for (null: you)
   const add = (team, rec, body) => { teams[team].players.push(rec); bodiesOf[team].push(body); };
   add(myTeam, playerRec(meRec, meRec.slot, true), null);
-  (who.mates || []).forEach((b, i) => { const p = nextSquad(); add(myTeam, Object.assign(playerRec(p, mateSlot(item, i, !!who.keeper)), {scale:b.scale || 1}), b); });
+  const mSlots = mateSlots(item, meRec.slot, !!who.keeper);
+  (who.mates || []).forEach((b, i) => { const p = nextSquad(); add(myTeam, Object.assign(playerRec(p, mSlots[i] || "CM"), {scale:b.scale || 1}), b); });
   (who.opps || []).forEach((b, i) => { const p = nextSquad(); add(oppTeam, Object.assign(playerRec(p, (item.oppSlots || [])[i] || "CB"), {scale:b.scale || 1}), b); });
   if (who.keeper){
     const p = squad.find(q => q.pos === "GK") || nextSquad();
@@ -762,7 +760,7 @@ function payXP(T, scale = 1){
    the squad jog to where it wants them, and it starts once you are in its ground and they are in place (or have had
    long enough). run = {item, spots: [{b, x, z}], check?(run) -> false to stop waiting (the run is over), play(run)} */
 function gather(run, item, play){
-  run.item = item; run.spots = spotsFor(item, run.lent || []); run.state = "walk"; run.waitT = 0; run.play = play;
+  run.item = item; run.spots = spotsFor(item, run.lent || [], run.host); run.state = "walk"; run.waitT = 0; run.play = play;
   conesFor(item.area ? item : null);
   run.task = run.task || SCHED.task({id:"train-run", run:dt => gatherTick(run, dt)});
 }
@@ -783,14 +781,16 @@ function gatherTick(run, dt){
 const SLOT_CLEAR = 4;
 // where the squad stands for an item: given spots (mateAt, oppAt), else the slots spread over its ground; the keeper
 // on his goal line, in the goal you attack
-function spotsFor(item, lent){
+function spotsFor(item, lent, host){
   const out = [];
   const keeper = lent.find(b => b.role === "keeper"), field = lent.filter(b => b.role !== "keeper");
   const nm = item.mates || 0, no = item.opps || 0;
+  let mine = null; try { mine = host && host.me ? host.me().slot : null; } catch(e){ mine = null; }
+  const mSlots = mateSlots(item, mine, !!(keeper && item.keeper));
   field.slice(0, nm + no).forEach((b, i) => {
     const mate = i < nm, j = mate ? i : i - nm;
     const given = mate ? item.mateAt && item.mateAt[j] : item.oppAt && item.oppAt[j];
-    const slot = mate ? (item.mateSlots || [])[j] && mateSlot(item, j, !!(keeper && item.keeper)) : (item.oppSlots || [])[j];
+    const slot = mate ? (item.mateSlots || [])[j] && mSlots[j] : (item.oppSlots || [])[j];
     let sp = given || TS.slotSpot(TS.SLOT_POS[slot] || {x:50, y:50}, item.area, item.dir, mate ? 0 : 1);
     // the callers of the third lesson come round behind and beside you
     if (item.kind === "call" && item.start){ const s = item.start; sp = j === 0 ? {x:s.x - 7, z:s.z + 4} : {x:s.x - 2, z:s.z - 9}; }

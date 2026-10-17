@@ -27,8 +27,8 @@
 // Screenshots in qa/out/uf2-ssg/: each game's start (the scoreboard and the two sides), a moment after a goal, and the
 // bibs up close.
 //
-//   QA_PORT=8901 node qa/uf2-ssg.mjs [--games 3] [--w 390 --h 844]     exits 1 on any failed check (screenshots of
-//   another size than 1280x720 are named with it)
+//   QA_PORT=8901 node qa/uf2-ssg.mjs [--games 3] [--only i] [--w 390 --h 844]     exits 1 on any failed check (--only
+//   plays just game i of the list; screenshots of another size than 1280x720 are named with it)
 import fs from "node:fs";
 import path from "node:path";
 import {launch, career, freeze, OUT} from "./lib.mjs";
@@ -42,7 +42,7 @@ fs.mkdirSync(OUTDIR, {recursive: true});
 const {check, done, res} = checker("uf2-ssg");
 const argv = process.argv.slice(2), gi = argv.indexOf("--games"), arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? +argv[i + 1] : d; };
 const VW = arg("--w", 1280), VH = arg("--h", 720), SIZE = `${VW}x${VH}`;
-const GAMES = [{kind: "lesson", name: "Lesson 6"}, {kind: "session", name: "session small-sided block"}, {kind: "lesson", name: "Lesson 6 again"}].slice(0, gi >= 0 ? +argv[gi + 1] : 3);
+const GAMES = [{kind: "lesson", name: "Lesson 6"}, {kind: "session", name: "session small-sided block"}, {kind: "lesson", name: "Lesson 6 again"}].slice(0, gi >= 0 ? +argv[gi + 1] : 3).filter((g, i) => argv.indexOf("--only") < 0 || i === arg("--only", 0));
 const hex = c => typeof c === "number" ? "#" + c.toString(16).padStart(6, "0") : String(c).toLowerCase();
 const STEP = 12;
 
@@ -101,7 +101,17 @@ const WATCH = () => {
     vis: !!cs && cs.visibility !== "hidden" && cs.display !== "none" && +cs.opacity > .5, covers,
     cardOver: card && drc && hit(card, drc) ? {card: [Math.round(card.top), Math.round(card.bottom)], drill: [Math.round(drc.top), Math.round(drc.bottom)]} : null});
   // the nearest team-mate to you in the first seconds (he jogs to his place: never into you)
-  if (T.t < 5){ let dm = Infinity; for (const o of ms.agents) if (o.onPitch && o.team === me.team && o !== me && o.role === "player") dm = Math.min(dm, Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z)); W.nearMate = Math.min(W.nearMate == null ? Infinity : W.nearMate, dm); }
+  if (T.t < 5){
+    let dm = Infinity, who = null;
+    for (const o of ms.agents) if (o.onPitch && o.team === me.team && o !== me && o.role === "player"){ const d = Math.hypot(o.m.x - me.m.x, o.m.z - me.m.z); if (d < dm){ dm = d; who = o; } }
+    if (W.nearMate == null || dm < W.nearMate){
+      W.nearMate = dm;
+      const r1 = v => Math.round(v*100)/100;
+      W.nearAt = who ? {t: r1(T.t), slot: who.slot, gk: !!who.isGK, him: [r1(who.m.x), r1(who.m.z)], speed: r1(who.m.speed), me: [r1(me.m.x), r1(me.m.z)], ball: [r1(ms.ball.p.x), r1(ms.ball.p.z)], ctl: ms.poss.ctl, restart: ms.restart ? ms.restart.kind : null,
+        plan: who.plan ? who.plan.kind : null, act: who.act ? who.act.kind : null, last: ms.ball.last ? {agent: ms.ball.last.agent, kind: ms.ball.last.kind, t: r1(ms.ball.last.t)} : null,
+        pass: ms.chain && ms.chain.pass ? {recv: ms.chain.pass.recv, res: ms.chain.pass.res || null} : null, bstate: ms.ball.state} : null;
+    }
+  }
   // the events: shots, goals, kick-offs
   for (; W.ev < ms.events.length; W.ev++){
     const e = ms.events[W.ev];
@@ -196,7 +206,7 @@ async function playGame(g, gIdx){
   await releaseAll(); if (lmb){ await page.mouse.up({button: "left"}); lmb = 0; }
   const W = await page.evaluate(() => {
     const W = window.__uf2w, T = W.T;
-    return {board: W.board, nearMate: W.nearMate, shots: W.shots, goals: W.goals, kos: W.kos, frozen: W.frozen, lookChanges: W.lookChanges, shirts: W.shirts,
+    return {board: W.board, nearMate: W.nearMate, nearAt: W.nearAt, shots: W.shots, goals: W.goals, kos: W.kos, frozen: W.frozen, lookChanges: W.lookChanges, shirts: W.shirts,
       kits: T ? T.kits : null, myTeam: T ? T.myTeam : 0, koLog: T ? T.koLog || [] : [], end: T ? T.ssgEnd || null : null, real: T && T.board ? T.board.real : null, tEnd: T ? T.t : 0};
   });
   return Object.assign(out, W);
@@ -220,7 +230,7 @@ try {
     check(!covered.length, `${N}: nothing of the HUD covers the scoreboard (the need bars, the money, the drill card) at ${SIZE}`, covered.slice(0, 3).map(s => ({t: s.t, by: s.covers})));
     const cardOver = B.filter(s => s.cardOver);
     check(!cardOver.length, `${N}: a goal's card comes down clear of the drill card at ${SIZE}`, cardOver.slice(0, 3).map(s => Object.assign({t: s.t}, s.cardOver)));
-    check(g.nearMate == null || g.nearMate > 1.2, `${N}: no team-mate runs into you in the first seconds (nearest ${g.nearMate == null ? "none" : g.nearMate.toFixed(2)} m)`, g.nearMate);
+    check(g.nearMate == null || g.nearMate > 1.2, `${N}: no team-mate runs into you in the first seconds (nearest ${g.nearMate == null ? "none" : g.nearMate.toFixed(2)} m)`, {d: g.nearMate, at: g.nearAt});
     check(B.every(s => s.names[0] === "You" && s.names[1] === "Bibs"), `${N}: it names the sides: You and Bibs`, B[0] && B[0].names);
     const badScore = B.filter(s => s.score[0] !== s.want[0] || s.score[1] !== s.want[1]);
     check(!badScore.length, `${N}: its score is the simulation's, yours first`, badScore.slice(0, 3));
