@@ -11,7 +11,8 @@
 //   - with navigator.keyboard stubbed (headless Chromium has no real keyboard lock), full screen plus the lock makes
 //     Ctrl shield; with Ctrl held, D and A turn and move you, Shift sets the sprint key, Space and R register; Alt+D
 //     and Meta+D are still dropped. The same in a career drill (mode 'train');
-//   - the full-screen tip shows once (the first shield on this device), and never again.
+//   - the full-screen tip shows once (the first shield on this device), leaves when full screen starts, and never
+//     comes again.
 //
 //   QA_PORT=8851 node qa/tr2b-shield.mjs        exits 1 on any failed check; writes qa/out/tr2b-shield.json
 import {launch, career, freeze, unfreeze, snap} from "./lib.mjs";
@@ -139,6 +140,8 @@ try {
   const tip0 = await page.evaluate(() => {
     const cards = [...document.querySelectorAll("#fpHud .fp-card")].filter(c => /full screen/i.test(c.textContent));
     const vis = cards.filter(c => { const r = c.getBoundingClientRect(), cs = getComputedStyle(c); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && +cs.opacity > 0.05; });
+    // (the card shown is marked: what is seen later is told apart as this one still up or a new one)
+    for (const c of cards) c.dataset.tipFirst = "1";
     return {seen: vis.length > 0, text: vis.length ? vis[0].textContent : null};
   });
   // (the defender stays on your back, 1.2 m behind you away from the ball, every step: he leans on you without taking
@@ -192,6 +195,10 @@ try {
   // ---- 5. full screen with the keyboard lock (stubbed): Ctrl shields, and you can move while you hold it
   const fs1 = await fsOn();
   check(fs1.fs && fs1.K.fs && fs1.K.locked && fs1.locks >= 1, "full screen: the keyboard lock is asked for and granted (KEYLOCK.fs and .locked)", fs1);
+  // (the tip has been followed: going full screen takes its card away at once, not at the end of its 3.5 s; on a fast
+  // machine the card was still up here, and seen again below it read as the tip shown a second time)
+  const tipFs = await page.evaluate(() => ({up: [...document.querySelectorAll("#fpHud .fp-card")].filter(c => /full screen/i.test(c.textContent) && !c.classList.contains("out")).length}));
+  check(tipFs.up === 0, "full screen: the tip's card has gone", tipFs);
   // (full screen can take the pointer: it is locked again the way a player does it)
   await unfreeze(page); await page.waitForTimeout(300);
   if (!(await pointerLocked(page))) await lockPointer(page);
@@ -243,9 +250,11 @@ try {
     return {due: K.tipFSDue()};
   });
   await hold(["c"], 30);
-  const tip2 = await page.evaluate(() => ({cards: [...document.querySelectorAll("#fpHud .fp-card b")].map(b => b.textContent)}));
+  const tip2 = await page.evaluate(() => ({cards: [...document.querySelectorAll("#fpHud .fp-card b")].map(b => b.textContent),
+    again: [...document.querySelectorAll("#fpHud .fp-card")].filter(c => /full screen/i.test(c.textContent)).map(c => c.dataset.tipFirst ? "the first, still up" : "a new one"),
+    stored: localStorage.getItem("freyaFootball.tipFS")}));
   await lift(["c"]);
-  check(!tipAgain.due && !tip2.cards.some(t => /full screen/i.test(t)), "the tip does not show a second time", {due: tipAgain.due, cards: tip2.cards});
+  check(!tipAgain.due && !tip2.cards.some(t => /full screen/i.test(t)), "the tip does not show a second time", {due: tipAgain.due, cards: tip2.cards, again: tip2.again, stored: tip2.stored});
   check(page.errors.length === 0, "zero console and page errors", page.errors.slice(0, 5));
   ok = true;
 } catch (e){ console.log("FAILED", e.stack || e.message); check(false, "the run finished", String(e.message)); }
