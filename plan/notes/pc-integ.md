@@ -143,3 +143,10 @@ merge into `claude/awesome-babbage-o53g6x`. This PC never pushed there.
     count growing, and names where the geometry was made. It passes; so did six plain runs.
 - **Still intermittent:** `uf-callpass` (4 of 6 runs pass). In the other two, a few presses of R went unregistered
   while the keeper held the ball for his roll (P9-B's `gkroll` hold).
+  - **Fixed after:** the keeper never heard a call (his distribution is his own, `gkbrain.js`). In his hands he now
+    looks at once and plays it to you when it is on (`heardCall`, `DIST.CALL`); winding up a throw or a roll to another
+    man, the call waits for that man (`ms.call.wait`) and is heard when he has the ball (`rules.js setCtl`). Only the
+    player's own call at the keys. `uf-callpass` has a keeper part with real presses.
+- **`tr2b-shield`'s tip (fixed after):** the tip was never shown twice. On a fast machine its first card (3.5 s) was
+  still on the HUD after the test's full screen, and the check read it as a second showing. The card now leaves once
+  the page is in full screen, and the test tells a card still up from a new one.

@@ -8,7 +8,7 @@
 - **Base:** `origin/claude/awesome-babbage-o53g6x` at `4be72e2` (the plan commit that adds U21).
 - **What works:** third person for football and first person for life. The shot meter, kick selector, pass assist and
   crosshair all work in third person.
-- **What's open:** the substitute's pre-match warm-up on the touchline is still first person. See "Not done" below.
+- **The warm-up:** its ball exercises are third person too (see "The warm-up" at the end).
 
 U21 isn't a package, so it touches files several packages own. They are listed below; there is no `HOOKS.md` because
 nothing is left for anyone else to apply.
@@ -91,9 +91,18 @@ The meter, kick type and pass assist in third person are `u21-camera`'s.
 
 ## Not done
 
-- **The substitute's pre-match warm-up** (`warmup.js`, the exercises on the touchline strip) stays in first person.
-  - Its exercises are framed for your own eyes and posed on the first-person body, which has no head.
-  - Third person there needs your whole body posed through the exercises: a separate piece of work.
-  - Everything from the moment you're on the pitch is third person.
+- **The substitute's pre-match warm-up** (`warmup.js`): done after the integration, see "The warm-up" below.
 - **Walking about the Training cage between drills** is life (first person) unless you have a life ball. Every drill,
   Free Play and Full Match is third person.
+
+## The warm-up (after the integration)
+
+- **The rule applied:** third person where your body plays a ball. The juggling and the one-twos (`POOL` `ball: true`)
+  are seen from behind you when the Football camera is Third person; the stretches, the strides and the walk to the
+  strip have no ball and stay first person (their timing is read off your own legs as you look down at them).
+- **Your whole body** (`warmup.js warmMe`): made the first time it is drawn, posed through the set by the same
+  `warmPose`, shown from the moment the camera is half way behind you; the first-person body is hidden meanwhile.
+- **The camera** (`matchcam.js tpFrame`, the controller's `SRC.off`): eased out through the exercise's intro and back
+  once the ball is put away, never a cut. The look is framed for it (`tpView`): a little down and turned off the way you
+  face toward the pitch, so the camera looks past your shoulder at the ball (straight behind you, your back hid it).
+- **Test:** `qa/u21-warmup.mjs` (in `run.mjs u21`), real E, real clicks.
