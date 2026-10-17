@@ -428,7 +428,10 @@ function deliver(J, ms, setup){
     if (P.to === "space" && P.runTo){
       // he goes as the runner sets off (or at 4.5 s); the ball into the space ahead of him
       if (recv && recv.m.speed < 2.5 && el < 4.5) return;
-      tg = {x:P.runTo.x, y:R, z:P.runTo.z};
+      // (into his path: where his run takes him by the time it arrives, the wind-up and a flat throw's flight, about
+      // 1.5 s; inside the pitch; at knee height. A man not yet going gets it at the end of his run)
+      const hz = ms.spec.hz - 1, hx = ms.spec.hx - 1;
+      tg = recv && recv.m.speed > 2.5 ? {x:clamp(recv.m.x + recv.m.vx*1.5, -hx, hx), y:0.4, z:clamp(recv.m.z + recv.m.vz*1.5, -hz, hz)} : {x:P.runTo.x, y:0.4, z:P.runTo.z};
     } else {
       if (!R0.set && el < 3) return;
       // to his feet: where he is going to be, a stride short of him (a man steps in to meet a throw), at knee height
