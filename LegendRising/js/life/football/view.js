@@ -639,8 +639,11 @@ function locoOf(st, a){
   const m = a.m;
   st.mode = "move"; st.speed = m.speed;
   st.intent = m.target > 0 ? m.target : 0;
-  st.style = jockeying(a) && m.speed <= 3.4 ? "jockey"
-    : m.speed > .3 && Math.abs(Math.atan2(Math.sin(m.heading - m.yaw), Math.cos(m.heading - m.yaw))) > 2.1 ? "backpedal" : undefined;
+  // (the jockey's side-on steps only going sideways or back: going forward at the man, a jockeying body runs, as a
+  // shuffle forward would drag its planted feet)
+  const off = Math.abs(Math.atan2(Math.sin(m.heading - m.yaw), Math.cos(m.heading - m.yaw)));
+  st.style = jockeying(a) && m.speed <= 3.4 && (off > .9 || m.speed < .3) ? "jockey"
+    : m.speed > .3 && off > 2.1 ? "backpedal" : undefined;
   st.fatigue = fatigueOf(a);
   return st;
 }

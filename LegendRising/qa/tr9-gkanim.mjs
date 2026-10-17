@@ -87,8 +87,10 @@ try {
           ballAt(me.m.x + dir*.3, .11, me.m.z - sd*.5);
           for (let i = 0; i < 6; i++) frame();
           // (a crowd under it, your team-mates in the six-yard box: his to punch as often as to claim)
-          ms.agents.filter(o => o.team === me.team && o !== me && o.onPitch && !o.isGK).slice(0, 3).forEach((o, i) => { o.m.x = gx - dir*(3 + i); o.m.z = (i - 1)*1.2; o.x0 = o.m.x; o.z0 = o.m.z; });
-          AC.startAction(ms, me, {kind:"cross", target:{x:gx - dir*(3 + rep), y:2.4, z:-sd*(rep - 1)}, contact:1});
+          // (gkbrain.js punches a claim with GK.PUNCH_N men within GK.PUNCH_R m of where he meets it)
+          const tx = gx - dir*(3 + rep), tz = -sd*(rep - 1);
+          ms.agents.filter(o => o !== me && o.onPitch && !o.isGK).slice(0, 4).forEach((o, i) => { o.m.x = tx + (i % 2 ? .9 : -.9); o.m.z = tz + (i < 2 ? .9 : -.9); o.x0 = o.m.x; o.z0 = o.m.z; o.m.vx = o.m.vz = 0; });
+          AC.startAction(ms, me, {kind:"cross", target:{x:tx, y:2.4, z:tz}, contact:1});
         } else {
           // a ball rolled at him from 14 m: his to gather
           ballAt(gx - dir*14, .11, z0*.3, dir*9, 0, 0);

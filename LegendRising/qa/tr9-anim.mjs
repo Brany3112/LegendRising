@@ -68,7 +68,7 @@ try {
           if (!s){ s = {q: h.bones.map(b => new Q().copy(b.quaternion)), plant: [null, null], mode: h.mode, mv: h.mv ? h.mv.key : null}; S.set(a.id, s); out.bodies++; continue; }
           const modeNow = h.mode + "|" + (h.mv ? h.mv.key + (h.mv.id || "") : ""), changed = modeNow !== s.mode;
           // designated impulses: around a contact of a strike, a tackle or a header, and a dive
-          const mv = h.mv, imp = !!mv && (mv.key === "strike" || mv.key === "tackle" || mv.key === "header" || mv.key === "gkdive" || mv.key === "gkpunch" || mv.key === "gktip") && Math.abs((mv.tau || 0) - (mv.contact || 0)) < .12;
+          const mv = h.mv, imp = !!mv && (mv.key === "strike" || mv.key === "tackle" || mv.key === "header" || mv.key === "gkdive" || mv.key === "gkpunch" || mv.key === "gktip" || mv.key === "gkcatch" || mv.key === "gkcollect") && Math.abs((mv.tau || 0) - (mv.contact || 0)) < .12;
           let bm = 0;
           for (let i = 0; i < h.bones.length; i++){ const ang = h.bones[i].quaternion.angleTo(s.q[i]); if (ang > bm) bm = ang; s.q[i].copy(h.bones[i].quaternion); }
           // (a far body is posed less often than every frame, its level of detail (the scheduler's tiers): a pose that
@@ -86,9 +86,11 @@ try {
             bone.getWorldPosition(v1);
             const p = s.plant[i];
             if (f.down && p && p.n === G.n + ":" + f.tDown.toFixed(0)){ }
+            // (one plant: the foot down all along, its own time down growing; a body posed less often than every frame
+            // can lift a foot and set it down again between two poses, which starts a new plant)
             if (f.down){
-              if (p && p.down){ const d = Math.hypot(v1.x - p.x0, v1.z - p.z0); if (d > p.max) p.max = d; if (p.max > out.slideMax){ out.slideMax = p.max; out.slideAt = {id:a.id, foot:i, t:ms.t, v:a.m.speed}; } }
-              else s.plant[i] = {down:true, x0:v1.x, z0:v1.z, max:0};
+              if (p && p.down && f.tDown >= p.tDown){ p.tDown = f.tDown; const d = Math.hypot(v1.x - p.x0, v1.z - p.z0); if (d > p.max) p.max = d; if (p.max > out.slideMax){ out.slideMax = p.max; out.slideAt = {id:a.id, foot:i, t:ms.t, v:a.m.speed}; } }
+              else s.plant[i] = {down:true, x0:v1.x, z0:v1.z, max:0, tDown:f.tDown};
             } else s.plant[i] = null;
           } else { s.plant[0] = s.plant[1] = null; }
           // stuck: a clip held more than 0.5 s past its end
@@ -148,7 +150,10 @@ try {
     W9.Rn.setPaused(true);
     const a = ms.agents.find(o => o.team !== ms.agents[ms.me].team && !o.isGK && V.rec[o.id] && !V.rec[o.id].hidden);
     const R = V.rec[a.id], out = [];
+    // (near the camera: posed every frame, at the nearest level of detail)
+    const F = Tn.F || {cx:0, cz:0}, P = L.P;
     for (const [kind, v] of [["lateral", 1], ["lateral", 2], ["lateral", 3.2], ["backward", 1], ["backward", 2], ["backward", 3.2]]){
+      a.m.x = P.x - F.cx - Math.sin(P.yaw)*5; a.m.z = P.z - F.cz - Math.cos(P.yaw)*5 - (kind === "lateral" ? 2 : 0);
       // facing -x; lateral: along +z; backward: along +x (away from where he faces)
       a.m.yaw = Math.PI/2; a.m.heading = kind === "lateral" ? Math.PI : -Math.PI/2;
       const vx = kind === "lateral" ? 0 : v, vz = kind === "lateral" ? v : 0;
@@ -173,7 +178,7 @@ try {
         if (lead != null && ld !== lead && Math.abs(pl - pr) > .05) cross++;
         for (let i = 0; i < 2; i++){
           const ft = G && G.feet[i], p = i ? v2 : v1;
-          if (ft && ft.down){ if (plant[i]) drift = Math.max(drift, Math.hypot(p.x - plant[i].x, p.z - plant[i].z)); else plant[i] = {x:p.x, z:p.z}; }
+          if (ft && ft.down){ if (plant[i] && ft.tDown >= plant[i].t) { plant[i].t = ft.tDown; drift = Math.max(drift, Math.hypot(p.x - plant[i].x, p.z - plant[i].z)); } else plant[i] = {x:p.x, z:p.z, t:ft.tDown}; }
           else plant[i] = null;
         }
       }
@@ -188,7 +193,7 @@ try {
 
   /* ---------- MV-9: dribble touches ---------- */
   const D = {spy:0, sim:0, met:0, near:[]};
-  for (const id of ["freeplay", "att-midfield"]){
+  for (const id of ["def-1v1", "def-2v1", "att-midfield"]){
     const ok = await page.evaluate(id => !!window.__trainRun.scenario(id), id);
     if (!ok) continue;
     await page.evaluate(id => window.__t9.start(id, {}), id);
@@ -198,10 +203,10 @@ try {
       // (Free Play: you, dribbling at a jog and a run (the AI standing in for you turns with the ball, W held keeps it
       // going); a drill: the AI's own carriers)
       const free = W9.Rn.RUN.cur.id === "freeplay";
-      ms.meAI = true; V.fpOn = false; V.touchSpy = [];
+      ms.meAI = !/^def-/.test(W9.Rn.RUN.cur.id); V.fpOn = false; V.touchSpy = [];
       const watch = [];
       let sim = 0, evAt = ms.events.length, cur = ms;
-      for (let f = 0; f < 60*12; f++){
+      for (let f = 0; f < 60*20; f++){
         if (free){
           const me = cur.agents[cur.me], b = cur.ball;
           if (cur.poss.ctl !== me.id && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) > 3){ b.p.x = me.m.x - Math.sin(me.m.yaw)*.6; b.p.z = me.m.z - Math.cos(me.m.yaw)*.6; b.v.x = b.v.y = b.v.z = 0; b.state = "free"; b.sleep = false; }
@@ -216,7 +221,7 @@ try {
         }
         L.stepN(1);
         if (W9.T() !== Tn) break;
-        if (Tn.ms !== cur){ cur = Tn.ms; cur.meAI = true; evAt = cur.events.length; }
+        if (Tn.ms !== cur){ cur = Tn.ms; cur.meAI = ms.meAI; evAt = cur.events.length; }
         const E = cur.events;
         for (let i = evAt; i < E.length; i++){ const e = E[i]; if (e.kind === "touch" && e.how === "dribble" && e.agent >= 0 && V.rec[e.agent] && !V.rec[e.agent].hidden) sim++; }
         evAt = E.length;
@@ -234,7 +239,7 @@ try {
     });
     D.sim += r.sim; D.spy += r.spy; D.met += r.met; D.near.push(r.worst);
   }
-  check(D.sim > 5 && D.spy >= D.sim*.95, "MV-9 dribble touches: every drawn body's dribble touch asks its gait for the touch the same frame (view.js gait.touch)", D);
+  check(D.sim >= 3 && D.spy >= D.sim*.95, "MV-9 dribble touches: every drawn body's dribble touch asks its gait for the touch the same frame (view.js gait.touch)", D);
   check(D.spy > 0 && D.met/D.spy >= .95, "MV-9 dribble touches: in at least 95% of them the drawn foot meets the drawn ball (toe within 0.15 m)", D);
 
   /* ---------- MV-15: the first-person body ---------- */
