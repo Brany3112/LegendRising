@@ -10,7 +10,7 @@
 //            each cue rendered offline is a real sound (not silence) of about the length the design gives it
 //   files    no audio file is ever asked for (no request for an audio type or extension), and no file of WP-D's
 //            loads one (no new Audio(, no decodeAudioData, no fetch, no audio extension in the source)
-//   speech   the call's spoken name follows the setting: off in freyaFootball.ctrl means no speech
+//   speech   a call never speaks the name aloud, whatever the stored setting says (text to speech was removed)
 import fs from "node:fs";
 import path from "node:path";
 import {launch, ROOT, BASE, report} from "./lib.mjs";
@@ -134,7 +134,7 @@ try {
   if (!res.checks.cues.why) done("cues");
   console.log(`cues: ${Object.values(play.played).filter(Boolean).length}/11 played live, ${play.voicesMax} at most at once, context ${play.ctxState}; offline: ${Object.entries(offline).map(([n, r]) => `${n} ${r ? r.seconds + "s" : "none"}`).join(", ")}`);
 
-  /* ---------- speech follows the setting ---------- */
+  /* ---------- a call is never spoken aloud ---------- */
   const sp = await page.evaluate(async () => {
     const A = window.__AUD, said = [];
     const real = window.speechSynthesis;
@@ -154,8 +154,7 @@ try {
     return {off, on: said.length - off, said};
   });
   res.checks.speech = sp;
-  if (sp.off !== 0) fail("speech", "the name was spoken with speech off");
-  if (sp.on !== 1 || sp.said[sp.said.length - 1] !== "Ionescu") fail("speech", `with speech on the name was not spoken once (${JSON.stringify(sp)})`);
+  if (sp.off !== 0 || sp.on !== 0) fail("speech", `a call was spoken aloud (${JSON.stringify(sp)})`);
   if (!res.checks.speech.why) done("speech");
 
   res.checks.files.requests = requests.slice();

@@ -65,7 +65,7 @@ const DEG = Math.PI/180;
 
 /* ---------- this device's settings (1.6, 3.4.7, A1.2, A1.4) ---------- */
 export const SET_KEY = "freyaFootball.ctrl";
-export const SET_DEF = Object.freeze({sens:1.0, invertY:false, fov:78, speech:true, offsidePip:"auto", volume:.8, hints:true,
+export const SET_DEF = Object.freeze({sens:1.0, invertY:false, fov:78, offsidePip:"auto", volume:.8, hints:true,
   motion:1, hudScale:1, hudOpacity:1, palette:"normal", radar:false, hide:{}, assist:"on", footCam:"third"});
 // (U21) the football camera: "third" (behind and above you, the default) or "first" (through your eyes)
 export const FOOT_CAMS = Object.freeze(["third", "first"]);
