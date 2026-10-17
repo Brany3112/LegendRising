@@ -9,6 +9,7 @@
 //   import {openKit, savePng} from "./wpK-lib.mjs";
 import fs from "node:fs";
 import path from "node:path";
+import {fileURLToPath} from "node:url";
 import {ensureServer} from "./serve.mjs";
 
 // Playwright from the Linux path first, else the globally installed package; on Windows the real GPU, not SwiftShader
@@ -24,7 +25,8 @@ const {chromium} = await playwright();
 
 export const PORT = +(process.env.QA_PORT || 8769);
 export const BASE = `http://127.0.0.1:${PORT}/`;
-export const OUT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "out");
+// (fileURLToPath, not the URL's pathname: on Windows that is "/D:/...", which path.resolve turns into "D:\D:\...")
+export const OUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "out");
 const ARGS = WIN ? ["--ignore-gpu-blocklist"] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"];
 
 export async function openKit(){
