@@ -243,5 +243,5 @@ if (typeof window !== "undefined"){
     if (configureScenario(d.id, d.config)) e.preventDefault();
   });
   addEventListener("train:exit", () => { if (HUB.open) closeHub(); HUB.cat = null; HUB.cfg.clear(); thudIdle(false); });
-  window.__trainHub = {openHub, closeHub, hubOpen, hubCategory, configureScenario, scenarioConfig, setScenarioConfig, registerEntry, entries:() => [...ENTRIES.keys()]};
+  window.__trainHub = {openHub, closeHub, hubOpen, hubCategory, configureScenario, scenarioConfig, setScenarioConfig, registerEntry, entries:() => [...ENTRIES.keys()], entriesOf:cat => entriesOf(cat).map(e => e.id)};
 }
