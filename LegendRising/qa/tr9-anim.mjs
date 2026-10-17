@@ -13,7 +13,8 @@
 //       most 2 mm;
 //     MV-9 dribble touches: at every dribble touch of the simulation the drawn foot's touch is asked for within 1 frame
 //       (view.js V.touchSpy); in at least 95% of them the drawn foot meets the drawn ball (its toe within 0.15 m);
-//     MV-15 the first-person body: fpPose gets the neck fix and the arms-in every frame (view.js V.fpSpy); over 600
+//     MV-15 the first-person body: fpPose gets the arms-in every frame (the life body's neck fix is not this body's: it
+//       moved the feet ahead of the camera, qa/uf2-feel.mjs) (view.js V.fpSpy); over 600
 //       frames of sprinting, turning and looking down to -60 degrees no joint of it is within 0.12 m in front of the
 //       camera inside the middle 40% of the view, and its hands keep out of the middle half (but in an action that uses
 //       them);
@@ -273,7 +274,7 @@ try {
     }
     return {frames, spy:Object.assign({}, V.fpSpy), bad, worst, hands};
   });
-  check(FPB.spy.calls > 0 && FPB.spy.neck === FPB.spy.calls && FPB.spy.arms === FPB.spy.calls, "MV-15: fpPose gets the neck fix and the arms-in every frame (view.js V.fpSpy)", FPB.spy);
+  check(FPB.spy.calls > 0 && FPB.spy.arms === FPB.spy.calls, "MV-15: fpPose gets the arms-in every frame (view.js V.fpSpy)", FPB.spy);
   check(FPB.bad === 0, "MV-15: sprinting, turning and looking down to -60 degrees, no joint of your body within 0.12 m in front of the camera in the middle 40% of the view", FPB);
   check(FPB.hands === 0, "MV-15: your hands keep out of the middle half of the view (but in an action that uses them)", {hands:FPB.hands});
 

@@ -24,6 +24,9 @@ import {loftSpeedFor} from "../js/life/football/actions.js";
 const {check, done} = checker("tr7-corner");
 const argv = process.argv.slice(2), si = argv.indexOf("--seeds");
 const SEEDS = si >= 0 ? +argv[si + 1] : 12;
+// (a volley off a corner is rare, one or two in 60 goes, and any change in the simulation moves which seed has it: the
+// touches are looked for over more seeds, TAG_SEEDS, the other checks keep their SEEDS)
+const TAG_SEEDS = Math.max(SEEDS, 30);
 const DELIVER_D = 2.5, DELIVER_P = 0.7, MARK_D = 1.6, ZONE_D = 1.2;
 const ROLES = ["taker", "attacker", "receiver", "support", "defender"];
 const r2 = v => Math.round(v*100)/100;
@@ -61,13 +64,15 @@ const crossBot = (ms, me, J, setup) => {
 /* ---------- 2. every role, every seed: the corner is taken and the go decided ---------- */
 const deliver = {n:0, near:0, nearest:0, aimed:0, byZone:{}}, marks = {man:[], zonal:[]}, rolesBad = [], nan = [];
 for (const role of ROLES){
-  for (let seed = 1; seed <= SEEDS; seed++){
+  for (let seed = 1; seed <= TAG_SEEDS; seed++){
+    const extra = seed > SEEDS;
     const zone = ["near", "far", "six", "spot", "edge"][seed % 5], marking = seed % 2 ? "man" : "zonal";
     const cfg = cfgOf("corner", {role, opts:{side:seed % 2 ? "left" : "right", zone, marking, delivery:"cross"}});
     let pathD = Infinity, others = Infinity, aimed = null, snap = null;
     const r = playSet("corner", cfg, seed, {meAI:role !== "taker", bot:crossBot, max:40, onStep:(ms, J, setup) => {
       const b = ms.ball.p;
       if (!Number.isFinite(b.x + b.y + b.z)) nan.push({role, seed, t:r2(ms.t)});
+      if (extra) return;
       const tk = ms.agents[J.tkId];
       // the moment the runs begin (everyone set): the marking as it stands
       if (!snap && J.runsGo && !J.taken){
@@ -86,8 +91,9 @@ for (const role of ROLES){
         for (const a of ms.agents) if (a.team === J.R0.team && a.id !== J.recvId && a.id !== J.tkId && a.role === "player" && !a.isGK) others = Math.min(others, Math.hypot(a.m.x - b.x, a.m.z - b.z));
       }
     }});
-    if (!r.v || !r.J.taken) rolesBad.push({role, seed, v:r.v && r.v.why, taken:r.J.taken});
     for (const t of r.J.tags) TAGS.add(t);
+    if (extra) continue;
+    if (!r.v || !r.J.taken) rolesBad.push({role, seed, v:r.v && r.v.why, taken:r.J.taken});
     // deliveries: the computer's cross (not mine, not a short one) at a designated receiver who is not me
     if (role !== "taker" && aimed && r.J.recvId >= 0){
       deliver.n++;
@@ -113,7 +119,7 @@ check(deliver.near >= DELIVER_P*deliver.n, `the cross reaches the designated rec
   check(marks.man.length > 10 && manBad.length <= 0.1*marks.man.length, `man to man: each marker within ${MARK_D} m of the spot goal side of his man as the kick starts (90%)`, {n:marks.man.length, bad:manBad.slice(0, 4)});
   check(marks.zonal.length > 10 && zBad.length <= 0.1*marks.zonal.length, `zonal: each defender within ${ZONE_D} m of his zone as the kick starts (90%)`, {n:marks.zonal.length, bad:zBad.slice(0, 4)});
 }
-check(["header", "volley", "clearance", "second"].every(t => TAGS.has(t)), "headers, volleys, clearances and second balls all occur across roles and seeds", [...TAGS]);
+check(["header", "volley", "clearance", "second"].every(t => TAGS.has(t)), `headers, volleys, clearances and second balls all occur across roles and ${TAG_SEEDS} seeds`, [...TAGS]);
 
 /* ---------- 3. the instant replay is asked for when it is on, and not when it is off ---------- */
 {

@@ -287,7 +287,7 @@ function callTrial(seed, o = {}){
 // player's in my place, over the same seeds (the player a bot moving as the AI would, never calling)
 {
   const ids = ["att-carrier", "att-call", "att-support", "m-wing-recv", "m-space", "m-pressure", "m-crossbox"];
-  let dec = 0, missing = 0, toMe = 0, all = 0, toAi = 0, allAi = 0;
+  let dec = 0, missing = 0, noPass = 0, toMe = 0, all = 0, toAi = 0, allAi = 0;
   for (const id of ids){
     const d = drill(id);
     for (let seed = 1; seed <= 20; seed++){
@@ -296,7 +296,8 @@ function callTrial(seed, o = {}){
         const {ms} = matchOf(setup, spec, "train", {aiMe});
         ms.meAI = false;
         const mine = ms.agents.find(a => a.team === setup.myTeam && a.pid === 1);
-        if (!aiMe) ms.onDecide = (a, opts) => { if (a.team !== mine.team) return; dec++; if (!opts.some(x => x.recv === mine.id)) missing++; };
+        // (a decision with no pass option at all, a clearance or a dribble under pressure, says nothing about seeing me)
+        if (!aiMe) ms.onDecide = (a, opts) => { if (a.team !== mine.team) return; if (!opts.some(x => x.recv >= 0)){ noPass++; return; } dec++; if (!opts.some(x => x.recv === mine.id)) missing++; };
         const J = goState(ms);
         for (let k = 0; k < 60*10; k++){
           if (!aiMe && k % 15 === 0){ const t = decideOffBall(ms, mine); mine.botT = t; }
@@ -314,7 +315,7 @@ function callTrial(seed, o = {}){
     }
   }
   const shareMe = all ? toMe/all : 0, shareAi = allAi ? toAi/allAi : 0;
-  check(dec > 50 && missing === 0, `sees the user: in all ${dec} decisions of a carrier of mine in the drills I am among his pass candidates`, {decisions:dec, missing});
+  check(dec > 50 && missing === 0, `sees the user: in all ${dec} decisions of a carrier of mine in the drills I am among his pass candidates`, {decisions:dec, missing, noPass});
   check(all > 30 && shareMe <= 1.5*shareAi, `no call, no forced passes: my share of the carrier's passes ${r2(shareMe)} is at most 1.5 x an AI player's in my place (${r2(shareAi)})`, {toMe, all, toAi, allAi});
 }
 

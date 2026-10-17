@@ -208,9 +208,12 @@ try {
     const ms = FP.ms, z = -(ms.spec.hz + 1.45);
     if (called){ L.P.x = 0.4; L.P.z = z + .5; if (F.FS.own){ F.FS.own.x = L.P.x; F.FS.own.z = L.P.z; } }
     X.step(10);
-    // a stoppage: the ball over the touchline
-    if (called && !F.FS.onPitch){ const b = ms.ball; if (ms.phase === "live"){ b.state = "free"; b.holder = -1; ms.poss.ctl = -1; b.p.x = 5; b.p.y = .3; b.p.z = ms.spec.hz - 1; b.v.x = 0; b.v.y = 0; b.v.z = 8; } }
-    const on = X.until(() => F.FS.onPitch, 60*90);
+    // a stoppage: the ball over the touchline (again while play goes on: a player can meet it before the line)
+    let on = false;
+    for (let k = 0; k < 6 && !on; k++){
+      if (called && !F.FS.onPitch){ const b = ms.ball; if (ms.phase === "live"){ b.state = "free"; b.holder = -1; ms.poss.ctl = -1; b.p.x = 5; b.p.y = .3; b.p.z = ms.spec.hz - .3; b.v.x = 0; b.v.y = 0; b.v.z = 8; } }
+      on = X.until(() => F.FS.onPitch, 60*15);
+    }
     return {called, on, atFourth: F.FS.atFourth, roleDone: JSON.stringify(ms.roleDone), isMe: ms.agents.filter(a => a.isMe).length};
   });
   const snap4 = await page.evaluate(() => { const s = window.__t8.Sim.halfStart(FP.ms); return {half: s.half, roleDone: JSON.stringify(s.data.roleDone), callUp: JSON.stringify(s.data.callUp), used: JSON.stringify(s.data.bench.map(b => b.map(p => !!p.used)))}; });

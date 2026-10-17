@@ -43,7 +43,7 @@ try {
     const names = {};
     for (const s of SKILLS) names["me." + s[0]] = s[1];
     for (const k of F.gkEditKeys()) names["gk." + k] = A.GK_NAMES[k];
-    return {names, skills: F.EDIT_SKILLS.map(k => "me." + k), gk: F.gkEditKeys().map(k => "gk." + k)};
+    return {names, skills: F.EDIT_SKILLS.map(k => "me." + k), gk: F.gkEditKeys().map(k => "gk." + k), live: F.GK_DISTRIB_LIVE};
   });
   const cfg0 = await cfgNow(page);
   const val = (c, p) => { const [a, b] = p.split("."); return b ? c[a][b] : c[a]; };
@@ -51,7 +51,7 @@ try {
   const bad1 = meRows.concat(gkRows).filter(r => r.name !== real.names[r.path] || +r.value !== val(cfg0, r.path) || r.min !== "1" || r.max !== "99" || !/1 to 99/.test(r.label));
   check(meRows.map(r => r.path).join() === real.skills.join() && gkRows.map(r => r.path).join() === real.gk.join() && bad1.length === 0,
     "my 15 attributes and the keeper's set: each with its real name, its current value, min 1 and max 99", {me: meRows.length, gk: gkRows.length, bad: bad1.slice(0, 3)});
-  check(!rows.some(r => r.path === "gk.distrib"), "distribution is not offered while it changes nothing (GK_DISTRIB_LIVE false)");
+  check(rows.some(r => r.path === "gk.distrib") === real.live, "distribution is offered exactly when it does something (GK_DISTRIB_LIVE)", {live: real.live});
 
   /* ---------- 8 (first half). the game's state before any typing ---------- */
   const game0 = await page.evaluate(async () => { const K = await import("/js/life/football/control.js"); return {contact: K.CTRL.contact, keys: Object.entries(window.__life.keys).filter(([, v]) => v).map(([k]) => k)}; });

@@ -53,7 +53,6 @@ import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
 import {AUD} from "./audio.js";
 import {overlayCovered} from "../core/quality.js";
-import {neckFix} from "../core/me.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -997,12 +996,13 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
     else { FPST.speed = o.speed || 0; FPST.intent = FPST.speed; FPST.style = undefined; }
     // (the arms kept nearer the body as you look down at a run: matchcam.js hands in its share, V.fpArms, as me.js
     // does for the life body; a caller's own armsIn wins)
-    // ((P9-A, MV-15) and the neck fix the life body has, me.js neckFix: if anything brings the neck up to the eye, the
-    // body gives way in its own frame; a caller's own wins. V.fpSpy counts both, for qa/tr9-anim.mjs)
-    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn != null ? o.armsIn : V.fpArms || 0; FPST.correct = o.correct || neckFix;
+    // ((P9-A, MV-15) the life body's neck fix, me.js neckFix, is not this body's: UF2 places it against the eye itself,
+    // matchcam.js eyeAhead, and the fix moved its feet out ahead of the camera (qa/uf2-feel.mjs). A caller's own fix
+    // still applies. V.fpSpy counts both, for qa/tr9-anim.mjs)
+    FPST.root.x = x; FPST.root.z = z; FPST.armsIn = o.armsIn != null ? o.armsIn : V.fpArms || 0; FPST.correct = o.correct || null;
     FPST.fatigue = a ? fatigueOf(a) : 0;
     const sp = V.fpSpy || (V.fpSpy = {calls:0, neck:0, arms:0});
-    sp.calls++; if (FPST.correct === neckFix) sp.neck++; if (Number.isFinite(FPST.armsIn)) sp.arms++;
+    sp.calls++; if (FPST.correct) sp.neck++; if (Number.isFinite(FPST.armsIn)) sp.arms++;
     // (shielding: your arms come out wide and back, at the edges of your view, P2b-B; the ball of your throw-in in your
     // hands, and your hand up in front of you as you ask for the ball, UF-A U6 and U10)
     const R = a ? V.rec[a.id] : null, hold = R ? throwHold(V, R, a, ms) : null, hand = R ? handUp(R, a, ms, true) : null;
