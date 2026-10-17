@@ -81,6 +81,10 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-k-goal{border-left-color:var(--gold,#ffd75a)}.fp-k-goal b{font-size:calc(28px*var(--s))}
 .fp-k-offside{border-left-color:var(--fp-warn)}.fp-k-card{border-left-color:#ffd400}.fp-k-red{border-left-color:var(--fp-bad)}
 .fp-no-cards .fp-cards{display:none}
+/* (UF2 integration) while a drill's card is up at the top (the first day's lessons, the session's blocks, a small-sided
+   game) a goal's card comes down under it instead of covering the lesson's title and line */
+#lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:calc(var(--fp-pad) + 104px)}
+@media (max-width:640px){ #lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:calc(var(--fp-pad) + 262px)} }
 
 /* the crosshair: a dot where you look; round it the timing ring of a volley and the bench's hold-E ring */
 .fp-cross{position:absolute;left:50%;top:50%;width:0;height:0}
