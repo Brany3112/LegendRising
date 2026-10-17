@@ -1,108 +1,96 @@
-# PC status: P8-B (Full Match in Training Mode), branch `pc/p8b`
+# PC status: P10-B (Performance), branch `pc/p10b`
 
-**State: finished; ready for the cloud to merge (after `pc/p8a`, which it builds on).** `HOOKS.md` lists P8-A's and
-P8-B's hook requests together. On this branch:
+**State: partly done. Merge it, then finish the rest from `HOOKS.md`.** The branch builds on `pc/p8b` (and so on
+`pc/p8a`), as asked. P8-A's and P8-B's status files are on their own branches. The work is safe to merge (every
+regression passes), but 4 of tr10-perf's 16 checks and 2 of tr10-leak's 6 don't meet their budgets yet. The fixes
+those need are outside P10-B's files, and `HOOKS.md` says what each one needs.
 
-- three `[hook]` commits:
-  - `3f490a8`: `controller.js` (`host.pause`, `FP.bench`, `FP.benchOk`);
-  - `49fae31`: the `fullmatch.js` loader;
-  - `34be84d`: `qa/tr3-hub.mjs`;
-- one commit to P8-A's own files that P8-B's test found was needed: `161cdc8`, labelled "P8-A fix".
+## What changed (P10-B's own files)
 
-## What's in it (P8-B's own files)
+- **`perf.js`:** a `cage` view (the Half cage, from the halfway line's side), and `setView` passes a zone's kind.
+- **perf-6, allocations:**
+  - `sched.js frustumFrom` reads the six planes straight from the matrix, with no row or plane arrays each frame;
+  - `view.js` writes a clip's direction, ball and group points into objects the clip keeps, not new literals every
+    frame;
+  - `spares()` loops instead of making a closure per cone.
+- **Nothing inactive running.** Under one of Training's own opaque sheets (`quality.js overlayCovered()`, never the
+  black fade):
+  - `training.js` doesn't pose the drill's bodies or work out its HUD and aura;
+  - `view.js fpPose` doesn't pose your rig;
+  - as a result, nothing is drawn, posed or stepped.
+- **Shadows by preset (`human.js`).** A body casts only where the preset's shadows include people:
+  - everywhere a life zone has a map;
+  - in a stadium's or the cage's sky, only on High (`P.shadow.stadium.humans`). Medium's map holds statics only.
+  - `pool.js` keeps the new cast flags across resets.
+- **`qa/perf.mjs`** folds in the cage's gates (`tr10-perf`, `tr10-leak`). `--no-cage` leaves them out.
+- **`qa/record-perf.mjs`** (perf-10) takes `gfxLow` from the applied preset and records the people's animation
+  (`peopleMs`, the scheduler's actors).
+- **New tests:** `qa/tr10-perf.mjs` and `qa/tr10-leak.mjs`.
+- **A P8-A fix found by the reset budget:** the half-start snapshot is opt-in (`cfg.halfSnaps`, set by
+  `FP.enterTraining`), so a drill's restart no longer copies its whole match.
+  - `tr8-reset` passes 30/30 and `simreset` 16/16 with it.
+- **Tried and reverted:** a cache of view balls between resets. It saved little and changed the renderer's geometry
+  count, so the original behaviour is kept.
 
-- **`js/life/train/fullmatch.js` (new):**
-  - Full Match's options on config type `fullmatch`, registered here so `config.js` isn't edited:
-    - where I start (kick-off or bench; the help text says there's no warm-up in Training);
-    - the minute I come on;
-    - the half's length in real minutes;
-    - my position (never GK).
-  - `matchConfigOf(config)` builds on `teams.js cfgFromConfig`, adding:
-    - my position (swapped with the man who had it);
-    - a bench of five a side;
-    - the half's length;
-    - the real match's 5 changes.
-  - The training host (P8-A's contract):
-    - my look (the pool's: the created character in my bib), the bibs as kits, and the pool's bodies;
-    - notes and the pointer from the device;
-    - the quick menu's card as the pause card;
-    - `ended`, which goes back to the hub.
-  - `startFullMatch` switches to the Full cage first when another cage is up.
-  - `backToHub` runs under the fade: the match ends, the pool goes back to 14 and the sandbox mode returns.
-  - Two hub entries (from the kick-off, from the bench) and the quick menu's "match" items:
-    - Reset Current Half and Reset Match, each with its confirmation;
-    - Restart from Kickoff;
-    - Return to Hub.
-- **`hub.js`:** `registerEntry` for entries that aren't the runner's scenarios. They're listed with the category's
-  scenarios and get Configure, Presets, Start and End it.
-- **`quick.js`:**
-  - `matchCard(on, {title, preset})`: the match's pause card, with Resume and the match items;
-  - items can ask for a confirmation (Yes and Cancel in the card);
-  - the drill items show only while a drill plays.
-- **`admin.js`:** the Scenario and Match section shows the match's items during a Full Match, with the same
-  confirmations.
-- **`cage.js`:** the Full cage's two dugouts and their bench spots (6 seats a side, the fourth official by the halfway
-  line), registered as the cage's bench (`stadium.js registerBench`).
-- **`css/train.css`:** unchanged. The cards reuse the match's card styles.
+## Results on this PC (Windows, real GPU; Low at 1280 x 720; the largest drill: 6 v 6 with me, and a keeper)
 
-## Tests run on this PC (Windows, Node 26.3.0, real GPU)
+| Check | Budget | Measured | |
+|---|---|---|---|
+| Simulation per step, 13 agents (Node, best of 3) | 0.15 ms | 0.08 to 0.11 ms | pass |
+| Simulation per step, 14-agent stress | 0.15 ms | 0.07 to 0.12 ms | pass |
+| Draw calls / triangles | 45 / 80k | 24 / 21k | pass |
+| Point lights, shadow map (Low) | 0, none | 0, none | pass |
+| Full poses a frame | 12 | 11 to 12 max | pass |
+| Main-thread CPU a frame, median (ThreadTime) | 4.5 ms | 3.4 to 4.2 ms | pass |
+| Main-thread CPU a frame, p95 | 6 ms | 7.5 to 8.3 ms | **fail** (GC spikes from the allocations) |
+| Allocation a frame | 16 KB | 155 to 170 KB | **fail** (mostly `gait.js` and `rig.js`, not P10-B's) |
+| A reset (main-thread CPU) | 4 ms | 5.7 to 7.2 ms | **fail** (mostly native: the HUD's style and layout, new meshes) |
+| Low: no map, blob shadows | | yes (13 blobs) | pass |
+| Medium: statics only | | the map on, no human casts | pass |
+| High: humans cast, at most 15 redraws a second | | 13 cast, 0 redraws in 300 frames | pass (see `HOOKS.md` 4) |
+| Under the hub, the config sheet, the presets sheet: drawn, posed, stepped | 0 | 0 | pass |
+| CPU a frame under those sheets | 0.5 ms | 0.7 to 1.0 ms | **fail** (the world's own tick: `HOOKS.md` 1) |
+| 50 resets and 10 visits: renderer, scheduler, listeners, DOM, bodies, merge entries +0, timers 0 | +0 | geometries +1 (12 to 13), everything else +0 | **fail** (likely a lazily uploaded geometry; not traced) |
+| The heap after GC | +1 MB | +2.9 MB | **fail** (the same without P10-B's changes: `HOOKS.md` 6) |
 
-### `qa/tr8-fullmatch.mjs`: 30 of 30
+**Full Match in the cage** (report only; no 60 FPS gate for 11 v 11):
 
-**Part A, a fresh page with no career:**
+- 23 draw calls, 22k triangles, 39 bodies;
+- main-thread CPU median 2.6 to 2.8 ms a frame, p95 5.6 to 6.7 ms;
+- perf.md's reference, the 25-body test match on the reference container, was 3.0 to 3.1 ms ThreadTime, so this is
+  within it.
 
-- **Hub and entry:** Full Match lists its 2 entries, and Start (a real click) plays the real match on the Full cage
-  with real lines and no career. The cage's bench has 12 seats, and every body is the pool's.
-- **Real lines:**
-  - a ball driven over the touchline gives `out` and a throw-in at the line, never sent back by the fence;
-  - over the goal line it gives a goal kick (the attackers last) or a corner (the defenders last).
-- **The pause card:** when the pointer is let go, the match's card comes up. These were clicked for real:
-  - Reset Match, after its Yes: clock 0, 0-0;
-  - Reset Current Half, after its Yes: the exact state of the half's start;
-  - Restart from Kickoff: a kick-off, with the clock and the 2-1 score kept.
-- **The admin panel:** the same three, by real clicks with the confirmations.
-- **Half time and full time:** from the kick-off, both played through by real clicks on their cards. Continue goes
-  back to the hub on Full Match, the pool is 14, `bodies()` 16, and the listeners +0.
-- **From the bench:**
-  - seated in the cage's dugout, called up, at the fourth official, on at a stoppage;
-  - one of me; the replaced man is `subbedOff`;
-  - control and camera handed over, and no duplicate body;
-  - never swapped for the keeper.
-- **The keeper:**
-  - with my keeper sent off (scripted), I'm never put in goal;
-  - the role and position pickers offer no keeper;
-  - my agent is never the keeper for any start and position.
-- **Presets:** the named `fullmatch` preset (LW, averages 70 and 55, 5-minute halves, the bench at 60') was saved by
-  real typing and clicks, survived a reload and was loaded by a real click. The configuration is identical, and the
-  match starts with those values.
-- **The career:** no `v2` write, the career diff is empty, and there are 0 console and page errors.
+**60 FPS on real low-end hardware is NOT verified here.** This PC is far faster than the target. A manual check for you
+on an Intel UHD 620 class laptop:
 
-**Part B, a career quit to the title:**
+1. Open the game with `index.html?perf=1`, go into Training, and start Attacking → "Attacking midfielder" with 6
+   attackers, 6 defenders and the keeper (the configuration sheet).
+2. Play for a minute on Low and watch for stutter.
+3. In the console, run `await __perf.snapshot(300)`. `ms.frame.median` under 16.7 is 60 FPS.
 
-- My body in the Full Match wears the created character's look (hair, skin, beard, build, height), with 0 errors.
-
-### Regression
+## Regression run on this branch
 
 | Test | Result |
 |---|---|
-| `tr8-reset` (P8-A, re-run with the P8-A fix) | 30 / 30 |
-| `qa/unit/simreset.mjs` | 16 / 16 |
-| `tr3-hub` (with its `[hook]`) | pass |
+| `tr8-reset` | 30 / 30 |
+| `tr8-fullmatch` | 30 / 30 |
+| `uf-throwin` | 8 / 8 |
+| `tr6-receive-anim` | pass |
+| `tr3-leak` | 16 / 16 |
 | `tr4-reset` | pass |
-| `tr4-presets` | pass |
-| `tr4-play` | pass |
-| `tr5-admin` | pass |
+| `qa/unit/simreset.mjs` | 16 / 16 |
 | `node qa/run.mjs unit lint smoke` | 29 of 31 |
 
-- In the unit/lint/smoke run, the 2 failures are `qa/unit/daily.mjs` and `qa/unit/presets.mjs`. Both fail on Windows
-  only (they import a bare `d:` path), they aren't this package's files, and `daily.mjs` is fixed on `pc/p10a`.
+- In the unit/lint/smoke run, the 2 failures are `qa/unit/daily.mjs` and `qa/unit/presets.mjs`. They fail on Windows
+  only (a bare `d:` import). `daily.mjs` is fixed on `pc/p10a`.
+- `qa/wpB-npc.mjs` couldn't run on this PC: `tar` fails on the Windows path ("Cannot connect to D:"). That's a test
+  environment issue, not a game failure.
+- `qa/perf.mjs` (the life views' probe and the I0 side-by-side) wasn't run on this PC. It needs the I0 tree
+  (`sideBySide`, git worktree and tar). The cloud should run it.
 
-## Notes
+## Next steps (for the cloud)
 
-- **The pause card in a headless browser.** No real pointer lock is granted, so the test lets the pointer go the way
-  the world does: it releases the lock and sets `FLAGS.lockLost`. The card then comes up through the controller, and
-  every button press on it is a real mouse click.
-- **The walk to the fourth official.** The test places the player at the entry spot beside him, as the bench tests do,
-  instead of walking there key by key.
-- **Not seen by eye:** the dugouts' look in the Full cage. They're simple boxes, a seat, a back and a roof on two posts.
-  They're worth a glance in the game.
+1. Apply or forward `HOOKS.md` items 1 to 3 to their owners. They're what stands between the cage and its CPU p95,
+   allocation, reset and idle budgets.
+2. Find the +2.9 MB heap growth over visits with a heap-snapshot diff (`HOOKS.md` 6), and the +1 renderer geometry.
+3. Decide whether High's human shadows should follow the people (`HOOKS.md` 4).
