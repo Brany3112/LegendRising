@@ -41,7 +41,7 @@ import {SCHED} from "../core/sched.js";
 import {moveBy, findInside} from "../core/collide.js";
 import {pass} from "../core/acts.js";
 import {THREE} from "../build.js";
-import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating, halfStart, restoreHalf, placeForKickoff} from "./sim.js";
+import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating, halfStart, restoreHalf, placeForKickoff, markHalfStart} from "./sim.js";
 import {xgAt} from "./judge.js";
 import {firstReach, BALL} from "./ball.js";
 import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
@@ -1891,6 +1891,8 @@ function enterTraining(cfg, o = {}){
   }
   startMatch(c, kits);
   playFrom();
+  // (the first half's start as you play it: the snapshot Reset Current Half gives back)
+  markHalfStart(FS.ms);
   return true;
 }
 // play from where the match stands: on the pitch at my agent (the kick-off, or a half begun on it), else on the bench
@@ -1916,6 +1918,8 @@ function resetClear(){
   benchCam(false);
   controlReset();
   warmDispose(); FS.wb = null; FS.boostLive = null; FS.riseT = -1; FS.wDrive = false;
+  // (you stand still where a reset puts you: your own walk's speed does not carry into the new start)
+  if (FS.own){ FS.own.vx = FS.own.vz = 0; FS.own.speed = 0; }
   coverScreen();
 }
 function resetMatch(){
@@ -1925,6 +1929,7 @@ function resetMatch(){
   fourthInit(FS.kits);
   warmSetup();
   playFrom();
+  markHalfStart(FS.ms);
   return true;
 }
 function resetHalf(){

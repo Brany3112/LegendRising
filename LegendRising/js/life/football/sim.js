@@ -239,6 +239,10 @@ export function halfSnapshot(ms){
   for (const k of Object.keys(ms)) if (!HALF_KEEP.includes(k)) data[k] = cloneData(ms[k], seen);
   return {half: ms.half, t: ms.t, rngS: ms.rng.s, spare: typeof RNG.spareOf === "function" ? RNG.spareOf(ms.r) : undefined, data, bw: worldData(ms.bw, seen), quiet: worldData(ms.quiet, seen)};
 }
+// the start of the first half as the one who plays it has it (P8-A fix, found by P8-B's test): the controller sets a
+// match up after createMatch (you placed at your agent, the change's word for the fourth official), and a reset of the
+// first half has to give back that state, not createMatch's own
+export function markHalfStart(ms){ HALF_DUE.delete(ms); HALF_SNAP.set(ms, halfSnapshot(ms)); }
 // the snapshot taken at the start of the half being played (null for a match made before P8-A)
 export const halfStart = ms => { snapDue(ms); return HALF_SNAP.get(ms) || null; };
 // a fresh match from the configuration, as the snapshot had it (the snapshot itself is left untouched, so the half can
