@@ -117,7 +117,7 @@ export const MC = {
 export function camInit(src){
   SRC = src;
   MC.bob.mean = null; MC.bob.x = MC.bob.y = 0; MC.trauma = 0; MC.cine = null;
-  MC.wind.k = MC.wind.over = 0; const F = MC.follow; F.on = false; F.y = F.p = 0; F.seq = -1;
+  MC.wind.k = MC.wind.over = 0; const F = MC.follow; F.on = false; F.y = F.p = 0; F.seq = -1; F.ev = null;
   const a = MC.act; for (const k in a) a[k] = 0;
   const hd = MC.head; for (const k in hd) hd[k] = 0;
   camPush(FP_OWNER);
@@ -297,8 +297,9 @@ function follow(a, V, x, y, z, dt){
     P.yaw = wrapA(P.yaw + F.y); P.pitch = clamp(P.pitch + F.p, -1.35, 1.35);
     F.on = false; F.y = F.p = 0;
   }
-  if (a && ms && ms.kick && ms.kick.seq !== F.seq){
-    F.seq = ms.kick.seq;
+  // (the kick itself, not its number: a drill's restart numbers its kicks from 1 again, UF2-A)
+  if (a && ms && ms.kick && ms.kick.ev !== F.ev){
+    F.ev = ms.kick.ev; F.seq = ms.kick.seq;
     const ev = ms.kick.ev, it = ev && ev.intent;
     if (ms.kick.agent === a.id && ev && !ev.whiff && (it === "shot" || it === "cross" || it === "lob" || (it === "header" && ev.atGoal))){ F.on = true; F.t = 0; }
   }
@@ -327,8 +328,9 @@ function follow(a, V, x, y, z, dt){
 const CLEAN = Object.freeze({PITCH: .9*DEG, W: 26, TRAUMA: .1});
 function cleanKick(a, V, motion){
   const ms = V && V.ms, K = ms && ms.kick;
-  if (!a || !K || K.seq === MC.cleanSeq) return;
-  MC.cleanSeq = K.seq;
+  // (the kick itself, not its number: a restart of a drill numbers its kicks from 1 again)
+  if (!a || !K || K.ev === MC.cleanEv) return;
+  MC.cleanEv = K.ev;
   if (K.agent !== a.id || !K.ev || !K.ev.clean) return;
   camKick({pitch:CLEAN.PITCH*(.4 + .6*motion), w:CLEAN.W});
   MC.trauma = clamp(MC.trauma + CLEAN.TRAUMA*motion, 0, 1);

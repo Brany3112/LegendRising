@@ -277,8 +277,8 @@ function rippleStep(V, dt){
 // your clean strike (the meter's sweet spot, control.js): a bright ring on top of the kick the caller plays
 function cleanFeel(V, ms){
   const K = !V.src && ms.kick;
-  if (!K || K.seq === V.cleanSeq) return;
-  V.cleanSeq = K.seq;
+  if (!K || K.ev === V.cleanEv) return;
+  V.cleanEv = K.ev;
   const ev = K.ev;
   if (!ev || !ev.clean || K.agent !== V.me) return;
   try { AUD.cue("tick", {x:ev.x + V.ox, y:.3, z:ev.z + V.oz}, 1.8); AUD.cue("kick", {x:ev.x + V.ox, y:.2, z:ev.z + V.oz}, .45); } catch(e){}

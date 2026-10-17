@@ -258,11 +258,18 @@ export function firstTouch(agent, ball, intent, ctx, r){
   const sig = (1 - ctrl/110)*0.35*vRel/15*(1 - SETTLE.ANG*st);
   const angErr = sig > 0 ? truncNormal(r, sig, 2.5) : 0;
   const c = cos(angErr), s = sin(angErr);
-  const kx = dx*c - dz*s, kz = dx*s + dz*c;
+  let kx = dx*c - dz*s, kz = dx*s + dz*c, u = u0;
+  // (UF2-A, U17) the settle of a ball on the grass by a man standing or barely moving: played from where it is to the
+  // spot by his preferred foot (L out along the way he means, turned to that foot's side), to rest there; the
+  // direction's error turns it about that line as it would any touch
+  if (st > 0 && airT === 0 && along < 1){
+    const tx = m.x + kx*L, tz = m.z + kz*L, bx = tx - P.x, bz = tz - P.z, D = hypot(bx, bz);
+    if (D > 1e-4){ kx = bx/D; kz = bz/D; u = speedForGap(D, 0, rd); } else u = 0;
+  }
   const airborne = P.y > R + 0.05;
   const heavy = qq < TUNE.HEAVY_Q.value;
   const pushK = clamp(intent.push != null ? +intent.push : 0.5, 0, 1);
-  return {v: {x: kx*u0 + crossX, y: vy, z: kz*u0 + crossZ}, quality: qq, q: qq, heavy, bounce: airborne || vy > 0, part, dist: L, angErr,
+  return {v: {x: kx*u + crossX, y: vy, z: kz*u + crossZ}, quality: qq, q: qq, heavy, bounce: airborne || vy > 0, part, dist: L, angErr,
     push: dl > 1e-6 ? pushK : 0, vRel, dir: {x: dx, z: dz}, ahead0, settle: st};
 }
 
