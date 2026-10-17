@@ -36,6 +36,11 @@ const SPARE = new WeakMap();
 
 // a standard normal draw (mean 0, standard deviation 1) by the Box-Muller transform. Each pair of uniforms
 // gives two independent normals: the first is returned, the second is kept for this generator's next call.
+// (P8-A hook, sim.js halfSnapshot and restoreHalf) a generator's cached second normal, read and put back, so a match
+// restored to the start of a half draws exactly what the half drew
+export const spareOf = r => SPARE.get(r);
+export function setSpare(r, v){ if (v === undefined) SPARE.delete(r); else SPARE.set(r, v); }
+
 export function gauss(r){
   const s = SPARE.get(r);
   if (s !== undefined){ SPARE.delete(r); return s; }
