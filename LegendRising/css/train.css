@@ -129,3 +129,24 @@
 
 /* the Training HUD's key hints (P5-A's Free Play Q hint and the admin hint, thud.js): one quiet line */
 #trainHud .thud-hint{color:rgba(231,238,247,.75);font-size:.66rem}
+
+/* the small-sided game scoreboard (UF2-B, USER-ISSUES U13 and U15; js/life/football/ssghud.js): your side first in its
+   colour, the score, the other side in its bibs, the time left. It sits in the life HUD's top-left column under the
+   clock, so it never covers the drill card in the middle, the needs on the right or the ball */
+.ssg-board{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:var(--hud-r,12px);background:rgba(9,15,24,.78);
+  border:1px solid var(--hud-line,rgba(255,255,255,.14));color:#fff;font:800 .95rem/1 var(--display);letter-spacing:.04em;text-transform:uppercase;
+  white-space:nowrap;pointer-events:none;transition:box-shadow .3s,border-color .3s}
+.ssg-board.ssg-float{position:fixed;top:calc(96px + env(safe-area-inset-top,0px));left:calc(10px + env(safe-area-inset-left,0px));z-index:3}
+.ssg-side{display:flex;align-items:center;gap:6px}
+.ssg-side i{display:block;width:14px;height:14px;border-radius:4px;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+.ssg-mine b{color:#fff}
+.ssg-mine b::after{content:"";display:inline-block;width:5px;height:5px;margin-left:5px;border-radius:50%;background:var(--lime,#c8f060);vertical-align:middle}
+.ssg-theirs b{color:#cfd9e4}
+.ssg-score{display:flex;align-items:baseline;gap:5px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.08);font-size:1.15rem;font-variant-numeric:tabular-nums}
+.ssg-score em{font-style:normal;color:#9fb2c6}
+.ssg-time{min-width:2.6em;text-align:right;color:var(--gold,#ffd75a);font-variant-numeric:tabular-nums}
+.ssg-time:empty{display:none}
+.ssg-time.low{color:#ff8a7a}
+.ssg-board.ssg-for{border-color:rgba(200,240,96,.8);box-shadow:0 0 0 2px rgba(200,240,96,.35)}
+.ssg-board.ssg-against{border-color:rgba(255,138,122,.7);box-shadow:0 0 0 2px rgba(255,138,122,.25)}
+@media (max-width:640px){ .ssg-board{font-size:.82rem;gap:6px;padding:4px 8px} .ssg-score{font-size:1rem} }

@@ -7,6 +7,8 @@
 // 3.6.2, 3.6.3. The corner targets, their scoring and the volley drill: WP-D3 (Stage P3a), DESIGN 2.7 (the hook queue's
 // A1.7 training drills) and addendum A1.7 ("shooting drills with corner targets and scoring, volley and header drills
 // that raise the stats").
+// UF2-B (user fix round 2, USER-ISSUES Round 2 U13 to U16): the small-sided games' numbers (SSG), the bibs (bibKits),
+// the scoreboard's clock and result lines, and the kick-off's taker after a goal.
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random. Every test takes the simulation's
 // own events and numbers as arguments.
@@ -15,6 +17,7 @@ import {makePitch, PITCHES} from "./pitchspec.js";
 import {areaPitchOf, goalsLawOf} from "./cagespec.js";
 import {hypot} from "./detmath.js";
 import {SLOT_POS} from "./tactics.js";
+import {deltaE, kitsClash, rgb, hexOf, KIT_SUM_MIN} from "./kitclash.js";
 export {SLOT_POS};
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -118,7 +121,7 @@ export const BLOCKS = Object.freeze([
     coach: "Pattern play. Give it and go, and the third man runs in behind.",
     area: {x0: 0, x1: 36, z0: -24, z1: 24}, dir: 1, mates: 4, mateSlots: ['CB', 'CM', 'LW', 'ST'], opps: 0, keeper: true},
   {kind: 'ssg', mode: 'ssg', title: "Small-sided game", line: "Small-sided game · four against four", mins: 35, real: 180,
-    coach: "Four against four now. Win it back quick when you lose it.",
+    coach: "Four against four now, bibs against the rest. Win it back quick when you lose it.",
     area: null, dir: 1, mates: 3, mateSlots: ['CB', 'CM', 'ST'], opps: 4, oppSlots: ['CB', 'CM', 'LW', 'ST'], keeper: true},
   {kind: 'finishing', mode: 'finishing', title: "Finishing", line: "Finishing · rebounds are live", mins: 15, real: 90,
     coach: "Finishing to end with. Rebounds are live, so follow everything in.",
@@ -176,7 +179,7 @@ export const LESSONS = Object.freeze([
     line: "Take your position when I call the shape. Stay level with the last defender until the pass is played.",
     area: null, dir: 1, start: {x: -4, z: 8}, mates: 1, mateSlots: ['CM'], opps: 2, oppSlots: ['CB', 'CB'], keeper: true, offside: true},
   {n: 6, kind: 'ssg', mode: 'lesson', title: "Small-sided game",
-    line: "Two minutes, four against four. Show me what you've got.",
+    line: "Two minutes, four against four. You're in our colours, the bibs are against you. Show me what you've got.",
     area: null, dir: 1, mates: 3, mateSlots: ['CB', 'CM', 'ST'], opps: 4, oppSlots: ['CB', 'CM', 'LW', 'ST'], keeper: true, real: 120}
 ]);
 export const LESSON_TRIES = 3;
@@ -367,3 +370,66 @@ export function involvements(evs, me){
 }
 // the distance between two points (for the tests' callers)
 export const dist = (ax, az, bx, bz) => hypot(ax - bx, az - bz);
+
+/* ---------- the small-sided games (UF2-B, USER-ISSUES Round 2: U13 to U16) ----------
+   A small-sided game (the first day's Lesson 6 and the team session's third block) is played as a game: a score kept
+   on a small scoreboard with the time left, your side in the club's training kit and the other side in bibs of one
+   colour clearly apart from it (the U11 rule, kitclash.js CIEDE2000), the same all game; after a goal the side that
+   conceded kicks off from the centre spot at once (a fresh ball from the coach's bag), the rest jog back to their
+   shape, and play is going again inside SSG.DEAD_MAX seconds.
+     CELEB     how long the goal stands before the kick-off is called (s): the match's own is 3
+     KO_LIMIT  the kick-off is taken this long after the goal (s) at the latest, once the taker is at the ball, however
+               far the others still have to jog (they carry on into shape as play goes on)
+     DEAD_MAX  the most a restart after a goal may take, goal to the kick-off's kick (s; the acceptance bound) */
+export const SSG = Object.freeze({CELEB: 1.0, KO_LIMIT: 2.6, DEAD_MAX: 6});
+// is this item a small-sided game (a lesson, a block, or any item that says so)
+export const isSSG = item => !!item && (item.kind === 'ssg' || item.ssg === true);
+
+// the bibs the other side wears over the club's own shorts: the colour a player reads a man by is the bib, so it has
+// to stand KIT_SUM_MIN apart from the club's shirt on its own (the shorts are the same on both sides), and well apart
+// from the club's shorts too, or a bib over a shirt of the shorts' colour would read as the club's kit at a glance.
+// The club's preferred bib first (the kit man's neon), then the other bags of bibs a training ground has.
+export const BIB_COLOURS = Object.freeze(['#d8ff3a', '#ff6a3a', '#1fa2c4', '#e84393', '#f2d53c', '#7a3fb0', '#f2f2ee', '#15161a']);
+export const BIB_SHORTS_MIN = 20;
+/* club = [shirt, shorts] (any colour the game uses), prefer: the host's bib colour (or null) ->
+   {mine: [shirt, shorts], bibs: [bib, shorts], bib, d: {shirt, shorts}}: mine is the club's kit as kitclash.js reads it,
+   bibs the other side's (the bib its shirt colour), d how far apart the bib stands from the club's shirt and shorts */
+export function bibKits(club, prefer = null){
+  const ok = Array.isArray(club) && rgb(club[0]);
+  const mine = ok ? [hexOf(club[0]), hexOf(club[1] != null && rgb(club[1]) ? club[1] : club[0])] : ['#2c66b8', '#ffffff'];
+  const cands = (prefer && rgb(prefer) ? [hexOf(prefer)] : []).concat(BIB_COLOURS);
+  let best = null, bs = -Infinity;
+  for (const c of cands){
+    const d = {shirt: deltaE(c, mine[0]), shorts: deltaE(c, mine[1])};
+    const pass = d.shirt >= KIT_SUM_MIN && d.shorts >= BIB_SHORTS_MIN && !kitsClash(mine, [c, mine[1]]);
+    if (pass) return {mine, bibs: [c, mine[1]], bib: c, d};
+    const s = Math.min(d.shirt, 2*d.shorts);
+    if (s > bs){ bs = s; best = {mine, bibs: [c, mine[1]], bib: c, d}; }
+  }
+  return best;
+}
+// the scoreboard's time: whole seconds left as m:ss
+export function clockText(secs){
+  const s = Math.max(0, Math.ceil(+secs || 0)), m = Math.floor(s/60), r = s - 60*m;
+  return `${m}:${r < 10 ? '0' : ''}${r}`;
+}
+/* how a small-sided game ended, as the coach would put it: score = [ours, theirs] -> {line, sub, won}. Short and plain
+   (the result card's own words) */
+export function ssgResult(ours, theirs, mineName = 'You', bibName = 'Bibs'){
+  const a = ours | 0, b = theirs | 0;
+  const line = a > b ? `Won ${a}-${b}` : a < b ? `Lost ${a}-${b}` : `Drew ${a}-${b}`;
+  return {line, sub: `${mineName} ${a}, ${bibName} ${b}`, won: a > b, drew: a === b};
+}
+/* the kick-off's taker after a goal: the conceding side's outfield man nearest the centre spot who is not the player
+   (an AI team-mate takes it, so nobody waits on you), else the player. agents: [{id, team, isGK, isMe, onPitch,
+   x, z}] -> id or -1 */
+export function koTaker(agents, team, spot = {x: 0, z: 0}){
+  let best = -1, bd = Infinity, me = -1;
+  for (const a of agents){
+    if (a.team !== team || !a.onPitch || a.isGK) continue;
+    if (a.isMe){ me = a.id; continue; }
+    const d = hypot(a.x - spot.x, a.z - spot.z);
+    if (d < bd){ bd = d; best = a.id; }
+  }
+  return best >= 0 ? best : me;
+}
