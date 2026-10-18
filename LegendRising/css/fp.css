@@ -107,12 +107,6 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 
 /* the reticle (A1.7): where a strike goes now (your look and its sway); red held past full (the power and the sweet
    spot are the meter's, UF2-A, under the crosshair). Moved by a transform each frame */
-.fp-ret{position:absolute;left:0;top:0;width:0;height:0;opacity:0;will-change:transform}
-.fp-arc{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible}
-.fp-ret-c{fill:none;stroke:rgba(255,255,255,.95);stroke-width:1.8;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.85));transition:stroke .1s}
-.fp-ret-c.over{stroke:var(--fp-bad)}
-.fp-curl{position:absolute;left:calc(25px*var(--s));top:-10px;font-size:14px;opacity:0;transition:opacity .15s;text-shadow:0 1px 2px #000}
-.fp-curl.on{opacity:.9}
 /* the line on how you struck it, under the middle of the view */
 .fp-sline{position:absolute;left:50%;top:calc(50% + 46px*var(--s));transform:translate(-50%,4px);opacity:0;white-space:nowrap;
   font-family:var(--fp-font);font-size:calc(14px*var(--s));letter-spacing:.03em;text-shadow:0 1px 3px rgba(0,0,0,.9);transition:opacity .35s,transform .35s var(--fp-spring)}

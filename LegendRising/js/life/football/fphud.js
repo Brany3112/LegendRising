@@ -8,11 +8,8 @@
                    with +N in added time, a card pip per booking of yours, the offside pip (Auto, On, Off)
      centre        the crosshair (4 px, where you look); the closing timing ring of a volley and the bench's hold-E
                    ring round it; a tiny glyph of what you can do now
-     reticle       (A1.7, WP-F2) where a strike would go now: your look plus its sway (Finishing, Composure under
-                   pressure, breath, the weak foot), on the goal mouth or the grass; it pulses as your support foot
-                   plants (the rhythm to release on), with the curl glyph beside it while a curler is wound up; it
-                   turns red held past full (the power itself is the meter's, UF2-A below). After your strike a short
-                   line under it says how you struck it
+     (no reticle since the U28 fix: a strike goes to the crosshair.) After your strike a short line under the
+                   crosshair says how you struck it
      lower left    the stamina: a bright breath fill over the darker cap (the late match), faint while full, brighter
                    while it drains, a heartbeat when low; the energy line under it
      bottom right  the hints (a key and a verb, three at most; a key alone after five uses; H hides them): the shield
@@ -59,7 +56,7 @@ export const HUD_PARTS = Object.freeze({score:"Scorebug", stamina:"Stamina", hin
 
 const D = {root:null, el:{}, cfg:null, txt:{}, t:0, tText:0, calls:[], cards:[], scen:null, scenT:-99, lastScen:-99, notice:null,
   tab:false, hidden:false, staminaShown:0, drainT:0, lastB:100, chargeA:0, ring:0,
-  retA:0, kickSeq:-1, slineT:0, desat:0};
+  kickSeq:-1, slineT:0, desat:0};
 
 // cfg = {home:{short, kit:[shirt, shorts]}, away:{...}, us: 0 | 1, pip: 'auto' | 'on' | 'off' (the setting resolved),
 // project(x, y, z) -> {x, y, on} (screen px), cards: number (the player's bookings)}
@@ -89,12 +86,6 @@ export function hudInit(cfg){
       </svg>
       <span class="fp-glyph" data-part="glyph"></span>
     </div>
-    <div class="fp-ret" data-part="reticle">
-      <svg class="fp-arc" viewBox="-40 -40 80 80" aria-hidden="true">
-        <circle class="fp-ret-c" r="7"/>
-      </svg>
-      <span class="fp-curl">&#x293A;</span>
-    </div>
     <div class="fp-sline"></div>
     <div class="fp-meter" aria-hidden="true"><span class="fp-meter-lab"></span><div class="fp-meter-bar"><i class="fp-meter-sweet"></i><i class="fp-meter-gold"></i><i class="fp-meter-fill"></i><i class="fp-meter-rel"></i></div><b class="fp-meter-say"></b></div>
     <div class="fp-kick" data-part="kick"><b class="fp-kick-h">Kick</b><ol>${KICKS.map(k => `<li data-k="${k.id}"><i></i>${esc(k.label)}</li>`).join("")}</ol><span class="fp-kick-tip">Scroll to change</span></div>
@@ -120,8 +111,8 @@ export function hudInit(cfg){
   Object.assign(D.el, {vig:q(".fp-vig"), lines:q(".fp-lines"), bug:q(".fp-bug"), hs:q(".fp-hs"), as:q(".fp-as"), sh:q(".fp-sh"), sa:q(".fp-sa"),
     min:q(".fp-min"), add:q(".fp-add"), off:q(".fp-off"), bk:q(".fp-bk"), scen:q(".fp-scen"), cards:q(".fp-cards"), cross:q(".fp-cross"),
     ring:q(".fp-ring"), ringWin:q(".fp-ring-win"),
-    hold:q(".fp-hold"), ret:q(".fp-ret"), retC:q(".fp-ret-c"), sline:q(".fp-sline"),
-    curl:q(".fp-curl"), glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
+    hold:q(".fp-hold"), sline:q(".fp-sline"),
+    glyph:q(".fp-glyph"), stam:q(".fp-stam"), cap:q(".fp-cap"), breath:q(".fp-breath"),
     energy:q(".fp-energy i"), hints:q(".fp-hints"), calls:q(".fp-calls"), ball:q(".fp-ballmark"), radar:q(".fp-radar"), overlay:ov,
     warm:q(".fp-warm"), warmB:q(".fp-warm b"), warmS:q(".fp-warm span"), wu:q(".fp-wu"), wuName:q(".fp-wu-name"), wuN:q(".fp-wu-n"), wuHow:q(".fp-wu-how"),
     goal:q(".fp-goal"), goalB:q(".fp-goal b"), goalC:q(".fp-goalc"), goalCI:q(".fp-goalc i"), goalCB:q(".fp-goalc b"),
@@ -133,7 +124,7 @@ export function hudInit(cfg){
   D.el.hs.textContent = cfg.home.short; D.el.as.textContent = cfg.away.short;
   D.ringLen = 2*Math.PI*17;
   D.el.ring.style.strokeDasharray = `${D.ringLen} ${D.ringLen}`;
-  D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null; D.retA = 0; D.kickSeq = -1; D.slineT = 0; D.desat = 0;
+  D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null; D.kickSeq = -1; D.slineT = 0; D.desat = 0;
   D.pops = []; D.sayT = 0; D.wuKind = null; D.wuEl = {}; D.tipCard = null;
   D.meterA = 0; D.meterHold = 0; D.meterSeq = -1; D.meterUp = false; D.kickShown = -1; D.kickFlash = 0;
   applySettings();
@@ -245,23 +236,11 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   const vig = FX.vig*(.78 + .22*FX.pulse);
   E.vig.style.opacity = vig.toFixed(3);
   desaturate(SET.hide && SET.hide.fx ? 0 : FX.desat);
-  // the reticle (A1.7): where a strike would go now, on screen
-  const ret = s.ctrl && s.ctrl.ret, ch = s.ctrl && s.ctrl.charge;
-  const rp = ret && ret.on && s.proj ? s.proj(ret.x, ret.y, ret.z) : null, retOn = !!(rp && rp.front);
-  D.retA = retOn ? Math.min(1, D.retA + dt/.15) : Math.max(0, D.retA - dt/.3);
-  if (retOn){
-    const x = clamp(rp.x, 12, (s.w || innerWidth) - 12), y = clamp(rp.y, 12, (s.h || innerHeight) - 12);
-    E.ret.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
-  }
-  E.ret.style.opacity = (D.retA*(ch ? 1 : .55)).toFixed(3);
-  // its pulse on your support foot's plant (the rhythm to release on), red when held past full
-  const over = s.ctrl && s.ctrl.wind ? s.ctrl.wind.over : 0;
-  E.retC.setAttribute("r", (7 + 2.5*(ret ? ret.beat : 0)).toFixed(2));
-  E.retC.classList.toggle("over", over > .05);
-  // (the charge, for the curl glyph: the meter below shows the power and the sweet spot, UF2-A)
+  // (U28 fix: no reticle. The crosshair is where a strike goes; its ring round the crosshair and the curl glyph are gone)
+  const ch = s.ctrl && s.ctrl.charge, over = s.ctrl && s.ctrl.wind ? s.ctrl.wind.over : 0;
+  // (the charge, for the meter: it shows the power and the sweet spot, UF2-A)
   if (ch && (ch.kind === "shot" || ch.kind === "pass")) D.chargeA = Math.min(1, D.chargeA + dt/.12);
   else D.chargeA = Math.max(0, D.chargeA - dt/.45);
-  if (slow){ E.curl.classList.toggle("on", !!(s.ctrl && (s.ctrl.finesse || (KICKS[s.ctrl.kick] || {}).id === "curl") && D.chargeA > .05)); }
   meterFrame(s, dt, over);
   kickFrame(s, dt, slow);
   // the line on how you struck it (A1.7): your own kick, the moment it is logged

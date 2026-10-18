@@ -1,8 +1,11 @@
-// qa/u28-shotkeys.mjs: U28 part E with real input (the left button held and let go, A, D and S on the keyboard, the
-// pointer locked by a real click), in third person: the keys held as a shot is let go shape it
-//   - A curls it one way, D the other (the ball's spin about the vertical)
-//   - S: a fake, no kick; S+D: a fake and a drag-back to the right
-//   - no console or page error
+// qa/u28-shotkeys.mjs: U28 part E (as reworked) with real input (the left button held and let go, W A S D on the
+// keyboard, the pointer locked by a real click), in third person
+//   - A held as a shot is let go curls it to the left, D to the right (the ball's spin about the vertical), a capital A
+//     the same as a small one; W with it, less curl and more power; a right foot strikes it with its inside for A, its
+//     outside for D (as in the real game), and the drawn foot meets the ball
+//   - S pressed while the shot is held: the shot is called off (the meter goes, letting go strikes nothing), a fake; a
+//     key pressed just after it plays the ball: D drags it back to the right, W pushes it on; none, nothing more
+//   - no reticle on the screen, no console or page error
 //
 //   node qa/u28-shotkeys.mjs          exits 1 on any failed check; writes qa/out/u28-shotkeys.json
 import fs from "node:fs";
@@ -39,8 +42,39 @@ try {
   await begin();
   const id = await lockPointer(page); if (!id) throw new Error("the pointer could not be locked");
   await frames(page, 10);
-  // hold the shot, the key(s) down just before letting go, then what the game made of it
-  const release = async keys => {
+  const state = () => page.evaluate(() => { const T = window.__u28s.T(), ms = T.ms, me = T.me, C = window.__u28s.C.CTRL, kick = ms.events.filter(e => e.kind === "kick" && e.agent === me.id).pop(), fake = ms.events.filter(e => e.kind === "fake" && e.agent === me.id).pop();
+    const f = {x: -Math.sin(me.m.yaw), z: -Math.cos(me.m.yaw)}, dx = ms.ball.p.x - me.m.x, dz = ms.ball.p.z - me.m.z;
+    return {kick: !!kick, fake: !!fake, touches: ms.events.filter(e => e.kind === "touch" && e.fake).map(e => e.fake), bend: C.lastRq ? C.lastRq.bend : null, power: C.lastRq ? (C.lastRq.power || 0)*(C.lastRq.drive || 1) : null, part: C.lastRq ? C.lastRq.footPart : null, clip: (() => { const R0 = T.V && T.V.rec && T.V.rec[me.id]; return R0 && R0.clip ? R0.clip.kind : null; })(),
+      foot: me.foot || "R", wy: Math.round(ms.ball.w.y*10)/10, shape: C.shape, last: C.last, charge: C.charge ? C.charge.kind : null, meter: !!C.meter.on, mine: ms.poss.ctl === me.id,
+      side: Math.round((dx*-f.z + dz*f.x)*100)/100, fwd: Math.round((dx*f.x + dz*f.z)*100)/100}; });
+  // hold the shot, the key down just before letting go, then what the game made of it
+  const release = async key => {
+    await begin();
+    await page.evaluate(() => { const T = window.__u28s.T(); T.ms.poss.ctl = T.me.id; });
+    await page.mouse.down(); await frames(page, 25);
+    await page.keyboard.down(key);
+    await frames(page, 3); await page.mouse.up(); await frames(page, 2);
+    await page.keyboard.up(key);
+    await frames(page, 30);
+    return state();
+  };
+  // the drawn foot's nearest to the ball through each strike clip (the ball where it was struck: the drawn ball's last
+  // place while it was still at rest), and the clip's kind. (Read at the clip's contact event alone it is the follow-
+  // through's: the headless browser draws a frame for up to four steps, and the event comes a frame or two late)
+  await page.evaluate(async () => {
+    const HM = await import("/js/life/human.js"), B = HM.BONE;
+    const v1 = new (window.__life.cam.position.constructor)(), rest = v1.clone(), raf = window.__qa.realRAF;
+    window.__u28s.contact = []; let cur = null;
+    const f = () => { const T = window.__u28s.T(); if (T && T.V){ const me = T.me, R = T.V.rec[me.id], bv = T.ms.ball.v;
+      if (T.V.ball && T.V.ball.mesh && Math.hypot(bv.x, bv.y, bv.z) < 1) T.V.ball.mesh.getWorldPosition(rest);
+      const on = R && R.h && R.clip && R.clip.mode === "strike" && T.V.ball && T.V.ball.mesh;
+      if (cur && (!on || R.clip.id !== cur.id)){ window.__u28s.contact.push({kind: cur.kind, d: Math.round(cur.d*100)/100}); cur = null; }
+      if (on){ if (!cur) cur = {id: R.clip.id, kind: R.clip.part || R.clip.kind, d: 9};
+        for (const p of [B.toL, B.ftL, B.toR, B.ftR]){ R.h.bones[p].getWorldPosition(v1); cur.d = Math.min(cur.d, v1.distanceTo(rest) - .11); } } } raf(f); };
+    raf(f);
+  });
+  const A = await release("a"), D = await release("d"), AC = await release("A");
+  const releaseTwo = async keys => {
     await begin();
     await page.evaluate(() => { const T = window.__u28s.T(); T.ms.poss.ctl = T.me.id; });
     await page.mouse.down(); await frames(page, 25);
@@ -48,14 +82,43 @@ try {
     await frames(page, 3); await page.mouse.up(); await frames(page, 2);
     for (const k of keys) await page.keyboard.up(k);
     await frames(page, 30);
-    return page.evaluate(() => { const T = window.__u28s.T(), ms = T.ms, me = T.me, kick = ms.events.filter(e => e.kind === "kick" && e.agent === me.id).pop(), fake = ms.events.filter(e => e.kind === "fake" && e.agent === me.id).pop();
-      return {kick: !!kick, fake: fake ? {drag: fake.drag, nudge: fake.nudge} : null, bend: me.lastRq ? me.lastRq.bend : null, wy: Math.round(ms.ball.w.y*10)/10, shape: window.__u28s.C.CTRL.shape, last: window.__u28s.C.CTRL.last}; });
+    return state();
   };
-  const A = await release(["a"]), D = await release(["d"]), S = await release(["s"]), SD = await release(["s", "d"]);
-  res.keys = {A, D, S, SD};
-  check(A.kick && D.kick && /curl/.test(A.shape || "") && /curl/.test(D.shape || "") && Math.sign(A.wy) !== Math.sign(D.wy) && A.wy !== 0, "a shot let go with A held curls one way, with D the other (the ball's spin)", {A, D});
-  check(!S.kick && S.fake && S.fake.drag === 0, "let go with S held: a fake, no kick", S);
-  check(!SD.kick && SD.fake && SD.fake.drag === 1, "let go with S and D held: a fake and a drag-back to the right", SD);
+  const WA = await releaseTwo(["w", "a"]), WD = await releaseTwo(["w", "d"]);
+  const contact = await page.evaluate(() => window.__u28s.contact);
+  res.contact = contact;
+  // (the first three curled strikes: A, D and a capital A from a stand; W+A and W+D after them start you walking on into
+  // the strike three frames before it, reported)
+  const curled = contact.filter(c => c.kind !== "instep"), stand = curled.slice(0, 3);
+  check(stand.map(c => c.kind).join() === "inside,outside,inside" && stand.every(c => c.d <= .15), "a right foot strikes A with its inside, D with its outside (as in the real game), and the drawn foot comes to the ball (within 0.15 m)", contact);
+  console.log("  W+A and W+D, walking on into it (reported): " + JSON.stringify(curled.slice(3)));
+  res.keys = {A, D, AC};
+  check(A.kick && D.kick && /curl/.test(A.shape || "") && /curl/.test(D.shape || "") && A.bend < 0 && D.bend > 0 && Math.sign(A.wy) !== Math.sign(D.wy) && A.wy !== 0, "a shot let go with A held curls to the left, with D to the right (the ball's spin)", {A, D});
+  check(AC.kick && AC.bend < 0 && AC.wy === A.wy, "a capital A curls it the same as a small one", {A: A.wy, AC});
+  check(WA.kick && WD.kick && WA.bend < 0 && WD.bend > 0 && Math.abs(WA.bend) < Math.abs(A.bend) && Math.abs(WD.bend) < Math.abs(D.bend) && WA.power > A.power && WD.power > D.power,
+    "W+A and W+D: the same way, less curl and more power", {A: {bend: A.bend, power: A.power}, WA: {bend: WA.bend, power: WA.power}, D: {bend: D.bend, power: D.power}, WD: {bend: WD.bend, power: WD.power}});
+  const out = A.foot === "L" ? "outside" : "inside", ins = A.foot === "L" ? "inside" : "outside";
+  check(A.part === out && D.part === ins, `the ${A.foot === "L" ? "left" : "right"} foot strikes it with its ${out} for A, its ${ins} for D`, {A: A.part, D: D.part});
+  // the fake: S while the shot is held, then (or not) a key just after it, then the button let go
+  const fakeWith = async key => {
+    await begin();
+    await page.evaluate(() => { const T = window.__u28s.T(); T.ms.poss.ctl = T.me.id; });
+    await page.mouse.down(); await frames(page, 20);
+    const held = await state();
+    await page.keyboard.press("s"); await frames(page, 4);
+    const after = await state();
+    if (key){ await page.keyboard.press(key); }
+    await frames(page, 6); await page.mouse.up(); await frames(page, 40);
+    return {held, after, end: await state()};
+  };
+  const F0 = await fakeWith(null), FD = await fakeWith("d"), FW = await fakeWith("w");
+  res.fake = {F0, FD, FW};
+  check(F0.held.charge === "shot" && F0.after.charge === null && !F0.after.meter && F0.end.fake && !F0.end.kick && F0.end.mine && !F0.end.touches.length,
+    "S while the shot is held: the shot is called off and the bar goes, a fake, no kick when the button is let go, the ball still yours", F0);
+  check(FD.end.fake && !FD.end.kick && FD.end.touches.join() === "drag right" && FD.end.side > .2 && FD.end.mine, "S, then D: the ball dragged back to the right", FD.end);
+  check(FW.end.fake && !FW.end.kick && FW.end.touches.join() === "push" && FW.end.mine, "S, then W: the ball pushed on a little", FW.end);
+  const ret = await page.evaluate(() => !!document.querySelector("#fpHud .fp-ret"));
+  check(!ret, "no reticle on the screen", ret);
   check(!t.errors.length, "no console or page error", t.errors.slice(0, 5));
 } finally { await t.close(); }
 fs.writeFileSync(path.join(OUT, "u28-shotkeys.json"), JSON.stringify(res, null, 1));

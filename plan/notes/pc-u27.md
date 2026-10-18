@@ -125,6 +125,42 @@ One commit per part:
   - `tr4-pitch` over all ten cages;
   - `unit/cagespec` 235/235.
 
+## Shooting fix after the user's play-test (on top of part E)
+
+The user found three problems. The curl from A and D didn't work, the fake didn't work as meant, and the reticle was
+still on screen.
+
+- **The reticle and the gestures are gone.**
+  - `fphud.js` has no `.fp-ret` (the ring, its pulse and the curl glyph) and `fp.css` drops its rules.
+  - `control.js gesture()` returns no gesture: a mouse sweep, lift or flick down through a release no longer curls,
+    chips or dips a strike or a pass. The aim moved through a release had curled the ball against the keys.
+- **The curl.**
+  - A or D held as the shot is let go curls it left or right (`shotKeys`). It now works on a tapped, placed shot too.
+  - `rq.footPart` is `SHOT_KEYS.PART`, as in the real game (the user's call): a right foot's inside curls it left
+    (A) and its outside right (D), mirrored for a left foot.
+  - `view.js` passes it as `c.part`, and `moves.js strikePath` turns the foot for it (outside: the toes turned in) on
+    the plain shot's own swing.
+  - W with it sets `rq.drive` (`SHOT_KEYS.POWER`, 1.1): its speed goes on past a curler's 0.85 cap, at any charge.
+- **A and D don't move you while a shot is held or struck.** Sidestepping at 2 m/s through the swing carried the
+  drawn foot 0.6 to 0.8 m past the ball.
+- **The fake.**
+  - S pressed while the shot is held (`controlInput`) drops the charge: the meter goes and letting go strikes nothing.
+  - It queues `{kind: "fake"}`. A W, A, S or D pressed within `SHOT_KEYS.FAKE_WAIT` (0.55 s) sets `act.dir`.
+  - `actions.js fakeStep` then plays the ball: A or D back to that side, S straight back (`FAKE.BACK_S`), W on
+    `FAKE.PUSH`. The touch comes `FAKE.REACT` after the key, sooner with Agility.
+  - The held-S-at-release fake is gone.
+- **Keys:** `controlInput` already lower-cases letters. `u28-shotkeys` checks a capital A curls as a small one.
+- **Tests:**
+  - `u28-shot` 10/10, with the new fake and W+A at a full charge.
+  - `u28-shotkeys` (real keys) 10/10: the curl both ways, the capital A, W+A and W+D, the foot part, the foot at the
+    ball, the fake and its drags, no reticle.
+  - The drawn foot is measured at its nearest to where the ball was struck. Read at the clip's contact event alone,
+    it is a frame or two into the follow-through.
+- **Open:**
+  - A shot struck while starting to walk forward into it (W pressed three frames before the release) has the drawn
+    foot 0.2 to 0.35 m off the ball, curled or not.
+  - `wpF-strike` (in no group) still reads the old reticle.
+
 ## Fixes from the final test run
 
 - **A sprinting receiver lost the ball.** In `tr2b-receive`, a sprint into a 14 m/s pass at Ball Control 50 kept the

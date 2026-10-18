@@ -110,7 +110,7 @@ function flick(ms, me, held){
   CTRL.last = "flick"; use("flick");
 }
 // (U28 part E) the keys held in the last SHOT_KEYS.T s as a shot is let go shape it (control.js strike)
-export const SHOT_KEYS = Object.freeze({T: .25, POWER: 1.1});
+export const SHOT_KEYS = Object.freeze({T: .25, POWER: 1.1, PART: Object.freeze({a: "inside", d: "outside"}), FAKE_WAIT: .55});
 // (a time after the clock is a match or a go before this one: its clock began again from nothing)
 const keyHeld = (t, k) => t - k >= 0 && t - k <= SHOT_KEYS.T;
 export function shotKeys(ms){ const t = ms.t, K = CTRL.keyT; return {w: keyHeld(t, K.w), a: keyHeld(t, K.a), s: keyHeld(t, K.s), d: keyHeld(t, K.d)}; }
@@ -312,6 +312,10 @@ export function controlInput(ev){
       if (ev.prevent) ev.prevent();
       if (ev.repeat) return true;
       CTRL.held[k] = true;
+      // (U28 fix) S pressed while a shot is held: the fake. The shot is dropped (the meter goes, letting go strikes
+      // nothing); a W, A, S or D pressed within SHOT_KEYS.FAKE_WAIT s after it drags the ball that way (W: on a little)
+      if (k === "s" && CTRL.lmb && CTRL.charge && CTRL.charge.kind === "shot"){ CTRL.lmb = false; CTRL.charge = null; CTRL.queue.push({k:"fake"}); return true; }
+      if (CTRL.fakeAt != null && (k === "w" || k === "a" || k === "s" || k === "d")) CTRL.queue.push({k:"fakedir", d:k});
       if (k === "x") CTRL.walk = !CTRL.walk;
       else if (k === "v") CTRL.queue.push({k:"scan"});
       else if (k === "f") CTRL.queue.push({k:"f"});
@@ -363,7 +367,7 @@ export function look(dx, dy){
 export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
   CTRL.lmb = CTRL.rmb = CTRL.mmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
-  CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null; CTRL.meter.on = false; CTRL.meter.kind = null; CTRL.fT = -99; WHEEL.acc = 0; WHEEL.t = -1e9;
+  CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null; CTRL.meter.on = false; CTRL.meter.kind = null; CTRL.fT = -99; CTRL.fakeAt = null; WHEEL.acc = 0; WHEEL.t = -1e9;
   CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
   // (P4-B) the look's history per step and the aim points start again from where you look now (a reset is a cut)
   CTRL.gi = 0; CTRL.hy.fill(P.yaw); CTRL.hp.fill(P.pitch);
@@ -467,14 +471,10 @@ export function rhythmOf(me, foot){
 // a lift or a flick down (y, + up); the look from before it began (yaw0, pitch0)
 const GS = {x:0, y:0, yaw0:0, pitch0:0, curl:0, lift:false, dip:false, any:false};
 function gesture(){
-  let x = 0, y = 0;
-  for (let i = 0; i < AIM.GEST_N; i++){ const k = (CTRL.gi - i + 16)%16; x += CTRL.gx[k]; y += CTRL.gy[k]; }
-  const k0 = (CTRL.gi - AIM.GEST_N + 1 + 16)%16, ax = Math.abs(x), ay = Math.abs(y);
-  GS.x = x; GS.y = y; GS.yaw0 = CTRL.hy[k0]; GS.pitch0 = CTRL.hp[k0];
-  // (how much of a curl: a third at the threshold, all of it at GEST_FULL; its sign is the way the sweep went)
-  GS.curl = ax >= AIM.GEST_MIN && ax >= .5*ay ? Math.sign(x)*(.35 + .65*clamp((ax - AIM.GEST_MIN)/(AIM.GEST_FULL - AIM.GEST_MIN), 0, 1)) : 0;
-  GS.lift = y >= AIM.GEST_MIN && ay >= .5*ax; GS.dip = y <= -AIM.GEST_MIN && ay >= .5*ax;
-  GS.any = !!GS.curl || GS.lift || GS.dip;
+  // (U28 fix: the mouse no longer shapes a strike or a pass. A sweep curled it, a lift chipped it, a flick down dipped
+  // it, so the look moved to aim through a release curled the ball against the keys. The keys shape a shot now,
+  // shotKeys; the look before the release is still where it goes)
+  GS.x = GS.y = 0; GS.yaw0 = P.yaw; GS.pitch0 = P.pitch; GS.curl = 0; GS.lift = GS.dip = GS.any = false;
   return GS;
 }
 // one step of the reticle and the wind-up: the sway (smooth, from the match's own clock: an input bot replays it), the
@@ -769,6 +769,7 @@ export function controlStep(ms, me, h, opts = {}){
   } else CTRL.ring = null;
   // the reticle and the wind-up (A1.7): what a release would strike now
   reticleStep(ms, me, ctx);
+  if (CTRL.fakeAt != null && ms.t - CTRL.fakeAt > SHOT_KEYS.FAKE_WAIT) CTRL.fakeAt = null;
 
   // ---- the presses, in order
   while (CTRL.queue.length){
@@ -785,6 +786,14 @@ export function controlStep(ms, me, h, opts = {}){
       case "lup": if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
       case "rup": if (ctx !== "defend") strike(ms, me, isThrow(ms, me) ? "throw" : "pass", q.t, opts); break;
       case "mup": if (ctx !== "defend" && ctx !== "restart") flick(ms, me, q.t); break;
+      // the fake (the ball at your feet: the swing stopped short; anywhere else the shot is just called off)
+      case "fake":
+        CTRL.meter.on = false;
+        if (ctx !== "defend" && ctx !== "restart" && ms.poss.ctl === me.id && !(me.act && !me.act.done)){ me.intent.action = {kind:"fake"}; CTRL.fakeAt = ms.t; CTRL.last = "fake"; use("fake"); }
+        break;
+      case "fakedir":
+        if (me.act && me.act.kind === "fake" && !me.act.dir && CTRL.fakeAt != null && ms.t - CTRL.fakeAt <= SHOT_KEYS.FAKE_WAIT){ me.act.dir = q.d; me.act.dirT = me.act.t; CTRL.fakeAt = null; }
+        break;
     }
   }
 
@@ -806,7 +815,10 @@ export function controlStep(ms, me, h, opts = {}){
 
   // ---- where you go
   const bodyYaw = CTRL.scan ? CTRL.scan.yaw0 : P.yaw;
-  const f = (CTRL.held.w ? 1 : 0) - (CTRL.held.s ? 1 : 0), r = (CTRL.held.d ? 1 : 0) - (CTRL.held.a ? 1 : 0);
+  // (U28 fix: while a shot is held and while it is struck, A and D curl it and do not move you: a sidestep through the
+  // swing carried the foot past the ball)
+  const striking = (CTRL.lmb && CTRL.charge && CTRL.charge.kind === "shot") || (me.act && me.act.kind === "kick" && !me.act.done);
+  const f = (CTRL.held.w ? 1 : 0) - (CTRL.held.s ? 1 : 0), r = striking ? 0 : (CTRL.held.d ? 1 : 0) - (CTRL.held.a ? 1 : 0);
   const len = Math.hypot(f, r), sin = Math.sin(bodyYaw), cos = Math.cos(bodyYaw);
   I.dx = len ? (r*cos - f*sin)/len : 0; I.dz = len ? (-r*sin - f*cos)/len : 0;
   I.face = I.face || {x:0, z:0}; I.face.x = -sin; I.face.z = -cos;
@@ -1003,13 +1015,9 @@ function strike(ms, me, what, held, opts){
     CTRL.last = "throw"; use("throw"); return;
   }
   const Rz = CTRL.resolve, contact = CTRL.contact, fKey = !!CTRL.held.f;
-  // (U28 part E) the keys held as the shot is let go: S a fake shot (with A or D a drag-back that way, with W a nudge on
-  // and a drag back); A or D curl it that way, with W less curl and more power
+  // (U28 part E) the keys held as the shot is let go: A or D curl it that way, with W less curl and more power (the fake
+  // is S pressed while the shot is still held, controlInput)
   const K = shotKeys(ms);
-  if (what === "shot" && K.s && !(Rz && Rz.kind !== "ground") && !mine && ms.poss.ctl === me.id){
-    me.intent.action = {kind:"fake", drag:K.a && !K.d ? -1 : K.d && !K.a ? 1 : 0, nudge:K.w && K.a === K.d};
-    CTRL.last = "fake"; use("fake"); return;
-  }
   // (UF2-A, U18 to U20) the kick type you chose, and how much the assists help
   const KT = kickType().id, ak = assistK();
   // the body shape through the release (A1.7): the gesture of the last few steps, and the aim from before it began
@@ -1055,9 +1063,13 @@ function strike(ms, me, what, held, opts){
     // (U28 part E) A or D held as it is let go curls it that way, by your Technique (0.35 of a full curl at none, all of
     // it at 99, a little more past it); W with it: half the curl, SHOT_KEYS.POWER more power
     const kc = K.a !== K.d ? (K.d ? 1 : -1) : 0;
-    if (kc && kind === "shot" && shape !== "placed" && !chip){
+    let footPart = null;
+    if (kc && kind === "shot" && !chip){
       const amt = (.35 + .65*clamp(techniqueOf(at)/99, 0, 1.1))*(K.w ? .5 : 1);
-      finesse = true; bend = kc*amt; if (K.w) p = Math.min(1, p*SHOT_KEYS.POWER);
+      finesse = true; bend = kc*amt;
+      // (the part of the strong foot it is struck with, SHOT_KEYS.PART, as in the real game: a right foot's inside
+      // curls it to the left (A), its outside to the right (D); a left foot's the other way round)
+      footPart = SHOT_KEYS.PART[(kc < 0) === ((me.foot || "R") !== "L") ? "a" : "d"];
       shape = (shape === "placed" || shape === "struck" || shape === "power" ? "" : shape + " ") + (K.w ? "curl and power" : "curl");
       shape = shape.trim();
     }
@@ -1089,6 +1101,8 @@ function strike(ms, me, what, held, opts){
     if (bend != null) rq.bend = bend;
     if (chip) rq.chip = true;
     if (style) rq.style = style;
+    if (footPart) rq.footPart = footPart;
+    if (footPart && K.w) rq.drive = SHOT_KEYS.POWER;
     if (kind === "cross" || kind === "lob"){ rq.speed = undefined; rq.power = undefined; rq.recv = nearestMate(ms, me, tgt); }
     if (Rz && Rz.kind !== "ground"){
       rq.style = Rz.kind; rq.timing = timingOf(Rz); rq.tc = Rz.tc; rq.meet = {x:Rz.x, y:Rz.y, z:Rz.z};
@@ -1096,7 +1110,7 @@ function strike(ms, me, what, held, opts){
       if (ACRO.has(Rz.kind)) CTRL.acro = {style:Rz.kind, t:ms.t, tc:Rz.tc, x:Rz.x, y:Rz.y, z:Rz.z};
     }
     queueStrike(ms, me, rq);
-    CTRL.last = kind; CTRL.shape = shape; use(kind === "shot" ? "shoot" : "cross");
+    CTRL.last = kind; CTRL.shape = shape; CTRL.lastRq = rq; use(kind === "shot" ? "shoot" : "cross");
     return;
   }
   // a pass: a tap is weighted for you (arrival 9 m/s), held it is charged with a sweet zone (1.5.3)
@@ -1238,8 +1252,8 @@ export function hintsFor(ms, me){
     if (ms.poss.ctl === me.id){
       // (A1.7: the wind-up, the release on your plant, the shape through it)
       // (U28 part E) the keys as you let go shape it
-      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go on the gold for a perfect shot", "release"); add("A or D", "as you let go: curl it", "curl"); add("S", "as you let go: fake it (with A or D, drag it back)", "fake"); }
-      else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
+      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go on the gold for a perfect shot", "release"); add("A or D", "as you let go: curl it", "curl"); add("S", "before you let go: fake it, then A, D, S or W to drag it", "fake"); }
+      else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
       // (U27) in close control: Shift twice knocks it on; not in it, F takes it

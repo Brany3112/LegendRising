@@ -896,6 +896,9 @@ function strike(h, T, st, dt){
     d.power = clamp(st.power != null ? +st.power : .7, 0, 1);
     d.lowHigh = clamp(+st.lowHigh || 0, -1, 1);
     d.curl = clamp(+st.curl || 0, -1, 1);
+    // (U28 fix) a shot curled with A or D: the part of the foot it is struck with (st.part, the inside or the outside),
+    // on the kind's own swing
+    d.part = st.part === "inside" || st.part === "outside" ? st.part : null;
     d.gy = BT.gy;
     // the swing's speed at contact (3.5.7) and the time from the top of the backswing, kept to what the rig's joints
     // can turn (no bone faster than about 0.3 rad a frame at 60 Hz)
@@ -1091,10 +1094,12 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   const out = s;                                              // the striking leg's own outside (+x for the left leg)
   // the contact: the part's point a little into the ball, on the side away from the aim (lowHigh moves it up or down)
   const lift = K.lift, nl = Math.hypot(1, lift), nx = fx/nl, nz = fz/nl, ny = lift/nl;
-  let part = K.part, cyaw = aimYaw, cpitch = .65, croll = 0;
+  let part = d.part || K.part, cyaw = aimYaw, cpitch = .65, croll = 0;
   // (the inside of the foot square to the aim: the toes turned out, a right foot's to the right)
   if (part === "inside"){ cyaw = aimYaw + s*1.35; cpitch = .05; croll = 0; }
   if (part === "toe"){ cyaw = aimYaw; cpitch = .25; }
+  // (the outside of the foot: the toes turned in, a right foot's to the left, pointed down)
+  if (part === "outside"){ cyaw = aimYaw - s*.9; cpitch = .45; croll = -s*.25; }
   if (k === "lofted"){ cpitch = .45; }
   if (K.side){ cyaw = aimYaw - out*.35; cpitch = .55; croll = out*1.15; }
   if (K.over){ cyaw = aimYaw + Math.PI; cpitch = 1.0; croll = 0; }

@@ -548,6 +548,8 @@ function liveSt(V, R, a, ms, dt){
         const c = clipFor(R, "strike", act);
         c.mode = "strike"; c.kind = strikeKind(rq); c.side = act.foot === "L" ? "L" : "R";
         c.power = rq.power != null ? rq.power : .6; c.curl = rq.finesse ? 1 : 0; c.lowHigh = rq.contact || 0;
+        // (U28 fix) curled with A or D: struck with the strong foot's outside or inside (control.js SHOT_KEYS.PART)
+        c.part = rq.footPart || null;
         if (!act.done){
           // (USER-ISSUES U24) the contact on the step the simulation strikes in, and the ball where it stands then
           // (stepAt): timed to act.tc itself the foot met the ball up to a step early and short of a ball moving on

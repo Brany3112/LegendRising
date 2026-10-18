@@ -205,7 +205,10 @@ function kickRequest(ms, a, act, scuff, bp, foot){
   if (isShot){
     const p = clamp(rq.power != null ? rq.power : 0.85, 0.05, 1);
     speed = shotSpeed(at.power, p, !!at.strikeBoots, fac.power != null ? fac.power : 1)*(rq.finesse ? 0.92 : 1);
-    if (rq.finesse) speed = Math.min(speed, shotSpeed(at.power, 0.85, !!at.strikeBoots, fac.power != null ? fac.power : 1));
+    // (a curler is placed, not hit: no faster than a 0.85 strike; rq.drive, W with A or D, puts that much more on it
+    // whatever the charge, U28)
+    if (rq.finesse && !rq.drive) speed = Math.min(speed, shotSpeed(at.power, 0.85, !!at.strikeBoots, fac.power != null ? fac.power : 1));
+    if (rq.drive) speed *= clamp(+rq.drive, 1, 1.3);
     ctxKind = contact > 0 && rq.chip ? 'chip' : 'shot'; acc = at.accuracy;
   } else {
     speed = rq.speed != null ? rq.speed : kind === 'pass' || kind === 'through' || kind === 'roll' ? passSpeedFor(dist, 9, b.rollDecel) : loftSpeedFor(dist);
@@ -723,20 +726,22 @@ function dribbleKick(ms, a){
 }
 function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
 
-/* ---------- the fake shot and the drag-backs (U28 part E) ----------
-   S held as a shot is let go (control.js shotKeys): the swing stops short of the ball, which stays at your feet. With A
-   or D held as well, the sole drags it back and to that side (S+A left, S+D right); with W, it is nudged on first, then
-   dragged back. From the skills: the whole move takes FAKE.DUR less FAKE.AGI of Agility; the drag goes FAKE.DRAG plus
-   FAKE.CTRL of Ball Control across, and lands within FAKE.ERR (1 - Ball Control/110) of where it was meant to. The touches
-   are real (ballKick); a fake keeps close control */
-export const FAKE = Object.freeze({DUR: .62, AGI: .18, STOP: .22, DRAG_AT: .3, NUDGE_AT: .18, AFTER: .26, BACK: .3, DRAG: .42, CTRL: .25, ERR: .22, T: .32, REACH: 1.3});
+/* ---------- the fake shot and the drag-backs (U28 part E, reworked) ----------
+   S pressed while a shot is still held (control.js controlInput): the shot is called off and the swing stops short of
+   the ball, which stays at your feet. A key pressed within control.js SHOT_KEYS.FAKE_WAIT s after it (act.dir, set by
+   control.js) plays the ball with the sole that way: A back and to your left, D back and to your right, S straight back
+   behind you, W pushed on a little. None, and the fake is all there is. From the skills: the swing takes FAKE.DUR less
+   FAKE.AGI of Agility; the touch comes FAKE.REACT after the key, sooner with Agility; a drag goes FAKE.DRAG plus FAKE.CTRL
+   of Ball Control across, and every touch lands within FAKE.ERR (1 - Ball Control/110) of where it was meant to. The
+   touches are real (ballKick); a fake keeps close control */
+export const FAKE = Object.freeze({DUR: .62, AGI: .18, STOP: .22, WAIT: .6, REACT: .1, AFTER: .26, BACK: .3, BACK_S: .65, PUSH: .9, DRAG: .42, CTRL: .25, ERR: .22, T: .32, REACH: 1.3});
 function startFake(ms, a, rq){
   const q = clamp((a.at.agility || 50)/99, 0, 1.1), f = dirOf(a.m.yaw);
-  const act = {kind: 'fake', t: 0, dur: FAKE.DUR - FAKE.AGI*q, stop: FAKE.STOP, drag: rq.drag || 0, nudge: !!rq.nudge, done: false,
-    fx: f.x, fz: f.z, nudged: false, dragged: false};
-  act.dragAt = (act.nudge ? FAKE.NUDGE_AT + FAKE.AFTER : FAKE.DRAG_AT) - .08*q;
+  // (it lasts at least the time a key may still come in, FAKE.WAIT)
+  const act = {kind: 'fake', t: 0, dur: Math.max(FAKE.DUR - FAKE.AGI*q, FAKE.WAIT), stop: FAKE.STOP, dir: rq.dir || null, dirT: rq.dir ? 0 : null, done: false,
+    fx: f.x, fz: f.z, q, dragged: false};
   a.act = act; a.state = 'kick';
-  logEv(ms, 'fake', a.team, a.id, a.m.x, a.m.z, {drag: act.drag, nudge: act.nudge});
+  logEv(ms, 'fake', a.team, a.id, a.m.x, a.m.z, {dir: act.dir});
   return act;
 }
 // a real touch rolling the ball to a stop at (tx, tz): the sole's soft roll (the speed the grass takes off over D)
@@ -749,19 +754,20 @@ function rollTo(ms, a, tx, tz, T, how){
 }
 function fakeStep(ms, a, act, h){
   a.intent.speedCap = Math.min(a.intent.speedCap, 1.2);
+  if (!act.dir || act.dragged) return;
+  const at = act.dirT + FAKE.REACT*(1.3 - .6*act.q);
+  // (the move goes on long enough for the touch and the step after it)
+  act.dur = Math.max(act.dur, at + FAKE.AFTER);
+  if (act.t < at) return;
+  act.dragged = true;
   const b = ms.ball, mine = ms.poss.ctl === a.id && b.state === 'free' && b.p.y < .4 && hypot(b.p.x - a.m.x, b.p.z - a.m.z) <= FAKE.REACH*(a.scale || 1);
   if (!mine) return;
   const sc = a.scale || 1, c = clamp((a.at.ctrl || 50)/110, 0, 1), fx = act.fx, fz = act.fz, rx = -fz, rz = fx;
-  if (act.nudge && !act.nudged && act.t >= FAKE.NUDGE_AT){
-    act.nudged = true;
-    rollTo(ms, a, a.m.x + fx*.55*sc, a.m.z + fz*.55*sc, FAKE.T*.8, 'nudge');
-  }
-  if ((act.drag || act.nudge) && !act.dragged && act.t >= act.dragAt){
-    act.dragged = true;
-    const across = act.drag*(FAKE.DRAG + FAKE.CTRL*c)*sc, back = (act.nudge && !act.drag ? .45 : FAKE.BACK)*sc;
-    const e = FAKE.ERR*(1 - c)*sc, ex = truncNormal(ms.r, e, 2), ez = truncNormal(ms.r, e, 2);
-    rollTo(ms, a, a.m.x - fx*back + rx*across + ex, a.m.z - fz*back + rz*across + ez, FAKE.T, act.drag ? (act.drag < 0 ? 'drag left' : 'drag right') : 'drag back');
-  }
+  const e = FAKE.ERR*(1 - c)*sc, ex = truncNormal(ms.r, e, 2), ez = truncNormal(ms.r, e, 2);
+  if (act.dir === 'w') return rollTo(ms, a, a.m.x + fx*FAKE.PUSH*sc + ex, a.m.z + fz*FAKE.PUSH*sc + ez, FAKE.T, 'push');
+  if (act.dir === 's') return rollTo(ms, a, a.m.x - fx*FAKE.BACK_S*sc + ex, a.m.z - fz*FAKE.BACK_S*sc + ez, FAKE.T, 'drag back');
+  const side = act.dir === 'a' ? -1 : 1, across = side*(FAKE.DRAG + FAKE.CTRL*c)*sc, back = FAKE.BACK*sc;
+  rollTo(ms, a, a.m.x - fx*back + rx*across + ex, a.m.z - fz*back + rz*across + ez, FAKE.T, side < 0 ? 'drag left' : 'drag right');
 }
 
 /* ---------- the flick and the chip (U28 part G) ----------
