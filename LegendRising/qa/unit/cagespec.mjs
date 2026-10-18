@@ -20,12 +20,13 @@ const check = (pass, name, value) => {
 };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
 
-check(CAGE_KINDS.join() === "full,half,onegoal", "three kinds: Full, Half and One goal", CAGE_KINDS);
+// (U28 part F: and a cage for each real pitch type)
+check(CAGE_KINDS.join() === "full,half,onegoal,futsal,five,seven,nine,compact,wide,large", "the kinds: Full, Half and One goal, and futsal, 5, 7 and 9 a side, Compact, Wide and Large", CAGE_KINDS);
 
 for (const k of CAGE_KINDS){
   const s = cagePitch(k), F = cageFence(k), a = CAGES[k].area;
   // sizes
-  const want = {full: [105, 68], half: [52.5, 68], onegoal: [30, 44]}[k];
+  const want = {full: [105, 68], half: [52.5, 68], onegoal: [30, 44], futsal: [40, 20], five: [37, 27], seven: [55, 37], nine: [73, 46], compact: [100, 64], wide: [105, 72], large: [110, 75]}[k];
   check(near(s.L, want[0]) && near(s.Wd, want[1]), `${k}: the area is ${want[0]} x ${want[1]}`, [s.L, s.Wd]);
   check(near(s.frame.cx, (a.x0 + a.x1)/2) && near(s.frame.cz, (a.z0 + a.z1)/2), `${k}: the spec's frame is centred on the area, in the whole pitch's frame`, s.frame);
   // the fence and the roof
@@ -43,23 +44,25 @@ for (const k of CAGE_KINDS){
   check(near(s.runoff.hx, F.hx - FENCE_BODY) && near(s.runoff.hz, F.hz - FENCE_BODY), `${k}: the run-off ends a body's width inside the fence`, s.runoff);
   // goal ends
   const ends = s.goals.map(g => g.end).sort();
-  const wantEnds = k === 'full' ? [-1, 1] : [1];
+  // ((U28 part F) a pitch type's cage is the whole of its pitch, as the Full one is)
+  const whole = k === 'full' || !!CAGES[k].type, BL = CAGES[k].base ? CAGES[k].base.L : FIFA.L, BW = CAGES[k].base ? CAGES[k].base.Wd : FIFA.Wd;
+  const wantEnds = whole ? [-1, 1] : [1];
   check(ends.join() === wantEnds.join() && s.area.ends.join() === wantEnds.join(), `${k}: goals at ${wantEnds.join(" and ")}`, ends);
   check(s.colliders.nets.length === wantEnds.length && s.colliders.posts.length === 2*wantEnds.length && s.colliders.bars.length === wantEnds.length,
     `${k}: posts, bars and nets only at the real goals`);
-  check(goalsLawOf(s) === (k === 'full' ? 2 : 1), `${k}: laws.goals ${k === 'full' ? 2 : 1}`, goalsLawOf(s));
+  check(goalsLawOf(s) === (whole ? 2 : 1), `${k}: laws.goals ${whole ? 2 : 1}`, goalsLawOf(s));
   // the real goal is on the whole pitch's goal line, the mouth centred across
   const g = s.goals.find(x => x.end === 1);
-  check(near(s.frame.cx + g.lineX, FIFA.L/2) && near(s.frame.cz, 0), `${k}: the +x goal stands on the whole pitch's goal line`, s.frame.cx + g.lineX);
-  check(s.areas.box.every(b => b.end === 1 || k === 'full') && s.spots.penalty.length === wantEnds.length, `${k}: penalty areas and spots only at real goal ends`);
+  check(near(s.frame.cx + g.lineX, BL/2) && near(s.frame.cz, 0), `${k}: the +x goal stands on the whole pitch's goal line`, s.frame.cx + g.lineX);
+  check(s.areas.box.every(b => b.end === 1 || whole) && s.spots.penalty.length === wantEnds.length, `${k}: penalty areas and spots only at real goal ends`);
   // the draw spec
   const D = cageDraw(k);
   const inside = l => l.type === 'seg' ? [[l.x0, l.z0], [l.x1, l.z1]] : [[l.cx + l.r*Math.cos(l.a0), l.cz + l.r*Math.sin(l.a0)], [l.cx + l.r*Math.cos(l.a1), l.cz + l.r*Math.sin(l.a1)]];
   const tol = FIFA.line/2 + 1e-3;
   const allIn = D.lines.every(l => inside(l).every(([x, z]) => Math.abs(x) <= s.hx + tol && Math.abs(z) <= s.hz + tol));
   check(allIn && D.lines.length > 0, `${k}: every marking drawn is clipped to the area`, D.lines.length);
-  const flagsWant = {full: 4, half: 2, onegoal: 0}[k];
-  check(D.flags.length === flagsWant && D.flags.every(f => near(Math.abs(f.x + D.base.ox), FIFA.L/2) && near(Math.abs(f.z + D.base.oz), FIFA.Wd/2)),
+  const flagsWant = whole ? 4 : {half: 2, onegoal: 0}[k];
+  check(D.flags.length === flagsWant && D.flags.every(f => near(Math.abs(f.x + D.base.ox), BL/2) && near(Math.abs(f.z + D.base.oz), BW/2)),
     `${k}: corner flags only at the real corners (${flagsWant})`, D.flags);
   check(near(D.fence.h, F.h) && D.grass.hx >= F.hx && D.grass.hz >= F.hz, `${k}: the grass reaches the fence`);
   const fullTouch = D.lines.filter(l => l.tag === 'touch');

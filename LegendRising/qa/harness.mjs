@@ -6,6 +6,7 @@
 //
 //   node qa/harness.mjs --n 1000                the acceptance run (Standard tempo)
 //   node qa/harness.mjs --n 200 --from 30001    a calibration run: on seeds apart from the acceptance run's 1 to 1000
+//   node qa/harness.mjs --n 200 --pitch large    the matches on another eleven-a-side ground (U28 part F)
 //                                               (fitting to the seeds a band is gated on hides how it holds out of sample)
 //   options: --speed 2|1|4  --workers 4  --prefoff 4 (every 4th match is also played with the preference off)
 //            --arch ST|W|AM|CM|DF (the player in that archetype in every match: calibration)
@@ -26,7 +27,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const F = rel => pathToFileURL(path.join(ROOT, rel)).href;
 const H = await import(F("js/life/football/harness.js"));
 const {mulberry32, hashStr, gauss} = await import(F("js/life/football/rng.js"));
-const {makePitch, ROLL} = await import(F("js/life/football/pitchspec.js"));
+const {makePitch, ROLL, PITCH_TYPES} = await import(F("js/life/football/pitchspec.js"));
 const {attrsForAI} = await import(F("js/life/football/attrs.js"));
 const {TEMPO, HALF_REAL} = await import(F("js/life/football/sim.js"));
 
@@ -90,7 +91,9 @@ export function configFor(seed, opt = {}){
   const tempo = Object.assign({}, TEMPO[speed], opt.tempo || {});
   const meSlot = teams[meTeam].players.find(p => p.isMe);
   const ground = groundTier(a.rep);
-  return {seed, mode: 'match', spec: makePitch({boards: true, roll: ROLL[ground]}), ground,
+  // ((U28 part F) --pitch compact | wide | large: the match on that eleven-a-side ground)
+  const PT = opt.pitch ? PITCH_TYPES[opt.pitch] : null;
+  return {seed, mode: 'match', spec: makePitch(Object.assign({boards: true, roll: ROLL[ground]}, PT ? {L: PT.L, Wd: PT.Wd, type: PT.id} : {})), ground,
     halfRealSec: HALF_REAL[speed], tempo, teams, me: {team: meTeam, slot: meSlot.slot, chem: 50, trust: 20, staminaF: 1.0, role: 'starter'},
     rules: {offside: true, cards: true, subs: 5}, roleTimes: {}, meAI: true, htAuto: true, prefOff: !!opt.prefOff,
     ovr: [Math.round(teams[0].ovr*10)/10, Math.round(teams[1].ovr*10)/10]};
@@ -131,6 +134,7 @@ const N = +arg("n", 100), FROM = +arg("from", 1), SPEED = +arg("speed", 2), WORK
 const PREFOFF = +arg("prefoff", 4), TIMING = +arg("timing", 3), QUIET = !!arg("quiet", false);
 const tempoArg = arg("tempo", null);
 const opt = {speed: SPEED, prefoff: PREFOFF};
+if (arg("pitch", null) && arg("pitch", null) !== true) opt.pitch = String(arg("pitch", null));
 // a calibration run with the player in one archetype only (ST, W, AM, CM or DF)
 if (arg("arch", null) && arg("arch", null) !== true) opt.arch = String(arg("arch", null));
 if (tempoArg && tempoArg !== true){ const [d, s, p] = String(tempoArg).split(",").map(Number); opt.tempo = {directness: d, shotBias: s, pressMul: p}; }

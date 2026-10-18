@@ -14,20 +14,22 @@ import {trainLaunch, enterByButton, trainWrites, careerSnapshot, careerDiff, cli
 
 const res = {trips: [], errors: []};
 const check = (ok, what, got) => { if (!ok) res.errors.push(`${what}: ${JSON.stringify(got).slice(0, 1500)}`); console.log(`${ok ? "ok  " : "FAIL"} ${what}`); };
-const GOALS = {full: 2, half: 1, onegoal: 1};
+// (U28 part F: and every real pitch type, a whole pitch with both goals)
+const KINDS = ["full", "half", "onegoal", "futsal", "five", "seven", "nine", "compact", "wide", "large"];
+const GOALS = {full: 2, half: 1, onegoal: 1, futsal: 2, five: 2, seven: 2, nine: 2, compact: 2, wide: 2, large: 2};
 
 const t = await trainLaunch({seed: 6});
 const {page} = t;
 try {
   await enterByButton(page);
   const careerBefore = await careerSnapshot(page);
-  await page.evaluate(() => {
+  await page.evaluate(KINDS => {
     const R = window.__trainRun;
     const build = (cfg, env) => { const hx = env.spec.hx; return {myTeam: 0, role: "Attacker", seed: 9, laws: {out: "rebound"},
       me: {slot: "CM", x: hx - 20, z: 0, yaw: -Math.PI/2}, mates: [{slot: "LW", x: hx - 18, z: -8, yaw: -Math.PI/2}], opps: [{slot: "CB", x: hx - 10, z: 0, yaw: Math.PI/2}],
       keeper: {side: "theirs", x: hx - 1.2, z: 0, yaw: Math.PI/2}, ball: {x: hx - 19, y: .11, z: 0}}; };
-    for (const k of ["full", "half", "onegoal"]) R.registerScenario({id: "qa-pitch-" + k, category: "attacking", name: "Pitch " + k, desc: "A test scenario", config: {pitch: k}, build});
-  });
+    for (const k of KINDS) R.registerScenario({id: "qa-pitch-" + k, category: "attacking", name: "Pitch " + k, desc: "A test scenario", config: {pitch: k}, build});
+  }, KINDS);
   const base = await page.evaluate(async () => { const H = await import("/js/life/human.js"), PL = await import("/js/life/train/pool.js"); return {bodies: H.bodies().length, poolIds: H.bodies().filter(PL.pooled).map(h => h.id).sort((a, b) => a - b).join(), pool: window.__trainRun.poolStats().size}; });
   // (every geometry the renderer has uploaded and not let go, with where it was made: a leak is one kept alive outside
   // the scene, or the scene's own count growing; renderer.info also counts a mesh first drawn on a later trip)
@@ -41,7 +43,7 @@ try {
   });
   const first = {};
   for (let trip = 0; trip < 4; trip++){
-    for (const kind of ["full", "half", "onegoal"]){
+    for (const kind of KINDS){
       // the hub on Attacking, Start by a real click
       await page.evaluate(() => window.__trainHub.openHub("attacking"));
       await page.waitForFunction(() => !!document.querySelector('#sheetRoot.open [data-th="start"]'), null, {timeout: 20000});

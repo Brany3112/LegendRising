@@ -12,7 +12,7 @@
 
 import {createMatch, TEMPO, HALF_REAL, CALIBRATED} from "./sim.js";
 import {attrsForPlayer, attrsForAI} from "./attrs.js";
-import {makePitch, ROLL} from "./pitchspec.js";
+import {makePitch, ROLL, PITCH_TYPES, groundFor} from "./pitchspec.js";
 import {countersAll, ratingsAll, rateAgent, deriveMy, teamStats, goalLists, highlights, minuteOf, minsOn, onSec} from "./events.js";
 import {judgeDecision} from "./judge.js";
 import {hashStr} from "./rng.js";
@@ -140,6 +140,13 @@ function coachStyleFor(f, M){
 // (S.life.inMatch of a checkpoint), visible, benchSide, scaleOf (the AI players' heights, P2-A MV-10)}. Every player
 // record carries its scale (sideTeam). Home is team 0. The tempo and the half length come from
 // S.speed, Standard when that setting is not calibrated yet (D3).
+// (U28 part F) the pitch a fixture is played on: the home club's ground (pitchspec.js groundFor: a size its league
+// allows), Standard for a World Cup match and anything with no home club
+export function groundOf(f, M = MT){
+  if (!f || f.kind === "N" || typeof W === "undefined" || !W || !W.clubs || !M) return "standard";
+  const homeId = M.home ? M.usId : M.themId, c = homeId != null ? W.clubs[homeId] : null;
+  return c ? groundFor(c) : "standard";
+}
 export function matchConfig(f, M = MT, opts = {}){
   const speed = CALIBRATED[S.speed] ? S.speed : 2;
   const usTeam = M.home ? 0 : 1;
@@ -160,7 +167,8 @@ export function matchConfig(f, M = MT, opts = {}){
   const tier = M.stad ? clamp(M.stad.tier | 0, 0, 4) : 2;
   const seed = opts.seed != null ? opts.seed >>> 0 : seedOf(f);
   // (the stadium's boards, with their gap in front of the dugouts: pitchspec BOARDS, the layout stadium.js draws)
-  const cfg = {seed, mode: "match", spec: makePitch({boards: true, roll: ROLL[tier]}), halfRealSec: HALF_REAL[speed], tempo: Object.assign({}, TEMPO[speed]),
+  const G = PITCH_TYPES[opts.ground || groundOf(f, M)] || PITCH_TYPES.standard;
+  const cfg = {seed, mode: "match", ground: G.id, spec: makePitch({L: G.L, Wd: G.Wd, type: G.id, boards: true, roll: ROLL[tier]}), halfRealSec: HALF_REAL[speed], tempo: Object.assign({}, TEMPO[speed]),
     teams, me: {team: usTeam, slot: meP0 ? meP0.slot : null, prefFoot: footOf(S.player && S.player.foot), chem: +S.chem || 0, trust: +S.trust || 0,
       traits: Object.assign({}, S.traits || {}), staminaF: has("staminaF") ? staminaF() : null, role, coachStyle: coachStyleFor(f, M)},
     rules: {offside: true, cards: true, subs: 5}, roleTimes, friendly: f.kind === "F", fkey: f.key,

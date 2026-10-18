@@ -32,7 +32,7 @@
                  'cross' | 'loft', target: {x, y, z}, speed, curl}}, in the cage pitch's own frame (pitch-local
                  metres, +x the goal attacked)
      out         out of play: 'rebound' off the cage, or 'stop' for the restart
-     pitch       'full' | 'half' | 'onegoal'
+     pitch       'full' | 'half' | 'onegoal', or a real pitch type: 'futsal' | 'five' | 'seven' | 'nine' | 'compact' | 'wide' | 'large'
      opts        the type's own options (registerType)
    A type says which of these it uses and may fix some (Full Match: always the full pitch). validate() gives a safe
    copy of anything: defaults for what is missing or bad, values clamped, unknown keys dropped, the limits kept with a
@@ -52,8 +52,10 @@ export const ROLES = Object.freeze(["attacker", "taker", "receiver", "support", 
 export const ROLE_NAMES = Object.freeze({attacker:"Attacker", taker:"Taker", receiver:"Receiver", support:"Support", defender:"Defender"});
 export const POSSESSION = Object.freeze(["me", "mates", "opps", "loose"]);
 export const POSSESSION_NAMES = Object.freeze({me:"You", mates:"A team-mate", opps:"An opponent", loose:"Nobody, it's loose"});
-export const PITCHES = Object.freeze(["full", "half", "onegoal"]);
-export const PITCH_NAMES = Object.freeze({full:"Full", half:"Half", onegoal:"One goal"});
+// (U28 part F: and the real pitch types, cagespec.js CAGE_KINDS: futsal, 5, 7 and 9 a side, the eleven-a-side grounds)
+export const PITCHES = Object.freeze(["full", "half", "onegoal", "futsal", "five", "seven", "nine", "compact", "wide", "large"]);
+export const PITCH_NAMES = Object.freeze({full:"Full", half:"Half", onegoal:"One goal", futsal:"Futsal (40 × 20)", five:"5-a-side (37 × 27)",
+  seven:"7-a-side (55 × 37)", nine:"9-a-side (73 × 46)", compact:"Compact (100 × 64)", wide:"Wide (105 × 72)", large:"Large (110 × 75)"});
 export const OUTS = Object.freeze(["rebound", "stop"]);
 export const OUT_NAMES = Object.freeze({rebound:"It bounces back off the fence", stop:"Play stops for the restart"});
 export const LAUNCH_KINDS = Object.freeze(["pass", "driven", "cross", "loft"]);

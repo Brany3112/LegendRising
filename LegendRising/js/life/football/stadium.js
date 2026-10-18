@@ -27,7 +27,7 @@ import {frame, rb, cy, fsolid, worldPt, dugout, tacticsBoard, waterCooler, kitHa
 import {registerZone} from "../core/modes.js";
 import {onPresetSwap} from "../core/quality.js";
 import {RT, P} from "../core/state.js";
-import {makePitch, FIFA, BOARDS, ROLL as PITCH_ROLL} from "./pitchspec.js";
+import {makePitch, FIFA, BOARDS, ROLL as PITCH_ROLL, PITCH_TYPES, boardsFor} from "./pitchspec.js";
 import {buildPitchMesh, WEAR} from "./pitchmesh.js";
 import {buildCrowd} from "./crowd.js";
 import {AUD} from "./audio.js";
@@ -46,7 +46,8 @@ export const SPAWNS = {
   exit:{x:0, z:-72, y:0, yaw:0}
 };
 const ROW = {d:.8, h:.4, y0:1.0};
-const Z0 = BOARDS.hz + 2, X0 = BOARDS.hx + 2;          // the front edge of the first row: 2 m behind the boards
+// (U28 part F: the boards and the first row follow the ground's own size, set as a stadium is built: buildStadium)
+let BD = BOARDS, Z0 = BOARDS.hz + 2, X0 = BOARDS.hx + 2;          // the front edge of the first row: 2 m behind the boards
 const MOUTH = {x:3.0, rows:5};                        // the tunnel's cut through the main stand's first rows
 const COR = {x:2.5, z0:-66, z1:-44, h:2.9};           // the corridor under the main stand
 // the batch keys of the rooms under the main stand, lit by their own ceiling panels (see W.glows in buildStadium)
@@ -572,26 +573,26 @@ function adsTexture(clubs, kits){
   }));
 }
 function boards(tier, tex, ribbons){
-  const q = [], n = 8, hb = BOARDS.h, t = .32, gap = BOARD_GAPS[0];
+  const q = [], n = 8, hb = BD.h, t = .32, gap = BOARD_GAPS[0];
   const run = (side, a0, a1) => {
     const L = a1 - a0, k = Math.max(1, Math.round(L/5)), w = L/k;
     for (let i = 0; i < k; i++){
       const a = a0 + i*w, c = a + w/2, ad = Math.floor(Math.abs(c*7.3 + (side.length*13)) + i) % n, uv = [0, ad/n + .004, 1, (ad + 1)/n - .004];
-      if (side === "z+") q.push({x:c, y:hb/2 + .02, z:BOARDS.hz - .005, w:w - .06, h:hb - .1, ry:Math.PI, uv});
-      else if (side === "z-") q.push({x:c, y:hb/2 + .02, z:-BOARDS.hz + .005, w:w - .06, h:hb - .1, ry:0, uv});
-      else if (side === "x+") q.push({x:BOARDS.hx - .005, y:hb/2 + .02, z:c, w:w - .06, h:hb - .1, ry:-Math.PI/2, uv});
-      else q.push({x:-BOARDS.hx + .005, y:hb/2 + .02, z:c, w:w - .06, h:hb - .1, ry:Math.PI/2, uv});
+      if (side === "z+") q.push({x:c, y:hb/2 + .02, z:BD.hz - .005, w:w - .06, h:hb - .1, ry:Math.PI, uv});
+      else if (side === "z-") q.push({x:c, y:hb/2 + .02, z:-BD.hz + .005, w:w - .06, h:hb - .1, ry:0, uv});
+      else if (side === "x+") q.push({x:BD.hx - .005, y:hb/2 + .02, z:c, w:w - .06, h:hb - .1, ry:-Math.PI/2, uv});
+      else q.push({x:-BD.hx + .005, y:hb/2 + .02, z:c, w:w - .06, h:hb - .1, ry:Math.PI/2, uv});
     }
     // the board's body: a dark box behind the screen, a player solid
     const B = (x0, x1, z0, z1) => { box(x0, 0, z0, x1, hb, z1, 0x23282e, {key:"metal", ao:false, jit:0}); solid(x0, x1, z0, z1, 0, hb); };
-    if (side === "z+") B(a0, a1, BOARDS.hz, BOARDS.hz + t);
-    else if (side === "z-") B(a0, a1, -BOARDS.hz - t, -BOARDS.hz);
-    else if (side === "x+") B(BOARDS.hx, BOARDS.hx + t, a0, a1);
-    else B(-BOARDS.hx - t, -BOARDS.hx, a0, a1);
+    if (side === "z+") B(a0, a1, BD.hz, BD.hz + t);
+    else if (side === "z-") B(a0, a1, -BD.hz - t, -BD.hz);
+    else if (side === "x+") B(BD.hx, BD.hx + t, a0, a1);
+    else B(-BD.hx - t, -BD.hx, a0, a1);
   };
-  run("z+", -BOARDS.hx, BOARDS.hx);
-  run("z-", -BOARDS.hx, gap.a0); run("z-", gap.a1, BOARDS.hx);
-  run("x+", -BOARDS.hz - t, BOARDS.hz + t); run("x-", -BOARDS.hz - t, BOARDS.hz + t);
+  run("z+", -BD.hx, BD.hx);
+  run("z-", -BD.hx, gap.a0); run("z-", gap.a1, BD.hx);
+  run("x+", -BD.hz - t, BD.hz + t); run("x-", -BD.hz - t, BD.hz + t);
   for (const r of ribbons || []) q.push(r);
   return labels(tex, q, {glow:tier >= 2 ? .55 : tier === 1 ? .15 : 0, rough:.5});
 }
@@ -767,7 +768,7 @@ function mouth(opts, tier){
     box(-MOUTH.x, COR.h, zB - .3, MOUTH.x, top + .05, zB + .05, 0x8f8c85, PT);
   }
   // the telescopic tunnel: hoops and a cover in the club's colours from the stand out over the track
-  const zs = -BOARDS.hz - .2, ze = tier >= 1 ? zB + .1 : COR.z1, len = zs - ze, cl = mix(opts.club, 0x15181c, .35);
+  const zs = -BD.hz - .2, ze = tier >= 1 ? zB + .1 : COR.z1, len = zs - ze, cl = mix(opts.club, 0x15181c, .35);
   const shell = new THREE.CylinderGeometry(2.0, 2.0, len, 18, 1, true, Math.PI/2, Math.PI);
   shell.rotateX(Math.PI/2); shell.scale(1, 1.35, 1);
   const pos = shell.attributes.position;
@@ -819,8 +820,8 @@ const techAreas = () => {
 // a local ground's rail round the pitch, on the boards' line, the boards hung on it
 function rail(){
   const post = (x, z) => cyl(x, 0, z, .04, 1.15, 0x8f979e, {seg:6, key:"metal"});
-  for (const [x0, z0, x1, z1] of [[-BOARDS.hx, BOARDS.hz, BOARDS.hx, BOARDS.hz], [-BOARDS.hx, -BOARDS.hz, -14, -BOARDS.hz], [14, -BOARDS.hz, BOARDS.hx, -BOARDS.hz],
-    [BOARDS.hx, -BOARDS.hz, BOARDS.hx, BOARDS.hz], [-BOARDS.hx, -BOARDS.hz, -BOARDS.hx, BOARDS.hz]]){
+  for (const [x0, z0, x1, z1] of [[-BD.hx, BD.hz, BD.hx, BD.hz], [-BD.hx, -BD.hz, -14, -BD.hz], [14, -BD.hz, BD.hx, -BD.hz],
+    [BD.hx, -BD.hz, BD.hx, BD.hz], [-BD.hx, -BD.hz, -BD.hx, BD.hz]]){
     const L = Math.hypot(x1 - x0, z1 - z0), n = Math.ceil(L/2.5), o = z0 === z1 ? [0, Math.sign(z0)*.4] : [Math.sign(x0)*.4, 0];
     for (let i = 0; i <= n; i++) post(x0 + (x1 - x0)*i/n + o[0], z0 + (z1 - z0)*i/n + o[1]);
     const g = new THREE.CylinderGeometry(.035, .035, L, 6, 1, true).rotateZ(Math.PI/2);
@@ -898,11 +899,15 @@ export function buildStadium(ctx, o = {}){
   const cap = o.cap || (tier === 0 ? 900 : SEATS[tier]), crowdN = o.crowd == null ? Math.round(cap*.6) : o.crowd;
   const att = Math.max(0, Math.min(1, crowdN/cap));
   reseed(9100 + tier);
-  W.bounds = Object.assign({}, BOUNDS);
+  // (U28 part F) the home ground's size: the pitch, its boards and the stands round them
+  const G = PITCH_TYPES[o.ground] || PITCH_TYPES.standard;
+  BD = boardsFor(G.L, G.Wd); Z0 = BD.hz + 2; X0 = BD.hx + 2;
+  const gx = BD.hx - BOARDS.hx, gz = BD.hz - BOARDS.hz;
+  W.bounds = {x0: BOUNDS.x0 - gx, x1: BOUNDS.x1 + gx, z0: BOUNDS.z0 - gz, z1: BOUNDS.z1 + gz};
   const club = hexOf(kits.home[0]);
   const opts = {tier, kits, clubs, club, halos:[], seatCol:mix(club, 0x20242a, .15), seatAlt:mix(hexOf(kits.home[1] || "#ffffff"), 0x9aa0a6, .2)};
   // the pitch, from the one spec the ball and the rules use
-  const spec = makePitch({L:FIFA.L, Wd:FIFA.Wd, roll:ROLL[tier], boards:true});
+  const spec = makePitch({L:G.L, Wd:G.Wd, type:G.id, roll:ROLL[tier], boards:true});
   const pitch = buildPitchMesh(spec, {tier, worn:WEAR[tier], stripes:12, cones:true, grass:{hx:X0 + .3, hz:Z0 + .3}, extra:techAreas()});
   surroundings(tier, opts);
   // the stands

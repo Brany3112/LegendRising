@@ -44,9 +44,9 @@ import {THREE} from "../build.js";
 import {createMatch, simStep, runHeadless, on, secondHalf, matchSec, HALF_REAL, CALIBRATED, TEMPO, liveRating, halfStart, restoreHalf, placeForKickoff, markHalfStart} from "./sim.js";
 import {xgAt} from "./judge.js";
 import {firstReach, BALL} from "./ball.js";
-import {matchConfig, checkpoint, finish, attach, resumeInfo, drink} from "./bridge.js";
+import {matchConfig, checkpoint, finish, attach, resumeInfo, drink, groundOf} from "./bridge.js";
 import {minuteOf, highlights, onSec, deriveMy, createChain} from "./events.js";
-import {makePitch, ROLL, dirOf, yawOf, wrapA} from "./pitchspec.js";
+import {makePitch, ROLL, dirOf, yawOf, wrapA, PITCH_TYPES} from "./pitchspec.js";
 import {attrsForAI} from "./attrs.js";
 import {restartReady, startRestart} from "./rules.js";
 import {startAction, refreshPred} from "./actions.js";
@@ -242,9 +242,11 @@ function arrived(){
   const kits = matchKits(M.home ? {home: M.myKit, away: M.oppKit} : {home: M.oppKit, away: M.myKit});
   if (M.home) M.oppKit = kits.away; else M.myKit = kits.away;
   const clubs = {home: M.home ? M.nameUs : M.nameThem, away: M.home ? M.nameThem : M.nameUs};
-  build({tier: stad.tier, crowd: stad.crowd, cap: stad.cap, kits, clubs, at: "dressing", homeShare: M.home ? .8 : .2});
+  build({tier: stad.tier, crowd: stad.crowd, cap: stad.cap, kits, clubs, at: "dressing", homeShare: M.home ? .8 : .2, ground: groundOf(f, M)});
   const cfg = matchConfig(f, M, {benchSide: -1, visible: visibleFn, scaleOf: heightOf});
   cfg.htAuto = false;
+  // (U28 part F) the ground's size, said as the day begins
+  { const G = PITCH_TYPES[cfg.ground] || PITCH_TYPES.standard; try { hudNotice("info", `Pitch: ${G.L} × ${G.Wd} (${G.name} ground)`); } catch(e){ /* no HUD yet */ } }
   startMatch(cfg, kits);
   // arriving after kick-off: the minutes gone by are played out headless behind the card, then the bench (3.4.1)
   if (FS.lateMin > 0){
@@ -263,9 +265,9 @@ function matchKits(k){
   const R = resolveKits(k);
   return {home: R.home, away: R.away, gk: R.gk, ref: R.ref, change: R.awayChange};
 }
-function build({tier, crowd, cap, kits, clubs, at, homeShare}){
+function build({tier, crowd, cap, kits, clubs, at, homeShare, ground}){
   const L = window.__life;
-  L.enterZone("stadium", at, {tier, crowd, cap, kits, clubs, homeShare, subs: 7, on: {
+  L.enterZone("stadium", at, {tier, crowd, cap, kits, clubs, homeShare, ground, subs: 7, on: {
     ready: () => manager(), door: () => headOut(), bench: side => sitDown(side), leave: () => {},
     // (the seat is offered only to a substitute on his feet and not yet called: U4)
     benchOk: () => FS.state === "bench" && !FS.seated && !FS.called}});

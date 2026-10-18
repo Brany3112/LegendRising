@@ -13,7 +13,7 @@
 // (the One-goal and Half cages are at the +X goal), Z across. An area {x0, x1, z0, z1} is in that frame. The spec a
 // cage plays on (cagePitch) has its own frame centred on the area (spec.frame.cx, cz), as every PitchSpec does.
 
-import {makePitch, plane, FIFA} from "./pitchspec.js";
+import {makePitch, plane, FIFA, PITCH_TYPES} from "./pitchspec.js";
 import {sin, cos, atan2, PI} from "./detmath.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -28,12 +28,25 @@ export const CAGE_BASE = Object.freeze({L: FIFA.L, Wd: FIFA.Wd, cx: 0, cz: 0});
      h        the fence's height, and the roof's: a fence lower than the roof lets a lofted ball out through the gap
               (verified with ball.js, traininginfra.md section 4), so they are one height
    The One-goal area holds the whole penalty area and its arc (the arc's far point is 52.5 - 11 - 9.15 = 32.35). */
-export const CAGE_KINDS = Object.freeze(['full', 'half', 'onegoal']);
+// (U28 part F) and a cage for each real pitch type, the whole of that pitch with its own goals and marks
+// (pitchspec.js PITCH_TYPES; the Standard ground is the Full pitch)
+export const CAGE_KINDS = Object.freeze(['full', 'half', 'onegoal', 'futsal', 'five', 'seven', 'nine', 'compact', 'wide', 'large']);
 export const CAGES = Object.freeze({
   full: Object.freeze({name: "Full pitch", area: Object.freeze({x0: -FIFA.L/2, x1: FIFA.L/2, z0: -FIFA.Wd/2, z1: FIFA.Wd/2}), fence: Object.freeze({x: 4, z: 3}), h: 14}),
   half: Object.freeze({name: "Half pitch", area: Object.freeze({x0: 0, x1: FIFA.L/2, z0: -FIFA.Wd/2, z1: FIFA.Wd/2}), fence: Object.freeze({x: 4, z: 3}), h: 12}),
-  onegoal: Object.freeze({name: "One goal", area: Object.freeze({x0: FIFA.L/2 - 30, x1: FIFA.L/2, z0: -22, z1: 22}), fence: Object.freeze({x: 4, z: 3}), h: 8})
+  onegoal: Object.freeze({name: "One goal", area: Object.freeze({x0: FIFA.L/2 - 30, x1: FIFA.L/2, z0: -22, z1: 22}), fence: Object.freeze({x: 4, z: 3}), h: 8}),
+  futsal: typeCage("futsal", {x: 3, z: 2.5}, 7), five: typeCage("five", {x: 3, z: 2.5}, 7), seven: typeCage("seven", {x: 3.5, z: 3}, 9),
+  nine: typeCage("nine", {x: 4, z: 3}, 11), compact: typeCage("compact", {x: 4, z: 3}, 14), wide: typeCage("wide", {x: 4, z: 3}, 14),
+  large: typeCage("large", {x: 4, z: 3}, 14)
 });
+// a cage that is the whole of a pitch type: its base is that pitch (its own size, goals and marks)
+function typeCage(id, fence, h){
+  const T = PITCH_TYPES[id];
+  return Object.freeze({name: T.name + (T.side < 11 ? "" : " pitch"), type: id, base: Object.freeze({L: T.L, Wd: T.Wd, cx: 0, cz: 0, dims: T.dims}),
+    area: Object.freeze({x0: -T.L/2, x1: T.L/2, z0: -T.Wd/2, z1: T.Wd/2}), fence: Object.freeze(fence), h});
+}
+// the pitch a cage's area is cut from: its own pitch type, else the full one
+const baseOf = k => CAGES[k].base || CAGE_BASE;
 // the fence's restitution: a tight wire mesh gives a ball back more softly than an advertising board (0.5)
 export const FENCE_E = 0.4;
 // how far inside the fence a player's centre stays (his half-width and a little): the movers' run-off ends here
@@ -56,11 +69,11 @@ export function areaPitchOf(base, area, o = {}){
   const a = area || {x0: -B.L/2, x1: B.L/2, z0: -B.Wd/2, z1: B.Wd/2};
   const L = a.x1 - a.x0, Wd = a.z1 - a.z0, mx = (a.x0 + a.x1)/2, mz = (a.z0 + a.z1)/2;
   if (!(L > 0) || !(Wd > 0)) throw new Error("areaPitchOf: an area needs a length and a width");
-  const spec = makePitch({L, Wd, cx: B.cx + mx, cz: B.cz + mz, roll: o.roll != null ? o.roll : 1.1, boards: o.boards || null});
+  const spec = makePitch({L, Wd, cx: B.cx + mx, cz: B.cz + mz, roll: o.roll != null ? o.roll : 1.1, boards: o.boards || null, dims: B.dims || null, type: o.type || null});
   const baseRun = {hx: B.L/2 + 5, hz: B.Wd/2 + 4};
   spec.runoff = o.runoff ? {hx: o.runoff.hx, hz: o.runoff.hz}
     : {hx: Math.min(L/2 + 2, baseRun.hx - Math.abs(mx)), hz: Math.min(Wd/2 + 2, baseRun.hz - Math.abs(mz))};
-  const goalFits = Math.abs(mz) < 1e-6 && Wd/2 >= FIFA.goalW/2 + FIFA.postR + 1;
+  const D = B.dims ? Object.assign({}, FIFA, B.dims) : FIFA, goalFits = Math.abs(mz) < 1e-6 && Wd/2 >= D.goalW/2 + D.postR + 1;
   const real = end => goalFits && Math.abs(mx + end*L/2 - end*B.L/2) < 1e-6;
   const keep = q => real(q.end);
   spec.goals = spec.goals.filter(keep);
@@ -113,7 +126,7 @@ export function cageFence(kind){
    the fence, colliders.boards the fence and roof planes, spec.cage {kind, fence: {hx, hz, h}}. */
 export function cagePitch(kind, o = {}){
   const k = cageKind(kind), F = cageFence(k);
-  const spec = areaPitchOf(CAGE_BASE, CAGES[k].area, {roll: o.roll, runoff: {hx: F.hx - FENCE_BODY, hz: F.hz - FENCE_BODY}});
+  const spec = areaPitchOf(baseOf(k), CAGES[k].area, {roll: o.roll, runoff: {hx: F.hx - FENCE_BODY, hz: F.hz - FENCE_BODY}, type: CAGES[k].type || null});
   spec.colliders.boards = fencePlanes(F.hx, F.hz, F.h);
   spec.cage = {kind: k, fence: F};
   return spec;
@@ -167,7 +180,7 @@ function clipArc(l, b){
    No goal is listed: the cage spec's own goals (only the real ones) are the ones drawn. */
 export function cageDraw(kind){
   const k = cageKind(kind), K = CAGES[k], a = K.area, F = cageFence(k);
-  const full = makePitch({L: CAGE_BASE.L, Wd: CAGE_BASE.Wd});
+  const BB = baseOf(k), full = makePitch({L: BB.L, Wd: BB.Wd, dims: BB.dims || null});
   const mx = (a.x0 + a.x1)/2, mz = (a.z0 + a.z1)/2, tol = FIFA.line/2 + 1e-6;
   const box = {x0: a.x0 - tol, x1: a.x1 + tol, z0: a.z0 - tol, z1: a.z1 + tol};
   const lines = [];

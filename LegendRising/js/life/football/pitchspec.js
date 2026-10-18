@@ -21,6 +21,35 @@ export const wrapA = a => { a = (a + PI) % (2*PI); return a < 0 ? a + PI : a - P
 export const FIFA = {L:105, Wd:68, line:0.12, goalW:7.32, goalH:2.44, postR:0.06, netDepth:2.0, netBackH:1.90, boxD:16.5,
   boxHalfW:20.16, sixD:5.5, sixHalfW:9.16, spot:11, arcR:9.15, circleR:9.15, cornerR:1, flagH:1.5, ballR:0.11};
 
+/* (U28 part F) the real pitch sizes. Small-sided: futsal, 5, 7 and 9 a side, each with its own goal, areas and marks
+   (the FA's and FIFA's youth and futsal guidance; futsal's penalty arcs drawn as the rectangle they enclose). Eleven a
+   side in four sizes, as real grounds vary, all with the full goal, areas and marks, only the length and the width
+   changing (the Laws allow 100 to 110 by 64 to 75 internationally). dims are makePitch's: what FIFA has, overridden */
+export const PITCH_TYPES = Object.freeze({
+  futsal: Object.freeze({id: "futsal", name: "Futsal", side: 5, L: 40, Wd: 20, dims: Object.freeze({goalW: 3, goalH: 2, netDepth: 1, netBackH: 1.6, boxD: 6, boxHalfW: 7.5, sixD: 0, sixHalfW: 0, spot: 6, arcR: 0, circleR: 3, cornerR: .25})}),
+  five: Object.freeze({id: "five", name: "5-a-side", side: 5, L: 37, Wd: 27, dims: Object.freeze({goalW: 3.66, goalH: 1.83, netDepth: 1, netBackH: 1.4, boxD: 6, boxHalfW: 8, sixD: 0, sixHalfW: 0, spot: 7, arcR: 0, circleR: 4, cornerR: .5})}),
+  seven: Object.freeze({id: "seven", name: "7-a-side", side: 7, L: 55, Wd: 37, dims: Object.freeze({goalW: 3.66, goalH: 1.83, netDepth: 1.2, netBackH: 1.4, boxD: 9.14, boxHalfW: 9.15, sixD: 0, sixHalfW: 0, spot: 7.32, arcR: 0, circleR: 5.5, cornerR: .5})}),
+  nine: Object.freeze({id: "nine", name: "9-a-side", side: 9, L: 73, Wd: 46, dims: Object.freeze({goalW: 4.88, goalH: 2.13, netDepth: 1.5, netBackH: 1.6, boxD: 11.9, boxHalfW: 14.6, sixD: 3.66, sixHalfW: 5.5, spot: 8.23, arcR: 7.3, circleR: 7.3, cornerR: 1})}),
+  compact: Object.freeze({id: "compact", name: "Compact", side: 11, L: 100, Wd: 64, dims: null}),
+  standard: Object.freeze({id: "standard", name: "Standard", side: 11, L: 105, Wd: 68, dims: null}),
+  wide: Object.freeze({id: "wide", name: "Wide", side: 11, L: 105, Wd: 72, dims: null}),
+  large: Object.freeze({id: "large", name: "Large", side: 11, L: 110, Wd: 75, dims: null})
+});
+export const ELEVEN_SIZES = Object.freeze(["compact", "standard", "wide", "large"]);
+// a club's home ground (U28 part F): one of the eleven-a-side sizes its league allows (a top league Standard to Large,
+// below it Compact to Large), fixed by its name, weighted towards Standard. club = {nm, t} (world.js); none: Standard
+export function groundFor(club){
+  if (!club || !club.nm) return "standard";
+  let h = 2166136261;
+  for (let i = 0; i < club.nm.length; i++){ h ^= club.nm.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  const u = (h % 10000)/10000, top = (club.t || 1) <= 1;
+  const W = top ? [["standard", .55], ["wide", .27], ["large", .18]] : [["compact", .3], ["standard", .45], ["wide", .15], ["large", .1]];
+  let acc = 0; for (const [k, w] of W){ acc += w; if (u < acc) return k; }
+  return W[W.length - 1][0];
+}
+// the boards round a pitch: 5 m behind the goal lines and 4 m off the touchlines, as the stadium's are round 105 x 68
+export function boardsFor(L, Wd){ return Object.assign({}, BOARDS, {hx: L/2 + (BOARDS.hx - FIFA.L/2), hz: Wd/2 + (BOARDS.hz - FIFA.Wd/2)}); }
+
 // the two pitches the game plays on (DESIGN 1.1 table): size and where the frame sits in its zone's world
 export const PITCHES = {
   stadium: {L:105, Wd:68, cx:0, cz:0},
@@ -107,8 +136,10 @@ function boardPlanes(boards){
 // PitchSpec (1.4.9) = {L, Wd, hx, hz, frame, roll, goals, colliders, lines, spots, areas, spareCones}
 // plus these additions: line, ballR, goalX (the ball centre crossing that scores or goes out over a goal line),
 // touchZ (the ball centre crossing that goes out over a touchline), runoff {hx, hz}, arcHalf (radians).
-export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1, boards = null} = {}){
-  const F = FIFA, hx = L/2, hz = Wd/2, ln = F.line, hl = ln/2, R = F.ballR;
+export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1, boards = null, dims = null, type = null} = {}){
+  // ((U28 part F) a pitch type's own goal, areas and marks over FIFA's; the boards round its own size)
+  const F = dims ? Object.assign({}, FIFA, dims) : FIFA, hx = L/2, hz = Wd/2, ln = F.line, hl = ln/2, R = F.ballR;
+  if (boards === true && (L !== FIFA.L || Wd !== FIFA.Wd)) boards = boardsFor(L, Wd);
   const mouthHalf = F.goalW/2;                       // 3.66: inner faces of the posts
   const postX = hx - hl, postZ = mouthHalf + F.postR; // 52.44, 3.72: post centres sit on the goal line
   const barY = F.goalH + F.postR;                    // 2.50: crossbar centre (underside 2.44)
@@ -144,7 +175,7 @@ export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1,
   seg(hx - hl, -(hz - ln), hx - hl, hz - ln, 'goal');
   seg(0, -(hz - ln), 0, hz - ln, 'halfway');
   arc(0, 0, F.circleR - hl, 0, 2*Math.PI, 'circle');
-  const arcHalf = acos(F.boxD - F.spot <= F.arcR ? (F.boxD - F.spot)/F.arcR : 1);   // 53.05 degrees
+  const arcHalf = F.arcR > 0 ? acos(F.boxD - F.spot <= F.arcR ? (F.boxD - F.spot)/F.arcR : 1) : 0;   // 53.05 degrees
   const box = [], six = [], pens = [];
   for (const end of [-1, 1]){
     const gl = end*(hx - ln);                         // inner edge of the goal line
@@ -156,15 +187,17 @@ export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1,
     box.push({end, x0: Math.min(bf, end*hx), x1: Math.max(bf, end*hx), z0: -bw, z1: bw, front: bf});
     // goal area: front at 5.5, sides at 9.16
     const sf = end*(hx - F.sixD), sfc = end*(hx - F.sixD + hl), sw = F.sixHalfW;
-    seg(sfc, -sw, sfc, sw, 'six');
-    seg(sf, -(sw - hl), gl, -(sw - hl), 'six');
-    seg(sf, sw - hl, gl, sw - hl, 'six');
+    if (F.sixD > 0){
+      seg(sfc, -sw, sfc, sw, 'six');
+      seg(sf, -(sw - hl), gl, -(sw - hl), 'six');
+      seg(sf, sw - hl, gl, sw - hl, 'six');
+    }
     six.push({end, x0: Math.min(sf, end*hx), x1: Math.max(sf, end*hx), z0: -sw, z1: sw, front: sf});
     // penalty spot and the arc outside the area (outer edge radius 9.15 around the spot)
     const sx = end*(hx - F.spot);
     pens.push({x: sx, z: 0, r: R, end});
     const facing = end > 0 ? Math.PI : 0;             // the arc bulges towards the halfway line
-    arc(sx, 0, F.arcR - hl, facing - arcHalf, facing + arcHalf, 'arc');
+    if (F.arcR > 0 && arcHalf > 0) arc(sx, 0, F.arcR - hl, facing - arcHalf, facing + arcHalf, 'arc');
   }
   // corner arcs: radius 1 to the outer edge, a quarter circle into the field from each corner
   for (const sxn of [-1, 1]) for (const szn of [-1, 1]){
@@ -183,7 +216,7 @@ export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1,
   for (const end of [-1, 1]) for (const zs of [-1, 1]) spareCones.push({x: end*(hx + 3.5), z: zs*Math.min(10, hz - 2)});
 
   return {
-    L, Wd, hx, hz, frame: makeFrame({cx, cz}), roll,
+    L, Wd, hx, hz, frame: makeFrame({cx, cz}), roll, dims: F, type: type || null,
     line: ln, ballR: R, goalX: hx + R, touchZ: hz + R, runoff: {hx: hx + RUNOFF.x, hz: hz + RUNOFF.z}, arcHalf,
     goals,
     colliders: {posts, bars, nets, boards: boardPlanes(boards)},
@@ -196,16 +229,23 @@ export function makePitch({L = FIFA.L, Wd = FIFA.Wd, cx = 0, cz = 0, roll = 1.1,
 
 // the frame of a named pitch, and a whole spec for it
 export const pitchOf = (name, opts = {}) => makePitch(Object.assign({}, PITCHES[name], opts));
+// (U28 part F) a whole spec for a pitch type (PITCH_TYPES)
+export function pitchOfType(id, opts = {}){
+  const T = PITCH_TYPES[id] || PITCH_TYPES.standard;
+  return makePitch(Object.assign({L: T.L, Wd: T.Wd, dims: T.dims, type: T.id}, opts));
+}
 
 // inside the penalty area at an end (-1 or +1), its lines included (a ball on the line is in the area)
 export function inBox(spec, end, x, z){
   const ex = end*x;
-  return ex >= spec.hx - FIFA.boxD && ex <= spec.hx && Math.abs(z) <= FIFA.boxHalfW;
+  const D = spec.dims || FIFA;
+  return ex >= spec.hx - D.boxD && ex <= spec.hx && Math.abs(z) <= D.boxHalfW;
 }
 // inside the goal area at an end, its lines included
 export function inSix(spec, end, x, z){
   const ex = end*x;
-  return ex >= spec.hx - FIFA.sixD && ex <= spec.hx && Math.abs(z) <= FIFA.sixHalfW;
+  const D = spec.dims || FIFA;
+  return ex >= spec.hx - D.sixD && ex <= spec.hx && Math.abs(z) <= D.sixHalfW;
 }
 // which end's half a point is in: -1 or +1 (x = 0 counts as +1)
 export function side(spec, x){ return x < 0 ? -1 : 1; }
