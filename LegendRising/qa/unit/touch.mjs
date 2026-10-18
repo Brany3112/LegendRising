@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {TOUCH, TACKLE, reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleSweep, tackleOutcome, slideProfile,
+import {tackleSeverity, TOUCH, TACKLE, reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleSweep, tackleOutcome, slideProfile,
   slideDistance, headerContact, classifyContact} from "../../js/life/football/touch.js";
 import {q as qOf, touchDist} from "../../js/life/football/zone.js";
 import {standReach} from "../../js/life/football/duel.js";
@@ -191,9 +191,9 @@ function restAfter(ballPos, v, roll = 1.1){
   check(won.tBall > 0 && won.timing === 1 && won.angle === 1 && won.p > 0.8 && (won.result === 'won' || won.ridden), "a block tackle through the ball in front of the carrier meets it first, on time, from the front", {result: won.result, p: r4(won.p)});
   const foul = tackleOutcome({x: -1.0, z: 0, yaw: -FACE_MX, vx: 3, vz: 0, at: {tackling: 60}}, carrier, {p: {x: 0.6, y: R, z: 0}, v: {x: 0, y: 0, z: 0}},
     {kind: 'stand', target: {x: 0.6, z: 0}}, {}, r);
-  const sev = Math.min(1, 0.25 + 0.06*foul.closing + 0.3*foul.fromBehind);
-  check(foul.result === 'foul' && foul.tLeg >= 0 && Math.abs(foul.severity - sev) < 1e-9 && foul.fromBehind === 1 && foul.severity >= 0.55,
-    "a tackle from behind through the carrier's legs to the ball is a foul with severity 0.25 + 0.06 closing + 0.3 from behind (the leg-first geometry kept)", {severity: r4(foul.severity), closing: r4(foul.closing)});
+  const sev = tackleSeverity(foul.closing, foul.fromBehind, false, false);
+  check(foul.result === 'foul' && foul.tLeg >= 0 && Math.abs(foul.severity - sev) < 1e-9 && foul.fromBehind === 1 && foul.severity >= 0.5,
+    "a tackle from behind through the carrier's legs to the ball is a foul with tackleSeverity's severity (U26), from behind enough for a card's consideration (the leg-first geometry kept)", {severity: r4(foul.severity), closing: r4(foul.closing)});
   const miss = tackleOutcome({x: -4, z: 0, yaw: -FACE_MX, at: {tackling: 60}}, carrier, {p: {x: 0.6, y: R, z: 0}, v: {x: 0, y: 0, z: 0}},
     {kind: 'stand', target: {x: 0.6, z: 0}}, {}, r);
   check(miss.result === 'miss' && miss.impulse === null && miss.tBall < 0, "a tackle out of reach misses");

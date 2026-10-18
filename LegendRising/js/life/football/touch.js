@@ -425,6 +425,15 @@ const RTA = {c: 0, vc: 0, S: 0, D: 0, T: 0, C: 0}, RTC = {c: 0, vc: 0, S: 0, D: 
 // active window from sweep.t (time into the tackle now, default 0) at 240 Hz, the ball and the carrier carried on at
 // their velocities, the tackler moving with his own (or along the slide, sweep.prof). sweep = {kind, target, t, prof};
 // ctx = {tackling (the tackler's), shield (the carrier shields: his S replaces C)}.
+/* (USER-ISSUES U26) how bad a tackle's foul is, 0..1 (rules.js foul: a yellow above RULES.CARD.yellow, a red above
+   RULES.CARD.red): the closing speed, from behind, a slide (worse from behind), less when the ball was played first and
+   the man caught late. It was 0.25 + 0.06 closing + 0.3 from behind + 0.25 a slide, against a yellow at 0.6: a standing
+   tackle at 6 m/s or any slide was a card, and players stopped tackling. Now a slide from the front at 7 m/s is a free
+   kick, one from the side a yellow, a fast one straight through the back of a man still a red */
+export function tackleSeverity(closing, fromBehind, slide, ballFirst){
+  const s = slide ? 1 : 0;
+  return clamp(0.12 + 0.045*closing + 0.32*fromBehind + 0.1*s + 0.12*s*fromBehind - (ballFirst ? 0.1 : 0), 0, 1);
+}
 // - The carrier's leg capsule first, or his legs within 0.08 s of a touch that only grazed the ball: 'foul' (severity
 //   clamp(0.25 + 0.06 closing + 0.3 fromBehind + 0.25 slide, 0, 1), 3.2.9). The leg-first geometry is kept as it was.
 // - The ball first: a late or from-behind tackle may go through the man (p = TF_BEHIND fromBehind + TF_LATE lateness:
@@ -532,7 +541,7 @@ export function tackleOutcome(tackler, carrier, ball, sweep, ctx, r){
     // late or from behind: through the man as well as the ball
     if (cm && r() < pTackleFoul(fromBehind, dtT)){
       out.result = 'foul'; out.late = true;
-      out.severity = clamp(0.25 + 0.06*closing + 0.3*fromBehind + 0.25*(kind === 'slide' ? 1 : 0), 0, 1);
+      out.severity = tackleSeverity(closing, fromBehind, kind === 'slide', true);
       const kx = cm.x - tm.x, kz = cm.z - tm.z, kl = hypot(kx, kz) || 1, mag = 1 + 0.15*closing;
       out.impulse = {x: kx/kl*mag, y: 0, z: kz/kl*mag};
       return out;
@@ -555,7 +564,7 @@ export function tackleOutcome(tackler, carrier, ball, sweep, ctx, r){
   }
   if (tLeg >= 0){
     out.result = 'foul';
-    out.severity = clamp(0.25 + 0.06*closing + 0.3*fromBehind + 0.25*(kind === 'slide' ? 1 : 0), 0, 1);
+    out.severity = tackleSeverity(closing, fromBehind, kind === 'slide', false);
     const kx = cm.x - tm.x, kz = cm.z - tm.z, kl = hypot(kx, kz) || 1, mag = 1 + 0.15*closing;
     out.impulse = {x: kx/kl*mag, y: 0, z: kz/kl*mag};
   }

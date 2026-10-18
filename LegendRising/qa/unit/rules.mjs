@@ -112,25 +112,25 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
 
 /* ---------- fouls, cards, advantage ---------- */
 {
-  // a foul with severity 0.7 in midfield, nobody keeping the ball: yellow, free kick at the spot
+  // a foul with severity 0.8 in midfield, nobody keeping the ball: yellow, free kick at the spot
   const s = scene();
   const v = s.out[0][5], f = s.out[1][5];
   put(v, -5, 4, 3, 0); put(f, -5.5, 4.4);
   setCtl(s.ms, v);
-  const F = foul(s.ms, f, v, 0.7, -5, 4, {down: true});
-  check(F.card === 'yellow' && f.booked === 1 && s.ms.stats.yellows[1] === 1 && s.ms.stats.fouls[1] === 1, "severity above 0.6: a yellow card");
+  const F = foul(s.ms, f, v, 0.8, -5, 4, {down: true});
+  check(F.card === 'yellow' && f.booked === 1 && s.ms.stats.yellows[1] === 1 && s.ms.stats.fouls[1] === 1, "severity above 0.7: a yellow card");
   check(s.ms.restart && s.ms.restart.kind === 'free' && s.ms.restart.team === 0 && s.ms.restart.spot.x === -5 && s.ms.restart.spot.z === 4, "a free kick at the place of the foul");
   // his second yellow is a red: sent off, walks to the nearest touchline
   s.ms.restart = null; s.ms.phase = 'live';
-  const F2 = foul(s.ms, f, v, 0.65, -5, 4, {down: true});
+  const F2 = foul(s.ms, f, v, 0.75, -5, 4, {down: true});
   const card = evs(s.ms, 'card').pop();
   check(F2.card === 'yellow' && card.color === 'red' && card.second && f.sentOff && f.leaving && f.exit && Math.abs(f.exit.z) > s.ms.spec.hz, "a second yellow is a red: he walks off at the nearest touchline");
   check(s.ms.stats.reds[1] === 1 && s.ms.stats.yellows[1] === 2, "the red after two yellows counts both yellows and one red");
-  // above 0.92: a straight red
+  // above 0.97: a straight red
   const r = scene();
   put(r.out[0][3], 0, 0, 3, 0); setCtl(r.ms, r.out[0][3]);
-  const F3 = foul(r.ms, r.out[1][2], r.out[0][3], 0.95, 0, 0, {down: true});
-  check(F3.card === 'red' && r.out[1][2].sentOff, "severity above 0.92: a straight red");
+  const F3 = foul(r.ms, r.out[1][2], r.out[0][3], 0.99, 0, 0, {down: true});
+  check(F3.card === 'red' && r.out[1][2].sentOff, "severity above 0.97: a straight red");
   // denying an obvious goal-scoring opportunity: within 30 m, heading to goal, no other defender between
   const dg = scene();
   const runner = dg.out[0][9];
@@ -159,7 +159,7 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   const val = xT(ax + a.ms.spec.hx, az + a.ms.spec.hz, a.ms.spec.L, a.ms.spec.Wd);
   put(av, ax, az, 4, 0); put(af, ax - 0.6, az - 0.3); setCtl(a.ms, av);
   for (const o of a.out[1]) if (o !== af) put(o, Math.max(o.m.x, ax + 3 + (o.id % 5)), o.m.z);
-  const F6 = foul(a.ms, af, av, 0.65, ax, az, {tactical: false});
+  const F6 = foul(a.ms, af, av, 0.75, ax, az, {tactical: false});
   check(val >= RULES.ADV.xt && a.ms.advantage && !a.ms.restart && a.ms.phase === 'live' && evs(a.ms, 'foul')[0].adv,
     `the fouled side keeps it where it is worth ${r2(val)} >= ${RULES.ADV.xt}: advantage, play on`);
   check(!F6.booked && af.booked === 0, "the card waits for the next stoppage");
