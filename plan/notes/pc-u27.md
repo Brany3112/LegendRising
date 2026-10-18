@@ -1,0 +1,190 @@
+# pc/u27: U27 and U28 on the PC
+
+Branch `pc/u27`, from `origin/claude/awesome-babbage-o53g6x` at `49c0b68` (2026.10.18b, which has pc/u26 in it).
+
+One commit per part:
+
+| Part | Commit |
+|---|---|
+| A | `cf10dfc` |
+| B | `9bb1a8b` |
+| C | `e2f85fc` |
+| D | `fd9f74c` |
+| E | `43847c1` |
+| G | `424436f` |
+| F | `3b5a33a` |
+
+## Part A: close control finished (U27)
+
+- **F toggles close control** (`actions.js keepStep`, `ctlTouch`; `control.js` sets `me.takeT`).
+  - F takes the ball when it is within 1.2 m, low, and nobody else's: a ball coming to you, a loose ball you reach
+    first, or while sprinting. A press holds for 2 s while you get there.
+  - In control the ball stays in front of you as you face, leaning the way you go, at the strong foot's side, at every
+    pace. A sprint in control is 85 to 95% of yours, from Dribbling.
+  - A turn is played with the side of the strong foot it needs. Turning left plays the ball's right side: the inside
+    of a right foot, the outside of a left one. This corrects the earlier prompt, which had the sides backwards.
+  - Close control ends on a kick, a tackle act, the ball lost, the ball out of reach, a knock-on (Shift twice) or a
+    flick (part G).
+- **Fixes found by the real-key test:**
+  - A knock-on went 12 degrees off your way. The control's dribble bend toward the ball also bent the knock's
+    direction; there is no bend in close control now.
+  - A stride's touch straight after the knock played the ball again, so the strides wait 0.8 s.
+  - Keys are read in lower case.
+- **Cards** (`rules.js RULES.CARD`): yellow above 0.59, red above 0.96, tactical above 0.4 for xT > 0.15. The harness
+  had 0.095 yellows a match; it is back in the 2 to 4 band. Fair challenges are still no card (`unit/touch`).
+- **Harness n=1000 on part A:** 59 of 62. Failing:
+  - W touches 28.4 (old);
+  - CM defend share 0.352 against 0.342;
+  - ST defensive actions 4.15 against 4.
+
+## Part B: movement (`mover.js MOVE`, `control.js`)
+
+- Acceleration +10% (a0 x1.1) and the jog, the run and the sprint 5% faster, for everyone.
+- The Acceleration attribute counts for more: accelMul is 1.35 at 99 (was 1.18).
+  - At Acceleration 90 you reach the jog, the run and full sprint in 0.48, 0.83 and 1.9 s, against 0.60, 1.05 and 2.38
+    at 50.
+  - Pace 99 covers 30 m in about 3.7 s.
+- **The ladder:** at a jog going forward, it becomes a run after 0.6 s at Acceleration 50 and 0.3 s at 90. Shift is
+  the full sprint, X the walk. There is no automatic run with a ball coming to you: met at a run, a pass went through
+  your feet (uf2-feel).
+- **Start response, measured with real keys in game time** (`u28-move`): you move and the first foot leaves the ground
+  on the first frame, and reach a jog within 0.75 s.
+- A start boost that would have made the jog in 0.5 s is not in: `timeToPoint`, the AI's prediction for every race
+  to the ball, could not follow it exactly.
+- `unit/mover` bands moved: 30 m for pace 50 is now 4.25 to 4.6 s (was 4.5 to 4.85), and for pace 99 3.5 to 3.85 s.
+
+## Part C: stamina (`stamina.js`)
+
+- The drain by Stamina, `ksOf`: 1.22 at 24, 1 at 50, 0.66 at 90, 0.58 at 99. A full sprint holds its speed 7.2 s at 50
+  and 11.0 s at 90.
+- Recovery is about 60% of what it was (stand 6, walk 5, jog 2.6 a second): from empty to a full sprint again in about
+  11 s standing and 25 s jogging.
+- **Measured before the change:** breath at the whistle was 91 to 93 for every Stamina, so nobody tired.
+- **`unit/stamina`:**
+  - a 3 s sprint every 30 s stays above 60 for 10 minutes;
+  - 3 s sprints with only 4 s walks between run a player down, later the higher his Stamina.
+
+## Part D: skills past 99
+
+- **`career.js`:** `S.boosts = {source: {skill: points}}` (equipment, traits and perks write it; `skillBoost` sums it)
+  and the warm-up's boost go on top of the player's own skill (99 at most), up to 125. `skillLabel` shows "88 +9" on
+  the skills screen and the profile.
+- **`attrs.js` `playOf`:** the match plays a skill as it is up to 99, then 0.4 of each point past it (125 plays as
+  109.4). The effective numbers are kept on the record (`a.eff`).
+- **The audit:** every `1 - skill/100` and `1 - skill/99` is floored at 0 (`brain`, `gkbrain`, `touch` twice,
+  `strike`). `mover.js` reads skills up to 110.
+- **`unit/skills99`:** at every level up to 125, every number is finite and better; a drill at 125 has no NaN.
+
+## Part E: the shooting rework
+
+- No kick type: the wheel and 1, 2, 3 change nothing and the corner is hidden. A lesson's contact still comes through
+  `setKick`. The aim no longer sways.
+- **The keys held in the last 0.25 s as a shot is let go** (`shotKeys`):
+  - A or D curl it, by Technique;
+  - with W, half the curl and 10% more power;
+  - S is a fake; S+A or S+D a fake and a drag-back that way; S+W a nudge on and a drag back.
+- Key times from an earlier go are ignored: its clock began again, and stale times made A count with D.
+- **`actions.js FAKE`:** the swing stops short. The drag's touches are real soft rolls to a stop, from Ball Control,
+  quicker with Agility, and close control is kept.
+- **Tests:**
+  - `u28-shot` 8/8: A and D bend the path opposite ways, 0.27 m over 18 m;
+  - `u28-shotkeys` (real keys) 4/4;
+  - `uf2-feel` and `unit/uf2feel` moved off the kick type.
+
+## Part G: the flick and the chip (the wheel's button)
+
+- **The input:** the middle button held charges a pure strength bar ("Strength"). Let go, the keys say the way: W a
+  chip or flick on, S a rainbow over the head, A or D to the side, diagonals between, none a keepy-up. It works on
+  the ball at your feet, or first time on a low ball coming (a sombrero).
+- **`actions.js FLICK`:** a real lofted touch.
+  - A light flick goes 0.7 m up and 1.5 m on; a full one 3.2 m and 12 m (more with Shot Power). The sombrero is steep.
+  - The error comes from Ball Control, Technique, Dribbling, pressure, breath, the ball's speed and the weak side;
+    a rare scuff for a poor touch.
+  - The spin matches the contact. A flick ends close control.
+- **The middle button now reaches the controls** in Training and the match. Before, only the left and right buttons
+  were routed. Its auto-scroll is stopped.
+- **Tests:**
+  - `u28-flick` 6/6: a skilled player lands 0.8 m from the spot asked, a poor one 2.7 m; the sombrero clears a man
+    1.8 m in front at 2.2 m;
+  - `u28-flickfeel` (real middle button) 5/5: the drawn foot is at the ball at the clip's contact.
+
+## Part F: real pitch sizes
+
+- **`pitchspec.js PITCH_TYPES`:**
+  - futsal 40 x 20, 5-a-side 37 x 27, 7-a-side 55 x 37 and 9-a-side 73 x 46, each with its own goal and marks;
+  - eleven a side Compact 100 x 64, Standard 105 x 68, Wide 105 x 72 and Large 110 x 75.
+  - `makePitch` takes a type's dims, and its boards follow the pitch.
+- **`groundFor(club)`:** a size the club's league allows, the same every time. `bridge.js groundOf`: the home club's
+  ground, Standard for a World Cup match.
+  - The stadium is built round the ground: boards, stands and walking bounds.
+  - "Pitch: 110 x 75 (Large ground)" is shown as the day begins.
+- **Training:** a cage for each type, and the configuration offers them all.
+- `qa/harness.mjs --pitch compact | wide | large`.
+- **Tests:**
+  - `u28-pitch` 8/8: a side spreads 39 m on Compact, 49 on Wide and 56 on Large;
+  - `tr4-pitch` over all ten cages;
+  - `unit/cagespec` 235/235.
+
+## Fixes from the final test run
+
+- **A sprinting receiver lost the ball.** In `tr2b-receive`, a sprint into a 14 m/s pass at Ball Control 50 kept the
+  ball 80% of the time, against 90%. A slightly wide first touch was outrun at the 5% faster sprint. `CN.DRIB_BEND`
+  goes from 12 to 15 degrees.
+- **A run was dropped under the ball.** In `tr6-receive`, the space touch rested 1.2 to 1.3 m ahead against 0.85 to
+  0.9. Part E stopped the step up to a run while a pass comes. A player already running dropped back to a jog under the
+  ball, and the touch ran away. Now there is no step up while it comes, but a run already started is kept (`CTRL.ran`).
+- **A ball lying loose blocked the run.** In `u28-move`, a ball lying still nearby blocked the step up to a run: every
+  free ball not his gives the human a receive plan. "Coming" is now a free ball rolling his way at 2 m/s or more.
+- **`u27-feel` ran into the fence.** Its sprint, 5% quicker, now reaches the cage's end within its 150 frames, and the
+  fence stopped the ball 3.2 m from the run-off. It now measures only more than 6 m from the end.
+- **Tests moved to the new rules:**
+  - `tr4-attrs`: the sprint speeds are 7.56 and 9.87 (part B's 5%).
+  - `u21-camera`: the wheel shows and changes no kick type (part E).
+  - `tr6-team`: a pass in the blocked-lane trial counts only if the lane is still blocked as it is played. With the
+    quicker defenders, the one on the lane steps off to press in 2 of 20 runs, and the pass is then right. The crowding
+    check skips a dead ball: the 1.78 s was three defenders standing round the ball after the drill's verdict.
+- **Failing on origin too:**
+  - `u21-camera`'s two camera ease checks (tpK 0.997 against 1);
+  - `uf2-feel`'s throw-in meter;
+  - `uf-aura`, which fails a different check on each run.
+
+## Tests on this PC
+
+- **Unit, lint, nodash, smoke, oldsave:** 35/35 after part F.
+- **The new tests:**
+  - `u27-control` 11/11, `u27-feel` 6/6, `u26-keep` 8/8;
+  - `u28-move` 5/5;
+  - `u28-shot` 8/8, `u28-shotkeys` 4/4;
+  - `u28-flick` 6/6, `u28-flickfeel` 5/5;
+  - `u28-pitch` 8/8, `tr4-pitch` pass.
+- **The groups after the fixes:** tr2, tr2b, tr4, tr6, tr7, uf, uf2 and u21 pass, except:
+  - `tr6-receive-anim`'s shield case (above);
+  - the failures that also fail on origin (`u21-camera`'s ease, `uf2-feel`'s throw-in meter, flaky `uf-aura`).
+- **Harness n=1000:**
+  - part A: 59 of 62;
+  - parts B to E (at `43847c1`): 57 of 62. Failing:
+    - goals 2.94 against 2.9 (the quicker movement);
+    - W touches 28.9 (old);
+    - ST touches 22.3 against 22;
+    - ST defensive actions 4.2 against 4;
+    - headers on target 4.05 against 4.
+  - Every new failure is just past its band. The CM defend share passes again.
+- **uf2-feel:** its two throw-in meter checks fail on origin (`f7ffe6e`) as well.
+
+## Open
+
+- **Receiving while shielding (`tr6-receive-anim`, since part B):** the receive clip shows a thigh control where the
+  simulation takes the ball with the foot, 0.3 m off. `view.js recvPart` puts the body at its current speed until the
+  contact. With part B's stronger push, a shielding receiver is still speeding up, so the guess falls on the other side
+  of the thigh/foot line. Every other receive case passes.
+
+- **The AI's sprints:** about 14 a 23-minute match, in short bursts, so its breath ends near 91. Fewer means changing
+  when the brain chooses to sprint, not stamina.
+- **The stadium on other grounds:** only the boards, the stands' front and the walking bounds move with the size.
+  Fixed props (the tunnel, the dressing rooms, the lamps) were not checked by eye on Compact and Large.
+- **Running into a header:** the legs still trail behind as a player runs into it and after he lands (P9-A's
+  clip-to-gait hand-over).
+- **The flick's clips:** the rainbow and the heel use the strike's chip clip, so the foot meets the ball but the
+  movement is not a true heel flick.
+- **Measuring in the browser:** a headless browser draws slowly, and up to 4 game steps fall between two frames.
+  Tests now measure in game time and at the clips' own events.

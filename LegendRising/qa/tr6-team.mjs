@@ -79,9 +79,9 @@ for (const d of drills){
             if (n > 1) S.chasers.push({d:d.id, seed, t:r2(ms.t), team, n});
           }
         }
-        // three or more of a side close to the ball
+        // three or more of a side close to the ball (in play: not round a dead ball once the drill is over)
         let c3 = false;
-        for (const team of [0, 1]){
+        if (b.state !== "dead") for (const team of [0, 1]){
           let n = 0;
           for (const a of ms.agents) if (a.team === team && a.onPitch && a.role === "player" && Math.hypot(a.m.x - b.p.x, a.m.z - b.p.z) < 3) n++;
           if (n >= 3) c3 = true;
@@ -255,14 +255,14 @@ function callTrial(seed, o = {}){
   let decisions = 0, withMe = 0;
   ms.onDecide = (a, opts) => { if (a !== pa) return; decisions++; if (opts.some(x => x.recv === me.id)) withMe++; };
   callFor(ms, me, o.how || "here", point);
-  let passed = false, kind = null, other = false;
+  let passed = false, kind = null, other = false, kickOK = null;
   for (let k = 0; k < 120 && !passed && !other; k++){
     if (o.how === "behind"){ me.intent.dx = 1; me.intent.dz = 0; me.intent.gait = "sprint"; } else { me.intent.dx = 0; me.intent.dz = 0; }
     const n0 = ms.events.length;
     simStep(ms, H);
-    for (const e of ms.events.slice(n0)) if (e.kind === "kick" && e.agent === pa.id){ if (e.recv === me.id){ passed = true; kind = e.intent; } else other = true; }
+    for (const e of ms.events.slice(n0)) if (e.kind === "kick" && e.agent === pa.id){ if (e.recv === me.id){ passed = true; kind = e.intent; kickOK = passModel(ms, b.p, {x:me.m.x, z:me.m.z}, "pass", 14, me).pOK; } else other = true; }
   }
-  return {pOK, passed, kind, decisions, withMe, offside:offsidePosition(ms, me, 0).off};
+  return {pOK, passed, kind, kickOK, decisions, withMe, offside:offsidePosition(ms, me, 0).off};
 }
 {
   const open = {runs:0, passed:0, decisions:0, withMe:0}, blocked = {runs:0, passed:0}, offs = {runs:0, passed:0}, behind = {runs:0, through:0};
@@ -271,14 +271,16 @@ function callTrial(seed, o = {}){
     if (a.pOK >= .7){ open.runs++; if (a.passed) open.passed++; }
     open.decisions += a.decisions; open.withMe += a.withMe;
     const bl = callTrial(s, {blocked:true});
-    if (bl.pOK < .3){ blocked.runs++; if (bl.passed) blocked.passed++; }
+    // (a pass counts against it only into a lane still blocked as it is played: a defender who steps off it to press the
+    // carrier opens it, and the pass is then right)
+    if (bl.pOK < .3){ blocked.runs++; if (bl.passed && bl.kickOK < .3) blocked.passed++; if (bl.passed && bl.kickOK >= .3) blocked.opened = (blocked.opened || 0) + 1; }
     const of = callTrial(s, {offside:true, offsideOn:true});
     offs.runs++; if (of.passed) offs.passed++;
     const bh = callTrial(s, {how:"behind", offsideOn:true});
     if (bh.pOK >= .5){ behind.runs++; if (bh.passed && bh.kind === "through") behind.through++; }
   }
   check(open.runs >= 15 && open.passed >= .8*open.runs, `open, onside, a clear lane, called for: the AI carrier passes to me within 2 s in ${open.passed} of ${open.runs} (at least 80%)`, open);
-  check(blocked.runs === 20 && blocked.passed === 0, `the lane blocked (pass model under 0.3): never passed (${blocked.passed} of ${blocked.runs})`, blocked);
+  check(blocked.runs === 20 && blocked.passed === 0, `the lane blocked (pass model under 0.3): never passed into it while still blocked (${blocked.passed} of ${blocked.runs})`, blocked);
   check(offs.passed === 0, `me offside with offside played: never passed (${offs.passed} of ${offs.runs})`, offs);
   check(behind.runs >= 10 && behind.through >= .6*behind.runs, `"In behind!" on an onside run that beats the line: a through ball in ${behind.through} of ${behind.runs} (at least 60% where one is on)`, behind);
   check(open.decisions > 0 && open.withMe === open.decisions, "sees the user: I am among the carrier's pass candidates in every decision of the call trials", {decisions:open.decisions, withMe:open.withMe});

@@ -151,7 +151,7 @@ export const windingShot = (ms, me) => { const ch = CTRL.charge; return !!(me &&
 export const CN = Object.freeze({
   SHOT_FULL: .85, OVERHIT: .92, TAP: .18, PASS_FULL: .8, PASS_MIN: 4,
   CONE: 25*DEG, CONE_NEAR: 35*DEG, CONE_NEAR_D: 15, HYST: 6*DEG, THROUGH_D: 8,
-  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, TACKLE_SLACK: .35, SLIDE_SLACK: .8, SHIELD_NEAR: 2.2, NOTE_T: 1.6, CALL_HOLD: .4, DRIB_BEND: 12*DEG,
+  TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, TACKLE_SLACK: .35, SLIDE_SLACK: .8, SHIELD_NEAR: 2.2, NOTE_T: 1.6, CALL_HOLD: .4, DRIB_BEND: 15*DEG,
   SCAN_MAX: 110*DEG, SCAN_BACK: .15, HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5, RACE_T: 1.5,
   SMALL: .55,                 // the small touch: the next dribble touch at this share of its length (A1.1)
   RING: Object.freeze({W0: .07, W1: .16})   // the timing ring of a volley (A1.5): the sweet window in seconds, at volleying 0 and 99
@@ -816,9 +816,13 @@ export function controlStep(ms, me, h, opts = {}){
   // (U28 part B: the ladder walk, jog, run, sprint. Going on forward at a jog it becomes a run after RUN_AFTER s, sooner
   // the higher your Acceleration (0.6 s at 50, 0.3 at 90); Shift is the full sprint, X the walk)
   // (not with a ball on its way to you: met at a run, an 11 m/s pass went through your feet untouched)
-  const coming = !!(me.plan && me.plan.kind === "receive" && ms.poss.ctl !== me.id);
-  if (I.gait === "jog" && f > 0 && len && !coming){ CTRL.fwdT = (CTRL.fwdT || 0) + h; if (CTRL.fwdT >= runAfter(me)) I.gait = "run"; }
-  else CTRL.fwdT = 0;
+  // (a pass coming to him: a free ball not his, rolling his way at 2 m/s or more; a ball lying loose is not one)
+  const cb = ms.ball, cx = me.m.x - cb.p.x, cz = me.m.z - cb.p.z, cl = Math.hypot(cx, cz) || 1;
+  const coming = !!(me.plan && me.plan.kind === "receive" && ms.poss.ctl !== me.id && (cb.v.x*cx + cb.v.z*cz)/cl >= 2);
+  // (no step up to a run while a pass is coming to him: met at a run it goes through his feet; a run he is already in
+  // is kept, as a drop to a jog under the ball pushes the touch too far ahead)
+  if (I.gait === "jog" && f > 0 && len){ CTRL.fwdT = (CTRL.fwdT || 0) + h; if (CTRL.fwdT >= runAfter(me) && (!coming || CTRL.ran)){ I.gait = "run"; CTRL.ran = true; } }
+  else { CTRL.fwdT = 0; CTRL.ran = false; }
   if (ctx === "restart"){ I.gait = dball > 8 && !CTRL.walk ? "jog" : "walk"; }
   // (U27) close control (F took it, actions.js keepStep): a sprint with it is CTL_SPRINT of your sprint, from Dribbling
   // (0.85 at 50, 0.95 at 90). Shift tapped twice with the ball yours: knocked on to run onto (knockOn), and close control

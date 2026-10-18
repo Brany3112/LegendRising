@@ -7,7 +7,7 @@
 //
 //   setting                              expected change
 //   Pass accuracy 20 vs 95               my passes' lateral error differs by at least 2x
-//   Sprint speed 40 vs 99                my top speed about 7.2 vs 9.4 m/s, within 0.2
+//   Sprint speed 40 vs 99                my top speed about 7.56 vs 9.87 m/s (U28 part B: 5% up), within 0.2
 //   Defenders' average 30 vs 90          their tackles' success rate differs
 //   Keeper reflexes and diving 30 vs 90  his save rate differs
 //   Keeper handling 30 vs 90             the share of catchable shots he spills or parries differs
@@ -107,7 +107,7 @@ function topSpeed(sprintSpeed){
 {
   const v40 = topSpeed(40), v99 = topSpeed(99);
   res.rows.sprint = {v40: r3(v40), v99: r3(v99)};
-  check(Math.abs(v40 - 7.2) <= 0.2 && Math.abs(v99 - 9.4) <= 0.2, `Sprint speed 40 vs 99: my top speed ${r3(v40)} vs ${r3(v99)} m/s (7.2 and 9.4, within 0.2)`, res.rows.sprint);
+  check(Math.abs(v40 - 7.56) <= 0.2 && Math.abs(v99 - 9.87) <= 0.2, `Sprint speed 40 vs 99: my top speed ${r3(v40)} vs ${r3(v99)} m/s (7.56 and 9.87, within 0.2)`, res.rows.sprint);
 }
 
 /* ---------- 3. defenders' average 30 vs 90: their tackles ---------- */

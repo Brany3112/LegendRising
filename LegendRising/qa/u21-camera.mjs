@@ -6,7 +6,7 @@
 //   - third person: behind and above your head (about 4 m back, 1.8 m over it), looking at your aim point on the pitch
 //     ahead (the screen's middle, where the crosshair is); your whole body drawn, the first-person one not
 //   - it turns with the mouse (real movement) as the aim does
-//   - the shot meter (LMB held, real), the kick selector (the wheel, real) and the pass assist (an RMB tap off a
+//   - the shot meter (LMB held, real), no kick selector (the wheel, real, changes nothing) and the pass assist (an RMB tap off a
 //     team-mate, real) all work in third person, and the shot goes where you aim
 //   - never through the fence: standing with your back to it the camera is pulled in, inside it
 //   - the setting: Football camera = First person turns it back to your eyes (eased), and Third person back again
@@ -121,7 +121,7 @@ try {
   const K = {start: await lit(), seq: []};
   for (const dy of [120, -120, -120]){ await page.mouse.wheel(0, dy); await step(2); K.seq.push(await lit()); }
   res.kick = K;
-  check(!!K.start && K.seq.length === 3 && K.seq[0] !== K.start && K.seq[1] === K.start && K.seq[2] !== K.start, "the kick selector: the wheel (real) changes the kick type in third person", K);
+  check(K.seq.length === 3 && [K.start].concat(K.seq).every(x => x === null), "no kick selector (U28 part E): the wheel (real) shows and changes no kick type in third person", K);
   await pressReal(page, "2"); await step(2);
   const ev0 = await page.evaluate(() => window.__u21.ms().events.length);
   await page.mouse.down(); await step(10);

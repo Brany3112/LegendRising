@@ -35,7 +35,7 @@ try {
     C.saveSet({footCam: "third"});
     window.__u27 = {start: () => { if (R.RUN.cur) R.stopScenario("hub"); if (window.__trainHub.hubOpen()) window.__trainHub.closeHub(); return R.startScenario("qa-u27", {}); },
       T: () => window.__trainRun.RUN.cur.T,
-      st: () => { const T = window.__trainRun.RUN.cur.T, ms = T.ms, me = T.me; return {d: Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z), mine: ms.poss.ctl === me.id, on: !!me.ctlOn, v: me.m.speed}; }};
+      st: () => { const T = window.__trainRun.RUN.cur.T, ms = T.ms, me = T.me; return {d: Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z), mine: ms.poss.ctl === me.id, on: !!me.ctlOn, v: me.m.speed, left: Math.min(ms.spec.runoff.hx - Math.abs(me.m.x), ms.spec.runoff.hx - Math.abs(ms.ball.p.x))}; }};
   });
   const begin = async () => {
     await page.evaluate(() => window.__u27.start());
@@ -46,8 +46,9 @@ try {
   };
   await begin();
   const id = await lockPointer(page); if (!id) throw new Error("the pointer could not be locked");
-  // every real frame for n frames: the ball's distance, yours, close control on, your speed
-  const watch = n => page.evaluate(n => new Promise(done => { const raf = window.__qa.realRAF; let k = 0, worst = 0, lost = 0, off = 0, vmax = 0; const f = () => { const s = window.__u27.st(); if (k > 10){ worst = Math.max(worst, s.d); if (!s.mine) lost++; if (!s.on) off++; vmax = Math.max(vmax, s.v); } if (++k >= n) done({worst: Math.round(worst*100)/100, lost, off, vmax: Math.round(vmax*100)/100}); else raf(f); }; raf(f); }), n);
+  // every real frame for n frames: the ball's distance, yours, close control on, your speed (away from the cage's end:
+  // the sprint, 5% quicker since U28 part B, reaches its fence within the frames, and the fence stops the ball)
+  const watch = n => page.evaluate(n => new Promise(done => { const raf = window.__qa.realRAF; let k = 0, worst = 0, lost = 0, off = 0, vmax = 0; const f = () => { const s = window.__u27.st(); if (k > 10 && s.left > 6){ worst = Math.max(worst, s.d); if (!s.mine) lost++; if (!s.on) off++; vmax = Math.max(vmax, s.v); } if (++k >= n) done({worst: Math.round(worst*100)/100, lost, off, vmax: Math.round(vmax*100)/100}); else raf(f); }; raf(f); }), n);
   await page.keyboard.down("w"); await frames(page, 10);
   await page.keyboard.press("f"); await frames(page, 20);
   const on0 = await page.evaluate(() => window.__u27.st());
