@@ -284,7 +284,10 @@ export const TP = Object.freeze({BACK: 4, UP: 1.5, HEAD: .12, FAR: 60, MIN_Y: .4
 const _tq = new THREE.Quaternion(), _te = new THREE.Euler(0, 0, 0, "YXZ"), _tc = new THREE.Vector3(), _tg = new THREE.Vector3();
 export const tpWanted = a => !!a && SET.footCam !== "first";
 function tpFrame(a, V, x, y0, z, s, dt, cam){
-  const want = tpWanted(a) ? 1 : 0;
+  // (off the pitch, a warm-up exercise with a ball, U21: the controller's SRC.off says whether it is wanted and gives
+  // your whole body drawn there, warmup.js warmMe, as the anchor; ease out and back as on the pitch)
+  const O = !a && SRC && SRC.off ? SRC.off() : null;
+  const want = tpWanted(a) || (O && O.want && SET.footCam !== "first") ? 1 : 0;
   // (eased, and never faster than TP.SPEED m/s over the way between the eyes and behind you: the eased curve's steepest
   // is 1.5 times its share, so the most the camera moves in a 60 Hz frame is under 0.15 m)
   const way = Math.hypot(TP.BACK, TP.UP + TP.HEAD), dkMax = TP.SPEED*Math.max(0, dt)/(1.5*way);
@@ -294,10 +297,11 @@ function tpFrame(a, V, x, y0, z, s, dt, cam){
   T.on = k > .5;
   if (V) V.tp = T.on;
   if (k <= 0){ TPR.on = false; T.yv = 0; T.y = null; return; }
-  // the anchor: your body as drawn (its group's place in the world this frame), else your agent's
-  const R = V && a ? V.rec[a.id] : null, g = R && R.h && R.h.g;
+  // the anchor: your body as drawn (its group's place in the world this frame), else your agent's (off the pitch: your
+  // warm-up body while it is drawn, else your eye's place)
+  const R = V && a ? V.rec[a.id] : null, g = R ? (R.h && !R.hidden ? R.h.g : null) : O && O.h ? O.h.g : null;
   let hx = x, hz = z, gy = y0 - 1.68*s;
-  if (g && g.parent && !R.hidden){ g.getWorldPosition(_tg); hx = _tg.x; hz = _tg.z; gy = _tg.y; }
+  if (g && g.parent){ g.getWorldPosition(_tg); hx = _tg.x; hz = _tg.z; gy = _tg.y; }
   // your settings: how far back, how high, over which shoulder (the pivot moves across, the look stays yours)
   const BACK = SET.tpDist != null ? +SET.tpDist : TP.BACK, UP = SET.tpHeight != null ? +SET.tpHeight : TP.UP, SIDE = +SET.tpSide || 0;
   if (SIDE){ hx += Math.cos(P.yaw)*SIDE*s; hz -= Math.sin(P.yaw)*SIDE*s; }

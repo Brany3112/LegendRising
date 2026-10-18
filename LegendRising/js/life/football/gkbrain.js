@@ -15,7 +15,7 @@ import {planDive, diveRoot, handsAt, GKP} from "./gkplan.js";
 import {logEv, chainSave, chainControl, chainKick} from "./events.js";
 import {setCtl, clearCtl, onTouch, onKick, restartTaken, holdAt} from "./rules.js";
 import {steer, standStill, faceTo, startKick, passSpeedFor, refreshPred, loftSpeedFor} from "./actions.js";
-import {passModel} from "./brain.js";
+import {passModel, BRAIN} from "./brain.js";
 import {dirOf, yawOf} from "./pitchspec.js";
 import {hypot, sin, cos, atan2} from "./detmath.js";
 import {timeToPoint} from "../mover.js";
@@ -442,9 +442,22 @@ function considerClaim(ms, a){
                   passing numbers 0.8 points a point of distrib away from 70 (gkKicking: -32 at 30, +16 at 90)
    A throw and a roll are acts (GK-3, the contract with P9-A): a.act = {kind: 'gkthrow' | 'gkroll', target, recv,
    tRelease, dur}. The ball stays in his hands (rules.js holdAt) up to tRelease, when it is let go to where the act
-   says; the act runs on to dur (actions.js steps its clock, as it does a dive's). The punt is the volley it always was. */
+   says; the act runs on to dur (actions.js steps its clock, as it does a dive's). The punt is the volley it always was.
+   The player's call (R, U10) as his keeper hears it. His distribution is his own (he never weighs a carrier's options,
+   brain.js), so a call made while he held the ball was heard by nobody: R counted and the arm went up, and he threw it
+   where he would have anyway, on his own time. Now:
+     in his hands  (the hold, 2 to 5 s) he looks at once, as a carrier does (brain.js callFor): a throw or a roll to you
+                   that is safe by his own THROW_NEED or ROLL_NEED (wherever you play: a roll to a man nearer than
+                   CALL_ROLL m, a throw further) is his choice, DIST.CALL more than a full-back's throw or a centre-back's
+                   roll. Not on, he holds on, and the call stands until he lets the ball go: his look at the end of the
+                   hold still hears it
+     winding up    (a throw or a roll chosen, the ball in his hands to tRelease) his choice is made, as a kick being
+                   struck is: the call waits for the man the ball goes to (ms.call.wait, brain.js callFor), who hears it
+                   the moment he has it (rules.js setCtl)
+   Only the call of the player at the keys (ms.meAI off): with the harness's stand-in playing you, he distributes as he
+   always has. A look of his that hears a call is shown to ms.onDecide as a carrier's is (the options, you among them) */
 export const DIST = Object.freeze({THROW_NEED: [0.50, 0.15], ROLL_NEED: [0.72, 0.10], RANGE: [0.79, 0.30], SCATTER: [0.25, 3.2, 14],
-  THROW_T: [0.55, 0.9], ROLL_T: [0.45, 0.8], D0: 0.7, KICK: 0.8, WIDE: 0.3});   // (the release and length of gkmoves.js gkdistribute: throw 0.55 of 0.9 s, roll 0.45 of 0.8)
+  THROW_T: [0.55, 0.9], ROLL_T: [0.45, 0.8], D0: 0.7, KICK: 0.8, WIDE: 0.3, CALL: 0.4, CALL_ROLL: 18});   // (the release and length of gkmoves.js gkdistribute: throw 0.55 of 0.9 s, roll 0.45 of 0.8)
 const distOf = a => clamp((+at(a).distrib || 50)/100, 0.01, 0.99);
 // a throw's speed for a distance: enough that it carries there with the air's drag (1.05 sqrt(g d) fell short past
 // about 22 m)
@@ -458,27 +471,47 @@ function gkKicking(a){
   const dv = DIST.KICK*100*(distOf(a) - DIST.D0);
   a.at = Object.assign({}, own, {passAcc: clamp(Math.round((+own.passAcc || 50) + dv), 1, 99), passing: clamp(Math.round((+own.passing || 50) + dv), 1, 99)});
 }
-function distribute(ms, a){
+// the player whose call the keeper hears now (U10): of his own side, at the keys, the call fresh (BRAIN.CALL_T) or made
+// since the ball came into his hands (the hold began g.t ago); else null
+function heardCall(ms, a){
+  const c = ms.call, g = a.gk;
+  if (!c || ms.meAI || c.agent !== ms.me || !g) return null;
+  const o = ms.agents[c.agent];
+  if (!o || o === a || o.team !== a.team || !o.onPitch) return null;
+  return ms.t - c.t < BRAIN.CALL_T || (g.state === 'hold' && c.t >= ms.t - g.t - 1e-9) ? o : null;
+}
+// his choice with the ball in his hands. caller: the team-mate whose call he hears (heardCall), or null; must: false
+// for the look a call brings early in the hold, which only plays it to the caller and otherwise holds on (false back)
+function distribute(ms, a, caller = null, must = true){
   const g = a.gk, b = ms.ball, dir = ms.dirs[a.team], D = distOf(a);
   const reach = DIST.RANGE[0] + DIST.RANGE[1]*D;
   const needT = DIST.THROW_NEED[0] + DIST.THROW_NEED[1]*(DIST.D0 - D), needR = DIST.ROLL_NEED[0] + DIST.ROLL_NEED[1]*(DIST.D0 - D);
   let best = null, bv = 0, kind = 'punt';
+  // (the options, as a carrier's are, for ms.onDecide: only on a look that hears a call)
+  const opts = caller ? [] : null;
   for (const o of ms.agents){
     if (o.team !== a.team || o === a || !o.onPitch || o.leaving) continue;
+    const called = o === caller;
+    if (!must && !called) continue;
     const d = hypot(o.m.x - a.m.x, o.m.z - a.m.z);
-    if (d < 6 || d > GK.THROW[1]*reach) continue;
+    if (d < 6 || d > GK.THROW[1]*reach){ if (called) opts.push({kind: 'throw', recv: o.id, pOK: 0, V: 0, isMe: !!o.isMe, far: true}); continue; }
     const fb = /^(LB|RB|LWB|RWB)$/.test(o.slot), cb = o.slot === 'CB';
-    if (!fb && !cb) continue;
+    if (!fb && !cb && !called) continue;
+    // (the caller anywhere else on the pitch: rolled to when he is near, thrown to further out)
+    const thr = fb || (called && !cb && d > DIST.CALL_ROLL);
     // (P9-B) a throw judged as the throw it is (from head height, no backspin: strike.js flightTime 'throw') at the
     // speed it is let go at (distRelease): judged as a lob at 14 m/s it never carried past about 20 m, so a full-back
     // (26 to 28 m out) was never safe to throw to and the keeper never threw
-    const pm = passModel(ms, a.m, o.m, fb ? 'throw' : 'pass', fb ? throwSpeed(d) : passSpeedFor(d, 8), o);
-    const need = fb ? needT : needR;
+    const pm = passModel(ms, a.m, o.m, thr ? 'throw' : 'pass', thr ? throwSpeed(d) : passSpeedFor(d, 8), o);
+    const need = thr ? needT : needR;
     // (integration: with the roll on passModel's own scale a ground ball to a centre-back always rates a little higher
     // than a lofted throw; a full-back out wide, safe to throw to, is a keeper's first look: DIST.WIDE more for him)
-    const sc = pm.pOK + (fb ? DIST.WIDE : 0);
-    if (pm.pOK > need && sc > bv){ bv = sc; best = o; kind = fb ? 'throw' : 'roll'; }
+    const sc = pm.pOK + (fb ? DIST.WIDE : 0) + (called ? DIST.CALL : 0);
+    if (opts) opts.push({kind: thr ? 'throw' : 'roll', recv: o.id, pOK: pm.pOK, V: sc, isMe: !!o.isMe, on: pm.pOK > need});
+    if (pm.pOK > need && sc > bv){ bv = sc; best = o; kind = thr ? 'throw' : 'roll'; }
   }
+  if (opts && ms.onDecide) ms.onDecide(a, opts, best ? opts.find(x => x.recv === best.id) : {kind: must ? 'punt' : 'hold'});
+  if (!best && !must) return false;
   if (best){
     // where he means it to go, scattered by his distribution; then the act (the release comes at tRelease)
     const sc = DIST.SCATTER[0] + DIST.SCATTER[1]*(1 - D)*(1 - D);
@@ -487,7 +520,7 @@ function distribute(ms, a){
     g.distAim = {x: best.m.x, z: best.m.z, kind};
     a.act = {kind: kind === 'throw' ? 'gkthrow' : 'gkroll', t: 0, tRelease: T[0], dur: T[1], target: {x: tx, y: R, z: tz}, aim: {x: best.m.x, z: best.m.z}, recv: best.id, done: false};
     g.state = 'distribute'; g.t = 0; g.handsOn = false;
-    return null;
+    return true;
   }
   // the punt: drop it and volley it long toward the forwards, as far as his kicking reaches
   const len = (GK.PUNT[0] + (GK.PUNT[1] - GK.PUNT[0])*ms.r())*reach;
@@ -510,6 +543,7 @@ function distribute(ms, a){
     recv, contact: 1, speed: loftSpeedFor(len)*1.02});
   a.act.tc = 0.22; a.act.adjust = false;
   g.state = 'distribute'; g.t = 0; g.handsOn = false;
+  return true;
 }
 // a throw or a roll let go at its tRelease: to the act's target (scattered when it was chosen), from where his hands
 // hold the ball now
@@ -600,7 +634,10 @@ export function gkStep(ms, a, h){
       holdAt(ms, a, false, h);
       standStill(a, {x: dir, z: 0});
       if (ms.poss.ctl !== a.id) setCtl(ms, a);
-      if (g.t >= g.holdT) distribute(ms, a);
+      // (U10) the player's call: he looks at once, once a call (g.callT), and plays it to him when it is on
+      const cl = heardCall(ms, a);
+      if (cl && g.callT !== ms.call.t){ g.callT = ms.call.t; if (distribute(ms, a, cl, false)) return; }
+      if (g.t >= g.holdT) distribute(ms, a, cl, true);
       return;
     }
     case 'distribute': {

@@ -26,7 +26,17 @@
 
    Every exercise is a record in POOL: what it is called, what the fitness coach says, the keys, how long, the view it
    is framed for, and its own begin / step / input / pose. Its reps are graded (Perfect, Good, OK, Miss) and its score is
-   the mean of its reps over at least the reps it should have had, so doing nothing scores nothing. */
+   the mean of its reps over at least the reps it should have had, so doing nothing scores nothing.
+
+   The camera (USER-ISSUES U21: third person whenever you play the ball, first person for the rest of life). The two
+   exercises in which your body plays a ball, the juggling and the one-twos (POOL ball: true), are seen from behind you
+   when the Football camera is Third person (control.js SET.footCam, the controller's ctx.tp): matchcam.js eases out
+   behind your whole body (warmMe: the first-person body has no head) through the exercise's intro, the look framed for
+   that camera (tpView: a little down, and turned off the way you face so the camera looks past your shoulder at the
+   ball, which straight behind you your back would hide), and back to your eyes once the ball is put away. The
+   stretches and the strides have no ball: they stay through your own eyes, as the walk to the strip and back does,
+   framed as they always were (their timing is read off your own legs as you look down at them: the footfalls, the
+   lunge's depth, the swinging leg). */
 import {THREE} from "../build.js";
 import {P} from "../core/state.js";
 import {SCHED} from "../core/sched.js";
@@ -373,7 +383,7 @@ POOL.shuffle = {name: "Side shuffles", order: 0, dur: [11, 13], face: "pitch", v
   hud(X){ const h = hw(X); h.kind = "go"; h.show = X.goShow; h.rt = X.rt; h.burst = X.burst > 0; return h; }
 };
 // ball juggling: click as the ball drops into the ring; a clean touch sends it straight back up
-POOL.juggle = {name: "Ball juggling", order: 3, dur: [11, 13], face: "strip", view: {pitch: -.95}, minK: .62,
+POOL.juggle = {name: "Ball juggling", order: 3, dur: [11, 13], face: "strip", view: {pitch: -.95}, ball: true, tpView: {pitch: -.4, yaw: .9}, minK: .62,
   say: ["Keep it up for me. Touch it as it drops into the ring.", "Couple of touches on the ball. Nice and soft."],
   how: "Click as the ball drops into the ring.", keys: [{key: "LMB", verb: "touch as it drops into the ring"}],
   begin(X, r){ X.var.ring = .42 + .14*r(); X.var.hi = .3 + .14*r(); X.ring = X.var.ring; X.k = 0; X.side = 1; X.drop = 0; X.flick = .5; X.touches = 0; X.drift = 0; },
@@ -393,7 +403,7 @@ POOL.juggle = {name: "Ball juggling", order: 3, dur: [11, 13], face: "strip", vi
 };
 // quick one-twos with the fitness coach: he plays it in, you take it, he steps across and opens up; click to pass it
 // back the moment he does
-POOL.onetwo = {name: "Quick one-twos", order: 3, dur: [12, 14], face: "coach", view: {pitch: -.72}, minK: .25,
+POOL.onetwo = {name: "Quick one-twos", order: 3, dur: [12, 14], face: "coach", view: {pitch: -.72}, ball: true, tpView: {pitch: -.4, yaw: .45}, minK: .25,
   say: ["One-twos with me. Play it back the second I open up.", "Give and go. Wait till I open my body, then hit me."],
   how: "Click to pass back the moment he opens up.", keys: [{key: "LMB", verb: "pass as he opens up"}],
   begin(X, r){ X.r = r; X.stage = "feed"; X.st = 0; X.open = null; X.shift = 0; X.passes = 0; },
@@ -491,6 +501,9 @@ export const warmOn = () => SESS.on && SESS.phase !== "idle";
 // the phases in which the warm-up has your body and your keys
 export const warmDriving = () => SESS.on && (SESS.phase === "rise" || SESS.phase === "jog" || SESS.phase === "drill");
 export const warmDrilling = () => SESS.on && SESS.phase === "drill";
+// (U21) the exercise under way plays a ball (the juggling, the one-twos) and the Football camera is Third person: it is
+// seen from behind you, matchcam.js through the controller's SRC.off
+export const warmTP = () => warmDrilling() && !!SESS.X && !!POOL[SESS.X.id].ball && !!(SESS.ctx && SESS.ctx.tp && SESS.ctx.tp());
 // the call is due now (the skip to your call stops for it)
 export const warmCallDue = () => SESS.on && SESS.phase === "wait" && SESS.ctx && SESS.ctx.minute() >= SESS.plan.call;
 
@@ -630,8 +643,9 @@ function drillStep(dt){
   else SESS.tab = Math.max(0, SESS.tab - dt*3);
   // the moving exercises run you along the strip; the others hold you on the spot the exercise is done on
   if (SESS.sub === "go" || SESS.sub === "intro") moveFor(X, dt);
+  const vw = viewOf(E);
   if (SESS.sub === "intro"){
-    viewAt(X.face, E.view.pitch);
+    viewAt(tpYaw(X.face, X, vw), vw.pitch);
     if (SESS.st >= WU.INTRO){ SESS.sub = "go"; SESS.st = 0; X.t = 0; pop(X, "Go", "go"); AUD.cue("whistleShort", null, .25); }
     return;
   }
@@ -639,13 +653,13 @@ function drillStep(dt){
     X.t += dt;
     E.step(X, dt);
     if (X.id === "juggle") ballStepX(X, dt);
-    viewAt(viewYaw(X), E.view.pitch);
+    viewAt(tpYaw(viewYaw(X), X, vw), vw.pitch);
     mateShout(dt);
     if (X.t >= X.dur) endExercise();
     return;
   }
   if (SESS.sub === "outro"){
-    viewAt(viewYaw(X), E.view.pitch*.6);
+    viewAt(tpYaw(viewYaw(X), X, vw), vw.pitch*.6);
     if (SESS.st >= WU.OUTRO){
       if (SESS.ball) ballEnd();
       if (SESS.i + 1 < SESS.set.length) startExercise(SESS.i + 1); else finishWarm(true);
@@ -653,6 +667,17 @@ function drillStep(dt){
   }
 }
 const viewYaw = X => X.id === "strides" ? SESS.ctx.own().yaw : X.id === "shuffle" && X.burst > 0 ? SESS.ctx.own().yaw : X.face;
+// the look an exercise is framed for: its own, or (U21) the one framed for the camera behind you while that has it
+const viewOf = E => E.tpView && warmTP() ? E.tpView : E.view;
+// (U21) and its way: straight behind you the ball in front of your chest is hidden by your own back, so the camera
+// behind you is turned tpView.yaw off the way you face, to the pitch's side of you (the boards are on the other), and
+// looks past your shoulder at the ball
+function tpYaw(base, X, v){
+  if (!v.yaw) return base;
+  const a = base + v.yaw, b = base - v.yaw, s = X.home.z < 0 ? 1 : -1;
+  // (the camera sits along (sin, cos) of the look's yaw from your head: the larger step toward the pitch wins)
+  return Math.cos(a)*s >= Math.cos(b)*s ? a : b;
+}
 function endExercise(){
   const X = SESS.X, sc = exScore(X);
   SESS.scores[SESS.i] = sc;
@@ -1020,12 +1045,14 @@ function bodySt(key, o, moving){
 function demo(mode){ return DEMO[mode] || (DEMO[mode] = {mode}); }
 
 /* ---------- your own body through the set (controller.js fpPose hands it over while the warm-up has you) ----------
-   h: your first-person body; at (x, z) where you stand; dt. Places and poses it, returns the pose's events (the
-   footfalls the strides are tapped to). */
+   h: your first-person body, or your whole one in third person (warmMe); at (x, z) where you stand; dt; any: posed
+   even when the warm-up no longer has you (your whole body while the camera eases back to your eyes: it stands or walks
+   as you do). Places and poses it, returns the pose's events (the footfalls the strides are tapped to). */
 const FK = newFK(), FK0 = newFK();
 let REST_Q = null;
-export function warmPose(h, x, z, yaw, dt){
-  if (!warmDriving() || !h) return null;
+export function warmPose(h, x, z, yaw, dt, any = false){
+  if (!h || !SESS.ctx || !(warmDriving() || any)) return null;
+  SESS.body = h;
   const X = SESS.X, own = SESS.ctx.own();
   let st, by = yaw;
   if (SESS.phase === "drill" && X && SESS.sub !== "intro" && !(X.id === "strides" || X.id === "shuffle")) { st = myState(X); by = X.face; }
@@ -1082,6 +1109,27 @@ export function warmEye(){
   return E;
 }
 
+/* ---------- your whole body, for the third person (U21) ----------
+   The first-person body ends at the shoulders, so the camera behind you needs a body of its own: made the first time it
+   is drawn (in your look, else a footballer's in your kit), shown only while it is the one drawn (on), hidden
+   otherwise, given back with the warm-up (warmDispose). Returns it while on, else null */
+export function warmMe(on){
+  const C = SESS.ctx, V = C && C.V ? C.V() : null;
+  let o = SESS.me;
+  // (a view rebuilt under it: the old body goes with the old view)
+  if (o && o.V !== V){ dropMe(); o = null; }
+  if (!on || !V || !V.scene){ if (o && o.h) o.h.g.visible = false; return null; }
+  if (!o){
+    const h = human(V.fpLook || lookFor("footballer", 7 + (C.team | 0), {kit: C.kit, sex: "m"}), {cast: true, lod: false});
+    h.g.name = "warm-me";
+    V.scene.add(h.g);
+    o = SESS.me = {h, V};
+  }
+  o.h.g.visible = true;
+  return o.h;
+}
+function dropMe(){ const o = SESS.me; if (o && o.h) o.h.dispose(); SESS.me = null; }
+
 /* ---------- the HUD's view of it (fphud.js hudWarm) ---------- */
 // (one record, filled in place each frame)
 const HUD = {name: "", how: "", i: 0, n: 0, sub: "", t: 0, dur: 0, streak: 0, w: null, tab: 0, scores: null};
@@ -1106,7 +1154,7 @@ export function warmHints(){
 
 /* ---------- the end of it ---------- */
 export function warmDispose(){
-  dropBody(SESS.coach); dropBody(SESS.fit); SESS.coach = SESS.fit = null;
+  dropBody(SESS.coach); dropBody(SESS.fit); SESS.coach = SESS.fit = null; dropMe(); SESS.body = null;
   ballEnd();
   if (SESS.ring){ if (SESS.ring.parent) SESS.ring.parent.remove(SESS.ring); SESS.ring.geometry.dispose(); SESS.ring.material.dispose(); SESS.ring = null; }
   SESS.on = false; SESS.ctx = null; SESS.phase = "idle"; SESS.X = null; SESS.set = null; SESS.it = null; SESS.view = null;

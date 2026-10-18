@@ -38,7 +38,7 @@ async function play(id, level, shot = false){
   let shotDone = false;
   for (let i = 0; i < 60; i++){
     const st = await page.evaluate(() => {
-      const W = window.__fp.warm.S, V = window.__fp.FS.V, h = V && V.fp, rec = window.__wrec;
+      const W = window.__fp.warm.S, V = window.__fp.FS.V, h = W.body || (V && V.fp), rec = window.__wrec;   // (the body the set poses: your whole one in third person, U21)
       if (h){ rec.modes[h.mode] = (rec.modes[h.mode] || 0) + 1; const q = Array.from(h.pose.slice(48, 80)).map(v => +v.toFixed(3)); rec.poses.push(q.join(",")); }
       return {phase: W.phase, sub: W.sub, t: W.X ? W.X.t : 0};
     });

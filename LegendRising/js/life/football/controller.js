@@ -57,7 +57,7 @@ import {ctrlShields} from "../core/keylock.js";
 import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
 import {hudInit, hudFrame, hudNotice, hudClearCards, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff, hudCallMe} from "./fphud.js";
-import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling,
+import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling, warmTP, warmMe,
   warmCallDue, warmOn, warmTab, careerPort, localPort, boostedAttrs, pickSet, WARM_POOL, boostFor, callMinute, exerciseCount, exScore, touchFence, inFence} from "./warmup.js";
 import {recInit, rec, clip, play, playing, skip, replayStep, keep, kept} from "./replay.js";
 import {STADIUM, SPAWNS, benchOf} from "./stadium.js";
@@ -323,7 +323,7 @@ function startMatch(cfg, kits){
   const V = FS.V;
   camInit({me: () => liveMe(), view: () => FS.V, eye: eyeOf, speed: () => mySpeed(), top: () => myTop(), breath: () => myB(), accel: () => myAcc(),
     bench: () => FS.state === "bench" && FS.benchSeat ? FS.benchSeat : null, motion: () => SET.motion, fov: () => SET.fov,
-    pose: (x, z, yaw, dt) => fpPoseNow(x, z, yaw, dt), clip: () => fpInClip(), after: () => afterCam()});
+    pose: (x, z, yaw, dt) => fpPoseNow(x, z, yaw, dt), clip: () => fpInClip(), after: () => afterCam(), off: () => offTP()});
   const T = cfg.teams;
   hudInit({home: {short: T[0].short || "HOM", kit: (kits && kits.home) || ["#2c66b8", "#fff"]}, away: {short: T[1].short || "AWY", kit: (kits && kits.away) || ["#c8463a", "#fff"]},
     us: cfg.me ? cfg.me.team : 0});
@@ -723,9 +723,23 @@ function myAcc(){ const me = liveMe(); return me ? me.m.acc || 0 : FS.own ? FS.o
 function fpPoseNow(x, z, yaw, dt){
   const V = FS.V; if (!V || !V.fp) return 0;
   V.fpOn = !(FS.state === "bench" && FS.seated) && !playing();
-  // the warm-up poses you through its set (the body where you stand, not where the eye has gone with the neck)
-  if (V.fpOn && !FS.onPitch && !V.src && !V.hideAll){ const m = warmPose(V.fp, P.x, P.z, yaw, dt); if (m != null) return m; }
+  // the warm-up poses you through its set (the body where you stand, not where the eye has gone with the neck). (U21)
+  // Its ball exercises in third person: your whole body (warmup.js warmMe) from the moment the camera is half way behind
+  // you (matchcam.js MC.tp.on, as V.tp is on the pitch) until it is half way back, the first-person one hidden meanwhile
+  const off = V.fpOn && !FS.onPitch && !V.src && !V.hideAll;
+  const tb = warmMe(off && MC.tp.on);
+  if (tb){ V.fp.g.visible = false; const m = warmPose(tb, P.x, P.z, yaw, dt, true); if (m != null) return m; }
+  if (off){ const m = warmPose(V.fp, P.x, P.z, yaw, dt); if (m != null) return m; }
   return fpPose(V, x, z, yaw, dt, {speed: mySpeed(), wind: CTRL.wind});
+}
+// (U21) off the pitch, the third person's wish and anchor for matchcam.js tpFrame (SRC.off): a warm-up exercise with a
+// ball (warmup.js warmTP), seen round your whole body while it is drawn. One record, filled in place
+const OFF_TP = {want: false, h: null};
+function offTP(){
+  const off = !FS.onPitch && !!FS.V;
+  OFF_TP.want = off && !FS.seated && warmTP();
+  OFF_TP.h = off && WARM.me && WARM.me.h && WARM.me.h.g.visible ? WARM.me.h : null;
+  return OFF_TP;
 }
 function fpInClip(){ const V = FS.V, ms = FS.ms; if (!V || !ms || ms.me < 0) return false; const R = V.rec[ms.me]; return !!(R && R.clip); }
 // after the camera is placed: the frustum (the spare balls come back to their cones unseen), the listener
@@ -1242,7 +1256,9 @@ function warmSetup(){
     cheer: v => { FS.cheer = Math.min(1, (FS.cheer || 0) + v); },
     mates: () => benchMates(),
     last: () => warmLast(), remember: set => warmRemember(set), forceSet: FS.testWarm && FS.testWarm.set ? FS.testWarm.set : null,
-    applyBoost: b => warmBoostBench(b)});
+    applyBoost: b => warmBoostBench(b),
+    // (U21: the ball exercises seen from behind you when the Football camera is Third person)
+    tp: () => SET.footCam !== "first"});
 }
 // the team-mates on the bench (the ones who have not gone on), where they sit: they shout across now and then
 function benchMates(){

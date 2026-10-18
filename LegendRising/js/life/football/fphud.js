@@ -48,7 +48,7 @@ import {RT} from "../core/state.js";
 import {FX} from "./matchcam.js";
 import {minuteOf} from "./events.js";
 import {wrapA, yawOf} from "./pitchspec.js";
-import {tipFSDue, tipFSShown} from "../core/keylock.js";
+import {KEYLOCK, tipFSDue, tipFSShown} from "../core/keylock.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
@@ -134,7 +134,7 @@ export function hudInit(cfg){
   D.ringLen = 2*Math.PI*17;
   D.el.ring.style.strokeDasharray = `${D.ringLen} ${D.ringLen}`;
   D.txt = {}; D.calls = []; D.cards = []; D.scen = null; D.notice = null; D.hintsSet = null; D.retA = 0; D.kickSeq = -1; D.slineT = 0; D.desat = 0;
-  D.pops = []; D.sayT = 0; D.wuKind = null; D.wuEl = {};
+  D.pops = []; D.sayT = 0; D.wuKind = null; D.wuEl = {}; D.tipCard = null;
   D.meterA = 0; D.meterHold = 0; D.meterSeq = -1; D.meterUp = false; D.kickShown = -1; D.kickFlash = 0;
   applySettings();
   return r;
@@ -171,8 +171,10 @@ export function hudNotice(kind, text, sub = ""){
   n.innerHTML = `<b>${esc(text)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}`;
   D.el.cards.appendChild(n);
   void n.offsetWidth; n.classList.add("in");        // (a reflow, then the class: the transition runs without waiting a frame)
-  D.cards.push({n, until:performance.now() + (kind === "goal" ? 5000 : 3500)});
+  const c = {n, until:performance.now() + (kind === "goal" ? 5000 : 3500)};
+  D.cards.push(c);
   while (D.cards.length > 2){ const o = D.cards.shift(); o.n.remove(); }
+  return c;
 }
 // the cards on screen taken away at once (the second half starting: the first half's ones are old news)
 export function hudClearCards(){
@@ -300,10 +302,13 @@ export function hudFrame(ms, me, ctrl, dt, s = S_DEF){
   }
   // the one-time full-screen tip (P2b-B): asked for by control.js the first time you shield; shown once on this device
   // (core/keylock.js keeps that it was, in its own localStorage key) and never while you are in full screen already
+  // The card is the one tip: once the page goes full screen it has been followed, so it leaves at once rather than at
+  // the end of its 3.5 s (left on, it was still up after the full screen, read as the tip shown a second time)
   if (s.ctrl && s.ctrl.tipFS){
     s.ctrl.tipFS = false;
-    if (tipFSDue()){ tipFSShown(); hudNotice("info", "Tip: play in full screen", "C shields the ball. In full screen, Ctrl does too."); }
+    if (tipFSDue()){ tipFSShown(); D.tipCard = hudNotice("info", "Tip: play in full screen", "C shields the ball. In full screen, Ctrl does too."); }
   }
+  if (D.tipCard && (KEYLOCK.fs || !D.cards.includes(D.tipCard))){ if (D.cards.includes(D.tipCard)) D.tipCard.until = 0; D.tipCard = null; }
   // the scenario line fades after 4 s
   if (D.scenT > 0 && now - D.scenT > 4000){ E.scen.classList.remove("in"); D.scenT = 0; }
   // the event cards
