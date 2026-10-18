@@ -190,14 +190,14 @@ function ref(ms, sec){ const n = Math.round(sec/H); for (let i = 0; i < n; i++){
   check(gkT && gkT.isGK, "goal kick: the keeper");
   const best = (team, k) => s.ms.agents.filter(a => a.team === team && a.role === 'player' && !a.isGK).sort((a, b) => k(b.at) - k(a.at))[0];
   const cT = pick('corner', 0, {x: 52.1, z: 33.6});
-  check(cT === best(0, at => at.curve + at.accuracy), "corner: the best curve + accuracy", cT && cT.slot);
+  check(cT === best(0, at => at.curve + at.passAcc), "corner: the best curve + passing accuracy (a delivery)", cT && cT.slot);
   const pT = pick('penalty', 0, {x: 41.5, z: 0});
   check(pT === best(0, at => at.accuracy + at.composure), "penalty: the best accuracy + composure", pT && pT.slot);
   // the player takes the corner when trusted (40) and within 2 points of the best
   const me = s.ms.agents.find(a => a.isMe);
-  const mt = me.team, top = best(mt, at => at.curve + at.accuracy);
+  const mt = me.team, top = best(mt, at => at.curve + at.passAcc);
   if (top !== me){
-    const need = top.at.curve + top.at.accuracy - 1.5 - me.at.curve - me.at.accuracy;
+    const need = top.at.curve + top.at.passAcc - 1.5 - me.at.curve - me.at.passAcc;
     me.at = Object.assign({}, me.at, {curve: me.at.curve + need});
     s.ms.cfg.me.trust = 20;
     const low = pick('corner', mt, {x: 0, z: 33.6});

@@ -398,8 +398,8 @@ function isFKWallZone(ms, team, spot){
 
 // The restart's taker (3.2.8): kick-off the centre forward; throw-in the nearest full-back or winger on that side (or
 // the nearest player, or the player himself when he is nearest and within 10 m); goal kick the keeper; corners and
-// free kicks near goal the best curve + accuracy in the side (the player if he is the best, or trusted and within 2
-// points); penalties the best accuracy + composure (the same rule at trust 50); anything else the nearest.
+// free kicks near goal to be crossed in the best curve + passing accuracy in the side, free kicks to be shot the best
+// curve + accuracy (the player if he is the best, or trusted and within 2 points); penalties the best accuracy + composure (the same rule at trust 50); anything else the nearest.
 function pickTaker(ms, kind, team, spot){
   const ag = ms.agents.filter(a => a.team === team && a.onPitch && a.role === 'player' && !a.sentOff && !a.leaving && !a.injured);
   if (!ag.length) return -1;
@@ -434,11 +434,17 @@ function pickTaker(ms, kind, team, spot){
     // the player takes it when he is his side's nearest man to it and within 10 m (3.2.8), and so does the harness's
     // stand-in for him (DESIGN 3.2.12: a winger's throw-ins beyond the oracle's rate are counted apart instead)
     if (me && me.team === team && me === no && hypot(me.m.x - spot.x, me.m.z - spot.z) < 10) t = me;
-  } else if (kind === 'corner') t = best(at => at.curve + at.accuracy, 40, RULES.CORNER_FROM);
+  // (a corner, and a free kick that will be crossed in rather than shot (brain.js decideRestart shoots from under 30 m
+  // at an angle under 0.8), is a delivery: the best crosser, by his curve and his passing accuracy. It was curve and
+  // shooting accuracy, which made the centre forward, the side's man in the box, its taker: the striker's finishing
+  // profile (attrs.js PROFILE accuracy +5.6) put him level with the ten and far above the wide men, and the harness's
+  // striker took 1.5 corners and 1.2 free kicks a match, and his touches went over their band)
+  } else if (kind === 'corner') t = best(at => at.curve + at.passAcc, 40, RULES.CORNER_FROM);
   else if (kind === 'penalty') t = best(at => at.accuracy + at.composure, 50);
   else if (kind === 'free'){
-    const dir = ms.dirs[team], d = hypot(dir*ms.spec.hx - spot.x, spot.z);
-    t = d < 35 ? best(at => at.curve + at.accuracy, 40) : near(ag.filter(a => !a.isGK));
+    const dir = ms.dirs[team], gx = dir*ms.spec.hx, d = hypot(gx - spot.x, spot.z);
+    const shot = d < 30 && Math.abs(spot.z)/Math.max(1, Math.abs(gx - spot.x)) < 0.8;
+    t = d < 35 ? best(shot ? (at => at.curve + at.accuracy) : (at => at.curve + at.passAcc), 40) : near(ag.filter(a => !a.isGK));
     if (d > 70) t = near(ag.filter(a => !a.isGK)) || near(ag);       // deep in his own half: the nearest outfield man
   } else t = near(ag.filter(a => !a.isGK)) || near(ag);
   return t ? t.id : -1;
@@ -475,6 +481,24 @@ function chooseSource(ms, R0){
     }
   }
   R0.fetcher = best.who >= 0 ? best.who : R0.taker;
+}
+// A dead ball rolling out through the gap in the boards in front of the dugouts (pitchspec BOARDS.gaps; the boards
+// elsewhere stand on the runoff's edge and stop it themselves) is stopped there by the bench, on the runoff's edge
+// where a player can still get to it. It used to roll on into the dugouts, out of every player's reach (reachable),
+// and the restart went to a spare on a cone across the pitch (a throw-in 5.6 s over its limit + 5 in the harness, seed
+// 79). Only on a pitch with boards, only on the grass, only as it crosses that edge going out
+function benchStop(ms, b){
+  const bd = ms.spec.colliders && ms.spec.colliders.boards;
+  if (b.state !== 'dead' || b.p.y > R + 0.05 || !bd || !bd.length) return;
+  const ro = ms.spec.runoff, ex = Math.abs(b.p.x) - (ro.hx - R), ez = Math.abs(b.p.z) - (ro.hz - R);
+  if (ex > 0 && ex < 0.5 && b.p.x*b.v.x > 0 && !boardAcross(bd, b.p.x > 0 ? 'x+' : 'x-', b.p.z)) b.v.x = 0;
+  if (ez > 0 && ez < 0.5 && b.p.z*b.v.z > 0 && !boardAcross(bd, b.p.z > 0 ? 'z+' : 'z-', b.p.x)) b.v.z = 0;
+}
+// is there a board on that side (pitchspec boardPlanes) across the ball's line, a along it: then it meets the board
+function boardAcross(bd, side, a){
+  const z = side[0] === 'x';
+  for (const B of bd) if (B.side === side && a >= (z ? B.bounds.z0 : B.bounds.x0) && a <= (z ? B.bounds.z1 : B.bounds.x1)) return true;
+  return false;
 }
 // a dead ball still in the air and fast (struck as the whistle went)
 const flyingAway = b => b.p.y > R + 0.2 && hypot(b.v.x, b.v.z) > RULES.FLYING;
@@ -640,6 +664,7 @@ export function restartStep(ms, h){
   const R0 = ms.restart;
   if (!R0 || R0.taken) return;
   const b = ms.ball, tk = ms.agents[R0.taker];
+  benchStop(ms, b);
   if (!tk || !tk.onPitch || tk.leaving || tk.injured && !tk.isMe){
     // a new taker; a ball the old one had (in his hands, or on its way to him) is put down and fetched again
     R0.taker = pickTaker(ms, R0.kind, R0.team, R0.spot);
