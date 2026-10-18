@@ -542,8 +542,8 @@ function agentStep(ms, a, h){
     GQ[0] = dist; GQ[1] = m.speed; GQ[2] = a.scale || 1;
     const evs = phaseAdvanceQ(a.g, a.g.mode);
     if (evs.length && ms.poss.ctl === a.id && ms.phase === 'live') for (const e of evs) dribbleFoot(ms, a, e.side);
-    // (U26) the ball at your feet (F held) and the knock-on (Shift twice): the player's intents only
-    if ((a.intent.keep || a.intent.knock) && ms.poss.ctl === a.id) keepStep(ms, a, h);
+    // (U27) close control (F toggles it on) and the knock-on (Shift twice): the player's only
+    if (a.ctlOn || a.takeT != null || a.intent.knock) keepStep(ms, a, h);
   }
 }
 function endStep(ms, h){

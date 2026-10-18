@@ -369,7 +369,8 @@ function dribbleTouches(V, ms){
     const R = V.rec[e.agent]; if (!R || !R.h || R.hidden) continue;
     const b = ms.ball, v = Math.hypot(b.v.x, b.v.z);
     _tb.x = b.p.x; _tb.z = b.p.z;
-    const r = gaitTouch(R.h, {ball:_tb});
+    // (U27) a close-control touch names its foot and the way it plays the ball: that foot's swing goes through it
+    const r = gaitTouch(R.h, {ball:_tb, side:e.foot === "L" || e.foot === "R" ? e.foot : null, dir:e.dx != null ? {x:e.dx, z:e.dz} : null});
     if (r && v > .05){
       // where the ball will be at the drawn contact
       const t = r.tContact, roll = b.rollDecel || 1.1, go = Math.max(0, v*t - .5*roll*t*t), G = R.h.gait;

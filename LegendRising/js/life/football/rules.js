@@ -29,7 +29,7 @@ export const RULES = Object.freeze({
   HALF_CAP: 20,                              // real seconds past added time at most
   OFF: {body: 0.25, eps: 0.01, flag0: 0.35, flagK: 0.4, whistle: 0.25, border: 0.2, errP: 0.15, near: 1.5},
   ADV: {xt: 0.08, signal: 2},
-  CARD: {yellow: 0.7, red: 0.97, tactical: 0.25, tacticalSev: 0.45, injury: 0.85, injuryP: 0.08, dogsoV: 3},
+  CARD: {yellow: 0.59, red: 0.96, tactical: 0.15, tacticalSev: 0.4, injury: 0.85, injuryP: 0.08, dogsoV: 3},
   SPARE_NEAR: 6,                             // the game ball is used if it lies this close to the spot
   CARRY: 3.6, CARRY_FAR: 7,                  // a ball carried in the hands: a jog near the spot, a run further out
   SERVE: 20,                                 // a ball further than this from the spot is served to the taker
@@ -985,9 +985,9 @@ export function restartTaken(ms, ev){
 /* ---------- fouls, cards, advantage (3.2.9) ---------- */
 
 // A foul from a tackle's contact (touch.js tackleOutcome): severity from the closing speed, from behind and a slide.
-// Cards (U26): yellow above 0.7 or for a tactical foul (above 0.45) that stops an attack worth xT > 0.25; red for
-// denying an obvious goal-scoring opportunity or above 0.97; a second yellow is red. Advantage when the fouled side keeps the ball and the
-// play is worth xT >= 0.08. In the offender's own penalty area it is a penalty.
+// Cards (U26, retuned U27 to the harness's 2 to 4 yellows a match): yellow above 0.59 or for a tactical foul (above
+// 0.4) that stops an attack worth xT > 0.15; red for denying an obvious goal-scoring opportunity or above 0.96; a second
+// yellow is red. Advantage when the fouled side keeps the ball and the play is worth xT >= 0.08. In the offender's own penalty area it is a penalty.
 export function foul(ms, fouler, victim, severity, x, z, opt = {}){
   if (ms.phase !== 'live') return null;
   const team = victim.team, dir = ms.dirs[team], L = ms.spec.L, Wd = ms.spec.Wd;

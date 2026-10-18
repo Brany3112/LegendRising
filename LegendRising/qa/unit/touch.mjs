@@ -10,6 +10,7 @@ import {fileURLToPath} from "node:url";
 import {tackleSeverity, TOUCH, TACKLE, reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleSweep, tackleOutcome, slideProfile,
   slideDistance, headerContact, classifyContact} from "../../js/life/football/touch.js";
 import {q as qOf, touchDist} from "../../js/life/football/zone.js";
+import {RULES} from "../../js/life/football/rules.js";
 import {standReach} from "../../js/life/football/duel.js";
 import {BALL, createBall, createBallWorld, ballStep, ballKick} from "../../js/life/football/ball.js";
 import {dirOf} from "../../js/life/football/pitchspec.js";
@@ -265,6 +266,14 @@ function restAfter(ballPos, v, roll = 1.1){
   check(classifyContact(run, {p: {x: 0.5, y: R, z: 0}, v: {x: vc + 5, y: 0, z: 0}}, 'intercept') === 'control', "the speed read is the ball's against his body (a man running with it)");
 }
 
+// (U26, U27) fair challenges are not cards, against the cards' own bars (rules.js RULES.CARD)
+{
+  const Y = RULES.CARD.yellow, Rd = RULES.CARD.red, sev = (c, b, sl, bf) => tackleSeverity(c, b, sl, bf);
+  const fair = [sev(6, 0, false, true), sev(6, 0, false, false), sev(7, 0, true, true), sev(7, 0, true, false), sev(6, .5, false, false)];
+  check(fair.every(v => v < Y) && sev(6, 1, false, false) > Y && sev(8, 1, true, false) > Rd,
+    "a standing tackle or a slide from the front at up to 7 m/s, and a standing one from the side, are no card; from behind a yellow; a fast slide through the back a red",
+    {yellow: Y, red: Rd, fair: fair.map(v => Math.round(v*1000)/1000), behind: sev(6, 1, false, false), slideBehind: sev(8, 1, true, false)});
+}
 fs.mkdirSync(path.join(ROOT, "qa", "out"), {recursive: true});
 fs.writeFileSync(path.join(ROOT, "qa", "out", "unit-touch.json"), JSON.stringify(res, null, 1));
 console.log(`unit/touch: ${res.checks.filter(c => c.pass).length} of ${res.checks.length} checks pass`);

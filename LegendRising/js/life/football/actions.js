@@ -678,8 +678,9 @@ function inOwnBox(ms, a){
 export function dribbleFoot(ms, a, side){
   const b = ms.ball;
   if (ms.poss.ctl !== a.id || b.state !== 'free' || !a.drib) return false;
-  // (U26: the ball kept at your feet is touched by keepStep, not on the strides)
-  if (a.intent.keep) return false;
+  // (U27: a ball in close control is touched by keepStep, not on the strides; a knocked-on ball is left to run for
+  // KNOCK.LET s: a stride's touch straight after it played it again along the dribble's line, off the knock's way)
+  if (a.ctlOn || (a.knockT != null && ms.t - a.knockT < KNOCK.LET)) return false;
   const v = a.m.speed;
   if (side === touchSideOf(a)) a.strides++;
   const every = dribbleCadence(v);
@@ -721,36 +722,84 @@ function dribbleKick(ms, a){
 }
 function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
 
-/* ---------- the ball at your feet, and the knock-on (USER-ISSUES U26) ----------
-   F held with the ball yours and no sprint (control.js a.intent.keep): the ball is kept on a spot KEEP.LEAD (plus
-   KEEP.LV a m/s of your speed) ahead along the way you go, or in front of you standing still, wherever the keys take
-   you, back and sideways too. Whenever it would be more than KEEP.TOL off that spot in KEEP.T s, a soft touch (a real
-   kick of the ball, at most every KEEP.DT s) sends it there at your pace. Held Shift lets it go: a sprint pushes it on
-   (dribbleFoot). Shift tapped twice (a.intent.knock): it is knocked KNOCK.D on along your way, to run onto */
-export const KEEP = Object.freeze({LEAD: .32, LV: .05, REACH: 1.1, TOL: .12, DT: .18, T: .3});
-export const KNOCK = Object.freeze({D: 9, MIN_V: 4, OVER: 2.5, REACH: 1.8});
+/* ---------- close control (USER-ISSUES U27), and the knock-on (U26) ----------
+   F (control.js) asks to take the ball into close control for TAKE.WIN s (a.takeT): as soon as it is within TAKE.REACH,
+   low and nobody else's, it is gathered with a touch and a.ctlOn is set. In close control the ball is kept on a spot
+   at your strong foot's side, CTL.LEAD (plus CTL.LV a m/s of your speed, CTL.LMAX at most) ahead along the way the keys take you, or in
+   front of that foot standing still, at every pace: a sprint keeps it too. Whenever it would be more than CTL.TOL off
+   that spot in CTL.T s, a real touch (at most every CTL.DT s, sooner on a turn) sends it there, rolling with the spin
+   the contact gives; a turn is played with the side of the strong foot the turn needs (turning left, the ball's right
+   side: the inside of a right foot, the outside of a left one; turning right, the other way round). It ends when anyone
+   else has the ball (a tackle won, a poke, a foul, a deflection), when you start a kick or a tackle, when the ball is
+   out of reach, and with the knock-on: Shift tapped twice (a.intent.knock) knocks it KNOCK.D on along your way, to run
+   onto and take again with F */
+// (WIN: an F pressed while you chase a ball still a couple of strides off holds until you get there)
+export const TAKE = Object.freeze({REACH: 1.2, WIN: 2, MAX_Y: .5});
+export const CTL = Object.freeze({LEAD: .3, LV: .05, LMAX: .5, SIDE: .35, LAT: .1, REACH: 1.25, TOL: .12, DT: .18, T: .3, TURN: 25*Math.PI/180, SPIN: 3});
+export const KNOCK = Object.freeze({D: 9, MIN_V: 4, OVER: 2.5, REACH: 1.8, LET: .8});
+const BALL_R = 0.11;
+// the end of close control (and why: the test reads a.ctlEnd)
+function ctlOff(a, why){ if (a.ctlOn){ a.ctlOn = false; a.ctlEnd = why; } }
 export function keepStep(ms, a, h){
-  const b = ms.ball, I = a.intent;
-  if (ms.poss.ctl !== a.id || b.state !== 'free' || b.p.y > 0.4 || (a.act && !a.act.done) || ms.phase !== 'live') return false;
-  const sc = a.scale || 1, dist = hypot(b.p.x - a.m.x, b.p.z - a.m.z);
+  const b = ms.ball, I = a.intent, sc = a.scale || 1;
+  const dist = hypot(b.p.x - a.m.x, b.p.z - a.m.z);
   const mv = hypot(I.dx || 0, I.dz || 0) > 0.1;
   let ux, uz;
   if (mv){ const l = hypot(I.dx, I.dz); ux = I.dx/l; uz = I.dz/l; } else { const f = dirOf(a.m.yaw); ux = f.x; uz = f.z; }
-  // (the knock on a ball a stride's touch may just have played on: KNOCK.REACH)
-  if (I.knock){ I.knock = false; return dist <= KNOCK.REACH*sc ? knockOn(ms, a, ux, uz) : false; }
-  if (dist > KEEP.REACH*sc) return false;
-  if (!I.keep || ms.t - (a.keepT != null ? a.keepT : -9) < KEEP.DT) return false;
-  const vx = a.m.vx || 0, vz = a.m.vz || 0, v = hypot(vx, vz), T = KEEP.T, dec = b.rollDecel || 1.1;
-  // the spot in T s, and where the ball will have rolled to by then
-  const lead = (KEEP.LEAD + KEEP.LV*v)*sc, tx = a.m.x + vx*T + ux*lead, tz = a.m.z + vz*T + uz*lead;
+  // the ends of close control
+  if (a.ctlOn){
+    if (ms.phase !== 'live') ctlOff(a, 'stop');
+    else if (a.act && !a.act.done && a.act.kind !== 'header') ctlOff(a, a.act.kind);
+    else if (ms.poss.ctl !== a.id) ctlOff(a, 'lost');
+    else if (b.state !== 'free' || b.p.y > TAKE.MAX_Y + .3 || dist > CTL.REACH*sc) ctlOff(a, 'reach');
+  }
+  // the knock-on (on a ball a stride's touch may just have played on: KNOCK.REACH)
+  if (I.knock){
+    I.knock = false;
+    if ((a.ctlOn || ms.poss.ctl === a.id) && ms.phase === 'live' && dist <= KNOCK.REACH*sc){ ctlOff(a, 'knock'); return knockOn(ms, a, ux, uz); }
+  }
+  // F: taking it, within TAKE.WIN s of the press
+  if (!a.ctlOn && a.takeT != null){
+    if (ms.t - a.takeT > TAKE.WIN) a.takeT = null;
+    else if (ms.phase === 'live' && b.state === 'free' && b.p.y < TAKE.MAX_Y && dist <= TAKE.REACH*sc && (ms.poss.ctl < 0 || ms.poss.ctl === a.id) && !(a.act && !a.act.done)){
+      a.takeT = null; a.ctlOn = true; a.ctlEnd = null; a.ctlDir = {x: ux, z: uz};
+      if (ms.poss.ctl !== a.id) setCtl(ms, a);
+      return ctlTouch(ms, a, ux, uz, true);
+    }
+  }
+  if (!a.ctlOn) return false;
+  return ctlTouch(ms, a, ux, uz, false);
+}
+// one touch of close control, if the ball is drifting off its spot (or force: the gathering touch)
+function ctlTouch(ms, a, ux, uz, force){
+  const b = ms.ball, sc = a.scale || 1, d0 = a.ctlDir || (a.ctlDir = {x: ux, z: uz});
+  // a turn: the way the keys take you now against the last touch's
+  const cross = d0.x*uz - d0.z*ux, dot = d0.x*ux + d0.z*uz, turn = atan2(cross, dot);
+  const turning = Math.abs(turn) > CTL.TURN;
+  if (!force && ms.t - (a.keepT != null ? a.keepT : -9) < (turning ? CTL.DT*.5 : CTL.DT)) return false;
+  const vx = a.m.vx || 0, vz = a.m.vz || 0, v = hypot(vx, vz), T = CTL.T, dec = b.rollDecel || 1.1;
+  // the spot: in front of you as you face, leaning towards the way you go as much as that way is forward (running on,
+  // ahead along it; sideways or backwards, in front of your feet, with CTL.SIDE of a lead the way you go), at the strong
+  // foot's side of your facing (its right, (-fz, fx), for a right foot). Put ahead along the way alone, a sideways run
+  // carried it a metre out to your side, away from both feet
+  const F = dirOf(a.m.yaw), fwd = Math.max(0, ux*F.x + uz*F.z), sx0 = F.x + ux*fwd + ux*CTL.SIDE*(1 - fwd), sz0 = F.z + uz*fwd + uz*CTL.SIDE*(1 - fwd), sl = hypot(sx0, sz0) || 1, sx = sx0/sl, sz = sz0/sl;
+  const strong = touchSideOf(a), lat = (strong === 'R' ? 1 : -1)*CTL.LAT*sc, lead = Math.min(CTL.LEAD + CTL.LV*v*fwd, CTL.LMAX)*sc;
+  const tx = a.m.x + vx*T + sx*lead - F.z*lat, tz = a.m.z + vz*T + sz*lead + F.x*lat;
   const bs = hypot(b.v.x, b.v.z), tr = bs > 1e-4 ? Math.min(T, bs/dec) : 0, go = bs > 1e-4 ? (bs*tr - .5*dec*tr*tr)/bs : 0;
   const px = b.p.x + b.v.x*go, pz = b.p.z + b.v.z*go;
-  if (hypot(px - tx, pz - tz) < KEEP.TOL*sc) return false;
-  // a soft touch: the ball onto the spot in T s (rolling, slowing as it goes)
-  const ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), sp = D > 1e-3 ? Math.min(D/T + .5*dec*T, 12) : 0;
-  ballKick(b, {x: D > 1e-3 ? ex/D*sp : 0, y: 0, z: D > 1e-3 ? ez/D*sp : 0}, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
-  a.keepT = ms.t;
-  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, keep: true});
+  if (!force && !turning && hypot(px - tx, pz - tz) < CTL.TOL*sc) return false;
+  // the touch: onto the spot in T s, rolling (the spin of a ball rolling that way), with a turn's side spin
+  const ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), sp = D > 1e-3 ? Math.min(D/T + .5*dec*T, 14) : 0;
+  const kx = D > 1e-3 ? ex/D*sp : 0, kz = D > 1e-3 ? ez/D*sp : 0;
+  // which side of the ball and which part of the strong foot: turning left (turn < 0: the right of the old way is
+  // (-uz, ux), so a turn towards it has a positive cross product) the ball is played on its right side
+  const left = turning && turn < 0, right = turning && turn > 0;
+  const ballSide = left ? 'right' : right ? 'left' : 'back';
+  const part = !turning ? 'laces' : (ballSide === 'right') === (strong === 'R') ? 'inside' : 'outside';
+  const wy = turning ? (ballSide === 'right' ? 1 : -1)*CTL.SPIN : 0;
+  ballKick(b, {x: kx, y: 0, z: kz}, {x: kz/BALL_R, y: wy, z: -kx/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  a.keepT = ms.t; a.ctlDir = {x: ux, z: uz};
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, keep: true, foot: strong, part, ballSide, dx: ux, dz: uz});
   chainKeep(ms, a);
   onTouch(ms, a, 'dribble', ev);
   refreshPred(ms);
@@ -759,9 +808,9 @@ export function keepStep(ms, a, h){
 // the knock-on: the ball KNOCK.D on along (ux, uz), faster than your sprint by KNOCK.OVER, MIN_V over your speed now
 function knockOn(ms, a, ux, uz){
   const b = ms.ball, dec = b.rollDecel || 1.1, sp = Math.max(Math.sqrt(2*dec*KNOCK.D*(a.scale || 1)), a.m.speed + KNOCK.MIN_V, (a.prm && a.prm.sprint || 8) + KNOCK.OVER);
-  ballKick(b, {x: ux*sp, y: 0, z: uz*sp}, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
-  a.keepT = ms.t; a.intent.knock = false;
-  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, knock: true});
+  ballKick(b, {x: ux*sp, y: 0, z: uz*sp}, {x: uz*sp/BALL_R, y: 0, z: -ux*sp/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  a.keepT = ms.t; a.knockT = ms.t; a.intent.knock = false;
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, knock: true, foot: touchSideOf(a)});
   chainKeep(ms, a);
   onTouch(ms, a, 'dribble', ev);
   refreshPred(ms);

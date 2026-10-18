@@ -279,7 +279,9 @@ export function controlInput(ev){
   // stay held), so the guard stops presses only
   const md = modded(ev);
   if (md && ev.type !== "keyup") return true;
-  const k = ev.key === " " ? "space" : ev.key;
+  // (U27: the key's name in lower case: with Shift held a letter comes as its capital, and F pressed while you sprint
+  // must still take the ball, a held W must still be W)
+  const k = ev.key === " " ? "space" : typeof ev.key === "string" && ev.key.length === 1 ? ev.key.toLowerCase() : ev.key === "Shift" ? "shift" : ev.key;
   switch (ev.type){
     case "keydown":
       if (ev.prevent) ev.prevent();
@@ -740,7 +742,9 @@ export function controlStep(ms, me, h, opts = {}){
       case "scan": CTRL.scan = {yaw0:P.yaw}; use("scan"); break;
       case "unscan": if (CTRL.scan){ CTRL.scanBack = {from:P.yaw, to:CTRL.scan.yaw0, t:0}; CTRL.scan = null; } break;
       case "rtap": call(ms, me, "here"); break;
-      case "f": CTRL.fT = ms.t; slide(ms, me, ctx); break;
+      // (U27) F takes the ball into close control (within actions.js TAKE.WIN s, once it is within reach and nobody
+      // else's); defending, it is still the slide. In close control it does nothing more
+      case "f": CTRL.fT = ms.t; if (ctx !== "defend" && ctx !== "restart" && !me.ctlOn){ me.takeT = ms.t; use("take"); } slide(ms, me, ctx); break;
       case "space": space(ms, me); break;
       case "ldown": if (ctx === "defend") tackle(ms, me); break;
       case "lup": if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
@@ -774,11 +778,11 @@ export function controlStep(ms, me, h, opts = {}){
   const dball = Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z);
   I.gait = CTRL.walk ? "walk" : CTRL.held.shift && !shieldGait ? "sprint" : "jog";
   if (ctx === "restart"){ I.gait = dball > 8 && !CTRL.walk ? "jog" : "walk"; }
-  // (U26) the ball at your feet: F held with the ball yours, not sprinting (actions.js keepStep); Shift tapped twice
-  // with it: knocked on to run onto (knockOn). A sprint lets a kept ball go, as before
-  const mine = ms.poss.ctl === me.id && ctx !== "restart";
-  I.keep = mine && !!CTRL.held.f && I.gait !== "sprint" && !I.shield;
-  I.knock = mine && CTRL.knockReq;
+  // (U27) close control (F took it, actions.js keepStep): a sprint with it is CTL_SPRINT of your sprint, from Dribbling
+  // (0.85 at 50, 0.95 at 90). Shift tapped twice with the ball yours: knocked on to run onto (knockOn), and close control
+  // ends; F takes it again
+  if (me.ctlOn && I.gait === "sprint"){ const k = clamp(.85 + .1*((me.at.dribbling || 50) - 50)/40, .8, .97); I.speedCap = Math.min(I.speedCap, k*sprintSpeed(me.prm, me.fac)); }
+  I.knock = (ms.poss.ctl === me.id || !!me.ctlOn) && ctx !== "restart" && CTRL.knockReq;
   CTRL.knockReq = false;
   // jockeying (RMB held defending): side-on, at most 3.2 m/s, facing the man on the ball
   CTRL.jockey = ctx === "defend" && CTRL.rmb;
@@ -809,7 +813,8 @@ export function controlStep(ms, me, h, opts = {}){
       // the run bends a little towards the ball (at most 12 degrees off the keys' way, only while it is in front), so a
       // touch that went a little wide is followed rather than run past: the ball stays yours until you choose otherwise
       const b = ms.ball, bx = b.p.x + b.v.x*.25 - me.m.x, bz = b.p.z + b.v.z*.25 - me.m.z, bl = Math.hypot(bx, bz);
-      if (bl > .2 && (bx*I.dx + bz*I.dz)/bl > Math.cos(40*DEG)){
+      // (U27: not in close control, where the touches keep it on your way: bent, a knock-on went 12 degrees off it)
+      if (!me.ctlOn && bl > .2 && (bx*I.dx + bz*I.dz)/bl > Math.cos(40*DEG)){
         const cross = I.dx*bz - I.dz*bx, ang = clamp(Math.asin(clamp(cross/bl, -1, 1)), -CN.DRIB_BEND, CN.DRIB_BEND);
         const c = Math.cos(ang), s = Math.sin(ang), nx = I.dx*c - I.dz*s, nz = I.dx*s + I.dz*c;
         I.dx = nx; I.dz = nz;
@@ -1174,8 +1179,9 @@ export function hintsFor(ms, me){
       else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
-      // (U26) F keeps it at your feet, Shift twice knocks it on
-      else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("F", "hold to keep it at your feet", "keep"); add("Shift Shift", "knock it on and run", "knock"); }
+      // (U27) in close control: Shift twice knocks it on; not in it, F takes it
+      else if (me.ctlOn){ add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Shift Shift", "knock it on and run", "knock"); }
+      else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("F", "take control", "take"); }
     }
     else if (CTRL.resolve && CTRL.resolve.kind === "header"){ add("Space", "head it", "header"); add("F+Space", "cushion it down to your feet", "cushion"); }
     else if (CTRL.resolve && CTRL.resolve.kind !== "ground") add("LMB", "volley it", "shoot");
@@ -1183,6 +1189,8 @@ export function hintsFor(ms, me){
       // (UF2-A, U17) a ball on its way to you: how to kill it dead
       add("F", "hold to stop it at your feet", "settle"); add("W A S D", "take it away", "touch"); add("RMB", "pass it first time", "pass");
     }
+    // (U27) a loose ball by you: F takes it into close control
+    else if (ms.ball.state === "free" && ms.poss.ctl < 0 && ms.ball.p.y < .5 && Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z) < 2.5){ add("F", "take control", "take"); add("Shift", "sprint", "sprint"); }
     else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); add("V", "hold to look over your shoulder", "scan"); }
   } else if (ctx === "defend"){
     const c = ms.agents[ms.poss.ctl];

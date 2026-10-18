@@ -1,9 +1,9 @@
-// qa/u26-keep.mjs: USER-ISSUES U26, the ball at your feet (F held) and the knock-on (Shift tapped twice), on the
+// qa/u26-keep.mjs: USER-ISSUES U26, the ball at your feet (since U27: F pressed once, close control) and the knock-on
+// (Shift tapped twice), on the
 // simulation a drill plays on (scen-team.js matchOf), the player's intents set as control.js sets them.
 //   - F held, the ball yours: jogging forward, sideways, backwards, turning back on yourself and standing still, the
 //     ball stays within KEEP_MAX m of you and stays yours, each for 3 s
 //   - standing still, it comes to rest in front of you
-//   - holding Shift (a sprint) lets it go to the strides' dribble (no kept touches)
 //   - R held ("In behind!"): the spot asked for is ahead of your run up the pitch, within 35 degrees of straight at
 //     their goal line, inside the touchlines and the goal line: never sideways or out of play
 //   - Shift tapped twice: it is knocked on, at least 3 m ahead of you sprinting along your way, and you run onto it
@@ -34,7 +34,9 @@ function go(seed = 3){
 // the player's intent for a step: a way (dx, dz) or none, a gait, F held or not, the knock
 function intent(me, dx, dz, gait, keep, knock = false){
   const I = me.intent, l = Math.hypot(dx, dz);
-  I.dx = l ? dx/l : 0; I.dz = l ? dz/l : 0; I.gait = gait; I.keep = keep && gait !== "sprint"; I.knock = knock; I.speedCap = Infinity; I.strafe = false;   // (keep as control.js: a sprint lets it go)
+  // (U27: F is a toggle, me.takeT, actions.js keepStep; the keep flag here presses it once)
+  if (keep && !me.ctlOn && me.takeT == null) me.takeT = 0;
+  I.dx = l ? dx/l : 0; I.dz = l ? dz/l : 0; I.gait = gait; I.knock = knock; I.speedCap = Infinity; I.strafe = false;
   I.face = I.face || {x: 0, z: 0}; I.face.x = -Math.sin(me.m.yaw); I.face.z = -Math.cos(me.m.yaw);
   if (me.drib || l){ const d = me.drib || (me.drib = {dx: 0, dz: 0, gait, speed: 3, t: 0, commit: 0, small: false, start: false}); d.dx = I.dx; d.dz = I.dz; d.gait = gait; d.close = gait === "sprint" ? 0 : 1; if (!l) me.drib = null; }
 }
@@ -65,11 +67,6 @@ for (const [name, way] of Object.entries(ways)){
 {
   const r = run(() => ({x: 0, z: 0}), 3, "jog", true);
   check(r.worst <= KEEP_MAX && r.lost === 0 && r.end <= .6 && r.v < .3, "F held, standing still: the ball comes to rest in front of you, yours", {worst: r.worst, end: r.end, v: r.v});
-}
-{
-  const r = run((t, me) => fwdOf(me), 3, "sprint", true);
-  const kept = r.ms.events.filter(e => e.kind === "touch" && e.keep).length, strides = r.ms.events.filter(e => e.kind === "touch" && e.how === "dribble" && !e.keep && !e.knock).length;
-  check(kept === 0 && r.speed > 6, "holding Shift (a sprint) lets it go: no kept touches while you sprint (the strides' dribble is the game's own)", {kept, strides, worst: r.worst, speed: r.speed});
 }
 {
   const {ms, me} = go();
