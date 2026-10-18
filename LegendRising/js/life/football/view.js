@@ -53,6 +53,7 @@ import {standReach, pokeReach, slideDecel} from "./duel.js";
 import {raiseHand} from "./agent.js";
 import {AUD} from "./audio.js";
 import {overlayCovered} from "../core/quality.js";
+import {ARM} from "../rig.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -180,8 +181,8 @@ export function viewFrame(V, ms, alpha, dt, cam){
   const B = V.src ? V.src.ball : V.ballAt || ms.ball.p, bm = V.ball.mesh;
   if (V.src || V.ballAt) bm.position.set(B.x, B.y, B.z);
   else {
-    const P0 = V.ballPrev;
-    bm.position.set(P0.x + (B.x - P0.x)*alpha, P0.y + (B.y - P0.y)*alpha, P0.z + (B.z - P0.z)*alpha);
+    const P0 = V.ballPrev, ab = Math.max(0, alpha - kickHold(V, ms, alpha, dt)/H);
+    bm.position.set(P0.x + (B.x - P0.x)*ab, P0.y + (B.y - P0.y)*ab, P0.z + (B.z - P0.z)*ab);
   }
   bm.visible = !V.hideAll && !(V.src ? V.src.ballHidden : false);
   ballReadable(V, bm, cam);
@@ -302,8 +303,29 @@ function ballReadable(V, bm, cam){
   }
   if (bm.scale.x !== s) bm.scale.setScalar(s);
 }
-// before each fixed step: where the ball was (for the interpolation)
-export function viewPreStep(V, ms){ const b = ms.ball.p; V.ballPrev.x = b.x; V.ballPrev.y = b.y; V.ballPrev.z = b.z; }
+// before each fixed step: where the ball was (for the interpolation), and how many events there were (kickHold)
+export function viewPreStep(V, ms){ const b = ms.ball.p; V.ballPrev.x = b.x; V.ballPrev.y = b.y; V.ballPrev.z = b.z; V.stepEv = ms.events.length; V.stepNew = true; }
+/* (USER-ISSUES U24) the contact drawn: a kick (a strike, a header) is played before the ball moves in its step, on the
+   ball where that step began (V.ballPrev), which is the drawn moment of alpha 0 after it; a frame drawn at alpha a
+   after it shows the ball a's share of a step gone, and the striking foot, whose clip poses its contact in that same
+   frame (moves.js clock), a share of a step short of it, at 25 m/s up to 0.4 m. So the first frame after the step
+   with a kick draws the ball on its contact (held back by alpha steps), and the frames after give the hold back over
+   KICK_HOLD of their time each (the ball leaves at half its pace for a frame or two, then is where it is). Returns the
+   hold (seconds of the ball's path) */
+const KICK_HOLD = .5;
+function kickHold(V, ms, alpha, dt){
+  V.kLag = Math.max(0, (V.kLag || 0) - KICK_HOLD*Math.max(0, dt));
+  if (V.stepNew){
+    V.stepNew = false;
+    const E = ms.events;
+    for (let i = V.stepEv || 0; i < E.length; i++){
+      const e = E[i];
+      // (a keeper's throw, roll or punt leaves from his hands, which gkBall draws it in)
+      if (e.kind === "kick" && e.agent >= 0 && !e.whiff && e.intent !== "throw" && e.intent !== "roll" && e.intent !== "punt"){ V.kLag = alpha*H; break; }
+    }
+  }
+  return Math.min(V.kLag, alpha*H);
+}
 const _ax = new THREE.Vector3();
 function spin(V, dt){
   const ms = V.ms, b = V.src ? null : ms.ball, bm = V.ball.mesh;
@@ -526,9 +548,12 @@ function liveSt(V, R, a, ms, dt){
         c.mode = "strike"; c.kind = strikeKind(rq); c.side = act.foot === "L" ? "L" : "R";
         c.power = rq.power != null ? rq.power : .6; c.curl = rq.finesse ? 1 : 0; c.lowHigh = rq.contact || 0;
         if (!act.done){
-          const tcl = walkTc >= 0 ? walkTc : Math.max(0, act.tc - act.t - alpha*H);
+          // (USER-ISSUES U24) the contact on the step the simulation strikes in, and the ball where it stands then
+          // (stepAt): timed to act.tc itself the foot met the ball up to a step early and short of a ball moving on
+          const tcl = walkTc >= 0 ? walkTc : stepAt(ms, act, act.tc, alpha, PB);
           c.tc = tcl;
-          predAt(ms, tcl, PB); c.ball = c.ball || {x:0, y:0, z:0}; c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
+          if (walkTc >= 0) predAt(ms, tcl, PB);
+          c.ball = c.ball || {x:0, y:0, z:0}; c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
           const tg = rq.target; c.dir = tg ? dirTo(c, tg.x - PB.x, tg.z - PB.z) : yawDir(c, a.m.yaw);
         } else c.tc = 0;
         return c;
@@ -536,7 +561,7 @@ function liveSt(V, R, a, ms, dt){
       case "tackle": {
         const c = clipFor(R, "tackle", act);
         c.mode = "tackle"; c.kind = act.sub === "poke" ? "poke" : "stand";
-        c.tc = Math.max(0, tackleTc(act) - act.t - alpha*H);
+        c.tc = act.done ? Math.max(0, tackleTc(act) - act.t - alpha*H) : stepAt(ms, act, tackleTc(act), alpha, null);
         // the foot goes to the contact: the simulation's point when it has one, else the ball where it will be at the
         // contact (followed until then: a carrier who touches it on is followed), on the ball's side of the body
         contactOf(ms, a, act, c.tc, c.target || (c.target = {x:0, y:0, z:0}));
@@ -553,7 +578,7 @@ function liveSt(V, R, a, ms, dt){
         c.v0 = act.v0 > 0 ? act.v0 : act.prof ? act.prof.v0 : 5;
         c.decel = act.prof && act.prof.decel > 0 ? act.prof.decel : slideDecel();
         c.dir = act.dir || null; c.dur = act.dur > 0 ? act.dur : 1.9;
-        c.tc = Math.max(0, tackleTc(act) - act.t - alpha*H);
+        c.tc = act.done ? Math.max(0, tackleTc(act) - act.t - alpha*H) : stepAt(ms, act, tackleTc(act), alpha, null);
         contactOf(ms, a, act, c.tc, c.target || (c.target = {x:0, y:0, z:0}));
         c.side = act.side === "L" || act.side === "R" ? act.side : sideOf(a, c.target);
         // the clip slides the body along its own curve from where the slide began: the group stays there
@@ -564,8 +589,11 @@ function liveSt(V, R, a, ms, dt){
         const c = clipFor(R, "header", act);
         c.mode = "header"; c.take = act.dive ? "dive" : act.standing ? "stand" : "jump";
         c.jump = clamp((act.v0*act.v0/(2*9.81))/(.55*(a.scale || 1)), .1, 1.2);
-        c.tc = Math.max(0, act.tc - act.t - alpha*H);
-        predAt(ms, c.tc, PB); c.ball = c._ball || (c._ball = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
+        // (the simulation heads it on the first step the ball is at his head from act.tc on, which can be a few steps
+        // after it: until it has, the contact is the next step, the head on the ball as it comes; stepAt)
+        // (HEAD_WAIT at most: a header the simulation never makes, the ball over him, plays on through its landing)
+        if (!act.done && act.t < act.tc + HEAD_WAIT){ c.tc = stepAt(ms, act, act.tc, alpha, PB); c.ball = c._ball || (c._ball = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z; }
+        else { c.tc = 0; if (!c._ball){ predAt(ms, 0, PB); c.ball = c._ball = {x:PB.x, y:PB.y, z:PB.z}; } c.ball = c._ball; }
         const tg = act.target; c.dir = tg ? dirTo(c, tg.x - a.m.x, tg.z - a.m.z) : yawDir(c, a.m.yaw);
         c.groupY = act.dive ? 0 : (a.y || 0);
         return c;
@@ -615,6 +643,20 @@ const WALKUP = Object.freeze({BACK:.62, V:.5, LEAD:.55});
 // is this body shielding the ball now: the engine's resolved shield (actions.js a.shield.on) when it has one, else its
 // intent (the AI's or yours); never in the middle of an action
 const shielding = a => !a.act && (a.shield ? !!a.shield.on : !!(a.intent && a.intent.shield));
+/* (USER-ISSUES U24) the time from the drawn moment to an act's moment tAct (seconds into the act), as the simulation
+   takes it: in the step whose end has act.t reach it (actions.js: act.t >= tAct, act.t counted on in whole steps), at
+   least the next one (an act whose moment has passed and not yet happened, a header waiting for the ball at his head,
+   is the next step's, every step until it is). The simulation plays the act before the ball moves in that step, so the
+   ball it meets is where it stands at the step's start; that is the drawn moment of it (drawnT: alpha 0 after the step),
+   (n - alpha) steps from now, and the ball then (predOn, (n - 1) steps on from the ball now) goes in out. Timed to tAct
+   itself the clip met the ball up to a step before the simulation did, and a ball predicted a step too far on.
+   HEAD_WAIT: how long past its act.tc a header's clip waits for the simulation's contact (s) */
+const HEAD_WAIT = .15;
+function stepAt(ms, act, tAct, alpha, out){
+  const n = Math.max(1, Math.ceil((tAct - act.t - 1e-9)/H));
+  if (out){ predSync(ms); predOn(ms, (n - 1)*H, out); }
+  return Math.max(0, (n - alpha)*H);
+}
 // a tackle's or a slide's contact time (seconds into it): the simulation's act.tc, else its tEff
 const tackleTc = act => act.tc != null ? act.tc : act.tEff != null ? act.tEff : .3;
 // where the tackling foot meets the ball: act.contact (the simulation's), else the ball predicted at the contact
@@ -1016,7 +1058,12 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   // way in the group's own frame, and the blend into the new pose starts from where the body really was drawn. Without
   // it the blend carried the slide's whole travel: the body shot out ahead of the eye and slid back over a second
   rebase(h, V.fpBase || (V.fpBase = {x:0, z:0, at:false, ok:false}), st !== FPST && !!st.groupAt);
-  const mask = animateHuman(h, dt, st).mask;
+  // ((P9-A, MV-15) a receive or a strike in your eyes keeps its hands out of the middle of the view as you look down,
+  // as the gait's arms-in does: fpClipArms, at V.fpArms, for this pose only; the clip is your whole body's too)
+  const armFix = st !== FPST && (st.mode === "receive" || st.mode === "strike") && V.fpArms > 0 && !st.correct;
+  if (armFix){ FPARM.k = V.fpArms; st.correct = fpClipArms; }
+  let mask;
+  try { mask = animateHuman(h, dt, st).mask; } finally { if (armFix) st.correct = null; }
   // ((P9-A, MV-15) the clip posed in your eyes this frame, for the camera's action springs: matchcam.js clipCam)
   V.fpClipNow = st === FPST ? null : st;
   // (U12) your clip ends where it plays: in your eyes. Your whole body is not drawn while you look through them (its
@@ -1026,6 +1073,24 @@ export function fpPose(V, x, z, yaw, dt, o = {}){
   if (a && st !== FPST && (mask & EV.END)){ const R = V.rec[a.id]; if (R && R.clip === st){ R.doneAct = R.clip.ref; R.clip = null; } }
   if (a && V.rec[a.id]) throwBall(V, V.rec[a.id], a, ms, h, dt, "thwFP");
   return mask;
+}
+
+/* (P9-A, MV-15) the arms of a clip in your eyes eased toward hanging back and out at your sides, the forearms
+   straighter (the gait's arms-in, gait.js: the upper arm 0.3 rad back and 0.3 out, the elbow at 0.25), by FPARM.k
+   times 0.85: a receive's or a strike's arms out for balance put a hand in the middle of the view as you looked down
+   at the ball */
+const FPARM = {k:0}, _fqa = new THREE.Quaternion(), _fqb = new THREE.Quaternion(), _fea = new THREE.Euler();
+function fpClipArms(h, Q){
+  const k = clamp(FPARM.k, 0, 1)*.85; if (!(k > 0)) return;
+  for (let s = 1; s >= -1; s -= 2){
+    const A = ARM(s);
+    for (let j = 0; j < 2; j++){
+      const b = A[j]*4;
+      if (j === 0) _fea.set(.3, 0, s*.3, "XYZ"); else _fea.set(-.25, -s*.25, 0, "XYZ");
+      _fqb.setFromEuler(_fea); _fqa.set(Q[b], Q[b + 1], Q[b + 2], Q[b + 3]).slerp(_fqb, k);
+      Q[b] = _fqa.x; Q[b + 1] = _fqa.y; Q[b + 2] = _fqa.z; Q[b + 3] = _fqa.w;
+    }
+  }
 }
 
 /* ---------- events the view keeps an eye on (controller.js wires them) ---------- */

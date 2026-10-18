@@ -15,7 +15,9 @@
    Clips are time based: each has dur and contact in seconds at rate 1. st.tc, when given, is the time from now to the
    contact the simulation has scheduled (a countdown, as view.js passes it: (stepContact - step - alpha)/60); the part
    of the clip before contact plays at rate (contact - clipTime)/(time left), clamped to [0.4, 2] (U24), re-aimed every
-   call; after contact it plays at rate 1. The contact event fires at the scheduled moment whatever the pose: when the
+   call, and waits at the contact for a contact later than that (it never plays past it before the contact); after
+   contact it plays at rate 1, from the contact pose in the call that reaches it (the time past it in that call is not
+   played on). The contact event fires at the scheduled moment whatever the pose: when the
    clamp kept the clip from getting there, h.ev.reachErr says by how much (clip seconds; 0 means the pose and the
    schedule agree). Without st.tc the clip runs at rate 1 (st.rate scales it). Legacy st.t (0..1 of the clip) is honoured.
    Events (EV from gait.js): PLANT (the support foot down), TAKEOFF, CONTACT, RELEASE, LAND, END, each with h.ev.at
@@ -169,7 +171,10 @@ function newClip(h, key, st, spec){
   // (USER-ISSUES U24) a contact sooner than the clip can reach at its fastest (CLIP_RATE_MAX times its own pace): it
   // begins that much further into its swing (a shorter backswing), so the foot meets the ball when the simulation
   // strikes it. Begun at the top, a strike struck within 0.18 s of being asked had its leg still swinging as the ball left
-  if (!C.legacy && st.tc != null && isFinite(st.tc) && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*st.tc) C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*st.tc);
+  // (C.late: the clip time it began at when it began late so, else -Infinity; the strike's swing and its plant step go
+  // from where the feet are at that moment, strike(): begun part way along their paths, they were drawn there at once)
+  C.late = -Infinity;
+  if (!C.legacy && st.tc != null && isFinite(st.tc) && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*st.tc){ C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*st.tc); C.late = C.tau; }
   if (!C.legacy){ C.tcAt = st.tc != null && isFinite(st.tc) ? Math.max(0, h.at - C.base + st.tc) : (C.contact - C.tau)/C.post; }
   return C;
 }
@@ -206,13 +211,18 @@ function clock(h, key, st, spec){
     const rem = C.tcAt - T0;
     const rate = rem > 1e-6 ? clamp((C.contact - C.tau)/rem, CLIP_RATE_MIN, CLIP_RATE_MAX) : CLIP_RATE_MAX;
     C.rate = rate;
+    // ((USER-ISSUES U24) a clip that gets to its contact before the simulation does waits on it there, and the call that
+    // reaches the simulation's contact poses the contact itself: the time past it inside this call (under a frame) is
+    // not played on, the clip running that much behind from then, as the drawn ball is held on the contact for that
+    // frame (view.js kickHold). Played on, the foot was up to a frame past the ball in the frame the kick is drawn in,
+    // and a clip ahead of a late contact (a header waiting for the ball at his head) had already swung through)
     if (T >= C.tcAt - 1e-9){
-      const tauC = C.tau + rate*Math.max(0, C.tcAt - T0);
+      const tauC = Math.min(C.contact, C.tau + rate*Math.max(0, C.tcAt - T0));
       C.reachErr = Math.abs(C.contact - tauC) < 1e-6 ? 0 : C.contact - tauC;
-      C.tau = (C.reachErr === 0 ? C.contact : tauC) + (T - C.tcAt)*C.post;
+      C.tau = C.reachErr === 0 ? C.contact : tauC;
       C.contactDone = true;
       fire(h, C, EV.CONTACT, C.tcAt, adt, T);
-    } else C.tau += rate*dt;
+    } else C.tau = Math.max(C.tau, Math.min(C.contact, C.tau + rate*dt));
   } else C.tau += dt*C.post;
   // the clip's other moments, by its own time (their real time interpolated inside this step)
   if (C.events){
@@ -857,7 +867,10 @@ function strike(h, T, st, dt){
     const ball = st.ball || defaultBall(h, kickS, f);
     d.bx = ball.x; d.by = ball.y != null ? ball.y : BR; d.bz = ball.z;
     const Fp = C.feet[iS];
-    const p = C.fromHold ? {x:Fp.x, z:Fp.z, yaw:BT.ry + Fp.yaw} : st.plant || plantSpot(k, kickS > 0 ? "L" : "R", {x:d.bx, y:d.by, z:d.bz}, f, sc, {x:0, z:0, yaw:0});
+    // ((USER-ISSUES U24) begun late, at or past the plant's moment: struck off the foot he stands on, where it is; a
+    // plant spot elsewhere had that foot drawn there in one frame)
+    const late = !C.fromHold && C.late > -(C.back || 0) - 1e-6;
+    const p = C.fromHold || late ? {x:Fp.x, z:Fp.z, yaw:BT.ry + Fp.yaw} : st.plant || plantSpot(k, kickS > 0 ? "L" : "R", {x:d.bx, y:d.by, z:d.bz}, f, sc, {x:0, z:0, yaw:0});
     // (from a held wind-up the support foot stays planted where the hold had it; every joint goes on from the held pose
     // under the same speed limit, so the hand-over needs no blend)
     if (C.fromHold) h.heldAt = null;
@@ -892,7 +905,8 @@ function strike(h, T, st, dt){
   // (USER-ISSUES U24) up to contact the swing goes where the ball will be as the view says now (st.ball, the
   // simulation's own prediction at its contact), not where it was thought to be when the strike began: a ball still
   // moving, or a contact moved by a stride, left the foot short of it or wide. The planted foot stays where it went down
-  if (st.ball && tau < ct){ d.bx = st.ball.x; d.by = st.ball.y != null ? st.ball.y : BR; d.bz = st.ball.z; }
+  // (and while the clip waits at its contact for the simulation's, moves.js clock)
+  if (st.ball && !C.contactDone){ d.bx = st.ball.x; d.by = st.ball.y != null ? st.ball.y : BR; d.bz = st.ball.z; }
   const ball = _b4; ball.x = d.bx; ball.y = d.by; ball.z = d.bz;
   const fx = d.fx, fz = d.fz;
   leftOf(fx, fz, _l2); const lx = _l2.x, lz = _l2.z;
@@ -901,15 +915,18 @@ function strike(h, T, st, dt){
   const tPre = -C.pre;
   const groundY = d.gy + D.ankY*sc;
   const tP = -(C.back || 0);                                // the plant comes down
+  // ((USER-ISSUES U24) a clip begun late, part way into the plant step (C.late), steps from where the foot is then over
+  // what is left of it, rather than from the step's own start)
+  const t0 = C.late > tPre ? C.late : tPre, sT = C.late > tPre ? Math.max(1e-3, tP - t0) : Math.max(.05, tP - tPre);
   if (tau < tP && d.sw){
     // a run-up's last swing, taken over from the gait in flight: the same path it was on (from where the swing began,
     // over the ground with zero speed at both ends, the foot lifted at mid-swing), now ending on the plant exactly
-    const v = clamp((tau - tPre)/Math.max(.05, tP - tPre), 0, 1), w = d.sw, u = w.u0 + (1 - w.u0)*v, k = ease(Math.min(1, u/.95));
+    const v = clamp((tau - t0)/sT, 0, 1), w = d.sw, u = w.u0 + (1 - w.u0)*v, k = ease(Math.min(1, u/.95));
     Fs.x = w.x0 + (d.px - w.x0)*k; Fs.z = w.z0 + (d.pz - w.z0)*k;
     Fs.y = lerp(w.y0, groundY, ease(u)) + w.lift*Math.sin(Math.PI*u)*(1 - sstep(.85, 1, u));
     Fs.yaw = lerp(d.syaw0, d.pyaw, ease(v)); Fs.pitch = lerp(d.sp0, 0, ease(v)); Fs.roll = 0; Fs.down = v >= 1;
   } else if (tau < tP){
-    const u = clamp((tau - tPre)/Math.max(.05, tP - tPre), 0, 1), e = ease(u);
+    const u = clamp((tau - t0)/sT, 0, 1), e = ease(u);
     Fs.x = lerp(d.sx0, d.px, e); Fs.z = lerp(d.sz0, d.pz, e); Fs.y = lerp(d.sy0, groundY, e) + .07*sc*bump(u);
     Fs.yaw = lerp(d.syaw0, d.pyaw, e); Fs.pitch = -.15*bump(u); Fs.roll = 0; Fs.down = u >= 1;
   } else {
@@ -1116,7 +1133,11 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   // a strike from a stand lifts it as the plant comes down) through the backswing to the ball, arriving along the aim at
   // the foot's speed; then up into the follow-through and down onto its landing. (One cubic each side of the contact,
   // so no joint has to turn faster than about 0.3 rad a frame at 60 Hz.)
-  const tK0 = C.back ? -C.back - .03 : 0, W = Math.max(.12, ct - tK0);
+  // ((USER-ISSUES U24) a clip begun late, past the swing's own start (C.late), swings from where the foot is then
+  // over the time left to the contact, a shorter backswing: begun part way along the curve, the foot was drawn there at
+  // once)
+  const tKs = C.back ? -C.back - .03 : 0, lateK = !C.fromHold && C.late > tKs;
+  const tK0 = lateK ? C.late : tKs, W = lateK ? Math.max(1e-3, ct - tK0) : Math.max(.12, ct - tK0);
   const vend = clamp(.55*d.vFoot, 3.5, 8.5)*sc;
   // (the follow-through takes at most 45% of what is left after the contact; the landing has the rest)
   const dft = Math.hypot(tx - ax, ty - ay, tz - az), Tft = Math.min(clamp(dft/(.4*d.vFoot), .28, .4), (dur - ct)*.45);
@@ -1577,6 +1598,10 @@ function header(h, T, st, dt){
     else { toW(0, hp.take === "dive" ? .7 : 1.75 + (hp.v0*hp.v0/(2*G))/sc, hp.take === "dive" ? 1.2 : .12, _w3); d.bx = _w3.x; d.by = _w3.y; d.bz = _w3.z; }
     d.f0 = C.feet.map(f => ({x:f.x, y:f.y, z:f.z, yaw:f.yaw}));
   }
+  // (USER-ISSUES U24) up to contact the head goes where the ball will be as the view says now (st.ball, the
+  // simulation's own ball on the step it heads it), as a strike's foot does: the ball as first predicted, a cross still
+  // bending or dropping, left the brow up to a third of a metre off it when the simulation headed it
+  if (st.ball && !C.contactDone){ d.bx = st.ball.x; d.by = st.ball.y; d.bz = st.ball.z; }
   if (hp.take === "dive") return diveHeader(h, T, C, d, hp, st);
   // legacy drills ask for st.t with their own ball: the old clip's shape on the new timing
   const J = hp.take === "jump" ? jumpRoot({v0:hp.v0, tLoad:hp.tLoad}, tau, _jr) : null;
@@ -1599,7 +1624,9 @@ function header(h, T, st, dt){
   dirB(d.fx, d.fz, _d2);
   const tx = _b3.x - _d2.x*BR*.9/sc, tz = _b3.z - _d2.z*BR*.9/sc, ty = _b3.y;
   T[60] += clamp(tx - _V.x, -.3, .3)*wC; T[62] += clamp(tz - _V.z, -.3, .3)*wC;
-  if (!air) T[61] += clamp(ty - _V.y, -.25, 0)*wC;
+  // (in the air the hips may come up or down to it too, a quarter metre at most: the leap was sized by the simulation to
+  // a ball it predicted, and the jump curve here is the clip's own)
+  T[61] += clamp(ty - _V.y, -.25, air ? .25 : 0)*wC;
   // arms: up and forward for the leap (elbows out to the sides), down through the landing
   const aUp = J ? kf(tau, [[0, .2], [hp.tLoad*.8, -.4], [hp.tLoad + .1, 1.6], [ct, 1.3], [ct + .2, .5], [hp.dur, .15]]) : .3 + .3*wC;
   armPose(T, 1, J ? .5 + .2*sstep(hp.tLoad, ct, tau) : .35, aUp, 1.0); armPose(T, -1, J ? .5 + .2*sstep(hp.tLoad, ct, tau) : .35, aUp, 1.0);
