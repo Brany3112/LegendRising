@@ -24,15 +24,18 @@ export const STAM = {
   SPRINT: 9,                  // breath per second sprinting, times ks
   RUN: 1.2,                   // breath per second running over RUN_V without sprinting, times ks
   RUN_V: 5.0, JOG_V: 2.3, WALK_V: 0.3,   // effort thresholds (3.1.6)
-  REC: {stand: 10, walk: 8, jog: 4.5, run: 0, sprint: 0},   // recovery per second, before the stamina and energy terms
+  // (U28 part C: about 60% of what it was, which had a player back to a full sprint in 6.5 s standing and 14 s jogging,
+  // so in a match everyone finished as fresh as he began: now about 11 s and 25 s at Stamina 50)
+  REC: {stand: 6, walk: 5, jog: 2.6, run: 0, sprint: 0},   // recovery per second, before the stamina and energy terms
   DELAY: 0.5,                 // recovery starts this long after the last drain
   ACT: {shot: 3, slide: 6, jump: 3, tackle: 2, pass: 0.5},  // breath points per action
   BF_FULL: 35,                // at or above this much breath nothing is lost
   SPRINT_TAU: 30              // seconds: the time constant of sprintFrac, the recent share of time spent sprinting
 };
 
-// ks: how hard a sprint drains you for a stamina skill (24: 1.13, 50: 1.0, 99: 0.755)
-export const ksOf = stamina => 1.25 - 0.5*clamp(stamina == null ? 50 : stamina, 0, 100)/100;
+// ks: how hard a sprint drains you for a stamina skill (30: 1.17, 50: 1.0, 90: 0.66, 99: 0.58). (U28 part C: a full sprint
+// from full breath lasts about 7 s at 50 and 11 s at 90 before it fades; it was 0.8 at 90, 9 s, and the skill hardly told)
+export const ksOf = stamina => Math.max(.45, 1.43 - 0.0086*clamp(stamina == null ? 50 : stamina, 0, 100));
 // eF: the long-term energy factor, 0.6 when empty to 1 from energy 60
 export const effF = energy => 0.6 + 0.4*sstep(0, 60, energy == null ? 100 : energy);
 

@@ -20,8 +20,9 @@ const check = (pass, name, value) => {
 const r2 = v => Math.round(v*100)/100;
 const h = 1/60;
 
-// a full sprint from 100 lasts 9.3 to 10.3 s (stamina 24), 10.5 to 11.7 s (50), 14.0 to 15.4 s (99)
-for (const [stamina, lo, hi] of [[24, 9.3, 10.3], [50, 10.5, 11.7], [99, 14.0, 15.4]]){
+// a full sprint from 100 lasts 8.6 to 9.6 s (stamina 24), 10.5 to 11.7 s (50), 18.2 to 20.2 s (99) to empty. (U28 part C:
+// the Stamina skill spreads it wider, stamina.js ksOf; it was 9.3 to 10.3 and 14.0 to 15.4 s)
+for (const [stamina, lo, hi] of [[24, 8.6, 9.6], [50, 10.5, 11.7], [99, 18.2, 20.2]]){
   const st = createStam({stamina, energy: 100, fatigue: 0});
   let t = 0;
   while (st.B > 0 && t < 60){ stamStep(st, h, 'sprint', {stamina, eF: 1}); t += h; }
@@ -64,26 +65,33 @@ for (const [stamina, lo, hi] of [[24, 9.3, 10.3], [50, 10.5, 11.7], [99, 14.0, 1
   check(a === keep && Object.keys(b).every(k => a[k] === b[k]), "stamFactors fills an object it is given, with the same numbers");
 }
 
-// 3 s sprints with 4 s walks never drop below 70 over 5 minutes: with the mover (a sprint from a walk, so the run-up
-// counts as it would on the pitch) at stamina 24, 50 and 99, and as bare efforts at stamina 50 and 99
+// (U28 part C) before it fades (the breath down to STAM.BF_FULL, where the speed starts to go): 6 to 8 s at stamina 50,
+// 10 to 12 s at 90
+for (const [stamina, lo, hi] of [[50, 6, 8], [90, 10, 12]]){
+  const st = createStam({stamina, energy: 100, fatigue: 0});
+  let t = 0;
+  while (st.B > STAM.BF_FULL && t < 60){ stamStep(st, h, 'sprint', {stamina, eF: 1}); t += h; }
+  check(t >= lo && t <= hi, `a full sprint from full breath holds its speed ${lo} to ${hi} s at stamina ${stamina}`, r2(t));
+}
+// a match's rhythm, a 3 s sprint every 30 s with a jog and a walk between, keeps a player above 60 for 10 minutes at
+// stamina 24, 50 and 99 (with the mover: the run-up counts as on the pitch). (U28 part C: the old check, 3 s sprints with
+// only 4 s walks between, 43% of the time sprinting, kept everyone above 70: nobody could tire)
 for (const stamina of [24, 50, 99]){
   const prm = moverParams({pace: 50}, "football"), m = createMover({yaw: -Math.PI/2});
   const st = createStam({stamina}), ctx = {stamina, eF: 1};
   let minB = st.B;
-  for (let t = 0; t < 300; t += 7){
+  for (let t = 0; t < 600; t += 30){
     for (let i = 0; i < 180; i++){ moverStep(m, {dx: 1, dz: 0, gait: 'sprint'}, prm, stamFactors(st, 1), h); stamStep(st, h, effortOf(m.gait, m.speed, prm.run), ctx); minB = Math.min(minB, st.B); }
-    for (let i = 0; i < 240; i++){ moverStep(m, {dx: 1, dz: 0, gait: 'walk'}, prm, stamFactors(st, 1), h); stamStep(st, h, effortOf(m.gait, m.speed, prm.run), ctx); minB = Math.min(minB, st.B); }
+    for (let i = 0; i < 1080; i++){ moverStep(m, {dx: 1, dz: 0, gait: i < 720 ? 'jog' : 'walk'}, prm, stamFactors(st, 1), h); stamStep(st, h, effortOf(m.gait, m.speed, prm.run), ctx); minB = Math.min(minB, st.B); }
   }
-  check(minB >= 70, `3 s sprints with 4 s walks for 5 minutes stay above 70 (stamina ${stamina}, with the mover)`, r2(minB));
+  check(minB >= 60, `a 3 s sprint every 30 s for 10 minutes stays above 60 (stamina ${stamina})`, r2(minB));
 }
-for (const stamina of [50, 99]){
-  const st = createStam({stamina}), ctx = {stamina, eF: 1};
-  let minB = st.B;
-  for (let t = 0; t < 300; t += 7){
-    for (let i = 0; i < 180; i++){ stamStep(st, h, 'sprint', ctx); minB = Math.min(minB, st.B); }
-    for (let i = 0; i < 240; i++){ stamStep(st, h, 'walk', ctx); minB = Math.min(minB, st.B); }
-  }
-  check(minB >= 70, `3 s sprints with 4 s walks for 5 minutes stay above 70 (stamina ${stamina}, bare efforts)`, r2(minB));
+// 3 s sprints with 4 s walks run a player down, the higher his Stamina the later: the first time the breath is under
+// STAM.BF_FULL comes later at 50 than at 24, and later at 99 than at 50
+{
+  const under = stamina => { const st = createStam({stamina}), ctx = {stamina, eF: 1}; for (let t = 0; t < 600; t += h){ stamStep(st, h, (t % 7) < 3 ? 'sprint' : 'walk', ctx); if (st.B < STAM.BF_FULL) return t; } return 600; };
+  const u = [under(24), under(50), under(99)];
+  check(u[0] < u[1] && u[1] < u[2] && u[0] < 600, "3 s sprints with 4 s walks run a player down, later the higher his Stamina", u.map(r2));
 }
 
 // recovery: nothing for 0.5 s after the last drain, then it rises (within 0.6 s of release), at the 1.5.2 rates
@@ -95,14 +103,14 @@ for (const stamina of [50, 99]){
   check(rose != null && rose > 0.5 - 1e-9 && rose <= 0.6, "breath starts to rise 0.5 s after a sprint and within 0.6 s", r2(rose));
   const s2 = createStam({stamina: 50}); s2.B = 40;
   for (let i = 0; i < 60; i++) stamStep(s2, h, 'stand', ctx);
-  check(Math.abs(s2.B - 50) < 1e-6, "standing recovers 10 a second at stamina 50, energy full", r2(s2.B));
+  check(Math.abs(s2.B - (40 + STAM.REC.stand)) < 1e-6, `standing recovers ${STAM.REC.stand} a second at stamina 50, energy full`, r2(s2.B));
   const s3 = createStam({stamina: 99}); s3.B = 40;
   for (let i = 0; i < 60; i++) stamStep(s3, h, 'jog', {stamina: 99, eF: 0.6});
-  check(Math.abs(s3.B - (40 + 4.5*(0.7 + 0.6*0.99)*(0.75 + 0.25*0.6))) < 1e-6, "jog recovery 4.5 times the stamina and energy terms", r2(s3.B));
+  check(Math.abs(s3.B - (40 + STAM.REC.jog*(0.7 + 0.6*0.99)*(0.75 + 0.25*0.6))) < 1e-6, `jog recovery ${STAM.REC.jog} times the stamina and energy terms`, r2(s3.B));
   const s4 = createStam({stamina: 50}); s4.B = 50;
   for (let i = 0; i < 60; i++) stamStep(s4, h, 'run', ctx);
   check(Math.abs(s4.B - (50 - 1.2)) < 1e-6, "running over 5 m/s without sprinting drains 1.2 x ks a second", r2(s4.B));
-  check(Math.abs(ksOf(24) - 1.13) < 1e-12 && ksOf(50) === 1 && Math.abs(ksOf(99) - 0.755) < 1e-12, "ks by stamina");
+  check(Math.abs(ksOf(24) - 1.2236) < 1e-9 && Math.abs(ksOf(50) - 1) < 1e-9 && Math.abs(ksOf(90) - 0.656) < 1e-9 && Math.abs(ksOf(99) - 0.5786) < 1e-9, "ks by stamina (U28 part C: 1.22 at 24, 1 at 50, 0.66 at 90, 0.58 at 99)", [ksOf(24), ksOf(50), ksOf(90), ksOf(99)]);
 }
 
 // cap: 86 at energy 40, 64 at energy 20, 81 at fatigue 80 (+-1); the pool never exceeds it
