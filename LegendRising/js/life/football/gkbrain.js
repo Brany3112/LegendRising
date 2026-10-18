@@ -69,7 +69,7 @@ function positionTarget(ms, a, out){
   const g = a.gk, KA = at(a), dir = ms.dirs[a.team], gx = goalX(ms, a), b = ms.ball.p;
   const dBall = hypot(b.x - gx, b.z);
   // the positioning error, resampled every 2 s
-  if (ms.t - g.errT >= GK.POS_ERR_T){ g.errT = ms.t; g.errZ = truncNormal(ms.r, GK.POS_ERR*(1 - KA.posit/100), 2.5); }
+  if (ms.t - g.errT >= GK.POS_ERR_T){ g.errT = ms.t; g.errZ = truncNormal(ms.r, GK.POS_ERR*Math.max(0, 1 - KA.posit/100), 2.5); }
   // on the line from the ball to the goal centre, off the line by 0.8 + 0.06 (d - 6), 0.6 to 4.5
   const off = clamp(GK.OFF[0] + GK.OFF[1]*(dBall - GK.OFF[2]), GK.OFF[3], GK.OFF[4]);
   const vx = b.x - gx, vz = b.z, vl = hypot(vx, vz) || 1;

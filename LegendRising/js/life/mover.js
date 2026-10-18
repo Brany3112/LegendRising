@@ -24,7 +24,8 @@ import {FRESH} from "./stamina.js";
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
 const DEG = Math.PI/180;
-const skill = v => clamp(v == null || !Number.isFinite(+v) ? 50 : +v, 1, 99);
+// ((U28 part D) up to 110: a boosted skill's play value, attrs.js playOf, goes past 99)
+const skill = v => clamp(v == null || !Number.isFinite(+v) ? 50 : +v, 1, 110);
 
 // below this speed the velocity has no direction worth keeping: the heading takes the wish direction at once
 const SNAP_V = 0.05;
@@ -60,7 +61,7 @@ export function createMover({x = 0, z = 0, yaw = 0} = {}){
 // footballer's time. Under 50 as before)
 export const MOVE = Object.freeze({ACC_TOP: 1.35, A0_MUL: 1.1, SPEED_MUL: 1.05});
 export function accelMul(acc){
-  const a = clamp(acc == null || !Number.isFinite(+acc) ? 50 : +acc, 1, 99);
+  const a = clamp(acc == null || !Number.isFinite(+acc) ? 50 : +acc, 1, 110);
   return a >= 50 ? 1 + (MOVE.ACC_TOP - 1)*(a - 50)/49 : Math.max(0.55, a >= 40 ? 1 - 0.02*(50 - a) : 0.8 - 0.018*(40 - a));
 }
 export function moverParams(skills = {}, profile = "football", items = {}){

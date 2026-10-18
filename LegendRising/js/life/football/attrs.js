@@ -13,6 +13,15 @@ import {TUNE} from "./tune.js";
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const r1 = v => Math.round(v*10)/10;
 
+/* (U28 part D) skills past 99. A player's own skill grows to 99; boosts (equipment, traits, perks: career.js skillBoost)
+   take the effective skill past it, up to SKILL.EFF_MAX. The match plays it through playOf: the same up to 99, then
+   SKILL.SOFT of each point more (125 plays as about 109), so every formula keeps getting a little better with it and none
+   is asked about a value far past what it was made for. The effective numbers are kept on the record (a.eff) for the
+   screens */
+export const SKILL = Object.freeze({BASE_MAX: 99, EFF_MAX: 125, SOFT: 0.4});
+export const playOf = v => v <= SKILL.BASE_MAX ? v : SKILL.BASE_MAX + SKILL.SOFT*(Math.min(v, SKILL.EFF_MAX) - SKILL.BASE_MAX);
+export const PLAY_MAX = playOf(SKILL.EFF_MAX);
+
 // the 14 career skills (js/data/game.js SKILLS), in that order
 export const SKILL_KEYS = Object.freeze(["power", "aero", "curve", "accuracy", "passing", "passacc", "pace", "dribbling",
   "stamina", "composure", "tackling", "interception", "jumping", "heading"]);
@@ -71,14 +80,14 @@ export const defAwareOf = a => a && a.defAware != null ? +a.defAware : clamp(TUN
 function derive(a, o = {}){
   if (a.acceleration == null) a.acceleration = a.pace;
   if (a.sprintSpeed == null) a.sprintSpeed = a.pace;
-  a.acceleration = clamp(a.acceleration, 1, 99); a.sprintSpeed = clamp(a.sprintSpeed, 1, 99);
+  a.acceleration = clamp(a.acceleration, 1, PLAY_MAX); a.sprintSpeed = clamp(a.sprintSpeed, 1, PLAY_MAX);
   a.pace = (a.acceleration + a.sprintSpeed)/2;
-  a.ctrl = clamp(0.65*a.dribbling + 0.2*a.composure + 0.15*a.passing + (o.control ? 5 : 0), 1, 99);
-  a.passAcc = clamp(0.65*a.passacc + 0.35*a.passing, 1, 99);
+  a.ctrl = clamp(0.65*a.dribbling + 0.2*a.composure + 0.15*a.passing + (o.control ? 5 : 0), 1, PLAY_MAX);
+  a.passAcc = clamp(0.65*a.passacc + 0.35*a.passing, 1, PLAY_MAX);
   a.agility = (a.acceleration + a.dribbling)/2;
   const read = o.dec != null ? clamp(+o.dec, 0, 100) : 0.5*(a.composure + a.passing);
-  a.vision = clamp(0.5*a.passing + 0.2*a.passacc + 0.3*a.composure, 1, 99);
-  a.decision = clamp(0.6*(0.5*a.composure + 0.5*a.passing) + 0.4*read, 1, 99);
+  a.vision = clamp(0.5*a.passing + 0.2*a.passacc + 0.3*a.composure, 1, PLAY_MAX);
+  a.decision = clamp(0.6*(0.5*a.composure + 0.5*a.passing) + 0.4*read, 1, PLAY_MAX);
   a.strength = null; a.balance = null; a.defAware = null;
   a.strength = strengthOf(a); a.balance = balanceOf(a); a.defAware = defAwareOf(a);
   return a;
@@ -91,10 +100,12 @@ function deriveOpts(a){ return {control: !!a.controlBoots, dec: a.decTrait != nu
 // The player's attributes (1.4.13) from his effective skills (bridge.effSkills: S.skills after nerves and tired legs,
 // composure exempt), his items ({grip, strike, control}) and his traits ({team, conf, dec, risk}).
 export function attrsForPlayer(effSkills, items = {}, traits = {}){
-  const a = {};
-  for (const k of SKILL_KEYS) a[k] = clamp(effSkills && effSkills[k] != null ? +effSkills[k] : 50, 1, 99);
+  const a = {}, eff = {};
+  // (U28 part D: the effective skill, up to SKILL.EFF_MAX with boosts, kept in eff; the match plays playOf of it)
+  for (const k of SKILL_KEYS){ eff[k] = clamp(effSkills && effSkills[k] != null ? +effSkills[k] : 50, 1, SKILL.EFF_MAX); a[k] = playOf(eff[k]); }
   // the two speed skills of a migrated career (pace their mean when the record no longer has it)
-  for (const k of SPEED_KEYS) if (effSkills && effSkills[k] != null) a[k] = clamp(+effSkills[k], 1, 99);
+  for (const k of SPEED_KEYS) if (effSkills && effSkills[k] != null){ eff[k] = clamp(+effSkills[k], 1, SKILL.EFF_MAX); a[k] = playOf(eff[k]); }
+  a.eff = eff;
   if (effSkills && effSkills.pace == null && a.acceleration != null && a.sprintSpeed != null) a.pace = (a.acceleration + a.sprintSpeed)/2;
   // (the boots and the decision trait kept on the record, so anything that works the derived numbers out again from
   // moved skills, a warm-up's boost, uses the same ones: deriveOpts)
@@ -182,7 +193,8 @@ export function levelled(at, shift){
 export function raised(at, all = 0, add = {}){
   if (!at) return at;
   const a = Object.assign({}, at);
-  for (const k of SKILL_KEYS.concat(SPEED_KEYS)) if (k !== "pace" && a[k] != null) a[k] = clamp(Math.min(99, a[k] + all + (+add[k] || 0)), 1, 99);
+  // ((U28 part D) a boost past 99 counts SKILL.SOFT a point there, as playOf does)
+  for (const k of SKILL_KEYS.concat(SPEED_KEYS)) if (k !== "pace" && a[k] != null){ const n = all + (+add[k] || 0), v = a[k] + n; a[k] = clamp(a[k] >= SKILL.BASE_MAX ? a[k] + SKILL.SOFT*n : playOf(v), 1, PLAY_MAX); }
   derive(a, deriveOpts(a));
   return a;
 }

@@ -297,9 +297,9 @@ export function sigmaOf(ctx){
     const ball = STRIKE.BALL_STATE[ctx.ballState] || 1;
     const first = ctx.firstTime ? 1 + vIn/30 : 1;
     const fin = ctx.finesse ? 0.85 : 1;
-    return (0.007 + 0.053*pow(1 - acc/100, 1.2))*(0.6 + 0.8*p*p)*over*fatigue*pressure*foot*body*ball*first*fin*scuff;
+    return (0.007 + 0.053*pow(Math.max(0, 1 - acc/100), 1.2))*(0.6 + 0.8*p*p)*over*fatigue*pressure*foot*body*ball*first*fin*scuff;
   }
-  return (0.006 + 0.05*pow(1 - acc/100, 1.4))*pressure*foot*body*fatigue*(ctx.firstTime ? 1.3 : 1)*scuff;
+  return (0.006 + 0.05*pow(Math.max(0, 1 - acc/100), 1.4))*pressure*foot*body*fatigue*(ctx.firstTime ? 1.3 : 1)*scuff;
 }
 
 // The deviation of a strike and where it sends the aim (planShot's first half, shared with a kick's presolve): the

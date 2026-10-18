@@ -775,7 +775,7 @@ function openSheet(kind){
       ${SKILLS.map(([k,n,d]) => { const v = S.skills[k], c = skillCost(v), xp = (S.skillXp && S.skillXp[k]) || 0, need = skillNeed(k), pct = v >= 99 ? 100 : Math.round(100*xp/need);
       return `<div class="skillrow"><div><b>${n}</b><div class="muted small">${d}</div><div class="meter thin"><i style="width:${v}%"></i></div>
         <div class="xprow"><div class="meter xp"><i style="width:${pct}%"></i></div><span class="muted small">${v >= 99 ? "max" : `${Math.round(xp)}/${need} xp`}</span></div></div>
-        <div class="sv">${v}</div><button class="btn sm" ${S.sp >= c && v < 99 ? "" : "disabled"} onclick="A.up('${k}')">+1 (${c})</button></div>`; }).join("")}`;
+        <div class="sv">${skillLabel(k)}</div><button class="btn sm" ${S.sp >= c && v < 99 ? "" : "disabled"} onclick="A.up('${k}')">+1 (${c})</button></div>`; }).join("")}`;
   } else if (kind === "clothes"){
     const shop = S.shopOpenId ? SHOPS.find(s => s.id === S.shopOpenId) : null, r = shopRep(), bonus = styleBonus();
     if (!shop){

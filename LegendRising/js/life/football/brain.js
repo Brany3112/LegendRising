@@ -895,7 +895,7 @@ function carrierAct(ms, a, o){
     case 'shot': {
       // the corner the keeper covers least, low more often than high; power by distance; a curler from range
       const gk = ms.agents[ms.gks[1 - a.team]];
-      const gz = gk ? gk.m.z : 0, mh = 3.66 - (0.35 + 0.35*(1 - at.accuracy/100));
+      const gz = gk ? gk.m.z : 0, mh = 3.66 - (0.35 + 0.35*Math.max(0, 1 - at.accuracy/100));
       let side = (0 - gz) >= 0 ? 1 : -1;
       if (r() < 0.3) side = -side;
       const tz = side*mh, high = r() < 0.3, ty = high ? 1.55 + r()*0.5 : 0.3 + r()*0.45;

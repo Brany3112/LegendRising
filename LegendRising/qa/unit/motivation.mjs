@@ -218,7 +218,8 @@ eq("no match: no boost, no hit", [sk("accuracy"), sk("passing")], [50, 55]);
 run(`MT = {f: {key: "wb-1"}, minute: 20, label: "20'", nerves: 0, tired: 0}; warmBoost.set({rating: "sharp", all: 3, focus: {finishing: 4}, untilMin: 30});`);
 eq("active: all +3, and Finishing +4 on accuracy and power", [sk("accuracy"), sk("power"), sk("passing")], [57, 67, 58]);
 eq("composure gets the boost too", sk("composure"), 43);
-eq("capped at 99", sk("dribbling"), 99);
+// (U28 part D: a boost takes the effective skill past 99, career.js SKILL_EFF_MAX; the match plays it at attrs.js playOf)
+eq("a boost past 99 is kept (98 + 3)", sk("dribbling"), 101);
 eq("effSkills carries it", run(`effSkills().accuracy`), 57);
 eq("S.skills itself never changes", run(`[S.skills.accuracy, S.skills.power]`), [50, 60]);
 const g = run(`warmBoost.get()`);
@@ -237,7 +238,7 @@ eq("another match: the old boost is not this one's", sk("accuracy"), 50);
 run(`MT.label = "FT"; MT.f.key = "wb-1"; MT.minute = 20`);
 eq("full time: off", sk("accuracy"), 50);
 run(`MT = {f: {key: "wb-3"}, minute: 60, label: "60'"}; warmBoost.set({rating: "ready", all: 2, focus: {passing: 3, ballControl: 2}, untilMin: 72})`);
-eq("a skill key and a coach focus id together", [sk("passing"), sk("dribbling"), sk("composure")], [55 + 2 + 3 + 2, 98 + 2 + 2 > 99 ? 99 : 98 + 4, 40 + 2 + 2]);
+eq("a skill key and a coach focus id together", [sk("passing"), sk("dribbling"), sk("composure")], [55 + 2 + 3 + 2, 98 + 2 + 2, 40 + 2 + 2]);   // (U28 part D: past 99 with a boost)
 run(`S.skills.passacc = 50; warmBoost.set({rating: "ready", all: 2, focus: {passing: 3, passacc: 3}, untilMin: 72})`);
 eq("the Passing focus as skills (what the warm-up sends): each once, a skill key never read as a focus id", [sk("passing"), sk("passacc"), sk("accuracy")], [55 + 5, 50 + 5, 50 + 2]);
 eq("rev() moves with set, extend and clear", run(`(() => { const a = warmBoost.rev(); warmBoost.extend(5); const b = warmBoost.rev(); warmBoost.set({all: 1, untilMin: 70}); const c = warmBoost.rev(); return [b - a, c - b]; })()`), [1, 1]);

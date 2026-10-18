@@ -291,15 +291,28 @@ function nervesFor(crowd){ return +(crowdPressure(crowd)*(1 - S.skills.composure
 const NERVES_CAP = .45;
 // what the match takes off today (MT.nerves from the crowd, MT.tired from tired legs), at most NERVES_CAP
 function skillHit(){ const m = typeof MT !== "undefined" && MT ? MT : null; return m ? clamp(num(m.nerves, 0) + num(m.tired, 0), 0, NERVES_CAP) : 0; }
-// ...plus what a good warm-up puts on it while it lasts (warmBoost below, addendum A1.8): read-time as well, never
-// written into S.skills, and capped at 99 like any skill
+// ...plus what a good warm-up puts on it while it lasts (warmBoost below, addendum A1.8), and (U28 part D) what
+// equipment, traits and perks put on it (S.boosts = {source: {skill: points}}, skillBoost): read-time, never written into
+// S.skills. A player's own skill grows to 99 at most; with boosts on top the effective skill goes past it, up to
+// SKILL_EFF_MAX (the match reads it through attrs.js playOf, which keeps it going with diminishing returns)
+const SKILL_EFF_MAX = 125;
+function skillBoost(k){
+  let n = 0; const B = S && S.boosts;
+  if (B && typeof B === "object") for (const src of Object.values(B)) if (src && Number.isFinite(+src[k])) n += +src[k];
+  return n;
+}
+// a skill as the screens show it: the player's own, and what boosts put on it ("88 +9"); past 99 is fine
+function skillLabel(k){
+  const v = S && S.skills ? num(S.skills[k], 0) : 0, b = Math.round(skillBoost(k));
+  return b > 0 ? `${v} +${b}` : b < 0 ? `${v} ${b}` : `${v}`;
+}
 function effSkill(k){
   const v = S && S.skills ? num(S.skills[k], 0) : 0;
-  const up = warmBonus(k);
-  if (k === "composure") return up ? Math.min(99, v + up) : v;
+  const up = warmBonus(k) + skillBoost(k);
+  if (k === "composure") return up ? clamp(v + up, 1, SKILL_EFF_MAX) : v;
   const hit = skillHit();
   const base = hit > 0 ? Math.max(5, Math.round(v*(1 - hit))) : v;
-  return up ? Math.min(99, base + up) : base;
+  return up ? clamp(base + up, 1, SKILL_EFF_MAX) : base;
 }
 function effSkills(){ const out = {}; for (const [k] of SKILLS) out[k] = effSkill(k); return out; }
 

@@ -97,7 +97,7 @@ APPVIEWS.visage = t => {
       <div class="row gap6"><span class="pill">REP ${pad5(me.rep)}</span><span class="pill">WORLD ${pad5(me.wrep)}</span></div></div></div>
       <div class="statgrid">${[["Apps",s.apps],["Goals",s.goals],["Assists",s.assists],["MotM",s.motm],["Dribbles",s.dribbles],["Passes",`${s.spass + s.lpass}/${s.passAtt}`],["Shots on target",`${s.onTarget}/${s.shots}`],["Avg rating",s.apps ? (s.ratingSum/s.apps).toFixed(2) : EMPTY_CELL]].map(([k,v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("")}</div>
       <h4>Career</h4><div class="statgrid">${[["Apps",c.apps],["Goals",c.goals],["Assists",c.assists],["From 20m+",c.longGoals],["Free kicks",c.fkGoals],["Curled",c.curlGoals],["Caps",me.nt.caps],["Europe goals",me.ct.g]].map(([k,v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("")}</div>
-      <h4>Skills</h4>${SKILLS.map(([k,n]) => `<div class="meter-row"><span>${n}</span><div class="meter thin"><i style="width:${S.skills[k]}%"></i></div><b>${S.skills[k]}</b></div>`).join("")}
+      <h4>Skills</h4>${SKILLS.map(([k,n]) => `<div class="meter-row"><span>${n}</span><div class="meter thin"><i style="width:${S.skills[k]}%"></i></div><b>${skillLabel(k)}</b></div>`).join("")}
       <h4>Honours</h4>${[...S.trophies, ...S.awards].map(a => `<div class="small">🏆 ${esc(a.name)} <span class="muted">${a.year}</span></div>`).join("") || `<div class="muted small">Nothing yet.</div>`}
       <h4>History</h4>${S.history.map(h => `<div class="small">${h.year}/${String((h.year+1)%100).padStart(2,"0")} · ${esc(h.club)} · ${h.apps} apps, ${h.goals} G, ${h.assists} A · ${h.avg}</div>`).join("") || `<div class="muted small">First season.</div>`}`;
   } else if (tab === "league"){

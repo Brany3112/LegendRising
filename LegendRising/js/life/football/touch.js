@@ -308,7 +308,7 @@ export function dribbleTouch(agent, ball, dir, speed, ctx, r){
   const leadC = Math.min(leadN, (CLOSE.L0 + CLOSE.LV*v)*Math.sqrt(ctrlLead(ctrl))*(ctx.small ? T.SMALL : 1)*(agent.scale || 1));
   const lead0 = leadN + (leadC - leadN)*cl;
   const angErr = truncNormal(r, (1 - drib/110)*(0.06 + 0.10*v/8)*tired, 2.5);
-  const lead = Math.max(0.1, lead0*(1 + truncNormal(r, 0.15*(1 - drib/100)*tired, 2.5)));
+  const lead = Math.max(0.1, lead0*(1 + truncNormal(r, 0.15*Math.max(0, 1 - drib/100)*tired, 2.5)));
   // the kick speed whose lead peaks at `lead` (bisection on the monotonic gap); a ball touched from further ahead than
   // the usual touch spot (TOUCH_AT: an early touch on a ball he is closing on, WP-F) needs that much less gap, so the
   // ball never runs further ahead than the lead from the spot
@@ -595,7 +595,7 @@ export function headerContact(agent, ball, headPos, intent, ctx, r){
   // the cushioned header (P6-A): the ball taken on the brow and let drop in front, not struck
   if (kind === 'cushion' || kind === 'control'){
     const C = CUSHION, sk = clamp(heading, 0, 99);
-    const sp = clamp(C.MIN + C.K_IN*sIn + C.K_SKILL*(1 - sk/99), C.MIN, C.MAX);
+    const sp = clamp(C.MIN + C.K_IN*sIn + C.K_SKILL*Math.max(0, 1 - sk/99), C.MIN, C.MAX);
     const sigC = (1 - heading/110)*C.ERR;
     const eyC = sigC > 0 ? truncNormal(r, sigC, 2.5) : 0, epC = sigC > 0 ? truncNormal(r, sigC, 2.5) : 0;
     const yc = yaw + eyC, pc = -C.PITCH + epC, dc = dirOf(yc), cc = cos(pc);
