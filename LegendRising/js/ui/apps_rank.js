@@ -28,8 +28,8 @@ function rankDetail(r){
     : "";
   return `<div class="rk-detail">
     <div class="rk-grid">
-      ${stat("Overall", r.ovr || 0)}${stat("Level", r.level || 1)}${stat("Age", r.age || "—")}
-      ${stat("Position", (typeof POS === "object" && POS[r.pos] ? POS[r.pos].name : r.pos) || "—")}
+      ${stat("Overall", r.ovr || 0)}${stat("Level", r.level || 1)}${stat("Age", r.age || EMPTY_CELL)}
+      ${stat("Position", (typeof POS === "object" && POS[r.pos] ? POS[r.pos].name : r.pos) || EMPTY_CELL)}
       ${stat("Seasons", r.seasons || 1)}${stat("Played", playTimeShort(r.playMs))}
     </div>
     <div class="eyebrow">Career</div>
@@ -41,7 +41,7 @@ function rankDetail(r){
     <div class="rk-grid">${stat("Apps", s.apps || 0)}${stat("Goals", s.goals || 0)}${stat("Assists", s.assists || 0)}</div>
     <div class="eyebrow">Off the pitch</div>
     <div class="rk-grid">
-      ${stat("Money", eur(r.money || 0))}${stat("Wage", r.wage ? eur(r.wage) + "/wk" : "—")}
+      ${stat("Money", eur(r.money || 0))}${stat("Wage", r.wage ? eur(r.wage) + "/wk" : EMPTY_CELL)}
       ${stat("Reputation", pad5(r.rep || 0))}${stat("World", pad5(r.wrep || 0))}
       ${stat("Followers", fmt(r.followers || 0))}${stat("Wardrobe", `${r.clothes || 0} items`)}
     </div>
@@ -64,13 +64,13 @@ APPVIEWS.rank = () => {
   const mine = ONLINE.user ? ONLINE.user.uid : null;
   const meAt = rows.findIndex(r => r.uid === mine);
   return {title:"Leaderboard", right,
-    html:`${meAt >= 0 ? `<div class="rk-you">You're <b>${ord(meAt + 1)}</b> of ${rows.length}</div>` : ONLINE.user ? `<div class="rk-you muted">Your career isn't on the board yet — sync it from the menu.</div>` : ""}
+    html:`${meAt >= 0 ? `<div class="rk-you">You're <b>${ord(meAt + 1)}</b> of ${rows.length}</div>` : ONLINE.user ? `<div class="rk-you muted">Your career isn't on the board yet. Sync it from the menu.</div>` : ""}
       <div class="rk-list">${rows.map((r, i) => {
         const c = r.career || {}, open = RANK.open === r.uid;
         return `<div class="rk-row${open ? " open" : ""}${r.uid === mine ? " me" : ""}">
           <button class="rk-head" onclick="rankTap('${esc(r.uid)}')">
             <span class="rk-pos${i < 3 ? " medal" : ""}">${rankMedal(i)}</span>
-            <span class="rk-who"><b>${esc(r.name || "—")}</b><span class="muted small">${esc(r.handle || "")} · ${esc(r.club || "")}</span></span>
+            <span class="rk-who"><b>${esc(r.name || EMPTY_CELL)}</b><span class="muted small">${esc(r.handle || "")} · ${esc(r.club || "")}</span></span>
             <span class="rk-score">${fmt(r.score || 0)}<u>pts</u></span>
             <span class="rk-caret">${open ? "▴" : "▾"}</span>
             <span class="rk-quick"><i>${fmt(c.goals || 0)}<u>G</u></i><i>${fmt(c.assists || 0)}<u>A</u></i><i>${eur(r.money || 0)}</i><i>${esc(r.league || "")}</i></span>

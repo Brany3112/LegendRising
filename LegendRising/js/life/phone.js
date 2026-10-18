@@ -1,19 +1,26 @@
 "use strict";
 /* ============ LIFE: the phone ============
    Three places to be:
-   · the street  — walking about in first person
-   · in hand     — Tab pulls the game's own phone out of your pocket. The keypad phone works with the
+   · the street: walking about in first person
+   · in hand: Tab pulls the game's own phone out of your pocket. The keypad phone works with the
                    arrow keys and you can keep walking; the smartphone frees the mouse and you stand still.
-   · the hub     — Q (or the Hub item on the phone) brings the phone up to your face and it becomes the
+   · the hub: Q (or the Hub item on the phone) brings the phone up to your face and it becomes the
                    full hub. The phone button bottom right puts it back in your pocket. */
 (function(){
   let mode = "street", busy = false;
   const body = document.body;
   const life = () => body.classList.contains("life");
-  const inMatch = () => body.classList.contains("in-match");
   const lp = () => document.getElementById("lifePhone");
   const handOpen = () => typeof PH !== "undefined" && PH.open;
   const smart = () => typeof S !== "undefined" && S && S.phone === "smart";
+  // a first-person match or training session (world modes match and train, marked on the page by modes.js): Q, Tab and
+  // the rest of the phone are not yours there (DESIGN 1.6: Tab is the overview, Q does nothing); the mode's own input
+  // has those keys
+  // (and the Training Mode sandbox, mode-trainsb: P2-A, ball-9 and INF-2)
+  const football = () => body.classList.contains("mode-match") || body.classList.contains("mode-train") || body.classList.contains("mode-trainsb");
+  // the phone and the hub are the career's: with no career loaded (the world walked without one, as Training Mode is)
+  // there is nothing to open, and Q never puts the street into the hub's state, which would hold your keys (INF-2)
+  const career = () => typeof S !== "undefined" && !!S;
   const OPEN_MS = 560, CLOSE_MS = 520;
 
   window.lifeMode = () => mode === "hub" ? "hub" : handOpen() ? "hand" : "street";
@@ -26,27 +33,29 @@
     const on = life() && handOpen() && mode === "street";
     body.classList.toggle("hand", on);
     if (on) h.textContent = smart() ? "Mouse to use the phone · Tab put it away · Q hub"
-                                    : "↑ ↓ choose · Enter select · Backspace back · Tab put it away · Q hub";
+                                    : "Wheel or ↑ ↓ choose · click or Enter select · Esc back · Tab put it away · Q hub";
   }
   window.lifePhoneChanged = hint;            // the game's phone calls this when it opens or closes
 
   /* ---------- Tab: the phone in your hand ---------- */
   window.lifeHand = function(){
-    if (!life() || busy || mode !== "street" || inMatch()) return;
+    if (!life() || busy || mode !== "street" || football() || !career()) return;
     if (handOpen()){
       closePhone(); hint();
       if (window.lifeRelock) window.lifeRelock();
       return;
     }
     const r = document.getElementById("phoneRoot"); if (r) r.classList.remove("hidden");
-    if (smart() && document.exitPointerLock) document.exitPointerLock();
+    // the mouse is the phone's while it's out (the keypad phone too: wheel, click, Esc); the clock keeps running, and
+    // with the keypad phone you can still walk
+    if (document.exitPointerLock) document.exitPointerLock();
     if (window.lifeClearKeys && smart()) window.lifeClearKeys();
     openPhone(); hint();
   };
 
   /* ---------- Q: up to your face, and it becomes the hub ---------- */
   window.lifeHub = function(){
-    if (!life() || busy || mode === "hub" || inMatch()) return;
+    if (!life() || busy || mode === "hub" || football() || !career()) return;
     busy = true; mode = "hub";
     if (handOpen()) closePhone();
     hint();
@@ -69,7 +78,7 @@
 
   /* ---------- the phone button in the hub: back into your pocket ---------- */
   window.lifePutAway = function(){
-    if (!life() || busy || mode !== "hub" || inMatch()) return;
+    if (!life() || busy || mode !== "hub") return;
     busy = true;
     if (typeof closeSheet === "function") closeSheet();
     if (window.resumeLife) window.resumeLife();            // the street is moving again behind the phone
@@ -97,11 +106,16 @@
 
   /* ---------- keys ---------- */
   addEventListener("keydown", e => {
-    if (!life() || inMatch()) return;
+    if (!life()) return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
     if (e.repeat) return;
     const k = e.key.toLowerCase();
+    // nothing comes up over a cinematic (intro.js): the camera is not yours until it hands it back
+    if (window.lifeCine && window.lifeCine()){ if (k === "tab" || k === "q") e.preventDefault(); return; }
+    if (football()) return;
+    // (no career: Tab and Q open nothing; Tab's own default, the page's focus, is kept off the 3D view)
+    if (!career() && mode !== "hub"){ if (k === "tab" || k === "q") e.preventDefault(); return; }
     if (k === "tab"){ e.preventDefault(); if (mode === "hub") return; window.lifeHand(); return; }
     if (k === "q"){ e.preventDefault(); mode === "hub" ? window.lifePutAway() : window.lifeHub(); return; }
     if (k === "escape" && mode === "hub"){

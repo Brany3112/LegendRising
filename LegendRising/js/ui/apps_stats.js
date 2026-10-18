@@ -55,7 +55,7 @@ function statsTable(id, key){
   const rows = all.filter(r => r.s[key] > 0)
     .sort((x, y) => y.s[key] - x.s[key] || y.s[other] - x.s[other] || x.s.ap - y.s.ap)
     .slice(0, 50);
-  const mine = meP().id;
+  const mine = meP() ? meP().id : -1;
   // where you stand, even when you are not on the list — the chart should never look like it forgot you
   const myRow = all.find(r => r.p.id === mine);
   const myRank = myRow && myRow.s[key] > 0
@@ -67,7 +67,7 @@ function statsTable(id, key){
     rows.map((r, i) => {
       const c = r.p.club >= 0 ? W.clubs[r.p.club] : null;
       return `<tr class="${r.p.id === mine ? "me" : ""}"><td>${i + 1}</td><td class="l">${esc(pname(r.p))}</td>
-        <td class="l"><span class="clubcell">${c ? crest(c.nm, 13) : ""}<span class="cn">${c ? esc(c.nm) : "—"}</span></span></td>
+        <td class="l"><span class="clubcell">${c ? crest(c.nm, 13) : ""}<span class="cn">${c ? esc(c.nm) : EMPTY_CELL}</span></span></td>
         <td>${r.s.ap}</td><td><b>${r.s[key]}</b></td></tr>`; }).join("")}</tbody></table>${foot}`;
 }
 APPVIEWS.stats = t => {
