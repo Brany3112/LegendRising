@@ -93,6 +93,8 @@ const ASSIST_K = Object.freeze({on:1, low:.5, off:0});
 export const SET = loadSet();
 // (U21) life reads the football camera through the shared state (me.js: the apartment ball), never this module
 ME.footCam = SET.footCam;
+// (U28 part B) how long you go on forward at a jog before it is a run: 0.6 s at Acceleration 50, 0.3 at 90 (0.2 to 0.8)
+export const runAfter = me => clamp(.6 - .3*(((me.at && me.at.acceleration) || 50) - 50)/40, .2, .8);
 // (U26) two Shift presses this close together (seconds) are a knock-on
 export const KNOCK_TAP = .3;
 const nowS = () => (typeof performance === "object" && performance.now ? performance.now() : Date.now())/1000;
@@ -777,6 +779,10 @@ export function controlStep(ms, me, h, opts = {}){
   I.strafe = false; I.speedCap = Infinity;
   const dball = Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z);
   I.gait = CTRL.walk ? "walk" : CTRL.held.shift && !shieldGait ? "sprint" : "jog";
+  // (U28 part B: the ladder walk, jog, run, sprint. Going on forward at a jog it becomes a run after RUN_AFTER s, sooner
+  // the higher your Acceleration (0.6 s at 50, 0.3 at 90); Shift is the full sprint, X the walk)
+  if (I.gait === "jog" && f > 0 && len){ CTRL.fwdT = (CTRL.fwdT || 0) + h; if (CTRL.fwdT >= runAfter(me)) I.gait = "run"; }
+  else CTRL.fwdT = 0;
   if (ctx === "restart"){ I.gait = dball > 8 && !CTRL.walk ? "jog" : "walk"; }
   // (U27) close control (F took it, actions.js keepStep): a sprint with it is CTL_SPRINT of your sprint, from Dribbling
   // (0.85 at 50, 0.95 at 90). Shift tapped twice with the ball yours: knocked on to run onto (knockOn), and close control

@@ -55,9 +55,13 @@ export function createMover({x = 0, z = 0, yaw = 0} = {}){
 // running x(0.85 + 0.003 agility), and what a sharp cut keeps (cutFloor 0.3 + 0.002 (agility - 50)): a light body loses
 // the low end of the 35 to 55% band in a 90 degree cut, a heavy one the high end; tired legs push toward the high end
 // (moverStep scales the floor by the turn factor).
+// (U28 part B: above 50 Acceleration is felt more, ACC_TOP at 99 where it was 1.18: at 90 the jog, the run and the
+// full sprint come about a fifth sooner than at 50; pace 99 runs 30 m from a stand in about 3.7 s, an elite
+// footballer's time. Under 50 as before)
+export const MOVE = Object.freeze({ACC_TOP: 1.35, A0_MUL: 1.1, SPEED_MUL: 1.05});
 export function accelMul(acc){
   const a = clamp(acc == null || !Number.isFinite(+acc) ? 50 : +acc, 1, 99);
-  return a >= 50 ? 1 + 0.18*(a - 50)/49 : Math.max(0.55, a >= 40 ? 1 - 0.02*(50 - a) : 0.8 - 0.018*(40 - a));
+  return a >= 50 ? 1 + (MOVE.ACC_TOP - 1)*(a - 50)/49 : Math.max(0.55, a >= 40 ? 1 - 0.02*(50 - a) : 0.8 - 0.018*(40 - a));
 }
 export function moverParams(skills = {}, profile = "football", items = {}){
   const pace = skill(skills && (skills.sprintSpeed != null ? skills.sprintSpeed : skills.pace)), drib = skill(skills && skills.dribbling);
@@ -81,11 +85,12 @@ export function moverParams(skills = {}, profile = "football", items = {}){
       faceRate: 12, staggerCap: 2.0, staggerT: 0.35, bounds: null};
   }
   // (Sprint Speed, A1.1: 7.2 m/s at 40 to 9.4 at 99; under 50 it falls away faster than the old line, which it keeps from 50 up)
-  const sprint = Math.max(5.8 + 0.012*pace, 6.6 + 0.028*pace - 0.052*Math.max(0, 50 - pace))*(grip ? 1.03 : 1);
+  // (U28 part B: the jog, the run and the sprint MOVE.SPEED_MUL faster, the push MOVE.A0_MUL harder, for everyone)
+  const sm = MOVE.SPEED_MUL, sprint = Math.max(5.8 + 0.012*pace, 6.6 + 0.028*pace - 0.052*Math.max(0, 50 - pace))*(grip ? 1.03 : 1)*sm;
   return {profile: "football", pace, agility, acceleration: acc,
-    walk: 1.5, jog: 3.4 + 0.008*pace, run: 5.0 + 0.012*pace, sprint, vmax: sprint,
+    walk: 1.5, jog: (3.4 + 0.008*pace)*sm, run: (5.0 + 0.012*pace)*sm, sprint, vmax: sprint,
     back: 3.2, strafe: 4.0, backMul: 1, strafeMul: 1,
-    a0: (6.0 + 0.025*pace)*accelMul(acc), brake: 7.5, plant: 9.0*clamp(1 - 0.004*(agility - 50), 0.8, 1.15), aLat: 7.5 + 0.05*(agility - 50), wMax: 9*(0.85 + 0.003*agility),
+    a0: (6.0 + 0.025*pace)*accelMul(acc)*MOVE.A0_MUL, brake: 7.5, plant: 9.0*clamp(1 - 0.004*(agility - 50), 0.8, 1.15), aLat: 7.5 + 0.05*(agility - 50), wMax: 9*(0.85 + 0.003*agility),
     sprintCone: 35*DEG, sprintBuild: 0, sprintFade: 0,
     cutAngle: 35*DEG, cutMin: 3.0, cutFloor: clamp(0.3 + 0.002*(agility - 50), 0.2, 0.42),
     faceRate: 12, staggerCap: 2.0, staggerT: 0.35, bounds: null};
