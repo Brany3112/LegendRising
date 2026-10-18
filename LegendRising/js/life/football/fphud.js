@@ -416,6 +416,9 @@ function meterFrame(s, dt, over){
 // the kick type, always in its corner: the one you will strike with lit, a short flash when it changes
 function kickFrame(s, dt, slow){
   const E = D.el, c = s.ctrl;
+  // (U28 part E: there is no kick type to choose any more, the keys shape a shot as it is let go: the corner is not shown)
+  if (E.kick && E.kick.style.display !== "none") E.kick.style.display = "none";
+  if (E.kick) return;
   if (!E.kick || !c) return;
   if (c.kick !== D.kickShown){
     if (D.kickShown >= 0) D.kickFlash = .6;

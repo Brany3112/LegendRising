@@ -187,7 +187,8 @@ try {
           worst.ahead = Math.max(worst.ahead, b[k][0]); worst.ratio = Math.max(worst.ratio, b[k][0]/b[k][2]); worst.low = Math.min(worst.low, b[k][2]);
           worst.hips = Math.min(worst.hips, b.hips[2]); worst.hand = Math.min(worst.hand, b.haL[2], b.haR[2]);
         }
-        check(worst.ahead <= .9 && worst.ratio <= .75 && worst.low >= 1.05 && worst.hips >= .5 && worst.hand >= .3, `${H} m ${st}: the feet stay under and around the camera through the stride (a foot never further ahead than three quarters of its depth under the eye: the sitting look had it at 1.5)`, worst);
+        // (U28 part B: the sprint 5% faster lifts the foot a little higher: 1.03 m under the eye at least, was 1.05)
+        check(worst.ahead <= .9 && worst.ratio <= .75 && worst.low >= 1.03 && worst.hips >= .5 && worst.hand >= .3, `${H} m ${st}: the feet stay under and around the camera through the stride (a foot never further ahead than three quarters of its depth under the eye: the sitting look had it at 1.5)`, worst);
       }
     }
     // the slide: the eye goes down with the body, and after it the body is under the eye again (its clip ended)
@@ -225,32 +226,16 @@ try {
     await step(40);
   }
   if (on("kick")){
+    // (U28 part E: there is no kick type to choose any more, the wheel and 1, 2, 3 are gone and the corner is not shown;
+    // the keys held as a shot is let go shape it, qa/u28-shotkeys.mjs)
     const K = res.kick = {};
-    const lit = () => page.evaluate(() => { const e = document.querySelector("#fpHud .fp-kick li.on"); return {lit: e ? e.textContent.trim() : null, kick: window.__uf2.C.CTRL.kick, contact: window.__uf2.C.CTRL.contact, charge: !!window.__uf2.C.CTRL.charge}; });
-    await unfreeze(page); await frames(page, 4);
-    K.visible = await shown("#fpHud .fp-kick");
+    await unfreeze(page); await frames(page, 6);
+    K.corner = await page.evaluate(() => { const e = document.querySelector("#fpHud .fp-kick"); return e ? getComputedStyle(e).display : "none"; });
+    await page.mouse.wheel(0, 120); await frames(page, 4);
+    K.after = await page.evaluate(() => ({kick: window.__uf2.C.kickType().id, contact: window.__uf2.C.CTRL.contact}));
     await freeze(page);
-    K.start = await lit();
-    check(K.visible.ok && K.start.lit === "Normal" && !K.start.charge, "the kick type is in its corner with nothing held, Normal lit", K);
-    // the wheel (real, over the locked view): down the list, then back up
-    K.seq = [];
-    for (const dy of [120, 120, -120, -120, -120, -120]){ await page.mouse.wheel(0, dy); await step(2); K.seq.push(await lit()); }
-    check(K.seq.map(s => s.lit).join(",") === "Placed,Driven,Placed,Normal,Curl,Chip", "the wheel goes down and up the list and the corner shows each type as it is chosen", K.seq.map(s => s.lit));
-    check(K.seq[1].contact === -1 && K.seq[5].contact === 1 && K.seq[3].contact === 0, "Driven strikes with Low contact, Chip with High, Normal with Normal", K.seq.map(s => s.contact));
-    for (const k of ["1", "3", "2"]){ await pressReal(page, k); await step(2); K["key" + k] = await lit(); }
-    check(K.key1.lit === "Driven" && K.key3.lit === "Chip" && K.key2.lit === "Normal", "1, 2 and 3 choose Driven, Normal and Chip", [K.key1, K.key3, K.key2]);
-    await shot("kick");
-    // the type chosen is the strike: Chip chosen, then a held shot
-    await pressReal(page, "3"); await step(2);
-    const ev0 = await page.evaluate(() => window.__uf2.ms().events.length);
-    await page.mouse.down(); await step(24); await page.mouse.up();
-    await step(40);
-    K.chip = await page.evaluate(ev0 => window.__uf2.kickEv(ev0).map(e => ({shape: e.shape, contact: e.contact, kick: e.kick, gest: window.__uf2.C.CTRL.gest}))[0] || null, ev0);
-    check(!!K.chip && /chip/.test(K.chip.shape) && K.chip.contact === 1 && K.chip.kick === "chip", "a shot with Chip chosen is chipped (the strike is the type in the corner)", K.chip);
-    await pressReal(page, "2"); await step(2);
+    check(K.corner === "none" && K.after.kick === "normal", "no kick-type corner; the wheel changes nothing (the keys shape a shot now)", K);
   }
-
-  /* ---------- U18: the meter ---------- */
   if (on("meter")){
     const M = res.meter = {};
     const reset = async () => { await page.evaluate(() => { window.__trainRun.restart(); window.__uf2.look(-Math.PI/2, -.03); }); await step(40); };
@@ -381,9 +366,10 @@ try {
     T0.still = await receive("on", []);
     T0.offF = await receive("off", ["f"]);
     T0.push = await receive("off", ["w"]);
-    check(!!T0.f.touch && T0.f.touch.settle === 1 && T0.f.touch.part === "foot" && T0.f.rel.d <= .85 && T0.f.rel.v <= 1.5, "F held as it arrives: the ball killed onto the foot, within reach (0.85 m) and nearly still", T0.f);
+    // (U27: F as it arrives takes it into close control, a gathering touch of its own: the ball yours, killed by your foot)
+    check((!!T0.f.touch && T0.f.touch.settle === 1 && T0.f.touch.part === "foot" || T0.f.rel.mine) && T0.f.rel.d <= .85 && T0.f.rel.v <= 1.5, "F held as it arrives: the ball killed onto the foot, within reach (0.85 m) and nearly still", T0.f);
     check(!!T0.still.touch && T0.still.touch.settle > .9 && T0.still.rel.d <= .9, "assists on, standing with no keys: the ball settled at your feet too", T0.still);
-    check(!!T0.offF.touch && T0.offF.touch.settle === 1 && T0.offF.rel.d <= 1.0, "assists off, F still settles it (the harder setting keeps the key)", T0.offF);
+    check((!!T0.offF.touch && T0.offF.touch.settle === 1 || T0.offF.rel.mine) && T0.offF.rel.d <= 1.0, "assists off, F still settles it (the harder setting keeps the key)", T0.offF);
     check(!!T0.push.touch && !T0.push.touch.settle && T0.push.rel.d > T0.f.rel.d + .25, "a push touch with W (assists off) leaves the ball further than the settle", {push: T0.push, f: T0.f});
     // dribbling: W held at a jog, then W and Shift, the ball's lead sampled after the first second
     const dribble = async (assist, keys) => {

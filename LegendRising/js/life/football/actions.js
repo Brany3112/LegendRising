@@ -17,6 +17,7 @@ import {ballKick, ballPredict, ballRelease, ballHold, BALL} from "./ball.js";
 import {planShot, solveStrike, idealPassSpeed, shotSpeed, presolve, presolveStep, presolveWarm, aimOf, devDraws} from "./strike.js";
 import {reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleOutcome, slideProfile, slideDistance, headerContact,
   classifyContact, TOUCH, TACKLE} from "./touch.js";
+import {truncNormal} from "./rng.js";
 import {stamAction, stamShield} from "../stamina.js";
 import {TUNE} from "./tune.js";
 import {ratings, canPlay, arrivalOf, breathOf, ghosted, GHOST_T} from "./zone.js";
@@ -680,7 +681,7 @@ export function dribbleFoot(ms, a, side){
   if (ms.poss.ctl !== a.id || b.state !== 'free' || !a.drib) return false;
   // (U27: a ball in close control is touched by keepStep, not on the strides; a knocked-on ball is left to run for
   // KNOCK.LET s: a stride's touch straight after it played it again along the dribble's line, off the knock's way)
-  if (a.ctlOn || (a.knockT != null && ms.t - a.knockT < KNOCK.LET)) return false;
+  if (a.ctlOn || (a.knockT != null && ms.t - a.knockT < KNOCK.LET) || (a.act && a.act.kind === 'fake')) return false;
   const v = a.m.speed;
   if (side === touchSideOf(a)) a.strides++;
   const every = dribbleCadence(v);
@@ -722,6 +723,47 @@ function dribbleKick(ms, a){
 }
 function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
 
+/* ---------- the fake shot and the drag-backs (U28 part E) ----------
+   S held as a shot is let go (control.js shotKeys): the swing stops short of the ball, which stays at your feet. With A
+   or D held as well, the sole drags it back and to that side (S+A left, S+D right); with W, it is nudged on first, then
+   dragged back. From the skills: the whole move takes FAKE.DUR less FAKE.AGI of Agility; the drag goes FAKE.DRAG plus
+   FAKE.CTRL of Ball Control across, and lands within FAKE.ERR (1 - Ball Control/110) of where it was meant to. The touches
+   are real (ballKick); a fake keeps close control */
+export const FAKE = Object.freeze({DUR: .62, AGI: .18, STOP: .22, DRAG_AT: .3, NUDGE_AT: .18, AFTER: .26, BACK: .3, DRAG: .42, CTRL: .25, ERR: .22, T: .32, REACH: 1.3});
+function startFake(ms, a, rq){
+  const q = clamp((a.at.agility || 50)/99, 0, 1.1), f = dirOf(a.m.yaw);
+  const act = {kind: 'fake', t: 0, dur: FAKE.DUR - FAKE.AGI*q, stop: FAKE.STOP, drag: rq.drag || 0, nudge: !!rq.nudge, done: false,
+    fx: f.x, fz: f.z, nudged: false, dragged: false};
+  act.dragAt = (act.nudge ? FAKE.NUDGE_AT + FAKE.AFTER : FAKE.DRAG_AT) - .08*q;
+  a.act = act; a.state = 'kick';
+  logEv(ms, 'fake', a.team, a.id, a.m.x, a.m.z, {drag: act.drag, nudge: act.nudge});
+  return act;
+}
+// a real touch rolling the ball to a stop at (tx, tz): the sole's soft roll (the speed the grass takes off over D)
+function rollTo(ms, a, tx, tz, T, how){
+  const b = ms.ball, dec = b.rollDecel || 1.1, ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), sp = D > 1e-3 ? Math.min(Math.sqrt(2*dec*D), 10) : 0;
+  const kx = D > 1e-3 ? ex/D*sp : 0, kz = D > 1e-3 ? ez/D*sp : 0;
+  ballKick(b, {x: kx, y: 0, z: kz}, {x: kz/BALL_R, y: 0, z: -kx/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, keep: true, foot: touchSideOf(a), part: 'sole', fake: how});
+  chainKeep(ms, a); onTouch(ms, a, 'dribble', ev); refreshPred(ms);
+}
+function fakeStep(ms, a, act, h){
+  a.intent.speedCap = Math.min(a.intent.speedCap, 1.2);
+  const b = ms.ball, mine = ms.poss.ctl === a.id && b.state === 'free' && b.p.y < .4 && hypot(b.p.x - a.m.x, b.p.z - a.m.z) <= FAKE.REACH*(a.scale || 1);
+  if (!mine) return;
+  const sc = a.scale || 1, c = clamp((a.at.ctrl || 50)/110, 0, 1), fx = act.fx, fz = act.fz, rx = -fz, rz = fx;
+  if (act.nudge && !act.nudged && act.t >= FAKE.NUDGE_AT){
+    act.nudged = true;
+    rollTo(ms, a, a.m.x + fx*.55*sc, a.m.z + fz*.55*sc, FAKE.T*.8, 'nudge');
+  }
+  if ((act.drag || act.nudge) && !act.dragged && act.t >= act.dragAt){
+    act.dragged = true;
+    const across = act.drag*(FAKE.DRAG + FAKE.CTRL*c)*sc, back = (act.nudge && !act.drag ? .45 : FAKE.BACK)*sc;
+    const e = FAKE.ERR*(1 - c)*sc, ex = truncNormal(ms.r, e, 2), ez = truncNormal(ms.r, e, 2);
+    rollTo(ms, a, a.m.x - fx*back + rx*across + ex, a.m.z - fz*back + rz*across + ez, FAKE.T, act.drag ? (act.drag < 0 ? 'drag left' : 'drag right') : 'drag back');
+  }
+}
+
 /* ---------- close control (USER-ISSUES U27), and the knock-on (U26) ----------
    F (control.js) asks to take the ball into close control for TAKE.WIN s (a.takeT): as soon as it is within TAKE.REACH,
    low and nobody else's, it is gathered with a touch and a.ctlOn is set. In close control the ball is kept on a spot
@@ -749,7 +791,7 @@ export function keepStep(ms, a, h){
   // the ends of close control
   if (a.ctlOn){
     if (ms.phase !== 'live') ctlOff(a, 'stop');
-    else if (a.act && !a.act.done && a.act.kind !== 'header') ctlOff(a, a.act.kind);
+    else if (a.act && !a.act.done && a.act.kind !== 'header' && a.act.kind !== 'fake') ctlOff(a, a.act.kind);
     else if (ms.poss.ctl !== a.id) ctlOff(a, 'lost');
     else if (b.state !== 'free' || b.p.y > TAKE.MAX_Y + .3 || dist > CTL.REACH*sc) ctlOff(a, 'reach');
   }
@@ -767,7 +809,7 @@ export function keepStep(ms, a, h){
       return ctlTouch(ms, a, ux, uz, true);
     }
   }
-  if (!a.ctlOn) return false;
+  if (!a.ctlOn || (a.act && a.act.kind === 'fake')) return false;
   return ctlTouch(ms, a, ux, uz, false);
 }
 // one touch of close control, if the ball is drifting off its spot (or force: the gathering touch)
@@ -1267,6 +1309,11 @@ export function actionStep(ms, a, h){
       if (act.t >= act.dur || act.landed && act.done && act.t > act.tc + 0.3 || act.landed && act.t > act.tc + 0.6){ a.act = null; a.y = 0; a.vy = 0; a.state = 'idle'; }
       break;
     }
+    case 'fake': {
+      fakeStep(ms, a, act, h);
+      if (act.t >= act.dur){ a.act = null; a.state = 'idle'; }
+      break;
+    }
     case 'throw': {
       standStill(a, faceTo(a, act.target.x, act.target.z, a.faceV));
       if (!act.done && act.t >= act.tc) throwRelease(ms, a, act);
@@ -1296,6 +1343,7 @@ export function startAction(ms, a, rq){
       return null;
     }
     case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1, !!rq.dive, rq.ballY != null ? rq.ballY : null);
+    case 'fake': return startFake(ms, a, rq);
     case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':
       logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how: rq.how || 'here', px: rq.target ? rq.target.x : null, pz: rq.target ? rq.target.z : null});

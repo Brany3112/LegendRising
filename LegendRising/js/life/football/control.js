@@ -93,6 +93,11 @@ const ASSIST_K = Object.freeze({on:1, low:.5, off:0});
 export const SET = loadSet();
 // (U21) life reads the football camera through the shared state (me.js: the apartment ball), never this module
 ME.footCam = SET.footCam;
+// (U28 part E) the keys held in the last SHOT_KEYS.T s as a shot is let go shape it (control.js strike)
+export const SHOT_KEYS = Object.freeze({T: .25, POWER: 1.1});
+// (a time after the clock is a match or a go before this one: its clock began again from nothing)
+const keyHeld = (t, k) => t - k >= 0 && t - k <= SHOT_KEYS.T;
+export function shotKeys(ms){ const t = ms.t, K = CTRL.keyT; return {w: keyHeld(t, K.w), a: keyHeld(t, K.a), s: keyHeld(t, K.s), d: keyHeld(t, K.d)}; }
 // (U28 part B) how long you go on forward at a jog before it is a run: 0.6 s at Acceleration 50, 0.3 at 90 (0.2 to 0.8)
 export const runAfter = me => clamp(.6 - .3*(((me.at && me.at.acceleration) || 50) - 50)/40, .2, .8);
 // (U26) two Shift presses this close together (seconds) are a knock-on
@@ -206,7 +211,9 @@ export function passBand(ideal, vmax, passing = 50, ak = 1, out = {lo:0, hi:0, c
   out.c = c; out.lo = c - w/2; out.hi = c + w/2;
   return out;
 }
-export const kickType = () => KICKS[CTRL.kick] || KICKS[2];
+// (U28 part E: there is no kick type to choose any more, the wheel and 1, 2, 3 are gone: a shot is shaped by the keys
+// held as you let it go, shotKeys. A lesson's own Low or High contact still sets CTRL.contact, setKick)
+export const kickType = () => KICKS[2];
 // the kick type by its id; the contact follows it (1, 2, 3 and the lessons' Low and High contact)
 export function setKick(id){
   const i = KICKS.findIndex(k => k.id === id);
@@ -226,7 +233,7 @@ export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", "
    charge: what is filling (a shot, a pass, a throw, a header's jump); contact: Low -1, Normal 0, High 1 (kept
    until changed); finesse: F held; target: the team-mate the pass cone has (agent), whether the crosshair makes it a
    through ball, and the point; call: your last call; uses: how often each hint has been acted on (they shorten) */
-export const CTRL = {shiftAt:-1e9, knockReq:false, ctx:"free", walk:false, scan:null, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
+export const CTRL = {keyT:{w:-1e9, a:-1e9, s:-1e9, d:-1e9}, shiftAt:-1e9, knockReq:false, ctx:"free", walk:false, scan:null, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
   target:{agent:-1, through:false, point:null}, call:{t:-99, kind:null, seq:0, n:0}, uses:{},
   // additions: held keys, the buttons, what was released for the next step, the ring of a volley, the last action
   held:{}, lmb:false, rmb:false, lmbT:0, rmbT:0, rHeld:0, rDone:false, queue:[], ring:null, last:null, jockey:false, small:false,
@@ -290,7 +297,6 @@ export function controlInput(ev){
       if (ev.repeat) return true;
       CTRL.held[k] = true;
       if (k === "x") CTRL.walk = !CTRL.walk;
-      else if (k === "1" || k === "2" || k === "3") setKick(KICK_OF_CONTACT[String(+k - 2)]);
       else if (k === "v") CTRL.queue.push({k:"scan"});
       else if (k === "f") CTRL.queue.push({k:"f"});
       // (U26) Shift tapped twice within KNOCK_TAP s: the knock-on (actions.js knockOn)
@@ -314,12 +320,9 @@ export function controlInput(ev){
       if (ev.button === 0 && CTRL.lmb){ CTRL.lmb = false; CTRL.queue.push({k:"lup", t:CTRL.lmbT}); }
       else if (ev.button === 2 && CTRL.rmb){ CTRL.rmb = false; CTRL.queue.push({k:"rup", t:CTRL.rmbT}); }
       return true;
-    case "wheel": {
-      // (UF2-A, U20) down the list of kick types turned down, up it turned up; the corner of the HUD shows it
-      const step = wheelStep(ev);
-      if (step) setKick(KICKS[clamp(CTRL.kick + step, 0, KICKS.length - 1)].id);
+    case "wheel":
+      // (U28 part E: scrolling does nothing in football now; the wheel's button is the flick's, part G)
       return true;
-    }
     case "move": {
       const y0 = P.yaw, p0 = P.pitch;
       look(ev.dx || 0, ev.dy || 0);
@@ -461,10 +464,11 @@ function reticleStep(ms, me, ctx){
   const held = ch ? ch.t : 0, full = kind === "shot" ? CN.SHOT_FULL : CN.PASS_FULL;
   W.over = ch && ch.kind !== "throw" ? clamp((held - full)/AIM.OVER, 0, 1) : 0;
   W.p = ch ? ch.p : 0; W.kind = ch ? ch.kind : null; W.side = footNow(ms, me);
-  const t = ms.t, A = R.on ? swayAmp(ms, me, kind, W.p, !!ch) : 0;
-  R.a = A; R.kind = kind;
-  R.sy = A*(.62*Math.sin(1.7*t + .3) + .38*Math.sin(3.1*t + 1.9)) + AIM.TREMBLE*W.over*Math.sin(53*t);
-  R.sp = A*.7*(.6*Math.sin(1.3*t + 2.2) + .4*Math.sin(2.7*t + .7)) + AIM.TREMBLE*W.over*Math.sin(67*t + 1) + AIM.LEAN*W.over;
+  // (U28 part E: the aim no longer sways: it is where you look, and an over-hit only leans it up. How true the strike
+  // is comes from the skills in the solver, strike.js sigmaOf)
+  R.a = 0; R.kind = kind;
+  R.sy = 0;
+  R.sp = AIM.LEAN*W.over;
   if (kind === "shot"){ eyeOf(me, P.yaw + R.sy, P.pitch + R.sp); aimPoint(ms, me, RP); eyeOf(me); R.x = RP.x; R.y = RP.y; R.z = RP.z; R.ok = RP.ok; }
   else {
     // a pass: the point it is weighted for (the pass cone's man, the through ball's lead), turned about the ball by the sway
@@ -706,6 +710,8 @@ export function controlStep(ms, me, h, opts = {}){
   eyeOf(me);
   aimPoint(ms, me, CTRL.aim); groundPoint(CTRL.ground);
   const ctx = CTRL.ctx = contextOf(ms, me);
+  // (U28 part E) when each of W A S D was last held, for the shape of a shot let go (shotKeys)
+  for (const k of "wasd") if (CTRL.held[k]) CTRL.keyT[k] = ms.t;
   CTRL.finesse = !!CTRL.held.f;
   CTRL.resolve = ctx === "attack" || ctx === "free" ? resolveAction(ms, me, opts.traits) : null;
   if (CTRL.lmb) CTRL.lmbT += h;
@@ -781,7 +787,9 @@ export function controlStep(ms, me, h, opts = {}){
   I.gait = CTRL.walk ? "walk" : CTRL.held.shift && !shieldGait ? "sprint" : "jog";
   // (U28 part B: the ladder walk, jog, run, sprint. Going on forward at a jog it becomes a run after RUN_AFTER s, sooner
   // the higher your Acceleration (0.6 s at 50, 0.3 at 90); Shift is the full sprint, X the walk)
-  if (I.gait === "jog" && f > 0 && len){ CTRL.fwdT = (CTRL.fwdT || 0) + h; if (CTRL.fwdT >= runAfter(me)) I.gait = "run"; }
+  // (not with a ball on its way to you: met at a run, an 11 m/s pass went through your feet untouched)
+  const coming = !!(me.plan && me.plan.kind === "receive" && ms.poss.ctl !== me.id);
+  if (I.gait === "jog" && f > 0 && len && !coming){ CTRL.fwdT = (CTRL.fwdT || 0) + h; if (CTRL.fwdT >= runAfter(me)) I.gait = "run"; }
   else CTRL.fwdT = 0;
   if (ctx === "restart"){ I.gait = dball > 8 && !CTRL.walk ? "jog" : "walk"; }
   // (U27) close control (F took it, actions.js keepStep): a sprint with it is CTL_SPRINT of your sprint, from Dribbling
@@ -963,6 +971,13 @@ function strike(ms, me, what, held, opts){
     CTRL.last = "throw"; use("throw"); return;
   }
   const Rz = CTRL.resolve, contact = CTRL.contact, fKey = !!CTRL.held.f;
+  // (U28 part E) the keys held as the shot is let go: S a fake shot (with A or D a drag-back that way, with W a nudge on
+  // and a drag back); A or D curl it that way, with W less curl and more power
+  const K = shotKeys(ms);
+  if (what === "shot" && K.s && !(Rz && Rz.kind !== "ground") && !mine && ms.poss.ctl === me.id){
+    me.intent.action = {kind:"fake", drag:K.a && !K.d ? -1 : K.d && !K.a ? 1 : 0, nudge:K.w && K.a === K.d};
+    CTRL.last = "fake"; use("fake"); return;
+  }
   // (UF2-A, U18 to U20) the kick type you chose, and how much the assists help
   const KT = kickType().id, ak = assistK();
   // the body shape through the release (A1.7): the gesture of the last few steps, and the aim from before it began
@@ -1005,6 +1020,15 @@ function strike(ms, me, what, held, opts){
     else if (kind === "shot" && ctc === 0 && toGoal && tgt.y < AIM.LOW_Y && shape !== "placed" && KT !== "curl"){ shape = shape === "power" ? "power low" : "low"; ctc = -1; }
     if (kind !== "shot"){ ctc = 1; shape = "lofted"; }
     if (G.curl){ finesse = true; bend = G.curl; shape = shape === "placed" || shape === "struck" || shape === "power" ? "curl" : shape + " curl"; }
+    // (U28 part E) A or D held as it is let go curls it that way, by your Technique (0.35 of a full curl at none, all of
+    // it at 99, a little more past it); W with it: half the curl, SHOT_KEYS.POWER more power
+    const kc = K.a !== K.d ? (K.d ? 1 : -1) : 0;
+    if (kc && kind === "shot" && shape !== "placed" && !chip){
+      const amt = (.35 + .65*clamp(techniqueOf(at)/99, 0, 1.1))*(K.w ? .5 : 1);
+      finesse = true; bend = kc*amt; if (K.w) p = Math.min(1, p*SHOT_KEYS.POWER);
+      shape = (shape === "placed" || shape === "struck" || shape === "power" ? "" : shape + " ") + (K.w ? "curl and power" : "curl");
+      shape = shape.trim();
+    }
     // held past full: you lean back and it rises (with the over-hit's sigma, strike.js)
     if (over > 0 && kind === "shot"){ const d = Math.hypot(tgt.x - b.p.x, tgt.z - b.p.z); tgt.y += over*(.6 + .05*d); shape += " over"; }
     // the grade moves the aim: a good shot a degree or two off it, a scuff well off it (skied over-hit, along the grass
@@ -1181,7 +1205,8 @@ export function hintsFor(ms, me){
   } else if (ctx === "attack"){
     if (ms.poss.ctl === me.id){
       // (A1.7: the wind-up, the release on your plant, the shape through it)
-      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go on the gold for a perfect shot", "release"); add("Mouse", "sweep to curl, lift to chip", "shape"); }
+      // (U28 part E) the keys as you let go shape it
+      if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go on the gold for a perfect shot", "release"); add("A or D", "as you let go: curl it", "curl"); add("S", "as you let go: fake it (with A or D, drag it back)", "fake"); }
       else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }

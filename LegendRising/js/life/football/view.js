@@ -566,6 +566,15 @@ function liveSt(V, R, a, ms, dt){
         } else { c.tc = 0; if (c.noBall == null){ predAt(ms, 0, PB); c.noBall = Math.hypot(PB.x - a.m.x, PB.z - a.m.z) > STRIKE_REACH*(a.scale || 1); } if (c.noBall){ c.ball = null; c.dir = yawDir(c, a.m.yaw); } }
         return c;
       }
+      case "fake": {
+        // (U28 part E) the fake shot: the strike's swing, short and light, stopping in front of the body (no ball in it);
+        // the drag's touches move the foot to the ball themselves (dribbleTouches)
+        const c = clipFor(R, "strike", act);
+        c.mode = "strike"; c.kind = "instep"; c.side = a.foot === "L" ? "L" : "R"; c.power = .15; c.curl = 0; c.lowHigh = 0;
+        c.noBall = true; c.ball = null; c.dir = yawDir(c, a.m.yaw);
+        c.tc = Math.max(0, act.stop - act.t - alpha*H);
+        return c;
+      }
       case "tackle": {
         const c = clipFor(R, "tackle", act);
         c.mode = "tackle"; c.kind = act.sub === "poke" ? "poke" : "stand";

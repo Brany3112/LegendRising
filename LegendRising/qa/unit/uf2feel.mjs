@@ -93,18 +93,13 @@ function restOf(ballPos, v, roll = 1.1){
   const pb1 = passBand(14, 25, 50, 1), pb0 = passBand(14, 25, 50, 0);
   check(Math.abs(pb1.c - pb0.c) < 1e-12 && pb1.hi - pb1.lo > pb0.hi - pb0.lo && pb1.lo < pb1.c && pb1.hi > pb1.c, "a held pass's spot is centred on the weight for its distance, wider with the assists", {on: pb1, off: pb0});
   check(KICKS.map(k => k.id).join() === "chip,curl,normal,placed,driven" && ASSISTS.join() === "on,low,off", "the kick types top to bottom and the assist levels", KICKS.map(k => k.label));
+  // (U28 part E) no kick type to choose any more: the kick is Normal whatever was set, the contact a lesson's (setKick
+  // still sets CTRL.contact), and the wheel moves nothing
   setKick("driven"); const d = {k: kickType().id, c: CTRL.contact}; setKick("chip"); const c = {k: kickType().id, c: CTRL.contact}; setKick("normal");
-  check(d.k === "driven" && d.c === -1 && c.k === "chip" && c.c === 1 && CTRL.contact === 0, "a kick type sets the contact it strikes with (Driven low, Chip high, Normal normal)", {d, c});
-  // the wheel (U20): a notch a step; a trackpad's stream of small events one step a swipe; sideways no step
-  const wheel = evs => { setKick("normal"); const out = []; for (const e of evs){ controlInput(Object.assign({type: "wheel"}, e)); out.push(CTRL.kick); } return out; };
-  const notches = wheel([{deltaY: 100, t: 1000}, {deltaY: 100, t: 1080}, {deltaY: 100, t: 1160}, {deltaY: -100, t: 1240}]);
-  const swipe = wheel(Array.from({length: 40}, (_, i) => ({deltaY: 4 + (i % 5), t: 5000 + 16*i})));
-  const fastSwipe = wheel(Array.from({length: 20}, (_, i) => ({deltaY: 60 + 4*i, t: 9000 + 16*i})));
-  const two = wheel([...Array.from({length: 10}, (_, i) => ({deltaY: 6, t: 13000 + 16*i})), ...Array.from({length: 10}, (_, i) => ({deltaY: 6, t: 13600 + 16*i}))]);
-  const side = wheel([{deltaY: 0, t: 20000}, {deltaY: 0, t: 20300}]);
-  const lines = wheel([{deltaY: 3, deltaMode: 1, t: 30000}]);
-  check(notches.join() === "3,4,4,3" && swipe[swipe.length - 1] === 3 && new Set(swipe).size === 2 && fastSwipe[fastSwipe.length - 1] === 3 && two[two.length - 1] === 4 && side.every(k => k === 2) && lines[0] === 3,
-    "the wheel moves the kick type a step a notch (the list's ends hold), one step for a whole trackpad swipe however big, a step for each swipe, none for a sideways scroll", {notches, swipe: [swipe[0], swipe[swipe.length - 1]], fastSwipe: fastSwipe[fastSwipe.length - 1], two: two[two.length - 1], side, lines});
+  check(d.k === "normal" && c.k === "normal" && d.c === -1 && c.c === 1 && CTRL.contact === 0, "the kick is always Normal; a lesson's contact still comes through setKick", {d, c});
+  const k0 = CTRL.kick, c0 = CTRL.contact;
+  for (const e of [{deltaY: 100, t: 1000}, {deltaY: -100, t: 1080}, {deltaY: 6, t: 2000}]) controlInput(Object.assign({type: "wheel"}, e));
+  check(CTRL.kick === k0 && CTRL.contact === c0 && kickType().id === "normal", "scrolling the wheel changes nothing in football", {kick: CTRL.kick, contact: CTRL.contact});
   setKick("normal");
   check(eyeAhead(0, 1) < eyeAhead(-1.35, 1) && eyeAhead(-1.35, 1) <= .2 && eyeDrop(-1.3, 1) > eyeDrop(0, 1) && Math.abs(eyeAhead(-1.35, 1.1) - 1.1*eyeAhead(-1.35, 1)) < 1e-12,
     "the eye over the feet (U12): a little ahead of the neck, more and lower looking down, at most 0.2 of the height's scale, scaled with it", {level: eyeAhead(0, 1), down: eyeAhead(-1.35, 1)});
