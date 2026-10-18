@@ -553,9 +553,16 @@ function liveSt(V, R, a, ms, dt){
           const tcl = walkTc >= 0 ? walkTc : stepAt(ms, act, act.tc, alpha, PB);
           c.tc = tcl;
           if (walkTc >= 0) predAt(ms, tcl, PB);
-          c.ball = c.ball || {x:0, y:0, z:0}; c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
-          const tg = rq.target; c.dir = tg ? dirTo(c, tg.x - PB.x, tg.z - PB.z) : yawDir(c, a.m.yaw);
-        } else c.tc = 0;
+          // (USER-ISSUES U26) a kick at a ball out of reach (a swing at nothing, the ball metres away): the clip's own
+          // swing in front of the body, decided once for the clip. Aimed at the ball where it was, the leg reached out
+          // sideways for it and the body twisted after it
+          if (c.noBall == null) c.noBall = Math.hypot(PB.x - a.m.x, PB.z - a.m.z) > STRIKE_REACH*(a.scale || 1);
+          if (c.noBall){ c.ball = null; c.dir = yawDir(c, a.m.yaw); }
+          else {
+            c.ball = c._sb || (c._sb = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
+            const tg = rq.target; c.dir = tg ? dirTo(c, tg.x - PB.x, tg.z - PB.z) : yawDir(c, a.m.yaw);
+          }
+        } else { c.tc = 0; if (c.noBall == null){ predAt(ms, 0, PB); c.noBall = Math.hypot(PB.x - a.m.x, PB.z - a.m.z) > STRIKE_REACH*(a.scale || 1); } if (c.noBall){ c.ball = null; c.dir = yawDir(c, a.m.yaw); } }
         return c;
       }
       case "tackle": {
@@ -652,6 +659,8 @@ const shielding = a => !a.act && (a.shield ? !!a.shield.on : !!(a.intent && a.in
    itself the clip met the ball up to a step before the simulation did, and a ball predicted a step too far on.
    HEAD_WAIT: how long past its act.tc a header's clip waits for the simulation's contact (s) */
 const HEAD_WAIT = .15;
+// (U26) the farthest a strike's ball may be from the striker (metres, times his scale) for the swing to go to it
+const STRIKE_REACH = 1.3;
 function stepAt(ms, act, tAct, alpha, out){
   const n = Math.max(1, Math.ceil((tAct - act.t - 1e-9)/H));
   if (out){ predSync(ms); predOn(ms, (n - 1)*H, out); }

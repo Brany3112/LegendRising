@@ -1630,13 +1630,21 @@ function header(h, T, st, dt){
   // arms: up and forward for the leap (elbows out to the sides), down through the landing
   const aUp = J ? kf(tau, [[0, .2], [hp.tLoad*.8, -.4], [hp.tLoad + .1, 1.6], [ct, 1.3], [ct + .2, .5], [hp.dur, .15]]) : .3 + .3*wC;
   armPose(T, 1, J ? .5 + .2*sstep(hp.tLoad, ct, tau) : .35, aUp, 1.0); armPose(T, -1, J ? .5 + .2*sstep(hp.tLoad, ct, tau) : .35, aUp, 1.0);
-  // the feet: on their footprints; in the air they come off them, tucked a little, and land where they left
+  // the feet: on their footprints; in the air they come off them, tucked a little, and land under the body.
+  // (USER-ISSUES U26) In the air they go with the body, where they were under it as it left the ground: placed from
+  // their take-off footprints in the world, a jump on the run left them behind and the legs stretched back to them
   const F = C.feet;
+  if (air && !d.fb){ d.fb = d.f0.map(f0 => { toB(f0.x, f0.y, f0.z, _b3); return {x:_b3.x, z:_b3.z}; }); }
+  if (!air && d.fb && !d.landed && tau > hp.tLoad){
+    // landed: the new footprints, under the body where the feet came down
+    d.landed = true;
+    for (let j = 0; j < 2; j++){ toW(d.fb[j].x, D.ankY, d.fb[j].z, _w3); const f0 = d.f0[j]; f0.x = _w3.x; f0.z = _w3.z; }
+  }
   for (let j = 0; j < 2; j++){
     const f = F[j], f0 = d.f0[j], s = j ? -1 : 1;
     if (air){
-      const tuck = Math.min(.2, (rise > 0 ? .5*rise : 0))/sc;
-      toB(f0.x, f0.y, f0.z, _b3); toW(_b3.x, T[61] + D.ankY + .02 + tuck*(j ? .6 : 1), _b3.z - tuck*.4, _w3);
+      const tuck = Math.min(.2, (rise > 0 ? .5*rise : 0))/sc, fb = d.fb[j];
+      toW(fb.x, T[61] + D.ankY + .02 + tuck*(j ? .6 : 1), fb.z - tuck*.4, _w3);
       f.x = _w3.x; f.y = Math.max(f0.y, _w3.y); f.z = _w3.z; f.pitch = .5*sstep(0, .1, rise); f.w = 1;
     } else { f.x = f0.x; f.y = f0.y; f.z = f0.z; f.pitch = 0; f.w = 1; }
     f.yaw = f0.yaw; f.roll = 0;

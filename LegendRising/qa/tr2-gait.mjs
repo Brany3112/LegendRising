@@ -14,7 +14,7 @@
 // change are reported.
 // In the game, first person, walking: the camera's bob moves <= 2 mm a frame, with no one-frame rebound over 2 mm.
 // Lateral (MV-16), first person (the facing held), sideways at 1.0, 2.0 and 3.0 m/s: the hips turn <= 0.8 rad from
-// the body; at 1.0 and 2.0 each swing foot travels within 35 degrees of the body's sideways axis; planted drift <= 2 mm;
+// the body (1.6 at 3.0, U26: the hips go round into a run across the facing); at 1.0 and 2.0 each swing foot travels within 35 degrees of the body's sideways axis; planted drift <= 2 mm;
 // the feet stay >= 0.08 m apart; at 1.0 and 2.0 the ankles open to <= 0.8 m (a shuffle, not a straddle); a contact
 // sheet at each speed.
 //
@@ -103,7 +103,10 @@ try {
     const worst = Math.max(0, ...travel);
     res.runs[`side${v}`] = {...m, twist: +twist.toFixed(3), minGap: +minGap.toFixed(3), span: +span.toFixed(3), travelDeg: travel, sheet: r.sheetFile};
     console.log("     sheet", r.sheetFile);
-    check(twist <= .8, `side ${v} m/s: hips turn <= 0.8 rad from the body`, +twist.toFixed(3));
+    // (USER-ISSUES U26: above the side steps' speed the hips go round into the way, up to 1.45 rad and their swing,
+    // and the legs run along it instead of crossing; the side steps themselves keep 0.8)
+    const twMax = v <= 2 ? .8 : 1.6;
+    check(twist <= twMax, `side ${v} m/s: hips turn <= ${twMax} rad from the body`, +twist.toFixed(3));
     if (v <= 2) check(travel.length >= 3 && worst <= 35, `side ${v} m/s: each swing foot travels within 35 degrees of the sideways axis`, {worst, steps: travel.length});
     check(m.driftMm <= 2, `side ${v} m/s: planted drift <= 2 mm`, {driftMm: m.driftMm, slipsMm: r.slips});
     check(minGap >= .08, `side ${v} m/s: the feet stay at least 0.08 m apart`, +minGap.toFixed(3));

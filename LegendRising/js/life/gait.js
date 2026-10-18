@@ -94,6 +94,7 @@ const halfW = (D, R) => D.hipX - .012 - .03*R;
    hips (postureY: a leg reaches further sideways from lower hips). Up to SHUF_MAX; faster, the hips turn into the way
    of travel (by at most 0.8 rad, 3.5.9) and the legs run across it, a crossover (the upper body keeps facing where it
    looks) */
+const TWIST_RUN = 1.45;
 const SHUF_MAX = 2.0, shufCad = v => clamp(3 + v + Math.max(0, v - 1), 3.2, 6), shufDuty = v => clamp(.65 - .15*v, .38, .6);
 // the share of the stride a foot is down, for the gait's style (v as the caller has it, vb in body units a second)
 const dutyG = (G, v, vb) => G.style === "shuffle" ? shufDuty(vb) : dutyOf(v, G.mode);
@@ -605,7 +606,11 @@ export function gaitStep(h, dt, st){
   // (the hips turn into the way of travel by at most 0.8 rad with their own swing to and fro on top, DESIGN 3.5.9, P2-B
   // MV-16: further round, the legs step across the body's line, the crossover, rather than the pelvis twisting against
   // the chest)
-  const tw = .78 - (G.R > .5 ? .1 : walkYaw(G.vs/h.scale));
+  // (USER-ISSUES U26) above the side steps' speed the hips go round further, up to TWIST_RUN (83 degrees), and the chest,
+  // the neck and the head turn back to the facing within their own caps (gaitTurn): a jog or a run across where you
+  // look has the legs straight along the way. Held at 0.8 rad, every diagonal or sideways run in third person stepped
+  // the feet across each other
+  const vb = G.vs/h.scale, tw0 = .78 - (G.R > .5 ? .1 : walkYaw(vb)), tw = lerp(tw0, TWIST_RUN, sstep(SHUF_MAX - .1, SHUF_MAX + 1.2, vb));
   // (and never faster than 4 rad/s: from a backwards step into a forwards one the target swaps sides)
   const twT = G.style === "fwd" ? clamp(rel, -tw, tw) : G.style === "back" ? clamp(wrap(rel - Math.PI), -.5, .5) : 0;
   G.twist += clamp((twT - G.twist)*(1 - Math.exp(-10*dt)), -4*dt, 4*dt);
