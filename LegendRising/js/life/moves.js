@@ -1583,6 +1583,9 @@ export function headerPlan(st, scale = 1){
   const tLoad = .18, contact = tLoad + v0/G - .05, air = 2*v0/G;
   return {take, dur:tLoad + air + .25 + .1, contact, tLoad, v0, land:tLoad + air};
 }
+// (U26) how far behind the hips (body units) a foot may be left as a jump gathers, and how long the feet take to come
+// in under the hips in the air
+const JUMP_BACK = .35, JUMP_IN = .15;
 function header(h, T, st, dt){
   const hp = headerPlan(st, h.scale || 1);
   _spec.dur = hp.dur; _spec.contact = hp.contact; _spec.pre = 0; _spec.begin = null;
@@ -1633,8 +1636,16 @@ function header(h, T, st, dt){
   // the feet: on their footprints; in the air they come off them, tucked a little, and land under the body.
   // (USER-ISSUES U26) In the air they go with the body, where they were under it as it left the ground: placed from
   // their take-off footprints in the world, a jump on the run left them behind and the legs stretched back to them
+  // (a body moving on as it gathers for the jump, or after it lands: a planted foot left more than JUMP_BACK behind the
+  // hips is drawn on with them, so the legs are not stretched back as it leaves the ground or comes down running)
   const F = C.feet;
-  if (air && !d.fb){ d.fb = d.f0.map(f0 => { toB(f0.x, f0.y, f0.z, _b3); return {x:_b3.x, z:_b3.z}; }); }
+  if (!air && hp.take === "jump") for (let j = 0; j < 2; j++){
+    const f0 = d.f0[j]; toB(f0.x, f0.y, f0.z, _b3);
+    if (_b3.z < -JUMP_BACK){ toW(_b3.x, (f0.y - BT.gy)/BT.sc, -JUMP_BACK, _w3); f0.x = _w3.x; f0.z = _w3.z; }
+  }
+  if (air && !d.fb){ d.fb = d.f0.map((f0, j) => { toB(f0.x, f0.y, f0.z, _b3); return {x:_b3.x, z:_b3.z, x0:_b3.x, z0:_b3.z, sx:(j ? -1 : 1)*(D.hipX + .02)}; }); }
+  // in the air they come in under the hips over JUMP_IN s
+  if (air && d.fb){ const k = sstep(hp.tLoad, hp.tLoad + JUMP_IN, tau); for (const fb of d.fb){ fb.x = lerp(fb.x0, fb.sx, k); fb.z = lerp(fb.z0, -.03, k); } }
   if (!air && d.fb && !d.landed && tau > hp.tLoad){
     // landed: the new footprints, under the body where the feet came down
     d.landed = true;

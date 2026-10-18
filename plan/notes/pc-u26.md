@@ -34,8 +34,11 @@ Branch `pc/u26`, from `origin/claude/awesome-babbage-o53g6x` at `f7ffe6e` (2026.
   drift.
 
 **The jump (`moves.js` header jump)**
-- In the air the feet go with the body, from where they were under it at take-off, and plant where they come down.
-- They were placed from the take-off footprints in the world, so a jump on the run stretched the legs back.
+- In the air the feet go with the body and come in under the hips over 0.15 s. They plant where they come down.
+- A grounded foot left more than 0.35 body units behind the hips is drawn along with them.
+- They were placed from the take-off footprints in the world, so a jump on the run stretched the legs back through the
+  flight.
+- `uf-anim` header: the AI's biggest bone turn a frame is 0.49 rad (it was 0.60 on origin; the cap is 0.75).
 
 **A kick at nothing (`view.js`)**
 - If the ball is more than 1.3 m (× scale) from the striker when the clip begins, the clip is a swing in front of the
@@ -84,6 +87,16 @@ Branch `pc/u26`, from `origin/claude/awesome-babbage-o53g6x` at `f7ffe6e` (2026.
 - Shift tapped twice with W held knocks it on over 3 m ahead.
 
 ## Open
+
+- **Running into a header:** the AI's legs still trail behind as it runs into the header and after it lands
+  (`uf-anim`'s header sheet, 0.2 to 0.4 s and 0.8 to 1.1 s). The 0.35 limit did not change those frames, so they look
+  like the gait taking over from the clip with the feet left behind (P9-A's open item 1, the clip-to-gait hand-over).
+  The flight itself is fixed.
+- **The group run on `pc/u26`:** 41 of 45.
+  - `tr6-team-browser` and `uf2-ssg` pass when run alone (one go where the player did not move, one where no goal was
+    scored).
+  - `uf-aura`'s "not lit" fails on origin too.
+  - `uf-anim` passes after the jump's second change.
 
 - **Turning on the spot** (`gait.js standStep`, the pivot) is not changed. The video's worst frames were runs across
   the facing, which the hips' turn now covers.
