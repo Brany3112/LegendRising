@@ -32,6 +32,7 @@ import {openConfig, configOpen} from "./configui.js";
 import {openPresets} from "./presetui.js";
 import {quickIsOpen, quickClose} from "./quick.js";
 import {FLAGS} from "../core/state.js";
+import {GUIDE_HTML} from "../football/fphud.js";
 
 const HUB = {open:false, cat:null, key:null, release:true, cfg:new Map(), drawn:""};
 const ENTRIES = new Map();
@@ -62,6 +63,7 @@ function markup(){
         return `<button class="opt th-cat" data-th="cat" data-id="${c.id}"><b>${esc(c.name)}</b><span class="muted small">${esc(c.desc)}</span>
           <span class="pill">${n ? `${n} to play` : "Coming soon"}</span></button>`;
       }).join("")}</div>
+      ${GUIDE_HTML}
       <div class="th-foot"><span class="muted small">You can also walk up to a cone on the pitch and press E.</span><span class="grow"></span>
         <button class="btn ghost" data-th="exit">Exit to title</button></div></div>`;
   }

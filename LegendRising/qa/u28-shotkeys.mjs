@@ -6,7 +6,7 @@
 //     the drawn foot meets the ball
 //   - S pressed while the shot is held: the shot is called off (the meter goes, letting go strikes nothing), a fake; a
 //     key pressed just after it plays the ball: D drags it back to the right, W pushes it on; none, nothing more
-//   - no reticle on the screen, no console or page error
+//   - the shooting guide in the settings card, its picture loading; no reticle on the screen, no console or page error
 //
 //   node qa/u28-shotkeys.mjs          exits 1 on any failed check; writes qa/out/u28-shotkeys.json
 import fs from "node:fs";
@@ -135,6 +135,11 @@ try {
     "S while the shot is held: the shot is called off and the bar goes, a fake, no kick when the button is let go, the ball still yours", F0);
   check(FD.end.fake && !FD.end.kick && FD.end.touches.join() === "drag right" && FD.end.side > .2 && FD.end.mine, "S, then D: the ball dragged back to the right", FD.end);
   check(FW.end.fake && !FW.end.kick && FW.end.touches.join() === "push" && FW.end.mine, "S, then W: the ball pushed on a little", FW.end);
+  // the shooting guide in the settings card (the pause card's and the Settings sheet's): opened, its picture loads
+  const guide = await page.evaluate(async () => { const h = window.fpSettingsHTML ? window.fpSettingsHTML() : "", d = document.createElement("div"); d.innerHTML = h; document.body.appendChild(d);
+    const det = d.querySelector(".fp-guide"), img = d.querySelector(".fp-guide img"); if (det) det.open = true; if (img) await img.decode().catch(() => {});
+    const r = {has: !!det, sum: det ? det.querySelector("summary").textContent : null, w: img ? img.naturalWidth : 0, shown: img ? Math.round(img.getBoundingClientRect().width) : 0}; d.remove(); return r; });
+  check(guide.has && guide.w === 1360 && guide.shown > 200, "the settings card has the shooting guide; opened, its picture loads and shows", guide);
   const ret = await page.evaluate(() => !!document.querySelector("#fpHud .fp-ret"));
   check(!ret, "no reticle on the screen", ret);
   check(!t.errors.length, "no console or page error", t.errors.slice(0, 5));

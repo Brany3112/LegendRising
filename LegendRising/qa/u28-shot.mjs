@@ -4,7 +4,7 @@
 //   - A sends the ball out to the left and it bends back to the right (its path bows out to the left of the straight
 //     line, seen from behind it); D out to the right and back
 //   - W+A curls less than A and goes faster
-//   - by the Curve skill: barely at 33, a lot at 99, between in between (how far out from the line to the target it goes)
+//   - by the Curve skill: 55 about half of 99's, 33 about half of 55's (how far out from the line to the target it goes)
 //   - the fake (S pressed while the shot is held): no kick, the ball still at your feet and yours; a key just after it
 //     plays it: A back to your left, D back to your right, S straight back, W on a little
 //   - a quicker player (Agility) plays it sooner; a better Ball Control drags it nearer where it was meant to go
@@ -72,9 +72,11 @@ function shoot(kc, w, at = {}, o = {}){
   check(Math.abs(WA.drift) < Math.abs(A.drift) && WA.v0 > A.v0, "W+A curls less than A and goes faster", {A, WA});
   const Af = shoot(-1, false, {}, {power: 1}), WAf = shoot(-1, true, {}, {power: 1}), Nf = shoot(0, false, {}, {power: 1});
   check(WAf.v0 > Af.v0*1.05 && Math.abs(WAf.v0 - Nf.v0) < .03*Nf.v0, "at a full charge too, W+A goes faster than A, as hard as a straight shot", {A: Af.v0, WA: WAf.v0, straight: Nf.v0});
-  const c0 = shoot(0, false, {curve: 66}), c33 = shoot(1, false, {curve: 33}), c66 = shoot(1, false, {curve: 66}), c99 = shoot(1, false, {curve: 99});
-  check(Math.abs(c33.out) < Math.abs(c0.out) + .15 && c66.out > c33.out + .3 && c99.out > 1.4 && c99.out > 1.8*c66.out,
-    "by the Curve skill, D's shot out to the right of the line to the target: 33 barely (within 0.15 m of a straight shot's), 66 more, 99 a lot (over 1.4 m)", {straight: c0.out, c33: c33.out, c66: c66.out, c99: c99.out});
+  const sure = cv => ({curve: cv, accuracy: 99, composure: 99});
+  const c33 = shoot(1, false, sure(33)), c55 = shoot(1, false, sure(55)), c99 = shoot(1, false, sure(99));
+  const r55 = c55.out/c99.out, r33 = c33.out/c55.out;
+  check(c99.out > 1.4 && r55 > .4 && r55 < .62 && r33 > .38 && r33 < .62,
+    "by the Curve skill, D's shot out to the right of the line to the target: 99 a lot (over 1.4 m), 55 about half of it, 33 about half of 55's", {c33: c33.out, c55: c55.out, c99: c99.out, r55: r2(r55), r33: r2(r33)});
 }
 // the fake (S pressed while the shot is held: control.js queues {kind: "fake"}; a key pressed just after sets act.dir)
 function fake(dir, at = {}, seed){

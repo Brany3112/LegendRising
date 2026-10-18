@@ -675,8 +675,12 @@ export function settingsHTML(o = {}){
   rows.push(["Radar", seg("radar", [[false, "Off"], [true, "On"]], SET.radar)]);
   const hide = SET.hide || {};
   rows.push(["Show on the HUD", `<div class="seg wrap">${Object.entries(HUD_PARTS).map(([k, l]) => `<button type="button" aria-pressed="${!hide[k]}" onclick="fpSet('hide', '${k}')">${esc(l)}</button>`).join("")}</div>`]);
-  return `<div class="fp-set">${rows.map(([l, c]) => `<label>${esc(l)}</label><div class="fp-set-c">${c}</div>`).join("")}</div>`;
+  return `<div class="fp-set">${rows.map(([l, c]) => `<label>${esc(l)}</label><div class="fp-set-c">${c}</div>`).join("")}</div>` + GUIDE_HTML;
 }
+// (U28) the shooting guide under the settings, closed until opened: how A and D curl a shot for either foot by the Curve
+// skill, and the keys (img/curl-guide.png, drawn from the game's own ball paths)
+export const GUIDE_HTML = `<details class="fp-guide"><summary>Shooting guide: curl, power and the fake</summary>` +
+  `<img src="img/curl-guide.png" alt="A shot curled with A goes out to the left and bends back right; with D out to the right and back left. W with A or D: half the curl, as hard as a straight shot. S while the shot is held fakes it, then A, D, S or W drags the ball. Curve 99 bends about 1.7 m, 55 half of that, 33 half of 55." loading="lazy"></details>`;
 export function fmtVal(k, v){
   if (k === "sens") return (+v).toFixed(2) + "x";
   if (k === "fov") return Math.round(v) + " degrees";

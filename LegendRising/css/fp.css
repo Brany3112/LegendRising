@@ -180,6 +180,9 @@ body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdr
 .fp-set .seg.wrap{flex-wrap:wrap}
 .fp-set label{color:var(--fp-muted)}.fp-set input[type=range]{width:100%}
 .fp-set .seg{display:flex;gap:4px}.fp-set .seg button{padding:2px 8px}
+/* (U28) the shooting guide under the settings, opened from its summary line */
+.fp-guide{margin-top:14px;text-align:left;font-size:13px}.fp-guide summary{cursor:pointer;color:var(--fp-muted);padding:4px 0}
+.fp-guide summary:hover{color:inherit}.fp-guide img{display:block;width:100%;max-width:560px;height:auto;margin:8px auto 0;border-radius:10px}
 
 @keyframes fpIn{from{opacity:0;transform:translateY(-8px) scale(.94)}to{opacity:1;transform:none}}
 @keyframes fpBeat{0%,100%{transform:scaleY(1)}12%{transform:scaleY(1.7)}24%{transform:scaleY(1)}36%{transform:scaleY(1.45)}}

@@ -141,14 +141,19 @@ still on screen.
   - `rq.footPart` is `SHOT_KEYS.PART`, as in the real game: a right foot's outside for A (it bends right), its inside
     for D, mirrored for a left foot. `view.js` passes it as `c.part`, and `moves.js strikePath` turns the foot for it
     (outside: the toes turned in) on the plain shot's own swing.
-  - **How much, by the Curve skill:** `curlSpin` is `CURL.MAX` (80 rad/s) times `((curve - 25)/74)^1.5`. That is
-    16 rad/s at 50, 33 at 66 and 80 at 99.
+  - **How much, by the Curve skill:** `curlSpin` is `CURL.MAX` (80 rad/s) times `(curve - 11)/88`, a straight line the
+    user asked for: 55 half of 99's, 33 half of 55's (20, 40 and 80 rad/s).
     - `launchSpin`'s and `solveStrike`'s curl range is now -3 to 3 (the player's alone; the AI's finesse is still 1),
       so the AI and the harness are untouched.
-    - In `u28-shot`, the ball goes out from the line to the target over 16 m: 0.17 m at 33 (a straight shot 0.14),
-      0.78 at 66 and 1.79 at 99.
+    - In `u28-shot` (Accuracy 99), the ball goes out from the line to the target over 16 m: 0.43 m at 33, 0.84 at 55
+      and 1.69 at 99.
   - **W with it** sets `rq.drive`: half the curl, at a straight shot's speed for the charge (no curler's 0.92 or its
     0.85 cap).
+- **The shooting guide** (`img/curl-guide.png`, from `img/curl-guide.svg`): the curl drawn from the game's own ball
+  paths, both feet, Curve 33, 55 and 99, and the keys.
+  - `fphud.js GUIDE_HTML` is a closed `<details>` under the football settings card (the match pause card and the
+    Settings sheet) and on the Training hub's home (`hub.js`).
+  - `u28-shotkeys` checks it opens and its picture loads.
 - **A and D don't move you while a shot is held or struck.** Sidestepping at 2 m/s through the swing carried the
   drawn foot 0.6 to 0.8 m past the ball. A step from a stand into the strike mis-planted it, a scuff at 0.55 of the speed, so W is held back
   twice.

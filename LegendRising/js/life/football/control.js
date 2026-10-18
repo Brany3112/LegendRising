@@ -111,8 +111,9 @@ function flick(ms, me, held){
 }
 // (U28 part E) the keys held in the last SHOT_KEYS.T s as a shot is let go shape it (control.js strike)
 // (U28 fix) how much a shot curled with A or D spins, by the Curve skill: CURL.MAX rad/s of sidespin at 99, falling off
-// as ((curve - CURL.LO)/(99 - CURL.LO))^CURL.POW, so 66 spins a third of it and 33 barely at all (past 99, a little more)
-export const CURL = Object.freeze({MAX: 80, LO: 25, POW: 1.5});
+// in a straight line to none at CURL.LO, ((curve - CURL.LO)/(99 - CURL.LO))^CURL.POW: 55 spins half of 99's, 33 half of
+// 55's (past 99, a little more)
+export const CURL = Object.freeze({MAX: 80, LO: 11, POW: 1});
 export const curlSpin = curve => CURL.MAX*Math.pow(clamp(((+curve || 0) - CURL.LO)/(99 - CURL.LO), 0, 1.15), CURL.POW);
 export const SHOT_KEYS = Object.freeze({T: .25, PART: Object.freeze({a: "outside", d: "inside"}), FAKE_WAIT: .55});
 // (a time after the clock is a match or a go before this one: its clock began again from nothing)
@@ -1072,8 +1073,8 @@ function strike(ms, me, what, held, opts){
     else if (kind === "shot" && ctc === 0 && toGoal && tgt.y < AIM.LOW_Y && shape !== "placed" && KT !== "curl"){ shape = shape === "power" ? "power low" : "low"; ctc = -1; }
     if (kind !== "shot"){ ctc = 1; shape = "lofted"; }
     if (G.curl){ finesse = true; bend = G.curl; shape = shape === "placed" || shape === "struck" || shape === "power" ? "curl" : shape + " curl"; }
-    // (U28 part E) A or D held as it is let go sends it out that way and bends it back, by your Curve skill (CURL: a lot
-    // at 99, barely at 33); W with it: half the curl, as hard as a straight shot (rq.drive)
+    // (U28 part E) A or D held as it is let go sends it out that way and bends it back, by your Curve skill (CURL: all
+    // of it at 99, half at 55, a quarter at 33); W with it: half the curl, as hard as a straight shot (rq.drive)
     const kc = K.a !== K.d ? (K.d ? 1 : -1) : 0;
     let footPart = null;
     if (kc && kind === "shot" && !chip){
