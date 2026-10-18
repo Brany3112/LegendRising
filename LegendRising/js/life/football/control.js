@@ -93,6 +93,9 @@ const ASSIST_K = Object.freeze({on:1, low:.5, off:0});
 export const SET = loadSet();
 // (U21) life reads the football camera through the shared state (me.js: the apartment ball), never this module
 ME.footCam = SET.footCam;
+// (U26) two Shift presses this close together (seconds) are a knock-on
+export const KNOCK_TAP = .3;
+const nowS = () => (typeof performance === "object" && performance.now ? performance.now() : Date.now())/1000;
 export const assistK = () => ASSIST_K[SET.assist] != null ? ASSIST_K[SET.assist] : 1;
 export function saveSet(patch = {}){
   Object.assign(SET, patch);
@@ -221,7 +224,7 @@ export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", "
    charge: what is filling (a shot, a pass, a throw, a header's jump); contact: Low -1, Normal 0, High 1 (kept
    until changed); finesse: F held; target: the team-mate the pass cone has (agent), whether the crosshair makes it a
    through ball, and the point; call: your last call; uses: how often each hint has been acted on (they shorten) */
-export const CTRL = {ctx:"free", walk:false, scan:null, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
+export const CTRL = {shiftAt:-1e9, knockReq:false, ctx:"free", walk:false, scan:null, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
   target:{agent:-1, through:false, point:null}, call:{t:-99, kind:null, seq:0, n:0}, uses:{},
   // additions: held keys, the buttons, what was released for the next step, the ring of a volley, the last action
   held:{}, lmb:false, rmb:false, lmbT:0, rmbT:0, rHeld:0, rDone:false, queue:[], ring:null, last:null, jockey:false, small:false,
@@ -286,6 +289,8 @@ export function controlInput(ev){
       else if (k === "1" || k === "2" || k === "3") setKick(KICK_OF_CONTACT[String(+k - 2)]);
       else if (k === "v") CTRL.queue.push({k:"scan"});
       else if (k === "f") CTRL.queue.push({k:"f"});
+      // (U26) Shift tapped twice within KNOCK_TAP s: the knock-on (actions.js knockOn)
+      else if (k === "shift"){ const now = nowS(); if (now - CTRL.shiftAt < KNOCK_TAP){ CTRL.knockReq = true; CTRL.shiftAt = -1e9; } else CTRL.shiftAt = now; }
       else if (k === "space") CTRL.queue.push({k:"space"});
       // R: the call registers on the press itself (U10): "Here!" at once, every time; held on to 0.4 s it becomes "In
       // behind!" to the point under the crosshair. (It used to wait for the release, so a press whose key-up was
@@ -769,6 +774,12 @@ export function controlStep(ms, me, h, opts = {}){
   const dball = Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z);
   I.gait = CTRL.walk ? "walk" : CTRL.held.shift && !shieldGait ? "sprint" : "jog";
   if (ctx === "restart"){ I.gait = dball > 8 && !CTRL.walk ? "jog" : "walk"; }
+  // (U26) the ball at your feet: F held with the ball yours, not sprinting (actions.js keepStep); Shift tapped twice
+  // with it: knocked on to run onto (knockOn). A sprint lets a kept ball go, as before
+  const mine = ms.poss.ctl === me.id && ctx !== "restart";
+  I.keep = mine && !!CTRL.held.f && I.gait !== "sprint" && !I.shield;
+  I.knock = mine && CTRL.knockReq;
+  CTRL.knockReq = false;
   // jockeying (RMB held defending): side-on, at most 3.2 m/s, facing the man on the ball
   CTRL.jockey = ctx === "defend" && CTRL.rmb;
   if (CTRL.jockey){
@@ -1148,7 +1159,8 @@ export function hintsFor(ms, me){
       else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); add("Mouse", "sweep to curl, lift to loft", "shape"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
-      else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Mouse", "sweep through it to curl", "shape"); }
+      // (U26) F keeps it at your feet, Shift twice knocks it on
+      else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("F", "hold to keep it at your feet", "keep"); add("Shift Shift", "knock it on and run", "knock"); }
     }
     else if (CTRL.resolve && CTRL.resolve.kind === "header"){ add("Space", "head it", "header"); add("F+Space", "cushion it down to your feet", "cushion"); }
     else if (CTRL.resolve && CTRL.resolve.kind !== "ground") add("LMB", "volley it", "shoot");

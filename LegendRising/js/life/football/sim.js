@@ -40,7 +40,7 @@ import {createShape, teamShape, assignDefence, SLOT_POS, teamToPitch, clubStyle,
 import {brainStep, restartShape, decideCarrier} from "./brain.js";
 import {gkStep, gkOnHand, gkOnBody, gkCollect, gkHands} from "./gkbrain.js";
 import {refStep, startRestart, restartStep, ballOut, goalScored, setCtl, clearCtl, foul, liveRoll, lawsOf} from "./rules.js";
-import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, bodyContact, steer, standStill} from "./actions.js";
+import {actionStep, touchCheck, controlCheck, refreshPred, dribbleFoot, keepStep, bodyContact, steer, standStill} from "./actions.js";
 import {createChain, logEv, chainWood, chainTouch, countersAll, rateAgent, minuteOf, onSec, dribbleWatch} from "./events.js";
 import {ballKick} from "./ball.js";
 import {onTouch} from "./rules.js";
@@ -542,6 +542,8 @@ function agentStep(ms, a, h){
     GQ[0] = dist; GQ[1] = m.speed; GQ[2] = a.scale || 1;
     const evs = phaseAdvanceQ(a.g, a.g.mode);
     if (evs.length && ms.poss.ctl === a.id && ms.phase === 'live') for (const e of evs) dribbleFoot(ms, a, e.side);
+    // (U26) the ball at your feet (F held) and the knock-on (Shift twice): the player's intents only
+    if ((a.intent.keep || a.intent.knock) && ms.poss.ctl === a.id) keepStep(ms, a, h);
   }
 }
 function endStep(ms, h){

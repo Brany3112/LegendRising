@@ -678,6 +678,8 @@ function inOwnBox(ms, a){
 export function dribbleFoot(ms, a, side){
   const b = ms.ball;
   if (ms.poss.ctl !== a.id || b.state !== 'free' || !a.drib) return false;
+  // (U26: the ball kept at your feet is touched by keepStep, not on the strides)
+  if (a.intent.keep) return false;
   const v = a.m.speed;
   if (side === touchSideOf(a)) a.strides++;
   const every = dribbleCadence(v);
@@ -718,6 +720,53 @@ function dribbleKick(ms, a){
   return true;
 }
 function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
+
+/* ---------- the ball at your feet, and the knock-on (USER-ISSUES U26) ----------
+   F held with the ball yours and no sprint (control.js a.intent.keep): the ball is kept on a spot KEEP.LEAD (plus
+   KEEP.LV a m/s of your speed) ahead along the way you go, or in front of you standing still, wherever the keys take
+   you, back and sideways too. Whenever it would be more than KEEP.TOL off that spot in KEEP.T s, a soft touch (a real
+   kick of the ball, at most every KEEP.DT s) sends it there at your pace. Held Shift lets it go: a sprint pushes it on
+   (dribbleFoot). Shift tapped twice (a.intent.knock): it is knocked KNOCK.D on along your way, to run onto */
+export const KEEP = Object.freeze({LEAD: .32, LV: .05, REACH: 1.1, TOL: .12, DT: .18, T: .3});
+export const KNOCK = Object.freeze({D: 9, MIN_V: 4, OVER: 2.5, REACH: 1.8});
+export function keepStep(ms, a, h){
+  const b = ms.ball, I = a.intent;
+  if (ms.poss.ctl !== a.id || b.state !== 'free' || b.p.y > 0.4 || (a.act && !a.act.done) || ms.phase !== 'live') return false;
+  const sc = a.scale || 1, dist = hypot(b.p.x - a.m.x, b.p.z - a.m.z);
+  const mv = hypot(I.dx || 0, I.dz || 0) > 0.1;
+  let ux, uz;
+  if (mv){ const l = hypot(I.dx, I.dz); ux = I.dx/l; uz = I.dz/l; } else { const f = dirOf(a.m.yaw); ux = f.x; uz = f.z; }
+  // (the knock on a ball a stride's touch may just have played on: KNOCK.REACH)
+  if (I.knock){ I.knock = false; return dist <= KNOCK.REACH*sc ? knockOn(ms, a, ux, uz) : false; }
+  if (dist > KEEP.REACH*sc) return false;
+  if (!I.keep || ms.t - (a.keepT != null ? a.keepT : -9) < KEEP.DT) return false;
+  const vx = a.m.vx || 0, vz = a.m.vz || 0, v = hypot(vx, vz), T = KEEP.T, dec = b.rollDecel || 1.1;
+  // the spot in T s, and where the ball will have rolled to by then
+  const lead = (KEEP.LEAD + KEEP.LV*v)*sc, tx = a.m.x + vx*T + ux*lead, tz = a.m.z + vz*T + uz*lead;
+  const bs = hypot(b.v.x, b.v.z), tr = bs > 1e-4 ? Math.min(T, bs/dec) : 0, go = bs > 1e-4 ? (bs*tr - .5*dec*tr*tr)/bs : 0;
+  const px = b.p.x + b.v.x*go, pz = b.p.z + b.v.z*go;
+  if (hypot(px - tx, pz - tz) < KEEP.TOL*sc) return false;
+  // a soft touch: the ball onto the spot in T s (rolling, slowing as it goes)
+  const ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), sp = D > 1e-3 ? Math.min(D/T + .5*dec*T, 12) : 0;
+  ballKick(b, {x: D > 1e-3 ? ex/D*sp : 0, y: 0, z: D > 1e-3 ? ez/D*sp : 0}, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  a.keepT = ms.t;
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, keep: true});
+  chainKeep(ms, a);
+  onTouch(ms, a, 'dribble', ev);
+  refreshPred(ms);
+  return true;
+}
+// the knock-on: the ball KNOCK.D on along (ux, uz), faster than your sprint by KNOCK.OVER, MIN_V over your speed now
+function knockOn(ms, a, ux, uz){
+  const b = ms.ball, dec = b.rollDecel || 1.1, sp = Math.max(Math.sqrt(2*dec*KNOCK.D*(a.scale || 1)), a.m.speed + KNOCK.MIN_V, (a.prm && a.prm.sprint || 8) + KNOCK.OVER);
+  ballKick(b, {x: ux*sp, y: 0, z: uz*sp}, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  a.keepT = ms.t; a.intent.knock = false;
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, knock: true});
+  chainKeep(ms, a);
+  onTouch(ms, a, 'dribble', ev);
+  refreshPred(ms);
+  return true;
+}
 const SHIELD_LAT = 0.3;     // a shielder's dribble runs this far to his far side of the line
 
 /* ---------- the shield (spec 3, P2b-A) ---------- */
