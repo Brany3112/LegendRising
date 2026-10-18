@@ -143,3 +143,65 @@ merge into `claude/awesome-babbage-o53g6x`. This PC never pushed there.
     count growing, and names where the geometry was made. It passes; so did six plain runs.
 - **Still intermittent:** `uf-callpass` (4 of 6 runs pass). In the other two, a few presses of R went unregistered
   while the keeper held the ball for his roll (P9-B's `gkroll` hold).
+
+## Harness follow-up (2026-10-18): the five failures traced
+
+Every figure is from seeds 1 to 1000 unless it says otherwise; "calibration" means seeds 20001 and up, never the
+acceptance run's. The harness at `afea207` was replayed match by match first (a runner that keeps each match's result):
+it gives the integration's figures exactly (win share 0.516, W 28.20, ST 22.26, seed 79's throw-in 5.6 s over).
+
+- **Win share (0.516): the sample, not a change of strength.**
+  - Only 158 of the 1000 matches have sides 7 to 13 overall apart, so the check's standard error is 0.034 and any change
+    to the simulation deals those 158 results out again.
+  - On those 158 seeds: `afea207` 0.516; the tree after P9-B's merge (`6f48498`) 0.614; `afea207` without P9-A's
+    `strikeRoot` speed cap 0.617; `afea207` with P9-B's own distribution numbers (`ROLL_NEED` 0.85, no `DIST.WIDE`) 0.601.
+  - Out of sample (the 129 such matches in seeds 1001 to 2000) the order turns round: `afea207` 0.632, without
+    `strikeRoot` 0.574. Over all 287, `afea207` 0.568 and without `strikeRoot` 0.598: no difference beyond the error.
+  - After this follow-up's two changes the same check reads 0.649 (above its band), from the same reshuffle.
+  - The levelling (`sim.js LEVEL`) is the knob that sets it; refitting it needs several hundred matches a value on
+    calibration seeds, and was not done.
+- **The slow restart (seed 79, a throw-in 11.6 s against 6): the dugouts' gap in the boards.**
+  - The ball went out at x 1.2 and rolled through the gap in front of the dugouts (pitchspec `BOARDS.gaps`, x -14 to
+    14 at z -38) to z -42.5, beyond the runoff and so out of every player's reach (`rules.js reachable`).
+  - The fetcher was sent 28 m to the spare at x 30 (the nearer spares were already used by two earlier balls lost the
+    same way), served it back, and the restart ran 5.6 s past its limit + 5.
+  - Fixed (`26bd780`): a dead ball crossing the runoff's edge where no board stands is stopped there by the bench.
+- **`simStep` max (1.73 ms): load.** The acceptance run below, with the machine less loaded, gave 0.86 ms (mean 0.052).
+- **ST touches (22.26): the striker took the corners.**
+  - Corners and near free kicks went to the best curve + shooting accuracy. With the archetype profiles (striker
+    accuracy +5.6) the centre forward was his side's corner taker about as often as the ten: the harness's striker took
+    1.4 corners and 1.1 free kicks a match, each a touch, and was out of the box for them.
+  - Fixed (`6f0abc0`): a corner, and a free kick that will be crossed in, goes to the best curve + passing accuracy.
+    Calibration, striker forced, 80 seeds: touches 22.61 to 21.55, corners 1.42 to 0.95. Acceptance: 22.26 to 22.11, still
+    a hair over the band.
+- **W touches (28.2): the AI's wingers, not the stand-in.**
+  - The stand-in's touches are the AI wingers' own: AI wingers 30.6 a full match, the stand-in 29.3 (CM 25.2, AM 23.6).
+  - Wide men and full-backs are the most involved on the pitch (LB, RB, LM, RM, RW 29 to 34 a match; CB, CDM 24).
+  - What did not move them (calibration, 40 to 80 seeds each, AI wingers within about 1 touch of 30): wingers holding
+    width at 8 or 10 m (not 4), no push up to the line in possession, a wider defensive shape (`WID_OUT` 44 to 46), the
+    markers taking men up to 20 m away, more central midfielders showing (`SUPPORT`), half the wide crossing value
+    (`CROSS_T`), the crossing zone 10 m later, directness 1.0, no U9 free space, fewer winger runs. The stand-in without
+    any calls gave 1.5 fewer; with `up` 0, none.
+  - The band was met on 11 October (24.4); it rose with TR-2b's possession rework and the TR-3+U rounds (26.4 on the
+    13th, 27.6 on the 14th, 28.6 on the 16th), and P7 to P10 did not move it. Open: it needs a look at how the whole side
+    circulates the ball, not a single number.
+- **After both changes, `node qa/harness.mjs --n 1000 --workers 2`: 56 of 62.**
+
+  | Failing check | Before (`afea207`) | After | Band |
+  |---|---|---|---|
+  | Win share, 10 overall higher | 0.516 | 0.649 | 0.55 to 0.62 |
+  | Goals per match | 2.84 (pass) | 2.901 | 2.3 to 2.9 |
+  | W touches | 28.20 | 28.01 | 15 to 26 |
+  | ST touches | 22.26 | 22.105 | 12 to 22 |
+  | DF defensive actions | 6.59 (pass) | 5.965 | 6 to 12 |
+  | ST defensive actions | 3.99 (pass) | 4.12 | 1 to 4 |
+  | Restarts within limit + 5 s | 1 (5.6 s over) | 0 (worst 3.17 s over) | 0 |
+  | `simStep` max | 1.73 ms | 0.86 ms | 1.5 ms |
+
+  - Goals, the two defensive-action checks and the win share sit on their bands' edges, and each moved by one to two
+    standard errors with the reshuffle; on calibration seeds the corner change left goals as they were (2.85 to 2.74 with
+    the striker forced, 2.90 to 2.94 with a defender forced) and a forced defender's defensive actions 7.24 to 6.83 (one
+    standard error).
+- **Other tests:** unit, lint and nodash 32 of 32; smoke passes; `tr6-receive`, `tr6-receive-anim`, `tr6-team` and
+  `tr8-fullmatch` pass. `tr8-reset` (its second-half goals, both missed) and `tr6-team-browser` (no team-mate call in its
+  sample) failed once each and passed on a rerun; `tr8-reset` fails the same way on `afea207` (1 of 3 runs there).
