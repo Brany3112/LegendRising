@@ -401,7 +401,7 @@ function meterFrame(s, dt, over){
   E.meter.classList.toggle("scuff", !on && gr === "scuff");
   E.meter.classList.toggle("over", on && bad);
   E.meterRel.style.left = (p*100).toFixed(1) + "%"; E.meterRel.style.opacity = on ? "0" : "1";
-  put("meterLab", E.meterLab, D.meterKind === "pass" ? "Weight" : D.meterKind === "throw" ? "Distance" : "Power");
+  put("meterLab", E.meterLab, D.meterKind === "pass" ? "Weight" : D.meterKind === "throw" ? "Distance" : D.meterKind === "flick" ? "Strength" : "Power");
   // (in the spot with the assists: a clean strike; without them, the power or the weight was right, the stride still counts)
   // (a shot says its grade: Perfect in the gold, Good in the sweet spot, Scuffed off it)
   put("meterSay", E.meterSay, on ? "" : gr === "perfect" ? "Perfect" : gr === "good" ? "Good" : gr === "scuff" ? "Scuffed" :

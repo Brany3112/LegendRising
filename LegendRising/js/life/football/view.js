@@ -566,6 +566,21 @@ function liveSt(V, R, a, ms, dt){
         } else { c.tc = 0; if (c.noBall == null){ predAt(ms, 0, PB); c.noBall = Math.hypot(PB.x - a.m.x, PB.z - a.m.z) > STRIKE_REACH*(a.scale || 1); } if (c.noBall){ c.ball = null; c.dir = yawDir(c, a.m.yaw); } }
         return c;
       }
+      case "flick": {
+        // (U28 part G) the flick and the chip: the strike's clip, light, its contact on the simulation's (the ball at your
+        // feet: act.tc; a sombrero: when the ball will be at your foot, its arrival), the foot to where the ball will be
+        const c = clipFor(R, "strike", act);
+        c.mode = "strike"; c.kind = act.side && !act.fwd ? "side" : "chip"; c.side = a.foot === "L" ? "L" : "R"; c.power = .25 + .25*act.p; c.curl = 0; c.lowHigh = 1;
+        if (!act.done){
+          let tcl;
+          if (act.first){ const b = ms.ball, d = Math.hypot(b.p.x - a.m.x, b.p.z - a.m.z), v = Math.max(1, Math.hypot(b.v.x, b.v.z) + a.m.speed); tcl = Math.max(0, (d - .6)/v); }
+          else tcl = Math.max(0, act.tc - act.t - alpha*H);
+          c.tc = tcl; predAt(ms, tcl, PB);
+          c.ball = c._fb || (c._fb = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
+          c.dir = yawDir(c, a.m.yaw);
+        } else c.tc = 0;
+        return c;
+      }
       case "fake": {
         // (U28 part E) the fake shot: the strike's swing, short and light, stopping in front of the body (no ball in it);
         // the drag's touches move the foot to the ball themselves (dribbleTouches)

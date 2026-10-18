@@ -437,11 +437,12 @@ function inputOn(){
     return controlInput(ev);
   };
   pushInput(INP);
-  // the right button: the world routes the left one only (world.js bindInput), so the pass button is heard here
+  // the right button: the world routes the left one only (world.js bindInput), so the pass button is heard here, and
+  // (U28 part G) the wheel's button, the flick's (its own default, an auto-scroll, stopped)
   const cv = RT.renderer && RT.renderer.domElement;
   const locked = () => !!cv && document.pointerLockElement === cv;
-  RMB.down = e => { if (e.button === 2 && locked() && RUN.T) controlInput({type:"down", button:2, locked:true}); };
-  RMB.up = e => { if (e.button === 2 && RUN.T) controlInput({type:"up", button:2, locked:locked()}); };
+  RMB.down = e => { if ((e.button === 2 || e.button === 1) && locked() && RUN.T){ if (e.button === 1) e.preventDefault(); controlInput({type:"down", button:e.button, locked:true}); } };
+  RMB.up = e => { if ((e.button === 2 || e.button === 1) && RUN.T) controlInput({type:"up", button:e.button, locked:locked()}); };
   RMB.menu = e => { if (RUN.T) e.preventDefault(); };
   addEventListener("mousedown", RMB.down); addEventListener("mouseup", RMB.up); addEventListener("contextmenu", RMB.menu);
 }

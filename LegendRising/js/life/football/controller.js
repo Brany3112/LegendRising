@@ -176,10 +176,10 @@ function capture(e){
   if (e.type === "contextmenu"){ e.preventDefault(); return; }
   // (the wheel itself reaches the match through world.js's own listener and the router: only its default stops here)
   if (e.type === "wheel"){ e.preventDefault(); return; }
-  // the right button (world.js routes only the left one)
-  if ((e.type === "mousedown" || e.type === "mouseup") && e.button === 2){
+  // the right button (world.js routes only the left one), and (U28 part G) the wheel's button, the flick's
+  if ((e.type === "mousedown" || e.type === "mouseup") && (e.button === 2 || e.button === 1)){
     e.preventDefault();
-    if (document.pointerLockElement) routeOwn({type: e.type === "mousedown" ? "down" : "up", button: 2});
+    if (document.pointerLockElement) routeOwn({type: e.type === "mousedown" ? "down" : "up", button: e.button});
   }
 }
 if (typeof addEventListener === "function"){

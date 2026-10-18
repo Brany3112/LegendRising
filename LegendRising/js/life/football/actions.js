@@ -764,6 +764,78 @@ function fakeStep(ms, a, act, h){
   }
 }
 
+/* ---------- the flick and the chip (U28 part G) ----------
+   control.js flick: rq = {p (the strength 0..1, no sweet spot), fwd (+1 on, -1 back over the head), side (+1 right, -1
+   left), first (a ball on its way to you, first time: the sombrero)}. The ball at your feet is touched FLICK.TC s on; a
+   ball coming is waited for (FLICK.WAIT s at most) until it is within FLICK.REACH and low, and met as it arrives. The
+   strength sets the lift and the way on: a light one pops it just over a sliding leg (FLICK.H0 m up, FLICK.D0 on), a full
+   one over a standing man or a keeper (FLICK.H1, FLICK.D1, more with Shot Power); back over your head goes higher and
+   shorter (a rainbow); no key, a keepy-up for yourself. The skills set how near it goes to what was asked: q from Ball
+   Control, Technique and Dribbling, less under pressure (Composure) and with your breath, and for the sombrero less
+   for a faster ball (First Touch is Ball Control here); a poor touch now and then scuffs it along the grass. The touch
+   is a real kick with the spin its contact gives (backspin under a chip, topspin over the head, sidespin to the side).
+   It ends close control (run to it, F) */
+export const FLICK = Object.freeze({TC: .2, WAIT: 1.8, REACH: .85, DUR: .7, H0: .7, H1: 3.2, D0: 1.5, D1: 12, BACK_H: [1.6, 3], BACK_D: [2, 7],
+  KEEPY_H: [.6, 1.5], SOMB_D: .38, SOMB_H: 1.15, ERR_D: .35, ERR_A: 18*Math.PI/180, ERR_H: .3, SCUFF: .12, SPIN: 18});
+function startFlick(ms, a, rq){
+  ctlOff(a, 'flick');
+  const act = {kind: 'flick', t: 0, dur: FLICK.DUR + (rq.first ? FLICK.WAIT : 0), tc: rq.first ? -1 : FLICK.TC, p: clamp(+rq.p || .5, 0, 1), fwd: rq.fwd || 0, side: rq.side || 0,
+    first: !!rq.first, done: false, f: dirOf(a.m.yaw)};
+  a.act = act; a.state = 'kick';
+  return act;
+}
+function flickStep(ms, a, act, h){
+  if (act.done) return;
+  a.intent.speedCap = Math.min(a.intent.speedCap, act.first ? a.m.speed : 1.5);
+  const b = ms.ball, sc = a.scale || 1, d = hypot(b.p.x - a.m.x, b.p.z - a.m.z);
+  if (act.first){
+    // the sombrero: met as it arrives, low and within reach (nobody else on it); not reached in time: nothing
+    if (act.t > FLICK.WAIT){ act.done = true; return; }
+    if (!(b.state === 'free' && b.p.y < .6 && d <= FLICK.REACH*sc && (ms.poss.ctl < 0 || ms.poss.ctl === a.id))) return;
+    act.tc = act.t;
+  } else {
+    if (act.t < act.tc) return;
+    if (!(b.state === 'free' && b.p.y < .6 && d <= 1.3*sc && (ms.poss.ctl < 0 || ms.poss.ctl === a.id))){ act.done = true; return; }
+  }
+  act.done = true;
+  const at = a.at, f = act.f, rx = -f.z, rz = f.x, p = act.p;
+  // the way: on the facing, by the keys (none: straight up a little, ahead)
+  let ux = f.x*act.fwd + rx*act.side, uz = f.z*act.fwd + rz*act.side; const ul = hypot(ux, uz);
+  const keepy = ul < 1e-6, back = act.fwd < 0 && !act.side;
+  if (keepy){ ux = f.x; uz = f.z; } else { ux /= ul; uz /= ul; }
+  const pw = clamp((at.power || 50)/99, 0, 1.1);
+  let H = keepy ? FLICK.KEEPY_H[0] + (FLICK.KEEPY_H[1] - FLICK.KEEPY_H[0])*p : back ? FLICK.BACK_H[0] + (FLICK.BACK_H[1] - FLICK.BACK_H[0])*p : FLICK.H0 + (FLICK.H1 - FLICK.H0)*p;
+  let D = keepy ? .2 : back ? FLICK.BACK_D[0] + (FLICK.BACK_D[1] - FLICK.BACK_D[0])*p : (FLICK.D0 + (FLICK.D1 - FLICK.D0)*p)*(.85 + .3*pw);
+  // (the sombrero, first time: steep, up over the man rushing in and down just behind him)
+  if (act.first && !keepy && !back){ D *= FLICK.SOMB_D; H *= FLICK.SOMB_H; }
+  // how near what was asked: q from the skills, less under pressure and with the breath, and for a sombrero less the faster
+  // the ball came
+  const tech = clamp(.4*(at.aero || 0) + .3*(at.curve || 50) + .3*(at.ctrl || at.dribbling || 50), 0, 110);
+  let q = clamp((.4*(at.ctrl || 50) + .3*tech + .3*(at.dribbling || 50))/99, 0, 1.1);
+  const pr = pressureOn(ms, a), comp = clamp((at.composure || 50)/99, 0, 1.1), bF = a.st ? clamp(a.st.B/35, 0, 1) : 1;
+  q *= (1 - .3*pr*(1 - comp))*(.8 + .2*bF);
+  if (act.first){ const vIn = hypot(b.v.x, b.v.z); q *= 1 - .3*Math.min(1, vIn/12)*(1.1 - Math.min(1, (at.ctrl || 50)/99)); }
+  if (a.foot && act.side && ((act.side > 0) !== (a.foot === 'R'))) q *= .9;   // (the other foot's side: the weak one)
+  const miss = clamp(1 - q, 0, 1);
+  const scuff = ms.r() < .02 + FLICK.SCUFF*miss*miss;
+  D *= 1 + truncNormal(ms.r, FLICK.ERR_D*miss, 2);
+  H *= 1 + truncNormal(ms.r, FLICK.ERR_H*miss, 2);
+  const ang = truncNormal(ms.r, FLICK.ERR_A*miss, 2), ca = cos(ang), sa = sin(ang);
+  const vx0 = ux*ca - uz*sa, vz0 = ux*sa + uz*ca;
+  let vy, vh;
+  if (scuff){ vy = .5; vh = Math.max(2, D*.6); }
+  else { vy = Math.sqrt(2*G*Math.max(.2, H)); vh = D/(2*vy/G); }
+  const v = {x: vx0*vh, y: vy, z: vz0*vh};
+  // the spin its contact gives: backspin under a chip, topspin over the head, sidespin to the side
+  const spin = FLICK.SPIN*(.5 + .5*p), rollx = vz0, rollz = -vx0;
+  const w = back ? {x: rollx*spin, y: 0, z: rollz*spin} : act.side && act.fwd === 0 ? {x: 0, y: -act.side*spin*.6, z: 0} : {x: -rollx*spin, y: 0, z: -rollz*spin};
+  ballKick(b, v, scuff ? null : w, {agent: a.id, team: a.team, kind: 'flick', t: ms.t});
+  const part = keepy ? 'laces' : back ? 'heel' : act.side && !act.fwd ? (((act.side > 0) === (a.foot !== 'L')) ? 'outside' : 'inside') : act.fwd > 0 ? 'toe' : 'laces';
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'flick', quality: scuff ? .3 : clamp(q, 0, 1), flick: keepy ? 'keepy' : back ? 'rainbow' : act.first ? 'sombrero' : act.fwd > 0 && !act.side ? 'chip' : 'flick',
+    part, foot: touchSideOf(a), scuff, p: Math.round(p*100)/100, dx: vx0, dz: vz0});
+  chainKeep(ms, a); onTouch(ms, a, 'dribble', ev); refreshPred(ms);
+}
+
 /* ---------- close control (USER-ISSUES U27), and the knock-on (U26) ----------
    F (control.js) asks to take the ball into close control for TAKE.WIN s (a.takeT): as soon as it is within TAKE.REACH,
    low and nobody else's, it is gathered with a touch and a.ctlOn is set. In close control the ball is kept on a spot
@@ -1314,6 +1386,11 @@ export function actionStep(ms, a, h){
       if (act.t >= act.dur){ a.act = null; a.state = 'idle'; }
       break;
     }
+    case 'flick': {
+      flickStep(ms, a, act, h);
+      if (act.t >= act.dur){ a.act = null; a.state = 'idle'; }
+      break;
+    }
     case 'throw': {
       standStill(a, faceTo(a, act.target.x, act.target.z, a.faceV));
       if (!act.done && act.t >= act.tc) throwRelease(ms, a, act);
@@ -1344,6 +1421,7 @@ export function startAction(ms, a, rq){
     }
     case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1, !!rq.dive, rq.ballY != null ? rq.ballY : null);
     case 'fake': return startFake(ms, a, rq);
+    case 'flick': return startFlick(ms, a, rq);
     case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':
       logEv(ms, 'call', a.team, a.id, a.m.x, a.m.z, {how: rq.how || 'here', px: rq.target ? rq.target.x : null, pz: rq.target ? rq.target.z : null});

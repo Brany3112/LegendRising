@@ -93,6 +93,22 @@ const ASSIST_K = Object.freeze({on:1, low:.5, off:0});
 export const SET = loadSet();
 // (U21) life reads the football camera through the shared state (me.js: the apartment ball), never this module
 ME.footCam = SET.footCam;
+// (U28 part G) the flick and the chip: the wheel's button held FLICK_FULL s is full strength; let go, the keys held then
+// (shotKeys) say which way it goes, from the way you face: W up and on (a chip, a flick over a man in front), S up and
+// back over your head (a rainbow), A or D up and to that side, two of them that way between, none a keepy-up for
+// yourself. The ball at your feet, or a ball low (under the knee) on its way to you first time (a sombrero). The
+// engine plays it: actions.js startFlick
+export const FLICK_FULL = 1;
+function flick(ms, me, held){
+  if (me.act){ noteWhy(ms, "busy"); return; }
+  const b = ms.ball, d = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), sc = me.scale || 1;
+  const atFeet = ms.poss.ctl === me.id && b.state === "free" && b.p.y < .5 && d <= 1.3*sc;
+  const coming = !atFeet && b.state === "free" && ms.poss.ctl < 0 && b.p.y < .5 && d < 8 && approaching(ms, me);
+  if (!atFeet && !coming){ noteWhy(ms, b.p.y >= .5 ? "high" : "far"); return; }
+  const K = shotKeys(ms);
+  me.intent.action = {kind:"flick", p:clamp(held/FLICK_FULL, .05, 1), fwd:(K.w ? 1 : 0) - (K.s ? 1 : 0), side:(K.d ? 1 : 0) - (K.a ? 1 : 0), first:coming};
+  CTRL.last = "flick"; use("flick");
+}
 // (U28 part E) the keys held in the last SHOT_KEYS.T s as a shot is let go shape it (control.js strike)
 export const SHOT_KEYS = Object.freeze({T: .25, POWER: 1.1});
 // (a time after the clock is a match or a go before this one: its clock began again from nothing)
@@ -315,10 +331,13 @@ export function controlInput(ev){
     case "down":
       if (ev.button === 0){ if (!CTRL.lmb){ CTRL.lmb = true; CTRL.lmbT = 0; CTRL.queue.push({k:"ldown"}); } }
       else if (ev.button === 2){ if (!CTRL.rmb){ CTRL.rmb = true; CTRL.rmbT = 0; CTRL.queue.push({k:"rdown"}); } }
+      // (U28 part G) the wheel's button held: the flick's charge
+      else if (ev.button === 1){ if (ev.prevent) ev.prevent(); if (!CTRL.mmb){ CTRL.mmb = true; CTRL.mmbT = 0; } }
       return true;
     case "up":
       if (ev.button === 0 && CTRL.lmb){ CTRL.lmb = false; CTRL.queue.push({k:"lup", t:CTRL.lmbT}); }
       else if (ev.button === 2 && CTRL.rmb){ CTRL.rmb = false; CTRL.queue.push({k:"rup", t:CTRL.rmbT}); }
+      else if (ev.button === 1 && CTRL.mmb){ CTRL.mmb = false; CTRL.queue.push({k:"mup", t:CTRL.mmbT}); }
       return true;
     case "wheel":
       // (U28 part E: scrolling does nothing in football now; the wheel's button is the flick's, part G)
@@ -343,7 +362,7 @@ export function look(dx, dy){
 // let go of everything (a cut, a pause, the end of play)
 export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
-  CTRL.lmb = CTRL.rmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
+  CTRL.lmb = CTRL.rmb = CTRL.mmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
   CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null; CTRL.meter.on = false; CTRL.meter.kind = null; CTRL.fT = -99; WHEEL.acc = 0; WHEEL.t = -1e9;
   CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
   // (P4-B) the look's history per step and the aim points start again from where you look now (a reset is a cut)
@@ -355,11 +374,16 @@ const use = k => { CTRL.uses[k] = (CTRL.uses[k] || 0) + 1; };
 // A charge in progress is dropped without a strike (nobody released it), the shoulder check turns back
 export function controlRelease(){
   for (const k in CTRL.held) CTRL.held[k] = false;
-  if (CTRL.lmb || CTRL.rmb){ CTRL.lmb = CTRL.rmb = false; CTRL.charge = null; }
+  if (CTRL.lmb || CTRL.rmb || CTRL.mmb){ CTRL.lmb = CTRL.rmb = CTRL.mmb = false; CTRL.charge = null; }
   if (CTRL.scan) CTRL.queue.push({k:"unscan"});
   CTRL.rHeld = 0; CTRL.rDone = true; CTRL.jockey = false; CTRL.shield = false; MOD.on = false;
 }
 if (typeof addEventListener === "function") addEventListener("blur", () => controlRelease());
+// (U28 part G) the middle button is the flick's: no auto-scroll and no middle-click paste or open while football is on
+if (typeof addEventListener === "function"){
+  const noMid = e => { if (e.button === 1 && CTRL.enabled) e.preventDefault(); };
+  addEventListener("mousedown", noMid, {passive:false}); addEventListener("auxclick", noMid, {passive:false});
+}
 
 /* ---------- where you look ---------- */
 // the eye (1.68 x scale over your feet, ahead of the neck) and the look direction. The eye's place over your feet is
@@ -487,7 +511,7 @@ const MB = {lo:0, hi:0, c:0, glo:0, ghi:0}, SG = {grade:"good", e:0, over:false}
 const throwShare = held => Math.min(1, held/CN.PASS_FULL + .25);
 function meterStep(ms, me){
   const M = CTRL.meter, ch = CTRL.charge, b = ms.ball.p;
-  if (ch && ch.kind === "throw"){ M.on = true; M.kind = "throw"; M.p = throwShare(ch.t || 0); M.lo = M.hi = M.glo = M.ghi = -1; M.sweet = false; return M; }
+  if (ch && (ch.kind === "throw" || ch.kind === "flick")){ M.on = true; M.kind = ch.kind; M.p = ch.kind === "throw" ? throwShare(ch.t || 0) : ch.p; M.lo = M.hi = M.glo = M.ghi = -1; M.sweet = false; return M; }
   if (!ch || (ch.kind !== "shot" && ch.kind !== "pass")){ M.on = false; M.kind = ch ? ch.kind : null; M.p = ch ? ch.p : 0; M.sweet = false; return M; }
   M.on = true; M.kind = ch.kind; M.p = ch.p;
   if (ch.kind === "shot"){
@@ -716,6 +740,7 @@ export function controlStep(ms, me, h, opts = {}){
   CTRL.resolve = ctx === "attack" || ctx === "free" ? resolveAction(ms, me, opts.traits) : null;
   if (CTRL.lmb) CTRL.lmbT += h;
   if (CTRL.rmb) CTRL.rmbT += h;
+  if (CTRL.mmb) CTRL.mmbT += h;
   // R held: "In behind!" at 0.4 s
   if (CTRL.held.r && !CTRL.rDone){ CTRL.rHeld += h; if (CTRL.rHeld >= CN.CALL_HOLD){ CTRL.rDone = true; call(ms, me, "behind"); } }
   // the charge on show (the HUD's ring): a shot with LMB held, a pass with RMB held, in attack and at a restart
@@ -723,6 +748,8 @@ export function controlStep(ms, me, h, opts = {}){
   // (one record each, filled in place: nothing is allocated in a step)
   if (CTRL.lmb && canBall){ const t = CTRL.lmbT; CTRL.charge = CHG; CHG.kind = "shot"; CHG.t = t; CHG.p = 1 - Math.pow(1 - Math.min(1, t/CN.SHOT_FULL), 2); }
   else if (CTRL.rmb && canBall){ const t = CTRL.rmbT; CTRL.charge = CHG; CHG.kind = isThrow(ms, me) ? "throw" : "pass"; CHG.t = t; CHG.p = Math.min(1, t/CN.PASS_FULL); }
+  // (U28 part G) the flick's: pure strength, no sweet spot
+  else if (CTRL.mmb && canBall && ctx !== "restart"){ const t = CTRL.mmbT; CTRL.charge = CHG; CHG.kind = "flick"; CHG.t = t; CHG.p = Math.min(1, t/FLICK_FULL); }
   else CTRL.charge = null;
   // the pass target, while the pass button is down (and for the receiver ring)
   if (CTRL.rmb && canBall){
@@ -757,6 +784,7 @@ export function controlStep(ms, me, h, opts = {}){
       case "ldown": if (ctx === "defend") tackle(ms, me); break;
       case "lup": if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
       case "rup": if (ctx !== "defend") strike(ms, me, isThrow(ms, me) ? "throw" : "pass", q.t, opts); break;
+      case "mup": if (ctx !== "defend" && ctx !== "restart") flick(ms, me, q.t); break;
     }
   }
 
