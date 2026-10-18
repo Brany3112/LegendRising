@@ -1,9 +1,10 @@
 // qa/u28-shot.mjs: U28 part E, the shot shaped by the keys and the fake, on the simulation a drill plays on. The shot's
 // request is built as control.js strike builds it from the keys held at the release (A or D: bend that way, by
-// Technique; W with it: half the bend, SHOT_KEYS.POWER more power); the fake is the action control.js queues for S.
-//   - A and D curl the ball opposite ways (its path's sideways bulge off the straight line, seen from behind it)
+// Curve skill; W with it: half the bend, as hard as a straight shot); the fake is the action control.js queues for S.
+//   - A sends the ball out to the left and it bends back to the right (its path bows out to the left of the straight
+//     line, seen from behind it); D out to the right and back
 //   - W+A curls less than A and goes faster
-//   - a better Technique curls more
+//   - by the Curve skill: barely at 33, a lot at 99, between in between (how far out from the line to the target it goes)
 //   - the fake (S pressed while the shot is held): no kick, the ball still at your feet and yours; a key just after it
 //     plays it: A back to your left, D back to your right, S straight back, W on a little
 //   - a quicker player (Agility) plays it sooner; a better Ball Control drags it nearer where it was meant to go
@@ -11,7 +12,7 @@
 //   node qa/u28-shot.mjs          exits 1 on any failed check
 import {simStep} from "../js/life/football/sim.js";
 import {startAction, FAKE} from "../js/life/football/actions.js";
-import {techniqueOf, SHOT_KEYS} from "../js/life/football/control.js";
+import {curlSpin, SHOT_KEYS} from "../js/life/football/control.js";
 import {setupOf, matchOf, H} from "./tr6-teamlib.mjs";
 import {drill} from "../js/life/train/scen-team.js";
 import {checker} from "./wpF-lib.mjs";
@@ -36,11 +37,11 @@ const still = me => { const I = me.intent; I.dx = 0; I.dz = 0; I.gait = "jog"; I
 // the shot as strike builds it from the keys: kc -1 (A), 0, +1 (D); w: W held with it
 function shoot(kc, w, at = {}, o = {}){
   const {ms, me, f} = go({at});
-  const tech = techniqueOf(me.at), amt = (.35 + .65*Math.min(1.1, Math.max(0, tech/99)))*(w ? .5 : 1);
+  const cv = +me.at.curve || 0, amt = curlSpin(cv)/(18 + .25*Math.min(99, Math.max(0, cv)))*(w ? .5 : 1);
   const tgt = {x: me.m.x + f.x*25, y: 1, z: me.m.z + f.z*25};
   const rq = {kind: "shot", target: tgt, recv: -1, power: o.power || .8, contact: 0, finesse: !!kc, atGoal: false, shape: "test"};
-  if (w && kc) rq.drive = SHOT_KEYS.POWER;
-  if (kc) rq.bend = kc*amt;
+  if (w && kc) rq.drive = true;
+  if (kc) rq.bend = -kc*amt;
   me.intent.action = rq;
   let v0 = 0, kicked = false;
   const path = [];
@@ -50,25 +51,30 @@ function shoot(kc, w, at = {}, o = {}){
     still(me); simStep(ms, H);
     const e = ms.events.find(x => x.kind === "kick" && x.agent === me.id);
     if (e && !kicked){ kicked = true; v0 = Math.hypot(ms.ball.v.x, ms.ball.v.y, ms.ball.v.z); }
-    if (kicked) path.push({x: ms.ball.p.x, z: ms.ball.p.z});
+    if (kicked) path.push({x: ms.ball.p.x, y: ms.ball.p.y, z: ms.ball.p.z});
   }
   const p0 = path[0];
-  let end = path.findIndex(q => Math.hypot(q.x - p0.x, q.z - p0.z) >= 18); if (end < 0) end = path.length - 1;
+  // (to where it has gone o.far m, or to its first bounce if that is sooner: a bounce turns it)
+  let end = path.findIndex((q, i) => Math.hypot(q.x - p0.x, q.z - p0.z) >= (o.far || 18) || (i > 3 && q.y < .25)); if (end < 0) end = path.length - 1;
   const p1 = path[end], lx = p1.x - p0.x, lz = p1.z - p0.z, l = Math.hypot(lx, lz) || 1, ux = lx/l, uz = lz/l;
   let drift = 0;
   for (let i = 0; i <= end; i++){ const dr = (path[i].x - p0.x)*-uz + (path[i].z - p0.z)*ux; if (Math.abs(dr) > Math.abs(drift)) drift = dr; }
   const along = l;
-  return {drift: r2(drift), along: r2(along), v0: r2(v0), kicked};
+  // (how far out from the line to the target it goes, + to the right, up to 16 m, short of the drill's fence: what you see of the curl)
+  let out = 0;
+  for (const q of path){ if (Math.hypot(q.x - p0.x, q.z - p0.z) > 16) break; const d = (q.x - p0.x)*-f.z + (q.z - p0.z)*f.x; if (Math.abs(d) > Math.abs(out)) out = d; }
+  return {drift: r2(drift), out: r2(out), along: r2(along), v0: r2(v0), kicked};
 }
 {
   const A = shoot(-1, false), D = shoot(1, false), N = shoot(0, false), WA = shoot(-1, true);
-  check(A.kicked && D.kicked && Math.sign(A.drift) !== Math.sign(D.drift) && Math.abs(A.drift) > Math.abs(N.drift) + .15 && Math.abs(D.drift) > Math.abs(N.drift) + .15,
-    "A and D bend the ball's path opposite ways (more than a straight strike's)", {A, D, none: N});
+  check(A.kicked && D.kicked && A.drift < -.15 && D.drift > .15 && Math.abs(N.drift) < .1,
+    "A: the ball's path bows out to the left and comes back (it bends right); D: out to the right and back (more than a straight strike's)", {A, D, none: N});
   check(Math.abs(WA.drift) < Math.abs(A.drift) && WA.v0 > A.v0, "W+A curls less than A and goes faster", {A, WA});
   const Af = shoot(-1, false, {}, {power: 1}), WAf = shoot(-1, true, {}, {power: 1}), Nf = shoot(0, false, {}, {power: 1});
-  check(WAf.v0 > Af.v0*1.05, "at a full charge too, W+A goes faster than A", {A: Af.v0, WA: WAf.v0, straight: Nf.v0});
-  const lo = shoot(1, false, {curve: 30, aero: 30, ctrl: 30}), hi = shoot(1, false, {curve: 95, aero: 95, ctrl: 95});
-  check(Math.abs(hi.drift) > Math.abs(lo.drift), "a better Technique curls it more", {lo, hi});
+  check(WAf.v0 > Af.v0*1.05 && Math.abs(WAf.v0 - Nf.v0) < .03*Nf.v0, "at a full charge too, W+A goes faster than A, as hard as a straight shot", {A: Af.v0, WA: WAf.v0, straight: Nf.v0});
+  const c0 = shoot(0, false, {curve: 66}), c33 = shoot(1, false, {curve: 33}), c66 = shoot(1, false, {curve: 66}), c99 = shoot(1, false, {curve: 99});
+  check(Math.abs(c33.out) < Math.abs(c0.out) + .15 && c66.out > c33.out + .3 && c99.out > 1.4 && c99.out > 1.8*c66.out,
+    "by the Curve skill, D's shot out to the right of the line to the target: 33 barely (within 0.15 m of a straight shot's), 66 more, 99 a lot (over 1.4 m)", {straight: c0.out, c33: c33.out, c66: c66.out, c99: c99.out});
 }
 // the fake (S pressed while the shot is held: control.js queues {kind: "fake"}; a key pressed just after sets act.dir)
 function fake(dir, at = {}, seed){

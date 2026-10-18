@@ -110,7 +110,11 @@ function flick(ms, me, held){
   CTRL.last = "flick"; use("flick");
 }
 // (U28 part E) the keys held in the last SHOT_KEYS.T s as a shot is let go shape it (control.js strike)
-export const SHOT_KEYS = Object.freeze({T: .25, POWER: 1.1, PART: Object.freeze({a: "inside", d: "outside"}), FAKE_WAIT: .55});
+// (U28 fix) how much a shot curled with A or D spins, by the Curve skill: CURL.MAX rad/s of sidespin at 99, falling off
+// as ((curve - CURL.LO)/(99 - CURL.LO))^CURL.POW, so 66 spins a third of it and 33 barely at all (past 99, a little more)
+export const CURL = Object.freeze({MAX: 80, LO: 25, POW: 1.5});
+export const curlSpin = curve => CURL.MAX*Math.pow(clamp(((+curve || 0) - CURL.LO)/(99 - CURL.LO), 0, 1.15), CURL.POW);
+export const SHOT_KEYS = Object.freeze({T: .25, PART: Object.freeze({a: "outside", d: "inside"}), FAKE_WAIT: .55});
 // (a time after the clock is a match or a go before this one: its clock began again from nothing)
 const keyHeld = (t, k) => t - k >= 0 && t - k <= SHOT_KEYS.T;
 export function shotKeys(ms){ const t = ms.t, K = CTRL.keyT; return {w: keyHeld(t, K.w), a: keyHeld(t, K.a), s: keyHeld(t, K.s), d: keyHeld(t, K.d)}; }
@@ -736,6 +740,9 @@ export function controlStep(ms, me, h, opts = {}){
   const ctx = CTRL.ctx = contextOf(ms, me);
   // (U28 part E) when each of W A S D was last held, for the shape of a shot let go (shotKeys)
   for (const k of "wasd") if (CTRL.held[k]) CTRL.keyT[k] = ms.t;
+  // (when W went down this time, for a shot held from a stand: wOn)
+  if (CTRL.held.w && !CTRL.wWas) CTRL.wOn = ms.t;
+  CTRL.wWas = !!CTRL.held.w;
   CTRL.finesse = !!CTRL.held.f;
   CTRL.resolve = ctx === "attack" || ctx === "free" ? resolveAction(ms, me, opts.traits) : null;
   if (CTRL.lmb) CTRL.lmbT += h;
@@ -783,7 +790,7 @@ export function controlStep(ms, me, h, opts = {}){
       case "f": CTRL.fT = ms.t; if (ctx !== "defend" && ctx !== "restart" && !me.ctlOn){ me.takeT = ms.t; use("take"); } slide(ms, me, ctx); break;
       case "space": space(ms, me); break;
       case "ldown": if (ctx === "defend") tackle(ms, me); break;
-      case "lup": if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
+      case "lup": CTRL.runShot = me.m.speed > 1.5; if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
       case "rup": if (ctx !== "defend") strike(ms, me, isThrow(ms, me) ? "throw" : "pass", q.t, opts); break;
       case "mup": if (ctx !== "defend" && ctx !== "restart") flick(ms, me, q.t); break;
       // the fake (the ball at your feet: the swing stopped short; anywhere else the shot is just called off)
@@ -816,9 +823,14 @@ export function controlStep(ms, me, h, opts = {}){
   // ---- where you go
   const bodyYaw = CTRL.scan ? CTRL.scan.yaw0 : P.yaw;
   // (U28 fix: while a shot is held and while it is struck, A and D curl it and do not move you: a sidestep through the
-  // swing carried the foot past the ball)
-  const striking = (CTRL.lmb && CTRL.charge && CTRL.charge.kind === "shot") || (me.act && me.act.kind === "kick" && !me.act.done);
-  const f = (CTRL.held.w ? 1 : 0) - (CTRL.held.s ? 1 : 0), r = striking ? 0 : (CTRL.held.d ? 1 : 0) - (CTRL.held.a ? 1 : 0);
+  // swing carried the foot past the ball. W is the shape too when it comes late: pressed while a shot is held from a
+  // stand it moves you only once held SHOT_KEYS.T s (held on, you run onto the ball; let go with the shot, it is W+A or
+  // W+D), and a shot let go from a stand or a walk (CTRL.runShot, 1.5 m/s at the release) is struck without a step on.
+  // A step from a stand into the strike mis-planted it, a scuff. A shot on the run keeps its run)
+  const kicking = !!(me.act && me.act.kind === "kick" && !me.act.done);
+  const charging = !!(CTRL.lmb && CTRL.charge && CTRL.charge.kind === "shot"), striking = charging || kicking;
+  const wLate = charging && me.m.speed < .5 && ms.t - (CTRL.wOn != null ? CTRL.wOn : -9) < SHOT_KEYS.T;
+  const f = (kicking && !CTRL.runShot) || wLate ? 0 : (CTRL.held.w ? 1 : 0) - (CTRL.held.s ? 1 : 0), r = striking ? 0 : (CTRL.held.d ? 1 : 0) - (CTRL.held.a ? 1 : 0);
   const len = Math.hypot(f, r), sin = Math.sin(bodyYaw), cos = Math.cos(bodyYaw);
   I.dx = len ? (r*cos - f*sin)/len : 0; I.dz = len ? (-r*sin - f*cos)/len : 0;
   I.face = I.face || {x:0, z:0}; I.face.x = -sin; I.face.z = -cos;
@@ -1060,15 +1072,18 @@ function strike(ms, me, what, held, opts){
     else if (kind === "shot" && ctc === 0 && toGoal && tgt.y < AIM.LOW_Y && shape !== "placed" && KT !== "curl"){ shape = shape === "power" ? "power low" : "low"; ctc = -1; }
     if (kind !== "shot"){ ctc = 1; shape = "lofted"; }
     if (G.curl){ finesse = true; bend = G.curl; shape = shape === "placed" || shape === "struck" || shape === "power" ? "curl" : shape + " curl"; }
-    // (U28 part E) A or D held as it is let go curls it that way, by your Technique (0.35 of a full curl at none, all of
-    // it at 99, a little more past it); W with it: half the curl, SHOT_KEYS.POWER more power
+    // (U28 part E) A or D held as it is let go sends it out that way and bends it back, by your Curve skill (CURL: a lot
+    // at 99, barely at 33); W with it: half the curl, as hard as a straight shot (rq.drive)
     const kc = K.a !== K.d ? (K.d ? 1 : -1) : 0;
     let footPart = null;
     if (kc && kind === "shot" && !chip){
-      const amt = (.35 + .65*clamp(techniqueOf(at)/99, 0, 1.1))*(K.w ? .5 : 1);
-      finesse = true; bend = kc*amt;
-      // (the part of the strong foot it is struck with, SHOT_KEYS.PART, as in the real game: a right foot's inside
-      // curls it to the left (A), its outside to the right (D); a left foot's the other way round)
+      // (as a share of strike.js launchSpin's own sidespin for this Curve, 18 + 0.25 curve: curlSpin over it)
+      const amt = curlSpin(at.curve)/(18 + .25*clamp(+at.curve || 0, 0, 99))*(K.w ? .5 : 1);
+      // (the key is the side the ball goes out to: A sends it out to the left and it bends back to the right onto the
+      // aim, D out to the right and back to the left; strike.js aims it off by the bend so it comes back to the aim)
+      finesse = true; bend = -kc*amt;
+      // (the part of the strong foot it is struck with, SHOT_KEYS.PART, as in the real game: a right foot's outside
+      // bends it to the right (A, out to the left first), its inside to the left (D); a left foot's the other way round)
       footPart = SHOT_KEYS.PART[(kc < 0) === ((me.foot || "R") !== "L") ? "a" : "d"];
       shape = (shape === "placed" || shape === "struck" || shape === "power" ? "" : shape + " ") + (K.w ? "curl and power" : "curl");
       shape = shape.trim();
@@ -1102,7 +1117,7 @@ function strike(ms, me, what, held, opts){
     if (chip) rq.chip = true;
     if (style) rq.style = style;
     if (footPart) rq.footPart = footPart;
-    if (footPart && K.w) rq.drive = SHOT_KEYS.POWER;
+    if (footPart && K.w) rq.drive = true;
     if (kind === "cross" || kind === "lob"){ rq.speed = undefined; rq.power = undefined; rq.recv = nearestMate(ms, me, tgt); }
     if (Rz && Rz.kind !== "ground"){
       rq.style = Rz.kind; rq.timing = timingOf(Rz); rq.tc = Rz.tc; rq.meet = {x:Rz.x, y:Rz.y, z:Rz.z};

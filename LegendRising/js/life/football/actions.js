@@ -205,10 +205,10 @@ function kickRequest(ms, a, act, scuff, bp, foot){
   if (isShot){
     const p = clamp(rq.power != null ? rq.power : 0.85, 0.05, 1);
     speed = shotSpeed(at.power, p, !!at.strikeBoots, fac.power != null ? fac.power : 1)*(rq.finesse ? 0.92 : 1);
-    // (a curler is placed, not hit: no faster than a 0.85 strike; rq.drive, W with A or D, puts that much more on it
-    // whatever the charge, U28)
-    if (rq.finesse && !rq.drive) speed = Math.min(speed, shotSpeed(at.power, 0.85, !!at.strikeBoots, fac.power != null ? fac.power : 1));
-    if (rq.drive) speed *= clamp(+rq.drive, 1, 1.3);
+    // (a curler is placed, not hit: no faster than a 0.85 strike. rq.drive, W with A or D, U28: struck as hard as a
+    // straight shot of the same charge, with half the curl)
+    if (rq.drive) speed = shotSpeed(at.power, p, !!at.strikeBoots, fac.power != null ? fac.power : 1);
+    else if (rq.finesse) speed = Math.min(speed, shotSpeed(at.power, 0.85, !!at.strikeBoots, fac.power != null ? fac.power : 1));
     ctxKind = contact > 0 && rq.chip ? 'chip' : 'shot'; acc = at.accuracy;
   } else {
     speed = rq.speed != null ? rq.speed : kind === 'pass' || kind === 'through' || kind === 'roll' ? passSpeedFor(dist, 9, b.rollDecel) : loftSpeedFor(dist);
@@ -218,7 +218,7 @@ function kickRequest(ms, a, act, scuff, bp, foot){
   if (scuff) speed *= 0.55;
   // (rq.bend, the player's sweep through the release, A1.7: the way the ball is to bend, + to its right; the curl that
   // does it depends on the foot that strikes it, the inside of one is the outside of the other)
-  const curl = rq.bend != null ? (foot === 'L' ? 1 : -1)*clamp(+rq.bend, -1, 1) : rq.finesse ? (rq.curl != null ? rq.curl : 1) : (rq.curl || 0);
+  const curl = rq.bend != null ? (foot === 'L' ? 1 : -1)*clamp(+rq.bend, -3, 3) : rq.finesse ? (rq.curl != null ? rq.curl : 1) : (rq.curl || 0);
   const req = {from: {x: bp.x, y: bp.y, z: bp.z}, target: {x: tx, y: ty, z: tz}, speed, contact, curl,
     foot, kind: ctxKind === 'chip' ? 'chip' : ctxKind, rollDecel: b.rollDecel, curve: at.curve, aero: at.aero};
   return {req, tx, ty, tz, dist, isShot, ctxKind, acc, contact};

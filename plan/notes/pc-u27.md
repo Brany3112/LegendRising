@@ -134,15 +134,28 @@ still on screen.
   - `fphud.js` has no `.fp-ret` (the ring, its pulse and the curl glyph) and `fp.css` drops its rules.
   - `control.js gesture()` returns no gesture: a mouse sweep, lift or flick down through a release no longer curls,
     chips or dips a strike or a pass. The aim moved through a release had curled the ball against the keys.
-- **The curl.**
-  - A or D held as the shot is let go curls it left or right (`shotKeys`). It now works on a tapped, placed shot too.
-  - `rq.footPart` is `SHOT_KEYS.PART`, as in the real game (the user's call): a right foot's inside curls it left
-    (A) and its outside right (D), mirrored for a left foot.
-  - `view.js` passes it as `c.part`, and `moves.js strikePath` turns the foot for it (outside: the toes turned in) on
-    the plain shot's own swing.
-  - W with it sets `rq.drive` (`SHOT_KEYS.POWER`, 1.1): its speed goes on past a curler's 0.85 cap, at any charge.
+- **The curl (after three more rounds with the user).**
+  - The key is the side the ball goes out to: A sends it out to the left and it bends back to the right onto the aim,
+    D out to the right and back. In `strike()`, `bend = -kc*amt`, and strike.js aims it off so it comes back.
+  - It works on a tapped, placed shot too.
+  - `rq.footPart` is `SHOT_KEYS.PART`, as in the real game: a right foot's outside for A (it bends right), its inside
+    for D, mirrored for a left foot. `view.js` passes it as `c.part`, and `moves.js strikePath` turns the foot for it
+    (outside: the toes turned in) on the plain shot's own swing.
+  - **How much, by the Curve skill:** `curlSpin` is `CURL.MAX` (80 rad/s) times `((curve - 25)/74)^1.5`. That is
+    16 rad/s at 50, 33 at 66 and 80 at 99.
+    - `launchSpin`'s and `solveStrike`'s curl range is now -3 to 3 (the player's alone; the AI's finesse is still 1),
+      so the AI and the harness are untouched.
+    - In `u28-shot`, the ball goes out from the line to the target over 16 m: 0.17 m at 33 (a straight shot 0.14),
+      0.78 at 66 and 1.79 at 99.
+  - **W with it** sets `rq.drive`: half the curl, at a straight shot's speed for the charge (no curler's 0.92 or its
+    0.85 cap).
 - **A and D don't move you while a shot is held or struck.** Sidestepping at 2 m/s through the swing carried the
-  drawn foot 0.6 to 0.8 m past the ball.
+  drawn foot 0.6 to 0.8 m past the ball. A step from a stand into the strike mis-planted it, a scuff at 0.55 of the speed, so W is held back
+  twice.
+  - W pressed while a shot is held from a stand (under 0.5 m/s) moves you only once held `SHOT_KEYS.T`.
+  - A shot let go under 1.5 m/s (`CTRL.runShot`) is struck with no step on.
+  - W held through the charge still runs you onto the ball. Freezing W for the whole charge stopped `uf2-ssg`'s bot
+    reaching its shots (no goals).
 - **The fake.**
   - S pressed while the shot is held (`controlInput`) drops the charge: the meter goes and letting go strikes nothing.
   - It queues `{kind: "fake"}`. A W, A, S or D pressed within `SHOT_KEYS.FAKE_WAIT` (0.55 s) sets `act.dir`.
@@ -157,8 +170,6 @@ still on screen.
   - The drawn foot is measured at its nearest to where the ball was struck. Read at the clip's contact event alone,
     it is a frame or two into the follow-through.
 - **Open:**
-  - A shot struck while starting to walk forward into it (W pressed three frames before the release) has the drawn
-    foot 0.2 to 0.35 m off the ball, curled or not.
   - `wpF-strike` (in no group) still reads the old reticle.
 
 ## Fixes from the final test run

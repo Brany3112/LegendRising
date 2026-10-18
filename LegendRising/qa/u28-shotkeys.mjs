@@ -1,8 +1,9 @@
 // qa/u28-shotkeys.mjs: U28 part E (as reworked) with real input (the left button held and let go, W A S D on the
 // keyboard, the pointer locked by a real click), in third person
-//   - A held as a shot is let go curls it to the left, D to the right (the ball's spin about the vertical), a capital A
-//     the same as a small one; W with it, less curl and more power; a right foot strikes it with its inside for A, its
-//     outside for D (as in the real game), and the drawn foot meets the ball
+//   - A held as a shot is let go sends it out to the left and bends it back to the right (the ball's spin, and its
+//     flight bowing out on the left), D out to the right and back; a capital A the same as a small one; W with it, less
+//     curl and more power; a right foot strikes it with its outside for A, its inside for D (as in the real game), and
+//     the drawn foot meets the ball
 //   - S pressed while the shot is held: the shot is called off (the meter goes, letting go strikes nothing), a fake; a
 //     key pressed just after it plays the ball: D drags it back to the right, W pushes it on; none, nothing more
 //   - no reticle on the screen, no console or page error
@@ -44,14 +45,18 @@ try {
   await frames(page, 10);
   const state = () => page.evaluate(() => { const T = window.__u28s.T(), ms = T.ms, me = T.me, C = window.__u28s.C.CTRL, kick = ms.events.filter(e => e.kind === "kick" && e.agent === me.id).pop(), fake = ms.events.filter(e => e.kind === "fake" && e.agent === me.id).pop();
     const f = {x: -Math.sin(me.m.yaw), z: -Math.cos(me.m.yaw)}, dx = ms.ball.p.x - me.m.x, dz = ms.ball.p.z - me.m.z;
-    return {kick: !!kick, fake: !!fake, touches: ms.events.filter(e => e.kind === "touch" && e.fake).map(e => e.fake), bend: C.lastRq ? C.lastRq.bend : null, power: C.lastRq ? (C.lastRq.power || 0)*(C.lastRq.drive || 1) : null, part: C.lastRq ? C.lastRq.footPart : null, clip: (() => { const R0 = T.V && T.V.rec && T.V.rec[me.id]; return R0 && R0.clip ? R0.clip.kind : null; })(),
+    return {kick: !!kick, fake: !!fake, touches: ms.events.filter(e => e.kind === "touch" && e.fake).map(e => e.fake), bend: C.lastRq ? C.lastRq.bend : null, power: kick ? kick.speed : null, part: C.lastRq ? C.lastRq.footPart : null, clip: (() => { const R0 = T.V && T.V.rec && T.V.rec[me.id]; return R0 && R0.clip ? R0.clip.kind : null; })(),
       foot: me.foot || "R", wy: Math.round(ms.ball.w.y*10)/10, shape: C.shape, last: C.last, charge: C.charge ? C.charge.kind : null, meter: !!C.meter.on, mine: ms.poss.ctl === me.id,
       side: Math.round((dx*-f.z + dz*f.x)*100)/100, fwd: Math.round((dx*f.x + dz*f.z)*100)/100}; });
   // hold the shot, the key down just before letting go, then what the game made of it
+  // (the shot held to 0.6 s of game time, short of full: the headless browser runs several steps a frame, and a count of
+  // frames held it past full, over-hit and scuffed, its aim's error then hiding the curl. The striker's Curve 99)
+  const holdShot = async () => { await page.mouse.down(); for (let i = 0; i < 200 && await page.evaluate(() => window.__u28s.C.CTRL.lmbT < .6); i++) await frames(page, 1); };
+  const prep = () => page.evaluate(() => { const T = window.__u28s.T(); T.ms.poss.ctl = T.me.id; Object.assign(T.me.at, {curve: 99, accuracy: 90, composure: 90}); });
   const release = async key => {
     await begin();
-    await page.evaluate(() => { const T = window.__u28s.T(); T.ms.poss.ctl = T.me.id; });
-    await page.mouse.down(); await frames(page, 25);
+    await prep();
+    await holdShot();
     await page.keyboard.down(key);
     await frames(page, 3); await page.mouse.up(); await frames(page, 2);
     await page.keyboard.up(key);
@@ -73,31 +78,44 @@ try {
         for (const p of [B.toL, B.ftL, B.toR, B.ftR]){ R.h.bones[p].getWorldPosition(v1); cur.d = Math.min(cur.d, v1.distanceTo(rest) - .11); } } } raf(f); };
     raf(f);
   });
-  const A = await release("a"), D = await release("d"), AC = await release("A");
+  // the ball's flight after each kick (the simulation's ball, every real frame, a new drill starting it afresh): how far
+  // out from the line to the shot's target it goes in its first 16 m, + to the right
+  await page.evaluate(() => {
+    const raf = window.__qa.realRAF; window.__u28s.path = []; let ms0 = null;
+    const f = () => { const T = window.__u28s.T(); if (T && T.ms){ if (T.ms !== ms0){ ms0 = T.ms; window.__u28s.path = []; }
+      const me = T.me, kicked = T.ms.events.some(e => e.kind === "kick" && e.agent === me.id);
+      if (kicked) window.__u28s.path.push({x: T.ms.ball.p.x, z: T.ms.ball.p.z}); } raf(f); };
+    raf(f);
+  });
+  const outOf = (path, tg) => { if (path.length < 3 || !tg) return null; const p0 = path[0], lx = tg.x - p0.x, lz = tg.z - p0.z, l = Math.hypot(lx, lz) || 1, ux = lx/l, uz = lz/l; let out = 0;
+    for (const q of path){ if (Math.hypot(q.x - p0.x, q.z - p0.z) > 16) break; const d = (q.x - p0.x)*-uz + (q.z - p0.z)*ux; if (Math.abs(d) > Math.abs(out)) out = d; } return Math.round(out*100)/100; };
+  const flight = async key => { const r = await release(key); const got = await page.evaluate(() => ({path: window.__u28s.path.slice(), tg: window.__u28s.C.CTRL.lastRq && window.__u28s.C.CTRL.lastRq.target}));
+    r.out = outOf(got.path, got.tg); return r; };
+  const A = await flight("a"), D = await flight("d"), AC = await flight("A");
   const releaseTwo = async keys => {
     await begin();
-    await page.evaluate(() => { const T = window.__u28s.T(); T.ms.poss.ctl = T.me.id; });
-    await page.mouse.down(); await frames(page, 25);
+    await prep();
+    await holdShot();
     for (const k of keys) await page.keyboard.down(k);
     await frames(page, 3); await page.mouse.up(); await frames(page, 2);
     for (const k of keys) await page.keyboard.up(k);
     await frames(page, 30);
     return state();
   };
-  const WA = await releaseTwo(["w", "a"]), WD = await releaseTwo(["w", "d"]);
+  const WA = await releaseTwo(["w", "a"]), WD = await releaseTwo(["w", "d"]), N = await release("q");
   const contact = await page.evaluate(() => window.__u28s.contact);
   res.contact = contact;
-  // (the first three curled strikes: A, D and a capital A from a stand; W+A and W+D after them start you walking on into
-  // the strike three frames before it, reported)
-  const curled = contact.filter(c => c.kind !== "instep"), stand = curled.slice(0, 3);
-  check(stand.map(c => c.kind).join() === "inside,outside,inside" && stand.every(c => c.d <= .15), "a right foot strikes A with its inside, D with its outside (as in the real game), and the drawn foot comes to the ball (within 0.15 m)", contact);
-  console.log("  W+A and W+D, walking on into it (reported): " + JSON.stringify(curled.slice(3)));
+  // (the curled strikes: A, D, a capital A, then W+A and W+D, W pressed with the curl from a stand)
+  const curled = contact.filter(c => c.kind !== "instep");
+  check(curled.map(c => c.kind).join() === "outside,inside,outside,outside,inside" && curled.every(c => c.d <= .15), "a right foot strikes A (and W+A) with its outside, D (and W+D) with its inside (as in the real game), and the drawn foot comes to the ball (within 0.15 m)", contact);
   res.keys = {A, D, AC};
-  check(A.kick && D.kick && /curl/.test(A.shape || "") && /curl/.test(D.shape || "") && A.bend < 0 && D.bend > 0 && Math.sign(A.wy) !== Math.sign(D.wy) && A.wy !== 0, "a shot let go with A held curls to the left, with D to the right (the ball's spin)", {A, D});
-  check(AC.kick && AC.bend < 0 && AC.wy === A.wy, "a capital A curls it the same as a small one", {A: A.wy, AC});
-  check(WA.kick && WD.kick && WA.bend < 0 && WD.bend > 0 && Math.abs(WA.bend) < Math.abs(A.bend) && Math.abs(WD.bend) < Math.abs(D.bend) && WA.power > A.power && WD.power > D.power,
-    "W+A and W+D: the same way, less curl and more power", {A: {bend: A.bend, power: A.power}, WA: {bend: WA.bend, power: WA.power}, D: {bend: D.bend, power: D.power}, WD: {bend: WD.bend, power: WD.power}});
-  const out = A.foot === "L" ? "outside" : "inside", ins = A.foot === "L" ? "inside" : "outside";
+  check(A.kick && D.kick && /curl/.test(A.shape || "") && /curl/.test(D.shape || "") && A.bend > 0 && D.bend < 0 && Math.sign(A.wy) !== Math.sign(D.wy) && A.wy !== 0, "a shot let go with A held bends to the right, with D to the left (the ball's spin)", {A, D});
+  check(A.out < -.3 && D.out > .3, "its flight: with A it goes out to the left of the line to the target and comes back, with D out to the right and back", {A: A.out, D: D.out});
+  check(AC.kick && AC.bend > 0 && AC.wy === A.wy && AC.out < -.3, "a capital A curls it the same as a small one", {A: A.wy, AC});
+  check(WA.kick && WD.kick && WA.bend > 0 && WD.bend < 0 && Math.abs(WA.bend) < Math.abs(A.bend) && Math.abs(WD.bend) < Math.abs(D.bend) && WA.power > A.power && WD.power > D.power,
+    "W+A and W+D: the same way, half the curl and more power (the ball's launch speed)", {A: {bend: A.bend, v: A.power}, WA: {bend: WA.bend, v: WA.power}, D: {bend: D.bend, v: D.power}, WD: {bend: WD.bend, v: WD.power}});
+  check(Math.abs(WA.power - N.power) < .06*N.power && Math.abs(WD.power - N.power) < .06*N.power, "W+A and W+D go about as hard as a straight shot (within 6%)", {straight: N.power, WA: WA.power, WD: WD.power});
+  const out = A.foot === "L" ? "inside" : "outside", ins = A.foot === "L" ? "outside" : "inside";
   check(A.part === out && D.part === ins, `the ${A.foot === "L" ? "left" : "right"} foot strikes it with its ${out} for A, its ${ins} for D`, {A: A.part, D: D.part});
   // the fake: S while the shot is held, then (or not) a key just after it, then the button let go
   const fakeWith = async key => {

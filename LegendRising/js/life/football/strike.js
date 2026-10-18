@@ -48,11 +48,12 @@ const DRIVEN_KINDS = new Set(['shot', 'header']);
 
 // the spin of a launch along the horizontal facing (dx, dz): topspin for Low, backspin for High, and the finesse
 // sidespin |curl|*(18 + 0.25 curve) curling toward the striking foot's inside for curl > 0 (outside of the foot for
-// curl < 0). out: {x, y, z} to fill.
+// curl < 0). |curl| is 1 at most for the AI's finesse; the player's curl from A or D goes to 3 (control.js CURL).
+// out: {x, y, z} to fill.
 export function launchSpin(dx, dz, contact, curl, foot, curve = 50, out = {x: 0, y: 0, z: 0}){
   const rx = -dz, rz = dx;                       // right of the facing
   const tb = contact > 0 ? STRIKE.HIGH_BACK : contact < 0 ? -STRIKE.LOW_TOP : 0;
-  const c = clamp(+curl || 0, -1, 1);
+  const c = clamp(+curl || 0, -3, 3);
   const side = Math.abs(c)*(STRIKE.CURL_BASE + STRIKE.CURL_K*clamp(+curve || 0, 0, 99));
   out.x = tb*rx; out.z = tb*rz;
   out.y = (foot === 'L' ? -1 : 1)*Math.sign(c)*side;
@@ -143,7 +144,7 @@ export function presolveWarm(st){
 function* solveGen(req, warm, st){
   const from = req.from, tg = req.target;
   const contact = req.contact > 0 ? 1 : req.contact < 0 ? -1 : 0;
-  const sv = {from, speed: clamp(+req.speed || 0, 0.1, VMAX), contact, curl: clamp(+req.curl || 0, -1, 1),
+  const sv = {from, speed: clamp(+req.speed || 0, 0.1, VMAX), contact, curl: clamp(+req.curl || 0, -3, 3),
     foot: req.foot === 'L' ? 'L' : 'R', curve: req.curve != null ? +req.curve : 50,
     dragMul: 1 - 0.0045*clamp(+req.aero || 0, 0, 99), rollDecel: req.rollDecel != null ? +req.rollDecel : 1.1,
     tx: tg.x, ty: clamp(tg.y, R, 60), tz: tg.z, ax: 0, az: 0, rx: 0, rz: 0, yawT: 0};
