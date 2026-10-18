@@ -848,10 +848,25 @@ function isThrow(ms, me){ const R0 = ms.restart; return !!(R0 && !R0.taken && R0
 // Every press is a call the carrier hears (brain.js callFor: he weighs it at his very next look) and your arm goes up
 // with it (CTRL.call.seq: the controller's hand raise). Defending, a held R stays the "Here!" it already was
 CTRL.callHook = null;
+/* (USER-ISSUES U26) where "In behind!" asks for the ball: ahead of your run, up the pitch. The way you run when it goes
+   towards their goal (else straight up the pitch), never more than RUN_PT.ANG off straight at their goal line;
+   RUN_PT.T s of your pace plus RUN_PT.ADD m ahead (RUN_PT.MIN to RUN_PT.MAX), kept RUN_PT.EDGE m inside the touchlines
+   and their goal line. It was the point under the crosshair: a ball played sideways, or out of play */
+export const RUN_PT = Object.freeze({ANG: 35*DEG, T: 1.6, ADD: 6, MIN: 8, MAX: 18, EDGE: 3, RUN_V: 1.5});
+export function runPoint(ms, me, out){
+  const dir = ms.dirs[me.team], vx = me.m.vx || 0, vz = me.m.vz || 0, v = Math.hypot(vx, vz);
+  let ang = 0;
+  if (v > RUN_PT.RUN_V && vx*dir > 0) ang = clamp(Math.atan2(vz, vx*dir), -RUN_PT.ANG, RUN_PT.ANG);
+  const lead = clamp(v*RUN_PT.T + RUN_PT.ADD, RUN_PT.MIN, RUN_PT.MAX);
+  out.x = me.m.x + dir*Math.cos(ang)*lead; out.z = me.m.z + Math.sin(ang)*lead;
+  const hx = ms.spec.hx - RUN_PT.EDGE, hz = ms.spec.hz - RUN_PT.EDGE;
+  out.x = clamp(out.x, -hx, hx); out.z = clamp(out.z, -hz, hz);
+  return out;
+}
 function call(ms, me, how){
   raiseHand(me, ms.t);                      // (U10) the hand goes up on every press, taken as a call or not
   if (CTRL.ctx === "defend" && how === "behind") return;
-  const pt = how === "behind" ? {x:CTRL.ground.x, z:CTRL.ground.z} : null;
+  const pt = how === "behind" ? runPoint(ms, me, {x:0, z:0}) : null;
   callFor(ms, me, how, pt);
   CTRL.call.t = ms.t; CTRL.call.kind = how; CTRL.call.seq++; CTRL.call.n++;
   if (typeof CTRL.callHook === "function") CTRL.callHook(how);

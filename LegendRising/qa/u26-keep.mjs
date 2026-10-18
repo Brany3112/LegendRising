@@ -4,6 +4,8 @@
 //     ball stays within KEEP_MAX m of you and stays yours, each for 3 s
 //   - standing still, it comes to rest in front of you
 //   - holding Shift (a sprint) lets it go to the strides' dribble (no kept touches)
+//   - R held ("In behind!"): the spot asked for is ahead of your run up the pitch, within 35 degrees of straight at
+//     their goal line, inside the touchlines and the goal line: never sideways or out of play
 //   - Shift tapped twice: it is knocked on, at least 3 m ahead of you sprinting along your way, and you run onto it
 //
 //   node qa/u26-keep.mjs          exits 1 on any failed check
@@ -11,6 +13,7 @@ import {simStep} from "../js/life/football/sim.js";
 import {setupOf, matchOf, H} from "./tr6-teamlib.mjs";
 import {drill} from "../js/life/train/scen-team.js";
 import {checker} from "./wpF-lib.mjs";
+import {runPoint, RUN_PT} from "../js/life/football/control.js";
 
 const {check, done} = checker("u26-keep");
 const KEEP_MAX = 0.95;
@@ -83,5 +86,15 @@ for (const [name, way] of Object.entries(ways)){
   }
   const knocks = ms.events.filter(e => e.kind === "touch" && e.knock).length;
   check(knocks === 1 && ahead >= 3 && caught > 0, "Shift tapped twice: the ball knocked on ahead of you along your way, and you run onto it", {knocks, ahead: r2(ahead), caughtAfter: caught});
+}
+{
+  // R held: where "In behind!" asks for it
+  const {ms, me} = go();
+  const dir = ms.dirs[me.team], hx = ms.spec.hx, hz = ms.spec.hz, P = {x: 0, z: 0};
+  const at = (x, z, vx, vz) => { me.m.x = x; me.m.z = z; me.m.vx = vx; me.m.vz = vz; runPoint(ms, me, P); const dx = P.x - x, dz = P.z - z; return {x: r2(P.x), z: r2(P.z), ang: r2(Math.atan2(Math.abs(dz), dx*dir)*180/Math.PI), ahead: r2(dx*dir)}; };
+  const diag = at(0, hz - 6, dir*5, 5), back = at(0, 0, -dir*4, 0), stand = at(-dir*10, 3, 0, 0), wide = at(0, -hz + 1, dir*2, -6), near = at(dir*(hx - 5), 0, dir*7, 0);
+  const inside = p => Math.abs(p.x) <= hx - RUN_PT.EDGE + 1e-6 && Math.abs(p.z) <= hz - RUN_PT.EDGE + 1e-6;
+  check(diag.ang <= 35.01 && diag.ahead > 6 && inside(diag) && back.ang < .01 && back.ahead >= RUN_PT.MIN && stand.ang < .01 && wide.ahead > 0 && inside(wide) && inside(near) && near.ahead > 0,
+    "R held: the spot asked for is ahead of your run up the pitch (35 degrees at most off straight at their goal line), inside the touchlines and the goal line", {diag, back, stand, wide, near});
 }
 done();
