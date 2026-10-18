@@ -56,7 +56,7 @@ line that holds it.
     `correct` at all.
 - **Fix:** `me.js` exports `neckFix`. `fpPose` uses it unless the caller hands its own, and always passes the arms-in
   (`matchcam.js` `V.fpArms`). `V.fpSpy` counts both.
-- **Check:** `tr9-anim` "MV-15: fpPose gets the neck fix and the arms-in every frame"; "no joint within 0.12 m in front of
+- **Check:** `tr9-anim` "MV-15: fpPose gets the arms-in every frame"; "no joint within 0.12 m in front of
   the camera".
 
 ## MV-15 camAction
