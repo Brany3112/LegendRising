@@ -438,7 +438,7 @@ function updateTarget(h, f, i, rem, dt, force = false){
   if (sw.u >= .85 && sw.ok && !force) return;
   // (a far body, T2 and beyond, re-plans every other frame: its target eases toward the plan either way)
   if (sw.ok && !force && G.lod >= 2 && (G.tick & 1)) return;
-  if (sw.kind === "phase" || sw.kind === "stop") planLanding(h, f, i, rem, _pl);
+  if (sw.kind === "phase" || sw.kind === "stop"){ planLanding(h, f, i, rem, _pl); if (!G.over[i]) sideLand(h, f, i, _pl); }
   else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; }
   if (!sw.ok || force){ sw.x1 = _pl.x; sw.z1 = _pl.z; sw.yaw1 = _pl.yaw; sw.roll1 = _pl.roll; sw.ok = true; }
   else {
@@ -492,6 +492,16 @@ function swingAt(h, f, out){
     if (m > 0){
       if (sw.vx !== sw.vx && u <= .7){ sw.vx = via.x - (sw.x0 + (ex - sw.x0)*sH(.7)); sw.vz = via.z - (sw.z0 + (ez - sw.z0)*sH(.7)); sw.vy = Math.max(0, via.y - .06*sc - (sw.y0 + (ey - sw.y0)*sV(.7))); }
       if (sw.vx === sw.vx){ x += sw.vx*m; z += sw.vz*m; y += (sw.vy || 0)*m; }
+    }
+  }
+  // ((BCS) round the planted leg, never through it: SIDE_SWING out on its own side across the pelvis now, see sideLand)
+  const o = G.feet[f.s > 0 ? 1 : 0];
+  if (o.down && G.pel === G.pel && G.style !== "shuffle"){
+    // (eased in over the first of the swing too: a foot that left the ground on the wrong side is not snapped across)
+    const w = sstep(0, .15, u)*(1 - sstep(SIDE_FADE[0], SIDE_FADE[1], u));
+    if (w > 0){
+      const lx = Math.cos(G.pel), lz = -Math.sin(G.pel), d = (x - o.x)*lx + (z - o.z)*lz, need = SIDE_SWING*sc;
+      if (f.s*d < need){ const k = (f.s*need - d)*w; x += lx*k; z += lz*k; }
     }
   }
   out.yaw = sw.yaw0 + wrap(sw.yaw1 - sw.yaw0)*sstep(.1, .8, u);
@@ -654,6 +664,30 @@ const PEL_LT2 = .5, PEL_LT1 = .62, PEL_RATE = 9, PIV_RATE = 8, PIV_MAX = .6, PIV
 const footFwd = f => f.yaw - f.s*.06;
 // the mean way of the feet (both of them, down or not), for a pelvis put on them afresh
 function feetYaw(G){ const a = footFwd(G.feet[0]), b = footFwd(G.feet[1]); return a + wrap(b - a)/2; }
+/* (BCS) each foot on its own side (the user's turn of 2026-10-19: running at the camera and turning back to goal, the
+   outside foot came down across in front of the planted one and its swing went through that leg, the legs crossed like
+   scissors with the knees pointing different ways). A real player's free leg steps round to the new way beside the
+   planted one, never across it. Every landing is kept at least SIDE_LAND (body units, times the scale) out on its own
+   side of the planted foot, measured across the way the hips will face as it comes down (the planted foot's way turned
+   on towards the body's facing by as much as the hips turn over a planted foot, PEL_LT1); the swing on its way keeps
+   SIDE_SWING out on its side of the planted foot across the pelvis now, eased out over SIDE_FADE of the swing, where it
+   comes straight down onto its landing (which is on its side already). The planted foot is not moved: only where the
+   free one goes */
+const SIDE_LAND = .14, SIDE_SWING = .12, SIDE_FADE = [.8, .97];
+// the way the hips will face over planted foot o, tl seconds on (the body's turn carried on, at most 0.7 rad)
+function sideYaw(h, o, tl){
+  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7), a = footFwd(o);
+  return a + clamp(wrap(ry + G.twist - a), -PEL_LT1, PEL_LT1);
+}
+// a landing out (x, z) for foot f (index i) moved out to its own side of the planted foot, if it is not there
+function sideLand(h, f, i, out){
+  const G = h.gait, o = G.feet[1 - i];
+  if (!o.down || G.style === "shuffle") return out;
+  const sw = f.sw, Y = sideYaw(h, o, sw ? Math.max(0, sw.T - sw.t) : 0), lx = Math.cos(Y), lz = -Math.sin(Y);
+  const d = (out.x - o.x)*lx + (out.z - o.z)*lz, need = SIDE_LAND*h.scale;
+  if (f.s*d < need){ const k = f.s*need - d; out.x += lx*k; out.z += lz*k; }
+  return out;
+}
 // turn a planted foot by k (rad) about the point it stands on: the heel while it is rolled back onto it, else the ball
 function pivotFoot(h, f, k){
   // (the point it stands on: the heel rolled back onto it, the tips of the toes rolled on over them, else the ball)

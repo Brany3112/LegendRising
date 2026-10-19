@@ -13,7 +13,18 @@
    browser default stopped while a match is on. The settings are this device's (localStorage freyaFootball.ctrl).
    The one exception (P2b-B, TRAINING-SPEC 0 and 3): C held shields the ball, and in full screen with the keyboard
    locked (core/keylock.js) Ctrl shields too; only then does a press made with Ctrl held count, so you can turn, sprint
-   and pass while you hold it. The shoulder check moved from C to V (held).
+   and pass while you hold it. (BCS) There is no shoulder check any more (V did it): V does nothing in football.
+
+   (BCS, the better control system) In third person (SET.footCam "third": Training, Free Play, the drills, the warm-up,
+   the Full Match) W A S D are a way on the screen, relative to the camera (W away from it, S towards it, A left, D
+   right), and the body turns to run that way at any speed: the walk, the jog, the run and the Shift sprint are the
+   same in every direction. Where you look is the view and the aim, never a limit on how you move. The keys' way is
+   smoothed (BCS: a run curves rather than snapping by the keyboard's 45 degrees; a reversal goes straight to the mover,
+   which plants and pivots). The facing is held only where the game needs it: the jockey, a strike, a pass or a flick
+   being charged or struck (facing the aim), a fake, a header's meeting run (and the engine's shield). In first person
+   the body faces the view, as before (you are its eyes). Close control is automatic for you (actions.js keepStep):
+   first to a ball, it is at your feet with no key; a tackle, a knock-on (Shift twice) or a flick (the middle button)
+   ends it.
 
    First-person striking (addendum A1.7, WP-F2; it wins over D10's "the reticle never sways"): everything comes from
    what you see. The reticle sits on the point you look at (the goal mouth for a shot, the grass for a pass or a
@@ -117,8 +128,30 @@ function flick(ms, me, held){
   const coming = !atFeet && b.state === "free" && ms.poss.ctl < 0 && b.p.y < .5 && d < 8 && approaching(ms, me);
   if (!atFeet && !coming){ noteWhy(ms, b.p.y >= .5 ? "high" : "far"); return; }
   const K = shotKeys(ms);
-  me.intent.action = {kind:"flick", p:clamp(held/flickFull(me.at), .05, 1), fwd:(K.w ? 1 : 0) - (K.s ? 1 : 0), side:(K.d ? 1 : 0) - (K.a ? 1 : 0), first:coming};
+  let fwd = (K.w ? 1 : 0) - (K.s ? 1 : 0), side = (K.d ? 1 : 0) - (K.a ? 1 : 0);
+  // ((BCS) in third person the keys are the camera's way, and the flick goes by the body's own (actions.js startFlick):
+  // the keys' way on the ground, said again in the body's frame, to the nearest of the eight)
+  if (bcsTP() && (fwd || side)){ bodyKeys(me, fwd, side); fwd = BK.fwd; side = BK.side; }
+  me.intent.action = {kind:"flick", p:clamp(held/flickFull(me.at), .05, 1), fwd, side, first:coming};
   CTRL.last = "flick"; use("flick");
+}
+// (BCS) a way on the screen (fwd: W +1, S -1; side: D +1, A -1, the camera's) said in the body's frame, to the nearest
+// of the eight ways (BK.fwd, BK.side each -1, 0 or 1): the camera turned by P.yaw, the body by its facing
+const BK = {fwd:0, side:0};
+function bodyKeys(me, f, r){
+  const sn = Math.sin(P.yaw), cs = Math.cos(P.yaw), l = Math.hypot(f, r) || 1;
+  const kx = (r*cs - f*sn)/l, kz = (-r*sn - f*cs)/l, F = dirOf(me.m.yaw);
+  const a = kx*F.x + kz*F.z, b = kx*-F.z + kz*F.x, c = Math.cos(67.5*DEG);
+  BK.fwd = a > c ? 1 : a < -c ? -1 : 0; BK.side = b > c ? 1 : b < -c ? -1 : 0;
+  return BK;
+}
+// (BCS) a fake's drag key (w, a, s or d, the camera's way) as the key that way in the fake's own frame (the facing it
+// began with, act.fx and act.fz): the nearest of the four
+function fakeKey(act, k){
+  const f = k === "w" ? 1 : k === "s" ? -1 : 0, r = k === "d" ? 1 : k === "a" ? -1 : 0;
+  const sn = Math.sin(P.yaw), cs = Math.cos(P.yaw), kx = r*cs - f*sn, kz = -r*sn - f*cs;
+  const a = kx*act.fx + kz*act.fz, b = kx*-act.fz + kz*act.fx;
+  return Math.abs(a) >= Math.abs(b) ? (a >= 0 ? "w" : "s") : (b >= 0 ? "d" : "a");
 }
 // (U28 part E) the keys held in the last SHOT_KEYS.T s as a shot is let go shape it (control.js strike)
 // (U28 fix) how much a shot curled with A or D spins, by the Curve skill: CURL.MAX rad/s of sidespin at 99, falling off
@@ -132,6 +165,30 @@ const keyHeld = (t, k) => t - k >= 0 && t - k <= SHOT_KEYS.T;
 export function shotKeys(ms){ const t = ms.t, K = CTRL.keyT; return {w: keyHeld(t, K.w), a: keyHeld(t, K.a), s: keyHeld(t, K.s), d: keyHeld(t, K.d)}; }
 // (U28 part B) how long you go on forward at a jog before it is a run: 0.6 s at Acceleration 50, 0.3 at 90 (0.2 to 0.8)
 export const runAfter = me => clamp(.6 - .3*(((me.at && me.at.acceleration) || 50) - 50)/40, .2, .8);
+/* (BCS, the better control system) where the keys take you in third person (SET.footCam "third"):
+   - the keys are a way on the screen: W away from the camera, S towards it, A to its left, D to its right (turned by
+     the camera's yaw, P.yaw), and the body faces where it runs (the intent's face null: mover.js turns the facing
+     after the heading), so the walk, the jog, the run and the sprint are the same in every direction;
+   - CTRL.wish, the way the body is asked to go (a yaw), turns towards the keys' way at CURVE_K times the body's own
+     lateral grip over its speed (prm.aLat x the turn factor / max(v, 0.5): the rate the mover's heading turns at, times
+     CURVE_K), CURVE_MIN to CURVE_MAX rad/s: quick from a stand, about 7 at a run (5.3 m/s, agility 50), 4.7 at a full
+     sprint. A key pressed with another is a curve, the run bending round at the clip's rates (fc27-spec 3.4), rather
+     than a snap by the keyboard's 45 degrees into the mover's cut (35 degrees off the heading above 3 m/s plants);
+     where the wish runs ahead of the heading by more than that, the mover still slows the body into the bend;
+   - a change of more than SNAP (the keyboard's 135 and 180: a reversal), or any change below STAND_V m/s, goes to the
+     mover as it is: it plants and pivots (mover.js, the cut rule), and a step-turn that reads the wish against the
+     heading sees the whole jump;
+   - from a stand the body turns on the spot first (mover.js turnFirst: no speed while the wish is more than 60 degrees
+     off the facing), at TURN_RATE rad/s (the clip's 12 to 14); on the move its facing follows the heading at FACE_RATE;
+   - the facing is held only where a strike needs it (a shot, a pass or a flick being charged or struck with the ball
+     yours or coming to you, a fake, a header's meeting run: facing the aim, AIM_NEAR m), the jockey, and the engine's
+     shield. First person keeps the body facing the view, the strafe and backpedal caps and the run going forward only */
+export const BCS = Object.freeze({CURVE_K: 5, CURVE_MIN: 4, CURVE_MAX: 14, SNAP: 120*DEG, STAND_V: 1.2,
+  TURN_FIRST: true, TURN_RATE: 13, FACE_RATE: 12, AIM_NEAR: 3});
+// (the football profile's own facing rate, mover.js moverParams: first person goes back to it)
+const FACE_RATE_FP = 12;
+// the camera is behind you (third person): the keys are a way on the screen and the body turns to run it
+export const bcsTP = () => SET.footCam !== "first";
 // (U26) two Shift presses this close together (seconds) are a knock-on
 export const KNOCK_TAP = .3;
 const nowS = () => (typeof performance === "object" && performance.now ? performance.now() : Date.now())/1000;
@@ -168,7 +225,7 @@ export const CN = Object.freeze({
   SHOT_FULL: .85, OVERHIT: .92, TAP: .18, PASS_FULL: .8, PASS_MIN: 4,
   CONE: 25*DEG, CONE_NEAR: 35*DEG, CONE_NEAR_D: 15, HYST: 6*DEG, THROUGH_D: 8,
   TACKLE_D: 1.6, SLIDE_V: 4, JOCKEY_V: 3.2, TACKLE_SLACK: .35, SLIDE_SLACK: .8, SHIELD_NEAR: 2.2, NOTE_T: 1.6, CALL_HOLD: .4, DRIB_BEND: 15*DEG,
-  SCAN_MAX: 110*DEG, SCAN_BACK: .15, HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5, RACE_T: 1.5,
+  HEAD_REACH: 2.1, ATTACK_LOOSE: 2.5, RACE_T: 1.5,
   SMALL: .55,                 // the small touch: the next dribble touch at this share of its length (A1.1)
   RING: Object.freeze({W0: .07, W1: .16})   // the timing ring of a volley (A1.5): the sweet window in seconds, at volleying 0 and 99
 });
@@ -256,17 +313,20 @@ export function setKick(id){
 // the strike's Technique (A1.7: it widens the rhythm window): the Clean strike skill (aero), Curve and Ball Control
 export const techniqueOf = at => clamp(.4*(at.aero || 0) + .3*(at.curve || 50) + .3*(at.ctrl || at.dribbling || 50), 0, 99);
 // the keys this mode answers (1.6); every one has its default stopped in a match
+// ((BCS) V does nothing in football now, but it is still the match's key: life's own V, the view, never fires in a match,
+// as 1, 2 and 3 were kept after U28)
 export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", " ", "space", "r", "e", "tab", "escape", "h", "1", "2", "3", "q", "v", "g", "b"]);
 
 /* ---------- the state (1.4.17) ----------
-   ctx: what your buttons mean now; walk: the X toggle; scan: a shoulder check (V held: the look turns, the body keeps
-   its way); shield: C held (or Ctrl in a locked full screen) with the ball yours or about to be (P2b-B); note: a press
+   ctx: what your buttons mean now; walk: the X toggle; shield: C held (or Ctrl in a locked full screen) with the ball yours or about to be (P2b-B); note: a press
    that came to nothing, and why (the hint says it); tipFS: the one-time full-screen tip is due (fphud.js shows it);
    charge: what is filling (a shot, a pass, a throw, a header's jump); contact: Low -1, Normal 0, High 1 (kept
    until changed); finesse: F held; target: the team-mate the pass cone has (agent), whether the crosshair makes it a
    through ball, and the point; call: your last call; uses: how often each hint has been acted on (they shorten) */
-export const CTRL = {keyT:{w:-1e9, a:-1e9, s:-1e9, d:-1e9}, shiftAt:-1e9, knockReq:false, ctx:"free", walk:false, scan:null, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
+export const CTRL = {keyT:{w:-1e9, a:-1e9, s:-1e9, d:-1e9}, shiftAt:-1e9, knockReq:false, ctx:"free", walk:false, shield:false, note:null, tipFS:false, tipAsked:false, charge:null, contact:0, finesse:false,
   target:{agent:-1, through:false, point:null}, call:{t:-99, kind:null, seq:0, n:0}, uses:{},
+  // ((BCS) the way the body is asked to go in third person, curving round to the keys' way: on, its yaw)
+  wish:{on:false, yaw:0},
   // additions: held keys, the buttons, what was released for the next step, the ring of a volley, the last action
   held:{}, lmb:false, rmb:false, lmbT:0, rmbT:0, rHeld:0, rDone:false, queue:[], ring:null, last:null, jockey:false, small:false,
   aim:{x:0, y:0, z:0, ok:false}, ground:{x:0, z:0}, resolve:null, ready:false, eHeld:0, enabled:true,
@@ -321,7 +381,7 @@ export function controlInput(ev){
   const md = modded(ev);
   if (md && ev.type !== "keyup") return true;
   // (U27: the key's name in lower case: with Shift held a letter comes as its capital, and F pressed while you sprint
-  // must still take the ball, a held W must still be W)
+  // must still be F (the slide, the settle), a held W must still be W, a capital A still curls)
   const k = ev.key === " " ? "space" : typeof ev.key === "string" && ev.key.length === 1 ? ev.key.toLowerCase() : ev.key === "Shift" ? "shift" : ev.key;
   switch (ev.type){
     case "keydown":
@@ -333,7 +393,6 @@ export function controlInput(ev){
       if (k === "s" && CTRL.lmb && CTRL.charge && CTRL.charge.kind === "shot"){ CTRL.lmb = false; CTRL.charge = null; CTRL.queue.push({k:"fake"}); return true; }
       if (CTRL.fakeAt != null && (k === "w" || k === "a" || k === "s" || k === "d")) CTRL.queue.push({k:"fakedir", d:k});
       if (k === "x") CTRL.walk = !CTRL.walk;
-      else if (k === "v") CTRL.queue.push({k:"scan"});
       else if (k === "f") CTRL.queue.push({k:"f"});
       // (U26) Shift tapped twice within KNOCK_TAP s: the knock-on (actions.js knockOn)
       else if (k === "shift"){ const now = nowS(); if (now - CTRL.shiftAt < KNOCK_TAP){ CTRL.knockReq = true; CTRL.shiftAt = -1e9; } else CTRL.shiftAt = now; }
@@ -345,7 +404,6 @@ export function controlInput(ev){
       return true;
     case "keyup":
       if (ev.prevent) ev.prevent();
-      if (k === "v") CTRL.queue.push({k:"unscan"});
       CTRL.held[k] = false;
       return true;
     case "down":
@@ -372,30 +430,29 @@ export function controlInput(ev){
   }
   return false;
 }
-// the view turns per event, unsmoothed, at the sensitivity setting (1.5.9); a shoulder check holds the body's way
+// the view turns per event, unsmoothed, at the sensitivity setting (1.5.9)
 export function look(dx, dy){
   const k = .0021*SET.sens;
   P.yaw = wrapA(P.yaw - dx*k);
-  if (CTRL.scan){ const d = wrapA(P.yaw - CTRL.scan.yaw0); if (Math.abs(d) > CN.SCAN_MAX) P.yaw = wrapA(CTRL.scan.yaw0 + Math.sign(d)*CN.SCAN_MAX); }
   P.pitch = clamp(P.pitch - (SET.invertY ? -dy : dy)*k, -1.35, 1.35);
 }
 // let go of everything (a cut, a pause, the end of play)
 export function controlReset(){
   for (const k in CTRL.held) CTRL.held[k] = false;
-  CTRL.lmb = CTRL.rmb = CTRL.mmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.scan = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
+  CTRL.lmb = CTRL.rmb = CTRL.mmb = false; CTRL.queue.length = 0; CTRL.charge = null; CTRL.rHeld = 0; CTRL.jockey = false; CTRL.shield = false; CTRL.note = null;
   CTRL.ring = null; CTRL.eHeld = 0; CTRL.acro = null; CTRL.lastShotT = null; CTRL.meter.on = false; CTRL.meter.kind = null; CTRL.fT = -99; CTRL.fakeAt = null; WHEEL.acc = 0; WHEEL.t = -1e9;
   CTRL.gx.fill(0); CTRL.gy.fill(0); CTRL.ret.on = false; CTRL.wind.p = CTRL.wind.over = 0; CTRL.wind.kind = null;
+  CTRL.wish.on = false; CTRL.wish.yaw = 0;
   // (P4-B) the look's history per step and the aim points start again from where you look now (a reset is a cut)
   CTRL.gi = 0; CTRL.hy.fill(P.yaw); CTRL.hp.fill(P.pitch);
   CTRL.aim.x = CTRL.aim.y = CTRL.aim.z = 0; CTRL.aim.ok = false; CTRL.ground.x = CTRL.ground.z = 0; CTRL.ret.x = CTRL.ret.y = CTRL.ret.z = 0; CTRL.ret.ok = false;
 }
 const use = k => { CTRL.uses[k] = (CTRL.uses[k] || 0) + 1; };
 // the window lost the keyboard (Alt+Tab, a click outside): the key-ups never come, so everything held is let go here.
-// A charge in progress is dropped without a strike (nobody released it), the shoulder check turns back
+// A charge in progress is dropped without a strike (nobody released it)
 export function controlRelease(){
   for (const k in CTRL.held) CTRL.held[k] = false;
   if (CTRL.lmb || CTRL.rmb || CTRL.mmb){ CTRL.lmb = CTRL.rmb = CTRL.mmb = false; CTRL.charge = null; }
-  if (CTRL.scan) CTRL.queue.push({k:"unscan"});
   CTRL.rHeld = 0; CTRL.rDone = true; CTRL.jockey = false; CTRL.shield = false; MOD.on = false;
 }
 if (typeof addEventListener === "function") addEventListener("blur", () => controlRelease());
@@ -740,6 +797,32 @@ export function mirrorAim(me, aim, out){
   return out;
 }
 
+/* ---------- (BCS) the way you go in third person, and the body's own turning ---------- */
+// the held facing, one record filled in place (the intent's face is this or null)
+const FACE = {x:0, z:-1};
+// the way the body is asked to go turned on towards the keys' way (kx, kz) this step, into I.dx, I.dz (BCS above):
+// from a stand, a reversal, or a first press, the keys' way as it is
+function wishStep(me, I, kx, kz, h){
+  const W = CTRL.wish, m = me.m, v = m.speed, ky = Math.atan2(-kx, -kz);
+  if (!W.on){ W.on = true; W.yaw = v < BCS.STAND_V ? ky : m.heading; }
+  const e = wrapA(ky - W.yaw);
+  if (v < BCS.STAND_V || Math.abs(e) > BCS.SNAP) W.yaw = ky;
+  else {
+    const turn = me.fac && me.fac.turn != null ? me.fac.turn : 1;
+    const w = clamp(BCS.CURVE_K*(me.prm.aLat || 7.5)*turn/Math.max(v, .5), BCS.CURVE_MIN, BCS.CURVE_MAX), lim = w*h;
+    W.yaw = wrapA(W.yaw + clamp(e, -lim, lim));
+  }
+  I.dx = -Math.sin(W.yaw); I.dz = -Math.cos(W.yaw);
+}
+// your body's turning (on your own mover's profile, re-laid every step: the warm-up's boost and a change of your
+// attributes build it afresh): third person, the turn on the spot from a stand and the face's rate (BCS); first
+// person, the football profile's own
+function bcsPrm(me, tp){
+  const p = me.prm; if (!p) return;
+  if (tp){ p.turnFirst = BCS.TURN_FIRST; p.turnFirstRate = BCS.TURN_RATE; p.faceRate = BCS.FACE_RATE; }
+  else { p.turnFirst = false; p.faceRate = FACE_RATE_FP; }
+}
+
 /* ---------- one step (before the AI, 3.2.1) ---------- */
 const ACT = {x:0, y:0, z:0}, TGT = {x:0, y:0, z:0};
 const CHG = {kind:"shot", t:0, p:0}, RNG = {kind:"volley", tc:0, w:0};
@@ -794,12 +877,11 @@ export function controlStep(ms, me, h, opts = {}){
   while (CTRL.queue.length){
     const q = CTRL.queue.shift();
     switch (q.k){
-      case "scan": CTRL.scan = {yaw0:P.yaw}; use("scan"); break;
-      case "unscan": if (CTRL.scan){ CTRL.scanBack = {from:P.yaw, to:CTRL.scan.yaw0, t:0}; CTRL.scan = null; } break;
       case "rtap": call(ms, me, "here"); break;
-      // (U27) F takes the ball into close control (within actions.js TAKE.WIN s, once it is within reach and nobody
-      // else's); defending, it is still the slide. In close control it does nothing more
-      case "f": CTRL.fT = ms.t; if (ctx !== "defend" && ctx !== "restart" && !me.ctlOn){ me.takeT = ms.t; use("take"); } slide(ms, me, ctx); break;
+      // ((BCS) F no longer takes close control: that is automatic, actions.js keepStep. F is the slide defending (or
+      // into a 50/50 at a run), the settle as a pass comes (held, or pressed SETTLE_LATCH s before it arrives), the foot
+      // for a ball the thigh would take, a cushioned header with Space, a finesse strike and the small touch)
+      case "f": CTRL.fT = ms.t; slide(ms, me, ctx); break;
       case "space": space(ms, me); break;
       case "ldown": if (ctx === "defend") tackle(ms, me); break;
       case "lup": CTRL.runShot = me.m.speed > 1.5; if (ctx !== "defend") strike(ms, me, "shot", q.t, opts); break;
@@ -811,7 +893,8 @@ export function controlStep(ms, me, h, opts = {}){
         if (ctx !== "defend" && ctx !== "restart" && ms.poss.ctl === me.id && !(me.act && !me.act.done)){ me.intent.action = {kind:"fake"}; CTRL.fakeAt = ms.t; CTRL.last = "fake"; use("fake"); }
         break;
       case "fakedir":
-        if (me.act && me.act.kind === "fake" && !me.act.dir && CTRL.fakeAt != null && ms.t - CTRL.fakeAt <= SHOT_KEYS.FAKE_WAIT){ me.act.dir = q.d; me.act.dirT = me.act.t; CTRL.fakeAt = null; }
+        // ((BCS) in third person the key is the camera's way: said in the fake's own frame)
+        if (me.act && me.act.kind === "fake" && !me.act.dir && CTRL.fakeAt != null && ms.t - CTRL.fakeAt <= SHOT_KEYS.FAKE_WAIT){ me.act.dir = bcsTP() && me.act.fx != null ? fakeKey(me.act, q.d) : q.d; me.act.dirT = me.act.t; CTRL.fakeAt = null; }
         break;
     }
   }
@@ -833,7 +916,8 @@ export function controlStep(ms, me, h, opts = {}){
   }
 
   // ---- where you go
-  const bodyYaw = CTRL.scan ? CTRL.scan.yaw0 : P.yaw;
+  // ((BCS) the keys are relative to where you look: the camera's way in third person, your eyes' in first)
+  const bodyYaw = P.yaw, tp = bcsTP();
   // (U28 fix: while a shot is held and while it is struck, A and D curl it and do not move you: a sidestep through the
   // swing carried the foot past the ball. W is the shape too when it comes late: pressed while a shot is held from a
   // stand it moves you only once held SHOT_KEYS.T s (held on, you run onto the ball; let go with the shot, it is W+A or
@@ -844,10 +928,25 @@ export function controlStep(ms, me, h, opts = {}){
   const wLate = charging && me.m.speed < .5 && ms.t - (CTRL.wOn != null ? CTRL.wOn : -9) < SHOT_KEYS.T;
   const f = (kicking && !CTRL.runShot) || wLate ? 0 : (CTRL.held.w ? 1 : 0) - (CTRL.held.s ? 1 : 0), r = striking ? 0 : (CTRL.held.d ? 1 : 0) - (CTRL.held.a ? 1 : 0);
   const len = Math.hypot(f, r), sin = Math.sin(bodyYaw), cos = Math.cos(bodyYaw);
-  I.dx = len ? (r*cos - f*sin)/len : 0; I.dz = len ? (-r*sin - f*cos)/len : 0;
-  I.face = I.face || {x:0, z:0}; I.face.x = -sin; I.face.z = -cos;
-  I.strafe = false; I.speedCap = Infinity;
+  // (the keys' own way on the ground, as pressed: the first touch's push goes by it, P6-A)
+  const kx = len ? (r*cos - f*sin)/len : 0, kz = len ? (-r*sin - f*cos)/len : 0;
+  I.dx = kx; I.dz = kz;
+  // ((BCS) third person: the way the body is asked to go curves round to the keys' way (wishStep); first person, the
+  // keys as they are)
+  if (tp && len) wishStep(me, I, kx, kz, h);
+  else { CTRL.wish.on = false; CTRL.wish.yaw = 0; }
   const dball = Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z);
+  // ((BCS) the facing: first person, the view's (you are its eyes); third person free, the body turning to where it runs
+  // (mover.js), and held to the aim only while a strike needs it: a shot, a pass or a flick being charged with the ball
+  // yours, near (BCS.AIM_NEAR) or coming to you, a strike or a flick under way, a fake. The face is one record, filled in
+  // place: nothing is allocated in a step)
+  const act0 = me.act && !me.act.done ? me.act.kind : null;
+  const aimHold = act0 === "kick" || act0 === "fake" || act0 === "flick" ||
+    (!!CTRL.charge && ctx !== "defend" && (ms.poss.ctl === me.id || dball < BCS.AIM_NEAR*(me.scale || 1) || (ms.ball.state === "free" && approaching(ms, me))));
+  if (!tp || aimHold){ I.face = FACE; FACE.x = -sin; FACE.z = -cos; }
+  else I.face = null;
+  bcsPrm(me, tp);
+  I.strafe = false; I.speedCap = Infinity;
   I.gait = CTRL.walk ? "walk" : CTRL.held.shift && !shieldGait ? "sprint" : "jog";
   // (U28 part B: the ladder walk, jog, run, sprint. Going on forward at a jog it becomes a run after RUN_AFTER s, sooner
   // the higher your Acceleration (0.6 s at 50, 0.3 at 90); Shift is the full sprint, X the walk)
@@ -857,20 +956,27 @@ export function controlStep(ms, me, h, opts = {}){
   const coming = !!(me.plan && me.plan.kind === "receive" && ms.poss.ctl !== me.id && (cb.v.x*cx + cb.v.z*cz)/cl >= 2);
   // (no step up to a run while a pass is coming to him: met at a run it goes through his feet; a run he is already in
   // is kept, as a drop to a jog under the ball pushes the touch too far ahead)
-  if (I.gait === "jog" && f > 0 && len){ CTRL.fwdT = (CTRL.fwdT || 0) + h; if (CTRL.fwdT >= runAfter(me) && (!coming || CTRL.ran)){ I.gait = "run"; CTRL.ran = true; } }
+  // ((BCS) in third person any way held climbs the ladder, as W does: the body runs where it goes; first person, only
+  // going forward, a backpedal and a strafe stay as they are)
+  if (I.gait === "jog" && len && (tp || f > 0)){ CTRL.fwdT = (CTRL.fwdT || 0) + h; if (CTRL.fwdT >= runAfter(me) && (!coming || CTRL.ran)){ I.gait = "run"; CTRL.ran = true; } }
   else { CTRL.fwdT = 0; CTRL.ran = false; }
   if (ctx === "restart"){ I.gait = dball > 8 && !CTRL.walk ? "jog" : "walk"; }
-  // (U27) close control (F took it, actions.js keepStep): a sprint with it is CTL_SPRINT of your sprint, from Dribbling
-  // (0.85 at 50, 0.95 at 90). Shift tapped twice with the ball yours: knocked on to run onto (knockOn), and close control
-  // ends; F takes it again
+  // (U27, BCS) close control (automatic for you, actions.js keepStep): a sprint with it is CTL_SPRINT of your sprint,
+  // from Dribbling (0.85 at 50, 0.95 at 90). Shift tapped twice with the ball yours: knocked on to run onto (knockOn),
+  // and close control ends; you chase it at a sprint out of it, and are in it again once you let go of Shift or drop
+  // below a run with the ball at your feet (actions.js AUTO)
   if (me.ctlOn && I.gait === "sprint"){ const k = clamp(.85 + .1*((me.at.dribbling || 50) - 50)/40, .8, .97); I.speedCap = Math.min(I.speedCap, k*sprintSpeed(me.prm, me.fac)); }
   I.knock = (ms.poss.ctl === me.id || !!me.ctlOn) && ctx !== "restart" && CTRL.knockReq;
   CTRL.knockReq = false;
+  // ((BCS) your controls are on this step: keepStep may take a ball you are first to into close control (the AI never
+  // sets this; keepStep lets go of it each step))
+  I.ctlAuto = true;
   // jockeying (RMB held defending): side-on, at most 3.2 m/s, facing the man on the ball
   CTRL.jockey = ctx === "defend" && CTRL.rmb;
   if (CTRL.jockey){
     const c = ms.agents[ms.poss.ctl];
-    if (c){ const dx = c.m.x - me.m.x, dz = c.m.z - me.m.z, d = Math.hypot(dx, dz) || 1; I.face.x = dx/d; I.face.z = dz/d; }
+    I.face = FACE; FACE.x = -sin; FACE.z = -cos;
+    if (c){ const dx = c.m.x - me.m.x, dz = c.m.z - me.m.z, d = Math.hypot(dx, dz) || 1; FACE.x = dx/d; FACE.z = dz/d; }
     I.speedCap = CN.JOCKEY_V; I.strafe = true; if (I.gait === "sprint") I.gait = "run";
     use("jockey");
   }
@@ -878,6 +984,8 @@ export function controlStep(ms, me, h, opts = {}){
   // when it comes (the resolver's point: the head is over the body); your keys take over again after
   const hd = me.act && me.act.kind === "header" && !me.act.dive && !me.act.done && !me.act.air ? CTRL.headMeet : null;
   if (hd){
+    // ((BCS) facing the way you look, the header's aim, while the steps are taken for you)
+    I.face = FACE; FACE.x = -sin; FACE.z = -cos;
     const dx = hd.x - me.m.x, dz = hd.z - me.m.z, d = Math.hypot(dx, dz), left = Math.max(.05, me.act.tc - me.act.t);
     if (d > .06){ I.dx = dx/d; I.dz = dz/d; I.gait = "run"; I.speedCap = Math.min(I.speedCap, d/left + .5); }
     else { I.dx = I.dz = 0; }
@@ -913,10 +1021,11 @@ export function controlStep(ms, me, h, opts = {}){
   // the keys' (W A S D, relative to where you look), else where you look: standing still and looking down the line,
   // the touch goes down the line, not wherever your body happens to face. F held asks for the foot (touch.js
   // touchPart: the raised foot for a ball up to the waist that the thigh would take)
+  // ((BCS) the keys' own way as pressed, not the curving wish: the touch goes where you press)
   if (ms.ball.state === "free" && ms.poss.ctl !== me.id){
     const p = me.plan && me.plan.kind === "receive" ? me.plan : (me.plan = {kind:"receive", push:null, first:null, x:me.m.x, z:me.m.z});
     p.push = p.push || {x:0, z:0};
-    if (len){ p.push.x = I.dx; p.push.z = I.dz; }
+    if (len){ p.push.x = kx; p.push.z = kz; }
     else { p.push.x = -Math.sin(bodyYaw); p.push.z = -Math.cos(bodyYaw); }
     p.part = CTRL.held.f ? "foot" : null;
     // (UF2-A, U17) the settle: F held, or pressed a moment before the ball arrives, kills it onto your preferred foot
@@ -1232,14 +1341,6 @@ function nearestMate(ms, me, p){
   return best;
 }
 
-// the turn back from a shoulder check: over 0.15 s toward where the body was looking (per frame, from the camera)
-export function scanStep(dt){
-  const S = CTRL.scanBack; if (!S) return;
-  S.t += dt;
-  const k = clamp(S.t/CN.SCAN_BACK, 0, 1), e = k*k*(3 - 2*k);
-  P.yaw = wrapA(S.from + wrapA(S.to - S.from)*e);
-  if (k >= 1) CTRL.scanBack = null;
-}
 // the offside pip and line (1.5.10), for the match and the training pitch alike: relative to the second-last defender
 // now. out.pip 'onside' | 'near' (within 0.5 m) | 'off' | null (not shown: the setting, a keeper, no offside in play);
 // out.x the line across the pitch where it stands (null when there is no offside), for the Tab overview
@@ -1283,9 +1384,10 @@ export function hintsFor(ms, me){
       else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
       else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
-      // (U27) in close control: Shift twice knocks it on; not in it, F takes it
-      else if (me.ctlOn){ add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Shift Shift", "knock it on and run", "knock"); }
-      else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("F", "take control", "take"); }
+      // (U27, BCS) close control is automatic: in it, Shift twice knocks it on; chasing a ball you knocked on or flicked,
+      // letting go of Shift takes it back into close control
+      else if (me.ctlOn || !me.ctlChase){ add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Shift Shift", "knock it on and run", "knock"); }
+      else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Shift", "let go to keep it close", "close"); }
     }
     else if (CTRL.resolve && CTRL.resolve.kind === "header"){ add("Space", "head it", "header"); add("F+Space", "cushion it down to your feet", "cushion"); }
     else if (CTRL.resolve && CTRL.resolve.kind !== "ground") add("LMB", "volley it", "shoot");
@@ -1293,9 +1395,9 @@ export function hintsFor(ms, me){
       // (UF2-A, U17) a ball on its way to you: how to kill it dead
       add("F", "hold to stop it at your feet", "settle"); add("W A S D", "take it away", "touch"); add("RMB", "pass it first time", "pass");
     }
-    // (U27) a loose ball by you: F takes it into close control
-    else if (ms.ball.state === "free" && ms.poss.ctl < 0 && ms.ball.p.y < .5 && Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z) < 2.5){ add("F", "take control", "take"); add("Shift", "sprint", "sprint"); }
-    else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); add("V", "hold to look over your shoulder", "scan"); }
+    // (U27, BCS) a loose ball by you: get to it first and it is at your feet, in close control, with no key
+    else if (ms.ball.state === "free" && ms.poss.ctl < 0 && ms.ball.p.y < .5 && Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z) < 2.5){ add("W A S D", "get to it first to keep it", "touch"); add("Shift", "sprint", "sprint"); }
+    else { add("R", "call for it", "call"); add("Shift", "sprint", "sprint"); add("Space", "jump", "header"); }
   } else if (ctx === "defend"){
     const c = ms.agents[ms.poss.ctl];
     const b = ms.ball;
@@ -1303,6 +1405,6 @@ export function hintsFor(ms, me){
     else if (!c && b.state === "free" && b.p.y < .5 && Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z) < standReach(me.at.tackling || 50) + CN.TACKLE_SLACK + .6) add("LMB", "go in for the ball", "tackle");
     add("RMB", "jockey", "jockey");
     if (me.m.speed > CN.SLIDE_V) add("F", "slide", "slide");
-  } else { add("R", "call for it", "call"); add("Space", "jump", "header"); add("V", "hold to look over your shoulder", "scan"); }
+  } else { add("R", "call for it", "call"); add("Space", "jump", "header"); add("Shift", "sprint", "sprint"); }
   return out.slice(0, 3);
 }

@@ -56,7 +56,8 @@ export function createAgent(o){
     look: {yaw: o.yaw || 0, pitch: 0},
     at, energy, energy0: energy, fatigue: o.fatigue || 0,
     // (shield: the intent to shield the ball, P2b-A contract: control.js writes it for the player, brain.js for the AI)
-    intent: {dx: 0, dz: 0, gait: 'jog', face: null, strafe: false, speedCap: Infinity, action: null, shield: false},
+    // ((U26) knock: Shift twice; (BCS) ctlAuto: the player's controls ran this step, close control may be taken)
+    intent: {dx: 0, dz: 0, gait: 'jog', face: null, strafe: false, speedCap: Infinity, action: null, shield: false, knock: false, ctlAuto: false},
     act: null,
     state: role === 'player' ? 'idle' : 'idle', stateT: 0, cooldown: 0,
     onPitch: o.onPitch !== false, booked: 0, sentOff: false, injured: false,
