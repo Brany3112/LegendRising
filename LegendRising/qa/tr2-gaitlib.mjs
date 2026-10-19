@@ -131,8 +131,8 @@ export async function drive(page, o){
 
 /* ---------- the numbers ---------- */
 // the table's step (gaitcore.stepLen, the clock every body and the simulation step by) for a speed, mode and body
-// scale: walking never beyond the leg's reach (WALK_REACH x scale)
-export const tableStep = (v, mode, sc) => stepLen(v, mode, sc);
+// scale: walking never beyond the leg's reach (WALK_REACH x scale); ck: a carrier's weight (FC27, gaitcore CARRY)
+export const tableStep = (v, mode, sc, ck = 0) => stepLen(v, mode, sc, null, ck);
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
 // the roll past which a planted foot turns on the tips of its toes (gait.js TIP_R)
 export const TIP_R = .9;
@@ -146,7 +146,7 @@ const hyp = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
    drift: how far a planted foot's contact point (the heel while rolled back on it, else the ball) moves in a stance
    (mm); heel: the lowest the heel comes in a swing before u 0.95 (mm); toe: the lowest the toe tip comes in a swing
    before u 0.95 (mm); jump: the biggest bone turn in a frame (rad); jumpLeg: the hips' and legs' */
-export function metrics(rows, {t0 = 0, t1 = Infinity, scale = 1, hz = 60} = {}){
+export function metrics(rows, {t0 = 0, t1 = Infinity, scale = 1, hz = 60, ck = 0} = {}){
   const R = rows.filter(r => r.t >= t0 - 1e-9 && r.t <= t1 + 1e-9);
   const out = {frames: R.length};
   if (R.length < 3) return out;
@@ -199,7 +199,7 @@ export function metrics(rows, {t0 = 0, t1 = Infinity, scale = 1, hz = 60} = {}){
   const vMean = mean(R.map(r => r.v)), mode = R[R.length >> 1].mode;
   const span = falls.length > 1 ? falls[falls.length - 1].t - falls[0].t : NaN;
   out.cadence = +((falls.length - 1)/span).toFixed(3);
-  out.cadTable = +(vMean/tableStep(vMean, mode, scale)).toFixed(3);
+  out.cadTable = +(vMean/tableStep(vMean, mode, scale, ck)).toFixed(3);
   out.cadErr = +(out.cadence/out.cadTable - 1).toFixed(4);
   out.v = +vMean.toFixed(3); out.mode = mode;
   out.kneeLift = +kneeLift.toFixed(4); out.kneeAll = +kneeAll.toFixed(4); out.ballRiseMm = +ballRise.toFixed(2); out.lifts = lifts;

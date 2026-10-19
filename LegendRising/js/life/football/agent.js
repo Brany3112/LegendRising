@@ -90,7 +90,12 @@ export function createAgent(o){
     // shielder from behind, and the race's lower bound (zone.js)
     shield: null, chal: null, recoverT: 0, duelOn: -1, duelT: -99, chalOn: -1, chalRoll: -99, pushT: 0, pushOn: -1, zLB: 0, zIn: false, zD: 0,
     // the agent's own facing vector for faceTo() in the per-step code (one object reused, not a new one a step)
-    faceV: {x: 0, z: 0}
+    faceV: {x: 0, z: 0},
+    // (FC27) the gait clock before this step (sim.js: the drawn body's clock between two steps), and the carrier's next
+    // touch as planned a footfall ahead (actions.js carryPlan, dribblePlan: on, whether it plays the ball or only comes
+    // down behind it, the foot, the part of it, the footfall it lands on (the clock's n then), why), read by the drawn
+    // body to put that foot's landing behind the ball
+    gPhi0: 0, cplan: {on: false, touch: false, side: 'R', part: 'toe', n: 0, why: ''}
   };
   a.react = reactOf(at);
   return a;

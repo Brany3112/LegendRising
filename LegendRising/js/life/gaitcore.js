@@ -19,6 +19,22 @@ export const WALK = [[0.5, 84, 0.357, 0.64], [0.8, 94, 0.511, 0.63], [1.1, 104, 
 export const RUN = [[2.4, 150, 0.960, 0.406], [3.0, 160, 1.125, 0.356], [3.6, 164, 1.317, 0.315], [4.5, 170, 1.588, 0.274],
                     [5.5, 176, 1.875, 0.243], [6.5, 184, 2.120, 0.224], [7.6, 194, 2.351, 0.213], [9.0, 204, 2.647, 0.189]];
 
+/* (FC27) the ball carrier's gait: short, quick, low steps (the FC 27 clip, plan/notes/fc27-spec.md 3.1 and 5.4). At
+   4.5 m/s the run takes 1.59 m steps at 170 a minute; a man with the ball at his feet takes 0.75 m at 360, two and a
+   half times the cadence, so his strong foot comes down once every 0.33 s and can play the ball on every stride. The
+   duty is higher (about 0.44: little time in the air). Rows: [v m/s, steps per minute, step length m, duty]; the
+   last row (a sprint with it) is past what the clip shows, carried on at the same cadence's rise */
+export const CARRY = [[2.4, 330, .44, .46], [3.6, 340, .64, .45], [4.5, 360, .75, .44], [5.5, 410, .80, .42],
+                      [6.5, 450, .87, .40], [7.6, 470, .97, .36]];
+/* how much of the carrier's gait a carrier gets: K (0, our run; 1, the clip's) times the body's own carry weight (g.ck,
+   0..1, eased in and out by its owner as he takes the ball and lets it go), coming in from a walk between V0 and V1
+   (a walk with the ball shortens its steps towards the carrier's first row; below V0 it is the walk) and going out
+   again between V2 and V3 (a full sprint with it, which the clip never shows, opens back up towards the run's) */
+export const CARRY_K = Object.freeze({K: 1, V0: 1.2, V1: 2.4, V2: 7.6, V3: 9.5});
+export function carryW(v, ck){
+  const a = Math.abs(v);
+  return ck > 0 ? CARRY_K.K*Math.min(1, ck)*sstep(CARRY_K.V0, CARRY_K.V1, a)*(1 - sstep(CARRY_K.V2, CARRY_K.V3, a)) : 0;
+}
 // walk posture budgets, one per WALK row (3.5.2): how far the hips may drop to reach a step, and the pelvis yaw
 export const WALK_HIP_DROP = [0.020, 0.025, 0.032, 0.040, 0.045, 0.050, 0.055];
 export const WALK_PELVIS_YAW = [0.05, 0.13];         // rad, from the slowest row to the fastest
@@ -47,10 +63,10 @@ function rowVal(T, arr, v){
   return arr[arr.length - 1];
 }
 
-// the gait state a body carries: phase, footfall counter, the last foot down (the left at phi 0 to 0.5), and the
-// walk/run mode with its timer
-export function createGait({phi = 0, mode = 'W'} = {}){
-  return {phi, n: 0, side: phi < 0.5 ? 'L' : 'R', mode, held: 0};
+// the gait state a body carries: phase, footfall counter, the last foot down (the left at phi 0 to 0.5), the
+// walk/run mode with its timer, and the carry weight (FC27: ck, 0..1, the carrier's gait, CARRY)
+export function createGait({phi = 0, mode = 'W', ck = 0} = {}){
+  return {phi, n: 0, side: phi < 0.5 ? 'L' : 'R', mode, held: 0, ck};
 }
 
 // walk or run for a speed. heldT is how long v has been above RUN_ON (the caller keeps it, or uses gaitModeStep).
@@ -70,19 +86,32 @@ export function reachStep(v, scale = 1){ return WALK_REACH*scale; }
 
 // step length (metres, one foot to the other) at speed v in a mode, for a body of height scale `scale`.
 // Walking: the table value, never beyond the reach limit (reach overrides it; Infinity gives the pure table).
-export function stepLen(v, mode, scale = 1, reach = null){
-  if (mode === 'R') return col(RUN, v, 2)*scale;
-  const r = reach == null ? reachStep(v, scale) : reach;
-  return Math.min(col(WALK, v, 2)*scale, r);
+// ck: the carry weight (FC27), the carrier's step blended in by carryW
+export function stepLen(v, mode, scale = 1, reach = null, ck = 0){
+  let s;
+  if (mode === 'R') s = col(RUN, v, 2)*scale;
+  else { const r = reach == null ? reachStep(v, scale) : reach; s = Math.min(col(WALK, v, 2)*scale, r); }
+  const w = carryW(v, ck);
+  return w > 0 ? s + (Math.min(s, col(CARRY, v, 2)*scale) - s)*w : s;
 }
 // steps per second at speed v (cadence = v/step); the table's own cadence at its rows
-export function cadence(v, mode, scale = 1, reach = null){ return v/stepLen(v, mode, scale, reach); }
-// duty factor (share of a stride each foot is in stance) at speed v
-export function dutyOf(v, mode){ return mode === 'R' ? col(RUN, v, 3) : col(WALK, v, 3); }
+export function cadence(v, mode, scale = 1, reach = null, ck = 0){ return v/stepLen(v, mode, scale, reach, ck); }
+// duty factor (share of a stride each foot is in stance) at speed v (a carrier's run: CARRY's; his walk keeps the walk's
+// double support)
+export function dutyOf(v, mode, ck = 0){
+  if (mode !== 'R') return col(WALK, v, 3);
+  const d = col(RUN, v, 3), w = carryW(v, ck);
+  return w > 0 ? d + (col(CARRY, v, 3) - d)*w : d;
+}
 // seconds for one stride (two steps)
-export function strideTime(v, mode, scale = 1){ return 2*stepLen(v, mode, scale)/Math.max(v, 0.05); }
-// swing duration of one foot (3.5.3): (1 - duty)*strideTime clamped to 0.22..0.45 s
-export function swingTime(v, mode, scale = 1){ return clamp((1 - dutyOf(v, mode))*strideTime(v, mode, scale), 0.22, 0.45); }
+export function strideTime(v, mode, scale = 1, ck = 0){ return 2*stepLen(v, mode, scale, null, ck)/Math.max(v, 0.05); }
+// swing duration of one foot (3.5.3): (1 - duty)*strideTime clamped to 0.22..0.45 s; a carrier's quick low steps
+// swing in as little as CARRY_SWING (FC27: about 0.17 s at 4.5 m/s, the clip's)
+export const CARRY_SWING = 0.13;
+export function swingTime(v, mode, scale = 1, ck = 0){
+  const lo = 0.22 + (CARRY_SWING - 0.22)*carryW(v, ck);
+  return clamp((1 - dutyOf(v, mode, ck))*strideTime(v, mode, scale, ck), lo, 0.45);
+}
 
 // the shape numbers of the gait at speed v (3.5.2), for the animation. R is the posture blend 0..1 (h.gait.R); it
 // defaults to the mode.
@@ -134,7 +163,20 @@ export function phaseAdvanceQ(g, mode){
       if (va <= T[i][0]){ const a = T[i - 1], b = T[i], t = (va - a[0])/(b[0] - a[0]); c = a[2] + (b[2] - a[2])*t; break; }
     }
   }
-  const step = mode === 'R' ? c*scale : Math.min(c*scale, WALK_REACH*scale);
+  let step = mode === 'R' ? c*scale : Math.min(c*scale, WALK_REACH*scale);
+  // (FC27: a carrier's step, stepLen's carry blend written out the same way: CARRY's column at |v|, carryW's weight)
+  const ck = g.ck;
+  if (ck > 0 && va > CARRY_K.V0){
+    let cc = CARRY[CARRY.length - 1][2];
+    if (va <= CARRY[0][0]) cc = CARRY[0][2];
+    else for (let i = 1; i < CARRY.length; i++){
+      if (va <= CARRY[i][0]){ const a = CARRY[i - 1], b = CARRY[i], t = (va - a[0])/(b[0] - a[0]); cc = a[2] + (b[2] - a[2])*t; break; }
+    }
+    const x = va >= CARRY_K.V1 ? 1 : (va - CARRY_K.V0)/(CARRY_K.V1 - CARRY_K.V0), y = va <= CARRY_K.V2 ? 0 : va >= CARRY_K.V3 ? 1 : (va - CARRY_K.V2)/(CARRY_K.V3 - CARRY_K.V2);
+    const w = CARRY_K.K*(ck < 1 ? ck : 1)*x*x*(3 - 2*x)*(1 - y*y*(3 - 2*y));
+    cc *= scale; if (cc > step) cc = step;
+    step += (cc - step)*w;
+  }
   const dphi = dist/(2*step), p0 = g.phi;
   if (!(Math.abs(dphi) <= MAX_STRIDES) || !Number.isFinite(p0)) return NONE;
   const p1 = p0 + dphi;

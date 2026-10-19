@@ -3,7 +3,8 @@
 // foot sliding, no snapping"). Owner: P2-B (TR stage 2).
 //
 // A body (human.js) driven by mover.js like core/me.js and football/view.js drive theirs, at 60 Hz and 30 Hz, body
-// scales 0.92, 1.0 and 1.08: walk at 1.0 and 1.7 m/s (LIFE), jog at 3.8 and sprint at 7.8 m/s (FOOTBALL). Over the
+// scales 0.92, 1.0 and 1.08: walk at 1.0 and 1.7 m/s (LIFE), jog at 3.8 and sprint at 7.8 m/s (FOOTBALL), and the ball
+// carrier's gait (FC27, gaitcore CARRY, its own table for the cadence) at 4.5 and 5.9 m/s. Over the
 // steady part of each run, at 60 Hz:
 //   knee change at lift-off <= 0.12 rad a frame (0.2 at 30 Hz); the ball of the foot rises <= 12 mm on the lift-off
 //   frame; the hips' vertical speed changes <= 4 mm a frame; the hips sit within 1 mm of their top in under 40% of
@@ -36,7 +37,10 @@ const CASES = [
   {name: "walk1.0", prof: "life", gait: "walk", cap: 1.0, v: 1.0},
   {name: "walk1.7", prof: "life", gait: "walk", cap: 1.7, v: 1.7},
   {name: "jog3.8", prof: "football", gait: "jog", cap: 3.8, v: 3.8},
-  {name: "sprint7.8", prof: "football", gait: "sprint", cap: 7.8, v: 7.8}
+  {name: "sprint7.8", prof: "football", gait: "sprint", cap: 7.8, v: 7.8},
+  // (FC27) the ball carrier's gait (gaitcore CARRY: the FC 27 clip's short, quick, low steps), on the same rows
+  {name: "carry4.5", prof: "football", gait: "run", cap: 4.5, v: 4.5, carry: 1},
+  {name: "carry5.9", prof: "football", gait: "run", cap: 5.9, v: 5.9, carry: 1}
 ];
 const WARM = 1.4, MEAS = 2.4;
 
@@ -46,8 +50,9 @@ try {
   await freeze(page);
   for (const hz of [60, 30]) for (const scale of QUICK ? [1] : [.92, 1, 1.08]) for (const C of CASES){
     const sheet = SHEETS && hz === 60 && scale === 1 ? {every: C.v > 3 ? 3 : 5, max: 40} : null;
-    const r = await drive(page, {hz, scale, prof: C.prof, v0: C.v, segs: [{T: WARM + MEAS, dir: 0, gait: C.gait, cap: C.cap}], sheet, sheetName: sheet ? `tr2-gait-${C.name}` : null});
-    const m = metrics(r.rows, {t0: WARM, t1: WARM + MEAS, scale: r.scale, hz});
+    const cs = C.carry ? {mode: "move", modeSt: {carry: C.carry}} : {};
+    const r = await drive(page, Object.assign({hz, scale, prof: C.prof, v0: C.v, segs: [{T: WARM + MEAS, dir: 0, gait: C.gait, cap: C.cap}], sheet, sheetName: sheet ? `tr2-gait-${C.name}` : null}, cs));
+    const m = metrics(r.rows, {t0: WARM, t1: WARM + MEAS, scale: r.scale, hz, ck: C.carry || 0});
     const key = `${C.name}@${hz}Hz x${scale}`;
     res.runs[key] = m;
     if (r.sheetFile) console.log("     sheet", r.sheetFile);

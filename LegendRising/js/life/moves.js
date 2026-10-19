@@ -482,7 +482,7 @@ export function planStrike(h, ball, kind, side = "R", dir = null, power = .7){
   // the root runs straight to where it is at the plant (the owner's mover steers it there)
   const D = Math.hypot(rpx - rx, rpz - rz), px0 = D > 1e-3 ? (rpx - rx)/D : a.x, pz0 = D > 1e-3 ? (rpz - rz)/D : a.z;
   leftOf(px0, pz0, _l2);
-  const st0 = stepLen(v, mode, sc);
+  const st0 = stepLen(v, mode, sc, null, Gt.ck || 0);
   // which foot lands next: the one in the air, or the other of the last down
   const Fe = Gt.feet, next = !Fe[0].down && Fe[1].down ? "L" : !Fe[1].down && Fe[0].down ? "R" : Gt.side === "L" ? "R" : "L";
   const sup = side === "L" ? "R" : "L";
@@ -613,7 +613,7 @@ function planHint(h, plan, dl){
   if (!plan.hold && m > .05){
     const want = dl/m;
     let lo = .4, hi = 9.5;
-    for (let it = 0; it < 24; it++){ const mid = (lo + hi)/2; if (stepLen(mid, Gt.mode, sc) < want) lo = mid; else hi = mid; }
+    for (let it = 0; it < 24; it++){ const mid = (lo + hi)/2; if (stepLen(mid, Gt.mode, sc, null, Gt.ck || 0) < want) lo = mid; else hi = mid; }
     plan.speed = (lo + hi)/2;
   }
   return null;
