@@ -164,9 +164,25 @@ export function canStrike(a, ball, style, out){
    ahead of a body standing off it (TOL: the drawn hips reach on to the ball, moves.js reachHips, so a root that
    much short draws as well; the reach window's own was 0.3 m of ball ahead too). VMAX: the step's speed at most (m/s,
    the clip's body 1 to 2.5: faster, a standing foot left behind cannot stay down to its toe-off); FOLLOW: the act's time after the contact (the
-   kicking foot down 0.37 s after it, moves.js SHOT.LAND; ACT.FOLLOW's 0.28 ended it in the air) */
-export const STEP_IN = Object.freeze({T: [0.30, 0.35], PER: 0.07, PLANT: [0.33, -0.08], V_BALL: 2.0, V_BODY: 2.5, REACH: 0.9, AHEAD: 0.1,
-  BACK: 0.184, SIDE: 0.28, TOL: 0.3, VMAX: 2.3, ON: 0.3, KEEP: 0.9, VON: 2.0, FOLLOW: 0.37});
+   kicking foot down 0.37 s after it, moves.js SHOT.LAND; ACT.FOLLOW's 0.28 ended it in the air).
+   A ball carried at his feet is a step-in too: what counts is how fast it goes against him (V_BALL, the
+   ball's velocity less his), the ball itself at most V_ROLL m/s (a faster one runs away from a body braking into its
+   plant: the window as before; the clip slows such a ball with a set touch first, not built), he at most V_BODY (the
+   jog with the ball, W's own
+   pace: the speed he came with is let down to VMAX by the plant's moment, PLANT_T before the contact, the plant step
+   braking him, so the planted foot is not left behind him); and it is struck where he aims, not where he faces (the
+   keys move him one way while he aims another): the ball's place at the contact ahead of him along his way or along
+   the aim, the aim at most TURN rad off
+   his facing, and through the step he turns to the aim, the turn spread over the time to TURN_BY s before the contact
+   (never in one snap: a facing held by the mover turns at up to 12 rad/s), facing it until the act is over. LAT_BY: he
+   is at his place across the aim this long before the contact (a little after the plant's moment, 0.20 s), so he
+   does not go on sideways over the planted foot, as far as LAT_V of VMAX allows (a step near VMAX goes straight);
+   along it he is V_PLANT m/s short of his place at the plant's moment (PLANT_T), coming on over the planted foot at
+   that pace (the clip's body 1 to 2.5 m/s): any faster, the foot planted a stride ahead of the hips, the drawn body
+   ducked a quarter of a metre to reach it */
+export const STEP_IN = Object.freeze({T: [0.30, 0.35], PER: 0.07, PLANT: [0.33, -0.08], V_BALL: 2.0, V_ROLL: 3.2, V_BODY: 4.4, REACH: 0.9,
+  AHEAD: 0.1, BACK: 0.184, SIDE: 0.28, TOL: 0.3, VMAX: 2.3, ON: 0.3, KEEP: 0.9, VON: 2.0, FOLLOW: 0.37, TURN: 1.75, TURN_BY: 0.15, LAT_BY: 0.12, LAT_V: 0.8,
+  PLANT_T: 0.2, V_PLANT: 1.4});
 // the step-in for this shot now, or null: {x, z} the root's place at the contact, {fx, fz} the aim, foot the kicking
 // foot, t its time to the contact
 const SI_B = {x: 0, y: 0, z: 0};
@@ -174,8 +190,9 @@ function stepInOf(ms, a, action, cs){
   const b = ms.ball, rq = action, sc = a.scale || 1;
   if (rq.kind !== 'shot' || rq.chip || (rq.style && rq.style !== 'ground') || (rq.contact > 0 && rq.finesse)) return null;
   if (b.state !== 'free' || ms.restart && ms.restart.taker === a.id || b.p.y > 0.3 || Math.abs(b.v.y) > 1) return null;
-  if (hypot(b.v.x, b.v.z) > STEP_IN.V_BALL || a.m.speed > STEP_IN.V_BODY) return null;
-  const f = dirOf(a.m.yaw), si = {x: 0, z: 0, fx: 0, fz: 0, foot: cs.foot, err: 0, vC: 0, t: 0.33};
+  const vx = a.m.vx || 0, vz = a.m.vz || 0;
+  if (hypot(b.v.x, b.v.z) > STEP_IN.V_ROLL || hypot(b.v.x - vx, b.v.z - vz) > STEP_IN.V_BALL || a.m.speed > STEP_IN.V_BODY) return null;
+  const f = dirOf(a.m.yaw), si = {x: 0, z: 0, fx: 0, fz: 0, foot: cs.foot, err: 0, vC: 0, t: 0.33, v0: a.m.speed};
   // (its time from the plant step's length: the support foot, half a stance to its side of the body, to the plant
   // beside where the ball will be; once again with the ball where it will be at that time)
   for (let i = 0; i < 2; i++){
@@ -185,9 +202,13 @@ function stepInOf(ms, a, action, cs){
     const fx0 = a.m.x + f.z*ss*0.11*sc, fz0 = a.m.z - f.x*ss*0.11*sc;
     si.t = clamp(0.29 + STEP_IN.PER*hypot(px - fx0, pz - fz0)/sc, STEP_IN.T[0], STEP_IN.T[1]);
   }
-  if ((SI_B.x - a.m.x)*f.x + (SI_B.z - a.m.z)*f.z < STEP_IN.AHEAD*sc) return null;
+  // (the ball ahead of him along his way or along the aim, and the aim not behind him)
+  const bx = SI_B.x - a.m.x, bz = SI_B.z - a.m.z;
+  if (bx*f.x + bz*f.z < STEP_IN.AHEAD*sc && bx*si.fx + bz*si.fz < STEP_IN.AHEAD*sc) return null;
+  if (f.x*si.fx + f.z*si.fz < cos(STEP_IN.TURN)) return null;
   const d = hypot(si.x - a.m.x, si.z - a.m.z);
-  return d <= (STEP_IN.REACH + a.m.speed*si.t)*sc ? si : null;
+  // (a body over VMAX is let down to it by the plant: that much further)
+  return d <= (STEP_IN.REACH + Math.min(a.m.speed, STEP_IN.VMAX)*si.t + Math.max(0, a.m.speed - STEP_IN.VMAX)*(si.t - STEP_IN.PLANT_T)*0.5)*sc ? si : null;
 }
 // the root's place at the contact for a step-in strike of the ball at bp: behind it along the aim, to the support side
 function stepInSpot(a, rq, bp, si){
@@ -1435,9 +1456,25 @@ export function actionStep(ms, a, h){
             // speed that gets him there on it)
             const si = act.stepIn, left = Math.max(0, act.tc - act.t);
             predAt(ms, left, SI_B); stepInSpot(a, act.action, SI_B, si);
-            const dx = si.x - a.m.x, dz = si.z - a.m.z, dl = hypot(dx, dz);
-            I.dx = dl > 1e-3 ? dx/dl : 0; I.dz = dl > 1e-3 ? dz/dl : 0; I.gait = 'jog'; I.strafe = false;
-            I.speedCap = Math.min(STEP_IN.VMAX, dl/Math.max(left, h));
+            // (across the aim he is at his place by the plant, LAT_BY before the contact, so the body does not go on
+            // sideways over a planted foot; along it by the contact, coming on over the plant at V_PLANT as in the clip:
+            // by the plant's moment he is that much short of his place, the planted foot a step ahead of him, not a
+            // stride)
+            const dx = si.x - a.m.x, dz = si.z - a.m.z, al = dx*si.fx + dz*si.fz, la = dz*si.fx - dx*si.fz;
+            const ap = left > STEP_IN.PLANT_T + h ? (al - STEP_IN.V_PLANT*STEP_IN.PLANT_T)/(left - STEP_IN.PLANT_T) : al/Math.max(left, h);
+            // (sooner across only with speed to spare, LAT_V of VMAX all told: a long step already near VMAX goes
+            // straight to its place, as the body cannot take a faster one up from a stand in time)
+            const va = Math.max(ap, Math.min(al/Math.max(left, h), STEP_IN.V_PLANT)), vl0 = la/Math.max(left, h), vm = Math.sqrt(Math.max(0, Math.pow(STEP_IN.LAT_V*STEP_IN.VMAX, 2) - va*va));
+            const vw = la/Math.max(left - STEP_IN.LAT_BY, h), vl = Math.abs(vw) > Math.abs(vl0) ? Math.sign(vw)*Math.max(Math.abs(vl0), Math.min(Math.abs(vw), vm)) : vl0;
+            const vx = va*si.fx - vl*si.fz, vz = va*si.fz + vl*si.fx;
+            const vv = hypot(vx, vz);
+            I.dx = vv > 1e-3 ? vx/vv : 0; I.dz = vv > 1e-3 ? vz/vv : 0; I.gait = 'jog'; I.strafe = false;
+            const v0 = Math.max(0, (si.v0 || 0) - STEP_IN.VMAX)*clamp((left - STEP_IN.PLANT_T)/Math.max(h, si.t - STEP_IN.PLANT_T), 0, 1);
+            I.speedCap = Math.min(STEP_IN.VMAX + v0, vv);
+            // (turned to the aim through the step: this step's share of what is left of the turn, so it is done
+            // TURN_BY before the contact at an even rate
+            const e = wrapA(yawOf(si.fx, si.fz) - a.m.yaw), fy = a.m.yaw + e*Math.min(1, h/Math.max(h, left - STEP_IN.TURN_BY));
+            const fv = a.faceV; fv.x = -sin(fy); fv.z = -cos(fy); I.face = fv;
           } else {
             // ((P9-A, MV-14) the root's speed through the strike is the clip's: strikeRoot of the approach speed, so the
             // planted foot does not skate under a body still moving at the run-up's pace)
@@ -1452,7 +1489,9 @@ export function actionStep(ms, a, h){
         // ((FC27) after a step-in's contact: on along the aim at STEP_IN.KEEP of the speed he struck it at for
         // STEP_IN.ON, then his own way again, that speed easing away)
         const si = act.stepIn, k = act.t - act.tc;
-        if (k < STEP_IN.ON){ I.dx = si.fx; I.dz = si.fz; I.gait = 'jog'; I.strafe = false; I.face = null; }
+        if (k < STEP_IN.ON){ I.dx = si.fx; I.dz = si.fz; I.gait = 'jog'; I.strafe = false; }
+        // (facing the aim until the act is over, the kicking foot down: his own facing again after it)
+        const fv = a.faceV; fv.x = si.fx; fv.z = si.fz; I.face = fv;
         I.speedCap = Math.min(I.speedCap, Math.max(STRIKE_ROOT.MIN, Math.min(si.vC, STEP_IN.VON)*STEP_IN.KEEP*(1 - 0.6*sstep01(STEP_IN.ON, STEP_IN.ON + 0.3, k))));
       } else I.speedCap = Math.min(I.speedCap, 2.5, act.vIn != null ? Math.max(STRIKE_ROOT.MIN, act.vIn*strikeRoot(act.t, act.tc)) : 2.5);
       if (act.done && act.t >= act.dur){ a.act = null; a.state = 'idle'; }

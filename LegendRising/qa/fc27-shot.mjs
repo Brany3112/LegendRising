@@ -3,23 +3,31 @@
 //
 //   The simulation (node, a drill's match stepped by hand, actions.js STEP_IN):
 //     SI-1 a shot at a slow ball a step away (still, or rolling 0.5 to 1.5 m/s, the body standing or walking up at
-//       2.5 m/s or less) is a step-in: struck 0.30 to 0.35 s after it is asked (no late start when there is time), its
-//       root at its place by the contact (a clean strike, no plant error), still going on after it;
-//     SI-2 a ball too fast or too far, a body too fast, a ball in the air or a pass is not, as it is asked: the reach
-//       window's 0.10 to 0.18 s (or the stride adjust) as before (a far ball's adjust may step in once it is near);
+//       2.5 m/s or less; or a ball at his feet as he jogs with it, slower or faster than he is; or aimed 57 or 75
+//       degrees off his facing) is a step-in: struck 0.30 to 0.35 s after it is asked (no late start when there is
+//       time), its root at its place by the contact (a clean strike, a plant error of 6 cm at most), still going on
+//       after it, turned to the aim by the contact (within 0.2 rad), the turn spread over the step;
+//     SI-2 a ball too fast or too far, a body too fast, a ball in the air, a pass, a ball coming at him fast or an aim
+//       behind him is not, as it is asked: the reach window's 0.10 to 0.18 s (or the stride adjust) as before (a far
+//       ball's adjust may step in once it is near);
 //     SH-8 full power (Shot Power 55 and 75): the ball leaves at 22 to 32 m/s, 5 to 12 degrees up, for a target 0.9 m up
 //       10 m away (the clip's: into the net 0.5 to 1.2 m up).
 //   The drawn body (the training page stepped frozen, 60 Hz, every body posed every step; your body in third person),
 //   for a shot from a stand at a still ball, one walked up to a ball rolling away, a left-footer's at a ball rolling
-//   away, all asked by the simulation's own action, and one let go from a held wind-up by the controls (the left button
-//   held 0.6 s and let go, as a player does), times relative to the frame the kick is drawn in:
-//     SH-1 the plant foot down 0.17 to 0.23 s before the contact; the kicking foot's toe off the grass 0.13 to 0.20 s
-//       before; the top of the backswing 0.07 to 0.13 s before, the heel (ankle) 0.35 to 0.65 m up (and the knee's bend
+//   away, one aimed 75 degrees to the left of his facing, all asked by the simulation's own action, one charged with the
+//   ball at his feet as he sets off with W held and let go (the review's preview: W held all through, as a player
+//   does), and one let go from a held wind-up standing (the left button held 0.6 s and let go), times relative to the
+//   frame the kick is drawn in:
+//     the release: the shot's clip begins within a frame of its act (nothing else drawn between: no stride adjust run
+//       first, no leg held cocked), the contact 0.30 to 0.36 s after the shot is asked or let go; the body turned to
+//       the aim by the contact (within 0.2 rad), never faster than 0.2 rad a frame;
+//     SH-1 the plant foot down 0.17 to 0.23 s before the contact; from a stand the kicking foot's toe off the grass 0.13
+//       to 0.20 s before (on the move reported: the trailing foot leaves as the body leaves it); the top of the backswing 0.07 to 0.13 s before, the heel (ankle) 0.35 to 0.65 m up (and the knee's bend
 //       there, reported: the clip's 100 to 120 degrees);
 //     SH-2 the plant foot at the contact 0.28 to 0.45 m to the support side of the ball's centre, 0 to 0.2 m behind it;
 //     SH-3 at the contact the laces within 0.05 m of the ball's surface, the ankle pitched toes down 0.6 rad or more;
 //     SH-4 the follow-through's top 0.75 to 1.05 m up, 0.08 to 0.16 s after the contact, the foot going on at least
-//       0.05 m to the support side after it;
+//       0.05 m to the support side after it (from the root: the leg's own sweep);
 //     SH-5 the kicking foot down 0.32 to 0.44 s after the contact; the plant foot down (its toe on the grass, not
 //       sliding) until at least 0.2 s after it; any flight (the plant foot's toe up before the kicking foot is down) 0.13 s
 //       or less;
@@ -30,7 +38,8 @@
 //     and fluid: the kicking foot at the drawn ball at the contact (within 0.12 m of its surface, tr9-anim's), no bone
 //     turning more than 0.35 rad in a frame outside 0.12 s either side of the contact (the clip's entry and exit
 //     included), the plant foot not sliding while it is down (10 mm); the held wind-up's: the support foot hops onto its
-//     plant, the foot at the ball, landed in time.
+//     plant, the cocked leg's full swing (its top 0.07 to 0.13 s before the contact, the heel 0.35 to 0.65 m up, the
+//     follow-through's top 0.75 to 1.05 m up at 0.08 to 0.16 s), the foot at the ball, landed in time.
 //   6.4: the walked-up shot drawn from the clip's camera (9 m behind, 3.8 m up, 25 degrees down, 9:16, 50 degrees
 //     high) at 30 fps over the clip's window, next to the clip's frames f246 to f266 when they are on this machine
 //     (FC27_FRAMES, default the scratchpad's fc27/full): qa/out/fc27-shot-sbs.png (by eye; not asserted).
@@ -70,38 +79,49 @@ function simShot(o){
   const v = o.v || 0;
   me.m.speed = v; me.m.vx = f.x*v; me.m.vz = f.z*v; me.m.heading = me.m.yaw;
   ms.poss.ctl = me.id; refreshPred(ms);
-  const tgt = {x: me.m.x + f.x*(o.dist || 10), y: o.ty != null ? o.ty : .9, z: me.m.z + f.z*(o.dist || 10)};
+  // (o.aim: the target that far to his left of his facing)
+  const am = o.aim || 0, ad = {x: f.x*Math.cos(am) + f.z*Math.sin(am), z: f.z*Math.cos(am) - f.x*Math.sin(am)};
+  const tgt = {x: me.m.x + ad.x*(o.dist || 10), y: o.ty != null ? o.ty : .9, z: me.m.z + ad.z*(o.dist || 10)};
+  const aimYaw = Math.atan2(-ad.x, -ad.z), wr = a => Math.atan2(Math.sin(a), Math.cos(a));
   me.intent.action = {kind: o.kind || "shot", target: tgt, recv: -1, power: o.p || .85, contact: 0, finesse: false, atGoal: true, shape: "test", speed: o.kind === "pass" ? 12 : undefined};
-  const out = {act: null, kick: null, speeds: [], t0: ms.t};
+  const out = {act: null, kick: null, speeds: [], t0: ms.t, yawRate: 0};
   for (let k = 0; k < 70; k++){
     // (the approach: on his way at a walk or a jog, as your keys ask it, no cap)
     const I = me.intent; I.dx = v > 0 ? f.x : 0; I.dz = v > 0 ? f.z : 0; I.gait = v > 1.6 ? "jog" : "walk"; I.speedCap = Infinity;
-    const t0 = ms.t;
+    const t0 = ms.t, y0 = me.m.yaw;
     simStep(ms, H);
+    if (!out.kick) out.yawRate = Math.max(out.yawRate, Math.abs(wr(me.m.yaw - y0)));
     // (as it is asked: a far ball's stride adjust may turn into a step-in once the ball is in a step's reach)
     if (me.act && !out.act){ out.act = me.act; out.at0 = {stepIn: !!me.act.stepIn, adjust: !!me.act.adjust, tc: me.act.tc}; }
     out.speeds.push(me.m.speed);
     const e = !out.kick && ms.events.find(x => x.kind === "kick" && x.agent === me.id);
-    if (e) out.kick = {t: t0 - out.t0, v: e.speed, el: Math.atan2(b.v.y, Math.hypot(b.v.x, b.v.z))*180/Math.PI, strike: e.strike, k};
+    if (e) out.kick = {t: t0 - out.t0, v: e.speed, el: Math.atan2(b.v.y, Math.hypot(b.v.x, b.v.z))*180/Math.PI, strike: e.strike, k, yawErr: Math.abs(wr(me.m.yaw - aimYaw))};
   }
   const a = out.act;
   const a0 = out.at0 || {};
   return {o, stepIn: !!a0.stepIn, tc: a0.tc != null ? a0.tc : null, adjust: a ? !!a0.adjust : null, later: !!(a && a.stepIn), kick: out.kick, err: a && a.stepIn ? a.stepIn.err : null,
-    vC: a && a.stepIn ? a.stepIn.vC : null, vAfter: out.kick ? out.speeds[Math.min(out.speeds.length - 1, out.kick.k + 12)] : null};
+    vC: a && a.stepIn ? a.stepIn.vC : null, vAfter: out.kick ? out.speeds[Math.min(out.speeds.length - 1, out.kick.k + 12)] : null, yawRate: out.yawRate};
 }
 if (process.env.FC27_SIM !== "0"){
+  // (and the review's: running with the ball at his feet, it slower than he is or faster; aimed 75 degrees off his facing,
+  // standing and on the move)
   const IN = [{ahead: .4, side: .1}, {ahead: .6, side: .1}, {ahead: .8, side: -.2}, {ahead: .7, side: .2, vb: .5},
-    {ahead: .8, side: 0, vb: 1, v: 1.5}, {ahead: .6, side: .1, vb: 1.5, v: 2.5}, {ahead: 1.0, side: .1, vb: .5, v: 2.0}, {ahead: .6, side: -.1, foot: "L"}];
+    {ahead: .8, side: 0, vb: 1, v: 1.5}, {ahead: .6, side: .1, vb: 1.5, v: 2.5}, {ahead: 1.0, side: .1, vb: .5, v: 2.0}, {ahead: .6, side: -.1, foot: "L"},
+    {ahead: .3, side: .1, vb: 1.2, v: 2.4}, {ahead: .25, side: .1, vb: 2.7, v: 2.6}, {ahead: .35, side: .1, vb: 3.0, v: 3.8}, {ahead: .6, side: .1, aim: 1.3},
+    {ahead: .5, side: .1, vb: 1.5, v: 2.2, aim: -1.0}];
   const R1 = IN.map(simShot);
   const s = R1.map(r => ({o: r.o, stepIn: r.stepIn, tc: r3(r.tc), kickAt: r.kick ? r3(r.kick.t) : null, err: r3(r.err), strike: r.kick ? r.kick.strike : null, vC: r3(r.vC), vAfter: r3(r.vAfter)}));
   check(R1.every(r => r.stepIn && inR(r.tc, .30, .35) && r.kick && Math.abs(r.kick.t - r.tc) <= H + 1e-6 + 1e-9),
     "SI-1 a shot at a slow ball a step away is a step-in, struck 0.30 to 0.35 s after it is asked (at the act's own time)", s);
-  check(R1.filter(r => r.err === 0).length >= R1.length - 1 && R1.every(r => r.kick && r.kick.strike >= .8),
-    "SI-1 the root is at its place by the contact (no plant error) and the strike is clean (0.8 or more)", s.map(x => [x.err, x.strike]));
+  check(R1.every(r => r.err <= .06 && r.kick && r.kick.strike >= .8),
+    "SI-1 the root is at its place by the contact (a plant error of 0.06 m at most) and the strike is clean (0.8 or more)", s.map(x => [x.err, x.strike]));
   check(R1.filter(r => r.vC > 1.2).every(r => r.vAfter >= .6*r.vC), "SI-1 a body that stepped in at speed runs on after the contact (0.2 s on, at least 60% of its speed)", s.map(x => [x.vC, x.vAfter]));
-  const OUTS = [{ahead: .6, side: .1, vb: 3}, {ahead: .6, side: .1, v: 3.5, vb: 3.5}, {ahead: 1.6, side: 0}, {ahead: .6, side: .1, y: .6}, {ahead: .6, side: .1, kind: "pass"}];
+  check(R1.every(r => r.kick && r.kick.yawErr <= .2 && r.yawRate <= .2), "SI-1 he turns to the aim through the step (within 0.2 rad of it at the contact), the turn spread over it (0.2 rad a step at most: 12 rad/s, the clip's spin)",
+    R1.map(r => ({o: r.o, yawErr: r.kick && r3(r.kick.yawErr), yawRate: r3(r.yawRate)})));
+  const OUTS = [{ahead: .6, side: .1, vb: 3}, {ahead: .6, side: .1, v: 5.2, vb: 5.0}, {ahead: 1.6, side: 0}, {ahead: .6, side: .1, y: .6}, {ahead: .6, side: .1, kind: "pass"},
+    {ahead: 1.2, side: .1, vb: -1.2, v: 1.5}, {ahead: .6, side: .1, aim: 2.6}, {ahead: .35, side: .1, vb: 3.8, v: 4.0}];
   const R2 = OUTS.map(simShot);
-  check(R2.every(r => !r.stepIn && (r.adjust || r.tc <= .18 + 1e-9)), "SI-2 a fast ball, a fast body, a ball out of a step's reach, a ball in the air or a pass is not a step-in (the window's 0.10 to 0.18 s, or the stride adjust)",
+  check(R2.every(r => !r.stepIn && (r.adjust || r.tc <= .18 + 1e-9)), "SI-2 a fast ball, a fast body, a ball out of a step's reach, a ball in the air, a pass, a ball coming at him fast or an aim behind him is not a step-in (the window's 0.10 to 0.18 s, or the stride adjust)",
     R2.map(r => ({o: r.o, stepIn: r.stepIn, tc: r3(r.tc), adjust: r.adjust, later: r.later})));
   const P8 = [55, 75].map(pw => simShot({ahead: .6, side: .1, p: .97, at: {power: pw}, dist: 10, ty: .9}));
   check(P8.every(r => r.kick && inR(r.kick.v, 22, 32) && inR(r.kick.el, 5, 12)), "SH-8 a full-power shot (Shot Power 55 and 75) leaves at 22 to 32 m/s, 5 to 12 degrees up (10 m out, 0.9 m up)",
@@ -136,20 +156,32 @@ try {
       P.yaw = me.m.yaw; P.pitch = -.1;
       const f = {x: -Math.sin(me.m.yaw), z: -Math.cos(me.m.yaw)}, rt = {x: -f.z, z: f.x};
       const park = () => { b.p.x = me.m.x + f.x*8; b.p.z = me.m.z + f.z*8; b.p.y = .11; b.v.x = b.v.y = b.v.z = 0; b.state = "free"; b.sleep = false; };
-      const place = () => { b.p.x = me.m.x + f.x*o.ahead + rt.x*o.side; b.p.z = me.m.z + f.z*o.ahead + rt.z*o.side; b.p.y = .11; b.v.x = f.x*(o.vb || 0); b.v.z = f.z*(o.vb || 0); b.v.y = 0; b.state = "free"; b.sleep = false; AC.refreshPred(ms); };
+      // (o.vbRel: the ball rolling that much faster than he goes, a ball at his feet as he runs with it)
+      const place = () => { const vb = o.vbRel != null ? Math.max(0, me.m.speed + o.vbRel) : o.vb || 0;
+        b.p.x = me.m.x + f.x*o.ahead + rt.x*o.side; b.p.z = me.m.z + f.z*o.ahead + rt.z*o.side; b.p.y = .11; b.v.x = f.x*vb; b.v.z = f.z*vb; b.v.y = 0; b.state = "free"; b.sleep = false; AC.refreshPred(ms); };
       park(); AC.refreshPred(ms);
-      CT.walk = !!o.v; CT.held.w = !!o.v;
+      // (o.jog: W alone, the run's own pace, not the walk; o.keep: W kept held through the shot, as a player running
+      // with the ball does)
+      CT.walk = !!o.v && !o.jog; CT.held.w = !!o.v;
       for (let i = 0; i < 120; i++){ if (o.v ? i > 20 && me.m.speed >= o.v - .1 : i >= 40) break; L.stepN(1); park(); AC.refreshPred(ms); }
-      CT.held.w = false; CT.walk = false;
+      if (!o.keep){ CT.held.w = false; CT.walk = false; }
       place(); RU.setCtl(ms, me);
       const frames = [], E0 = ms.events.length;
       let prevQ = null, shots = [];
-      const tgt = {x: me.m.x + f.x*10, y: .9, z: me.m.z + f.z*10};
+      // (o.aim: the target turned that far from his facing, to his left: he aims one way and faces another)
+      const am = o.aim || 0, lf = {x: f.z, z: -f.x}, ad = {x: f.x*Math.cos(am) + lf.x*Math.sin(am), z: f.z*Math.cos(am) + lf.z*Math.sin(am)};
+      const tgt = {x: me.m.x + ad.x*10, y: .9, z: me.m.z + ad.z*10};
+      let rel = null;
       if (o.hold){
+        // (the left button held o.charge frames, the ball kept where it is asked, at his feet as he goes, then let go)
+        // (o.wCharge: W pressed with it, from a stand: he sets off with the ball as he charges, a jog's pace by the release)
+        if (o.wCharge){ CT.held.w = true; CT.walk = false; }
         CT.lmb = true; CT.lmbT = 0; CT.queue.push({k: "ldown"});
-        for (let i = 0; i < 36; i++){ L.stepN(1); place(); }
+        for (let i = 0; i < (o.charge || 36); i++){ L.stepN(1); place(); }
         CT.lmb = false; CT.queue.push({k: "lup", t: CT.lmbT});
+        rel = {v: +me.m.speed.toFixed(3), held: !!R.h.heldAt || R.h.mode === "strike"};
       } else AC.startAction(ms, me, {kind: "shot", target: tgt, recv: -1, power: .85, contact: 0, finesse: false, atGoal: true, shape: "test"});
+      const aimYaw = Math.atan2(-ad.x, -ad.z);
       const cam = new L.cam.constructor(50, 16/9, .1, 400);
       for (let j = 0; j < (o.n || 66); j++){
         const pre = {x: b.p.x, y: b.p.y, z: b.p.z}, n0 = ms.events.length;
@@ -162,7 +194,7 @@ try {
         for (const nm of ["ftL", "ftR"]){ h.bones[B[nm]].getWorldQuaternion(q1); v2.set(0, 0, 1).applyQuaternion(q1); fr[nm + "F"] = P3(v2); }
         h.bones[B.chest].getWorldQuaternion(q1); v2.set(0, -1, 0).applyQuaternion(q1); fr.chestD = P3(v2);
         fr.laces = P3(MV.partPoint(h, "laces", o.foot || "R"));
-        fr.ball = P3(V.ball.mesh.position); fr.root = P3(h.g.position); fr.v = +me.m.speed.toFixed(3);
+        fr.ball = P3(V.ball.mesh.position); fr.root = P3(h.g.position); fr.v = +me.m.speed.toFixed(3); fr.yaw = +me.m.yaw.toFixed(4); fr.ry = +h.g.rotation.y.toFixed(4);
         // the largest turn of any bone from the frame before (its own local turn)
         const q = h.bones.map(x => x.quaternion.clone());
         if (prevQ){ let m = 0, at = -1; for (let i = 0; i < q.length; i++){ const a = q[i].angleTo(prevQ[i]); if (a > m){ m = a; at = i; } } fr.turn = +m.toFixed(4); fr.turnAt = at; }
@@ -184,7 +216,8 @@ try {
         }
         frames.push(fr);
       }
-      return {frames, shots, hx: me.scale || 1, E: ms.events.length - E0};
+      CT.held.w = false; CT.walk = false;
+      return {frames, shots, hx: me.scale || 1, E: ms.events.length - E0, aimYaw, rel};
     }};
   });
   await page.evaluate(() => window.__trainRun.startScenario("qa-fc27s", {}));
@@ -195,8 +228,14 @@ try {
     walk: {ahead: .8, side: .05, vb: 1.0, v: 1.5},
     left: {ahead: .9, side: -.1, vb: .5, foot: "L"},
     hold: {ahead: .5, side: .1, hold: true},
+    // (the review's: a shot charged running with the ball at his feet and let go, W held all through; and one aimed 75
+    // degrees to his left of where he faces)
+    dribble: {ahead: .3, side: .1, vbRel: -1.2, v: .6, jog: true, keep: true, hold: true, charge: 18},
+    turn: {ahead: .6, side: .1, aim: 1.3},
     pics: {ahead: .8, side: .05, vb: 1.0, v: 1.5, shots: true}
   };
+  // (FC27_PICS=dribble: 6.4's pictures of another case, to look at it; the walk-up's by default)
+  if (process.env.FC27_PICS && CASES[process.env.FC27_PICS]) CASES.pics = Object.assign({}, CASES[process.env.FC27_PICS], {shots: true});
   // (FC27_CASES=stand,walk: those alone, while working on them)
   const only = (process.env.FC27_CASES || "").split(",").filter(Boolean);
   for (const [k, o] of Object.entries(CASES)){
@@ -259,7 +298,8 @@ function measure(name, c, foot){
   let jl = -1;
   for (let j = jft + 1; j < F.length; j++) if (ank(F[j], K)[1] <= aK + .02){ jl = j; break; }
   let sweep = 0;
-  for (let j = jft + 1; j <= (jl > 0 ? jl : F.length - 1); j++) sweep = Math.max(sweep, dot(sub(ank(F[j], K), ank(F[jft], K)), sup));
+  // (the sweep is the leg's own, from the root: a body still carried sideways after the contact carries the foot too)
+  for (let j = jft + 1; j <= (jl > 0 ? jl : F.length - 1); j++) sweep = Math.max(sweep, dot(sub(sub(ank(F[j], K), F[j].root), sub(ank(F[jft], K), F[jft].root)), sup));
   // SH-5: the plant foot down to +0.2 s (its toe on the grass, not sliding), its toe-off, the flight
   let downTo = null;
   for (let j = jc; j < F.length; j++){ const up = toe(F[j], S)[1] > oS + .02 || hz(sub(toe(F[j], S), toe(fc, S))) > .012; if (up){ downTo = tOf(j); break; } }
@@ -274,14 +314,26 @@ function measure(name, c, foot){
   let turn = 0, turnAt = null;
   for (let j = 1; j < F.length; j++){ const f = F[j]; if (Math.abs(tOf(j)) < .12 || f.turn == null) continue; if (f.turn > turn){ turn = f.turn; turnAt = {t: r3(tOf(j)), bone: f.turnAt, mode: f.mode, tau: f.clip ? f.clip.tau : null}; } }
   let slide = 0;
-  for (let j = jp; j < F.length && tOf(j) <= .2; j++) slide = Math.max(slide, hz(sub(toe(F[j], S), toe(F[jp], S))));
+  // (from the frame after it lands: the landing frame itself is still settling onto its point, a few millimetres)
+  const jp1 = Math.min(jc, jp + 1);
+  for (let j = jp1; j < F.length && tOf(j) <= .2; j++) slide = Math.max(slide, hz(sub(toe(F[j], S), toe(F[jp1], S))));
   // the body (5.7): the trunk's lean to the support side and its pitch forward along the way (the chest's up)
   const trunk = j => { const u = F[j].chestD.map(x => -x); return {fw: Math.atan2(dot(u, aim), u[1]), lat: Math.atan2(dot(u, sup), u[1])}; };
   const leanTop = jtop >= 0 ? trunk(jtop).lat : null, leanC = trunk(jc).lat;
   let pitchLand = -9;
   for (let j = Math.max(jl, jc); jl >= 0 && j < F.length && tOf(j) <= tOf(jl) + .15; j++) pitchLand = Math.max(pitchLand, trunk(j).fw);
+  // the release: the act from the frame it starts, the clip from the frame it does, the contact after the act's start;
+  // the body's facing at the contact against the aim (c.aimYaw) and its fastest turn in a frame before it
+  const jA = F.findIndex(f => f.act && f.act.kind === "kick"), jC = F.findIndex(f => f.clip);
+  const relC = jA >= 0 ? F[jc].t - F[jA].t + H : null;
+  const wr = a => Math.atan2(Math.sin(a), Math.cos(a));
+  const yawErr = c.aimYaw != null ? Math.abs(wr(F[jc].yaw - c.aimYaw)) : null;
+  // the lunge: the hips' lowest from the clip's start to the contact under their highest in the case
+  const hipTop = Math.max(...F.map(f => f.hips[1])), hipDip = hipTop - Math.min(...F.slice(Math.max(0, jC), jc + 1).map(f => f.hips[1]));
+  let yawRate = 0;
+  for (let j = Math.max(1, jA); j <= jc; j++) yawRate = Math.max(yawRate, Math.abs(wr(F[j].ry - F[j - 1].ry)));
   const clip = fc.clip || {};
-  return {name, plant: r3(tOf(jp)), toeOff: r3(toeOff), top: r3(tOf(jtop)), heel: r3(ytop), knee: Math.round(knee(jtop)), stepLen: r3(stepLen),
+  return {name, gap: jA >= 0 && jC >= 0 ? jC - jA : null, actAt: jA, relC: r3(relC), yawErr: r3(yawErr), yawRate: r3(yawRate), hipDip: r3(hipDip), vRel: c.rel ? c.rel.v : null, plant: r3(tOf(jp)), toeOff: r3(toeOff), top: r3(tOf(jtop)), heel: r3(ytop), knee: jtop >= 0 ? Math.round(knee(jtop)) : null, stepLen: r3(stepLen),
     lat: r3(lat), behind: r3(behind), laces: r3(laces), pitch: r3(pitch), nearest: r3(nearest), ftTop: r3(yft), ftAt: r3(tOf(jft)), sweep: r3(sweep),
     land: jl >= 0 ? r3(tOf(jl)) : null, plantDownTo: r3(downTo), flight: r3(flight), arm: r3(arm), leanTop: r3(leanTop), leanC: r3(leanC),
     pitchLand: jl >= 0 ? r3(pitchLand) : null, turn: r3(turn), turnAt, slide: r3(slide),
@@ -291,15 +343,24 @@ const M = {};
 for (const [k, c] of Object.entries(cases)) if (k !== "pics") M[k] = measure(k, c, k === "left" ? "L" : "R");
 console.log(JSON.stringify(M, null, 1));
 // (FC27_CASES: the cases asked for alone)
-const ASKED = ["stand", "walk", "left"].filter(k => !process.env.FC27_CASES || process.env.FC27_CASES.split(",").includes(k));
+const ASKED = ["stand", "walk", "left", "dribble", "turn"].filter(k => !process.env.FC27_CASES || process.env.FC27_CASES.split(",").includes(k));
 const SH = ASKED.map(k => M[k]).filter(Boolean);
 const ok = SH.length === ASKED.length && SH.length > 0 && SH.every(m => !m.err);
 const pick = (...ks) => SH.map(m => Object.fromEntries([["case", m.name], ...ks.map(k => [k, m[k]])]));
-check(ok, "the three shots asked of the simulation (a stand, a walk-up at a rolling ball, a left-footer's) are struck and drawn", Object.values(M).map(m => m.err || m.name));
+check(ok, "the shots (a stand, a walk-up at a rolling ball, a left-footer's, one charged running with the ball at his feet and let go, one aimed 75 degrees off his facing) are struck and drawn", Object.values(M).map(m => m.err || m.name));
+check(ok && [...SH, M.hold].filter(Boolean).every(m => m.gap != null && m.gap <= 1 && inR(m.relC, .30, .36)), "the clip begins with the shot's act (within a frame of it: nothing else drawn between the release and the step-in) and the contact comes 0.30 to 0.36 s after the shot is asked or let go",
+  [...SH, M.hold].filter(Boolean).map(m => ({case: m.name, gap: m.gap, actAt: m.actAt, relC: m.relC, vRel: m.vRel})));
+check(ok && [...SH, M.hold].filter(Boolean).every(m => m.hipDip <= .25), "the plant's lunge, not a duck: the hips at most 0.25 m under their height in the case from the release to the contact (a metre's plant step and the clip's dip of about 0.07 on a lowered stance)",
+  [...SH, M.hold].filter(Boolean).map(m => ({case: m.name, hipDip: m.hipDip})));
+check(ok && SH.every(m => m.yawErr <= .2 && m.yawRate <= .2), "turned to the aim by the contact (within 0.2 rad), never faster than 0.2 rad a frame (12 rad/s, the clip's spin) on the way",
+  pick("yawErr", "yawRate"));
 check(ok && SH.every(m => m.stepIn && m.late == null), "SH-7 each is a step-in and its clip is not begun late", pick("stepIn", "tc", "late", "pre"));
 check(ok && SH.every(m => m.stepLen >= .15), "SH-7 the plant step is drawn: the support foot carried 0.15 m or more onto the plant", pick("stepLen"));
 check(ok && SH.every(m => inR(m.plant, -.23, -.17)), "SH-1 the plant foot comes down 0.17 to 0.23 s before the contact", pick("plant"));
-check(ok && SH.every(m => m.toeOff == null ? m.name !== "stand" : inR(m.toeOff, -.20, -.13)), "SH-1 the kicking foot's toe leaves the grass 0.13 to 0.20 s before the contact (when it was on it as the shot began: from a stand it is)", pick("toeOff"));
+// (from a stand; on the move, walked or run up, the trailing foot leaves as the body leaves it behind, rolled right up
+// onto its toes, moves.js SHOT.PEEL: earlier, reported)
+const STOOD = SH.filter(m => m.name === "stand" || m.name === "left" || m.name === "turn");
+check(ok && STOOD.every(m => inR(m.toeOff, -.20, -.13)), "SH-1 from a stand, the kicking foot's toe leaves the grass 0.13 to 0.20 s before the contact (walked or run up, reported: the trailing foot leaves as the body leaves it)", pick("toeOff"));
 check(ok && SH.every(m => inR(m.top, -.13, -.07) && inR(m.heel, .35, .65)), "SH-1 the top of the backswing 0.07 to 0.13 s before the contact, the heel 0.35 to 0.65 m up", pick("top", "heel", "knee"));
 check(ok && SH.every(m => inR(m.lat, .28, .45) && inR(m.behind, 0, .2)), "SH-2 the plant foot at the contact 0.28 to 0.45 m to the support side of the ball's centre and 0 to 0.2 m behind it", pick("lat", "behind"));
 check(ok && SH.every(m => m.laces <= .05 && m.pitch >= .6), "SH-3 at the contact the laces within 0.05 m of the ball's surface, the ankle pitched 0.6 rad or more toes down", pick("laces", "pitch"));
@@ -312,8 +373,9 @@ check(ok && SH.every(m => m.nearest <= .12), "the kicking foot at the drawn ball
 check(ok && SH.every(m => m.turn <= .35), "no bone turns more than 0.35 rad in a frame outside 0.12 s either side of the contact (the clip's entry and exit included)", pick("turn", "turnAt"));
 check(ok && SH.every(m => m.slide <= .01), "the plant foot does not slide while it is down (10 mm)", pick("slide"));
 const Hd = M.hold;
-if (!process.env.FC27_CASES || process.env.FC27_CASES.split(",").includes("hold")) check(Hd && !Hd.err && Hd.fromHold && Hd.hop && Hd.stepLen >= .1 && Hd.nearest <= .12 && inR(Hd.land, .32, .44) && Hd.turn <= .35,
-  "a shot let go from a held wind-up (the left button held 0.6 s): the support foot hops onto its plant, the foot meets the ball, down in time, no bone over 0.35 rad in a frame", Hd);
+if (!process.env.FC27_CASES || process.env.FC27_CASES.split(",").includes("hold")) check(Hd && !Hd.err && Hd.fromHold && Hd.hop && Hd.stepLen >= .1 && Hd.nearest <= .12 && inR(Hd.land, .32, .44) && Hd.turn <= .35 &&
+  inR(Hd.top, -.13, -.07) && inR(Hd.heel, .35, .65) && inR(Hd.ftTop, .75, 1.05) && inR(Hd.ftAt, .08, .16),
+  "a shot let go from a held wind-up (the left button held 0.6 s): the support foot hops onto its plant, the cocked leg's full swing (the top of the backswing 0.07 to 0.13 s before the contact, the heel 0.35 to 0.65 m up, the follow-through's top 0.75 to 1.05 m up at 0.08 to 0.16 s), the foot meets the ball, down in time, no bone over 0.35 rad in a frame", Hd);
 
 /* ---------- 6.4: the walked-up shot beside the clip's frames ---------- */
 try {
