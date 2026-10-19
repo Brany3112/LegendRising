@@ -184,6 +184,9 @@ try {
         jog: Mv.gaitSpeed(me.prm, me.fac, "jog"), run: Mv.gaitSpeed(me.prm, me.fac, "run"), sprint: Mv.sprintSpeed(me.prm, me.fac), faceRate: me.prm.faceRate, turnRate: me.prm.turnFirstRate || 0}; };
     // n frames of 1/60 s, a row each (the legs as asked)
     S.run = (n, legs) => { const rows = []; for (let i = 0; i < n; i++){ L.stepN(1, 1/60); const r = S.st(); if (legs) r.legs = S.legs(); rows.push(r); } return rows; };
+    // (frames until the ball is his and at his feet, AUTO.REACH: a chase at a sprint plays it on with the strides, so "on
+    // the ball" is a moment, not a stretch; at most maxN frames)
+    S.runNear = (maxN, reach) => { const rows = []; for (let i = 0; i < maxN; i++){ L.stepN(1, 1/60); const r = S.st(); rows.push(r); if (r.d < reach && r.mine) break; } return rows; };
     S.hints = () => { const T = S.T(); return C.hintsFor(T.ms, T.me).map(x => x.key + " " + x.verb); };
   });
   const begin = async (cfg, look) => {
@@ -324,7 +327,9 @@ try {
   }
   if (part("ctl")){
     await begin({x: "-hx + 20", z: "0", yaw: LOOK, ball: "feet"}, LOOK);
-    await keys(["w"]); await run(40);
+    // (up to a sprint with the ball first: the chase stays out of close control at a sprint, AUTO.RUN_K of the run or
+    // more; below that, with the ball at his feet, he is in it again by the rules, Shift held or not)
+    await keys(["w", "Shift"]); await run(90); await keys([], ["Shift"]);
     const on0 = (await run(1))[0].on;
     // (Shift twice back to back, then held: the knock-on and the chase at a sprint. A double tap is measured on the wall
     // clock, KNOCK_TAP s, and on a loaded machine the two real presses can land further apart than that: the game was
@@ -335,7 +340,8 @@ try {
       await page.keyboard.press("Shift"); await page.keyboard.press("Shift"); await page.keyboard.down("Shift");
       r = await run(20);
       kn = r.find(x => x.end === "knock");
-      if (kn) r = r.concat(await run(220));
+      // (the chase, two seconds at a sprint, then on until the ball is at his feet again: Shift let go there)
+      if (kn) r = r.concat(await run(120), await page.evaluate(([n, reach]) => window.__bcs.runNear(n, reach), [180, AUTO.REACH]));
       else { await keys([], ["Shift"]); await run(10); }
     }
     // (the chase measured from the knock on)
@@ -344,7 +350,8 @@ try {
     const near = rk.filter(x => x.d < AUTO.REACH && x.mine).length;
     await keys([], ["Shift"]); const r2_ = await run(90); await keys([], ["w"]);
     const again = r2_.find(x => x.on);
-    res.browser.knock = {on0, knock: !!kn, tries, chaseFrames: chase.length, nearFrames: near, backWhileShift: back, againAt: again ? r2(again.t - r2_[0].t) : null};
+    res.browser.knock = {on0, knock: !!kn, tries, chaseFrames: chase.length, nearFrames: near, backWhileShift: back, againAt: again ? r2(again.t - r2_[0].t) : null,
+      atRelease: {d: r2(r2_[0].d), v: r2(r2_[0].v), mine: r2_[0].mine, chase: r2_[0].chase}, after: r2_.filter((x, i) => i % 15 === 0).map(x => ({d: r2(x.d), v: r2(x.v), mine: x.mine, chase: x.chase, gait: x.gait}))};
     check(on0 && kn && !back, "Shift twice: close control ends ('knock'), and while you chase with Shift held you stay out of it", res.browser.knock);
     check(near > 0 && again && again.t - r2_[0].t <= 1, "on the ball with Shift held, then letting go of Shift: in close control again", res.browser.knock);
   }

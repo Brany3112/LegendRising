@@ -728,8 +728,9 @@ function sideYaw(h, o, tl){
    or one planted and the other just off the ground or coming down onto its landing (the guard eased out, SIDE_FADE),
    the pelvis's goal is kept to the yaws that leave the left foot at least SIDE_PEL left of the right across it (the
    feet closer together than that allow any: standing square). Measured foot to foot, not each foot to the hips'
-   centre: a foot passing under the hips would have the pelvis flung round to put it on a side. Moving, not standing (a
-   turn on the spot steps the feet round, standStep) */
+   centre: a foot passing under the hips would have the pelvis flung round to put it on a side. Moving, and on the spot
+   while the body turns (G.sideK: there the root stays put and a planted foot ends up in front of the hips once the
+   body has turned a third of a turn past it); not standing still */
 const SIDE_PEL = .06;
 const _sh = [[0, 0], [0, 0]];
 function sideHips(h, goal){
@@ -761,7 +762,8 @@ function sideLand(h, f, i, out, rem){
 }
 /* ((BCS) a step in place (pivotStep, a turn on the spot): the root stays put while the body turns, and a foot planted
    to one side ends up in front of the hips, across them, once the body has turned a third of a turn past it (the
-   facing-the-camera stand turn: the right foot came down 0.06 m right of the left one, across the pelvis). The step is
+   facing-the-camera stand turn: the right foot came down with the left one 0.06 m right of it, across the pelvis;
+   with this guard and sideHips they come down level at worst, never across: bcs-controls). The step is
    kept SIDE_PIV out on its own side of the planted foot across the pelvis as it will be as it lands; only ever out to
    its side or on round the way the body will face, never back against it (a step back on the way round is what
    tr2-startstop's 180 degree start checks against) */
