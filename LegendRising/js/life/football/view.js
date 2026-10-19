@@ -43,8 +43,8 @@ import {human, animateHuman, lookFor, EV, touch as gaitTouch} from "../human.js"
 import {SCHED} from "../core/sched.js";
 import {ballMesh} from "./pitchmesh.js";
 import {STADIUM} from "./stadium.js";
-import {predAt, ACT} from "./actions.js";
-import {kindOf, windHold, windUpper, heldBall, handBall, HAND, RECV} from "../moves.js";
+import {predAt, ACT, solePath} from "./actions.js";
+import {kindOf, windHold, windUpper, heldBall, handBall, HAND, RECV, SD, dragTurnT} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
 import {R as zoneR, part as zonePart, playableFrom} from "./zone.js";
@@ -540,6 +540,8 @@ function liveSt(V, R, a, ms, dt){
     if (w){ R.clip = w; return w; }
     if (R.clip === R.hold) R.clip = null;
   }
+  // ((BCS) a fake whose strike-swing clip has played out still draws its drag when a key asks for one)
+  if (act && act === R.doneAct && act.kind === "fake" && act.segs) R.doneAct = null;
   if (act && act !== R.doneAct){
     switch (act.kind){
       case "kick": {
@@ -596,9 +598,17 @@ function liveSt(V, R, a, ms, dt){
         } else c.tc = 0;
         return c;
       }
+      case "sole": {
+        // ((BCS) the sole stop and the double sole roll: moves.js 'sole' on the simulation's own sole contacts)
+        const c = soleSt(V, R, a, act, ms);
+        if (c) return c;
+        break;
+      }
       case "fake": {
+        // ((BCS) its drag: the sole on the ball, moves.js 'sole'; after its first step the new way, the legs' own run)
+        if (act.segs){ const c = soleSt(V, R, a, act, ms); if (c) return c; break; }
         // (U28 part E) the fake shot: the strike's swing, short and light, stopping in front of the body (no ball in it);
-        // the drag's touches move the foot to the ball themselves (dribbleTouches)
+        // W's push moves the foot to the ball itself (dribbleTouches)
         const c = clipFor(R, "strike", act);
         c.mode = "strike"; c.kind = "instep"; c.side = a.foot === "L" ? "L" : "R"; c.power = .15; c.curl = 0; c.lowHigh = 0;
         c.noBall = true; c.ball = null; c.dir = yawDir(c, a.m.yaw);
@@ -652,6 +662,8 @@ function liveSt(V, R, a, ms, dt){
       }
     }
   }
+  // ((BCS) a sole move's clip is over with its own drawn part, or its act: the legs' own from then)
+  if (R.clip && R.clip.key === "sole" && (!act || act !== R.clip.ref || R.clip.over)) R.clip = null;
   // a receive coming: the ball on its way into his reach within RECV_LEAD s, and it is his to take (P6-A, recvFor)
   if (!act && a.role === "player" && ms.ball.state === "free" && ms.poss.ctl !== a.id){
     const r = recvFor(V, R, a, ms);
@@ -782,6 +794,33 @@ function carrySt(V, a, ms, st){
   if (l > .1){ T.dx = I.dx/l; T.dz = I.dz/l; } else { T.dx = -Math.sin(a.m.yaw); T.dz = -Math.cos(a.m.yaw); }
   st.touch = T;
   return st;
+}
+/* (BCS) a sole move's clip (moves.js 'sole'; actions.js SOLE): posed at the move's own time at the drawn moment (the
+   act's seconds less the share of a step not yet drawn, V.lag's steps on), on the simulation's sole contacts (act.segs:
+   the one under way's ball where solePath has it then), the roll's push and where the ball will be for it. Its drawn
+   part ends SOLE_END.DRAG s after a drag's turn after the ball is done (moves.js dragTurnT: the run after it is the
+   legs' own) and SOLE_END.PUSH s after the roll's push; a stop's with its act */
+const SOLE_END = Object.freeze({DRAG: .03, PUSH: .13});
+const _scur = {i:-1, x:0, z:0, vx:0, vz:0}, _spb = {x:0, z:0}, _spp = {x:0, z:0, vx:0, vz:0};
+function soleSt(V, R, a, act, ms){
+  const segs = act.segs; if (!segs || !segs.length) return null;
+  const tau = act.t + ((V.alpha || 0) + (V.lag || 0) - 1)*H;
+  // (a drag's turn after the ball: half a turn for S, else from the way he faced to the way it goes)
+  const g0 = segs[0], turn = act.kind !== "fake" ? 0 : act.dir === "s" ? Math.PI : Math.acos(clamp((act.fx*g0.vx1 + act.fz*g0.vz1)/(Math.hypot(g0.vx1, g0.vz1) || 1), -1, 1));
+  const end = act.kind === "fake" ? g0.t1 + SD.DRAG_LAND + dragTurnT(turn) + SOLE_END.DRAG : act.move === "roll" && act.push ? act.push.t + SOLE_END.PUSH : Infinity;
+  if (tau > end){ if (R.clip && R.clip.key === "sole"){ R.clip.over = true; R.clip = null; } return null; }
+  const c = clipFor(R, "sole", act);
+  c.mode = "sole"; c.at = tau; c.move = act.kind === "fake" ? "drag" : act.move; c.segs = segs; c.fx = act.fx; c.fz = act.fz;
+  c.back = act.kind === "fake" && act.dir === "s"; c.turn = turn; c.spin = act.spin || null; c.push = act.push || null; c.vx = a.m.vx || 0; c.vz = a.m.vz || 0;
+  // (the contact under way: where its path has the ball now)
+  let cur = null;
+  for (let i = 0; i < segs.length; i++){ const g = segs[i]; if (g.on && !g.off && tau >= g.t0 && tau <= g.t1){ solePath(g, tau, _spp); cur = _scur; cur.i = i; cur.x = _spp.x; cur.z = _spp.z; cur.vx = _spp.vx; cur.vz = _spp.vz; break; } }
+  c.cur = cur;
+  // (the roll's push: the ball where it will be then)
+  if (act.push && !act.push.done){ predAt(ms, Math.max(0, act.push.t - act.t), PB); _spb.x = PB.x; _spb.z = PB.z; c.pushBall = _spb; }
+  else if (!act.push) c.pushBall = null;
+  c.ball = V.ball.mesh.position;
+  return c;
 }
 /* (P9-A, MV-15) tired: standing (under TIRED_V m/s) with fatigue above TIRED_ON, hands on the thighs (moves.js
    'tired'), until it falls below TIRED_OFF or he moves or acts. The same rule for every body: the AI's and yours */

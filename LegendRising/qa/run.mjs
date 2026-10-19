@@ -79,8 +79,9 @@ const NAMED = {
   // FC27: the FC 27 clip reverse-engineered (plan/notes/fc27-spec.md): close control and the carrier's gait, and the
   // shot from the clip (section 4, 6.2 SH-1 to SH-8)
   fc27: ["fc27-carry", "fc27-shot"],
-  // BCS (the better control system): the packages together (bcs/integ: the carry and the shot)
-  bcs: ["bcs-integ"]
+  // BCS (the better control system): the packages together (bcs/integ: the carry and the shot), and the sole moves
+  // (bcs/sole: the sole stop, the drags, the double sole roll)
+  bcs: ["bcs-integ", "bcs-sole"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){
