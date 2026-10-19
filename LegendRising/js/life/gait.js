@@ -121,7 +121,7 @@ export function gaitInit(h){
     accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
     start:0, tick:0, turnN:0, shLead:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0, stopW:0,
     // (the pelvis's own yaw in the world, UF-A U1: it follows the feet, see pelvisStep)
-    pel:NaN};
+    pel:NaN, sideK:0};
   return h.gait;
 }
 
@@ -504,11 +504,11 @@ function swingAt(h, f, out){
     // (eased in over the first of the swing too: a foot that left the ground on the wrong side is not snapped across)
     const w = sstep(0, .15, u)*(1 - sstep(SIDE_FADE[0], SIDE_FADE[1], u));
     if (w > 0){
-      let ox = o.x, oz = o.z, need = SIDE_SWING*sc;
+      let ox = o.x, oz = o.z, need = SIDE_SWING*sc*sideK(G);
       const lx = Math.cos(G.pel), lz = -Math.sin(G.pel);
       if (!o.down && o.sw){
         const ko = sH(o.sw.u); ox = o.sw.x0 + (o.sw.x1 - o.sw.x0)*ko; oz = o.sw.z0 + (o.sw.z1 - o.sw.z0)*ko;
-        need = lerp(SIDE_SWING, SIDE_AIR, sstep(SIDE_ALONG[0]*sc, SIDE_ALONG[1]*sc, Math.abs((z - oz)*lx - (x - ox)*lz)))*sc;
+        need = lerp(SIDE_SWING, SIDE_AIR, sstep(SIDE_ALONG[0]*sc, SIDE_ALONG[1]*sc, Math.abs((z - oz)*lx - (x - ox)*lz)))*sc*sideK(G);
       }
       const d = (x - ox)*lx + (z - oz)*lz;
       if (f.s*d < need){ const k = (f.s*need - d)*w; x += lx*k; z += lz*k; }
@@ -698,6 +698,13 @@ function feetYaw(G){ const a = footFwd(G.feet[0]), b = footFwd(G.feet[1]); retur
    across the pelvis as it will be by then: pelvisYawAt); and the swing keeps SIDE_SWING from the other swinging foot
    while the two pass each other, SIDE_AIR once they are a stride apart along the pelvis (SIDE_ALONG) */
 const SIDE_LAND = .15, SIDE_SWING = .14, SIDE_FADE = [.8, .97], SIDE_AIR = .06, SIDE_ALONG = [.25, .6], TOE_IN = .12;
+// the margins in full while the body turns (SIDE_TURN rad/s of its own turn or its heading's, eased in) and for
+// SIDE_HOLD s after (the feet come round a step at a time behind it), SIDE_FLOOR of them on a straight: there the
+// gait's own footprints are on their sides already (a run's step 0.096 wide, a walk's 0.156, the swing's own bow out on
+// top) and are left as they were: a walk or a run in a line, the player's, the AI's or a passer-by's in the town, is
+// drawn as before. G.sideK, kept by pelvisStep
+const SIDE_TURN = [.5, 1.5], SIDE_FLOOR = .5, SIDE_HOLD = .5;
+const sideK = G => lerp(SIDE_FLOOR, 1, G.sideK || 0);
 // the pelvis's yaw tl seconds on, as near as can be told: turning from where it is towards the body's facing (turned on
 // by the body's turn, at most 0.7 rad) and the hips' twist into the way of travel, at most PEL_RATE
 function pelvisYawAt(h, tl){
@@ -743,8 +750,8 @@ function sideLand(h, f, i, out, rem){
   const G = h.gait, o = G.feet[1 - i];
   if (G.style === "shuffle") return out;
   const sw = f.sw, tl = sw ? Math.max(0, sw.T - sw.t) : 0, Y = o.down ? sideYaw(h, o, tl) : pelvisYawAt(h, tl), lx = Math.cos(Y), lz = -Math.sin(Y);
-  let px = o.x, pz = o.z, need = SIDE_LAND*h.scale;
-  if (!o.down){ const p = predict(G, rem); px = p.x; pz = p.z; need = SIDE_AIR*h.scale; }
+  let px = o.x, pz = o.z, need = SIDE_LAND*h.scale*sideK(G);
+  if (!o.down){ const p = predict(G, rem); px = p.x; pz = p.z; need = SIDE_AIR*h.scale*sideK(G); }
   const d = (out.x - px)*lx + (out.z - pz)*lz;
   if (f.s*d < need){ const k = f.s*need - d; out.x += lx*k; out.z += lz*k; }
   return out;
@@ -761,6 +768,8 @@ function pelvisStep(h, dt){
   const G = h.gait, ry = h.g.rotation.y;
   if (G.pel !== G.pel) G.pel = ry;
   if (!(dt > 0)) return;
+  // ((BCS) how much the body is turning, for the side guards: sideK)
+  G.sideK = Math.max(sstep(SIDE_TURN[0], SIDE_TURN[1], Math.max(Math.abs(G.yawRate), Math.abs(G.headRate))), G.sideK - dt/SIDE_HOLD);
   const want = ry + G.twist, f0 = G.feet[0], f1 = G.feet[1];
   let sup = NaN, lt = 0;
   if (f0.down && f1.down){ const a = footFwd(f0); sup = a + wrap(footFwd(f1) - a)/2; lt = PEL_LT2; }
