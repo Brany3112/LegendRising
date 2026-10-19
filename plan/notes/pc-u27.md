@@ -212,6 +212,7 @@ still on screen.
   - The groups: unit, lint, nodash, smoke, oldsave, tr2, tr3, tr4, tr7, uf2 and u21 pass, but for `uf2-feel`'s
     throw-in meter (fails on origin too).
 - The guide picture gained the flick rows.
+- **Harness n=1000 on U29:** 58 of 62, identical to the last run (the AI never flicks). Goals 2.87, on target 8.5, save rate 0.71.
 
 ## Shot Accuracy, Shot Power and the flick's speed (the user's last asks)
 
