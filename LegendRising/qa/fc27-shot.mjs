@@ -25,6 +25,8 @@
 //       or less;
 //     SH-6 the support arm out 1.3 rad or more from the trunk's down from the top of the backswing to the contact;
 //     SH-7 the clip not begun late, the plant step drawn (the support foot carried 0.15 m or more onto the plant);
+//     the body (5.7): the trunk leaning 0.15 to 0.3 rad to the support side at the top (the clip's about 0.2), 0.15 or
+//       less at the contact, pitched 0.5 to 0.7 rad forward within 0.15 s of the kicking foot's landing;
 //     and fluid: the kicking foot at the drawn ball at the contact (within 0.12 m of its surface, tr9-anim's), no bone
 //     turning more than 0.35 rad in a frame outside 0.12 s either side of the contact (the clip's entry and exit
 //     included), the plant foot not sliding while it is down (10 mm); the held wind-up's: the support foot hops onto its
@@ -273,17 +275,25 @@ function measure(name, c, foot){
   for (let j = 1; j < F.length; j++){ const f = F[j]; if (Math.abs(tOf(j)) < .12 || f.turn == null) continue; if (f.turn > turn){ turn = f.turn; turnAt = {t: r3(tOf(j)), bone: f.turnAt, mode: f.mode, tau: f.clip ? f.clip.tau : null}; } }
   let slide = 0;
   for (let j = jp; j < F.length && tOf(j) <= .2; j++) slide = Math.max(slide, hz(sub(toe(F[j], S), toe(F[jp], S))));
+  // the body (5.7): the trunk's lean to the support side and its pitch forward along the way (the chest's up)
+  const trunk = j => { const u = F[j].chestD.map(x => -x); return {fw: Math.atan2(dot(u, aim), u[1]), lat: Math.atan2(dot(u, sup), u[1])}; };
+  const leanTop = jtop >= 0 ? trunk(jtop).lat : null, leanC = trunk(jc).lat;
+  let pitchLand = -9;
+  for (let j = Math.max(jl, jc); jl >= 0 && j < F.length && tOf(j) <= tOf(jl) + .15; j++) pitchLand = Math.max(pitchLand, trunk(j).fw);
   const clip = fc.clip || {};
   return {name, plant: r3(tOf(jp)), toeOff: r3(toeOff), top: r3(tOf(jtop)), heel: r3(ytop), knee: Math.round(knee(jtop)), stepLen: r3(stepLen),
     lat: r3(lat), behind: r3(behind), laces: r3(laces), pitch: r3(pitch), nearest: r3(nearest), ftTop: r3(yft), ftAt: r3(tOf(jft)), sweep: r3(sweep),
-    land: jl >= 0 ? r3(tOf(jl)) : null, plantDownTo: r3(downTo), flight: r3(flight), arm: r3(arm), turn: r3(turn), turnAt, slide: r3(slide),
+    land: jl >= 0 ? r3(tOf(jl)) : null, plantDownTo: r3(downTo), flight: r3(flight), arm: r3(arm), leanTop: r3(leanTop), leanC: r3(leanC),
+    pitchLand: jl >= 0 ? r3(pitchLand) : null, turn: r3(turn), turnAt, slide: r3(slide),
     late: clip.late, pre: clip.pre, fromHold: clip.fromHold, hop: clip.hop, stepIn: fc.act ? fc.act.stepIn : null, tc: fc.act ? fc.act.tc : null, jc, n: F.length};
 }
 const M = {};
 for (const [k, c] of Object.entries(cases)) if (k !== "pics") M[k] = measure(k, c, k === "left" ? "L" : "R");
 console.log(JSON.stringify(M, null, 1));
-const SH = ["stand", "walk", "left"].map(k => M[k]).filter(Boolean);
-const ok = SH.length === 3 && SH.every(m => !m.err);
+// (FC27_CASES: the cases asked for alone)
+const ASKED = ["stand", "walk", "left"].filter(k => !process.env.FC27_CASES || process.env.FC27_CASES.split(",").includes(k));
+const SH = ASKED.map(k => M[k]).filter(Boolean);
+const ok = SH.length === ASKED.length && SH.length > 0 && SH.every(m => !m.err);
 const pick = (...ks) => SH.map(m => Object.fromEntries([["case", m.name], ...ks.map(k => [k, m[k]])]));
 check(ok, "the three shots asked of the simulation (a stand, a walk-up at a rolling ball, a left-footer's) are struck and drawn", Object.values(M).map(m => m.err || m.name));
 check(ok && SH.every(m => m.stepIn && m.late == null), "SH-7 each is a step-in and its clip is not begun late", pick("stepIn", "tc", "late", "pre"));
@@ -296,11 +306,13 @@ check(ok && SH.every(m => m.laces <= .05 && m.pitch >= .6), "SH-3 at the contact
 check(ok && SH.every(m => inR(m.ftTop, .75, 1.05) && inR(m.ftAt, .08, .16) && m.sweep >= .05), "SH-4 the follow-through's top 0.75 to 1.05 m up at 0.08 to 0.16 s, the foot on 0.05 m or more to the support side after it", pick("ftTop", "ftAt", "sweep"));
 check(ok && SH.every(m => inR(m.land, .32, .44) && m.plantDownTo >= .2 - 1e-9 && m.flight <= .13 + 1e-9), "SH-5 the kicking foot down 0.32 to 0.44 s after the contact, the plant foot down until 0.2 s or later, any flight 0.13 s or less", pick("land", "plantDownTo", "flight"));
 check(ok && SH.every(m => m.arm >= 1.3), "SH-6 the support arm 1.3 rad or more out from the trunk from the top of the backswing to the contact", pick("arm"));
+check(ok && SH.every(m => inR(m.leanTop, .15, .3) && m.leanC <= .15 && inR(m.pitchLand, .5, .7)), "the body: the trunk leaning 0.15 to 0.3 rad to the support side at the top of the backswing (the clip's about 0.2), 0.15 or less at the contact, pitched 0.5 to 0.7 rad forward once landed (5.7)",
+  pick("leanTop", "leanC", "pitchLand"));
 check(ok && SH.every(m => m.nearest <= .12), "the kicking foot at the drawn ball at the contact (within 0.12 m of its surface)", pick("nearest"));
 check(ok && SH.every(m => m.turn <= .35), "no bone turns more than 0.35 rad in a frame outside 0.12 s either side of the contact (the clip's entry and exit included)", pick("turn", "turnAt"));
 check(ok && SH.every(m => m.slide <= .01), "the plant foot does not slide while it is down (10 mm)", pick("slide"));
 const Hd = M.hold;
-check(Hd && !Hd.err && Hd.fromHold && Hd.hop && Hd.stepLen >= .1 && Hd.nearest <= .12 && inR(Hd.land, .32, .44) && Hd.turn <= .35,
+if (!process.env.FC27_CASES || process.env.FC27_CASES.split(",").includes("hold")) check(Hd && !Hd.err && Hd.fromHold && Hd.hop && Hd.stepLen >= .1 && Hd.nearest <= .12 && inR(Hd.land, .32, .44) && Hd.turn <= .35,
   "a shot let go from a held wind-up (the left button held 0.6 s): the support foot hops onto its plant, the foot meets the ball, down in time, no bone over 0.35 rad in a frame", Hd);
 
 /* ---------- 6.4: the walked-up shot beside the clip's frames ---------- */

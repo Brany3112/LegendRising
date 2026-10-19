@@ -88,14 +88,15 @@ export const kindOf = k => KINDS[k] ? k : ALIAS[k] || "instep";
    through landing, after the contact, when the body runs on (over MOVE m/s); PRE the plant step's time, at least and
    at most (the step fills what the simulation's contact leaves before the plant, so the swing plays at its own pace:
    a step-in, actions.js STEP_IN); HOP the distance from a held wind-up's support foot to the plant over which it hops
-   there first (the leg held cocked), given at least HOP_T s for it; TOP_B, TOP_Y the backswing's top behind the root and its height (m, plus the
-   power's share); V_TOP, V_END the foot's speed at the top (on along the aim) and into the ball (m/s); FT_IN, LAND_IN
-   the follow-through's top across from the kicking hip toward the support side and the landing's across from the
-   root's line; DIP the hips' drop into the plant's lunge; LEAN the lean to the support side at the top; ARM the support
-   arm out from the top to the contact (radians); PITCH the trunk's pitch forward after the landing, on the move */
+   there first (the leg held cocked), given at least HOP_T s for it; TOP_B, TOP_Y the backswing's top behind the root
+   and its height (m, plus the power's share); V_TOP, V_END the foot's speed at the top (on along the aim) and into the
+   ball (m/s); FT_IN, LAND_IN the follow-through's top across from the kicking hip toward the support side and the
+   landing's across from the root's line; DIP the hips' drop into the plant's lunge; LEAN the hips' lean to the support
+   side at the top (the chest, over the spine's counter-roll, about 0.2 rad: the clip's); ARM the support arm out from
+   the top to the contact (radians); PITCH the trunk's pitch forward after the landing, on the move */
 export const SHOT = Object.freeze({OFF: .02, TOP: .10, FT: .115, LAND: .36, S_HEEL: .20, S_OFF: .27, S_LAND: .58, MOVE: 1.0,
   PRE: [.12, .30], HOP: .12, HOP_T: .08, TOP_B: [.14, .06], TOP_Y: [.47, .12], V_TOP: 1.6, V_END: 7.5, FT_IN: .03, LAND_IN: .02,
-  DIP: .07, LEAN: .2, ARM: 1.45, PITCH: .32});
+  DIP: .07, LEAN: .36, ARM: 1.45, PITCH: .32});
 
 /* the faces of the foot in the foot bone's own frame (body units: the ankle at the origin, +z along the foot, the sole at
    -0.085): the laces 0.06 above the sole, the inside face, the tip of the toes (under the ball for a chip), the sole */
