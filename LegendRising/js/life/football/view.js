@@ -43,8 +43,8 @@ import {human, animateHuman, lookFor, EV, touch as gaitTouch} from "../human.js"
 import {SCHED} from "../core/sched.js";
 import {ballMesh} from "./pitchmesh.js";
 import {STADIUM} from "./stadium.js";
-import {predAt, ACT, solePath} from "./actions.js";
-import {kindOf, windHold, windUpper, heldBall, handBall, HAND, RECV, SD, dragTurnT} from "../moves.js";
+import {predAt, ACT, solePath, solePivot, SOLE} from "./actions.js";
+import {kindOf, windHold, windUpper, heldBall, handBall, HAND, RECV} from "../moves.js";
 import "../gkmoves.js";
 import {dirOf} from "./pitchspec.js";
 import {R as zoneR, part as zonePart, playableFrom} from "./zone.js";
@@ -797,21 +797,22 @@ function carrySt(V, a, ms, st){
 }
 /* (BCS) a sole move's clip (moves.js 'sole'; actions.js SOLE): posed at the move's own time at the drawn moment (the
    act's seconds less the share of a step not yet drawn, V.lag's steps on), on the simulation's sole contacts (act.segs:
-   the one under way's ball where solePath has it then), the roll's push and where the ball will be for it. Its drawn
-   part ends SOLE_END.DRAG s after a drag's turn after the ball is done (moves.js dragTurnT: the run after it is the
-   legs' own) and SOLE_END.PUSH s after the roll's push; a stop's with its act */
+   the one under way's ball where solePath has it then), the planted foot it turns him over (solePivot) and a drag's
+   turn after the ball (from turn0, turnT s), the roll's push and where the ball will be for it. Its drawn part ends
+   SOLE_END.DRAG s after a drag's turn is done (the run after the ball is the legs' own) and SOLE_END.PUSH s after the
+   roll's push; a stop's with its act */
 const SOLE_END = Object.freeze({DRAG: .03, PUSH: .13});
-const _scur = {i:-1, x:0, z:0, vx:0, vz:0}, _spb = {x:0, z:0}, _spp = {x:0, z:0, vx:0, vz:0};
+const _scur = {i:-1, x:0, z:0, vx:0, vz:0}, _spb = {x:0, z:0}, _spp = {x:0, z:0, vx:0, vz:0}, _spv = {x:0, z:0};
 function soleSt(V, R, a, act, ms){
   const segs = act.segs; if (!segs || !segs.length) return null;
   const tau = act.t + ((V.alpha || 0) + (V.lag || 0) - 1)*H;
-  // (a drag's turn after the ball: half a turn for S, else from the way he faced to the way it goes)
-  const g0 = segs[0], turn = act.kind !== "fake" ? 0 : act.dir === "s" ? Math.PI : Math.acos(clamp((act.fx*g0.vx1 + act.fz*g0.vz1)/(Math.hypot(g0.vx1, g0.vz1) || 1), -1, 1));
-  const end = act.kind === "fake" ? g0.t1 + SD.DRAG_LAND + dragTurnT(turn) + SOLE_END.DRAG : act.move === "roll" && act.push ? act.push.t + SOLE_END.PUSH : Infinity;
+  const g0 = segs[0], drag = act.kind === "fake", turn0 = drag ? g0.t1 + SOLE.DRAG_FACE : 0, turnT = drag ? act.turnT || 0 : 0;
+  const end = drag ? turn0 + turnT + SOLE_END.DRAG : act.move === "roll" && act.push ? act.push.t + SOLE_END.PUSH : Infinity;
   if (tau > end){ if (R.clip && R.clip.key === "sole"){ R.clip.over = true; R.clip = null; } return null; }
   const c = clipFor(R, "sole", act);
-  c.mode = "sole"; c.at = tau; c.move = act.kind === "fake" ? "drag" : act.move; c.segs = segs; c.fx = act.fx; c.fz = act.fz;
-  c.back = act.kind === "fake" && act.dir === "s"; c.turn = turn; c.spin = act.spin || null; c.push = act.push || null; c.vx = a.m.vx || 0; c.vz = a.m.vz || 0;
+  c.mode = "sole"; c.at = tau; c.move = drag ? "drag" : act.move; c.segs = segs; c.fx = act.fx; c.fz = act.fz;
+  c.back = drag && act.dir === "s"; c.turn0 = turn0; c.turnT = turnT; c.spin = act.spin || null; c.push = act.push || null; c.vx = a.m.vx || 0; c.vz = a.m.vz || 0;
+  c.pivot = act.move === "stop" ? null : solePivot(act, _spv); c.root0 = act.root0 || null;
   // (the contact under way: where its path has the ball now)
   let cur = null;
   for (let i = 0; i < segs.length; i++){ const g = segs[i]; if (g.on && !g.off && tau >= g.t0 && tau <= g.t1){ solePath(g, tau, _spp); cur = _scur; cur.i = i; cur.x = _spp.x; cur.z = _spp.z; cur.vx = _spp.vx; cur.vz = _spp.vz; break; } }

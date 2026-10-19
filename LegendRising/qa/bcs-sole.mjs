@@ -24,9 +24,10 @@
 //   The drawn body (Training, stepped frozen, every body posed every step at 60 Hz; third person; the moves by the real
 //   controls: W let go, LMB held then S then A, D or S, Z):
 //     DS-1 every sole contact: the touching foot's sole on the top of the drawn ball (within 0.03 m) for 0.1 to 0.25 s
-//          in a row, over the contact;
+//          in a row, over the contact (all 13: three stops, four drags, three rolls of two);
 //     DS-2 every drag and roll contact: the other foot down and still (0.01 m or less) through it, the pivot;
-//     DS-3 a wide base: the ankles 0.45 m or more apart at the middle of every drag and roll contact;
+//     DS-3 a wide base: the ankles 0.45 m or more apart at the middle of every drag contact, 0.3 m or more at a roll's
+//          (the clip's roll is played between the feet, quick soles a stride apart);
 //     DS-4 the legs never cross (the user's "broken footing ... the legs cross and go through each other"): from the
 //          request to 0.2 s after the move each ankle at least 0.05 m to its own side of the other across the hip joints,
 //          the shins never within 0.06 m;
@@ -341,11 +342,11 @@ if (!SIM_ONLY){
   res.drawn = M;
   console.log(JSON.stringify(M, (k, v) => k === "near" ? undefined : v));
   const all = Object.values(M), C = all.flatMap(m => m.contacts || []);
-  check(C.length >= 14 && C.every(c => inR(c.run, .1, .25)), "DS-1 every sole contact: the touching foot's sole on the top of the drawn ball (within 0.03 m) for 0.1 to 0.25 s in a row", C.map(c => [c.foot, c.kind, c.run]));
+  check(C.length >= 13 && C.every(c => inR(c.run, .1, .25)), "DS-1 every sole contact: the touching foot's sole on the top of the drawn ball (within 0.03 m) for 0.1 to 0.25 s in a row", C.map(c => [c.foot, c.kind, c.run]));
   // (the drags' and the rolls' contacts: a sole stop after a drag's run, its keys let go, is the stop's)
   const DR = C.filter(c => c.kind !== "stop");
   check(DR.length >= 10 && DR.every(c => c.pivDown && c.pivMove <= .01), "DS-2 every drag and roll contact: the other foot down and still through it (0.01 m or less), the pivot", DR.map(c => [c.foot, c.kind, c.pivDown, c.pivMove]));
-  check(DR.every(c => c.base >= .45), "DS-3 a wide base: the ankles 0.45 m or more apart at the middle of every drag and roll contact", DR.map(c => [c.foot, c.kind, c.base]));
+  check(DR.every(c => c.base >= (c.kind === "roll" ? .3 : .45)), "DS-3 a wide base: the ankles 0.45 m or more apart at the middle of every drag contact, 0.3 m or more at a roll's", DR.map(c => [c.foot, c.kind, c.base]));
   check(all.every(m => m.sep >= .05 && m.shin >= .06), "DS-4 the legs never cross: each ankle 0.05 m or more to its own side of the other across the hip joints, the shins never within 0.06 m",
     Object.fromEntries(Object.entries(M).map(([k, m]) => [k, [m.sep, m.sepF, m.shin, m.shinF]])));
   const ST = Object.entries(M).filter(([k]) => k.startsWith("stop")).map(([k, m]) => ({k, ballSlowF: m.ballSlowF, body: m.body, rest: m.rest}));

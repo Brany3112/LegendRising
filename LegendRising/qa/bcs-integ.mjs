@@ -10,10 +10,9 @@
 //     BI-2 the shot at 2.4 m/s, and standing with it at his toe, is a step-in (actions.js STEP_IN), struck 0.30 to 0.36 s
 //          after it is let go; at 4.4 m/s (the ball rolling on faster than V_ROLL) the reach window's 0.10 to 0.18 s;
 //     BI-3 a fake with a drag (A or S) while carrying at 2.4 to 4.4 m/s, W held on or let go for 0.8 s: close control
-//          kept, and the carry's footfall touches start again within 1.25 s of the fake's end (2 or more in the 2 s
-//          after it). ((BCS sole) changed on purpose from 1.0 s and 3: a drag now lets the ball go rolling the new way
-//          and he runs after it (actions.js SOLE), the fake's end is when he has it again, and with W held the other
-//          way he turns back with it before the footfalls carry it)
+//          kept, and the carry's footfall touches start again within 1.0 s of the fake's end (3 or more in the 2 s
+//          after it). ((BCS sole) the run goes on 4.5 s after the fake, not 3.5: a drag now lets the ball go rolling the
+//          new way and he runs after it (actions.js SOLE), so the fake ends later and its whole 2 s after are seen)
 //   The drawn body (the training page stepped frozen, 60 Hz, third person; close control taken with W held, the left
 //   button held 0.3 s and let go with W still held), walking with it (X: a step-in) and running with it (4.4 m/s, the
 //   reach window):
@@ -64,7 +63,7 @@ function carryAndAct(o){
   me.takeT = ms.t; me.prm.run = o.cap;
   let rel = -1, actEnd = null;
   const out = {before: [], after: [], kick: null, act: null, ctlEnd: null};
-  for (let k = 0; k < Math.round((o.tRel + (o.kind === "fake" ? 3.5 : 1.2))/H); k++){
+  for (let k = 0; k < Math.round((o.tRel + (o.kind === "fake" ? 4.5 : 1.2))/H); k++){
     const keysOff = (o.stopAt != null && ms.t >= o.stopAt && rel < 0) || (o.letGo && rel >= 0 && ms.t - rel < .8);
     intent(me, !keysOff);
     if (rel < 0 && ms.t >= o.tRel - 1e-9){
@@ -121,8 +120,8 @@ function carryAndAct(o){
     B3.push({letGo, cap, dir, ctlOn: r.ctlOn, ctlEnd: r.ctlEnd, first: carry.length ? carry[0].sinceEnd : null, in2: carry.filter(x => x.sinceEnd <= 2).length});
   }
   res.bi3 = B3;
-  check(B3.every(b => b.ctlOn && !b.ctlEnd && b.first != null && b.first <= 1.25 && b.in2 >= 2),
-    "BI-3 a fake with a drag while carrying keeps close control, and the carry's footfall touches start again within 1.25 s of its end (2 or more in the 2 s after)", B3);
+  check(B3.every(b => b.ctlOn && !b.ctlEnd && b.first != null && b.first <= 1.0 && b.in2 >= 3),
+    "BI-3 a fake with a drag while carrying keeps close control, and the carry's footfall touches start again within 1.0 s of its end (3 or more in the 2 s after)", B3);
 }
 
 /* ---------- the drawn body ---------- */

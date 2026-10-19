@@ -941,20 +941,24 @@ function fakeStep(ms, a, act, h){
      the foot on that side, the ball drawn back and out to that side (DRAG_DIR: across, back) and let go rolling DRAG_V
      m/s that way (3.5 to 4.5); S with the strong foot, the ball pulled S_BACK m back under him (S_BACK_RUN from a run,
      against his body, at 3 to 3.5 m/s) and let go rolling S_V m/s on that way. Ball Control: the way it goes, within
-     DRAG_ERR rad (1 - Ball Control/110). Then he turns and goes after it at a run (act.follow) until it is within CATCH m
-     of him (FOLLOW s at most), and the keys have him again.
+     DRAG_ERR rad (1 - Ball Control/110). The sole foot comes down DRAG_SET m out to its own side of where it let go
+     (solePivot) and he turns over it, DRAG_FACE s after the release: to the way the ball goes (S: half a turn to the sole's
+     side) in act.turnT s (TURN_RATE rad/s, TURN_MIN s at least), his middle carried round the planted foot and in to
+     ORB_R m of it (orbit: his weight over the foot he turns on, so the drawn feet stay each on its own side). Then he goes
+     after it at a run (act.follow) until it is within CATCH m of him (FOLLOW s at most), and the keys have him again.
    - The double sole roll (the Z key: startSoleRoll): the strong sole rolls the ball across to the weak side (ROLL.ACROSS m
      in ROLL.T1 s, let go at ROLL.V1 m/s), the weak sole catches it ROLL.GAP s later and rolls it back under him (ROLL.T2
      s: to ROLL.BACK m back and ROLL.IN to the strong side, let go at ROLL.V2 m/s), he spins half a turn to his strong side
-     on the strong foot (ROLL.SPIN s) and the strong foot pushes the ball out the way he now faces at ROLL.PUSH m/s, and he
-     runs on after it.
+     on the strong foot (ROLL.SPIN s; that foot set down ROLL.OUT out to its side of where its roll let go and ROLL.SET_BACK
+     back, solePivot, his middle carried round it, orbit) and the strong foot pushes the ball out the way he now faces at
+     ROLL.PUSH m/s, and he runs on after it. From a run he brakes to stand ROLL.STAND m behind the ball.
    Numbers in metres (times the body's scale) and seconds. */
 export const SOLE = Object.freeze({STOP_V: 2.0, NEXT_MIN: .034, STOP_LATE: .4, STOP_HOLD: .15, STOP_DRAG: .03, STOP_BRAKE: .29, STOP_AHEAD: [.25, 1.0],
   STOP_LAT: .45, STOP_X: .15, STOP_V_END: .4, STOP_FACE: .5, STOP_TURN: 3, BRAKE_MAX: 20, REACH: 1.3,
-  DRAG_LEAD: .08, DRAG_REACH: .75, DRAG_NEAR: .6, DRAG_LATE: .45, DRAG_FACE: .08, TURN_W: 12, DRAG_HOLD: .2, DRAG_BRAKE: 10, DRAG_DIR: Object.freeze([.45, .6]), DRAG_V: 4.0, DRAG_ERR: .2, S_BACK: .3, S_BACK_RUN: .7, S_RUN: Object.freeze([1, 3]),
-  S_V: 3.5, CATCH: .75, CATCH_V: .5, FOLLOW: 1.4,
-  ROLL: Object.freeze({V_MAX: 3.2, T0: .18, AHEAD: Object.freeze([.15, .9]), LAT: .45, T1: .13, ACROSS: .3, V1: 1.5, GAP: .05, T2: .13, BACK: .38, IN: .09, V2: 1.0,
-    SPIN: .2, PUSH_T: .08, PUSH: 4.5})});
+  DRAG_LEAD: .08, DRAG_REACH: .75, DRAG_NEAR: .6, DRAG_LATE: .45, DRAG_FACE: .08, DRAG_SET: .08, TURN_RATE: 11, TURN_MIN: .14, ORB_R: .15, DRAG_HOLD: .2, DRAG_BRAKE: 10, DRAG_DIR: Object.freeze([.45, .6]), DRAG_V: 4.0, DRAG_ERR: .2, S_BACK: .3, S_BACK_RUN: .7, S_RUN: Object.freeze([1, 3]),
+  S_V: 3.5, CATCH: .75, CATCH_V: .5, CLOSE_V: 1, CLOSE_K: 3, FOLLOW: 1.4,
+  ROLL: Object.freeze({V_MAX: 3.2, T0: .18, AHEAD: Object.freeze([.15, .9]), STAND: .4, LAT: .45, T1: .13, ACROSS: .3, V1: 1.5, GAP: .1, T2: .13, BACK: .38, IN: .09, V2: 1.0,
+    OUT: .3, SET_BACK: .1, SPIN: .2, PUSH_T: .08, PUSH: 4.5})});
 // where a sole contact has the ball (its middle, on the grass) at act time t, and its velocity, into out: from (x0, z0)
 // still as the sole lands at t0 to (x1, z1) at (vx1, vz1) as it lets go at t1 (Hermite, the start's tangent none)
 export function solePath(g, t, out){
@@ -1035,6 +1039,27 @@ function soleBrake(a, rate, h){
   const v = Math.max(0, m.speed - extra), k = v/m.speed;
   m.speed = v; m.vx = (m.vx || 0)*k; m.vz = (m.vz || 0)*k;
 }
+// the planted foot a sole move turns him over (its ankle's spot on the grass), into out: a drag's sole foot set down
+// DRAG_SET out to its own side of where it let the ball go; the roll's strong foot ROLL.OUT out to its side of where its
+// roll let it go and ROLL.SET_BACK back (moves.js 'sole' sets the drawn foot there: view.js passes it)
+export function solePivot(act, out){
+  const g = act.segs[0], rx = -act.fz, rz = act.fx, sc = act.sc || 1, ss = g.side === 'R' ? 1 : -1;
+  const o = act.kind === 'fake' ? SOLE.DRAG_SET*sc : SOLE.ROLL.OUT*sc, b = act.kind === 'fake' ? 0 : SOLE.ROLL.SET_BACK*sc;
+  out.x = g.x1 + ss*rx*o - act.fx*b; out.z = g.z1 + ss*rz*o - act.fz*b;
+  return out;
+}
+// a turn over the planted foot (O: {x, z} the foot, ox, oz his middle against it and yaw his facing as it began): the
+// facing turned by d, his middle carried round the foot with it (each point of him turned about it) and in to ORB_R m
+// of it by the end (e, the turn's eased share): a step of his own, the mover's way on none
+function orbit(a, O, d, e){
+  const m = a.m, I = a.intent, c = cos(d), s = sin(d), l = hypot(O.ox, O.oz) || 1;
+  const k = 1 + (Math.min(1, SOLE.ORB_R*(a.scale || 1)/l) - 1)*e;
+  m.yaw = wrapA(O.yaw + d); m.heading = m.yaw;
+  m.x = O.x + (O.ox*c + O.oz*s)*k; m.z = O.z + (-O.ox*s + O.oz*c)*k;
+  m.vx = 0; m.vz = 0; m.speed = 0;
+  const f = a.faceV, F = dirOf(m.yaw); f.x = F.x; f.z = F.z; I.face = f; I.dx = 0; I.dz = 0; I.speedCap = 0;
+}
+const orbitOf = (a, act) => { const m = a.m, P = solePivot(act, {x: 0, z: 0}); return {x: P.x, z: P.z, ox: m.x - P.x, oz: m.z - P.z, yaw: m.yaw, done: false}; };
 // one step of a sole move (the 'sole' act's, and a fake's drag): its contacts, the body as the move has it, the run after
 // the ball once it is let go
 function soleStep(ms, a, act, h){
@@ -1142,7 +1167,10 @@ function dragPlan(ms, a, act, t0){
   }
   const ce = cos(err), se = sin(err), vx = ux*ce - uz*se, vz = ux*se + uz*ce;
   const g = soleSeg(side, t0, t0 + SOLE.DRAG_HOLD, BP1.x, BP1.z, BP1.x + vx*D, BP1.z + vz*D, vx*V, vz*V, {sole: act.dir === 's' ? 'drag back' : 'drag', fake: how});
-  act.segs = [g]; act.dur = 9; act.ux = vx; act.uz = vz;
+  act.segs = [g]; act.dur = 9; act.ux = vx; act.uz = vz; act.sc = sc;
+  // (the turn after it: to the way it goes; S half a turn to the sole's side, not whichever way the half turn ties)
+  act.turn = act.dir === 's' ? -(side === 'R' ? 1 : -1)*Math.PI : wrapA(yawOf(vx, vz) - yawOf(fx, fz));
+  act.turnT = Math.max(SOLE.TURN_MIN, Math.abs(act.turn)/SOLE.TURN_RATE);
 }
 function dragBody(ms, a, act, h){
   const I = a.intent, m = a.m, g = act.segs[0], b = ms.ball;
@@ -1153,28 +1181,34 @@ function dragBody(ms, a, act, h){
     else { const v = m.speed; I.dx = v > .3 ? (m.vx || 0)/v : 0; I.dz = v > .3 ? (m.vz || 0)/v : 0; I.speedCap = Math.min(I.speedCap, fakeCap(ms, a)); }
     return;
   }
-  // (the facing held DRAG_FACE s as the sole leaves it and comes down, then turned round to the sole's side after it: an
-  // S drag's half turn that way at TURN_W, not whichever way the half turn ties)
+  // (the facing held DRAG_FACE s as the sole leaves it and comes down beside it, then turned over that foot, act.turn in
+  // act.turnT s, his middle carried round it: orbit)
   const k = act.t - g.t1, f = a.faceV;
   if (k < SOLE.DRAG_FACE){ I.dx = 0; I.dz = 0; I.speedCap = 0; f.x = act.fx; f.z = act.fz; I.face = f; return; }
-  followBall(ms, a, act);
-  if (act.dir === 's'){
-    const sg = g.side === 'R' ? 1 : -1, th = Math.min(Math.PI, (k - SOLE.DRAG_FACE)*SOLE.TURN_W);
-    if (th < Math.PI - 1e-6){ const d = dirOf(act.yaw0 - sg*th); f.x = d.x; f.z = d.z; I.face = f; }
+  if (!act.orb || !act.orb.done){
+    if (!act.orb) act.orb = orbitOf(a, act);
+    const u = Math.min(1, (k - SOLE.DRAG_FACE)/act.turnT), e = spinEase(u);
+    orbit(a, act.orb, act.turn*e, e);
+    if (u < 1) return;
+    act.orb.done = true;
   }
+  followBall(ms, a, act);
 }
 // after the ball he let go: turned to it and running on to it, until it is within CATCH m (FOLLOW s at most), then the
-// keys have him again
+// keys have him again. He comes on to it under control: no faster than CLOSE_V m/s more than it rolls away from him,
+// and CLOSE_K m/s more for each metre still to go beyond CATCH (a sprint while it is far)
 function followBall(ms, a, act){
-  const I = a.intent, m = a.m, b = ms.ball;
+  const I = a.intent, m = a.m, b = ms.ball, sc = a.scale || 1;
   if (!act.follow) act.follow = {t0: act.t};
   const dx = b.p.x + b.v.x*.25 - m.x, dz = b.p.z + b.v.z*.25 - m.z, dl = hypot(dx, dz) || 1, d = hypot(b.p.x - m.x, b.p.z - m.z);
-  I.dx = dx/dl; I.dz = dz/dl; I.gait = 'sprint'; I.speedCap = Infinity; I.strafe = false;
+  const ux = (b.p.x - m.x)/(d || 1), uz = (b.p.z - m.z)/(d || 1), off = Math.max(0, b.v.x*ux + b.v.z*uz);
+  I.dx = dx/dl; I.dz = dz/dl; I.gait = 'sprint'; I.strafe = false;
+  I.speedCap = off + SOLE.CLOSE_V + SOLE.CLOSE_K*Math.max(0, d - SOLE.CATCH*sc);
   const f = a.faceV; f.x = dx/dl; f.z = dz/dl; I.face = f;
   // (caught up: within CATCH, in front of him, he turned the way it rolls and it no longer running away from him)
-  const ux = (b.p.x - m.x)/(d || 1), uz = (b.p.z - m.z)/(d || 1), F = dirOf(m.yaw), away = (b.v.x - (m.vx || 0))*ux + (b.v.z - (m.vz || 0))*uz;
+  const F = dirOf(m.yaw), away = (b.v.x - (m.vx || 0))*ux + (b.v.z - (m.vz || 0))*uz;
   const bv = hypot(b.v.x, b.v.z), with_ = bv < .5 || (b.v.x*F.x + b.v.z*F.z)/bv > .5;
-  const caught = d <= SOLE.CATCH*(a.scale || 1) && ux*F.x + uz*F.z > .3 && with_ && away < SOLE.CATCH_V;
+  const caught = d <= SOLE.CATCH*sc && ux*F.x + uz*F.z > .3 && with_ && away < SOLE.CATCH_V;
   if (caught || act.t - act.follow.t0 >= SOLE.FOLLOW || ms.poss.ctl !== a.id || b.state !== 'free') act.dur = Math.min(act.dur, act.t);
 }
 
@@ -1201,19 +1235,32 @@ function startSoleRoll(ms, a){
   const t2 = t1 + R0.GAP, gx = g1.x1 + cx*R0.V1*R0.GAP, gz = g1.z1 + cz*R0.V1*R0.GAP;
   const g2 = soleSeg(weak, t2, t2 + R0.T2, gx, gz, gx - f.x*R0.BACK*sc + sg*rx*R0.IN*sc, gz - f.z*R0.BACK*sc + sg*rz*R0.IN*sc, -f.x*R0.V2, -f.z*R0.V2, {sole: 'roll'});
   const tS = g2.t1, tP = tS + R0.SPIN + R0.PUSH_T;
-  const act = startSoleAct(ms, a, 'roll', [g1, g2], {spin: {t0: tS, t1: tS + R0.SPIN, sg}, push: {t: tP, side: strong, done: false}});
+  // (from a run: braked to stand STAND behind where the ball is as the strong sole meets it)
+  const stand = {x: BP1.x - f.x*R0.STAND*sc, z: BP1.z - f.z*R0.STAND*sc};
+  // (and where that braking has him as the strong sole lands: root0, for the drawn weak foot planted then)
+  const dS = (stand.x - m.x)*f.x + (stand.z - m.z)*f.z, aS = dS > .02 ? Math.min(SOLE.BRAKE_MAX, v*v/(2*dS)) : SOLE.BRAKE_MAX*.6;
+  const tB = Math.min(t0, aS > 0 ? v/aS : 0), go0 = v*tB - .5*aS*tB*tB;
+  const root0 = {x: m.x + f.x*go0, z: m.z + f.z*go0};
+  const act = startSoleAct(ms, a, 'roll', [g1, g2], {spin: {t0: tS, t1: tS + R0.SPIN, sg}, push: {t: tP, side: strong, done: false}, stand, root0, sc});
   logEv(ms, 'fake', a.team, a.id, m.x, m.z, {dir: null, sole: 'roll'});
   return act;
 }
 function rollBody(ms, a, act, h){
   const I = a.intent, m = a.m, SN = act.spin, P = act.push, b = ms.ball;
-  if (act.t < SN.t0){ I.dx = 0; I.dz = 0; I.speedCap = 0; soleBrake(a, SOLE.BRAKE_MAX*.6, h); const f = a.faceV; f.x = act.fx; f.z = act.fz; I.face = f; return; }
-  if (act.t < SN.t1 + 1e-9){
-    // the spin: half a turn to his strong side (sg: a right foot's, to his right), eased, on the strong foot
-    const e = spinEase(clamp((act.t - SN.t0)/(SN.t1 - SN.t0), 0, 1));
-    m.yaw = wrapA(act.yaw0 - SN.sg*Math.PI*e);
-    const f = a.faceV, d = dirOf(m.yaw); f.x = d.x; f.z = d.z; I.face = f; I.dx = 0; I.dz = 0; I.speedCap = 0;
-    return;
+  if (act.t < SN.t0){
+    // (to a stand STAND behind the ball: braked at the steady rate that stops him there, BRAKE_MAX at most)
+    const v = m.speed, d = (act.stand.x - m.x)*act.fx + (act.stand.z - m.z)*act.fz;
+    const rate = d > .02 ? Math.min(SOLE.BRAKE_MAX, v*v/(2*d)) : SOLE.BRAKE_MAX*.6;
+    I.dx = act.fx; I.dz = act.fz; I.speedCap = Math.max(0, v - rate*h); soleBrake(a, rate, h);
+    const f = a.faceV; f.x = act.fx; f.z = act.fz; I.face = f; return;
+  }
+  if (!act.orb || !act.orb.done){
+    // the spin: half a turn to his strong side (sg: a right foot's, to his right), eased, on the strong foot (orbit)
+    if (!act.orb) act.orb = orbitOf(a, act);
+    const u = clamp((act.t - SN.t0)/(SN.t1 - SN.t0), 0, 1), e = spinEase(u);
+    orbit(a, act.orb, -SN.sg*Math.PI*e, e);
+    if (u < 1) return;
+    act.orb.done = true;
   }
   // facing the way he came; the strong foot pushes it out that way at PUSH and he runs on after it
   const f = a.faceV; f.x = -act.fx; f.z = -act.fz; I.face = f;

@@ -2322,25 +2322,29 @@ export function heldBall(h, out){
    time (st.at, the act's seconds at the drawn moment): no clock of its own to fall behind or run ahead.
    'sole' {id, at, move: 'stop' | 'drag' | 'roll', segs: [{side, t0, t1, x0, z0, x1, z1, vx1, vz1}] (each sole contact:
    the ball's middle on the grass from (x0, z0) at t0 to (x1, z1), let go at (vx1, vz1) at t1), cur {i, x, z, vx, vz}
-   (where the contact under way has the ball now), fx, fz (the way he faced as the move began), spin {t0, t1, sg} (the
-   roll's half turn), push {t, side}, pushBall {x, z} (the roll's push out and where the ball will be then), ball (the
-   drawn ball, for the head)}
+   (where the contact under way has the ball now), fx, fz (the way he faced as the move began), pivot {x, z} (the foot
+   the simulation turns him over: actions.js solePivot), turn0, turnT (a drag's turn after the ball: from, how long),
+   spin {t0, t1, sg} (the roll's half turn), push {t, side}, pushBall {x, z} (the roll's push out and where the ball will
+   be then), ball (the drawn ball, for the head)}
    - The sole: its sole on the top of the ball (SD.PRESS into it), the foot flat but for its toes a little up (SD.PITCH),
      from the moment the simulation's contact begins to the moment it lets go; it comes onto the ball from above, the knee
      lifted (SD.LIFT over the straight line), and leaves it the same way.
    - The other foot is planted as the pivot through each drag and roll contact (one in the air as the move begins comes
      down first, within SD.LAND_T, before the sole leaves the grass). The stop's other foot leaves the grass as its stride
      would (before the sole lands, or once the body has run SD.PIV_BEHIND past it) and comes through to square up beside
-     the ball (SD.PIV_T after the sole lands, SD.PIV_OUT out), the sole on the ball carrying him; the roll's strong foot, off the ball, is set beside it and is the pivot of the weak sole's roll and of the
-     half turn (the weak foot carried round with the body, SD.SPIN_OUT wider), then pushes the ball out with its toe.
+     the ball (SD.PIV_T after the sole lands, SD.PIV_OUT out), the sole on the ball carrying him. A drag's sole foot comes
+     down on st.pivot and is the pivot of the turn after the ball (the simulation turns him over it, his middle carried
+     round it: actions.js orbit), the other foot stepping round to its own side of him. The roll's strong foot, off the
+     ball, is set on st.pivot beside it and is the pivot of the weak sole's roll and of the half turn (the weak foot
+     carried round with the body, SD.SPIN_OUT wider), then pushes the ball out with its toe.
    - A wide base: each foot set SD.SET_OUT or SD.PIV_OUT out to its own side of the ball.
    - The legs never cross: each ankle kept at least SD.SEP to its own side of the other across the hip joints, by turning
      the hips (at most SD.PSI_MAX, at SD.PSI_RATE rad/s), and the hips over the base (SD.OVER of the feet's middle).
    - The trunk upright, the knees bent (the hips SD.CROUCH down while a sole is on the ball), both arms out (SD.ARMS rad,
      the clip's 1.0 to 1.4), the head on the ball. */
 export const SD = Object.freeze({PRESS: .005, PITCH: -.25, LIFT: .1, STEP_LIFT: .06, LAND_T: .08, SET: .1, SET_OUT: .17, SET_BACK: .05,
-  PIV_BEHIND: .3, PIV_T: .2, PIV_OUT: .36, PIV_W: .45, PIV_B: .2, PIV_STEP: .1, PIV_NEAR: .12, HOVER: .03, DRAG_LAND: .08, DRAG_SET: .08,
-  TURN_W: .38, TURN_MIN: .14, TURN_RATE: 11, TURN_LIFT: .05, ROLL_SET: .06, ROLL_OUT: .3, ROLL_BACK: .1, ROLL_W: .55, ROLL_B: .15,
+  PIV_BEHIND: .3, PIV_T: .2, PIV_OUT: .36, PIV_W: .5, PIV_B: .2, PIV_STEP: .1, PIV_NEAR: .12, HOVER: .03, DRAG_LAND: .08,
+  STANCE: .12, TURN_LIFT: .05, ROLL_SET: .06, ROLL_W: .55, ROLL_B: .15, ROLL_PA: .25,
   SPIN_OUT: .12, SPIN_LIFT: .05, PUSH_UP: .1, PUSH_ON: .25, PUSH_SET: .12, TOE_Y: .05,
   DOWN_Y: .03, SEP: .1, PSI_MAX: .8, PSI_RATE: 7, OVER: .6, OVER_X: .18, OVER_Z: .28, CROUCH: .07, ARMS: 1.1});
 const SOLE_SPEC = {dur:60, contact:60, pre:0, events:null, begin:null};
@@ -2519,32 +2523,33 @@ function stopFoot(h, st, d, i, tau, tau0, gy, fx, fz, rx, rz, fy, out){
   return 0;
 }
 /* a drag: the pivot set wide; the sole foot onto the ball, on it as it drags it back and out, over it a moment as it
-   goes, then down beside where it let it go (DRAG_LAND after): it is the pivot of the turn after the ball, the body
-   turning to its side, and the other foot goes round it with the body (its place against the pivot turned as the body
-   turns, so each stays on its own side), coming in to TURN_W of it, down as the turn ends (dragTurnT) */
-export const dragTurnT = turn => Math.max(SD.TURN_MIN, Math.abs(turn)/SD.TURN_RATE);
+   goes, then down on st.pivot (beside where it let it go) as the turn begins (st.turn0): it is the pivot of the turn
+   after the ball, the body turning over it (the simulation carries his middle round it), and the other foot steps round
+   to its own side of him (the pivot's place in the body mirrored, STANCE out at least), down as the turn ends (st.turnT
+   on) */
 function dragFoot(h, st, d, i, tau, tau0, gy, fx, fz, rx, rz, fy, out){
   const g = st.segs[0], si = g.side === "L" ? 0 : 1, s = si ? -1 : 1, ss = si ? 1 : -1, sc = BT.sc;
-  const tl1 = g.t1 + SD.DRAG_LAND, tL = tl1 + dragTurnT(st.turn || Math.PI);
-  // (the sole foot's spot after it: beside where it let the ball go, to its own side; the pivot's before: wide of the
-  // ball as the sole meets it, to its own side and back)
-  const tx = g.x1 + ss*rx*SD.DRAG_SET*sc, tz = g.z1 + ss*rz*SD.DRAG_SET*sc;
+  const tl1 = st.turn0 || g.t1 + SD.DRAG_LAND, tL = tl1 + Math.max(.05, st.turnT || .25);
+  // (the sole foot's spot after it, st.pivot; the pivot's before: wide of the ball as the sole meets it, to its own side
+  // and back)
+  const tx = st.pivot ? st.pivot.x : g.x1, tz = st.pivot ? st.pivot.z : g.z1;
   if (!d.piv){ d.piv = {x:g.x0 - ss*rx*SD.PIV_W*sc - fx*SD.PIV_B*sc, z:g.z0 - ss*rz*SD.PIV_W*sc - fz*SD.PIV_B*sc}; }
   // (the body's turn since the sole foot came down)
   if (tau >= tl1 && d.yawT == null) d.yawT = BT.ry;
   const turn = d.yawT == null ? 0 : wrap(BT.ry - d.yawT);
   if (i !== si){
     if (tau < tl1) return pivotPose(d, i, tau, tau0, gy, d.piv.x, d.piv.z, fy, out);
-    // round the sole foot's spot with the body, in to TURN_W of it, down as the turn ends
+    // round to its own side of him as he turns over the sole foot, down as the turn ends (then held there)
+    if (d.oEnd){ copyPose(out, d.oEnd); return 1; }
     if (!d.oL){ pivotPose(d, i, tl1, tau0, gy, d.piv.x, d.piv.z, fy, _soC); d.oL = copyPose({}, _soC); }
-    const A = d.oL, ox = A.x - tx, oz = A.z - tz, ol = Math.hypot(ox, oz) || 1;
-    const u = clamp((tau - tl1)/(tL - tl1), 0, 1), e = ease(u), rr = lerp(ol, SD.TURN_W*sc, e)/ol;
-    const ang = u >= 1 && d.oEnd != null ? d.oEnd : turn;
-    if (u >= 1 && d.oEnd == null) d.oEnd = turn;
-    const ca = Math.cos(ang), sa = Math.sin(ang);
-    out.x = tx + (ox*ca + oz*sa)*rr; out.z = tz + (-ox*sa + oz*ca)*rr;
-    out.y = gy + SD.TURN_LIFT*sc*bump(u); out.yaw = A.yaw + ang; out.pitch = -.1*bump(u);
-    return u >= 1 ? 1 : 0;
+    const u = clamp((tau - tl1)/(tL - tl1), 0, 1), own = i ? -1 : 1;
+    // (its spot: the pivot's place in the body (x his left) mirrored, at least STANCE out to its own side, facing his way)
+    toB(tx, 0, tz, _b3);
+    toW(own*Math.max(SD.STANCE, -own*_b3.x), 0, _b3.z, _b4);
+    groundAt(gy, _b4.x, _b4.z, BT.ry, _soF);
+    swingTo(d.oL, _soF, u, SD.TURN_LIFT*sc, out);
+    if (u >= 1){ d.oEnd = copyPose({}, out); return 1; }
+    return 0;
   }
   soleOn(h, s, g.x0, g.z0, fy, _soC);
   if (tau < g.t0){ const r = toBall(d, i, tau, liftT(d, i, tau0, g.t0, .6), g.t0, gy, _soC, out); return r >= 0 ? r : soleW(tau, g.t0, g.t1); }
@@ -2557,7 +2562,7 @@ function dragFoot(h, st, d, i, tau, tau0, gy, fx, fz, rx, rz, fy, out){
   if (tau < tl1){
     if (!d.tH) d.tH = copyPose({}, _soC);
     groundAt(gy, tx, tz, fy, _soF);
-    swingTo(d.tH, _soF, (tau - g.t1 - SD.HOVER)/(SD.DRAG_LAND - SD.HOVER), SD.STEP_LIFT*.5, out);
+    swingTo(d.tH, _soF, (tau - g.t1 - SD.HOVER)/Math.max(.02, tl1 - g.t1 - SD.HOVER), SD.STEP_LIFT*.5, out);
     return 0;
   }
   groundAt(gy, tx, tz, fy + turn, out);
@@ -2570,12 +2575,19 @@ function rollFoot(h, st, d, i, tau, tau0, gy, fx, fz, rx, rz, fy, out){
   const g1 = st.segs[0], g2 = st.segs[1], SN = st.spin, P = st.push;
   const si = g1.side === "L" ? 0 : 1, wi = 1 - si, sS = si ? 1 : -1, ssg = sS;
   const sc = BT.sc;
-  // the strong foot's spot after its roll: beside where it let the ball go, to its own side, a little back (the pivot)
-  const spx = g1.x1 + ssg*rx*SD.ROLL_OUT*sc - fx*SD.ROLL_BACK*sc, spz = g1.z1 + ssg*rz*SD.ROLL_OUT*sc - fz*SD.ROLL_BACK*sc;
+  // the strong foot's spot after its roll: beside where it let the ball go, to its own side, a little back (the pivot,
+  // st.pivot)
+  const spx = st.pivot ? st.pivot.x : g1.x1, spz = st.pivot ? st.pivot.z : g1.z1;
   // the turn so far (the body's own, about the strong foot)
   const ang = -SN.sg*Math.PI*spinE(clamp((tau - SN.t0)/(SN.t1 - SN.t0), 0, 1));
-  // (the weak foot's spot as the strong sole rolls the ball across: wide of it to its own side, a little back)
-  if (!d.piv) d.piv = {x:g1.x0 - ssg*rx*SD.ROLL_W*sc - fx*SD.ROLL_B*sc, z:g1.z0 - ssg*rz*SD.ROLL_W*sc - fz*SD.ROLL_B*sc};
+  // (the weak foot's spot as the strong sole rolls the ball across: wide of it to its own side, a little back; from a
+  // run no further on than ROLL_PA ahead of where he will be as the strong sole lands, st.root0, so he comes on over it)
+  if (!d.piv){
+    let px = g1.x0 - ssg*rx*SD.ROLL_W*sc - fx*SD.ROLL_B*sc, pz = g1.z0 - ssg*rz*SD.ROLL_W*sc - fz*SD.ROLL_B*sc;
+    const r0 = st.root0, over = r0 ? (px - r0.x)*fx + (pz - r0.z)*fz - SD.ROLL_PA*sc : 0;
+    if (over > 0){ px -= fx*over; pz -= fz*over; }
+    d.piv = {x:px, z:pz};
+  }
   if (i === si){
     const s = si ? -1 : 1;
     soleOn(h, s, g1.x0, g1.z0, fy, _soC);
