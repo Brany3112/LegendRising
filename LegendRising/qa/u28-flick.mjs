@@ -95,11 +95,12 @@ function flick(rq, o = {}){
 }
 {
   const {ms, me} = go();
-  me.takeT = ms.t;
-  for (let k = 0; k < 20; k++){ still(me); simStep(ms, H); }
+  // ((BCS) close control is automatic: your controls on (intent.ctlAuto) and the ball at your feet take it)
+  const on = () => { still(me); me.intent.ctlAuto = true; };
+  for (let k = 0; k < 20; k++){ on(); simStep(ms, H); }
   const on0 = !!me.ctlOn;
   me.intent.action = {kind: "flick", p: .5, fwd: 1, side: 0};
-  for (let k = 0; k < 30; k++){ still(me); simStep(ms, H); }
+  for (let k = 0; k < 30; k++){ on(); simStep(ms, H); }
   check(on0 && !me.ctlOn && me.ctlEnd === "flick", "a flick from close control ends it", {before: on0, after: !!me.ctlOn, end: me.ctlEnd});
 }
 done();

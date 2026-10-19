@@ -202,22 +202,22 @@ try {
   // a poorer control knocks it further from him; the old 1.5.3 numbers measured the roll from the touch itself)
   check(S7[30].n >= 8 && S7[90].n >= 8 && S7[30].body > S7[90].body + .1, "first touch from 12 m/s passes: at control 30 the ball rests further from you than at 90 (mean)", {c30: S7[30], c90: S7[90]});
   check(S7[90].body >= .3 && S7[30].body <= 1.9, "first touch from 12 m/s passes: the ball rests within the touch distances of the spec (0.6 to 1.4 m, give or take its roll)", {c30: +S7[30].body.toFixed(2), c90: +S7[90].body.toFixed(2)});
-  // ---- 8. (P2b-B) C is the shield, V the shoulder check
+  // ---- 8. (P2b-B) C is the shield; (BCS) V does nothing (there is no shoulder check any more: moved on purpose)
   const S8 = await page.evaluate(() => {
     // (a plain key let go first: the Ctrl and Alt presses of section 6 left the modifier flag of their last event)
     window.dispatchEvent(new KeyboardEvent("keyup", {key: "x", bubbles: true, cancelable: true}));
-    const T = window.__t, ms = T.enter("stamina"), F = window.__fp, me = F.me(), C = F.ctrl;
+    const T = window.__t, ms = T.enter("stamina"), F = window.__fp, me = F.me(), C = F.ctrl, L = window.__life;
     T.key("c", true); T.steps(3);
     const c = {shield: !!me.intent.shield, scan: !!C.scan};
     T.key("c", false); T.steps(2);
-    const off = !!me.intent.shield;
+    const off = !!me.intent.shield, y0 = L.P.yaw;
     T.key("v", true); T.steps(3);
     const v = {shield: !!me.intent.shield, scan: !!C.scan};
     T.key("v", false); T.steps(20);
-    return {c, off, v, after: !!C.scan};
+    return {c, off, v, after: !!C.scan, look: L.P.yaw - y0};
   });
   check(S8.c.shield && !S8.c.scan && !S8.off, "C held with the ball: the shield, not the shoulder check; let go, no shield", S8);
-  check(S8.v.scan && !S8.v.shield && !S8.after, "V held: the shoulder check (and it turns back when let go)", S8);
+  check(!S8.v.scan && !S8.v.shield && !S8.after && S8.look === 0, "V held: nothing (no shoulder check, BCS), the look as it was", S8);
   check(page.errors.length === 0, "zero console and page errors", page.errors.slice(0, 5));
   ok = true;
 } catch (e){ console.log("FAILED", e.stack || e.message); check(false, "the run finished", String(e.message)); }

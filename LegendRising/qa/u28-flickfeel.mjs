@@ -2,7 +2,7 @@
 // a real click), in third person:
 //   - W a chip on, S a rainbow back over your head, D a flick to the right, no key a keepy-up
 //   - the middle button scrolls nothing
-//   - a flick from close control ends it; run to the ball, F, and it is yours again
+//   - a flick from close control ends it; run to the ball and it is in close control again, no key (BCS: automatic)
 //   - at the frame of each flick the drawn foot is at the drawn ball; contact sheets in qa/out/u28flick
 //   - no console or page error
 //
@@ -69,26 +69,26 @@ try {
   check(chip.flick === "chip" && chip.along > .8 && rainbow.flick === "rainbow" && rainbow.along < -.8 && right.across > .8 && keepy.flick === "keepy",
     "the wheel's button held and let go: W a chip on, S a rainbow back over your head, D a flick to the right, no key a keepy-up", res.flicks);
   check([chip, rainbow, right, keepy].every(r => r.scrollY === 0), "the middle button scrolls nothing", [chip, rainbow, right, keepy].map(r => r.scrollY));
-  // from close control: the flick ends it, F takes it again
+  // from close control: the flick ends it; run to the ball and it is yours again, no key ((BCS) close control is automatic)
   await begin();
-  await page.keyboard.down("w"); await frames(page, 6); await page.keyboard.press("f"); await frames(page, 20);
+  await page.keyboard.down("w"); await frames(page, 6); await frames(page, 20);
   const on0 = await page.evaluate(() => !!window.__u28f.T().me.ctlOn);
   await page.keyboard.up("w");
   await page.mouse.down({button: "middle"}); await frames(page, 8); await page.mouse.up({button: "middle"}); await frames(page, 10);
   const off = await page.evaluate(() => ({on: !!window.__u28f.T().me.ctlOn, end: window.__u28f.T().me.ctlEnd}));
   let again = false; const trail = [];
-  // (as a player does: run to the ball, F once it is within reach and low)
+  // (as a player does: run to the ball; within reach and low it is taken into close control by itself, BCS)
   for (let i = 0; i < 80 && !again; i++){
     await frames(page, 3);
     const s0 = await page.evaluate(() => { const T = window.__u28f.T(), me = T.me, b = T.ms.ball; return {d: Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), on: !!me.ctlOn, y: b.p.y, yaw: Math.atan2(-(b.p.x - me.m.x), -(b.p.z - me.m.z))}; });
     if (i % 8 === 0) trail.push({d: Math.round(s0.d*100)/100, y: Math.round(s0.y*100)/100, on: s0.on});
     if (s0.on){ again = true; break; }
-    if (s0.d < 1.1 && s0.y < .5){ await page.keyboard.up("w"); await page.keyboard.press("f"); }
+    if (s0.d < 1.1 && s0.y < .5){ await page.keyboard.up("w"); }
     else { await page.evaluate(y => { window.__life.P.yaw = y; }, s0.yaw); await page.keyboard.down("w"); }
   }
   await page.keyboard.up("w");
   res.ctl = {on0, off, again, trail};
-  check(on0 && !off.on && off.end === "flick" && again, "a flick from close control ends it; run to the ball, F, and it is yours again", res.ctl);
+  check(on0 && !off.on && off.end === "flick" && again, "a flick from close control ends it; run to the ball and it is in close control again, no key (BCS)", res.ctl);
   const contact = await page.evaluate(() => window.__u28f.contact || []);
   res.contact = contact;
   check(contact.length >= 4 && contact.filter(c => c <= .15).length >= Math.ceil(.75*contact.length), "at the frame of each flick the drawn foot is at the drawn ball (within 0.15 m, three in four)", contact);

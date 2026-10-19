@@ -1,4 +1,4 @@
-// qa/tr2b-shield.mjs: the shield on C, the shoulder check on V, and Ctrl as a shield key only in a locked full screen
+// qa/tr2b-shield.mjs: the shield on C, (BCS) no shoulder check (V does nothing), and Ctrl as a shield key only in a locked full screen
 // (browser, trusted keys). BUILD-PLAN Phase 2b, P2b-B acceptance "tr2b-shield"; TRAINING-SPEC section 0 (shield key)
 // and section 3 (shield behaviour); ball-5, ball-12, ball-13.
 // Owner: P2b-B (TR-2b).
@@ -6,7 +6,7 @@
 // Every key below is a real key press (page.keyboard), with the pointer held on the 3D view as a player has it:
 //   - holding C with the ball sets intent.shield; walking on with W and Shift held you go at most 0.6 x your jog, and
 //     the ball stays on the far side of you from the defender behind you; letting C go ends the shield;
-//   - C no longer turns the look (no shoulder check); V held does, and letting it go turns back;
+//   - C no longer turns the look (no shoulder check); (BCS) V does nothing either;
 //   - outside full screen Ctrl does nothing: no shield, and Ctrl+D is still dropped (D9);
 //   - with navigator.keyboard stubbed (headless Chromium has no real keyboard lock), full screen plus the lock makes
 //     Ctrl shield; with Ctrl held, D and A turn and move you, Shift sets the sprint key, Space and R register; Alt+D
@@ -165,17 +165,18 @@ try {
   const s1c = await page.evaluate(() => window.__t.st());
   check(!s1c.shield && !s1c.ctrlShield, "letting C go ends the shield", s1c.shield);
 
-  // ---- 2. C no longer scans; V held does
+  // ---- 2. C no longer scans; (BCS) there is no shoulder check at all: V held does nothing (this check moved on purpose)
   await page.evaluate(() => window.__t.setup()); await step(3);
   await hold(["c"], 6);
   const s2a = await page.evaluate(() => window.__t.st());
   await lift(["c"]); await step(3);
+  const y2 = await page.evaluate(() => window.__life.P.yaw);
   await hold(["v"], 6);
   const s2b = await page.evaluate(() => window.__t.st());
   await lift(["v"]); await step(20);
-  const s2c = await page.evaluate(() => window.__t.st());
+  const s2c = await page.evaluate(() => Object.assign(window.__t.st(), {lookYaw: window.__life.P.yaw}));
   check(!s2a.scan, "C held: no shoulder check any more", s2a.scan);
-  check(s2b.scan && !s2c.scan, "V held: the shoulder check; let go, it turns back", {held: s2b.scan, after: s2c.scan});
+  check(!s2b.scan && !s2c.scan && Math.abs(s2c.lookYaw - y2) < 1e-9 && !s2b.queue.includes("scan"), "V held: nothing (no shoulder check, BCS): the look stays as it was", {held: s2b.scan, after: s2c.scan, yaw0: y2, yaw1: s2c.lookYaw, queue: s2b.queue});
 
   // ---- 3. outside full screen Ctrl is the browser's: no shield, and Ctrl+D is dropped
   await page.evaluate(() => window.__t.setup()); await step(3);

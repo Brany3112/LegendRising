@@ -1,12 +1,13 @@
-// qa/u27-control.mjs: USER-ISSUES U27, close control (F toggles it on), on the simulation a drill plays on
-// (scen-team.js matchOf), the player's intents set as control.js sets them (F: me.takeT; the keys: intent.dx, dz, gait).
-//   - F takes a ball rolling to you, a loose ball you run to first, and a ball you reach sprinting
+// qa/u27-control.mjs: USER-ISSUES U27, close control, on the simulation a drill plays on (scen-team.js matchOf), the
+// player's intents set as control.js sets them (the keys: intent.dx, dz, gait; (BCS) intent.ctlAuto, the controls on
+// this step). (BCS) Close control is automatic now, no key takes it: this test moved to that on purpose.
+//   - a ball rolling to you, a loose ball you run to first and a ball you reach sprinting are taken into it, no key
 //   - in close control, walking, jogging and sprinting, forward, sideways, backwards, a turn back and a circle: the ball
 //     within CTL_MAX m of you and yours for 3 s each, and a sprint in it a little under your sprint
 //   - a turn is played with the side of the strong foot it needs: left, the ball's right side (a right foot's inside,
 //     a left foot's outside); right, the other way round
 //   - it ends on a pass, a shot, Shift twice (the knock-on) and the ball taken by an opponent
-//   - F again with the ball out of reach takes nothing until it is within reach
+//   - a ball out of reach is not taken until it is within reach
 //
 //   node qa/u27-control.mjs          exits 1 on any failed check
 import {simStep} from "../js/life/football/sim.js";
@@ -37,28 +38,29 @@ function go(o = {}){
 function intent(me, dx, dz, gait){
   const I = me.intent, l = Math.hypot(dx, dz);
   I.dx = l ? dx/l : 0; I.dz = l ? dz/l : 0; I.gait = gait; I.speedCap = Infinity; I.strafe = false; I.knock = false;
+  // ((BCS) your controls ran this step: keepStep takes a ball you are first to into close control)
+  I.ctlAuto = true;
   // (as control.js: a sprint in close control is a little under your sprint, from Dribbling)
   if (me.ctlOn && gait === "sprint"){ const k = Math.min(.97, Math.max(.8, .85 + .1*((me.at.dribbling || 50) - 50)/40)); I.speedCap = k*me.prm.sprint; }
   I.face = I.face || {x: 0, z: 0}; I.face.x = -Math.sin(me.m.yaw); I.face.z = -Math.cos(me.m.yaw);
 }
 const steps = (ms, me, n, way, gait) => { for (let k = 0; k < n; k++){ const w = way(k*H, me); intent(me, w.x, w.z, gait); simStep(ms, H); } };
 
-/* ---------- F takes it ---------- */
+/* ---------- (BCS) taken with no key ---------- */
 {
-  // rolling to you: 5 m out at 4 m/s, F pressed as it comes
+  // rolling to you: 5 m out at 4 m/s
   const a = go({along: 5, roll: -4, loose: true});
-  a.me.takeT = a.ms.t; steps(a.ms, a.me, 90, () => ({x: 0, z: 0}), "jog");
-  // a loose ball 4 m ahead: jog to it with F pressed on the way
+  steps(a.ms, a.me, 120, () => ({x: 0, z: 0}), "jog");
+  // a loose ball 4 m ahead: jog to it
   const b = go({along: 4, loose: true});
-  steps(b.ms, b.me, 20, (t, me) => fwdOf(me), "jog"); b.me.takeT = b.ms.t; steps(b.ms, b.me, 60, (t, me) => fwdOf(me), "jog");
-  // sprinting at a loose ball 8 m ahead, F pressed 2 m out
+  steps(b.ms, b.me, 80, (t, me) => fwdOf(me), "jog");
+  // sprinting at a loose ball 8 m ahead
   const c = go({along: 8, loose: true});
-  let pressed = false;
-  for (let k = 0; k < 150 && !c.me.ctlOn; k++){ const d = Math.hypot(c.ms.ball.p.x - c.me.m.x, c.ms.ball.p.z - c.me.m.z); if (!pressed && d < 2.2){ c.me.takeT = c.ms.t; pressed = true; } const f = fwdOf(c.me); intent(c.me, f.x, f.z, "sprint"); simStep(c.ms, H); }
+  for (let k = 0; k < 150 && !c.me.ctlOn; k++){ const f = fwdOf(c.me); intent(c.me, f.x, f.z, "sprint"); simStep(c.ms, H); }
   const st = x => ({ctlOn: !!x.me.ctlOn, mine: x.ms.poss.ctl === x.me.id, d: r2(Math.hypot(x.ms.ball.p.x - x.me.m.x, x.ms.ball.p.z - x.me.m.z))});
-  check(a.me.ctlOn && a.ms.poss.ctl === a.me.id, "F takes a ball rolling to you into close control", st(a));
-  check(b.me.ctlOn && b.ms.poss.ctl === b.me.id, "F takes a loose ball you run to first", st(b));
-  check(c.me.ctlOn && c.ms.poss.ctl === c.me.id && c.me.m.speed > 5, "F takes a loose ball you reach sprinting", {...st(c), speed: r2(c.me.m.speed)});
+  check(a.me.ctlOn && a.ms.poss.ctl === a.me.id, "a ball rolling to you is in close control after your first touch, no key", st(a));
+  check(b.me.ctlOn && b.ms.poss.ctl === b.me.id, "a loose ball you run to first is in close control, no key", st(b));
+  check(c.me.ctlOn && c.ms.poss.ctl === c.me.id && c.me.m.speed > 5, "a loose ball you reach sprinting is in close control, no key", {...st(c), speed: r2(c.me.m.speed)});
 }
 
 /* ---------- in close control it follows you ---------- */
@@ -71,7 +73,7 @@ const ways = {
 };
 const inCtl = (way, gait) => {
   const {ms, me} = go();
-  me.takeT = ms.t;
+ 
   let worst = 0, lost = 0, off = 0, vmax = 0;
   for (let k = 0; k < 180; k++){
     const w = way(k*H, me); intent(me, w.x, w.z, gait); simStep(ms, H);
@@ -97,7 +99,7 @@ for (const gait of ["walk", "jog", "sprint"]){
 for (const foot of ["R", "L"]){
   const turnTouch = sign => {
     const {ms, me} = go({foot});
-    me.takeT = ms.t;
+   
     steps(ms, me, 60, (t, m) => fwdOf(m), "jog");
     const f = fwdOf(me), side = {x: -f.z*sign, z: f.x*sign};   // sign 1: the right of the way (-fz, fx)
     const n0 = ms.events.length;
@@ -116,26 +118,27 @@ for (const foot of ["R", "L"]){
   const ends = {};
   // a pass and a shot (a kick begun)
   for (const kind of ["pass", "shot"]){
-    const {ms, me} = go(); me.takeT = ms.t; steps(ms, me, 40, (t, m) => fwdOf(m), "jog");
+    const {ms, me} = go(); steps(ms, me, 40, (t, m) => fwdOf(m), "jog");
     const f = fwdOf(me);
     startKick(ms, me, {kind, target: {x: me.m.x + f.x*20, y: kind === "shot" ? 1 : .11, z: me.m.z + f.z*20}, power: .7, speed: 14});
     steps(ms, me, 30, (t, m) => fwdOf(m), "jog");
     ends[kind] = {ctlOn: !!me.ctlOn, end: me.ctlEnd};
   }
   // Shift twice
-  { const {ms, me} = go(); me.takeT = ms.t; steps(ms, me, 40, (t, m) => fwdOf(m), "jog"); const f = fwdOf(me); intent(me, f.x, f.z, "sprint"); me.intent.knock = true; simStep(ms, H); steps(ms, me, 20, (t, m) => fwdOf(m), "sprint"); ends.knock = {ctlOn: !!me.ctlOn, end: me.ctlEnd}; }
-  // an opponent takes it (a tackle won, a poke)
-  { const {ms, me} = go(); me.takeT = ms.t; steps(ms, me, 40, (t, m) => fwdOf(m), "jog"); const opp = ms.agents.find(o => o.team !== me.team && o.role === "player" && o.onPitch); setCtl(ms, opp); steps(ms, me, 5, (t, m) => fwdOf(m), "jog"); ends.lost = {ctlOn: !!me.ctlOn, end: me.ctlEnd}; }
+  { const {ms, me} = go(); steps(ms, me, 40, (t, m) => fwdOf(m), "jog"); const f = fwdOf(me); intent(me, f.x, f.z, "sprint"); me.intent.knock = true; simStep(ms, H); steps(ms, me, 20, (t, m) => fwdOf(m), "sprint"); ends.knock = {ctlOn: !!me.ctlOn, end: me.ctlEnd}; }
+  // an opponent takes it (a tackle won, a poke). ((BCS) he is put on the ball and it is read the step after: with
+  // close control automatic, a ball left at your feet with nobody on it is yours again by the race, and taken again)
+  { const {ms, me} = go(); steps(ms, me, 40, (t, m) => fwdOf(m), "jog"); const opp = ms.agents.find(o => o.team !== me.team && o.role === "player" && o.onPitch); opp.m.x = ms.ball.p.x; opp.m.z = ms.ball.p.z; setCtl(ms, opp); steps(ms, me, 1, (t, m) => fwdOf(m), "jog"); ends.lost = {ctlOn: !!me.ctlOn, end: me.ctlEnd}; }
   check(!ends.pass.ctlOn && !ends.shot.ctlOn && !ends.knock.ctlOn && ends.knock.end === "knock" && !ends.lost.ctlOn && ends.lost.end === "lost",
     "close control ends on a pass, a shot, Shift twice and the ball taken by an opponent", ends);
 }
 
-/* ---------- F again: only within reach ---------- */
+/* ---------- only within reach ---------- */
 {
   const {ms, me} = go({along: 3, loose: true});
-  me.takeT = ms.t; steps(ms, me, 30, () => ({x: 0, z: 0}), "jog");
+  steps(ms, me, 30, () => ({x: 0, z: 0}), "jog");
   const far = !!me.ctlOn;
-  me.takeT = ms.t; steps(ms, me, 50, (t, m) => fwdOf(m), "jog");
-  check(!far && me.ctlOn, `F with the ball 3 m off takes nothing standing; walking up to it (within ${TAKE.REACH} m) it is taken`, {far, after: !!me.ctlOn});
+  steps(ms, me, 80, (t, m) => fwdOf(m), "jog");
+  check(!far && me.ctlOn, `the ball 3 m off is not taken standing; walking up to it (within ${TAKE.REACH} m) it is in close control`, {far, after: !!me.ctlOn});
 }
 done();

@@ -1,8 +1,9 @@
 // qa/u27-feel.mjs: USER-ISSUES U27, close control in the real game with real input (the keyboard, the pointer locked by a
-// real click), in third person:
-//   - F tapped once with W held takes the ball into close control; held Shift (a sprint) it stays within KEEP_MAX m of
-//     you and yours
-//   - Shift tapped twice knocks it on and close control ends; run to it and tap F: it is taken again
+// real click), in third person. ((BCS) close control is automatic, no F: the checks moved to that on purpose)
+//   - with the ball at your feet and W held it is in close control, no key; held Shift (a sprint) it stays within
+//     KEEP_MAX m of you and yours
+//   - Shift tapped twice knocks it on and close control ends; chasing it with Shift held you stay out of it, and letting
+//     go of Shift once you are on it takes it into close control again
 //   - contact sheets (qa/out/u27/*.png): a turn left and a turn right in close control, with which foot and which side
 //     of the ball each touch was (the simulation's touch events)
 //   - no console or page error
@@ -50,39 +51,45 @@ try {
   // the sprint, 5% quicker since U28 part B, reaches its fence within the frames, and the fence stops the ball)
   const watch = n => page.evaluate(n => new Promise(done => { const raf = window.__qa.realRAF; let k = 0, worst = 0, lost = 0, off = 0, vmax = 0; const f = () => { const s = window.__u27.st(); if (k > 10 && s.left > 6){ worst = Math.max(worst, s.d); if (!s.mine) lost++; if (!s.on) off++; vmax = Math.max(vmax, s.v); } if (++k >= n) done({worst: Math.round(worst*100)/100, lost, off, vmax: Math.round(vmax*100)/100}); else raf(f); }; raf(f); }), n);
   await page.keyboard.down("w"); await frames(page, 10);
-  await page.keyboard.press("f"); await frames(page, 20);
+  await frames(page, 20);
   const on0 = await page.evaluate(() => window.__u27.st());
   await page.keyboard.down("Shift");
   const run = await watch(150);
   await page.keyboard.up("Shift");
   res.run = {on0, run};
-  check(on0.on && on0.mine, "F tapped once with W held: the ball in close control", on0);
+  check(on0.on && on0.mine, "W held with the ball at your feet: in close control, no key (BCS)", on0);
   check(run.worst <= KEEP_MAX && run.lost === 0 && run.off === 0 && run.vmax > 5, `held Shift (a sprint): it stays within ${KEEP_MAX} m of you, yours and in close control`, run);
   // Shift twice: knocked on, control off; run to it, F: taken again (from the start again: the sprint above ran the
   // length of the pitch)
   await page.keyboard.up("w"); await begin();
-  await page.keyboard.down("w"); await frames(page, 6); await page.keyboard.press("f"); await frames(page, 20);
+  await page.keyboard.down("w"); await frames(page, 6); await frames(page, 20);
   // (the two presses back to back: a headless frame can be slower than the 0.3 s a double tap has)
   await page.keyboard.press("Shift"); await page.keyboard.press("Shift");
   await page.keyboard.down("Shift"); await frames(page, 12);
   const kn = await page.evaluate(() => { const T = window.__u27.T(), me = T.me; return {on: !!me.ctlOn, end: me.ctlEnd || null, knocks: T.ms.events.filter(e => e.kind === "touch" && e.knock).length}; });
-  // (run on, F pressed every half second until it is taken)
-  let again = false;
-  // (as a player does: F once you are a few strides off it, again if it was not taken)
-  for (let i = 0; i < 80 && !again; i++){
+  // ((BCS) the chase with Shift held: out of close control however near you get; let go of Shift on it: in it again)
+  let chaseOn = false, near = false, again = false;
+  for (let i = 0; i < 100 && !near; i++){
     await frames(page, 2);
     const s0 = await page.evaluate(() => window.__u27.st());
-    if (s0.on){ again = true; break; }
-    if (s0.d < 4) await page.keyboard.press("f");
+    if (s0.on) chaseOn = true;
+    if (s0.d < 1.1 && s0.mine) near = true;
   }
-  await page.keyboard.up("Shift"); await page.keyboard.up("w");
-  res.knock = {kn, again};
+  await page.keyboard.up("Shift");
+  for (let i = 0; i < 60 && !again; i++){
+    await frames(page, 2);
+    const s0 = await page.evaluate(() => window.__u27.st());
+    if (s0.on) again = true;
+  }
+  await page.keyboard.up("w");
+  res.knock = {kn, chaseOn, near, again};
   check(kn.knocks === 1 && !kn.on && kn.end === "knock", "Shift tapped twice: knocked on, close control ends", kn);
-  check(again, "running on to it and tapping F takes it into close control again", {again});
+  check(near && !chaseOn, "chasing it with Shift held: on it, and still out of close control (the strides push it on)", {near, chaseOn});
+  check(again, "letting go of Shift with the ball at your feet: in close control again (BCS)", {again});
   // contact sheets: a turn left and a turn right in close control, the touches' foot and side
   const turn = async (name, key) => {
     await begin();
-    await page.keyboard.down("w"); await frames(page, 6); await page.keyboard.press("f"); await frames(page, 30);
+    await page.keyboard.down("w"); await frames(page, 6); await frames(page, 30);
     const n0 = await page.evaluate(() => window.__u27.T().ms.events.length);
     await page.keyboard.up("w"); await page.keyboard.down(key);
     for (let i = 0; i < 6; i++){ await frames(page, 5); await page.screenshot({path: path.join(DIR, `${name}-${i}.png`), clip: {x: 470, y: 400, width: 340, height: 320}}); }

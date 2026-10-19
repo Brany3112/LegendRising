@@ -1,7 +1,7 @@
-// qa/u26-keep.mjs: USER-ISSUES U26, the ball at your feet (since U27: F pressed once, close control) and the knock-on
+// qa/u26-keep.mjs: USER-ISSUES U26, the ball at your feet (since U27 close control; since BCS automatic) and the knock-on
 // (Shift tapped twice), on the
 // simulation a drill plays on (scen-team.js matchOf), the player's intents set as control.js sets them.
-//   - F held, the ball yours: jogging forward, sideways, backwards, turning back on yourself and standing still, the
+//   - in close control (automatic, BCS), the ball yours: jogging forward, sideways, backwards, turning back on yourself and standing still, the
 //     ball stays within KEEP_MAX m of you and stays yours, each for 3 s
 //   - standing still, it comes to rest in front of you
 //   - R held ("In behind!"): the spot asked for is ahead of your run up the pitch, within 35 degrees of straight at
@@ -31,11 +31,12 @@ function go(seed = 3){
   ms.ball.p.x = me.m.x + f.x*.35; ms.ball.p.z = me.m.z + f.z*.35; ms.ball.p.y = .11; ms.ball.v.x = ms.ball.v.y = ms.ball.v.z = 0;
   return {ms, me};
 }
-// the player's intent for a step: a way (dx, dz) or none, a gait, F held or not, the knock
+// the player's intent for a step: a way (dx, dz) or none, a gait, whether close control is on (automatic since BCS), the knock
 function intent(me, dx, dz, gait, keep, knock = false){
   const I = me.intent, l = Math.hypot(dx, dz);
-  // (U27: F is a toggle, me.takeT, actions.js keepStep; the keep flag here presses it once)
-  if (keep && !me.ctlOn && me.takeT == null) me.takeT = 0;
+  // ((BCS) close control is automatic: control.js sets intent.ctlAuto every step your controls run, and keepStep takes
+  // the ball you are first to into it; the keep flag is kept as the old F was, the controls on throughout)
+  I.ctlAuto = true; void keep;
   I.dx = l ? dx/l : 0; I.dz = l ? dz/l : 0; I.gait = gait; I.knock = knock; I.speedCap = Infinity; I.strafe = false;
   I.face = I.face || {x: 0, z: 0}; I.face.x = -Math.sin(me.m.yaw); I.face.z = -Math.cos(me.m.yaw);
   if (me.drib || l){ const d = me.drib || (me.drib = {dx: 0, dz: 0, gait, speed: 3, t: 0, commit: 0, small: false, start: false}); d.dx = I.dx; d.dz = I.dz; d.gait = gait; d.close = gait === "sprint" ? 0 : 1; if (!l) me.drib = null; }
@@ -62,11 +63,11 @@ const ways = {
 };
 for (const [name, way] of Object.entries(ways)){
   const r = run(way, 3, "jog", true);
-  check(r.worst <= KEEP_MAX && r.lost === 0, `F held, jogging ${name}: the ball within ${KEEP_MAX} m of you and yours for 3 s`, {worst: r.worst, lost: r.lost, speed: r.speed});
+  check(r.worst <= KEEP_MAX && r.lost === 0, `In close control (automatic), jogging ${name}: the ball within ${KEEP_MAX} m of you and yours for 3 s`, {worst: r.worst, lost: r.lost, speed: r.speed});
 }
 {
   const r = run(() => ({x: 0, z: 0}), 3, "jog", true);
-  check(r.worst <= KEEP_MAX && r.lost === 0 && r.end <= .6 && r.v < .3, "F held, standing still: the ball comes to rest in front of you, yours", {worst: r.worst, end: r.end, v: r.v});
+  check(r.worst <= KEEP_MAX && r.lost === 0 && r.end <= .6 && r.v < .3, "In close control (automatic), standing still: the ball comes to rest in front of you, yours", {worst: r.worst, end: r.end, v: r.v});
 }
 {
   const {ms, me} = go();

@@ -1,7 +1,7 @@
 // qa/u26-feel.mjs: USER-ISSUES U26 in the real game with real input (the keyboard held and tapped, the pointer locked by
 // a real click), in third person:
-//   - F held with W, D and S in turn (forward, sideways, backwards, 2 s each): the ball stays within KEEP_MAX m of you
-//     and stays yours
+//   - W, D and S in turn with the ball at your feet (2 s each; (BCS) close control automatic, no F, and D and S turn you
+//     to run that way): the ball stays within KEEP_MAX m of you and stays yours
 //   - Shift tapped twice with W held: the ball is knocked on, at least 3 m ahead of you
 //   - contact sheets for the eye (qa/out/u26/*.png): a run across the facing (D held at a jog), a jump (Space with no
 //     ball near), a strike at nothing (LMB with the ball far away)
@@ -53,11 +53,10 @@ try {
     await page.keyboard.up(key);
     return out;
   };
-  await page.keyboard.down("f");
+  // ((BCS) close control is automatic, no F; in third person D and S turn you to run that way with it)
   const keep = {forward: await hold("w", 2), sideways: await hold("d", 2), backwards: await hold("s", 2)};
-  await page.keyboard.up("f");
   res.keep = keep;
-  for (const [k, r] of Object.entries(keep)) check(r.worst <= KEEP_MAX && r.lost === 0, `F held, ${k}: the ball within ${KEEP_MAX} m of you and yours`, r);
+  for (const [k, r] of Object.entries(keep)) check(r.worst <= KEEP_MAX && r.lost === 0, `the ball at your feet (close control, no key), ${k}: within ${KEEP_MAX} m of you and yours`, r);
   // the knock-on: W held, Shift tapped twice
   await begin();
   await page.keyboard.down("w"); await frames(page, 30);
