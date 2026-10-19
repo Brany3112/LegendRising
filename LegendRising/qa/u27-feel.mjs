@@ -10,7 +10,7 @@
 //   node qa/u27-feel.mjs          exits 1 on any failed check; writes qa/out/u27-feel.json and qa/out/u27/*.png
 import fs from "node:fs";
 import path from "node:path";
-import {OUT} from "./lib.mjs";
+import {OUT, freeze, unfreeze} from "./lib.mjs";
 import {trainLaunch, enterByButton, closeHubReal, lockPointer, frames} from "./tr4b-lib.mjs";
 
 const DIR = path.join(OUT, "u27");
@@ -62,8 +62,12 @@ try {
   // length of the pitch)
   await page.keyboard.up("w"); await begin();
   await page.keyboard.down("w"); await frames(page, 6); await page.keyboard.press("f"); await frames(page, 20);
-  // (the two presses back to back: a headless frame can be slower than the 0.3 s a double tap has)
+  // (the two presses back to back: a headless frame can be slower than the 0.3 s a double tap has. (BCS) And the game's
+  // loop held between them, unfrozen at once: on a loaded machine the page drew a frame in 1 to 4 s and the second press
+  // waited behind it, 3 to 9 s after the first as the page saw them)
+  await freeze(page);
   await page.keyboard.press("Shift"); await page.keyboard.press("Shift");
+  await unfreeze(page);
   await page.keyboard.down("Shift"); await frames(page, 12);
   const kn = await page.evaluate(() => { const T = window.__u27.T(), me = T.me; return {on: !!me.ctlOn, end: me.ctlEnd || null, knocks: T.ms.events.filter(e => e.kind === "touch" && e.knock).length}; });
   // (run on, F pressed every half second until it is taken)
@@ -85,7 +89,8 @@ try {
     await page.keyboard.down("w"); await frames(page, 6); await page.keyboard.press("f"); await frames(page, 30);
     const n0 = await page.evaluate(() => window.__u27.T().ms.events.length);
     await page.keyboard.up("w"); await page.keyboard.down(key);
-    for (let i = 0; i < 6; i++){ await frames(page, 5); await page.screenshot({path: path.join(DIR, `${name}-${i}.png`), clip: {x: 470, y: 400, width: 340, height: 320}}); }
+    // ((BCS) up to 2 minutes a picture: on a loaded machine a frame took 1 to 4 s and the default 30 s ran out)
+    for (let i = 0; i < 6; i++){ await frames(page, 5); await page.screenshot({path: path.join(DIR, `${name}-${i}.png`), clip: {x: 470, y: 400, width: 340, height: 320}, timeout: 120000}); }
     // (the touches while the turn's key is held: let go, the ball's spot comes back in front of you, a turn of its own)
     const out = await page.evaluate(n0 => window.__u27.T().ms.events.slice(n0).filter(e => e.kind === "touch" && e.keep).map(e => ({foot: e.foot, part: e.part, side: e.ballSide})), n0);
     await page.keyboard.up(key);
