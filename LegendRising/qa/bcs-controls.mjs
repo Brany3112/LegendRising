@@ -5,7 +5,7 @@
 // Node part (the simulation a drill plays on, scen-team.js matchOf, with the real controls: control.js controlStep with
 // the keys held, as training.js fixedItem steps them):
 //   - a pass received: after the first touch you are in close control, no key
-//   - a tackle by an opponent (the ball his) ends it ('lost')
+//   - a tackle by an opponent (the ball his) ends it ('lost'); so does the AI standing in for you (ms.meAI: 'ai')
 //   - your own pass or shot is never taken back into it (AUTO.OWN_T), even with the ball still in reach
 //   - a ball an opponent or a team-mate has at his feet is never taken, however near
 // Browser part (Training, real keys under a real pointer lock, third person, the look held, the world stepped by hand
@@ -88,6 +88,18 @@ if (PART === "all"){
     step(ms, me, 1, "w");
     res.node.lost = {on0, on: !!me.ctlOn, end: me.ctlEnd};
     check(on0 && !me.ctlOn && me.ctlEnd === "lost", "the ball taken by an opponent (a tackle, a poke) ends close control ('lost')", res.node.lost);
+  }
+  // the AI standing in for you (ms.meAI: a match played out headless, the harness) on the ball you had in close
+  // control: it ends, and no close-control touch of yours is made after (the AI's own dribble carries it)
+  {
+    const {ms, me} = go();
+    step(ms, me, 30, "w");
+    const on0 = !!me.ctlOn, from = ms.events.length;
+    ms.meAI = true;
+    for (let i = 0; i < 120; i++) simStep(ms, H);
+    const keeps = ms.events.slice(from).filter(e => e.kind === "touch" && e.agent === me.id && e.keep).length;
+    res.node.ai = {on0, on: !!me.ctlOn, end: me.ctlEnd, keeps};
+    check(on0 && !me.ctlOn && me.ctlEnd === "ai" && keeps === 0, "the AI standing in for you (ms.meAI) ends your close control ('ai'), and no close-control touch of yours follows", res.node.ai);
   }
   // your own pass and shot, struck soft so they are still in your reach after the strike: never taken back
   for (const kind of ["pass", "shot"]){

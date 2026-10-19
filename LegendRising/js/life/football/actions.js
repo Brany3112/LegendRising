@@ -902,7 +902,10 @@ export function keepStep(ms, a, h){
   const mv = hypot(I.dx || 0, I.dz || 0) > 0.1;
   let ux, uz;
   if (mv){ const l = hypot(I.dx, I.dz); ux = I.dx/l; uz = I.dz/l; } else { const f = dirOf(a.m.yaw); ux = f.x; uz = f.z; }
-  // the ends of close control
+  // the ends of close control ((BCS) and it is the player's own: with the AI standing in for him (ms.meAI: a match
+  // played out headless, the harness) it ends at once, and so does the chase after a knock-on, the AI's own dribble
+  // carrying the ball. Taken by itself now, it was on whenever the AI took over from a player on the ball)
+  if (ms.meAI){ ctlOff(a, 'ai'); a.ctlChase = false; }
   if (a.ctlOn){
     if (ms.phase !== 'live') ctlOff(a, 'stop');
     else if (a.act && !a.act.done && a.act.kind !== 'header' && a.act.kind !== 'fake') ctlOff(a, a.act.kind);

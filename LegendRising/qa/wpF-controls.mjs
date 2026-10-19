@@ -12,9 +12,10 @@
 //   - no mouse input for 10 s while dribbling: P.pitch unchanged exactly (no auto pitch);
 //   - every key of 1.6 dispatched as a KeyboardEvent has defaultPrevented === true; keys with Ctrl or Alt do nothing;
 //     Q and Tab bring up neither the hub nor the phone;
-//   - receiving: from 12 m/s passes the first touch leaves the ball further from you at control 30 than at 90, within
-//     the spec's touch distances (TRAINING-SPEC 3: 0.6 + 0.8 (1 - q) m, P2b-A; it replaced 1.5.3's numbers);
-//   - (P2b-B) C held with the ball is the shield (intent.shield), not the shoulder check; V held is the shoulder check.
+//   - receiving: from 12 m/s passes the first touch plays the ball further from you at control 30 than at 90 (its
+//     distance, td), within the spec's touch distances (TRAINING-SPEC 3: 0.6 + 0.8 (1 - q) m, P2b-A; it replaced 1.5.3's
+//     numbers); then (BCS) close control takes it in with no key and keeps it at your feet;
+//   - (P2b-B) C held with the ball is the shield (intent.shield); (BCS) V does nothing (the shoulder check is gone).
 //     The real-key version of these, Ctrl in a locked full screen included, is qa/tr2b-shield.mjs.
 //
 //   QA_PORT=8770 node qa/wpF-controls.mjs        exits 1 on any failed check; writes qa/out/wpF-controls.json
@@ -171,7 +172,7 @@ try {
   check(S6.walk[0] === S6.walk[1] && S6.contact[0] === S6.contact[1], "key events with Ctrl or Alt held trigger no action", S6);
   check(S6.phone.mode === "street" && !S6.phone.hub && !S6.phone.shown && S6.phone.fp, "Q and Tab in a match bring up neither the hub nor the phone (1.6)", S6.phone);
 
-  // ---- 7. receiving: the first touch's resting distance from 12 m/s passes, by Ball Control
+  // ---- 7. receiving: the first touch's distance from 12 m/s passes, by Ball Control; (BCS) then close control
   const S7 = await page.evaluate(() => {
     const T = window.__t, res = {};
     for (const ctrl of [30, 90]){
@@ -186,22 +187,33 @@ try {
         b.last.agent = ms.agents.find(a => a.team === me.team && a.slot === "CM").id; b.last.team = me.team; b.last.t = ms.t;
         ms.poss.ctl = -1; ms.poss.team = me.team;
         const from = ms.events.length;
-        let touched = null, vIn = 0;
+        let touched = null, vIn = 0, td = null, got = null;
         for (let i = 0; i < 300; i++){
           T.steps(1);
-          if (!touched){ const e = ms.events.find(e => e.id >= from && e.kind === "touch" && e.agent === me.id); if (e){ touched = {x: e.x, z: e.z}; vIn = e.vIn; } }
-          else if (Math.hypot(b.v.x, b.v.z) < .05) break;
+          if (!touched){ const e = ms.events.find(e => e.id >= from && e.kind === "touch" && e.agent === me.id); if (e){ touched = {x: e.x, z: e.z}; vIn = e.vIn; td = e.td; } }
+          else {
+            // ((BCS) where the first touch had the ball when close control took it in: the step it came on)
+            if (got == null && me.ctlOn) got = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z);
+            if (Math.hypot(b.v.x, b.v.z) < .05) break;
+          }
         }
-        if (touched) ds.push({d: Math.hypot(b.p.x - touched.x, b.p.z - touched.z), body: Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), vIn});
+        if (touched) ds.push({d: Math.hypot(b.p.x - touched.x, b.p.z - touched.z), body: Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), vIn, td, got});
       }
-      res[ctrl] = {n: ds.length, mean: ds.reduce((s, x) => s + x.d, 0)/Math.max(1, ds.length), body: ds.reduce((s, x) => s + x.body, 0)/Math.max(1, ds.length), vIn: ds.length ? ds[0].vIn : null};
+      const mean = (k, xs = ds) => xs.reduce((s, x) => s + x[k], 0)/Math.max(1, xs.length), gs = ds.filter(x => x.got != null);
+      res[ctrl] = {n: ds.length, td: mean("td"), mean: mean("d"), body: mean("body"), gathered: gs.length, got: mean("got", gs), vIn: ds.length ? ds[0].vIn : null};
     }
     return res;
   });
   // (TRAINING-SPEC 3, P2b-A: the first touch leaves the ball touchDist(q) = 0.6 + 0.8 (1 - q) m ahead of the receiver, so
-  // a poorer control knocks it further from him; the old 1.5.3 numbers measured the roll from the touch itself)
-  check(S7[30].n >= 8 && S7[90].n >= 8 && S7[30].body > S7[90].body + .1, "first touch from 12 m/s passes: at control 30 the ball rests further from you than at 90 (mean)", {c30: S7[30], c90: S7[90]});
-  check(S7[90].body >= .3 && S7[30].body <= 1.9, "first touch from 12 m/s passes: the ball rests within the touch distances of the spec (0.6 to 1.4 m, give or take its roll)", {c30: +S7[30].body.toFixed(2), c90: +S7[90].body.toFixed(2)});
+  // a poorer control knocks it further from him; the old 1.5.3 numbers measured the roll from the touch itself.
+  // (BCS) moved on purpose: close control is automatic now, so AUTO.FIRST_T s after the first touch the ball is taken in
+  // and kept at your feet, and where it would have come to rest is no longer seen. The touch's own distance (its event's
+  // td: touchDist(q) with its length error) is what Ball Control sets, and close control then takes it in, no key. The
+  // bounds are the old ones on the rest, now on td: standing with no keys and the assists on, the touch is the settle's,
+  // SETTLE.D + SETTLE.Q (1 - q) = 0.38 to 0.68 m, UF2-A, as it was before)
+  check(S7[30].n >= 8 && S7[90].n >= 8 && S7[30].td > S7[90].td + .1, "first touch from 12 m/s passes: at control 30 the touch plays the ball further from you than at 90 (mean of its distance, td)", {c30: S7[30], c90: S7[90]});
+  check(S7[90].td >= .3 && S7[30].td <= 1.9, "first touch from 12 m/s passes: the touch's distance is within those of the spec (0.6 to 1.4 m, the settle's 0.38 to 0.68 m, give or take its length error)", {c30: +S7[30].td.toFixed(2), c90: +S7[90].td.toFixed(2)});
+  check(S7[30].gathered >= 8 && S7[90].gathered >= 8 && S7[30].body <= 1 && S7[90].body <= 1, "(BCS) after the first touch close control takes the ball in with no key (8 of 10 at least) and keeps it at your feet", {c30: S7[30], c90: S7[90]});
   // ---- 8. (P2b-B) C is the shield; (BCS) V does nothing (there is no shoulder check any more: moved on purpose)
   const S8 = await page.evaluate(() => {
     // (a plain key let go first: the Ctrl and Alt presses of section 6 left the modifier flag of their last event)
