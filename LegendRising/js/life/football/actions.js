@@ -926,9 +926,14 @@ export function keepStep(ms, a, h){
       if (ms.phase !== 'live' || (b.last.agent >= 0 && b.last.agent !== a.id) || (ms.poss.ctl >= 0 && ms.poss.ctl !== a.id)) a.ctlChase = false;
       else if (a.ctlOut && (I.gait !== 'sprint' || a.m.speed < AUTO.RUN_K*gaitSpeed(a.prm, a.fac, 'run'))) a.ctlChase = false;
     }
-    const L = b.last, own = L.agent === a.id;
+    // (his own strike remembered when it was struck (a.ownT): a touch of his own on it since, the race giving it back
+    // to him once the kick's ghost is over, is still his own ball; another body's touch, or a deflection, frees it)
+    const L = b.last, own = L.agent === a.id && L.kind !== 'deflect';
+    if (own && STRUCK.has(L.kind)) a.ownT = L.t;
+    else if (!own) a.ownT = null;
+    const struck = own && a.ownT != null && ms.t - a.ownT < AUTO.OWN_T;
     if (!a.ctlChase && ms.phase === 'live' && ms.poss.ctl === a.id && b.state === 'free' && b.p.y < TAKE.MAX_Y && dist <= AUTO.REACH*sc && !(a.act && !a.act.done) &&
-      !(own && STRUCK.has(L.kind) && ms.t - L.t < AUTO.OWN_T) && !(own && L.kind === 'control' && ms.t - L.t < AUTO.FIRST_T)){
+      !struck && !(own && L.kind === 'control' && ms.t - L.t < AUTO.FIRST_T)){
       a.ctlOn = true; a.ctlEnd = null; a.ctlDir = {x: ux, z: uz};
       return ctlTouch(ms, a, ux, uz, true);
     }

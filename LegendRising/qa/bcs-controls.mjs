@@ -307,8 +307,9 @@ try {
   {
     await keys(["w"]); await run(40);
     const on0 = (await run(1))[0].on;
-    // (Shift twice, a frame apart, then held: the knock-on and the chase at a sprint)
-    await page.keyboard.press("Shift"); await run(2); await page.keyboard.press("Shift"); await page.keyboard.down("Shift");
+    // (Shift twice back to back, then held: the knock-on and the chase at a sprint. A double tap is measured on the wall
+    // clock, KNOCK_TAP s, and a headless frame can be slower than that)
+    await page.keyboard.press("Shift"); await page.keyboard.press("Shift"); await page.keyboard.down("Shift");
     const r = await run(240);
     const kn = r.find(x => x.end === "knock"), chase = r.filter(x => x.chase), back = r.some(x => x.on);
     const near = r.filter(x => x.d < AUTO.REACH && x.mine).length;
