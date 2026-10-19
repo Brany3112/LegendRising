@@ -2,7 +2,7 @@
 // locked by a real click). Training Mode's runner plays a scenario of the test's own on the same engine, controls,
 // camera, view and HUD as a career match and the career's training sessions (one control.js, matchcam.js, view.js,
 // fphud.js), so what holds here holds for every football moment.
-//   - the start: from the cage's life camera (first person) to third person, eased (no cut: the camera never jumps)
+//   - the start: behind you from its first drawn frame, your whole body drawn (U29: no first-person start eased back)
 //   - third person: behind and above your head (about 4 m back, 1.8 m over it), looking at your aim point on the pitch
 //     ahead (the screen's middle, where the crosshair is); your whole body drawn, the first-person one not
 //   - it turns with the mouse (real movement) as the aim does
@@ -10,7 +10,8 @@
 //     team-mate, real) all work in third person, and the shot goes where you aim
 //   - never through the fence: standing with your back to it the camera is pulled in, inside it
 //   - the setting: Football camera = First person turns it back to your eyes (eased), and Third person back again
-//   - life: first person; behind you while you have the ball (hand.js ME.footBall), first person again after
+//   - Training's cage follows the Football camera setting (U29): behind you, the ball at your feet or not; first person
+//     when the setting is First person
 //   - no console or page error
 //
 //   node qa/u21-camera.mjs          exits 1 on any failed check; writes qa/out/u21-camera.json and qa/out/u21/*.png
@@ -77,18 +78,24 @@ try {
   const lock = async () => { const id = await lockPointer(page); if (!id) throw new Error("the pointer could not be locked"); await page.mouse.move(0, 0); return id; };
   const ready = () => page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 60000});
 
-  /* ---------- the start: eased, then third person ---------- */
+  /* ---------- the start: behind you from its first frame (U29) ---------- */
   await page.evaluate(() => window.__u21.C.saveSet({footCam: "third", assist: "on"}));
   await unfreeze(page); await frames(page, 20);
   const life0 = await page.evaluate(() => ({owner: window.__life.camTop ? window.__life.camTop() : null}));
+  // (every real frame from the start on, once the activity draws: how far behind you the camera is, matchcam.js MC.tpK,
+  // and whether your whole body is drawn, view.js V.tp)
+  await page.evaluate(() => { const raf = window.__qa && window.__qa.realRAF ? window.__qa.realRAF : requestAnimationFrame; window.__u21.first = []; let n = 0;
+    const f = () => { const T = window.__u21.T(); if (T && T.V){ window.__u21.first.push({k: window.__u21.M.MC.tpK, whole: !!T.V.tp}); n++; } if (n < 75) raf(f); }; raf(f); });
   await page.evaluate(() => window.__u21.start({}));
   await ready();
   const W0 = await watch(75);
+  const first = await page.evaluate(() => window.__u21.first);
   const S0 = await page.evaluate(() => window.__u21.state());
-  res.start = {W0, S0, life0};
+  res.start = {W0, S0, life0, frames: first.length, firstFp: first.findIndex(x => x.k < 1 || !x.whole)};
   // (a cut is the whole way, about 4.4 m, in one frame: an endless speed; eased it never goes faster than matchcam.js TP.SPEED,
   // 7 m/s, under 0.15 m a 60 Hz frame; measured over the real frames' own times, with a margin for their jitter)
-  check(W0.maxSpeed < 10 && W0.maxTurn < .35, "the start eases from your eyes to behind you: no cut (never faster than 10 m/s, under 0.17 m a 60 Hz frame; turn under 20 degrees a frame)", W0);
+  check(first.length >= 20 && first.every(x => x.k === 1 && x.whole), "the start is behind you from its first drawn frame, your whole body drawn: no first-person frame, no glide while it loads", {frames: first.length, firstFp: res.start.firstFp, head: first.slice(0, 4)});
+  check(W0.maxSpeed < 10 && W0.maxTurn < .35, "and steady after it: no jump (never faster than 10 m/s, under 0.17 m a 60 Hz frame; turn under 20 degrees a frame)", W0);
   check(S0.on && S0.tpK === 1, "a football activity is in third person by default", {tpK: S0.tpK});
   check(S0.back > 2.6 && S0.back < 4.4 && S0.up > 1.2 && S0.up < 2.3 && Math.abs(S0.side) < .4, "the camera is about 4 m behind you and 1.8 m above your head", {back: S0.back, up: S0.up, side: S0.side});
   // (looking level the aim is far ahead at eye height, and the camera, over your head, looks down past you to it; looking
@@ -175,7 +182,7 @@ try {
   check(S3.tpK === 0 && S3.fp && !S3.whole && W3.maxSpeed < 10, "Football camera = First person: your eyes again, eased (no cut), your first-person body under them", res.setting);
   check(S4.tpK === 1 && W4.maxSpeed < 10, "Third person again: eased back behind you", {tpK: S4.tpK, W4});
 
-  /* ---------- life: first person; behind you while you have the ball ---------- */
+  /* ---------- Training's cage (U29): it follows the Football camera setting, the ball at your feet or not ---------- */
   await page.evaluate(() => window.__trainRun.stopScenario("hub"));
   await page.evaluate(() => { if (window.__trainHub.hubOpen()) window.__trainHub.closeHub(); });
   await frames(page, 60);
@@ -192,10 +199,16 @@ try {
   await page.evaluate(() => { const ME = window.__u21.ST.ME; delete ME.footBall; ME.footBall = false; ME.footBallT = 0; });
   await frames(page, 60);
   const L2 = await page.evaluate(() => ({camT: window.__u21.ST.ME.camT, tp: window.__u21.ST.ME.tpShown}));
-  res.life = {L0, L1, L2, placed};
-  check(L0.camT === 0 && !L0.tp, "life is first person", L0);
-  check(L1.camT === 1 && L1.tp, "with the ball (hand.js ME.footBall) life goes behind you", L1);
-  check(L2.camT === 0 && !L2.tp, "and back to first person once you no longer have it", L2);
+  await page.evaluate(() => window.__u21.C.saveSet({footCam: "first"}));
+  await frames(page, 60);
+  const L3 = await page.evaluate(() => ({camT: window.__u21.ST.ME.camT, tp: window.__u21.ST.ME.tpShown}));
+  await page.evaluate(() => window.__u21.C.saveSet({footCam: "third"}));
+  await frames(page, 30);
+  res.life = {L0, L1, L2, L3, placed};
+  check(L0.camT === 1 && L0.tp, "Training's cage is behind you (Football camera Third person), the ball or not", L0);
+  check(L1.camT === 1 && L1.tp, "with the ball (hand.js ME.footBall) still behind you", L1);
+  check(L2.camT === 1 && L2.tp, "and still behind you once you no longer have it", L2);
+  check(L3.camT === 0 && !L3.tp, "Football camera First person: the cage through your eyes", L3);
 } catch(e){ check(false, "ran", String(e && e.stack || e)); }
 res.pageErrors = page.errors.slice(0, 5);
 check(!page.errors.length, "zero console and page errors", page.errors.slice(0, 5));

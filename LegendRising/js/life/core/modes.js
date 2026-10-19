@@ -11,7 +11,7 @@ import {MINI} from "../mini.js";
 /* ---------- modes ---------- */
 // what plain life allows; a mode's flags are these with its own on top
 const LIFE_FLAGS = Object.freeze({clock:"life", movement:"life", targeting:true, tunnel:true, closing:true, homeTick:true,
-  compass:true, saves:"life", tp:true, hud:"life", pauseOnUnlock:false, leaveOnZone:true});
+  compass:true, saves:"life", tp:true, hud:"life", pauseOnUnlock:false, leaveOnZone:true, footTP:false});
 const MODES = {};
 const CUR = {name:"life", arg:null};
 /* spec = {enter(arg), exit(reason), step?(dt, real), fixed?(h), input?(ev) -> consumed, flags}, and two optional

@@ -3,7 +3,8 @@
 //   - out 'rebound' emits no out and play goes on; out 'stop' emits an out and a restart (the simulation itself);
 //   - the brains' prediction of the ball never leaves the cage in rebound mode (rules.js turns the fences on for it);
 //   - the One-goal cage has exactly one goal, with clipped markings (none outside its area);
-//   - the cage costs at most 12 draw calls on Low (the whole scene, from the spawn and looking back across it);
+//   - the cage costs at most 13 draw calls on Low (the whole scene, from the spawn and looking back across it; your own
+//     body seen from behind in third person is one of them);
 //   - cageEnter to every other kind rebuilds it (the spec, the goals, the anchors) and fires train:cage.
 // Owner: P3-A (Training Mode, Phase 3). Contract: BUILD-PLAN P3-A acceptance "qa/tr3-cage.mjs"; TRAINING-SPEC 0 and 4.
 //
@@ -95,7 +96,9 @@ for (const kind of CAGE_KINDS){
     const goals = ms.events.slice(n0).filter(e => e.kind === 'goal' && !e.disallowed);
     check(goals.length === 1, `${kind}: a ball into the real goal is still a goal in rebound mode`, goals.length);
   }
-  if (kind !== 'full'){
+  // (a cage cut from a pitch with an end left open; the cages of the pitch types, U28 part F, are whole pitches with a
+  // goal at each end)
+  if (kind !== 'full' && cageMatch(kind, 'rebound').spec.goals.length < 2){
     const ms = cageMatch(kind, 'rebound'), b = ms.ball;
     b.state = 'free'; b.p.x = -ms.spec.hx + 6; b.p.y = R; b.p.z = 0; b.v.x = -24; b.v.y = 1; b.v.z = 0; b.last.team = 0; b.last.agent = 1; b.inField = null;
     for (const a of ms.agents) if (a.role === 'player'){ a.m.x = ms.spec.hx*.8; }
@@ -139,7 +142,8 @@ for (const kind of CAGE_KINDS){
           P: {x: +L.P.x.toFixed(2), z: +L.P.z.toFixed(2)}, netVerts: nets ? nets.geometry.attributes.position.count : 0};
       }, kind);
       check(m.kind === kind && m.zone === "cage" && m.mode === "trainsb" && m.S, `${kind}: the cage is built in Training, no career`, {kind: m.kind, mode: m.mode});
-      check(Math.max(...m.calls) <= 12, `${kind}: the cage costs at most 12 draw calls on Low`, m.calls);
+      // (13 since U29: the cage view is behind you in third person, your whole body in it, one call more)
+      check(Math.max(...m.calls) <= 13, `${kind}: the cage costs at most 13 draw calls on Low (12, and your own body seen from behind)`, m.calls);
       check(m.goals === (kind === "full" ? 2 : 1) && m.anchors === 7, `${kind}: its goals and the seven cone anchors`, {goals: m.goals, ends: m.ends, anchors: m.anchors});
       await snap(page, "tr3-cage-" + kind);
     }

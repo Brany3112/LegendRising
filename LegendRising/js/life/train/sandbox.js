@@ -33,7 +33,9 @@ const ST = {on:false, kind:null, entering:null, prevMin:null};
 registerMode("trainsb", {
   enter(){}, exit(){},
   flags:{clock:"frozen", movement:"life", targeting:sp => !!sp && W.zone === "cage", tunnel:false, closing:false, homeTick:false,
-    compass:false, saves:"defer", tp:true, hud:"life", pauseOnUnlock:true, leaveOnZone:false}
+    compass:false, saves:"defer", tp:true, hud:"life", pauseOnUnlock:true, leaveOnZone:false,
+    // (U29) the view follows the Football camera setting (third person by default) from the first frame, a panel up or not
+    footTP:true}
 });
 
 const fire = (name, detail) => { try { window.dispatchEvent(new CustomEvent(name, {detail})); } catch(e){ console.error(e); } };
