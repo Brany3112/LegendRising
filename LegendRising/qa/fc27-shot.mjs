@@ -359,7 +359,9 @@ check(ok && SH.every(m => m.yawErr <= .2 && m.yawRate <= .2), "turned to the aim
   pick("yawErr", "yawRate"));
 check(ok && SH.every(m => m.stepIn && m.late == null), "SH-7 each is a step-in and its clip is not begun late", pick("stepIn", "tc", "late", "pre"));
 check(ok && SH.every(m => m.stepLen >= .15), "SH-7 the plant step is drawn: the support foot carried 0.15 m or more onto the plant", pick("stepLen"));
-check(ok && SH.every(m => inR(m.plant, -.23, -.17)), "SH-1 the plant foot comes down 0.17 to 0.23 s before the contact", pick("plant"));
+// (SH-1's case is an approach of 2.5 m/s or less: the review's dribble, let go at over 4 m/s and let down to the
+// step-in's pace on a metre's plant step, has its foot on the grass up to a frame sooner)
+check(ok && SH.every(m => inR(m.plant, -.23 - (m.vRel > 2.5 ? H : 0), -.17)), "SH-1 the plant foot comes down 0.17 to 0.23 s before the contact (a frame more for one let go above 2.5 m/s)", pick("plant", "vRel"));
 // (from a stand; on the move, walked or run up, the trailing foot leaves as the body leaves it behind, rolled right up
 // onto its toes, moves.js SHOT.PEEL: earlier, reported)
 const STOOD = SH.filter(m => m.name === "stand" || m.name === "left" || m.name === "turn");

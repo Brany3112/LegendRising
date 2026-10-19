@@ -98,10 +98,13 @@ export const kindOf = k => KINDS[k] ? k : ALIAS[k] || "instep";
    the top to the contact (radians); PITCH the trunk's pitch forward after the landing, on the move; FULL the least
    time to the contact (s) for which a shot let go from a held wind-up swings the full swing from its cocked leg; DROP
    the most the hips come down to reach a long plant step (the rest of the way they lead on into it, reachLevel); PEEL
-   the kicking foot's roll onto its toes (rad) at which a trailing foot left behind leaves before OFF */
+   the kicking foot's roll onto its toes (rad) at which a trailing foot left behind leaves before OFF; STEP the least
+   time the simulation's contact leaves for the plant step (s) for it to be a step-in's own (strikeBegin's C.step: a
+   step-in leaves 0.10 to 0.15 s less a frame or two of the drawing's lag, a strike in the reach window none); LEAD how
+   much sooner than its clock says (s) a shot begun late plans to meet the ball (newClip) */
 export const SHOT = Object.freeze({OFF: 0, TOP: .10, FT: .115, LAND: .36, S_HEEL: .20, S_OFF: .27, S_LAND: .58, MOVE: 1.0,
   PRE: [.12, .30], HOP: .12, HOP_T: .08, TOP_B: [.14, .06], TOP_Y: [.47, .12], V_TOP: 1.6, V_END: 7.5, FT_IN: .03, LAND_IN: .02,
-  DIP: .07, LEAN: .36, ARM: 1.45, PITCH: .32, FULL: .15, DROP: .06, PEEL: 1.0});
+  DIP: .07, LEAN: .36, ARM: 1.45, PITCH: .32, FULL: .15, DROP: .06, PEEL: 1.0, STEP: .05, LEAD: 1/60});
 
 /* the faces of the foot in the foot bone's own frame (body units: the ankle at the origin, +z along the foot, the sole at
    -0.085): the laces 0.06 above the sole, the inside face, the tip of the toes (under the ball for a chip), the sole */
@@ -187,6 +190,8 @@ const CLIP_RATE_MIN = .4, CLIP_RATE_MAX = 2;
 function newClip(h, key, st, spec){
   const C = h.mv || (h.mv = {});
   C.key = key; C.id = st.id; C.base = h.at; C.lastAt = h.at; C.lastT = 0; C.tau = spec.pre ? -spec.pre : 0; C.pre = spec.pre || 0; C.back = 0;
+  // ((FC27) the shot's: a step-in's own plant step, and how much sooner a shot begun late plans its contact: strikeBegin)
+  C.step = false; C.win = false; C.lead = 0;
   C.dur = spec.dur; C.contact = spec.contact; C.fired = 0; C.contactDone = false; C.reachErr = 0; C.tcAt = NaN; C.rate = 1;
   C.post = st.rate > 0 ? st.rate : 1;
   C.events = spec.events || null;             // [[bit, tau], ...] the clip's own moments (contact excluded)
@@ -200,8 +205,12 @@ function newClip(h, key, st, spec){
   // strikes it. Begun at the top, a strike struck within 0.18 s of being asked had its leg still swinging as the ball left
   // (C.late: the clip time it began at when it began late so, else -Infinity; the strike's swing and its plant step go
   // from where the feet are at that moment, strike(): begun part way along their paths, they were drawn there at once)
+  // ((FC27) a shot begun late plans to meet the ball C.lead sooner: the simulation's contact, in the step that reaches
+  // it, can come a frame before the drawing's, and a clip begun late plays at its fastest all the way, with no time to
+  // make up; a shot's foot comes into the ball at 7.5 m/s, and a frame short it was 0.2 m off it at the kick)
   C.late = -Infinity;
-  if (!C.legacy && st.tc != null && isFinite(st.tc) && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*st.tc){ C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*st.tc); C.late = C.tau; }
+  const tcL = st.tc != null && isFinite(st.tc) ? Math.max(0, st.tc - C.lead) : null;
+  if (!C.legacy && tcL != null && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*tcL){ C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*tcL); C.late = C.tau; }
   if (!C.legacy){ C.tcAt = st.tc != null && isFinite(st.tc) ? Math.max(0, h.at - C.base + st.tc) : (C.contact - C.tau)/C.post; }
   return C;
 }
@@ -706,8 +715,11 @@ function strikeBegin(h, C, st){
     // nor a strike in the reach window's 0.10 to 0.18 s, its clip played up to twice as fast from late in its step):
     // the hips lead into it (reachLevel) and hold there to the contact, the kicking foot leaves at the plant's moment.
     // Held to the contact in a clip played twice as fast, the hips could not come back in time and the foot missed the
-    // ball by 0.2 m)
-    C.step = room >= SHOT.PRE[0] - 1e-6;
+    // ball by 0.2 m. (A step-in's room is 0.10 to 0.15 s less the drawing's lag: SHOT.STEP, not SHOT.PRE[0], which a
+    // walk-up's step-in fell under by a frame and was drawn as a strike in the reach window)
+    // (C.win: a shot in the reach window, not let go from a held wind-up: strikePath's curve to the ball, strike())
+    C.step = room >= SHOT.STEP; C.win = !C.step && !C.fromHold;
+    C.lead = SHOT.LEAD;
     if (C.fromHold){
       // let go from a held wind-up: with the time for it and the plant more than HOP from the foot he stands on, that
       // foot hops onto it first; else he strikes off the foot he stands on. Either way the cocked leg swings the shot's
@@ -987,7 +999,11 @@ function strike(h, T, st, dt){
     // (the toe-off at SHOT.OFF and the early one, PEEL, for a shot's own plant step; a run-up's last step handed over
     // (st.pre) keeps its toe-off at 0.02 as its own stride had it)
     d.off = C.step ? SHOT.OFF : .02; d.peel = !!C.step;
-    d.shot = !!K.shot && !(C.late > d.off) && !(C.fromHold && C.contact - C.tau < SHOT.FULL - 1e-6);
+    // ((FC27) and not a shot in the reach window (C.win: 0.10 to 0.18 s to its contact, its clip played up to twice as
+    // fast): strikePath's one smooth curve to the ball, as before the shot's own swing. The shot's, its foot coming in
+    // from the top at 7.5 m/s in the clip's last tenth of a second, played that fast was more than the joints can turn
+    // in the frames left, and the foot came short of a ball rolling on ahead of a running body by 0.2 m)
+    d.shot = !!K.shot && !C.win && !(C.late > d.off) && !(C.fromHold && C.contact - C.tau < SHOT.FULL - 1e-6);
   }
   const tau = C.tau, ct = K.contact, dur = K.dur;
   // (the turn of the body since the clip began, back: a foot's turn in the body's frame plus this stays put in the world)
@@ -1101,7 +1117,7 @@ function strike(h, T, st, dt){
   // step never raising the hips: reaching for the top, high behind him, lifted them and the planted foot with them)
   if (tau <= ct){
     const y0 = T[61], rh = d.rh || (d.rh = {x:0, y:0, z:0});
-    reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2))*(K.shot ? sstep(SHOT.TOP, SHOT.TOP + .06, tau) : 1), rh);
+    reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2))*(K.shot && !C.step ? sstep(SHOT.TOP, SHOT.TOP + .06, tau) : 1), rh);
     if (K.shot && C.step && T[61] > y0){ T[61] = y0; rh.y = 0; }
   }
   // the support foot's landing on its plant: a fast run-up carries the body on past it, so where the leg would not reach
