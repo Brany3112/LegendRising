@@ -124,8 +124,13 @@ export function camInit(src){
   MC.wind.k = MC.wind.over = 0; const F = MC.follow; F.on = false; F.y = F.p = 0; F.seq = -1; F.ev = null;
   const a = MC.act; for (const k in a) a[k] = 0;
   const hd = MC.head; for (const k in hd) hd[k] = 0;
-  // (U21: every activity starts through your eyes and eases back behind you, so it never cuts)
-  MC.tpK = 0; MC.tp.on = false; MC.tp.y = null; TPR.on = false;
+  // (U29: an activity starts where the Football camera setting has it, behind you in third person from its first frame,
+  // your whole body drawn: it used to start through your eyes and ease back behind you while the scene was still
+  // loading, the headless first-person body showing and the ease stuttering. The ease is kept for the setting changed
+  // in play, tpFrame)
+  let me0 = null;
+  try { me0 = src && src.me ? src.me() : null; } catch (e) { me0 = null; }
+  MC.tpK = tpWanted(me0) ? 1 : 0; MC.tp.on = MC.tpK > .5; MC.tp.y = null; TPR.on = false;
   camPush(FP_OWNER);
   MC.on = true;
 }

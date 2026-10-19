@@ -177,6 +177,35 @@ still on screen.
 - **Open:**
   - `wpF-strike` (in no group) still reads the old reticle.
 
+## U29: the flick by Strength and Ball Control, and Training starting in third person
+
+- **The flick goes mainly up, then over toward the way held** (`actions.js FLICK`, `flickTop`, `flickLaunch`).
+  - **Its top:** the bar's share of `flickTop(Strength)`: 1.5 m at 33, 3 at 55, 4.5 at 99, straight lines between,
+    0.5 m at 0, 5 m at most. It is not scaled by the player's size.
+  - **Where it comes down:** `FLICK.D_K` (0.75) of the top plus `FLICK.D_0` (0.5 m) along the way held; the keepy-up
+    0.3 m on.
+  - **The launch:** fitted by halves on a fresh copy of the ball flown through `ball.js` (gravity, drag, the touch's
+    spin) to that top and that landing. The copy's flight ends at its first bounce: the step that meets the grass
+    turns it up again.
+  - **No stat moves it off what was asked.** The old Ball Control, Technique, pressure and scuff error, `FLICK.FAST`
+    and the Shot Power distance are gone.
+- **The bar** (`control.js FLICK_CHG`, `flickRate`, `flickFull`): a full bar in 0.5/1.5 s, then that many times quicker
+  by Ball Control (0.6 at 33, 1.5 at 55, 3 at 99), giving 0.56, 0.22 and 0.11 s.
+- **The sombrero:** `actions.js playIt` leaves the ball to a first-time flick waiting for it. The control touch had
+  stopped it just out of the flick's reach.
+- **The camera:**
+  - `matchcam.js camInit` starts `MC.tpK` at what the setting wants, so a drill or a match is behind you from its
+    first frame (it began through your eyes and eased back while loading).
+  - Training's cage: the `trainsb` mode has `flags.footTP`. `me.js viewStep` then follows the football camera setting
+    from the first frame, the hub up or not, with no glide on entering.
+- **Tests:**
+  - `u28-flick` rewritten 7/7: heights 4.5, 3 and 1.5 m and half a bar half of them, landings, the Strength-33 cap,
+    no stat error, the sombrero over a man, close control ended.
+  - New `u29-flickcam` (real input): no first-person frame from the Training button, the bar's fill times read off the
+    bar, a Strength-99 flick to 4.5 m.
+  - `u21-camera`: the start is now behind you from the first drawn frame, with the whole body.
+- The guide picture gained the flick rows.
+
 ## Shot Accuracy, Shot Power and the flick's speed (the user's last asks)
 
 These apply to every player, the AI too (`strike.js`).

@@ -1,14 +1,16 @@
-// qa/u28-flick.mjs: U28 part G, the flick and the chip (the wheel's button), on the simulation a drill plays on: the
+// qa/u28-flick.mjs: U28 part G as U29 has it, the flick (the wheel's button), on the simulation a drill plays on: the
 // action control.js flick queues ({kind: "flick", p, fwd, side, first}).
 //   - each of the eight ways and none lifts the ball the right way from the facing (none: a keepy-up, nearly straight up)
-//   - a light flick pops it low and short, a full one high and long
-//   - over many tries a skilled player lands it nearer where it was asked than a poor one
+//   - its top by Strength: a full bar 1.5 m at 33, 3 at 55, 4.5 at 99 (within 0.15 m); half a bar half of it; never past
+//     what the Strength allows
+//   - it comes down 0.75 of its top and 0.5 m on along the way held (within 0.3 m)
+//   - no stat moves it off what was asked: the same flick by a poor and a fine Ball Control lands in the same spot
 //   - a ball rolling to you, flicked first time (the sombrero), goes up and over a man in front of you
 //   - a flick from close control ends it
 //
 //   node qa/u28-flick.mjs          exits 1 on any failed check
 import {simStep} from "../js/life/football/sim.js";
-import {FLICK} from "../js/life/football/actions.js";
+import {FLICK, flickTop} from "../js/life/football/actions.js";
 import {setupOf, matchOf, H} from "./tr6-teamlib.mjs";
 import {drill} from "../js/life/train/scen-team.js";
 import {checker} from "./wpF-lib.mjs";
@@ -22,7 +24,8 @@ function go(o = {}){
   const {ms} = matchOf(setup, spec, "train");
   ms.meAI = false;
   const me = ms.agents[ms.me];
-  for (const a of ms.agents) if (a !== me) a.hold = true;
+  // (everybody else held and moved 30 m off: a held man still challenges for a loose ball in his reach)
+  for (const a of ms.agents) if (a !== me){ a.hold = true; a.m.z = a.z0 = me.m.z + 30; a.m.x = a.x0 = me.m.x; }
   if (o.at) Object.assign(me.at, o.at);
   const f = fwdOf(me), along = o.along != null ? o.along : .4;
   ms.ball.p.x = me.m.x + f.x*along; ms.ball.p.z = me.m.z + f.z*along; ms.ball.p.y = .11;
@@ -36,7 +39,7 @@ function flick(rq, o = {}){
   const {ms, me, f} = go(o);
   me.intent.action = Object.assign({kind: "flick"}, rq);
   let launch = null, apex = 0, land = null, ev = null;
-  for (let k = 0; k < 240; k++){
+  for (let k = 0; k < 300; k++){
     still(me); simStep(ms, H);
     if (!ev){ ev = ms.events.find(e => e.kind === "touch" && e.how === "flick"); if (ev){ const v = ms.ball.v, l = Math.hypot(v.x, v.z) || 1; launch = {x0: ms.ball.p.x, z0: ms.ball.p.z, along: (v.x*f.x + v.z*f.z)/l, across: (v.x*-f.z + v.z*f.x)/l, vy: v.y, vh: Math.hypot(v.x, v.z)}; } }
     if (ev){ apex = Math.max(apex, ms.ball.p.y); if (!land && k > 2 && ms.ball.p.y < .2 && ms.ball.v.y <= 0){ land = {x: ms.ball.p.x, z: ms.ball.p.z}; } }
@@ -47,33 +50,40 @@ function flick(rq, o = {}){
 {
   const ways = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]], bad = [];
   for (const [fwd, side] of ways){
-    const r = flick({p: .5, fwd, side}, {at: {ctrl: 95, dribbling: 95, aero: 95, curve: 95, composure: 95}});
+    const r = flick({p: .8, fwd, side}, {at: {strength: 80}});
     const l = Math.hypot(fwd, side), wa = fwd/l, wc = side/l;
     if (!r.launch || r.launch.vy <= 0 || r.launch.along*wa + r.launch.across*wc < .85) bad.push({fwd, side, launch: r.launch});
   }
-  const k = flick({p: .5, fwd: 0, side: 0}, {at: {ctrl: 95}});
+  const k = flick({p: .8, fwd: 0, side: 0}, {at: {strength: 80}});
   check(!bad.length, "each of the eight ways lifts the ball that way from the facing", bad);
-  check(k.ev && k.ev.flick === "keepy" && k.launch.vy > 2 && k.launch.vh < 1.5, "no key: a keepy-up, nearly straight up", k.launch);
+  check(k.ev && k.ev.flick === "keepy" && k.launch.vy > 2 && k.launch.vh < 1, "no key: a keepy-up, nearly straight up", k.launch);
 }
 {
-  const at = {ctrl: 95, dribbling: 95, aero: 95, curve: 95, composure: 95, power: 70};
-  const lo = flick({p: .05, fwd: 1, side: 0}, {at}), hi = flick({p: 1, fwd: 1, side: 0}, {at});
-  // (FLICK.FAST: it goes 1.4 times quicker over the ground than it did, so a full one tops out over a standing man's head,
-  // 1.9 m, not 3 m; the light one just over a sliding leg)
-  check(lo.apex < 1.2 && lo.dist < 3.5 && hi.apex > 1.9 && hi.dist > 8 && hi.launch.vh > 9, "a light flick pops it low and short, a full one over a standing man and long, quick over the ground (over 9 m/s)", {lo: {apex: lo.apex, dist: lo.dist}, hi: {apex: hi.apex, dist: hi.dist, vh: hi.launch.vh}});
+  // its top by Strength, a full bar and half of one; how far on it comes down
+  const tops = {}, lands = {}, bad = [];
+  for (const st of [99, 55, 33]){
+    const r = flick({p: 1, fwd: 1, side: 0}, {at: {strength: st}}), hh = flick({p: .5, fwd: 1, side: 0}, {at: {strength: st}});
+    tops[st] = {full: r.apex, half: hh.apex}; lands[st] = r.dist;
+    const want = flickTop(st), land = FLICK.D_K*want + FLICK.D_0;
+    if (Math.abs(r.apex - want) > .15 || Math.abs(hh.apex - want/2) > .15) bad.push({st, want, got: tops[st]});
+    if (Math.abs(r.dist - land) > .3) bad.push({st, land, got: r.dist});
+  }
+  check(!bad.length && Math.abs(flickTop(99) - 4.5) < 1e-9 && Math.abs(flickTop(55) - 3) < 1e-9 && Math.abs(flickTop(33) - 1.5) < 1e-9,
+    "its top by Strength: a full bar 4.5 m at 99, 3 at 55, 1.5 at 33, half a bar half of it; it comes down 0.75 of the top and 0.5 m on", {tops, lands, bad});
+  const capped = flick({p: 1, fwd: 1, side: 0}, {at: {strength: 33, ctrl: 99, power: 99}});
+  check(capped.apex <= 1.5 + .15, "a full bar at Strength 33 never goes past 1.5 m, whatever the other stats", capped.apex);
 }
 {
-  // (the spot asked for: FLICK's distance for the strength, on the facing)
-  const missOf = at => { let s = 0, n = 0; for (let seed = 1; seed <= 16; seed++){ const r = flick({p: .6, fwd: 1, side: 0}, {seed, at}); if (!r.land) continue;
-    const pw = Math.min(1.1, (r.me.at.power || 50)/99), D = (FLICK.D0 + (FLICK.D1 - FLICK.D0)*.6)*(.85 + .3*pw), want = {x: r.me.m.x + r.f.x*(D + .4), z: r.me.m.z + r.f.z*(D + .4)};
-    s += Math.hypot(r.land.x - want.x, r.land.z - want.z); n++; } return n ? s/n : 99; };
-  const poor = missOf({ctrl: 25, dribbling: 25, aero: 20, curve: 25, composure: 25}), good = missOf({ctrl: 95, dribbling: 95, aero: 95, curve: 95, composure: 95});
-  check(good < poor, "over many tries a skilled player lands it nearer where it was asked than a poor one", {poor: r2(poor), good: r2(good)});
+  // no stat moves it off what was asked
+  const poor = flick({p: .7, fwd: 1, side: 1}, {seed: 4, at: {strength: 70, ctrl: 25, dribbling: 25, composure: 25}});
+  const fine = flick({p: .7, fwd: 1, side: 1}, {seed: 9, at: {strength: 70, ctrl: 95, dribbling: 95, composure: 95}});
+  const gap = poor.land && fine.land ? Math.hypot(poor.land.x - fine.land.x, poor.land.z - fine.land.z) : 99;
+  check(gap < .05 && Math.abs(poor.apex - fine.apex) < .02, "no stat moves it off what was asked: a poor and a fine Ball Control land it in the same spot", {gap: r2(gap), apex: [poor.apex, fine.apex]});
 }
 {
   // the sombrero: a ball rolling to you from 4 m at 6 m/s, flicked on first time over a man rushing in, 1.8 m in front
-  const {ms, me, f} = go({along: 4, roll: -6, loose: true, at: {ctrl: 90, dribbling: 90, aero: 90, curve: 90, composure: 90}});
-  me.intent.action = {kind: "flick", p: .55, fwd: 1, side: 0, first: true};
+  const {ms, me, f} = go({along: 4, roll: -6, loose: true, at: {strength: 90}});
+  me.intent.action = {kind: "flick", p: 1, fwd: 1, side: 0, first: true};
   let ev = null, overAt = null;
   const man = {x: me.m.x + f.x*1.8, z: me.m.z + f.z*1.8};
   for (let k = 0; k < 200; k++){

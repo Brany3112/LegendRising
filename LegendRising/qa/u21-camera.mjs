@@ -2,7 +2,7 @@
 // locked by a real click). Training Mode's runner plays a scenario of the test's own on the same engine, controls,
 // camera, view and HUD as a career match and the career's training sessions (one control.js, matchcam.js, view.js,
 // fphud.js), so what holds here holds for every football moment.
-//   - the start: from the cage's life camera (first person) to third person, eased (no cut: the camera never jumps)
+//   - the start: behind you from its first drawn frame, your whole body drawn (U29: no first-person start eased back)
 //   - third person: behind and above your head (about 4 m back, 1.8 m over it), looking at your aim point on the pitch
 //     ahead (the screen's middle, where the crosshair is); your whole body drawn, the first-person one not
 //   - it turns with the mouse (real movement) as the aim does
@@ -77,18 +77,24 @@ try {
   const lock = async () => { const id = await lockPointer(page); if (!id) throw new Error("the pointer could not be locked"); await page.mouse.move(0, 0); return id; };
   const ready = () => page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 60000});
 
-  /* ---------- the start: eased, then third person ---------- */
+  /* ---------- the start: behind you from its first frame (U29) ---------- */
   await page.evaluate(() => window.__u21.C.saveSet({footCam: "third", assist: "on"}));
   await unfreeze(page); await frames(page, 20);
   const life0 = await page.evaluate(() => ({owner: window.__life.camTop ? window.__life.camTop() : null}));
+  // (every real frame from the start on, once the activity draws: how far behind you the camera is, matchcam.js MC.tpK,
+  // and whether your whole body is drawn, view.js V.tp)
+  await page.evaluate(() => { const raf = window.__qa && window.__qa.realRAF ? window.__qa.realRAF : requestAnimationFrame; window.__u21.first = []; let n = 0;
+    const f = () => { const T = window.__u21.T(); if (T && T.V){ window.__u21.first.push({k: window.__u21.M.MC.tpK, whole: !!T.V.tp}); n++; } if (n < 75) raf(f); }; raf(f); });
   await page.evaluate(() => window.__u21.start({}));
   await ready();
   const W0 = await watch(75);
+  const first = await page.evaluate(() => window.__u21.first);
   const S0 = await page.evaluate(() => window.__u21.state());
-  res.start = {W0, S0, life0};
+  res.start = {W0, S0, life0, frames: first.length, firstFp: first.findIndex(x => x.k < 1 || !x.whole)};
   // (a cut is the whole way, about 4.4 m, in one frame: an endless speed; eased it never goes faster than matchcam.js TP.SPEED,
   // 7 m/s, under 0.15 m a 60 Hz frame; measured over the real frames' own times, with a margin for their jitter)
-  check(W0.maxSpeed < 10 && W0.maxTurn < .35, "the start eases from your eyes to behind you: no cut (never faster than 10 m/s, under 0.17 m a 60 Hz frame; turn under 20 degrees a frame)", W0);
+  check(first.length >= 20 && first.every(x => x.k === 1 && x.whole), "the start is behind you from its first drawn frame, your whole body drawn: no first-person frame, no glide while it loads", {frames: first.length, firstFp: res.start.firstFp, head: first.slice(0, 4)});
+  check(W0.maxSpeed < 10 && W0.maxTurn < .35, "and steady after it: no jump (never faster than 10 m/s, under 0.17 m a 60 Hz frame; turn under 20 degrees a frame)", W0);
   check(S0.on && S0.tpK === 1, "a football activity is in third person by default", {tpK: S0.tpK});
   check(S0.back > 2.6 && S0.back < 4.4 && S0.up > 1.2 && S0.up < 2.3 && Math.abs(S0.side) < .4, "the camera is about 4 m behind you and 1.8 m above your head", {back: S0.back, up: S0.up, side: S0.side});
   // (looking level the aim is far ahead at eye height, and the camera, over your head, looks down past you to it; looking

@@ -93,12 +93,23 @@ const ASSIST_K = Object.freeze({on:1, low:.5, off:0});
 export const SET = loadSet();
 // (U21) life reads the football camera through the shared state (me.js: the apartment ball), never this module
 ME.footCam = SET.footCam;
-// (U28 part G) the flick and the chip: the wheel's button held FLICK_FULL s is full strength; let go, the keys held then
+// (U28 part G, U29) the flick: the wheel's button held flickFull(at) s fills the bar (how high, by Strength: actions.js
+// flickTop); let go, the keys held then
 // (shotKeys) say which way it goes, from the way you face: W up and on (a chip, a flick over a man in front), S up and
 // back over your head (a rainbow), A or D up and to that side, two of them that way between, none a keepy-up for
 // yourself. The ball at your feet, or a ball low (under the knee) on its way to you first time (a sombrero). The
 // engine plays it: actions.js startFlick
-export const FLICK_FULL = .5;
+// (U29) how fast the bar fills, by Ball Control: FLICK_CHG.BASE s for a full bar (1.5 times the old 0.5 s), then that
+// many times quicker by Ball Control (FLICK_CHG.PTS: 0.6 at 33, 1.5 at 55, 3 at 99, straight lines between; a little more
+// past 99, FLICK_CHG.MAX at most): a full bar in 0.56 s at 33, 0.22 at 55, 0.11 at 99
+export const FLICK_CHG = Object.freeze({BASE: .5/1.5, PTS: Object.freeze([[0, .3], [33, .6], [55, 1.5], [99, 3]]), MAX: 3.5});
+export function flickRate(ctrl){
+  const P = FLICK_CHG.PTS, x = Math.max(0, +ctrl || 0), n = P.length - 1;
+  if (x >= P[n][0]) return Math.min(FLICK_CHG.MAX, P[n][1] + (P[n][1] - P[n - 1][1])/(P[n][0] - P[n - 1][0])*(x - P[n][0]));
+  for (let i = 1; i <= n; i++) if (x <= P[i][0]){ const [x0, y0] = P[i - 1], [x1, y1] = P[i]; return y0 + (y1 - y0)*(x - x0)/(x1 - x0); }
+  return P[0][1];
+}
+export const flickFull = at => FLICK_CHG.BASE/flickRate(at && at.ctrl);
 function flick(ms, me, held){
   if (me.act){ noteWhy(ms, "busy"); return; }
   const b = ms.ball, d = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), sc = me.scale || 1;
@@ -106,7 +117,7 @@ function flick(ms, me, held){
   const coming = !atFeet && b.state === "free" && ms.poss.ctl < 0 && b.p.y < .5 && d < 8 && approaching(ms, me);
   if (!atFeet && !coming){ noteWhy(ms, b.p.y >= .5 ? "high" : "far"); return; }
   const K = shotKeys(ms);
-  me.intent.action = {kind:"flick", p:clamp(held/FLICK_FULL, .05, 1), fwd:(K.w ? 1 : 0) - (K.s ? 1 : 0), side:(K.d ? 1 : 0) - (K.a ? 1 : 0), first:coming};
+  me.intent.action = {kind:"flick", p:clamp(held/flickFull(me.at), .05, 1), fwd:(K.w ? 1 : 0) - (K.s ? 1 : 0), side:(K.d ? 1 : 0) - (K.a ? 1 : 0), first:coming};
   CTRL.last = "flick"; use("flick");
 }
 // (U28 part E) the keys held in the last SHOT_KEYS.T s as a shot is let go shape it (control.js strike)
@@ -757,7 +768,7 @@ export function controlStep(ms, me, h, opts = {}){
   if (CTRL.lmb && canBall){ const t = CTRL.lmbT; CTRL.charge = CHG; CHG.kind = "shot"; CHG.t = t; CHG.p = 1 - Math.pow(1 - Math.min(1, t/CN.SHOT_FULL), 2); }
   else if (CTRL.rmb && canBall){ const t = CTRL.rmbT; CTRL.charge = CHG; CHG.kind = isThrow(ms, me) ? "throw" : "pass"; CHG.t = t; CHG.p = Math.min(1, t/CN.PASS_FULL); }
   // (U28 part G) the flick's: pure strength, no sweet spot
-  else if (CTRL.mmb && canBall && ctx !== "restart"){ const t = CTRL.mmbT; CTRL.charge = CHG; CHG.kind = "flick"; CHG.t = t; CHG.p = Math.min(1, t/FLICK_FULL); }
+  else if (CTRL.mmb && canBall && ctx !== "restart"){ const t = CTRL.mmbT; CTRL.charge = CHG; CHG.kind = "flick"; CHG.t = t; CHG.p = Math.min(1, t/flickFull(me.at)); }
   else CTRL.charge = null;
   // the pass target, while the pass button is down (and for the receiver ring)
   if (CTRL.rmb && canBall){
