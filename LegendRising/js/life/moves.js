@@ -604,6 +604,14 @@ export function runupStep(h, plan){
   // (a settle, a stop's close) puts the plant two footfalls on, the support foot's next landing
   plan.k = plan.n - (Gt.n - plan.g0);
   while (plan.k <= 0){ plan.n += 2; plan.k += 2; }
+  // (the count's own parity: the k-th footfall the gait counts from now is the other of the last one counted (Gt.side)
+  // when k is odd, that one's when even; two counted on the same foot in a row (a stop's close, then the start's first
+  // step on that foot) put the support foot's turn one footfall on, else the plant falls on the kicking foot and the
+  // body, come to its place, never steps onto it)
+  if (Gt.side === "L" || Gt.side === "R"){
+    const kth = plan.k % 2 ? (Gt.side === "L" ? "R" : "L") : Gt.side;
+    if (kth !== plan.sup){ plan.n += 1; plan.k += 1; }
+  }
   // the next footfall's side: the foot in the air, else the other of the last one down
   const Fe = Gt.feet, next = !Fe[0].down && Fe[1].down ? "L" : !Fe[1].down && Fe[0].down ? "R" : Gt.side === "L" ? "R" : "L";
   // the centre line from the root (plus a footprint's lead) to the root's place at the plant
@@ -1059,11 +1067,15 @@ function strike(h, T, st, dt){
       }
     }
     T[61] -= drop;
+    d.DBG = {drop: +drop.toFixed(3), y0: 0};
   }
+  if (d.DBG) d.DBG.pre = +T[61].toFixed(3);
   rateHips(h, T, dt);
+  if (d.DBG) d.DBG.rate = +T[61].toFixed(3);
   // (after the contact the shift it last needed eases away, rather than chasing the follow-through)
   if (tau <= ct){ reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2)), d.rh || (d.rh = {x:0, y:0, z:0})); }
   else if (d.rh){ const w = Math.exp(-Math.pow((tau - ct)/.2, 2)); T[60] += d.rh.x*w; T[61] += d.rh.y*w; T[62] += d.rh.z*w; }
+  if (d.DBG) d.DBG.kr = +T[61].toFixed(3);
   // the support foot's landing on its plant: a fast run-up carries the body on past it, so where the leg would not reach
   // the point it lands on, the hips come back toward it, easing in over the last tenth of a second of the step and out
   // over the first fifth of a second down (the leg then lands on its point instead of short of it)
@@ -1074,6 +1086,7 @@ function strike(h, T, st, dt){
     const wEnd = K.acro ? sUp : K.shot ? ct*.5 : tP + .1;
     const wl = sstep(tP - .1, tP, tau)*(1 - sstep(wEnd - .08, wEnd, tau));
     if (wl > .01){ _land.x = d.px; _land.y = groundY; _land.z = d.pz; reachHips(h, T, supS, _land, wl, null, true); }
+    if (d.DBG){ d.DBG.wl = +wl.toFixed(3); d.DBG.reach = +T[61].toFixed(3); }
   }
   // a held support leg that the body is leaving behind rolls up onto the ball of its foot (the heel rises), so its knee
   // keeps a bend instead of snapping straight
