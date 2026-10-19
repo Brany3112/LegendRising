@@ -177,6 +177,38 @@ still on screen.
 - **Open:**
   - `wpF-strike` (in no group) still reads the old reticle.
 
+## Shot Accuracy, Shot Power and the flick's speed (the user's last asks)
+
+These apply to every player, the AI too (`strike.js`).
+
+- **Accuracy:** a shot's aim error is `accSigma(acc)`, `SHOT_ACC.K ((99 - acc)/44)^1.7095`.
+  - That is none at 99 and past it, K (0.026 rad, 1.5 degrees) at 55, and twice that at 33.
+  - It goes times the power term and `M`, the moment (over-hit, fatigue, pressure, foot, body, ball state, first time,
+    finesse, scuff).
+  - On top, `SHOT_ACC.SIT (M - 1)`: at 99 the shot is on the point unless the weak foot, pressure, balance or breath
+    add a little.
+  - Headers and passes are as they were.
+- **Power:** a full shot is `shotVFull(power)`, straight lines through 33: 46.5 km/h, 55: 93 and 99: 134 (and 9 m/s
+  at 0), 0.26 m/s a point past 99.
+  - The speed is no longer drawn at random: `deviation` sets it by `cleanOf` (plant, scuff, breath), `SHOT_V.SPREAD`
+    (2.3%) either side of the middle.
+  - That gives 131 to 137 km/h at 99 and 91 to 95 at 55.
+- **The flick:**
+  - `FLICK_FULL` is 0.5 s (the bar fills twice as fast).
+  - `FLICK.FAST` 1.4: a flick on, to the side or a rainbow crosses the ground 1.4 times quicker to the same spot, its
+    arc 1.96 times lower. `FLICK.H1` goes 3.2 to 3.8, so a full one still tops out at 2.1 m.
+  - The keepy-up and the sombrero keep their pop.
+- **Tests:** `unit/strike` moved to the new scales (54/54), `u28-flick` 6/6, `u28-shot` 10/10.
+  - The browser groups unit, lint, smoke, tr2, tr7 and uf2 pass (52 of 53; `uf2-feel`'s throw-in meter fails on origin
+    too), as do `u28-shotkeys`, `u28-flickfeel`, `u27-control` and `u26-keep`.
+- **Harness n=1000 on the final code: 58 of 62.**
+  - Goals 2.87 (back inside 2.9), on target 8.5, save rate 0.71.
+  - Failing:
+    - W touches 28.7 (old);
+    - ST touches 22.05 against 22;
+    - ST defensive actions 4.14 against 4;
+    - headers on target 4.04 against 4.
+
 ## Fixes from the final test run
 
 - **A sprinting receiver lost the ball.** In `tr2b-receive`, a sprint into a 14 m/s pass at Ball Control 50 kept the

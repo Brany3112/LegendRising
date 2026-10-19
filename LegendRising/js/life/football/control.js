@@ -98,7 +98,7 @@ ME.footCam = SET.footCam;
 // back over your head (a rainbow), A or D up and to that side, two of them that way between, none a keepy-up for
 // yourself. The ball at your feet, or a ball low (under the knee) on its way to you first time (a sombrero). The
 // engine plays it: actions.js startFlick
-export const FLICK_FULL = 1;
+export const FLICK_FULL = .5;
 function flick(ms, me, held){
   if (me.act){ noteWhy(ms, "busy"); return; }
   const b = ms.ball, d = Math.hypot(b.p.x - me.m.x, b.p.z - me.m.z), sc = me.scale || 1;

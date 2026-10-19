@@ -775,13 +775,14 @@ function fakeStep(ms, a, act, h){
    left), first (a ball on its way to you, first time: the sombrero)}. The ball at your feet is touched FLICK.TC s on; a
    ball coming is waited for (FLICK.WAIT s at most) until it is within FLICK.REACH and low, and met as it arrives. The
    strength sets the lift and the way on: a light one pops it just over a sliding leg (FLICK.H0 m up, FLICK.D0 on), a full
-   one over a standing man or a keeper (FLICK.H1, FLICK.D1, more with Shot Power); back over your head goes higher and
+   one over a standing man or a keeper (FLICK.H1, FLICK.D1, more with Shot Power; FLICK.FAST quicker, so FLICK.FAST^2
+   lower at its top); back over your head goes higher and
    shorter (a rainbow); no key, a keepy-up for yourself. The skills set how near it goes to what was asked: q from Ball
    Control, Technique and Dribbling, less under pressure (Composure) and with your breath, and for the sombrero less
    for a faster ball (First Touch is Ball Control here); a poor touch now and then scuffs it along the grass. The touch
    is a real kick with the spin its contact gives (backspin under a chip, topspin over the head, sidespin to the side).
    It ends close control (run to it, F) */
-export const FLICK = Object.freeze({TC: .2, WAIT: 1.8, REACH: .85, DUR: .7, H0: .7, H1: 3.2, D0: 1.5, D1: 12, BACK_H: [1.6, 3], BACK_D: [2, 7],
+export const FLICK = Object.freeze({FAST: 1.4, TC: .2, WAIT: 1.8, REACH: .85, DUR: .7, H0: .7, H1: 3.8, D0: 1.5, D1: 12, BACK_H: [1.6, 3], BACK_D: [2, 7],
   KEEPY_H: [.6, 1.5], SOMB_D: .38, SOMB_H: 1.15, ERR_D: .35, ERR_A: 18*Math.PI/180, ERR_H: .3, SCUFF: .12, SPIN: 18});
 function startFlick(ms, a, rq){
   ctlOff(a, 'flick');
@@ -830,7 +831,13 @@ function flickStep(ms, a, act, h){
   const vx0 = ux*ca - uz*sa, vz0 = ux*sa + uz*ca;
   let vy, vh;
   if (scuff){ vy = .5; vh = Math.max(2, D*.6); }
-  else { vy = Math.sqrt(2*G*Math.max(.2, H)); vh = D/(2*vy/G); }
+  else {
+    // (U28 fix: it floated. Flicked on, to the side or over the head, it goes FLICK.FAST times quicker over the ground to
+    // the same spot, in FLICK.FAST times less time, so its arc is FLICK.FAST^2 lower than H; the keepy-up and the
+    // sombrero, which must pop up over the man, keep theirs)
+    const fast = keepy || act.first ? 1 : FLICK.FAST;
+    vy = Math.sqrt(2*G*Math.max(.2, H))/fast; vh = D/(2*vy/G);
+  }
   const v = {x: vx0*vh, y: vy, z: vz0*vh};
   // the spin its contact gives: backspin under a chip, topspin over the head, sidespin to the side
   const spin = FLICK.SPIN*(.5 + .5*p), rollx = vz0, rollz = -vx0;

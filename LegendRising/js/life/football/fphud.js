@@ -678,9 +678,9 @@ export function settingsHTML(o = {}){
   return `<div class="fp-set">${rows.map(([l, c]) => `<label>${esc(l)}</label><div class="fp-set-c">${c}</div>`).join("")}</div>` + GUIDE_HTML;
 }
 // (U28) the shooting guide under the settings, closed until opened: how A and D curl a shot for either foot by the Curve
-// skill, and the keys (img/curl-guide.png, drawn from the game's own ball paths)
-export const GUIDE_HTML = `<details class="fp-guide"><summary>Shooting guide: curl, power and the fake</summary>` +
-  `<img src="img/curl-guide.png" alt="A shot curled with A goes out to the left and bends back right; with D out to the right and back left. W with A or D: half the curl, as hard as a straight shot. S while the shot is held fakes it, then A, D, S or W drags the ball. Curve 99 bends about 1.7 m, 55 half of that, 33 half of 55." loading="lazy"></details>`;
+// skill, the keys, and what Shot Accuracy and Shot Power do (img/curl-guide.png, drawn from the game's own ball paths)
+export const GUIDE_HTML = `<details class="fp-guide"><summary>Shooting guide: curl, accuracy, power and the fake</summary>` +
+  `<img src="img/curl-guide.png" alt="A shot curled with A goes out to the left and bends back right; with D out to the right and back left. W with A or D: half the curl, as hard as a straight shot. S while the shot is held fakes it, then A, D, S or W drags the ball. Curve 99 bends about 1.7 m, 55 half of that, 33 half of 55. Shot Accuracy 99 goes on the crosshair, 55 around the target, 33 twice as wide; Shot Power 99 strikes it 131 to 137 km/h, 55 91 to 95, 33 45 to 48." loading="lazy"></details>`;
 export function fmtVal(k, v){
   if (k === "sens") return (+v).toFixed(2) + "x";
   if (k === "fov") return Math.round(v) + " degrees";

@@ -1,6 +1,6 @@
-<svg viewBox="0 0 680 770" width="1360" height="1540" xmlns="http://www.w3.org/2000/svg">
-<rect width="680" height="770" rx="14" fill="#1E2328"/>
-<text x="24" y="38" style="font:500 22px Segoe UI,Arial,sans-serif;fill:#F1EFE8">Curling your shot</text>
+<svg viewBox="0 0 680 915" width="1360" height="1830" xmlns="http://www.w3.org/2000/svg">
+<rect width="680" height="915" rx="14" fill="#1E2328"/>
+<text x="24" y="38" style="font:500 22px Segoe UI,Arial,sans-serif;fill:#F1EFE8">Shooting guide</text>
 <text x="24" y="60" style="font:13px Segoe UI,Arial,sans-serif;fill:#B4B2A9">Seen from behind the shooter. Real ball paths from the game, 25 m to goal.</text>
 <g transform="translate(0,72)">
 <text style="font:500 16px Segoe UI,Arial,sans-serif;fill:#F1EFE8" x="165" y="22" text-anchor="middle">Right-footed player</text>
@@ -164,4 +164,19 @@
 <text x="656" y="666" text-anchor="end" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">Curve 99: about 1.7 m out</text>
 <text x="656" y="692" text-anchor="end" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">Curve 55: half of that</text>
 <text x="656" y="718" text-anchor="end" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">Curve 33: half of 55</text>
+<text x="24" y="786" style="font:500 15px Segoe UI,Arial,sans-serif;fill:#F1EFE8">Your stats</text>
+<rect x="20" y="796" width="640" height="84" rx="8" fill="#2C2C2A"/>
+<text x="24" y="818" style="font:500 13px Segoe UI,Arial,sans-serif;fill:#F1EFE8"></text>
+<text x="210" y="818" style="font:500 13px Segoe UI,Arial,sans-serif;fill:#F1EFE8">33</text>
+<text x="360" y="818" style="font:500 13px Segoe UI,Arial,sans-serif;fill:#F1EFE8">55</text>
+<text x="510" y="818" style="font:500 13px Segoe UI,Arial,sans-serif;fill:#F1EFE8">99</text>
+<text x="24" y="844" style="font:500 13px Segoe UI,Arial,sans-serif;fill:#F1EFE8">Shot Accuracy</text>
+<text x="210" y="844" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">twice 55's miss</text>
+<text x="360" y="844" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">around the target</text>
+<text x="510" y="844" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">on the crosshair</text>
+<text x="24" y="870" style="font:500 13px Segoe UI,Arial,sans-serif;fill:#F1EFE8">Shot Power (full)</text>
+<text x="210" y="870" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">45 to 48 km/h</text>
+<text x="360" y="870" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">91 to 95 km/h</text>
+<text x="510" y="870" style="font:13px Segoe UI,Arial,sans-serif;fill:#D3D1C7">131 to 137 km/h</text>
+<text x="24" y="904" style="font:12px Segoe UI,Arial,sans-serif;fill:#B4B2A9">A cleaner strike: nearer the top of the speed range. Weak foot, pressure or poor balance pull it a little off.</text>
 </svg>

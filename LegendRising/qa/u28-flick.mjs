@@ -58,7 +58,9 @@ function flick(rq, o = {}){
 {
   const at = {ctrl: 95, dribbling: 95, aero: 95, curve: 95, composure: 95, power: 70};
   const lo = flick({p: .05, fwd: 1, side: 0}, {at}), hi = flick({p: 1, fwd: 1, side: 0}, {at});
-  check(lo.apex < 1.2 && lo.dist < 3.5 && hi.apex > 2.4 && hi.dist > 8, "a light flick pops it low and short, a full one high and long", {lo: {apex: lo.apex, dist: lo.dist}, hi: {apex: hi.apex, dist: hi.dist}});
+  // (FLICK.FAST: it goes 1.4 times quicker over the ground than it did, so a full one tops out over a standing man's head,
+  // 1.9 m, not 3 m; the light one just over a sliding leg)
+  check(lo.apex < 1.2 && lo.dist < 3.5 && hi.apex > 1.9 && hi.dist > 8 && hi.launch.vh > 9, "a light flick pops it low and short, a full one over a standing man and long, quick over the ground (over 9 m/s)", {lo: {apex: lo.apex, dist: lo.dist}, hi: {apex: hi.apex, dist: hi.dist, vh: hi.launch.vh}});
 }
 {
   // (the spot asked for: FLICK's distance for the strength, on the facing)

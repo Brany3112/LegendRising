@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {STRIKE, solveStrike, deviation, sigmaOf, planShot, flightTime, idealPassSpeed, launchSpin, shotSpeed} from "../../js/life/football/strike.js";
+import {STRIKE, solveStrike, deviation, sigmaOf, planShot, flightTime, idealPassSpeed, launchSpin, shotSpeed, accSigma, SHOT_ACC, SHOT_V, shotVFull} from "../../js/life/football/strike.js";
 import {BALL, createBall, createBallWorld, ballStep, ballKick, ballFlyTo} from "../../js/life/football/ball.js";
 import {makePitch, dirOf, yawOf} from "../../js/life/football/pitchspec.js";
 import {mulberry32, truncSd} from "../../js/life/football/rng.js";
@@ -148,12 +148,17 @@ function sample(ctx, seed, N = 2000, fly = false){
   return {ex, ey, el, cz, cy, beyond, notOk};
 }
 {
-  for (const [acc, lo, hi] of [[90, 0.18, 0.24], [50, 0.55, 0.66], [20, 0.88, 1.02]]){
+  // (U28: the shot accuracy scale: none at 99, accSigma at 55, twice that at 33; the spread at 18 m the nominal one)
+  const got = {};
+  for (const acc of [99, 55, 33]){
     const S = sample(Object.assign({}, baseCtx, {acc}), 1000 + acc, 2000, true);
-    const sAim = sd(S.ex), sBall = sd(S.cz);
-    check(sAim >= lo && sAim <= hi && sBall >= lo && sBall <= hi, `accuracy ${acc}: lateral sigma at 18 m within ${lo} to ${hi} m (aim point and real ball)`, {aim: r4(sAim), ball: r4(sBall), nominal: r4(sigmaOf(Object.assign({}, baseCtx, {acc}))*18)});
+    const sAim = sd(S.ex), sBall = sd(S.cz), nom = sigmaOf(Object.assign({}, baseCtx, {acc}))*18*truncSd(2.5);
+    got[acc] = sAim;
+    check(acc === 99 ? sAim < 1e-9 && sBall < .02 : Math.abs(sAim - nom)/nom < .08 && Math.abs(sBall - nom)/nom < .1, `accuracy ${acc}: lateral spread at 18 m ${acc === 99 ? "none (on the point)" : "the nominal one"} (aim point and real ball)`, {aim: r4(sAim), ball: r4(sBall), nominal: r4(nom)});
     check(S.beyond === 0, `  no sample beyond 2.5 sigma (accuracy ${acc})`, S.beyond);
   }
+  check(Math.abs(got[33]/got[55] - 2) < .1 && Math.abs(accSigma(33)/accSigma(55) - 2) < 1e-6 && accSigma(99) === 0 && accSigma(105) === 0 && Math.abs(accSigma(55) - SHOT_ACC.K) < 1e-12,
+    "accuracy 33 spreads twice as wide as 55, 99 and past it not at all", {r: r4(got[33]/got[55])});
   const S30 = sample(Object.assign({}, baseCtx, {acc: 30}), 30, 2000, true);
   const cz = mean(S30.cz), cy = mean(S30.cy) - 1.2;
   check(Math.hypot(cz, cy) <= 0.5 && S30.notOk === 0, "accuracy 30: the centroid of where the balls go is within 0.5 m of the aim", {dz: r4(cz), dy: r4(cy)});
@@ -165,26 +170,30 @@ function sample(ctx, seed, N = 2000, fly = false){
   const fresh = sample(Object.assign({}, baseCtx, {acc: 50}), 77, 2000), tired = sample(Object.assign({}, baseCtx, {acc: 50, bF: 0, eF: 0.6}), 77, 2000);
   const weak = sample(Object.assign({}, baseCtx, {acc: 50, weakFoot: true}), 77, 2000), both = sample(Object.assign({}, baseCtx, {acc: 50, weakFoot: 'both'}), 77, 2000);
   const rt = sd(tired.ex)/sd(fresh.ex), rw = sd(weak.ex)/sd(fresh.ex), rb = sd(both.ex)/sd(fresh.ex);
-  check(rt >= 1.3 && rt <= 1.6, "a tired striker (bF 0, eF 0.6) against fresh: sigma ratio 1.3 to 1.6", r4(rt));
-  check(rw >= 1.3 && rw <= 1.4, "the weak foot against the strong: sigma ratio 1.3 to 1.4", r4(rw));
-  check(Math.abs(rb - 1.1) < 0.02, "  a two-footed player's other foot: 1.1", r4(rb));
-  // the other terms move the spread the way 1.5.3 says
-  const sOf = o => sigmaOf(Object.assign({}, baseCtx, {acc: 50}, o));
-  const s0 = sOf({});
-  check(Math.abs(sOf({power01: 1})/s0 - (0.6 + 0.8)*(1 + 3*0.08)/(0.6 + 0.8*0.64)) < 1e-9, "over-hitting past 0.92 adds 1 + 3(p - 0.92) on top of the power term");
-  check(Math.abs(sOf({pressure01: 1, composure: 0})/s0 - 1.4) < 1e-9 && Math.abs(sOf({pressure01: 1, composure: 150})/s0 - 1) < 1e-9, "pressure: 1 + 0.4 pressure (1 - composure/150)");
-  check(Math.abs(sOf({ballState: 'volley'})/s0 - 1.5) < 1e-9 && Math.abs(sOf({ballState: 'bouncing'})/s0 - 1.25) < 1e-9 && Math.abs(sOf({ballState: 'rolling'})/s0 - 1.1) < 1e-9, "ball state: rolling 1.1, bouncing 1.25, volley 1.5");
-  check(Math.abs(sOf({plantErr: 0.3})/s0 - 2.5) < 1e-9 && Math.abs(sOf({bodyAngleDeg: 90})/s0 - 1.6) < 1e-9, "body: 1 + 1.5|plantErr|/0.3 + max(0, angle - 45)/45 x 0.6");
-  check(Math.abs(sOf({firstTime: true, vIn: 15})/s0 - 1.5) < 1e-9 && Math.abs(sOf({finesse: true})/s0 - 0.85) < 1e-9, "first time 1 + |vIn|/30, finesse x0.85");
+  check(rt >= 1.3 && rt <= 1.75, "a tired striker (bF 0, eF 0.6) against fresh: sigma ratio 1.3 to 1.75", r4(rt));
+  check(rw >= 1.4 && rw <= 1.6, "the weak foot against the strong: sigma ratio 1.4 to 1.6 (its share, and the moment's own error on it)", r4(rw));
+  check(rb > 1.1 && rb < 1.2, "  a two-footed player's other foot: 1.1 to 1.2", r4(rb));
+  // the other terms: each a share M over 1 of the accuracy's sigma, and SHOT_ACC.SIT of (M - 1) on top (so at 99 only it)
+  const sOf = (o, acc = 55) => sigmaOf(Object.assign({}, baseCtx, {acc}, o));
+  const pw = p => 0.6 + 0.8*p*p, a55 = accSigma(55)*pw(0.8), want = (M, base = a55) => base*M + SHOT_ACC.SIT*Math.max(0, M - 1);
+  const near = (x, y) => Math.abs(x - y) < 1e-9;
+  check(near(sOf({power01: 1}), want(1 + 3*0.08, accSigma(55)*pw(1))), "over-hitting past 0.92 adds 1 + 3(p - 0.92) on top of the power term");
+  check(near(sOf({pressure01: 1, composure: 0}), want(1.4)) && near(sOf({pressure01: 1, composure: 150}), want(1)), "pressure: 1 + 0.4 pressure (1 - composure/150)");
+  check(near(sOf({ballState: 'volley'}), want(1.5)) && near(sOf({ballState: 'bouncing'}), want(1.25)) && near(sOf({ballState: 'rolling'}), want(1.1)), "ball state: rolling 1.1, bouncing 1.25, volley 1.5");
+  check(near(sOf({plantErr: 0.3}), want(2.5)) && near(sOf({bodyAngleDeg: 90}), want(1.6)), "body: 1 + 1.5|plantErr|/0.3 + max(0, angle - 45)/45 x 0.6");
+  check(near(sOf({firstTime: true, vIn: 15}), want(1.5)) && near(sOf({finesse: true}), want(0.85)), "first time 1 + |vIn|/30, finesse x0.85");
+  check(sOf({}, 99) === 0 && near(sOf({weakFoot: true}, 99), SHOT_ACC.SIT*.35) && near(sOf({pressure01: 1, composure: 0}, 99), SHOT_ACC.SIT*.4),
+    "at accuracy 99: on the point; the weak foot or pressure still add a little (SHOT_ACC.SIT of their share)", {weak: r4(sOf({weakFoot: true}, 99)), pressed: r4(sOf({pressure01: 1, composure: 0}, 99))});
   // passes
   const pass = acc => sigmaOf({kind: 'pass', acc, bF: 1, eF: 1});
   check(Math.abs(pass(50) - (0.006 + 0.05*Math.pow(0.5, 1.4))) < 1e-12 && Math.abs(sigmaOf({kind: 'pass', acc: 50, firstTime: true})/pass(50) - 1.3) < 1e-9, "pass deviation (0.006 + 0.05(1 - pacc/100)^1.4), x1.3 first time");
   check(pass(30)/pass(90) >= 3, "a bad passer's lateral error is at least 3 times an accurate one's (4.4)", r4(pass(30)/pass(90)));
-  // speed spread: 4%(1 - power/150), truncated
+  // (U28) a shot's speed by how clean it is, no random spread: a clean strike SHOT_V.SPREAD over the middle, a poor one
+  // as much under
   const r = mulberry32(5), es = [];
-  for (let i = 0; i < 2000; i++) es.push(deviation(Object.assign({}, baseCtx, {acc: 50, power: 60}), r).es);
-  const want = 0.04*(1 - 60/150)*truncSd(2.5);
-  check(Math.abs(sd(es) - want)/want < 0.08 && es.every(e => Math.abs(e - 1) <= 2.5*0.04*(1 - 60/150) + 1e-12), "shot speed spread 4%(1 - power/150), never beyond 2.5 sigma", {sd: r4(sd(es)), want: r4(want)});
+  for (let i = 0; i < 200; i++) es.push(deviation(Object.assign({}, baseCtx, {acc: 50, power: 60}), r).es);
+  const esPoor = deviation(Object.assign({}, baseCtx, {plantErr: 0.4, scuff: true}), r).es, esMid = deviation(Object.assign({}, baseCtx, {plantErr: 0.2778}), r).es;
+  check(es.every(e => near(e, 1 + SHOT_V.SPREAD)) && near(esPoor, 1 - SHOT_V.SPREAD) && Math.abs(esMid - 1) < .002, "shot speed by the strike: clean the top of its range, poor the bottom, no random spread", {clean: r4(es[0]), mid: r4(esMid), poor: r4(esPoor)});
 }
 
 /* ---------- aiming top right with poor accuracy (brief 8, QA 4.3) ---------- */
@@ -264,7 +273,9 @@ function sample(ctx, seed, N = 2000, fly = false){
 
 /* ---------- small things ---------- */
 {
-  check(Math.abs(shotSpeed(50, 1) - 26.5) < 1e-9 && Math.abs(shotSpeed(99, 1) - 34.83) < 1e-9, "shot speed (18 + 0.17 power) p: power 50 26.5 m/s, 99 34.8 m/s");
+  const kmh = (pw, k) => shotSpeed(pw, 1)*3.6*(1 + k*SHOT_V.SPREAD);
+  check(kmh(99, -1) > 130.5 && kmh(99, 1) < 137.5 && kmh(55, -1) > 90.5 && kmh(55, 1) < 95.5 && Math.abs(shotVFull(33)*2 - shotVFull(55)) < .01 && Math.abs(shotSpeed(99, .5) - shotVFull(99)*.5) < 1e-9,
+    "a full shot by Shot Power: 131 to 137 km/h at 99, 91 to 95 at 55, half of 55's at 33; times the charge", {k99: [r4(kmh(99, -1)), r4(kmh(99, 1))], k55: [r4(kmh(55, -1)), r4(kmh(55, 1))], k33: r4(shotVFull(33)*3.6)});
   const w = launchSpin(1, 0, 1, 0, 'R'), wl = launchSpin(1, 0, -1, 0, 'R');
   check(w.z === 20 && wl.z === -15 && w.y === 0, "High contact is 20 rad/s of backspin, Low 15 of topspin (about the right-hand axis of travel)");
   const s = solveStrike({from: {x: 0, y: R, z: 0}, target: {x: 0.01, y: R, z: 0}, speed: 5, contact: 0, curl: 0, foot: 'R', kind: 'pass'});

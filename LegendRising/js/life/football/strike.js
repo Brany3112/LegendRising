@@ -268,14 +268,16 @@ function result(sv, vDirect, yaw, el, ok, tFlight, apex, miss, iters){
 export function deviation(ctx, r){
   const s = sigmaOf(ctx), D = Math.max(0, +ctx.dist || 0), kind = ctx.kind || 'shot';
   const kv = ctx.contact > 0 ? STRIKE.KV.high : STRIKE.KV.normal;
-  const sv = SHOT_KINDS.has(kind) ? 0.04*(1 - clamp(ctx.power != null ? +ctx.power : 50, 0, 150)/150)
-    : ctx.weightSigma != null ? +ctx.weightSigma : 0.02;
+  // (U28: a shot's speed is not drawn at random: the cleaner the strike, the nearer the top of its range, SHOT_V.SPREAD
+  // either side of the middle; sv 0. A pass keeps its weight's spread)
+  const shot = SHOT_KINDS.has(kind);
+  const sv = shot ? 0 : ctx.weightSigma != null ? +ctx.weightSigma : 0.02;
   // (ctx.z: the three unit draws made earlier, devDraws(); a kick draws them as the swing starts so that its solve can
   // run through the swing toward the point it will be aimed at)
   const z = ctx.z && ctx.z.length === 3 ? ctx.z : null;
   const ex = D*s*(z ? z[0] : truncNormal(r, 1, 2.5));
   const ey = D*s*kv*(z ? z[1] : truncNormal(r, 1, 2.5));
-  const es = 1 + sv*(z ? z[2] : truncNormal(r, 1, 2.5));
+  const es = shot ? 1 + SHOT_V.SPREAD*(2*cleanOf(ctx) - 1) : 1 + sv*(z ? z[2] : truncNormal(r, 1, 2.5));
   return {ex, ey, es, s, sv};
 }
 // the three unit draws of a deviation (lateral, vertical, speed), truncated at 2.5, for ctx.z
@@ -283,7 +285,7 @@ export function devDraws(r){ return [truncNormal(r, 1, 2.5), truncNormal(r, 1, 2
 
 // the angular sigma (radians) of 1.5.3 for a context; no randomness
 export function sigmaOf(ctx){
-  const kind = ctx.kind || 'shot', acc = clamp(ctx.acc != null ? +ctx.acc : 50, 0, 100);
+  const kind = ctx.kind || 'shot', acc = clamp(ctx.acc != null ? +ctx.acc : 50, 0, 110);
   const bF = ctx.bF != null ? clamp(+ctx.bF, 0, 1) : 1, eF = ctx.eF != null ? clamp(+ctx.eF, 0, 1) : 1;
   const fatigue = 1 + 0.25*(1 - bF) + 0.35*(1 - eF);
   const pressure = 1 + 0.4*clamp(+ctx.pressure01 || 0, 0, 1)*(1 - clamp(ctx.composure != null ? +ctx.composure : 50, 0, 150)/150);
@@ -298,7 +300,10 @@ export function sigmaOf(ctx){
     const ball = STRIKE.BALL_STATE[ctx.ballState] || 1;
     const first = ctx.firstTime ? 1 + vIn/30 : 1;
     const fin = ctx.finesse ? 0.85 : 1;
-    return (0.007 + 0.053*pow(Math.max(0, 1 - acc/100), 1.2))*(0.6 + 0.8*p*p)*over*fatigue*pressure*foot*body*ball*first*fin*scuff;
+    // (U28, SHOT_ACC: none at 99, then doubling from 55 to 33; the moment's own error, the weak foot, pressure, being
+    // off balance or tired, adds SHOT_ACC.SIT of each of their shares over 1 even at 99)
+    const M = over*fatigue*pressure*foot*body*ball*first*fin*scuff;
+    return accSigma(ctx.acc != null ? +ctx.acc : 50)*(0.6 + 0.8*p*p)*M + SHOT_ACC.SIT*Math.max(0, M - 1);
   }
   return (0.006 + 0.05*pow(Math.max(0, 1 - acc/100), 1.4))*pressure*foot*body*fatigue*(ctx.firstTime ? 1.3 : 1)*scuff;
 }
@@ -399,8 +404,26 @@ export function flightTime(kind, d, v0, rollDecel = 1.1){
   return loftTime(TAB.loft, d, v0);
 }
 
-// the shot speed of 1.5.3: (18 + 0.17 power)*p, x1.04 with strike boots, times the stamina power factor
+// (U28) a full-power shot's speed by Shot Power, the middle of its range (m/s): 46.5 km/h at 33, 93 at 55, 134 at 99,
+// in straight lines between (SHOT_V.PTS), on at SHOT_V.HI a point past 99. A strike struck clean goes SHOT_V.SPREAD over
+// the middle, a poor one as much under it (deviation, cleanOf): 131 to 137 km/h at 99, 91 to 95 at 55
+export const SHOT_V = Object.freeze({PTS: Object.freeze([[0, 9], [33, 12.915], [55, 25.83], [99, 37.22]]), HI: 0.26, SPREAD: 0.023});
+export function shotVFull(power){
+  const P = SHOT_V.PTS, x = Math.max(0, +power || 0);
+  if (x >= P[P.length - 1][0]) return P[P.length - 1][1] + SHOT_V.HI*(x - P[P.length - 1][0]);
+  for (let i = 1; i < P.length; i++) if (x <= P[i][0]){ const [x0, y0] = P[i - 1], [x1, y1] = P[i]; return y0 + (y1 - y0)*(x - x0)/(x1 - x0); }
+  return P[0][1];
+}
+// how clean a strike is, 0 to 1: its plant, a scuff, the breath (as the kick event's strike grade, actions.js)
+export function cleanOf(ctx){
+  return clamp(1 - 1.8*Math.abs(+ctx.plantErr || 0) - (ctx.scuff ? 0.5 : 0) - 0.25*(1 - (ctx.bF != null ? clamp(+ctx.bF, 0, 1) : 1)), 0, 1);
+}
+// (U28) a shot's aim error by Shot Accuracy (radians, before the power, the moment and the situation): none at 99 (and
+// past it), SHOT_ACC.K at 55, twice that at 33: K ((99 - acc)/44)^EXP, EXP 1.7095113 (log 2/log 1.5) so that 33 is twice 55
+export const SHOT_ACC = Object.freeze({K: 0.026, EXP: 1.7095113, SIT: 0.012});
+export function accSigma(acc){ return SHOT_ACC.K*pow(Math.max(0, 99 - clamp(+acc || 0, 0, 110))/44, SHOT_ACC.EXP); }
+// the shot speed: shotVFull(power) p, x1.04 with strike boots, times the stamina power factor
 export function shotSpeed(power, p, strikeBoots = false, facPower = 1){
-  return (18 + 0.17*clamp(+power || 0, 0, 99))*clamp(+p || 0, 0, 1)*(strikeBoots ? 1.04 : 1)*(facPower == null ? 1 : facPower);
+  return shotVFull(power)*clamp(+p || 0, 0, 1)*(strikeBoots ? 1.04 : 1)*(facPower == null ? 1 : facPower);
 }
 
