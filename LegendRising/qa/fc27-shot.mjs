@@ -5,8 +5,8 @@
 //     SI-1 a shot at a slow ball a step away (still, or rolling 0.5 to 1.5 m/s, the body standing or walking up at
 //       2.5 m/s or less) is a step-in: struck 0.30 to 0.35 s after it is asked (no late start when there is time), its
 //       root at its place by the contact (a clean strike, no plant error), still going on after it;
-//     SI-2 a ball too fast or too far, a body too fast, a ball in the air or a pass is not: the reach window's 0.10 to
-//       0.18 s (or the stride adjust) as before;
+//     SI-2 a ball too fast or too far, a body too fast, a ball in the air or a pass is not, as it is asked: the reach
+//       window's 0.10 to 0.18 s (or the stride adjust) as before (a far ball's adjust may step in once it is near);
 //     SH-8 full power (Shot Power 55 and 75): the ball leaves at 22 to 32 m/s, 5 to 12 degrees up, for a target 0.9 m up
 //       10 m away (the clip's: into the net 0.5 to 1.2 m up).
 //   The drawn body (the training page stepped frozen, 60 Hz, every body posed every step; your body in third person),
@@ -33,7 +33,8 @@
 //     high) at 30 fps over the clip's window, next to the clip's frames f246 to f266 when they are on this machine
 //     (FC27_FRAMES, default the scratchpad's fc27/full): qa/out/fc27-shot-sbs.png (by eye; not asserted).
 //
-//   node qa/fc27-shot.mjs          exits 1 on any failed check; writes qa/out/fc27-shot.json
+//   node qa/fc27-shot.mjs          exits 1 on any failed check; writes qa/out/fc27-shot.json (FC27_SIM=0 or FC27_DRAW=0
+//                                  leaves out the simulation's or the drawn body's checks, FC27_CASES=stand,walk the cases)
 import fs from "node:fs";
 import path from "node:path";
 import {execFileSync} from "node:child_process";
@@ -75,13 +76,15 @@ function simShot(o){
     const I = me.intent; I.dx = v > 0 ? f.x : 0; I.dz = v > 0 ? f.z : 0; I.gait = v > 1.6 ? "jog" : "walk"; I.speedCap = Infinity;
     const t0 = ms.t;
     simStep(ms, H);
-    if (me.act && !out.act) out.act = me.act;
+    // (as it is asked: a far ball's stride adjust may turn into a step-in once the ball is in a step's reach)
+    if (me.act && !out.act){ out.act = me.act; out.at0 = {stepIn: !!me.act.stepIn, adjust: !!me.act.adjust, tc: me.act.tc}; }
     out.speeds.push(me.m.speed);
     const e = !out.kick && ms.events.find(x => x.kind === "kick" && x.agent === me.id);
     if (e) out.kick = {t: t0 - out.t0, v: e.speed, el: Math.atan2(b.v.y, Math.hypot(b.v.x, b.v.z))*180/Math.PI, strike: e.strike, k};
   }
   const a = out.act;
-  return {o, stepIn: !!(a && a.stepIn), tc: a ? a.tc : null, adjust: a ? !!a.adjust : null, kick: out.kick, err: a && a.stepIn ? a.stepIn.err : null,
+  const a0 = out.at0 || {};
+  return {o, stepIn: !!a0.stepIn, tc: a0.tc != null ? a0.tc : null, adjust: a ? !!a0.adjust : null, later: !!(a && a.stepIn), kick: out.kick, err: a && a.stepIn ? a.stepIn.err : null,
     vC: a && a.stepIn ? a.stepIn.vC : null, vAfter: out.kick ? out.speeds[Math.min(out.speeds.length - 1, out.kick.k + 12)] : null};
 }
 if (process.env.FC27_SIM !== "0"){
@@ -97,13 +100,14 @@ if (process.env.FC27_SIM !== "0"){
   const OUTS = [{ahead: .6, side: .1, vb: 3}, {ahead: .6, side: .1, v: 3.5, vb: 3.5}, {ahead: 1.6, side: 0}, {ahead: .6, side: .1, y: .6}, {ahead: .6, side: .1, kind: "pass"}];
   const R2 = OUTS.map(simShot);
   check(R2.every(r => !r.stepIn && (r.adjust || r.tc <= .18 + 1e-9)), "SI-2 a fast ball, a fast body, a ball out of a step's reach, a ball in the air or a pass is not a step-in (the window's 0.10 to 0.18 s, or the stride adjust)",
-    R2.map(r => ({o: r.o, stepIn: r.stepIn, tc: r3(r.tc), adjust: r.adjust})));
+    R2.map(r => ({o: r.o, stepIn: r.stepIn, tc: r3(r.tc), adjust: r.adjust, later: r.later})));
   const P8 = [55, 75].map(pw => simShot({ahead: .6, side: .1, p: .97, at: {power: pw}, dist: 10, ty: .9}));
   check(P8.every(r => r.kick && inR(r.kick.v, 22, 32) && inR(r.kick.el, 5, 12)), "SH-8 a full-power shot (Shot Power 55 and 75) leaves at 22 to 32 m/s, 5 to 12 degrees up (10 m out, 0.9 m up)",
     P8.map(r => ({v: r.kick && r.kick.v, el: r.kick && r3(r.kick.el)})));
 }
 
-/* ---------- the drawn body ---------- */
+/* ---------- the drawn body ---------- (FC27_DRAW=0 skips it) */
+if (process.env.FC27_DRAW === "0") process.exit(done() ? 0 : 1);
 const FR = process.env.FC27_FRAMES || "/tmp/claude-0/-home-user-LegendRising/d7981b91-2350-5c6d-acea-ac57541f3685/scratchpad/fc27/full";
 const t = await trainLaunch({seed: 27});
 const page = t.page;

@@ -73,7 +73,9 @@ const NAMED = {
   tr9a: ["tr9-anim", "tr9-gkanim", "tr9-sheets"],
   tr9b: ["tr9-ai"],
   // USER-ISSUES U21: the camera by activity (third person for football, first person for life)
-  u21: ["u21-camera", "u21-smooth", "u21-warmup"]
+  u21: ["u21-camera", "u21-smooth", "u21-warmup"],
+  // FC 27 (plan/notes/fc27-spec.md): the shot from the clip (section 4, 6.2 SH-1 to SH-8)
+  fc27: ["fc27-shot"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){
