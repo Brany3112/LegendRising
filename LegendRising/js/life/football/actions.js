@@ -995,8 +995,8 @@ export function keepStep(ms, a, h){
    CARRY.BACK and the face's CARRY.FACE beside the foot's middle) would land across the support foot, its shin through
    the other's, so the other foot plays it (or, at its strike, nothing). A ball neither strike can play, less than
    CARRY.BEHIND in front of him there or a foot's landing more than CARRY.WIDE out to its own side (just taken from a
-   pass, a loose ball, a knock-on), the position controller brings in front of him first. Standing, slowing to a stand and turning on the
-   spot (under V_FOOT) it keeps it (ctlTouch). Numbers in metres times the body's scale. */
+   pass, a loose ball, a knock-on), the position controller brings in front of him first. Standing, slowing to a stand
+   and turning on the spot (under V_FOOT) it keeps it (ctlTouch). Numbers in metres times the body's scale. */
 export const CARRY = Object.freeze({V_FOOT: 2.0, FWD: .5, CUT: 100*Math.PI/180, LEAD: .56, LAT: .1, AHEAD: .1, RUN_N: 2, RUN_TOL: .03,
   OVERRUN: .3, STOP_V: 2.0, MAX_V: 14, XLAT: .05, BACK: .1, FACE: .045, BEHIND: .15, WIDE: .85});
 // is close control's carry on (the footfalls' touches): running on with it at V_FOOT or more, the keys' way within

@@ -746,12 +746,12 @@ const CK_EASE = .12;
 function carrySt(V, a, ms, st){
   const g = a.g;
   st.carry = undefined; st.phase = undefined; st.touch = null; st.keep = g && !a.isGK ? g.ck : 0;
-  const P = a.cplan, on = !!(g && g.ck > 0 && !a.isGK && P && P.on && P.part !== "sole");
-  // (the carrier's gait and the simulation's clock are the drawn feet's only while the footfalls play the ball: a turn
-  // on the spot's touches, a stop, a slow walk with it, the drawn gait's own steps (its stops, pivots and turns, at its
-  // own stride), the carrier's eased in and out over CK_EASE s and the clock caught up again within a stride once the
-  // footfalls' touches come back. Held to the simulation's quick short stride through a hard turn, the feet kept
-  // stepping on it while the body spun round over them, and the legs crossed)
+  const P = a.cplan, on = !!(g && g.ck > 0 && !a.isGK && P && (a.ctlOn ? P.on && P.part !== "sole" : true));
+  // (in close control the carrier's gait and the simulation's clock are the drawn feet's only while the footfalls play
+  // the ball: a turn on the spot's touches, a stop, a slow walk with it, the drawn gait's own steps (its stops, pivots
+  // and turns, at its own stride), the carrier's eased in and out over CK_EASE s and the clock caught up again within a
+  // stride once the footfalls' touches come back. Held to the simulation's quick short stride through a hard turn, the
+  // feet kept stepping on it while the body spun round over them, and the legs crossed. A stride dribble's, all along)
   const now = V.t || 0, dtc = st._ckT != null ? Math.min(.1, Math.max(0, now - st._ckT)) : 1;
   st._ckT = now;
   const want = on ? g.ck : 0;
@@ -764,7 +764,7 @@ function carrySt(V, a, ms, st){
   if (d > .5) d = 0;
   let ph = p0 + d*(V.alpha + lag); ph -= Math.floor(ph);
   st.phase = ph;
-  if (ms.ball.state !== "free") return st;
+  if (!P.on || ms.ball.state !== "free") return st;
   const v = Math.max(a.m.speed, .5), stride = 2*stepLen(v, g.mode, a.scale || 1, null, g.ck)/v;
   let k = (P.side === "R" ? .5 : 1) - ph; k -= Math.floor(k);
   const t = k*stride, tp = Math.max(0, t - (1 - V.alpha - lag)*H);

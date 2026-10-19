@@ -503,9 +503,8 @@ function liftOff(h, f, i, duty, T, kind){
   f.down = false; f.sw = sw;
   G.ev.mask |= EV.TAKEOFF;
 }
-// ((FC27) a carrier's step on its own side of the other foot, by w: see TOUCH_SEP)
-// (how far foot f's footprint p is short of TOUCH_SEP to its own side of the other foot's, there or where that one will
-// land, across the hips as they will face at the footfall; the way out in SS_L)
+// ((FC27) how far foot f's footprint p is short of TOUCH_SEP to its own side of the other foot's, there or where that
+// one will land, across the hips as they will face at the footfall; the way out in SS_L)
 const SS_L = {x:0, z:0};
 function sideShort(h, f, i, p){
   const G = h.gait, o = G.feet[1 - i], at = o.down || !o.sw || !o.sw.ok, ox = at ? o.x : o.sw.x1, oz = at ? o.z : o.sw.z1;
@@ -513,6 +512,7 @@ function sideShort(h, f, i, p){
   SS_L.x = Math.cos(py)*f.s; SS_L.z = -Math.sin(py)*f.s;
   return TOUCH_SEP*h.scale - ((p.x - ox)*SS_L.x + (p.z - oz)*SS_L.z);
 }
+// ((FC27) a carrier's step put on its own side of the other foot, by w: see TOUCH_SEP)
 function ownSide(h, f, i, p, w){
   const short = sideShort(h, f, i, p)*w;
   if (short > 0){ p.x += SS_L.x*short; p.z += SS_L.z*short; }

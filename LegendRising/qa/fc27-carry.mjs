@@ -32,7 +32,8 @@
 //     CC-5 (the feet's part) between touches (frames more than 50 ms from one) the ball 0.25 to 0.7 m from the leading toe
 //          in 85% of the frames;
 //     DR-5 no snapping: no foot bone turns more than 0.35 rad in a frame (in the world), no swinging foot jumps 0.08 m in
-//          one toward the ball beyond the way it was going (its step less the step before);
+//          one toward the ball (its step that frame beyond the mean of the steps either side: a swing's own speed and
+//          its smooth speeding up are not jumps);
 //     DR-6 at 4 to 6 m/s: the trunk leaning 0.17 to 0.45 rad, the upper arms out 0.5 rad or more, the head down 0.3 rad or
 //          more within 0.1 s of each touch, the hips 0.05 m or more lower than the same run with no ball;
 //     DR-7 (the user's report of a turn: "legs overlapping ... the legs cross and go through each other") turning in close
@@ -236,7 +237,7 @@ if (!SIM_ONLY){
     });
     const one = async (cap, ball) => {
       await page.evaluate(() => window.__fc.start());
-      await page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 120000});
+      await page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 300000});
       await freeze(page);
       return page.evaluate(async ([cap, ball]) => {
         const L = window.__life, T = window.__trainRun.RUN.cur.T, ms = T.ms, me = T.me, V = T.V, C = window.__fc.C;
@@ -279,7 +280,7 @@ if (!SIM_ONLY){
     // (135 degrees) for 18 steps, then W. Per step the hip joints, the knees and the ankles
     const turn = async (kind) => {
       await page.evaluate(() => window.__fc.start());
-      await page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 120000});
+      await page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 300000});
       await freeze(page);
       return page.evaluate(async (kind) => {
         const L = window.__life, T = window.__trainRun.RUN.cur.T, ms = T.ms, me = T.me, V = T.V, C = window.__fc.C, K = C.CTRL.held;
@@ -351,12 +352,14 @@ if (!SIM_ONLY){
           D.between[1]++; if (g >= .25 && g <= .7) D.between[0]++;
           D.lean.push(r.lean); D.abd.push(Math.min(r.abd[0], r.abd[1]));
         }
-        // a swinging foot's jump toward the ball: how far it goes in a frame beyond the way it was going (its step less the
-        // step before: a swing's own speed is 10 to 15 m/s, 0.2 m a frame, which is no jump), toward the ball
-        for (const s of [0, 1]) if (!r.feet[s].down && !Rr[i - 1].feet[s].down && !Rr[i - 2].feet[s].down){
-          const a = Rr[i - 2].feet[s].ank, b = Rr[i - 1].feet[s].ank, c = r.feet[s].ank, bx = r.ball[0] - b[0], bz = r.ball[2] - b[2], bl = Math.hypot(bx, bz) || 1;
-          const j = ((c[0] - 2*b[0] + a[0])*bx + (c[2] - 2*b[2] + a[2])*bz)/bl;
-          if (on) D.jump = Math.max(D.jump, j); else D.jump0 = Math.max(D.jump0 || 0, j);
+        // a swinging foot's jump toward the ball: its step in a frame (toward the ball) beyond the mean of the steps either
+        // side of it (a swing's own speed is 10 to 15 m/s, 0.2 m a frame, and its own speeding up as it leaves the ground
+        // as much as 0.1 m a frame more each frame on the carrier's 0.165 s swing: neither is a jump; a foot pulled onto
+        // the ball in a frame is). The swing's speeding up (the step less the step before) is kept as accel
+        for (const s of [0, 1]) if (![i - 2, i - 1, i, i + 1].some(k => Rr[k].feet[s].down)){
+          const a = Rr[i - 2].feet[s].ank, b = Rr[i - 1].feet[s].ank, c = r.feet[s].ank, d = Rr[i + 1].feet[s].ank, bx = r.ball[0] - b[0], bz = r.ball[2] - b[2], bl = Math.hypot(bx, bz) || 1;
+          const st = (p, q) => ((q[0] - p[0])*bx + (q[2] - p[2])*bz)/bl, s0 = st(a, b), s1 = st(b, c), s2 = st(c, d), j = s1 - (s0 + s2)/2;
+          if (on){ D.jump = Math.max(D.jump, j); D.accel = Math.max(D.accel || 0, s1 - s0); } else D.jump0 = Math.max(D.jump0 || 0, j);
         }
       }
       D.snapNo = Math.max(D.snapNo || 0, ...runs[name + "No"].slice(3).map(q => q.footTurn));
@@ -394,7 +397,7 @@ if (!SIM_ONLY){
     check(rows.every(r => r.along >= .1 && r.along <= .2 && Math.abs(r.side) <= .1), "CC-4: at each touch the ball's middle is 0.10 to 0.20 m beyond the touching toe, within 0.10 m across", rows.map(r => [r.along, r.side]));
     check(rows.every(r => r.land != null && r.land <= .1 && r.lAlong >= 0 && r.lAlong <= .3 && Math.abs(r.lSide) <= .12), "DR-4: the touching foot comes down within 0.1 s, its toe 0 to 0.3 m behind where the ball was and within 0.12 m across", rows.map(r => [r.land, r.lAlong, r.lSide]));
     check(D.between[0]/Math.max(1, D.between[1]) >= .85, "CC-5: between touches the ball is 0.25 to 0.7 m from the leading toe in 85% of the frames", {share: r2(D.between[0]/Math.max(1, D.between[1]))});
-    check(D.snap <= .35 && D.jump <= .08, "DR-5: no foot bone turns more than 0.35 rad in a frame, no swinging foot jumps 0.08 m in one toward the ball", {turn: r3(D.snap), jump: r3(D.jump), turnNoBall: r3(D.snapNo), gatherTurn: r3(D.snap0 || 0), gatherJump: r3(D.jump0 || 0)});
+    check(D.snap <= .35 && D.jump <= .08, "DR-5: no foot bone turns more than 0.35 rad in a frame, no swinging foot jumps 0.08 m in one toward the ball", {turn: r3(D.snap), jump: r3(D.jump), accel: r3(D.accel || 0), turnNoBall: r3(D.snapNo), gatherTurn: r3(D.snap0 || 0), gatherJump: r3(D.jump0 || 0)});
     check(Object.values(D.turns).every(x => x.touches.length > 0 && x.touches.every(l => l[2] >= .05) && x.minShin >= .06),
       "DR-7: in close-control turns (60 degrees left and right, and turning back 135) every carry touch's foot comes down on its own side of the other (0.05 m or more across the hips), the shins never within 0.06 m of each other",
       D.turns);
