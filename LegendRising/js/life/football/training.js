@@ -585,6 +585,8 @@ function sliceItem(T, h){
     T.acc -= H; n++;
   }
   if (T.acc >= H) T.acc %= H;
+  // ((FC27) the bodies on the world's time-scale too: view.js V.timeScale)
+  if (T.V) T.V.timeScale = T.slow ? T.slow.scale : 1;
   if (T.V && !T.done) viewFrame(T.V, T.ms, clamp(T.acc/H, 0, 1), h, RT.cam);
 }
 /* the runner's one scheduler task (SCHED.fixed at 60 Hz, perf-8) calls this once per 1/60 s it owes: the same fixed
@@ -596,6 +598,7 @@ export function fixedRun(T, h){
   let n = 0;
   while (T.acc >= H - 1e-9 && n < TRAIN.MAX_STEPS){ fixedItem(T); T.acc -= H; n++; }
   if (T.acc >= H) T.acc %= H;
+  if (T.V) T.V.timeScale = T.slow ? T.slow.scale : 1;
 }
 function fixedItem(T){
   const ms = T.ms;
@@ -681,7 +684,7 @@ function frameItem(T, dt, real, hid = false){
 // the world's time-scale as the match has it (controller.js bigChance and contactFeel): a shot wound up from a big
 // chance eases it to FEEL.BIG_SCALE, a clean contact of yours holds it for a blink; each runs out in real time
 function feelStep(T, real){
-  if (T.slow && (T.slow.t -= real) <= 0) T.slow = null;
+  if (T.slow && (T.slow.t -= real) <= 0){ T.slow = null; if (T.V) T.V.timeScale = 1; }
   const ms = T.ms, me = T.me;
   if (!CT.windingShot(ms, me) || (T.slow && !T.slow.big)) return;
   if (xgAt(ms, me.team, ms.ball.p.x, ms.ball.p.z) < CT.FEEL.BIG_XG) return;

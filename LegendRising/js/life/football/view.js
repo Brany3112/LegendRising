@@ -133,7 +133,9 @@ function bodyFor(V, a){
   R.actor = SCHED.actor({id:"match-" + a.id, kind:"match", r:1.1,
     pos:() => { const p = R.pos || (R.pos = {x:0, y:0, z:0}), w = R.wpos; w.x = p.x + V.ox; w.y = p.y; w.z = p.z + V.oz; return w; },
     active:() => !!(R.clip || (a.act && !a.act.done) || a.isMe || (a.gk && a.gk.plan) || throwHeld(ms, a)),
-    anim:(dt, tier) => animAgent(V, R, dt, tier)});
+    // ((FC27) on the world's own time-scale, V.timeScale: a clean contact's hit-stop or a slow motion slows the bodies
+    // with the ball, so a follow-through does not swing on past a ball still held at its contact)
+    anim:(dt, tier) => animAgent(V, R, dt*(V.timeScale > 0 ? V.timeScale : 1), tier)});
   R.pos = {x:a.m.x, y:0, z:a.m.z};
   if (a.isMe) makeFP(V);
   return R;

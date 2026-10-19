@@ -649,6 +649,9 @@ function live(dt, real){
     }
     if (n >= max && FS.acc > H) FS.acc = H*.999;
     FS.stepsLast = n;
+    // ((FC27) the bodies on the world's time-scale on the pitch, view.js V.timeScale: a hit-stop or a slow motion
+    // slows them with the ball; the bench's fast-forward is the steps', not theirs)
+    if (FS.V) FS.V.timeScale = FS.onPitch ? FS.timeScale : 1;
     // the rate the bench actually watches at (the HUD shows it): match time over real time, over half a second
     FS.ffSteps += n; FS.ffReal += Math.max(0, real);
     if (FS.ffReal >= .5){ FS.ffAch = FS.ffSteps*H/FS.ffReal/Math.max(1e-6, FS.timeScale); FS.ffSteps = 0; FS.ffReal = 0; }

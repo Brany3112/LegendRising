@@ -81,20 +81,20 @@ export const kindOf = k => KINDS[k] ? k : ALIAS[k] || "instep";
    before the contact, the kicking leg off the grass 0.18 s before it, at the top of its backswing 0.10 s before (the
    ankle about half a metre up, the knee bent 100 to 120 degrees), the laces through the back of the ball low with the
    ankle locked, the follow-through at its top 0.115 s after (about hip height) sweeping a little across to the support
-   side, the kicking foot down 0.37 s after; on the move the support foot pushes off 0.26 s after (its heel up from 0.20)
+   side, the kicking foot down 0.36 s after; on the move the support foot pushes off 0.27 s after (its heel up from 0.20)
    for a short flight and steps through. Clip seconds from the plant (clip time 0; the contact is the kind's, 0.20):
    OFF the kicking foot's toe-off; TOP the top of the backswing; FT the follow-through's top and LAND the kicking foot's
    landing, after the contact; S_HEEL, S_OFF, S_LAND the support foot's heel peeling up, its toe leaving and its step
    through landing, after the contact, when the body runs on (over MOVE m/s); PRE the plant step's time, at least and
    at most (the step fills what the simulation's contact leaves before the plant, so the swing plays at its own pace:
    a step-in, actions.js STEP_IN); HOP the distance from a held wind-up's support foot to the plant over which it hops
-   there first (the leg held cocked); TOP_B, TOP_Y the backswing's top behind the root and its height (m, plus the
+   there first (the leg held cocked), given at least HOP_T s for it; TOP_B, TOP_Y the backswing's top behind the root and its height (m, plus the
    power's share); V_TOP, V_END the foot's speed at the top (on along the aim) and into the ball (m/s); FT_IN, LAND_IN
    the follow-through's top across from the kicking hip toward the support side and the landing's across from the
    root's line; DIP the hips' drop into the plant's lunge; LEAN the lean to the support side at the top; ARM the support
    arm out from the top to the contact (radians); PITCH the trunk's pitch forward after the landing, on the move */
-export const SHOT = Object.freeze({OFF: .02, TOP: .10, FT: .115, LAND: .37, S_HEEL: .20, S_OFF: .26, S_LAND: .58, MOVE: 1.0,
-  PRE: [.10, .30], HOP: .12, TOP_B: [.22, .07], TOP_Y: [.43, .12], V_TOP: 1.6, V_END: 7.5, FT_IN: .03, LAND_IN: .02,
+export const SHOT = Object.freeze({OFF: .02, TOP: .10, FT: .115, LAND: .36, S_HEEL: .20, S_OFF: .27, S_LAND: .58, MOVE: 1.0,
+  PRE: [.12, .30], HOP: .12, HOP_T: .08, TOP_B: [.14, .06], TOP_Y: [.47, .12], V_TOP: 1.6, V_END: 7.5, FT_IN: .03, LAND_IN: .02,
   DIP: .07, LEAN: .2, ARM: 1.45, PITCH: .32});
 
 /* the faces of the foot in the foot bone's own frame (body units: the ankle at the origin, +z along the foot, the sole at
@@ -688,7 +688,7 @@ function strikeBegin(h, C, st){
       // let go from a held wind-up: with the time for it and the plant more than HOP from the foot he stands on, that
       // foot hops onto it first, the leg held cocked; else he strikes off the foot he stands on, the leg held cocked
       // until its whip (WIND.SWING before the contact) rather than played slower to fill the time
-      if (dist > SHOT.HOP && room >= SHOT.PRE[0] - 1e-6){ C.pre = Math.min(room, SHOT.PRE[1]); C.hop = true; C.events = STRIKE_EV; return; }
+      if (dist > SHOT.HOP && room >= SHOT.HOP_T - 1e-6){ C.pre = Math.min(room, SHOT.PRE[1]); C.hop = true; C.events = STRIKE_EV; return; }
       C.pre = 0; C.tau0 = K.contact - clamp(tcs != null ? tcs : WIND.SWING, WIND.SWING, K.contact + SHOT.PRE[1]);
       return;
     }
@@ -924,6 +924,9 @@ function strike(h, T, st, dt){
     // (the overhead kick's plant: turned at most 1.2 rad from the body's way on its step; the rest of the turn back to
     // the goal is made in the air, where no foot holds the leg)
     if (K.over) d.pyaw = clamp(d.pyaw, -1.2, 1.2);
+    // ((FC27) the body's facing as the clip began: the feet's turns are kept in the world from it, so a body turning to
+    // its aim through the strike does not swivel a planted foot on its heel)
+    d.ry0 = BT.ry;
     const F = C.feet[iS];
     d.sx0 = F.x; d.sy0 = F.y; d.sz0 = F.z; d.syaw0 = F.yaw; d.sp0 = F.pitch;
     // (a run-up's last step handed over in flight: the gait's swing as it was, read only)
@@ -956,6 +959,8 @@ function strike(h, T, st, dt){
     d.shot = !!K.shot && !(C.late > SHOT.OFF);
   }
   const tau = C.tau, ct = K.contact, dur = K.dur;
+  // (the turn of the body since the clip began, back: a foot's turn in the body's frame plus this stays put in the world)
+  const dry = d.dry = wrap(d.ry0 - BT.ry), pyaw = d.pyaw + dry;
   // (USER-ISSUES U24) up to contact the swing goes where the ball will be as the view says now (st.ball, the
   // simulation's own prediction at its contact), not where it was thought to be when the strike began: a ball still
   // moving, or a contact moved by a stride, left the foot short of it or wide. The planted foot stays where it went down
@@ -978,14 +983,14 @@ function strike(h, T, st, dt){
     const v = clamp((tau - t0)/sT, 0, 1), w = d.sw, u = w.u0 + (1 - w.u0)*v, k = ease(Math.min(1, u/.95));
     Fs.x = w.x0 + (d.px - w.x0)*k; Fs.z = w.z0 + (d.pz - w.z0)*k;
     Fs.y = lerp(w.y0, groundY, ease(u)) + w.lift*Math.sin(Math.PI*u)*(1 - sstep(.85, 1, u));
-    Fs.yaw = lerp(d.syaw0, d.pyaw, ease(v)); Fs.pitch = lerp(d.sp0, 0, ease(v)); Fs.roll = 0; Fs.down = v >= 1;
+    Fs.yaw = lerp(d.syaw0 + dry, pyaw, ease(v)); Fs.pitch = lerp(d.sp0, 0, ease(v)); Fs.roll = 0; Fs.down = v >= 1;
   } else if (tau < tP && !(C.fromHold && !C.hop)){
     // ((FC27) a shot's step is a long one, the foot carried a little higher; from a held wind-up a low hop)
     const u = clamp((tau - t0)/sT, 0, 1), e = ease(u), lift = K.shot ? (C.hop ? .05 : .09) : .07;
     Fs.x = lerp(d.sx0, d.px, e); Fs.z = lerp(d.sz0, d.pz, e); Fs.y = lerp(d.sy0, groundY, e) + lift*sc*bump(u);
-    Fs.yaw = lerp(d.syaw0, d.pyaw, e); Fs.pitch = -.15*bump(u); Fs.roll = 0; Fs.down = u >= 1;
+    Fs.yaw = lerp(d.syaw0 + dry, pyaw, e); Fs.pitch = -.15*bump(u); Fs.roll = 0; Fs.down = u >= 1;
   } else {
-    Fs.x = d.px; Fs.z = d.pz; Fs.y = groundY; Fs.yaw = d.pyaw; Fs.pitch = 0; Fs.roll = 0; Fs.down = true;
+    Fs.x = d.px; Fs.z = d.pz; Fs.y = groundY; Fs.yaw = pyaw; Fs.pitch = 0; Fs.roll = 0; Fs.down = true;
   }
   // --- the striking foot: from where it was, back to the top of the backswing, through the ball, up to the top of the
   // follow-through, then down onto its landing ahead
@@ -1012,7 +1017,7 @@ function strike(h, T, st, dt){
     // (the shot's: up behind first, the toes pointed, then through and down)
     const e = K.shot ? Math.pow(ease(u), 1.4) : ease(u);
     Fs.x = lerp(d.px, d.sLand.x, e); Fs.z = lerp(d.pz, d.sLand.z, e);
-    Fs.y = groundY + (K.acro ? acroLeg(k, tau, sc) : K.shot ? .24*sc*bump(Math.min(1, u*1.15)) : .1*sc*bump(u)); Fs.yaw = lerp(d.pyaw, 0, e);
+    Fs.y = groundY + (K.acro ? acroLeg(k, tau, sc) : K.shot ? .24*sc*bump(Math.min(1, u*1.15)) : .1*sc*bump(u)); Fs.yaw = lerp(pyaw, 0, e);
     Fs.pitch = K.acro ? .3*bump(u) : K.shot ? .7*bump(Math.min(1, u*1.3)) - .1*bump(u) : -.15*bump(u); Fs.down = u >= 1;
   }
   // the body: hips over the support foot, the turn of the hips through the swing, the lean
@@ -1077,7 +1082,9 @@ function strike(h, T, st, dt){
   // f243 to f247), and the swing starts from the foot as it is then: shotPath's d.kOff)
   const tKoff = d.shot ? SHOT.OFF : .02;
   if ((!K.acro || tau < .2) && Fk.down && tau < tKoff){
-    d.hrK = heelRise(h, T, kickS, Fk, 1, d.hrK || 0, dt, d.shot && d.kDown ? .8*sstep(SHOT.OFF - .16, SHOT.OFF, tau) : 0);
+    // (a walk's trailing foot already rolled onto its toes counts its roll toward it, rolled on from there)
+    const p0 = Math.max(0, d.kp0 || 0);
+    d.hrK = heelRise(h, T, kickS, Fk, 1, d.hrK || 0, dt, d.shot && d.kDown ? Math.max(0, .8*sstep(SHOT.OFF - .16, SHOT.OFF, tau) - p0) : 0, p0);
     if (d.shot){ const o = d.kOff || (d.kOff = {}); o.x = Fk.x; o.y = Fk.y; o.z = Fk.z; o.pitch = Fk.pitch; }
   }
   else if (d.hrK && !Fk.down && !d.shot){ heelApply(Fk, d.hrK*(1 - sstep(tK0Of(C), tK0Of(C) + .1, tau))); }
@@ -1245,7 +1252,7 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   if (K.shot && (d.shot && !C.fromHold || tau > ct)) return shotPath(C, d, tau, ct, tT, tL, o, ax, ay, az, cyaw, cpitch, croll, bx, by, bz, byaw, bpitch, broll, tx, ty, tz, L, ry, nx, ny, nz, aimYaw, out, lx, lz);
   if (tau <= tK0 && C.pre > 0 && !C.fromHold){
     // the plant step (a stand's, or the last of a run-up's): this foot is the one standing
-    o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
+    o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0 + d.dry; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
   } else if (tau <= ct){
     // the controls: past the backswing's top (the curve turns short of it), and back from the ball along the way it is
     // struck by a third of the curve's time at the foot's speed
@@ -1259,7 +1266,7 @@ function strikePath(h, C, d, k, K, s, tau, ball){
     o.x = bez(d.kx0, p1x, p2x, ax, u); o.y = Math.max(gy + .02*sc, bez(d.ky0, p1y, p2y, ay, u)); o.z = bez(d.kz0, p1z, p2z, az, u);
     // the foot turns to the backswing's angle by 45% of the way, then to the contact's
     const e1 = ease(u/.45), e2 = ease((u - .45)/.55);
-    o.yaw = u < .45 ? lerp(d.kyaw0, byaw, e1) : lerp(byaw, cyaw, e2);
+    o.yaw = u < .45 ? lerp(d.kyaw0 + d.dry, byaw, e1) : lerp(byaw, cyaw, e2);
     o.pitch = u < .45 ? lerp(d.kp0, bpitch, e1) : lerp(bpitch, cpitch, e2);
     o.roll = u < .45 ? lerp(d.kr0, broll, e1) : lerp(broll, croll, e2);
     o.down = u <= 0 && !C.fromHold;
@@ -1290,7 +1297,7 @@ function shotPath(C, d, tau, ct, tT, tL, o, ax, ay, az, cyaw, cpitch, croll, bx,
   if (d.t0 == null) d.t0 = tau;
   if (tau <= ct){
     if (d.kDown && tau < SHOT.OFF){
-      o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
+      o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0 + d.dry; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
       return o;
     }
     if (tau < SHOT.TOP){
@@ -1301,7 +1308,7 @@ function shotPath(C, d, tau, ct, tT, tL, o, ax, ay, az, cyaw, cpitch, croll, bx,
       const ux = d.kDown ? -fx*1*sc*Ta : 0, uy = d.kDown ? 2*sc*Ta : 0, uz = d.kDown ? -fz*1*sc*Ta : 0;
       o.x = herm(x0, ux, bx, fx*vT*Ta, u); o.y = herm(y0, uy, by, 0, u); o.z = herm(z0, uz, bz, fz*vT*Ta, u);
       const e = ease(u);
-      o.yaw = lerp(d.kyaw0, byaw, e); o.pitch = lerp(p0, bpitch, e); o.roll = lerp(d.kr0, broll, e); o.down = false;
+      o.yaw = lerp(d.kyaw0 + d.dry, byaw, e); o.pitch = lerp(p0, bpitch, e); o.roll = lerp(d.kr0, broll, e); o.down = false;
       return o;
     }
     // down through the ball
@@ -1329,13 +1336,13 @@ function shotPath(C, d, tau, ct, tT, tL, o, ax, ay, az, cyaw, cpitch, croll, bx,
   if (!d.kL){
     const tl = Math.max(0, tL - tau);
     _w3.x = C.rx + C.vx*tl + (fx*.2 + lx*out*-SHOT.LAND_IN)*sc; _w3.z = C.rz + C.vz*tl + (fz*.2 + lz*out*-SHOT.LAND_IN)*sc;
-    if (u >= 1) d.kL = {x:_w3.x, z:_w3.z};
+    if (u >= 1) d.kL = {x:_w3.x, z:_w3.z, ry:BT.ry};
   }
   const Lx = d.kL ? d.kL.x : _w3.x, Lz = d.kL ? d.kL.z : _w3.z;
   o.x = herm(tx, (fx*1.2*sc + ix)*Td, Lx, C.vx*.6*Td, u); o.y = Math.max(ry, herm(ty, 0, ry, -1*sc*Td, u)); o.z = herm(tz, (fz*1.2*sc + iz)*Td, Lz, C.vz*.6*Td, u);
   const e = ease(u);
   o.yaw = lerp(aimYaw - out*.15, 0, e); o.pitch = lerp(.55, 0, e) - .12*bump(u); o.roll = 0; o.down = u >= 1;
-  if (u >= 1){ o.x = Lx; o.y = ry; o.z = Lz; o.pitch = 0; o.yaw = 0; }
+  if (u >= 1){ o.x = Lx; o.y = ry; o.z = Lz; o.pitch = 0; o.yaw = d.kL ? wrap(d.kL.ry - BT.ry) : 0; }
   return o;
 }
 /* the body through a strike: the hips over the support foot and lowered at contact, the hips turning from open to
@@ -1381,7 +1388,7 @@ function shotBody(h, T, C, d, k, K, s, tau, ball){
   toB(sup.x, sup.y, sup.z, _b3);
   const w = sstep(-.1, .08, tau)*(1 - sstep(ct + .2, dur, tau));
   T[60] = clamp(_b3.x*.45, -.13, .13)*w;
-  const dip = SHOT.DIP*Math.exp(-Math.pow((tau - (top - .04))/.15, 2)) + .03*Math.exp(-Math.pow((tau - ct)/.1, 2));
+  const dip = SHOT.DIP*Math.exp(-Math.pow((tau - top)/.12, 2)) + .03*Math.exp(-Math.pow((tau - ct)/.1, 2));
   T[61] = -.02*w - dip;
   T[62] = clamp(_b3.z*.25, -.12, .12)*w;
   const turn = kf(tau, [[-.1, 0], [top, -s*.38], [ct, s*.05], [ct + .18, s*.3], [dur, 0]]);
@@ -1401,8 +1408,8 @@ function shotBody(h, T, C, d, k, K, s, tau, ball){
 }
 
 // (prev, dt: the heel rises at most 7 rad/s from where it was; least: at least this far, FC27's heel peeled up before a
-// toe-off whatever the leg's stretch)
-function heelRise(h, T, s, f, w = 1, prev = 0, dt = 0, least = 0){
+// toe-off whatever the leg's stretch; p0: how far the foot was already rolled onto its toes, a walk's trailing foot)
+function heelRise(h, T, s, f, w = 1, prev = 0, dt = 0, least = 0, p0 = 0){
   if (!f.down || !(w > 0 || least > 0)) return 0;
   const D = h.D, L = D.hipY - D.ankY;
   frameOf(h, T, LEG(s)[0], _M); _V.setFromMatrixPosition(_M);
@@ -1412,16 +1419,20 @@ function heelRise(h, T, s, f, w = 1, prev = 0, dt = 0, least = 0){
   let r = Math.max(least, ex > 0 ? w*clamp(Math.asin(clamp(ex/.13, 0, .95)), 0, 1.1) : 0);
   if (dt > 0) r = clamp(r, prev - 7*dt, prev + 7*dt);
   if (!(r > 0)) return 0;
-  heelApply(f, r);
+  heelApply(f, r, p0);
   return r;
 }
 const tK0Of = C => C.back ? -C.back - .03 : 0;
-function heelApply(f, r){
+// ((FC27) about the toe joint itself, 0.11 ahead of the ankle and 0.06 under it: the ankle goes up and on so the ball of
+// the foot stays where it stood; the forward share was left out, and the toe slid back 3 cm as a planted heel came up.
+// p0: the foot already rolled that far, its ankle where that roll had it)
+const ankZ = p => -.11*Math.cos(p) + .06*Math.sin(p), ankY = p => .11*Math.sin(p) + .06*Math.cos(p);
+function heelApply(f, r, p0 = 0){
   if (!(r > 0)) return;
   const sc = BT.sc;
-  f.y += (.11*Math.sin(r) + .085*(Math.cos(r) - 1))*sc;
-  const fx = Math.sin(BT.ry + f.yaw), fz = Math.cos(BT.ry + f.yaw);
-  f.x += fx*.11*(1 - Math.cos(r))*sc; f.z += fz*.11*(1 - Math.cos(r))*sc;
+  f.y += (ankY(p0 + r) - ankY(p0))*sc;
+  const fx = Math.sin(BT.ry + f.yaw), fz = Math.cos(BT.ry + f.yaw), dz = ankZ(p0 + r) - ankZ(p0);
+  f.x += fx*dz*sc; f.z += fz*dz*sc;
   f.pitch += r;
 }
 // bring the hips toward a foot's world target when the leg would not reach it (weight w of the shortfall)
