@@ -439,7 +439,8 @@ function updateTarget(h, f, i, rem, dt, force = false){
   // (a far body, T2 and beyond, re-plans every other frame: its target eases toward the plan either way)
   if (sw.ok && !force && G.lod >= 2 && (G.tick & 1)) return;
   if (sw.kind === "phase" || sw.kind === "stop"){ planLanding(h, f, i, rem, _pl); if (!G.over[i]) sideLand(h, f, i, _pl); }
-  else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; }
+  // ((BCS) a step in place too: a quick turn on the spot put a foot down across the other)
+  else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; sideLand(h, f, i, _pl); }
   if (!sw.ok || force){ sw.x1 = _pl.x; sw.z1 = _pl.z; sw.yaw1 = _pl.yaw; sw.roll1 = _pl.roll; sw.ok = true; }
   else {
     const k = 1 - Math.exp(-20*dt);
@@ -494,13 +495,16 @@ function swingAt(h, f, out){
       if (sw.vx === sw.vx){ x += sw.vx*m; z += sw.vz*m; y += (sw.vy || 0)*m; }
     }
   }
-  // ((BCS) round the planted leg, never through it: SIDE_SWING out on its own side across the pelvis now, see sideLand)
+  // ((BCS) round the other leg, never through it: SIDE_SWING out on its own side across the pelvis now, see sideLand;
+  // the other foot planted, from its footprint; in the air too (a run's flight), from where it is on its way)
   const o = G.feet[f.s > 0 ? 1 : 0];
-  if (o.down && G.pel === G.pel && G.style !== "shuffle"){
+  if (G.pel === G.pel && G.style !== "shuffle"){
     // (eased in over the first of the swing too: a foot that left the ground on the wrong side is not snapped across)
     const w = sstep(0, .15, u)*(1 - sstep(SIDE_FADE[0], SIDE_FADE[1], u));
     if (w > 0){
-      const lx = Math.cos(G.pel), lz = -Math.sin(G.pel), d = (x - o.x)*lx + (z - o.z)*lz, need = SIDE_SWING*sc;
+      let ox = o.x, oz = o.z;
+      if (!o.down && o.sw){ const ko = sH(o.sw.u); ox = o.sw.x0 + (o.sw.x1 - o.sw.x0)*ko; oz = o.sw.z0 + (o.sw.z1 - o.sw.z0)*ko; }
+      const lx = Math.cos(G.pel), lz = -Math.sin(G.pel), d = (x - ox)*lx + (z - oz)*lz, need = SIDE_SWING*sc;
       if (f.s*d < need){ const k = (f.s*need - d)*w; x += lx*k; z += lz*k; }
     }
   }
@@ -673,18 +677,24 @@ function feetYaw(G){ const a = footFwd(G.feet[0]), b = footFwd(G.feet[1]); retur
    SIDE_SWING out on its side of the planted foot across the pelvis now, eased out over SIDE_FADE of the swing, where it
    comes straight down onto its landing (which is on its side already). The planted foot is not moved: only where the
    free one goes */
-const SIDE_LAND = .14, SIDE_SWING = .12, SIDE_FADE = [.8, .97];
+const SIDE_LAND = .15, SIDE_SWING = .14, SIDE_FADE = [.8, .97];
 // the way the hips will face over planted foot o, tl seconds on (the body's turn carried on, at most 0.7 rad)
 function sideYaw(h, o, tl){
-  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7), a = footFwd(o);
+  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7);
+  // (the other foot in the air too, a run's flight: the hips go where the body faces)
+  if (!o.down) return ry + G.twist;
+  const a = footFwd(o);
   return a + clamp(wrap(ry + G.twist - a), -PEL_LT1, PEL_LT1);
 }
-// a landing out (x, z) for foot f (index i) moved out to its own side of the planted foot, if it is not there
+// where the other foot is on the ground or will be (x, z into _so): planted, its footprint; in the air, its landing
+const _so = {x:0, z:0};
+function otherSpot(o){ if (o.down || !o.sw){ _so.x = o.x; _so.z = o.z; } else { _so.x = o.sw.x1; _so.z = o.sw.z1; } return _so; }
+// a landing out (x, z) for foot f (index i) moved out to its own side of the other foot, if it is not there
 function sideLand(h, f, i, out){
   const G = h.gait, o = G.feet[1 - i];
-  if (!o.down || G.style === "shuffle") return out;
-  const sw = f.sw, Y = sideYaw(h, o, sw ? Math.max(0, sw.T - sw.t) : 0), lx = Math.cos(Y), lz = -Math.sin(Y);
-  const d = (out.x - o.x)*lx + (out.z - o.z)*lz, need = SIDE_LAND*h.scale;
+  if (G.style === "shuffle") return out;
+  const sw = f.sw, Y = sideYaw(h, o, sw ? Math.max(0, sw.T - sw.t) : 0), lx = Math.cos(Y), lz = -Math.sin(Y), p = otherSpot(o);
+  const d = (out.x - p.x)*lx + (out.z - p.z)*lz, need = SIDE_LAND*h.scale;
   if (f.s*d < need){ const k = f.s*need - d; out.x += lx*k; out.z += lz*k; }
   return out;
 }
@@ -747,7 +757,11 @@ function standStep(h, dt, v, intent){
   // dragged
   for (let i = 0; i < 2; i++){ const f = G.feet[i]; if (f.down && (f.miss || 0) > .004 && f.tDown > .05) return pivotStep(h, i, .28, 1, "settle"); }
   // the turn: the feet's mean yaw against the body's
-  const fy = G.feet[0].yaw + wrap(G.feet[1].yaw - G.feet[0].yaw)/2 - (G.feet[0].s*.06 + G.feet[1].s*.06)/2, dy = wrap(ry - fy), ady = Math.abs(dy);
+  const fy = G.feet[0].yaw + wrap(G.feet[1].yaw - G.feet[0].yaw)/2 - (G.feet[0].s*.06 + G.feet[1].s*.06)/2;
+  // ((BCS) about half a turn: the way the body is turning, as pivotTarget)
+  let dy = wrap(ry - fy);
+  if (Math.abs(G.yawRate) > 1 && Math.abs(dy) > 2 && Math.sign(dy) !== Math.sign(G.yawRate)) dy += Math.sign(G.yawRate)*TAU;
+  const ady = Math.abs(dy);
   // (and either foot on its own left turned well away from the body: the mean of two wrong feet can look right)
   const f0 = G.feet[0], f1 = G.feet[1], off = Math.max(Math.abs(wrap(ry + f0.s*.06 - f0.yaw)), Math.abs(wrap(ry + f1.s*.06 - f1.yaw)));
   G.pivotT = ady > .25 || off > .5 ? G.pivotT + dt : 0;
@@ -798,7 +812,11 @@ function pivotStep(h, i, T, frac, kind = "pivot"){
 function pivotTarget(h, f){
   const G = h.gait, D = h.D, sc = h.scale, sw = f.sw;
   const ry = h.g.rotation.y + clamp(G.yawRate*(sw.T - sw.t)*.5, -.6, .6);
-  let yaw = sw.yawS + wrap(ry - sw.yawS + f.s*.06)*sw.frac;
+  // ((BCS) a turn of about half a turn goes on round the way the body is turning, never back the shorter way: past
+  // 180 degrees the shorter way flips, and the foot was sent round the wrong side, across the other one)
+  let dt0 = wrap(ry - sw.yawS + f.s*.06);
+  if (Math.abs(G.yawRate) > 1 && Math.abs(dt0) > 2 && Math.sign(dt0) !== Math.sign(G.yawRate)) dt0 += Math.sign(G.yawRate)*TAU;
+  let yaw = sw.yawS + dt0*sw.frac;
   // (UF-A, U1: a foot opens at most SPLAY from the one it turns over, as a hip turns out: a big turn on the spot is
   // several steps, the feet taking turns, rather than one foot swung right round in a single step)
   const o = G.feet[f.s > 0 ? 1 : 0];

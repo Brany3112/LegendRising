@@ -181,10 +181,13 @@ export const runAfter = me => clamp(.6 - .3*(((me.at && me.at.acceleration) || 5
    - from a stand the body turns on the spot first (mover.js turnFirst: no speed while the wish is more than 60 degrees
      off the facing), at TURN_RATE rad/s (the clip's 12 to 14); on the move its facing follows the heading at FACE_RATE;
    - the facing is held only where a strike needs it (a shot, a pass or a flick being charged or struck with the ball
-     yours or coming to you, a fake, a header's meeting run: facing the aim, AIM_NEAR m), the jockey, and the engine's
-     shield. First person keeps the body facing the view, the strafe and backpedal caps and the run going forward only */
+     yours or coming to you, a fake, a header's meeting run: facing the aim, AIM_NEAR m), the jockey, the engine's
+     shield, and a pass about to reach you (receiving: the body open to the ball from RECV_T s before it arrives, when it
+     rolls in at RECV_V m/s or more from no further round than RECV_ANG off your facing: the control radius is widest
+     facing it). First person keeps the body facing the view, the strafe and backpedal caps and the run going forward
+     only */
 export const BCS = Object.freeze({CURVE_K: 5, CURVE_MIN: 4, CURVE_MAX: 14, SNAP: 120*DEG, STAND_V: 1.2,
-  TURN_FIRST: true, TURN_RATE: 13, FACE_RATE: 12, AIM_NEAR: 3});
+  TURN_FIRST: true, TURN_RATE: 13, FACE_RATE: 12, AIM_NEAR: 3, RECV_T: .7, RECV_V: 2, RECV_ANG: 110*DEG});
 // (the football profile's own facing rate, mover.js moverParams: first person goes back to it)
 const FACE_RATE_FP = 12;
 // the camera is behind you (third person): the keys are a way on the screen and the body turns to run it
@@ -814,6 +817,17 @@ function wishStep(me, I, kx, kz, h){
   }
   I.dx = -Math.sin(W.yaw); I.dz = -Math.cos(W.yaw);
 }
+// (BCS) a pass about to reach you (third person): a free ball nobody has, rolling your way at BCS.RECV_V m/s or more,
+// within BCS.RECV_T s of you, and coming from no further round than BCS.RECV_ANG off where you face (a ball played in
+// behind you, run onto, is not turned to)
+function receiving(ms, me, d){
+  const b = ms.ball;
+  if (b.state !== "free" || ms.poss.ctl >= 0 || b.p.y > 1.2 || d < .3) return false;
+  const cx = me.m.x - b.p.x, cz = me.m.z - b.p.z, close = ((b.v.x - (me.m.vx || 0))*cx + (b.v.z - (me.m.vz || 0))*cz)/d;
+  if (close < BCS.RECV_V || d/close > BCS.RECV_T) return false;
+  const f = dirOf(me.m.yaw);
+  return -(cx*f.x + cz*f.z)/d > Math.cos(BCS.RECV_ANG);
+}
 // your body's turning (on your own mover's profile, re-laid every step: the warm-up's boost and a change of your
 // attributes build it afresh): third person, the turn on the spot from a stand and the face's rate (BCS); first
 // person, the football profile's own
@@ -944,6 +958,12 @@ export function controlStep(ms, me, h, opts = {}){
   const aimHold = act0 === "kick" || act0 === "fake" || act0 === "flick" ||
     (!!CTRL.charge && ctx !== "defend" && (ms.poss.ctl === me.id || dball < BCS.AIM_NEAR*(me.scale || 1) || (ms.ball.state === "free" && approaching(ms, me))));
   if (!tp || aimHold){ I.face = FACE; FACE.x = -sin; FACE.z = -cos; }
+  else if (tp && receiving(ms, me, dball)){
+    // ((BCS) a pass about to reach you from in front or the side: the body stays open to it while the keys move you and
+    // say where the touch goes (its control radius is widest facing it, zone.js fAngle), as a receiver sets himself)
+    const bx = ms.ball.p.x - me.m.x, bz = ms.ball.p.z - me.m.z, bl = Math.hypot(bx, bz) || 1;
+    I.face = FACE; FACE.x = bx/bl; FACE.z = bz/bl;
+  }
   else I.face = null;
   bcsPrm(me, tp);
   I.strafe = false; I.speedCap = Infinity;
