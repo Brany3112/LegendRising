@@ -774,9 +774,11 @@ function inOwnBox(ms, a){
 export function dribbleFoot(ms, a, side){
   const b = ms.ball;
   if (ms.poss.ctl !== a.id || b.state !== 'free'){ a.cplan.on = false; return false; }
-  // ((FC27) no touch, the carry's or the strides', while he steps in to strike it: the ball is the strike's. Before the
-  // carry's: the step he releases a shot charged in close control, close control is still on until keepStep ends it)
-  if (a.act && a.act.stepIn && !a.act.done){ a.cplan.on = false; return false; }
+  // ((FC27) no touch, the carry's or the strides', while he steps in to strike it: the ball is the strike's. Nor the
+  // carry's from the step a kick or a flick begins in close control (keepStep's ends of it): close control is still on
+  // until keepStep ends it, after the footfalls, and a touch planned for that footfall played the ball out from under
+  // the shot or the pass let go on it)
+  if (a.act && !a.act.done && (a.act.stepIn || a.ctlOn && a.act.kind !== 'header' && a.act.kind !== 'fake')){ a.cplan.on = false; return false; }
   if (a.ctlOn) return carryFoot(ms, a, side);
   if (!a.drib){ a.cplan.on = false; return false; }
   // (U27: a knocked-on ball is left to run for KNOCK.LET s: a stride's touch straight after it played it again along
