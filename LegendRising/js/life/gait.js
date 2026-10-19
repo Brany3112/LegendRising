@@ -232,8 +232,8 @@ export function footstep(h, side, x, z, yaw){
 }
 /* a dribble touch: the next swing of that foot (or whichever comes first) passes through the ball at u = 0.70 of its
    swing, keeping its zero landing speed. Returns {tContact} (seconds from now) or null when no swing reaches the ball
-   within 0.5 s (no magnet: the caller's ball model decides what happens instead) */
-export function touch(h, {side = null, ball, dir = null, strength = 1} = {}){
+   within `within` s, 0.5 by default (no magnet: the caller's ball model decides what happens instead) */
+export function touch(h, {side = null, ball, dir = null, strength = 1, within = .5} = {}){
   const G = h.gait; if (!G || !ball) return null;
   const v = Math.max(G.vs, .3), step = stepOf(G, v, h.scale), rate = v/(2*step);        // strides a second
   let best = null;
@@ -247,7 +247,7 @@ export function touch(h, {side = null, ball, dir = null, strength = 1} = {}){
     if (f.sw && f.sw.u < .7) ph = (duty + .7*(1 - duty)) - local;
     else { ph = duty + .7*(1 - duty) - local; if (ph <= 0) ph += 1; }
     const t = ph/rate;
-    if (t <= .5 && (!best || t < best.t)) best = {t, i};
+    if (t <= within && (!best || t < best.t)) best = {t, i};
   }
   if (!best) return null;
   G.via[best.i] = {x:ball.x, y:ball.y != null ? ball.y : .11, z:ball.z, laces:G.vs > 5, dir, strength};

@@ -377,7 +377,9 @@ function dribbleTouches(V, ms){
     const b = ms.ball, v = Math.hypot(b.v.x, b.v.z);
     _tb.x = b.p.x; _tb.z = b.p.z;
     // (U27) a close-control touch names its foot and the way it plays the ball: that foot's swing goes through it
-    const r = gaitTouch(R.h, {ball:_tb, side:e.foot === "L" || e.foot === "R" ? e.foot : null, dir:e.dx != null ? {x:e.dx, z:e.dz} : null});
+    // ((FC27) a carrier's set-off touch, at 1.5 to 2 m/s on the carrier's stride, may be the better part of a stride
+    // from its next swing's u 0.7: looked for over a stride, 0.8 s, rather than 0.5)
+    const r = gaitTouch(R.h, {ball:_tb, side:e.foot === "L" || e.foot === "R" ? e.foot : null, dir:e.dx != null ? {x:e.dx, z:e.dz} : null, within:R.h.gait && R.h.gait.ck > 0 ? .8 : .5});
     if (r && v > .05){
       // where the ball will be at the drawn contact
       const t = r.tContact, roll = b.rollDecel || 1.1, go = Math.max(0, v*t - .5*roll*t*t), G = R.h.gait;
@@ -745,8 +747,10 @@ const _ct = {x:0, y:.11, z:0}, _ct2 = {x:0, y:.11, z:0};
 const CK_EASE = .12;
 function carrySt(V, a, ms, st){
   const g = a.g;
-  st.carry = undefined; st.phase = undefined; st.touch = null; st.keep = g && !a.isGK ? g.ck : 0;
-  const P = a.cplan, on = !!(g && g.ck > 0 && !a.isGK && P && (a.ctlOn ? P.on && P.part !== "sole" : true));
+  // (a body jockeying is not carrying, whatever its weight says: a paused simulation's attacker moved by hand)
+  const jk = a.state === "jockey";
+  st.carry = undefined; st.phase = undefined; st.touch = null; st.keep = g && !a.isGK && !jk ? g.ck : 0;
+  const P = a.cplan, on = !!(g && g.ck > 0 && !a.isGK && !jk && P && (a.ctlOn ? P.on && P.part !== "sole" : true));
   // (in close control the carrier's gait and the simulation's clock are the drawn feet's only while the footfalls play
   // the ball: a turn on the spot's touches, a stop, a slow walk with it, the drawn gait's own steps (its stops, pivots
   // and turns, at its own stride), the carrier's eased in and out over CK_EASE s and the clock caught up again within a
