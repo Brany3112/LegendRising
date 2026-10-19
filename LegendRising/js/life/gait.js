@@ -64,9 +64,10 @@ const CARRY_BOB = .7, CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .
    or its outside (FACE_BACK) with the foot turned (at most TOUCH_YAW off the way) so that face looks along it. Over the
    last of the swing (TRACK_U) the foot comes on with the ball, so the face is at it for the frames before the footfall,
    eased in over TRACK_IN seconds from when the touch is known (a touch planned late in a swing, the first as he sets
-   off, does not pull the foot over in a frame), the toe held TOUCH_UP over the ground on it (the clip's toe meets the
-   ball 0.03 to 0.08 m up for 2 to 3 frames as the foot comes down, f47-48, f92-93: it is not yet flat on the grass) */
-const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62], TRACK_IN = .1, TOUCH_UP = .025;
+   off, does not pull the foot over in a frame), the toe held TOUCH_UP more over the ground on it than the carrier's
+   even lift leaves it (the clip's toe meets the ball 0.03 to 0.08 m up for 2 to 3 frames as the foot comes down,
+   f47-48, f92-93: it is not yet flat on the grass) */
+const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62], TRACK_IN = .1, TOUCH_UP = .01;
 /* (FC27) a carrier's feet never cross (the user's turn: "legs overlapping ... the legs cross and go through each other"):
    a touch's foot comes down at least TOUCH_SEP to its own side of the other foot, across the hips (the pelvis's own yaw,
    turned into the way of travel) as they will face at the footfall, pushed out to there (the simulation plays such a
@@ -567,8 +568,8 @@ function swingAt(h, f, out){
   // than cutting under them; going down it keeps its height and comes down at the end)
   const up = Math.max(0, ey - sw.y0);
   // (a step up lifts the foot early, the toes clear of the riser in front of them before they come forward)
-  // ((FC27) a carrier's quick low step lifts evenly, as a shuffle's: its 0.13 to 0.19 s swing on the run's heel whip
-  // bent the knee 0.27 rad in the frame after the toe-off)
+  // ((FC27) a carrier's quick low step lifts evenly, as a shuffle's: the run's heel whip on his 0.13 to 0.19 s swing
+  // whipped the knee up in the frame after the toe-off, and came down so late that the heel was 13 mm over the grass)
   const bmp = G.style === "shuffle" && sw.kind === "phase" ? bumpS(u) : sw.kind === "phase" && G.cw > 0 ? lerp(bump(u, G.R), bumpS(u), G.cw) : bump(u, G.R);
   let y = sw.y0 + (ey - sw.y0)*(up > .02 ? Math.max(sV(u), sH(u)) : sV(u)) + sw.lift*bmp + up*.6*sstep(0, .3, u)*(1 - sstep(.7, 1, u));
   if (sw.v0y) y += sw.v0y*pk;
