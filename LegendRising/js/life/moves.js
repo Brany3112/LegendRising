@@ -697,14 +697,17 @@ function strikeBegin(h, C, st){
   toB(p.x, 0, p.z, _b4);
   const dist = Math.hypot(_b3.x - _b4.x, _b3.z - _b4.z);
   if (K.shot){
-    // ((FC27) C.step: a shot whose plant step is its own (not a run-up's last step handed over, st.pre), which the hips
-    // lead into, strike()'s reachLevel)
-    C.step = true;
     // (FC27) the shot: the plant comes down at clip time 0 and the swing from it is the clip's own (SHOT), so the plant
     // step takes what the simulation's contact leaves before it (st.tc less the kind's contact: a step-in's 0.13 s),
     // never less than SHOT.PRE[0]; a strike asked sooner than that begins late (newClip), as any does
     C.back = 0;
     const tcs = st.tc != null && isFinite(st.tc) && st.tc >= 0 ? +st.tc : null, room = tcs != null ? tcs - K.contact : shotStep(dist);
+    // ((FC27) C.step: a step-in's plant step, its own and given its time (not a run-up's last step handed over, st.pre,
+    // nor a strike in the reach window's 0.10 to 0.18 s, its clip played up to twice as fast from late in its step):
+    // the hips lead into it (reachLevel) and hold there to the contact, the kicking foot leaves at the plant's moment.
+    // Held to the contact in a clip played twice as fast, the hips could not come back in time and the foot missed the
+    // ball by 0.2 m)
+    C.step = room >= SHOT.PRE[0] - 1e-6;
     if (C.fromHold){
       // let go from a held wind-up: with the time for it and the plant more than HOP from the foot he stands on, that
       // foot hops onto it first; else he strikes off the foot he stands on. Either way the cocked leg swings the shot's
@@ -1087,8 +1090,13 @@ function strike(h, T, st, dt){
     }
     T[61] -= drop;
   }
-  rateHips(h, T, dt);
   // (after the contact the shift it last needed eases away, rather than chasing the follow-through)
+  // ((FC27) put in before the hips' speed limit, as part of the pose it limits: added after it, onto a pose the limit
+  // had held back toward the last frame's (which had it in already), it was counted again every frame while the limit
+  // held, and a cross's follow-through sank the hips half a metre)
+  if (tau > ct && d.rh){ const w = Math.exp(-Math.pow((tau - ct)/.2, 2)); T[60] += d.rh.x*w; T[61] += d.rh.y*w; T[62] += d.rh.z*w; }
+  rateHips(h, T, dt);
+  // the striking leg's reach for its foot up to the contact
   // ((FC27) the shot's only as its foot comes down from the top of the backswing to the ball, and for its own plant
   // step never raising the hips: reaching for the top, high behind him, lifted them and the planted foot with them)
   if (tau <= ct){
@@ -1096,7 +1104,6 @@ function strike(h, T, st, dt){
     reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2))*(K.shot ? sstep(SHOT.TOP, SHOT.TOP + .06, tau) : 1), rh);
     if (K.shot && C.step && T[61] > y0){ T[61] = y0; rh.y = 0; }
   }
-  else if (d.rh){ const w = Math.exp(-Math.pow((tau - ct)/.2, 2)); T[60] += d.rh.x*w; T[61] += d.rh.y*w; T[62] += d.rh.z*w; }
   // the support foot's landing on its plant: a fast run-up carries the body on past it, so where the leg would not reach
   // the point it lands on, the hips come back toward it, easing in over the last tenth of a second of the step and out
   // over the first fifth of a second down (the leg then lands on its point instead of short of it)
@@ -1257,7 +1264,10 @@ function strikePath(h, C, d, k, K, s, tau, ball){
     // ((FC27) the shot: the top of the backswing behind the root on the kicking hip's line, the heel well up (the knee
     // bent 100 to 120 degrees); the follow-through's top just inside that line, so the foot sweeps on across to the
     // support side after it as it comes down, SHOT.FT_IN, LAND_IN)
-    if (part === "laces"){ at(-(SHOT.TOP_B[0] + SHOT.TOP_B[1]*d.power)*sc, hx + out*.02*sc, _a2); bx = _a2.x; bz = _a2.z; by = gy + (SHOT.TOP_Y[0] + SHOT.TOP_Y[1]*d.power)*sc; bpitch = 1.25; }
+    // (a strike in the reach window, its clip played up to twice as fast, has a shorter, lower backswing, as far as
+    // the joints can take it at that pace: the full one, under their speed limit, left the foot 0.2 m off the ball)
+    if (d.topK == null) d.topK = C.step ? 1 : clamp(1.15/Math.max(1, C.rate || 1), .55, 1);
+    if (part === "laces"){ at(-(SHOT.TOP_B[0] + SHOT.TOP_B[1]*d.power)*sc*d.topK, hx + out*.02*sc, _a2); bx = _a2.x; bz = _a2.z; by = gy + (SHOT.TOP_Y[0] + SHOT.TOP_Y[1]*d.power)*d.topK*sc; bpitch = 1.25; }
     at(.75*sc, hx - out*SHOT.FT_IN*sc, _a2); tx = _a2.x; tz = _a2.z;
   }
   // timing: one smooth curve from when the foot leaves (at the plant for a run-up, the swing already on its way back;
