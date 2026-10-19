@@ -539,12 +539,30 @@ function agentStep(ms, a, h){
     if (spr && !a.acc.sprintOn) a.acc.sprints++;
     a.acc.sprintOn = spr;
     gaitModeStep(a.g, m.speed, h);
+    // (FC27) the man on the ball runs the carrier's gait (gaitcore CARRY: short quick low steps, a strong-foot footfall
+    // every stride for his touches), eased in and out over 0.15 s as he takes it and lets it go; a.gPhi0 is the
+    // clock before this step, for the drawn body's clock between two steps (view.js)
+    const g = a.g, ckT = carrying(ms, a) ? 1 : 0;
+    if (g.ck !== ckT) g.ck = Math.abs(ckT - g.ck) < 1e-3 ? ckT : g.ck + (ckT - g.ck)*CARRY_EASE_K;
+    a.gPhi0 = g.phi;
     GQ[0] = dist; GQ[1] = m.speed; GQ[2] = a.scale || 1;
     const evs = phaseAdvanceQ(a.g, a.g.mode);
     if (evs.length && ms.poss.ctl === a.id && ms.phase === 'live') for (const e of evs) dribbleFoot(ms, a, e.side);
     // (U27) close control (F toggles it on) and the knock-on (Shift twice): the player's only
     if (a.ctlOn || a.takeT != null || a.intent.knock) keepStep(ms, a, h);
   }
+}
+// (FC27) the carrier: the man the ball is with while it is free and at his feet (close control, or the strides'
+// dribble), not in the middle of a kick; CARRY_EASE_K: one 60 Hz step's share of the ease, 1 - e^(-1/9) (0.15 s),
+// written as the number so every engine eases by the same bits (D6)
+const CARRY_EASE_K = 0.10516;
+function carrying(ms, a){
+  if (a.ctlOn) return true;
+  const b = ms.ball;
+  if (ms.poss.ctl !== a.id || b.state !== 'free' || ms.phase !== 'live' || a.isGK || b.p.y > .5) return false;
+  if (a.act && !a.act.done && a.act.kind !== 'fake') return false;
+  const dx = b.p.x - a.m.x, dz = b.p.z - a.m.z;
+  return dx*dx + dz*dz < 4;
 }
 function endStep(ms, h){
   ms.t += h; ms.step++;

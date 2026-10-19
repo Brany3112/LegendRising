@@ -13,7 +13,7 @@
 //
 // Pure module (DESIGN 1.2, marked P): no THREE, no DOM, no globals, no Math.random.
 
-import {ballKick, ballPredict, ballRelease, ballHold, BALL, createBall, createBallWorld, ballStep} from "./ball.js";
+import {ballKick, ballPredict, ballRelease, ballHold, BALL, createBall, createBallWorld, ballStep, rollDistance, rollSpeedAt} from "./ball.js";
 import {planShot, solveStrike, idealPassSpeed, shotSpeed, presolve, presolveStep, presolveWarm, aimOf, devDraws} from "./strike.js";
 import {reachEnvelope, firstTouch, dribbleTouch, dribbleCadence, tackleOutcome, slideProfile, slideDistance, headerContact,
   classifyContact, TOUCH, TACKLE} from "./touch.js";
@@ -28,6 +28,7 @@ import {xgAt, decisionRecord} from "./judge.js";
 import {jumpHeight, raiseHand} from "./agent.js";
 import {jumpRoot} from "./gkplan.js";
 import {sprintSpeed} from "../mover.js";
+import {stepLen} from "../gaitcore.js";
 import {dirOf, yawOf, wrapA, inBox} from "./pitchspec.js";
 import {sin, cos, hypot, atan2, acos} from "./detmath.js";
 
@@ -680,28 +681,66 @@ function inOwnBox(ms, a){
 
 /* ---------- dribbling (3.1.4) ---------- */
 
-// On a footfall of the controller: a dribble touch when the cadence says so (every stride under 3 m/s, every second
-// stride to 6, every third above) and the ball is within 0.9 m and 50 degrees ahead, along a.drib.dir.
+// On a footfall of the controller: a dribble touch when the cadence says so (TOUCH.CADENCE: every stride under 6 m/s,
+// every second above, on the carrier's short strides, FC27) and the ball is within 0.9 m and 50 degrees ahead, along
+// a.drib.dir. (FC27) The touch is the touching foot's: the strong foot's footfalls, or the weak one's while the ball
+// sits more than TOUCH.WEAK_SIDE to its side (dribTouchSide); the other foot's footfall plays it only when the ball
+// would be under him before the touching foot came down again (CARRY.OVERRUN). Each footfall plans the next touch
+// for the drawn body (dribblePlan). Close control's touches are the carry's (carryFoot).
 export function dribbleFoot(ms, a, side){
   const b = ms.ball;
-  if (ms.poss.ctl !== a.id || b.state !== 'free' || !a.drib) return false;
-  // (U27: a ball in close control is touched by keepStep, not on the strides; a knocked-on ball is left to run for
-  // KNOCK.LET s: a stride's touch straight after it played it again along the dribble's line, off the knock's way)
-  if (a.ctlOn || (a.knockT != null && ms.t - a.knockT < KNOCK.LET) || (a.act && a.act.kind === 'fake')) return false;
-  const v = a.m.speed;
+  if (ms.poss.ctl !== a.id || b.state !== 'free'){ a.cplan.on = false; return false; }
+  if (a.ctlOn) return carryFoot(ms, a, side);
+  if (!a.drib){ a.cplan.on = false; return false; }
+  // (U27: a knocked-on ball is left to run for KNOCK.LET s: a stride's touch straight after it played it again along
+  // the dribble's line, off the knock's way)
+  if ((a.knockT != null && ms.t - a.knockT < KNOCK.LET) || (a.act && a.act.kind === 'fake')){ a.cplan.on = false; return false; }
   if (side === touchSideOf(a)) a.strides++;
-  const every = dribbleCadence(v);
-  const r = relBall(a, b, RB3);
+  const tf = dribTouchSide(a, b), r = dribbleWants(ms, a, side === tf ? 0 : 1);
+  let did = false;
+  if (r){ a.strides = 0; did = dribbleKick(ms, a, side); }
+  dribblePlan(ms, a);
+  return did;
+}
+// the foot the strides' dribble plays the ball with: the strong one unless the ball sits past TOUCH.WEAK_SIDE to the
+// weak side (touch.js dribbleTouch's rule)
+function dribTouchSide(a, b){ const r = relBall(a, b, RB3); return footFor(a, r.lat); }
+/* would the strides' dribble play the ball now (at = 0, the touching foot's footfall), or, on the other foot's
+   (at = 1), only if it would be under him before the touching foot is down again? Read against the ball and the body
+   now, or (pb: a predicted body {x, z, ahead of the facing...}) where they will be (dribblePlan) */
+const DW = {ahead: 0, lat: 0, dist: 0, strong: false};
+function dribbleWants(ms, a, other, P = null){
+  const b = ms.ball, v = a.m.speed, every = dribbleCadence(v);
+  const r = P ? P : relBall(a, b, RB3);
+  if (b.p.y > 0.5) return false;
   // (the cadence waits only while the ball will still be well ahead at the next footfall: one he is about to run onto
   // is played now, WP-F; a short touch, Ball Control's, closes faster)
   const f = dirOf(a.m.yaw), close = Math.max(0, v - (b.v.x*f.x + b.v.z*f.z));
-  if (a.strides < every && v > 0.6 && r.ahead - close*DRIB_FOOT_DT > DRIB_CLOSE*0.5) return false;
-  if (r.dist > TOUCH.DRIB_REACH || r.ahead < r.dist*cos(TOUCH.DRIB_CONE) || b.p.y > 0.5) return false;
-  a.strides = 0;
-  return dribbleKick(ms, a);
+  const strides = a.strides + (P && P.strong ? 1 : 0);
+  if (other){
+    // (the other foot: only a ball he would otherwise run onto before the touching foot comes down)
+    const tNext = strideOf(a, Math.max(v, .5))/2;
+    if (!(v > 0.6 && r.ahead - close*tNext < CARRY.OVERRUN*(a.scale || 1))) return false;
+  } else if (strides < every && v > 0.6 && r.ahead - close*DRIB_FOOT_DT > DRIB_CLOSE*0.5) return false;
+  if (r.dist > TOUCH.DRIB_REACH || r.ahead < r.dist*cos(TOUCH.DRIB_CONE)) return false;
+  return true;
 }
-// a dribble touch now: the ball played on along a.drib's way (a footfall's, or the first stride's from standing)
-function dribbleKick(ms, a){
+// (FC27) the strides' dribble's next touch for the drawn body: the touching foot's next footfall, if the ball and the
+// body as they will be then say it plays the ball (dribbleWants on them); else none
+function dribblePlan(ms, a){
+  const P = a.cplan, b = ms.ball, m = a.m, v = Math.max(m.speed, .5);
+  P.on = false; P.touch = false;
+  if (!a.drib || ms.poss.ctl !== a.id || b.state !== 'free' || b.p.y > .3 || m.speed < .6) return;
+  const tf = dribTouchSide(a, b), t = sideT(a, tf, v);
+  ballAt(b, t, BP1); bodyAt(a, t, null, BB1);
+  const f = dirOf(m.yaw), dx = BP1.x - BB1.x, dz = BP1.z - BB1.z;
+  DW.ahead = dx*f.x + dz*f.z; DW.lat = dx*(-f.z) + dz*f.x; DW.dist = hypot(dx, dz); DW.strong = tf === touchSideOf(a);
+  if (!dribbleWants(ms, a, 0, DW)) return;
+  P.on = true; P.touch = true; P.side = tf; P.part = 'toe'; P.n = a.g.n + (tf === a.g.side ? 2 : 1); P.why = 'stride';
+}
+// a dribble touch now: the ball played on along a.drib's way (a footfall's, or the first stride's from standing), with
+// foot `side` (FC27: logged with the touch)
+function dribbleKick(ms, a, side = null){
   const b = ms.ball, v = a.m.speed;
   const d = a.drib, fac = a.fac || {}, vv = Math.max(v, d.speed || v);
   // played back onto the line he runs along (a point on it about where the next touch comes), so a touch that went a little
@@ -721,7 +760,8 @@ function dribbleKick(ms, a){
   const dt = dribbleTouch(a, b, {x: kx, z: kz}, vv, {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
     walk: vv < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small, close: +d.close || 0}, ms.r);
   ballKick(b, dt.v, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
-  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: dt.heavy ? 0.5 : 1, heavy: !!dt.heavy});
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: dt.heavy ? 0.5 : 1, heavy: !!dt.heavy,
+    foot: side || dt.foot, part: 'toe'});
   chainKeep(ms, a);
   onTouch(ms, a, 'dribble', ev);
   refreshPred(ms);
@@ -907,11 +947,170 @@ export function keepStep(ms, a, h){
     else if (ms.phase === 'live' && b.state === 'free' && b.p.y < TAKE.MAX_Y && dist <= TAKE.REACH*sc && (ms.poss.ctl < 0 || ms.poss.ctl === a.id) && !(a.act && !a.act.done)){
       a.takeT = null; a.ctlOn = true; a.ctlEnd = null; a.ctlDir = {x: ux, z: uz};
       if (ms.poss.ctl !== a.id) setCtl(ms, a);
-      return ctlTouch(ms, a, ux, uz, true);
+      const r = ctlTouch(ms, a, ux, uz, true);
+      carryPlan(ms, a);
+      return r;
     }
   }
-  if (!a.ctlOn || (a.act && a.act.kind === 'fake')) return false;
+  if (!a.ctlOn || (a.act && a.act.kind === 'fake')){ if (!a.ctlOn && ms.poss.ctl !== a.id) a.cplan.on = false; return false; }
+  // (FC27) on the move the touches are the footfalls' (carryFoot); standing and turning on the spot, the spot's
+  if (carryOn(a)){
+    // (the plan's foot, part and whether it plays at all, kept up with the keys between footfalls: a turn asked for
+    // after the plan was made is the plan's foot's to play, its inside or outside, and a stop its sole)
+    if (!a.cplan.on || ms.step % 6 === 0) carryPlan(ms, a);
+    return false;
+  }
+  a.cplan.on = false;
   return ctlTouch(ms, a, ux, uz, false);
+}
+
+/* ---------- (FC27) the carry: close control's touches on the footfalls ----------
+   The FC 27 clip (plan/notes/fc27-spec.md 2 and 5.1 to 5.3): running with the ball at his feet, every touch lands as the
+   touching foot comes down at the end of its swing, the toe of a nearly flat foot against the back of the ball, low,
+   and that foot is then planted just behind where the ball was; between touches the ball rolls free. So in close
+   control, on the move at CARRY.V_FOOT or more, the touches are made on the gait clock's footfalls (sim.js: the
+   carrier's gait, gaitcore CARRY, brings the strong foot down once a stride, about every 0.33 s): each is planned a
+   footfall ahead (carryPlan, into a.cplan, which the drawn body reads to put that foot's landing behind the ball) and
+   made on that footfall (carryFoot, carryKick). A touch sends the ball to where the next one will meet it: CARRY.LEAD
+   ahead of the pelvis and CARRY.LAT to the strong side when that foot next comes down, a stride on (CARRY.RUN_N strides
+   at a sprint: push and run), so it leaves at a little over his own speed and he catches it up. The foot (spec 5.3):
+     - the strong foot carries it, redirects it and cuts it (turning to the weak side its inside, or a left foot's
+       outside: the side of the ball the turn needs, as ctlTouch plays it);
+     - the weak foot only where the clip uses it: a stop when it is the next foot down (its sole, CARRY.STOP_V), the
+       first push after a turn that left the ball more than TOUCH.WEAK_SIDE to its side, and a push the strong foot would
+       come too late for (the ball would be under him at its strike: CARRY.OVERRUN; the clip's L-R pushes at speed).
+   A strike whose ball would still be CARRY.AHEAD or more past where its touch wants it plays nothing: the foot comes
+   down just behind the ball (the clip's #15). Standing, slowing to a stand and turning on the spot (under V_FOOT) the
+   position controller keeps it (ctlTouch). Numbers in metres times the body's scale. */
+export const CARRY = Object.freeze({V_FOOT: 1.2, LEAD: .56, LAT: .1, AHEAD: .1, RUN_N: 2, RUN_TOL: .08, OVERRUN: .3, STOP_V: 2.0,
+  STAND: .32, MAX_V: 14});
+// is close control's carry on (the footfalls' touches): on the move, not a fake's drag
+const carryOn = a => a.ctlOn && a.m.speed >= CARRY.V_FOOT && !(a.act && a.act.kind === 'fake');
+// seconds for one stride of a's gait at v, and to the next footfall of foot `side` (the clock: the left down at phi 0,
+// the right at 0.5, phi run on by distance)
+const strideOf = (a, v) => 2*stepLen(v, a.g.mode, a.scale || 1, null, a.g.ck)/Math.max(v, .3);
+function sideT(a, side, v){
+  let d = (side === 'R' ? .5 : 1) - a.g.phi;
+  d -= Math.floor(d);
+  if (d < 1e-6) d = 1;
+  return d*strideOf(a, v);
+}
+// the ball rolling on for t s (the closed form of the roll, ball.js; a ball in the air where it is), into out
+const BP1 = {x: 0, z: 0, vx: 0, vz: 0}, BB1 = {x: 0, z: 0}, BB2 = {x: 0, z: 0};
+function ballAt(b, t, out){
+  const v = hypot(b.v.x, b.v.z);
+  if (v < 1e-3 || b.p.y > .3 || !(t > 0)){ out.x = b.p.x; out.z = b.p.z; out.vx = b.v.x; out.vz = b.v.z; return out; }
+  const rd = b.rollDecel || 1.1, dm = b.dragMul || 1, v1 = rollSpeedAt(v, t, rd, dm), s = rollDistance(v, v1, rd, dm);
+  out.x = b.p.x + b.v.x/v*s; out.z = b.p.z + b.v.z/v*s; out.vx = b.v.x/v*v1; out.vz = b.v.z/v*v1;
+  return out;
+}
+// the body t s on: its velocity now easing into the one the keys ask for (u: the way, at the mover's target speed),
+// the mean of the two over a stride or two
+function bodyAt(a, t, u, out){
+  const m = a.m, vx = m.vx || 0, vz = m.vz || 0;
+  let wx = vx, wz = vz;
+  if (u){ const s = m.target > 0 ? m.target : m.speed; wx = u.x*s; wz = u.z*s; }
+  out.x = m.x + (vx + wx)*.5*t; out.z = m.z + (vz + wz)*.5*t;
+  return out;
+}
+// the way the keys take him (or his facing), into out
+const CU = {x: 0, z: 0};
+function keysWay(a, out){
+  const I = a.intent, l = hypot(I.dx || 0, I.dz || 0);
+  if (l > .1){ out.x = I.dx/l; out.z = I.dz/l; } else { const f = dirOf(a.m.yaw); out.x = f.x; out.z = f.z; }
+  return l > .1;
+}
+// the part of foot `side` a touch along way u plays the ball with, after the last touch's way (a.ctlDir): straight on
+// the toe (the front of a flat foot as it lands); turning, the side of the ball the turn needs (left: its right side,
+// a right foot's inside, a left foot's outside), as ctlTouch
+function carryPart(a, side, u){
+  const d0 = a.ctlDir || u, cross = d0.x*u.z - d0.z*u.x, dot = d0.x*u.x + d0.z*u.z, turn = atan2(cross, dot);
+  if (Math.abs(turn) <= CTL.TURN) return 'toe';
+  const ballSide = turn < 0 ? 'right' : 'left';
+  return (ballSide === 'right') === (side === 'R') ? 'inside' : 'outside';
+}
+/* the next touch, planned after a footfall (and kept up with the keys between them): which foot, which part of it, and
+   whether it plays the ball or only comes down behind it */
+function carryPlan(ms, a){
+  const P = a.cplan, b = ms.ball, m = a.m, sc = a.scale || 1;
+  P.on = false; P.touch = false;
+  if (!a.ctlOn || b.state !== 'free' || b.p.y > .3 || ms.poss.ctl !== a.id) return;
+  const v = Math.max(m.speed, .5), mv = keysWay(a, CU), u = CU;
+  const strong = touchSideOf(a), weak = strong === 'R' ? 'L' : 'R', sg = strong === 'R' ? 1 : -1;
+  const tS = sideT(a, strong, v), tW = sideT(a, weak, v);
+  // a stop asked for on the move: the next foot down puts its sole on it
+  if (!mv && m.speed >= CARRY.STOP_V) return planSet(a, tS < tW ? strong : weak, true, 'sole', 'stop');
+  // where the ball is against the body at each foot's next strike (ahead along the way, across: + the strong side)
+  ballAt(b, tS, BP1); bodyAt(a, tS, mv ? u : null, BB1);
+  const aheadS = (BP1.x - BB1.x)*u.x + (BP1.z - BB1.z)*u.z;
+  if (tW < tS){
+    ballAt(b, tW, BP1); bodyAt(a, tW, mv ? u : null, BB2);
+    const latW = ((BP1.x - BB2.x)*(-u.z) + (BP1.z - BB2.z)*u.x)*sg;
+    // the first push after a turn that left it on the weak side; a ball the strong foot would come down on top of
+    if (latW < -TOUCH.WEAK_SIDE*sc) return planSet(a, weak, true, carryPart(a, weak, u), 'weak side');
+    if (aheadS < CARRY.OVERRUN*sc) return planSet(a, weak, true, carryPart(a, weak, u), 'overrun');
+  }
+  // the strong foot: a turn is played at once; straight on, every strike plays it unless it will still be AHEAD past
+  // where the touch wants it (it comes down behind it), and pushed to run on to (a sprint) only once it has fallen
+  // RUN_TOL short of there
+  const part = carryPart(a, strong, u), over = aheadS - CARRY.LEAD*sc, run = a.intent.gait === 'sprint';
+  const touch = part !== 'toe' || (run ? over < -CARRY.RUN_TOL*sc : over < CARRY.AHEAD*sc);
+  planSet(a, strong, touch, part, part !== 'toe' ? 'turn' : run ? 'run' : 'carry');
+}
+function planSet(a, side, touch, part, why){
+  const P = a.cplan;
+  P.on = true; P.touch = touch; P.side = side; P.part = part; P.why = why; P.n = a.g.n + (side === a.g.side ? 2 : 1);
+}
+// a footfall of a carrier in close control: the planned touch if this is its foot, then the next one planned
+function carryFoot(ms, a, side){
+  let did = false;
+  if (carryOn(a) && a.cplan.on && a.cplan.side === side){
+    if (a.cplan.touch) did = carryKick(ms, a, side, a.cplan.part === 'sole' ? 'stop' : a.cplan.why);
+    a.cplan.on = false;
+  }
+  if (a.ctlOn) carryPlan(ms, a);
+  return did;
+}
+/* the touch: the ball sent to where the next touch will meet it (the spot CARRY.LEAD ahead of the pelvis and CARRY.LAT
+   to the strong side when this foot is next down, a stride on, RUN_N at a sprint), rolling with the spin of the roll and
+   a turn's side spin; a stop rolls it to rest CARRY.STAND in front of where the body will stand */
+function carryKick(ms, a, side, why){
+  const b = ms.ball, m = a.m, sc = a.scale || 1, dec = b.rollDecel || 1.1;
+  const reach = hypot(b.p.x - m.x, b.p.z - m.z);
+  if (reach > CTL.REACH*sc || b.p.y > .4) return false;
+  keysWay(a, CU);
+  const u = {x: CU.x, z: CU.z}, strong = touchSideOf(a), sg = strong === 'R' ? 1 : -1, v = Math.max(m.speed, .5);
+  let tx, tz, T;
+  if (why === 'stop'){
+    // (the body's own stop: its speed over the mover's brake)
+    const ds = m.speed*m.speed/(2*Math.max(1, a.prm.brake || 7.5)), f = dirOf(m.yaw), hv = m.speed > 1e-3 ? 1/m.speed : 0;
+    tx = m.x + (m.vx || 0)*hv*ds + f.x*CARRY.STAND*sc - f.z*sg*CTL.LAT*sc; tz = m.z + (m.vz || 0)*hv*ds + f.z*CARRY.STAND*sc + f.x*sg*CTL.LAT*sc;
+    const ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), sp = D > 1e-3 ? Math.min(Math.sqrt(2*dec*D), CARRY.MAX_V) : 0;
+    const kx = D > 1e-3 ? ex/D*sp : 0, kz = D > 1e-3 ? ez/D*sp : 0;
+    ballKick(b, {x: kx, y: 0, z: kz}, {x: kz/BALL_R, y: 0, z: -kx/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+    a.keepT = ms.t;
+    return carryLog(ms, a, side, 'sole', 'back', u, why);
+  }
+  T = strideOf(a, v)*(a.intent.gait === 'sprint' ? CARRY.RUN_N : 1);
+  bodyAt(a, T, u, BB1);
+  tx = BB1.x + u.x*CARRY.LEAD*sc - u.z*sg*CARRY.LAT*sc; tz = BB1.z + u.z*CARRY.LEAD*sc + u.x*sg*CARRY.LAT*sc;
+  // the speed that rolls it there in T (the grass's roll and the air's drag on the way, the mean speed's)
+  const ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), vm = D/T, sp = D > 1e-3 ? Math.min(vm + .5*(dec + BALL.KD*vm*vm)*T, CARRY.MAX_V) : 0;
+  const kx = D > 1e-3 ? ex/D*sp : 0, kz = D > 1e-3 ? ez/D*sp : 0;
+  const part = carryPart(a, side, u), d0 = a.ctlDir || u, turn = atan2(d0.x*u.z - d0.z*u.x, d0.x*u.x + d0.z*u.z);
+  const turning = part !== 'toe', ballSide = !turning ? 'back' : turn < 0 ? 'right' : 'left';
+  const wy = turning ? (ballSide === 'right' ? 1 : -1)*CTL.SPIN : 0;
+  ballKick(b, {x: kx, y: 0, z: kz}, {x: kz/BALL_R, y: wy, z: -kx/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  a.keepT = ms.t; a.ctlDir = u;
+  return carryLog(ms, a, side, part, ballSide, u, why);
+}
+function carryLog(ms, a, side, part, ballSide, u, why){
+  const b = ms.ball;
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, keep: true, foot: side, part, ballSide, dx: u.x, dz: u.z, carry: why});
+  chainKeep(ms, a);
+  onTouch(ms, a, 'dribble', ev);
+  refreshPred(ms);
+  return true;
 }
 // one touch of close control, if the ball is drifting off its spot (or force: the gathering touch)
 function ctlTouch(ms, a, ux, uz, force){

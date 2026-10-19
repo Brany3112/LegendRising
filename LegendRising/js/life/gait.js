@@ -25,7 +25,7 @@
      G.feet[0] the left foot, [1] the right: {down, x, y, z, yaw, roll, sw (the swing while in the air)}
      G.hipDy   the hips' height offset this frame (body units), G.hipLat its sideways sway (the first-person bob)
      G.ev      what happened in the last step: {mask, at, side} (EV bits) and G.falls [{side, t, x, z}] */
-import {WALK, RUN, stepLen, dutyOf, strideTime, gaitShape, phaseAdvance, RUN_ON, RUN_OFF, RUN_HOLD, WALK_HIP_DROP, WALK_PELVIS_YAW} from "./gaitcore.js";
+import {WALK, RUN, stepLen, dutyOf, strideTime, gaitShape, phaseAdvance, RUN_ON, RUN_OFF, RUN_HOLD, WALK_HIP_DROP, WALK_PELVIS_YAW, carryW, CARRY_SWING} from "./gaitcore.js";
 import {clamp, lerp, sstep, wrap, TAU, B, ARM, LEG, R3, qEuler, qMul, fkHips, solveLeg, newFK, hypot} from "./rig.js";
 
 export const EV = {FOOTFALL:1, PLANT:2, TAKEOFF:4, CONTACT:8, RELEASE:16, LAND:32, END:64};
@@ -48,6 +48,20 @@ const TIPX = BALL + .07, TIPY = TOEY - .02;
 export const toeOf = r => r > 0 ? -Math.min(r, TIP_R) : 0;
 // the run's hips (3.5.2): -0.035 - 0.006 v, and a dip at mid-stance
 const RUN_HIPS = v => -.03 - .003*v;
+/* (FC27) the ball carrier (st.carry: the simulation's own carry weight, gaitcore CARRY; G.ck, and G.cw its share by
+   speed, for the posture): the FC 27 clip's man with the ball at his feet (plan/notes/fc27-spec.md 3.2, 3.3, 5.4). His
+   hips CARRY_HIPS lower (body units: the knees bent all the time), his swing's lift CARRY_LIFT[0] plus [1] a m/s over
+   2.4 (0.11 to 0.15 m: low, quick steps), leaning CARRY_LEAN further forward, his arms out from his sides (CARRY_ARMS:
+   the swing's amplitude, the elbows' bend, the upper arms' abduction, rad) and his head down over the ball
+   (CARRY_HEAD: down by [0] on the move, by [1] more through each touch, by [2] between touches above CARRY_HEAD_V[0] to
+   [1] m/s, where he looks up a little) */
+const CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_ARMS = [.36, 1.5, .85], CARRY_HEAD = [.42, .25, .12], CARRY_HEAD_V = [5, 6.5];
+/* (FC27) a touch's landing (G.tch, the carrier's planned touch: st.touch): the foot comes down with the face that plays
+   the ball against its back, low. The toe of a nearly flat foot (TOUCH_ROLL) TOE_BACK behind the ball's middle along the
+   way it is played (its tip then 0.03 to 0.05 m from the ball's surface, which it meets in its lower third); its inside
+   or its outside (FACE_BACK) with the foot turned (at most TOUCH_YAW off the way) so that face looks along it. Over the
+   last of the swing (TRACK_U) the foot comes on with the ball, so the face is at it for the frames before the footfall */
+const TOE_BACK = .12, FACE_BACK = .09, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.5, .8];
 // the running foot lands on the heel jogging, flat at a run and on the ball of the foot sprinting
 const runLand = v => lerp(-.12, .25, sstep(4.5, 7.5, v));
 // posture blend: 0.45 s from walk to run and back (3.5.2)
@@ -59,7 +73,8 @@ const R_EASE = .45;
    leg has pushed off (its reach), and swings the rest of the stride. (Held at 0.45 s the time floor pushed the clock:
    busy legs, cadence 10 to 19% over the table, and a limp) */
 const TSW_MIN = .22, TSW_MAX = .58;
-const tswMin = sc => TSW_MIN*Math.sqrt(sc), tswMax = (sc, G) => G.mode === "R" ? 9 : TSW_MAX*sc;
+// ((FC27) a carrier's quick low steps swing in as little as gaitcore CARRY_SWING: about 0.17 s at 4.5 m/s, the clip's)
+const tswMin = (sc, G, v) => lerp(TSW_MIN, CARRY_SWING, carryW(v, G.ck))*Math.sqrt(sc), tswMax = (sc, G) => G.mode === "R" ? 9 : TSW_MAX*sc;
 /* how the swinging knee leaves the stance (P2-B, MV-1): the knee goes on from the bend and the speed it had on the
    ground, and only then follows its swing (an inertialised offset that dies away over KNEE_IN seconds, the same decay
    as human.js's blends), so lift-off is never a one-frame snap of the knee and a pop of the foot */
@@ -97,20 +112,24 @@ const halfW = (D, R) => D.hipX - .012 - .03*R;
 const TWIST_RUN = 1.45;
 const SHUF_MAX = 2.0, shufCad = v => clamp(3 + v + Math.max(0, v - 1), 3.2, 6), shufDuty = v => clamp(.65 - .15*v, .38, .6);
 // the share of the stride a foot is down, for the gait's style (v as the caller has it, vb in body units a second)
-const dutyG = (G, v, vb) => G.style === "shuffle" ? shufDuty(vb) : dutyOf(v, G.mode);
+const dutyG = (G, v, vb) => G.style === "shuffle" ? shufDuty(vb) : dutyOf(v, G.mode, G.ck);
 // the body's travel per footfall for the gait's style (the clock's step); turning tightly the steps shorten (the
 // planted foot is left behind on the inside of the bend faster than along a straight)
 const turnK = G => 1 + clamp(Math.abs(G.headRate) - .5, 0, 4)*(G.mode === "R" ? .08 : .25);
 // (stepping backwards the steps are shorter and quicker, about 0.77 of the table's: the leg reaches less far behind the
 // body than in front of it. P2-B: the clock runs at that rhythm, so a backpedal's feet come down on its footfalls)
 const BACK_STEP = .77;
-const stepOf = (G, v, sc) => G.style === "shuffle" ? v/shufCad(v/sc) : stepLen(v, G.mode, sc)*(G.style === "back" ? BACK_STEP : 1)/turnK(G);
-const strideOf = (G, v, sc) => G.style === "shuffle" ? 2/shufCad(v/sc) : strideTime(v, G.mode, sc)*(G.style === "back" ? BACK_STEP : 1)/turnK(G);
+// ((FC27) a carrier's, G.ck, the carrier's table blended in: gaitcore CARRY)
+const stepOf = (G, v, sc) => G.style === "shuffle" ? v/shufCad(v/sc) : stepLen(v, G.mode, sc, null, G.ck)*(G.style === "back" ? BACK_STEP : 1)/turnK(G);
+const strideOf = (G, v, sc) => G.style === "shuffle" ? 2/shufCad(v/sc) : strideTime(v, G.mode, sc, G.ck)*(G.style === "back" ? BACK_STEP : 1)/turnK(G);
 
 // (every field a foot ever has, set here with its type: a body's feet keep one shape, so the leg pass reads them through
 // one hidden class, and a number field never boxes a new number (NaN stands for none where the code asks for none))
 function newFoot(s){ return {s, down:true, x:0, y:0, z:0, yaw:0, roll:0, tDown:0, sw:null, slip:0, wx:0, wy:0, wz:0, need:0, spare:null, spareV:0, spareT:0,
   ballPivot:0, kf:NaN, kv:0, needV:0, rollV:0, miss:0, rollAdj:0, rollLand:0, early:false, needL:false, piv:0}; }
+// (FC27) a foot's planned touch (st.touch): where the ball's middle will be as the foot comes down (x, z), the way it is
+// played (dx, dz), the ball's own velocity before it (bvx, bvz), the seconds to it (t), the part, whether it plays it
+function newTch(){ return {on:false, x:0, z:0, dx:0, dz:1, bvx:0, bvz:0, t:0, part:"toe", touch:false}; }
 export function gaitInit(h){
   h.gait = {phi:0, n:0, side:"L", mode:"W", held:0, R:0, state:"STAND", init:false,
     rx:0, rz:0, ry:0, vx:0, vz:0, v:0, vs:0, acc:0, head:0, mdx:0, mdz:1, headRate:0, yawRate:0,
@@ -121,7 +140,9 @@ export function gaitInit(h){
     accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
     start:0, tick:0, turnN:0, shLead:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0, stopW:0,
     // (the pelvis's own yaw in the world, UF-A U1: it follows the feet, see pelvisStep)
-    pel:NaN};
+    pel:NaN,
+    // ((FC27) the carrier: his carry weight and its share for the posture, each foot's planned touch, the head's nod)
+    ck:0, cw:0, tch:[newTch(), newTch()], nod:0};
   return h.gait;
 }
 
@@ -247,7 +268,8 @@ function walkDrop(v){
 }
 const hipBudget = (G, v) => lerp(walkDrop(v), .07, G.R);
 // the hips' height for the posture (body units, before reach): standing tall walking, lower running
-function postureY(G, D, v){ return lerp(-.012, RUN_HIPS(v), G.R) - (G.style === "shuffle" ? .03 + .05*sstep(.8, 2, v) : 0) - (G.jockey ? .07 : 0); }
+// ((FC27) a carrier's knees bent all the time, his hips CARRY_HIPS lower: G.cw)
+function postureY(G, D, v){ return lerp(-.012, RUN_HIPS(v), G.R) - (G.style === "shuffle" ? .03 + .05*sstep(.8, 2, v) : 0) - (G.jockey ? .07 : 0) - CARRY_HIPS*G.cw; }
 
 // the root's position after travelling dist along its path (turning at the measured rate), and its heading there
 const _pr = {x:0, z:0, h:0};
@@ -268,6 +290,9 @@ function planLanding(h, f, i, rem, out){
   const v = G.start > 0 && f.sw && G.acc > 0 ? Math.min(G.vs + G.acc*Math.max(0, f.sw.T - f.sw.t), Math.max(G.vs, G.iv)) : G.vs;
   const ov = G.over[i];
   if (ov){ out.x = ov.x; out.z = ov.z; out.yaw = ov.yaw; out.roll = G.R > .5 ? -.05 : -.22; return out; }
+  // ((FC27) a carrier's touch: the foot comes down with its face just behind the ball)
+  const tq = G.tch[i];
+  if (tq.on && f.sw && f.sw.kind === "phase" && G.cw > .3 && tq.t < Math.max(0, f.sw.T - f.sw.t) + .06) return touchLanding(h, f, tq, out);
   // stopping: beside the rest point, square to the way the body faces
   if (G.final === i && G.rest){
     const lx = Math.cos(ry), lz = -Math.sin(ry), w = halfW(D, 0)*sc;
@@ -310,7 +335,7 @@ function planLanding(h, f, i, rem, out){
     along = Math.min(c <= (aM + bM)*sc ? c*aM/(aM + bM) : aM*sc, aM*sc - margin);
     // the swing reaches past its spot before it comes back onto it: the spot is kept that much inside the leg's forward
     // reach at the height the hips have in the air (running) or late in the swing (walking)
-    const T = clamp((1 - duty)*strideOf(G, Math.max(v, .3), sc), tswMin(sc), tswMax(sc, G)), VT = v*T, Dsw = VT + along + .45*sc;
+    const T = clamp((1 - duty)*strideOf(G, Math.max(v, .3), sc), tswMin(sc, G, v), tswMax(sc, G)), VT = v*T, Dsw = VT + along + .45*sc;
     // (walking, the hips are at the low of their curve as the heel strikes (gaitLegs: the middle of the double
     // support), and the leg reaches the heel on a straight knee: the lead foot is put as far ahead as that reaches,
     // P2-B MV-3. Running, the leg comes down held, from the hips in the air)
@@ -365,6 +390,24 @@ function planLanding(h, f, i, rem, out){
   return out;
 }
 
+// (FC27) where a touch's foot comes down (the footprint's ground point under the ankle, its yaw and roll): its face
+// (the toe tip; the inside or the outside of the forefoot) FACE_BACK or TOE_BACK behind the ball's middle along the way
+// it is played, the foot turned so that face looks along that way, as far as TOUCH_YAW allows
+function touchLanding(h, f, T, out){
+  const sc = h.scale, s = f.s, dl = hypot(T.dx, T.dz) || 1, dx = T.dx/dl, dz = T.dz/dl, dy = Math.atan2(dx, dz);
+  let yaw = dy, fwd = TIPX, lat = 0, back = TOE_BACK;
+  if (T.part === "inside" || T.part === "outside"){
+    // (the face's normal is n times the foot's left: the inside of a left foot (s = 1) looks to its right)
+    const n = T.part === "inside" ? -s : s, want = Math.atan2(-n*dz, n*dx);
+    yaw = dy + clamp(wrap(want - dy), -TOUCH_YAW, TOUCH_YAW);
+    fwd = .09; lat = n*.045; back = FACE_BACK;
+  }
+  const Fx = Math.sin(yaw), Fz = Math.cos(yaw), Lx = Math.cos(yaw), Lz = -Math.sin(yaw);
+  out.x = T.x - dx*back - (Fx*fwd + Lx*lat)*sc; out.z = T.z - dz*back - (Fz*fwd + Lz*lat)*sc;
+  out.yaw = yaw; out.roll = TOUCH_ROLL;
+  return out;
+}
+
 /* ---------- the swing ---------- */
 /* horizontal progress over the ground: a Hermite with zero end tangents (the foot leaves and meets the ground at zero
    speed: in the body's own frame it swings back after toe-off, through under the hip at mid-swing and reaches a little
@@ -407,7 +450,11 @@ function liftOff(h, f, i, duty, T, kind){
     first:false, frac:NaN, yawS:0, seat:false, t0:0, u0:0, tx:0, tz:0, tyaw:0, rx:0, rz:0, vx:NaN, vy:0, vz:0,
     // (the ground it left, for its clearance on the way; the knee's start from the stance (gaitLegs); the hips' need
     // this leg had as it left, let go of over the start of the swing)
-    g0:f.y, kx:NaN, kvx:0, need0:Math.max(0, f.need || 0), v0x:0, v0y:0, v0z:0, rv0:0, tp0:0};
+    g0:f.y, kx:NaN, kvx:0, need0:Math.max(0, f.need || 0), v0x:0, v0y:0, v0z:0, rv0:0, tp0:0,
+    // ((FC27) a carrier's touch on this swing: the ball's velocity it comes on with, the time left to the footfall as
+    // last asked and when, and its weight: kept on the swing, so the frames after the simulation has played the ball and
+    // planned the next touch still bring the foot down the way it was coming)
+    tbx:0, tbz:0, ttau:0, tcT:0, tk:0};
   // (P2-B, MV-1: the foot leaves the ground moving as it was: rolling up over its toes, the ankle swinging up and on
   // about them. The swing starts with that speed and that roll rate (a Hermite start tangent, swingAt), so the foot
   // peels off the grass rather than being stopped dead and then pulled off it by the leg)
@@ -427,6 +474,8 @@ function liftOff(h, f, i, duty, T, kind){
   }
   const v = G.vs;
   sw.lift = (kind === "close" ? .035 : G.style === "shuffle" && kind === "phase" ? .035 + .006*v : G.R > .5 ? lerp(.14, .5, clamp((v - RUN[0][0])/(RUN[RUN.length - 1][0] - RUN[0][0]), 0, 1)) : .05 + .012*v)*sc;
+  // ((FC27) a carrier's steps are low: CARRY_LIFT, the clip's 0.10 to 0.15 m)
+  if (kind === "phase" && G.cw > 0 && G.style !== "shuffle") sw.lift = lerp(sw.lift, (CARRY_LIFT[0] + CARRY_LIFT[1]*clamp(v - 2.4, 0, 4))*sc, G.cw);
   if (kind === "pivot" || kind === "settle") sw.lift = .05*sc;
   f.down = false; f.sw = sw;
   G.ev.mask |= EV.TAKEOFF;
@@ -484,6 +533,17 @@ function swingAt(h, f, out){
     // running, the foot comes through early: it leaves the ground at its own speed (zero) but does not trail behind the
     // body while it rises; the heel folds up under the seat and the knee comes through (zero at both ends, peak at 1/3)
     if (G.R > 0 && sw.kind === "phase"){ const w = Math.min(1, u/UH), w1 = 1 - w, e = .1*sw.vt*G.R*w*w*(w1*w1)*(w1*w1)/EARLY; x += dx/dl*e; z += dz/dl*e; }
+  }
+  // ((FC27) a carrier's touch: over the end of the swing the foot comes on with the ball, at the ball's own speed, to
+  // come down where the ball is played: its face at the ball for the frames before the footfall, as the clip's. Where
+  // it would be is the landing less the ball's travel in the time left; it is the landing itself at the footfall)
+  const tq = G.tch[f.s > 0 ? 0 : 1];
+  if (sw.kind === "phase"){
+    if (tq.on && G.cw > .3 && tq.t < Math.max(0, sw.T - sw.t) + .06){ sw.tbx = tq.bvx; sw.tbz = tq.bvz; sw.ttau = tq.t; sw.tcT = sw.t; sw.tk = G.cw; }
+    if (sw.tk > 0){
+      const w = sstep(TRACK_U[0], TRACK_U[1], u)*sw.tk, tau = Math.min(clamp(sw.ttau - (sw.t - sw.tcT), 0, .25), (1 - u)*sw.T);
+      if (w > 0){ x += (ex - sw.tbx*tau - x)*w; z += (ez - sw.tbz*tau - z)*w; }
+    }
   }
   // a dribble touch: through the ball at u = .7, still landing where it was going (a bump that is zero at both ends)
   const via = G.via[f.s > 0 ? 0 : 1];
@@ -594,6 +654,16 @@ export function gaitStep(h, dt, st){
   G.yawRate += (clamp(wrap(ry - G.ry)/dt, -15, 15) - G.yawRate)*(1 - Math.exp(-12*dt)); G.ry = ry;
   const v = G.vs, intent = st.intent != null ? +st.intent : st.speed != null ? +st.speed : v;
   G.iv = intent;
+  // (FC27) the carrier: the owner's carry weight (the simulation's, eased as he takes the ball and lets it go) for the
+  // clock's tables, its share by speed for the posture; each foot's planned touch (st.touch: one foot's at a time)
+  G.ck = +st.carry > 0 ? Math.min(1, +st.carry) : 0;
+  G.cw = G.ck*sstep(.4, 2, v/sc);
+  const tq = st.touch;
+  for (let i = 0; i < 2; i++){
+    const T = G.tch[i], on = !!tq && G.ck > 0 && tq.side === (i ? "R" : "L");
+    T.on = on;
+    if (on){ T.x = tq.x; T.z = tq.z; T.dx = tq.dx; T.dz = tq.dz; T.bvx = tq.bvx || 0; T.bvz = tq.bvz || 0; T.t = tq.t; T.part = tq.part || "toe"; T.touch = !!tq.touch; }
+  }
   // the style of stepping (3.5.2): along the way the body faces, sideways, or backwards
   const rel = wrap(G.head - ry), ar = Math.abs(rel);
   G.jockey = st.style === "jockey";
@@ -797,10 +867,17 @@ function startMoving(h, intent){
 // landings at the clock's footfalls; and the stop when the body comes to a halt
 function cycleStep(h, dt, v, intent, st){
   const G = h.gait, D = h.D, sc = h.scale, ry = h.g.rotation.y;
-  const vv = Math.max(v, .3), step = stepOf(G, vv, sc), kS = stepLen(vv, G.mode, sc)/step;
+  const vv = Math.max(v, .3), step = stepOf(G, vv, sc), kS = stepLen(vv, G.mode, sc, null, G.ck)/step;
   // 1. the clock: distance along the way of travel (an external clock if the owner has one)
   let dist = 0;
-  if (typeof st.phase === "number"){ let d = st.phase - G.phi; d -= Math.round(d); dist = Math.max(0, d)*2*step; G.ext = true; }
+  // ((FC27) followed at the rate the body's own travel gives it, from half to one and a half times that, never jumped
+  // to: a clock taken up a quarter stride apart would land a foot in one frame. The simulation's clock runs on the same
+  // travel, so once caught up it is followed exactly, footfall for footfall)
+  if (typeof st.phase === "number"){
+    let d = st.phase - G.phi; d -= Math.round(d);
+    const own = Math.max(0, G.lastDx*G.mdx + G.lastDz*G.mdz)/(2*step);
+    dist = clamp(d, .5*own, 1.5*own + .002)*2*step; G.ext = true;
+  }
   else { dist = Math.max(0, G.lastDx*G.mdx + G.lastDz*G.mdz); G.ext = false; }
   const phi0 = G.phi;
   advance(h, dist*kS, vv, dt);
@@ -855,7 +932,7 @@ function cycleStep(h, dt, v, intent, st){
       // planted foot sliding, as one would on the way round a bend while the other comes through)
       if (G.mode === "W" && G.style === "fwd" && G.vs < 2.2*sc && !other.down && !(f.need + Math.max(0, f.needV)*2*dt > hipBudget(G, vv/sc) - .01)) continue;
       // (the swing has the rest of the stride: a foot that leaves early by reach takes the longer swing)
-      const d0 = Math.min(local, duty), T = clamp((1 - d0)*strideOf(G, vv, sc), tswMin(sc), tswMax(sc, G));
+      const d0 = Math.min(local, duty), T = clamp((1 - d0)*strideOf(G, vv, sc), tswMin(sc, G, vv), tswMax(sc, G));
       liftOff(h, f, i, d0, T, "phase");
     }
   }
@@ -994,21 +1071,28 @@ export function gaitPose(h, T, st, fac = null, dt = 0){
   // turn lean (into the bend) and acceleration lean (into a start, back into a stop)
   const om = G.headRate, turn = clamp(Math.atan(v*om/9.81)*.8, -.35, .35)*sstep(1, 3, v);
   const acc = clamp(.045*G.acc, -.15, .25)*sstep(.3, 1.5, v), brake = -.18*G.brakeW;
-  const lean = (.03 + .09*R + .05*sstep(4.5, 8, v))*lk*mv + acc + brake + .08*tired*mv;
+  // ((FC27) a carrier leans further over the ball, G.cw, and nods his head down to it: through each planned touch more)
+  const cw = G.cw || 0;
+  const lean = (.03 + .09*R + .05*sstep(4.5, 8, v))*lk*mv + acc + brake + .08*tired*mv + CARRY_LEAN*cw*mv;
+  let near = 0;
+  for (const T of G.tch) if (T.on && T.touch) near = Math.max(near, 1 - sstep(.1, .25, T.t));
+  const nodT = cw > 0 ? cw*(lerp(CARRY_HEAD[0], CARRY_HEAD[2], sstep(CARRY_HEAD_V[0], CARRY_HEAD_V[1], v)*(1 - near)) + CARRY_HEAD[1]*near) : 0;
+  G.nod = !(dt > 0) ? nodT : G.nod + (nodT - G.nod)*(1 - Math.exp(-12*dt));
   T[60] += turn*.12;
   // (the turn of the hips into the way of travel, G.twist, is the pelvis's own yaw now, G.pel: gaitTurn lays it on, with
   // the chest's counter-turn, after the idle's mix, UF-A U1)
   R3(T, B.hips, .04*R*mv + (G.style === "shuffle" ? .05 : 0) + (G.jockey ? .1 : 0), -yaw*cL, .035*(1 - R)*mid*mv - turn);
   R3(T, B.spine, lean, yaw*.5*cL, turn*.4);
   R3(T, B.chest, .02*R - .01 + .06*tired*mv, yaw*.8*cL, turn*.3);
-  R3(T, B.neck, -lean*.5, -yaw*.6*cL, -turn*.3); R3(T, B.head, -lean*.25 - .02, -yaw*.35*cL, -turn*.2);
+  R3(T, B.neck, -lean*.5 + .45*G.nod, -yaw*.6*cL, -turn*.3); R3(T, B.head, -lean*.25 - .02 + .55*G.nod, -yaw*.35*cL, -turn*.2);
   // arms swing against the legs; elbows fold as the pace rises (tired arms swing less)
-  const A = lerp(.22 + .14*Math.min(1, v/1.4), Math.min(1.05, .55 + .07*(v - 3)), R)*mv*lk*(1 - .2*tired)*(G.style === "fwd" ? 1 : .35);
-  const e0 = lerp(.22, 1.3 + .12*sstep(5, 8, v), R)*Math.max(mv, .5) + (1 - mv)*.16;
+  // ((FC27) a carrier's arms: a small swing, the elbows bent near a right angle, the upper arms held out from his sides)
+  const A = lerp(lerp(.22 + .14*Math.min(1, v/1.4), Math.min(1.05, .55 + .07*(v - 3)), R), CARRY_ARMS[0], cw)*mv*lk*(1 - .2*tired)*(G.style === "fwd" ? 1 : .35);
+  const e0 = lerp(lerp(.22, 1.3 + .12*sstep(5, 8, v), R), CARRY_ARMS[1], cw)*Math.max(mv, .5) + (1 - mv)*.16;
   const fwdArms = .5*G.brakeW;
   for (let s = 1; s >= -1; s -= 2){
     const _d11 = ARM(s), ua = _d11[0], fa = _d11[1], hd = _d11[2], p = s > 0 ? pL : (pL + .5) % 1, c = Math.cos(TAU*p);
-    let ux = A*c - .08*R - fwdArms + (G.jockey ? -.35 : 0), uz = s*(.1 + .05*R + (G.jockey ? .45 : 0));
+    let ux = A*c - .08*R - fwdArms + (G.jockey ? -.35 : 0), uz = s*lerp(.1 + .05*R + (G.jockey ? .45 : 0), CARRY_ARMS[2], cw*mv);
     // first person looking down at a run: the arms kept low and near the body, so the hands stay at the bottom of the view
     const ak = +st.armsIn || 0;
     if (ak > 0){ if (ux < 0) ux *= 1 - .85*ak; ux += .3*ak; uz += s*.2*ak; }
@@ -1060,7 +1144,7 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
      constraint on top of it (below): the hips come lower only where a planted leg needs more than the curve gives */
   let curve = 0;
   if (G.state !== "STAND" && mv > 0){
-    const vm = Math.max(G.vs, .3), dW = dutyOf(vm, "W"), dR = dutyOf(vm, "R");
+    const vm = Math.max(G.vs, .3), dW = dutyOf(vm, "W"), dR = dutyOf(vm, "R", G.ck);
     const cW = .5 + .5*Math.cos(4*Math.PI*(G.phi - (dW - .5)/4)), cR = .5 + .5*Math.cos(4*Math.PI*(G.phi - dR/2));
     curve = lerp(.85*walkDrop(v)*cW, (.012 + .001*v)*cR, G.R)*mv;
   }

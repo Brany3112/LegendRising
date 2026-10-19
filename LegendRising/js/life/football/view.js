@@ -54,6 +54,7 @@ import {raiseHand} from "./agent.js";
 import {AUD} from "./audio.js";
 import {overlayCovered} from "../core/quality.js";
 import {ARM} from "../rig.js";
+import {stepLen} from "../gaitcore.js";
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const H = 1/60;
@@ -367,6 +368,9 @@ function dribbleTouches(V, ms){
     const e = E[i];
     if (e.kind !== "touch" || e.how !== "dribble" || e.agent < 0) continue;
     const R = V.rec[e.agent]; if (!R || !R.h || R.hidden) continue;
+    // ((FC27) a carrier's touch was planned a footfall ahead and its foot is already coming down on it, carrySt)
+    const ca = ms.agents[e.agent];
+    if (ca && ca.g && ca.g.ck > .3 && (e.keep || e.part === "toe") && e.foot){ if (V.touchSpy) V.touchSpy.push({t:ms.t, agent:e.agent, ok:true, tContact:0, carry:true}); continue; }
     const b = ms.ball, v = Math.hypot(b.v.x, b.v.z);
     _tb.x = b.p.x; _tb.z = b.p.z;
     // (U27) a close-control touch names its foot and the way it plays the ball: that foot's swing goes through it
@@ -658,6 +662,7 @@ function liveSt(V, R, a, ms, dt){
     }
   }
   locoOf(loco, a);
+  carrySt(V, a, ms, loco);
   // a call for the ball (the hand up and down again, UF-A U10), the assistant's flag (up and out); shielding the ball
   // (P2b-B): the shield's upper body, the arms out and back to feel the man behind, over whatever the legs do; a
   // throw-in's taker with the ball in his hands (UF-A U6)
@@ -723,6 +728,37 @@ function locoOf(st, a){
   st.style = jockeying(a) && m.speed <= 3.4 && (off > .9 || m.speed < .3) ? "jockey"
     : m.speed > .3 && off > 2.1 ? "backpedal" : undefined;
   st.fatigue = fatigueOf(a);
+  return st;
+}
+/* (FC27) the ball carrier's legs (plan/notes/fc27-spec.md 5.1 to 5.4): the simulation's carry weight (sim.js a.g.ck:
+   the carrier's gait, gaitcore CARRY), its gait clock between its last two steps (st.phase: the drawn footfalls are the
+   simulation's, so the foot that is to play the ball comes down on the step the simulation plays it), and the touch it
+   has planned (actions.js a.cplan, st.touch): the foot, the part of it, where the ball will be as that foot comes down
+   (the simulation's own ball path, ms.pred, from the drawn moment), the way it is played (the keys' or the brain's), the
+   ball's velocity before it and the time left. gait.js puts that foot's landing with its face behind the ball and
+   brings it on with the ball over the end of its swing */
+const _ct = {x:0, y:.11, z:0}, _ct2 = {x:0, y:.11, z:0};
+function carrySt(V, a, ms, st){
+  const g = a.g;
+  st.carry = undefined; st.phase = undefined; st.touch = null;
+  if (!g || !(g.ck > 0) || a.isGK) return st;
+  st.carry = g.ck;
+  const p0 = a.gPhi0 != null ? a.gPhi0 : g.phi;
+  let d = g.phi - p0; d -= Math.floor(d);
+  if (d > .5) d = 0;
+  let ph = p0 + d*V.alpha; ph -= Math.floor(ph);
+  st.phase = ph;
+  const P = a.cplan;
+  if (!P || !P.on || ms.ball.state !== "free") return st;
+  const v = Math.max(a.m.speed, .5), stride = 2*stepLen(v, g.mode, a.scale || 1, null, g.ck)/v;
+  let k = (P.side === "R" ? .5 : 1) - ph; k -= Math.floor(k);
+  const t = k*stride, tp = Math.max(0, t - (1 - V.alpha)*H);
+  predAt(ms, tp, _ct); predAt(ms, tp + .034, _ct2);
+  const T = st._tq || (st._tq = {side:"R", x:0, z:0, dx:0, dz:1, bvx:0, bvz:0, t:0, part:"toe", touch:false});
+  T.side = P.side; T.x = _ct.x; T.z = _ct.z; T.bvx = (_ct2.x - _ct.x)/.034; T.bvz = (_ct2.z - _ct.z)/.034; T.t = t; T.part = P.part; T.touch = !!P.touch;
+  const I = a.intent, l = Math.hypot(I.dx || 0, I.dz || 0);
+  if (l > .1){ T.dx = I.dx/l; T.dz = I.dz/l; } else { T.dx = -Math.sin(a.m.yaw); T.dz = -Math.cos(a.m.yaw); }
+  st.touch = T;
   return st;
 }
 /* (P9-A, MV-15) tired: standing (under TIRED_V m/s) with fatigue above TIRED_ON, hands on the thighs (moves.js

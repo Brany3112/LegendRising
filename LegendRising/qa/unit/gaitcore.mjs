@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {WALK, RUN, WALK_REACH, createGait, gaitMode, gaitModeStep, stepLen, cadence, dutyOf, strideTime, swingTime, gaitShape,
+import {WALK, RUN, WALK_REACH, CARRY, CARRY_K, carryW, createGait, gaitMode, gaitModeStep, stepLen, cadence, dutyOf, strideTime, swingTime, gaitShape,
   phaseAdvance, swingProgress, MAX_STRIDES} from "../../js/life/gaitcore.js";
 import {mulberry32} from "../../js/life/football/rng.js";
 
@@ -107,6 +107,35 @@ for (const [v, mode, scale] of [[1.4, 'W', 1], [5.5, 'R', 1], [7.6, 'R', 1.08], 
     "run contact 0.78 to 1.00 m, swing lift 0.14 to 0.50 m, walk hip drop budget 0.040 at 1.4 m/s", {c: sh.contact, c9: sh9.contact});
   const st = swingTime(5.5, 'R');
   check(st >= 0.22 && st <= 0.45 && near(strideTime(5.5, 'R'), 2*1.875/5.5), "swing time within 0.22 to 0.45 s", st);
+}
+
+// (FC27) the ball carrier's gait (CARRY, the carry weight ck): the FC 27 clip's short, quick, low steps
+// (plan/notes/fc27-spec.md 3.1, 5.4 and check CC-3); with no carry weight the tables are the run's and the walk's exactly
+{
+  let rows = true;
+  // (within 1.5%: the clip's steps a minute are rounded to the ten)
+  for (const [v, spm, step, duty] of CARRY) rows = rows && Math.abs(cadence(v, 'R', 1, null, 1)*60/spm - 1) < 0.015 && near(stepLen(v, 'R', 1, null, 1), step) && near(dutyOf(v, 'R', 1), duty);
+  check(rows, "CARRY rows: a carrier's cadence, step and duty are the table's (ck 1)");
+  const band = [];
+  for (let v = 4; v <= 6.001; v += 0.25){
+    const spm = cadence(v, 'R', 1, null, 1)*60, st = stepLen(v, 'R', 1, null, 1), du = dutyOf(v, 'R', 1), sw = swingTime(v, 'R', 1, 1);
+    if (!(spm >= 300 && spm <= 450 && st >= 0.6 && st <= 0.9 && du >= 0.38 && du <= 0.5 && sw >= 0.13 && sw <= 0.2)) band.push({v, spm: +spm.toFixed(0), st: +st.toFixed(3), du: +du.toFixed(3), sw: +sw.toFixed(3)});
+  }
+  check(!band.length, "CC-3: at 4 to 6 m/s a carrier takes 300 to 450 steps a minute, 0.6 to 0.9 m long, duty 0.38 to 0.50, swinging 0.13 to 0.20 s", band);
+  let same = true;
+  for (let v = 0.3; v < 9.5; v += 0.07){ const m = v > 2.3 ? 'R' : 'W'; same = same && stepLen(v, m, 1, null, 0) === stepLen(v, m) && dutyOf(v, m, 0) === dutyOf(v, m) && swingTime(v, m, 1, 0) === swingTime(v, m); }
+  check(same, "with no carry weight (no ball) the walk's and the run's tables are untouched (CC-3: within 5%, here exactly)");
+  // its phase runs on its own step: footfalls exactly a carrier's step apart
+  const g = createGait({ck: 1}), st = stepLen(4.5, 'R', 1, null, 1);
+  let dist = 0, exact = true, n = 0;
+  for (let i = 0; i < 600; i++){ const d = 4.5/60; for (const e of phaseAdvance(g, d, 4.5, 'R')){ n++; const at = dist + e.at*d, k = Math.round(at/st); if (!near(at, k*st, 1e-9*Math.max(1, at))) exact = false; } dist += d; }
+  check(exact && n === Math.floor(dist/st + 1e-9), "a carrier's clock (g.ck 1) lands a foot every carrier's step", {n, step: +st.toFixed(3)});
+  // in from a walk and out again towards a sprint without a jump: the step at the walk-to-run speed and the weight's ends
+  const jump = Math.abs(stepLen(2.3, 'W', 1, null, 1) - stepLen(2.4, 'R', 1, null, 1));
+  let mono = true, prev = 0;
+  for (let v = 2.4; v <= 9.5; v += 0.02){ const s = stepLen(v, 'R', 1, null, 1); if (s < prev - 1e-12) mono = false; prev = s; }
+  check(jump < 0.02 && mono && carryW(1.0, 1) === 0 && carryW(9.6, 1) === 0 && near(carryW(4.5, 1), CARRY_K.K) && near(carryW(4.5, 0.5), 0.5*CARRY_K.K),
+    "the carry comes in from a walk (no jump at 2.3 to 2.4 m/s), never shortens as speed rises, and goes out again past a sprint", {jump: +jump.toFixed(4), mono});
 }
 
 // swing progress: null in stance, 0 at lift-off to 1 at touchdown

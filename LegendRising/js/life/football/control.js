@@ -476,7 +476,7 @@ export function rhythmOf(me, foot){
   const v = me.m.speed, g = me.g;
   RH.on = false; RH.rhythm = 0; RH.tc = null; RH.tp = RH.ts = 0;
   if (!g || v < AIM.RHY_V) return RH;
-  const stride = 2*stepLen(v, g.mode, me.scale || 1)/v, d = (((foot === "L" ? .5 : 0) - g.phi)%1 + 1)%1;
+  const stride = 2*stepLen(v, g.mode, me.scale || 1, null, g.ck)/v, d = (((foot === "L" ? .5 : 0) - g.phi)%1 + 1)%1;
   RH.on = true; RH.tp = d*stride; RH.ts = (1 - d)*stride;
   const err = Math.min(Math.max(0, RH.tp - ACTN.TC_MAX), Math.max(0, RH.ts - AIM.RHY_LATE));
   RH.rhythm = clamp(err/((AIM.RHY_W0 + AIM.RHY_W1*techniqueOf(me.at)/99)*(typeof globalThis.motivationTiming === "function" ? globalThis.motivationTiming() : 1)), 0, 1);   // (Motivation widens the window a little, A1.8 WP-W2)

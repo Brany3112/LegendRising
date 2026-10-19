@@ -55,7 +55,7 @@ export const TOUCH = Object.freeze({
   DRIB_REACH: 0.9, DRIB_CONE: 50*DEG, WEAK_SIDE: 0.25,
   SMALL: 0.55, HEAVY_K: 1.12, TOUCH_AT: 0.45, // the small touch's share of the lead; a touch this much longer than the norm (poor Ball
                                             // Control, at a run) pops off the grass (A1.1)
-  CADENCE: [[3, 1], [6, 2], [Infinity, 3]],       // every stride under 3 m/s, every 2nd to 6, every 3rd above
+  CADENCE: [[3, 1], [6, 1], [Infinity, 2]],       // every stride to 6 m/s, every 2nd above (FC27: on the carrier's short strides)
   HEADER_R: 0.17, HEADER_RK: 0.0015,
   LEN_ERR: 0.15,                                  // a first touch's length error: 15% x (1 - q) (sigma)
   FOOT_AIR: 1.05, FOOT_SIDE: 0.3                  // P6-A: the raised foot meets a ball up to 1.05 m (scaled) when it is
