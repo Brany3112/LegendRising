@@ -54,7 +54,7 @@ import {STEP_IN, refreshPred} from "../js/life/football/actions.js";
 import {setupOf, matchOf, H} from "./tr6-teamlib.mjs";
 import {drill} from "../js/life/train/scen-team.js";
 import {OUT} from "./lib.mjs";
-import {trainLaunch, enterByButton} from "./tr4b-lib.mjs";
+import {trainLaunch, titleReady, clickReal} from "./tr4b-lib.mjs";
 import {freeze, unfreeze} from "./lib.mjs";
 import {checker} from "./wpF-lib.mjs";
 
@@ -133,10 +133,13 @@ if (process.env.FC27_DRAW === "0") process.exit(done() ? 0 : 1);
 const FR = process.env.FC27_FRAMES || "/tmp/claude-0/-home-user-LegendRising/d7981b91-2350-5c6d-acea-ac57541f3685/scratchpad/fc27/full";
 const t = await trainLaunch({seed: 27});
 const page = t.page;
-const ready = async () => { await unfreeze(page); await page.waitForFunction(() => { const R = window.__trainRun.RUN; return !!R.cur && !R.switching && !!R.T && !!R.T.V; }, null, {timeout: 120000}); await freeze(page); };
+const ready = async () => { await unfreeze(page); await page.waitForFunction(() => { const R = window.__trainRun.RUN; return !!R.cur && !R.switching && !!R.T && !!R.T.V; }, null, {timeout: 300000}); await freeze(page); };
 const cases = {};
 try {
-  await enterByButton(page);
+  // (into Training by its button, as enterByButton, with longer for the hub to come up: on a machine other tests load it
+  // took over its 120 s)
+  await titleReady(page); await clickReal(page, ".ts-train");
+  await page.waitForFunction(() => { const r = document.querySelector("#sheetRoot.open"); return !!r && r.dataset.kind === "trainhub" && !!window.__trainHub && window.__trainHub.hubOpen(); }, null, {timeout: 480000});
   await page.evaluate(() => window.__trainHub.closeHub());
   await page.evaluate(async () => {
     const Rn = window.__trainRun, L = window.__life, HM = await import("/js/life/human.js"), MV = await import("/js/life/moves.js");
