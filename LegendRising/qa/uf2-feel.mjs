@@ -19,8 +19,8 @@
 //   U19  a tap of RMB (real) well off a team-mate (outside the plain pass cone) goes to him with the assists on and not with them off; a tap is
 //        weighted for the distance (a longer pass is struck harder and both arrive at about 9 m/s)
 //   U17  F held as the ball arrives settles it on the preferred foot within reach; with the assists, standing still
-//        settles it too; a push touch (W held, assists off) leaves it further; dribbling at a jog keeps the ball closer
-//        than sprinting does
+//        settles it too; a push touch (W held, assists off) leaves it further; dribbling at a jog keeps the ball close,
+//        and (BCS) a sprint in close control keeps it close too: the knock-on is what plays it further ahead
 //   and no console or page error.
 //
 //   QA_PORT=8900 node qa/uf2-feel.mjs          exits 1 on any failed check; writes qa/out/uf2-feel.json and qa/out/uf2/*.png
@@ -370,7 +370,13 @@ try {
     check((!!T0.f.touch && T0.f.touch.settle === 1 && T0.f.touch.part === "foot" || T0.f.rel.mine) && T0.f.rel.d <= .85 && T0.f.rel.v <= 1.5, "F held as it arrives: the ball killed onto the foot, within reach (0.85 m) and nearly still", T0.f);
     check(!!T0.still.touch && T0.still.touch.settle > .9 && T0.still.rel.d <= .9, "assists on, standing with no keys: the ball settled at your feet too", T0.still);
     check((!!T0.offF.touch && T0.offF.touch.settle === 1 || T0.offF.rel.mine) && T0.offF.rel.d <= 1.0, "assists off, F still settles it (the harder setting keeps the key)", T0.offF);
-    check(!!T0.push.touch && !T0.push.touch.settle && T0.push.rel.d > T0.f.rel.d + .25, "a push touch with W (assists off) leaves the ball further than the settle", {push: T0.push, f: T0.f});
+    // ((BCS) close control is automatic now and gathers a ball that is yours and in reach once AUTO.FIRST_T (0.2 s) has
+    // passed since your first touch: a push touch run onto at 6 m/s is at its close-control spot by the 36 steps (0.56 m
+    // against the settle's 0.33; before BCS the stride dribble had it at 0.63). What the push itself does is the touch's
+    // own distance (td: how far the first touch sends it), read from the touch; the ball is still no nearer than the
+    // settle's after)
+    const fTd = T0.f.touch ? T0.f.touch.td : 0;
+    check(!!T0.push.touch && !T0.push.touch.settle && T0.push.touch.td > fTd + .25 && T0.push.rel.d >= T0.f.rel.d, "a push touch with W (assists off) sends the ball further than the settle (the touch's own distance, BCS)", {push: T0.push, f: T0.f});
     // dribbling: W held at a jog, then W and Shift, the ball's lead sampled after the first second
     const dribble = async (assist, keys) => {
       await page.evaluate(a => { window.__uf2.C.saveSet({assist: a}); window.__uf2.start({mates: [[-3, 25]]}); }, assist);
@@ -391,7 +397,10 @@ try {
     T0.sprint = await dribble("on", ["Shift", "w"]);
     T0.jogOff = await dribble("off", ["w"]);
     check(T0.jog.mine >= T0.jog.n - 2 && T0.jog.mean <= 1.0 && T0.jog.max <= 1.5, "dribbling at a jog keeps the ball near the foot (mean lead 1.0 m or less, never past 1.5)", T0.jog);
-    check(T0.sprint.mean > T0.jog.mean + .2, "only a sprint pushes it further ahead", {jog: T0.jog.mean, sprint: T0.sprint.mean});
+    // ((BCS) close control is automatic and holds the ball at its spot at every pace, a sprint too (U27: "a sprint keeps
+    // it too"); the knock-on, Shift twice, is what plays it further ahead now (u27-feel, bcs-controls). Before BCS the
+    // stride dribble had the ball at a sprint, 2.2 m ahead, and this checked that only a sprint pushed it further)
+    check(T0.sprint.mine >= T0.sprint.n - 2 && T0.sprint.mean <= 1.0 && T0.sprint.mean >= T0.jog.mean - .1, "a sprint in close control keeps it close too, yours (BCS: the knock-on is what plays it further ahead)", {jog: T0.jog, sprint: T0.sprint});
     check(T0.jogOff.mean >= T0.jog.mean, "the assists' close control is what keeps it close (off, the jog's lead is longer)", {on: T0.jog.mean, off: T0.jogOff.mean});
     await page.evaluate(() => window.__uf2.C.saveSet({assist: "on"}));
   }
