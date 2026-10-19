@@ -2,7 +2,8 @@
 // (scen-team.js matchOf), the player's intents set as control.js sets them (F: me.takeT; the keys: intent.dx, dz, gait).
 //   - F takes a ball rolling to you, a loose ball you run to first, and a ball you reach sprinting
 //   - in close control, walking, jogging and sprinting, forward, sideways, backwards, a turn back and a circle: the ball
-//     within CTL_MAX m of you and yours for 3 s each, and a sprint in it a little under your sprint
+//     within CTL_MAX m of you (RUN_MAX at a sprint: FC27, the clip's push and run, the ball pushed on a couple of strides at a
+//     time) and yours for 3 s each, and a sprint in it a little under your sprint
 //   - a turn is played with the side of the strong foot it needs: left, the ball's right side (a right foot's inside,
 //     a left foot's outside); right, the other way round
 //   - it ends on a pass, a shot, Shift twice (the knock-on) and the ball taken by an opponent
@@ -17,7 +18,9 @@ import {drill} from "../js/life/train/scen-team.js";
 import {checker} from "./wpF-lib.mjs";
 
 const {check, done} = checker("u27-control");
-const CTL_MAX = 0.7;
+// (FC27, plan/notes/fc27-spec.md 6.3: a sprint in close control is the clip's push and run, every 2 to 3 strides with the
+// ball run onto; right after its touch the ball may be up to 1.05 m off)
+const CTL_MAX = 0.7, RUN_MAX = 1.05;
 const r2 = v => Math.round(v*100)/100;
 const fwdOf = me => ({x: -Math.sin(me.m.yaw), z: -Math.cos(me.m.yaw)});
 
@@ -84,9 +87,9 @@ for (const gait of ["walk", "jog", "sprint"]){
   for (const [name, way] of Object.entries(ways)){
     // (backwards is a backpedal at any gait: not a sprint)
     const r = inCtl(way, gait);
-    if (!(r.worst <= CTL_MAX && r.lost === 0 && r.off === 0)) bad.push({name, ...r});
+    if (!(r.worst <= (gait === "sprint" ? RUN_MAX : CTL_MAX) && r.lost === 0 && r.off === 0)) bad.push({name, ...r});
   }
-  check(!bad.length, `in close control, ${gait}: forward, sideways, backwards, a turn back and a circle, the ball within ${CTL_MAX} m and yours for 3 s each`, bad);
+  check(!bad.length, `in close control, ${gait}: forward, sideways, backwards, a turn back and a circle, the ball within ${gait === "sprint" ? RUN_MAX : CTL_MAX} m and yours for 3 s each`, bad);
 }
 {
   const r = inCtl(ways.forward, "sprint");

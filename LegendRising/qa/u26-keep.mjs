@@ -66,7 +66,8 @@ for (const [name, way] of Object.entries(ways)){
 }
 {
   const r = run(() => ({x: 0, z: 0}), 3, "jog", true);
-  check(r.worst <= KEEP_MAX && r.lost === 0 && r.end <= .6 && r.v < .3, "F held, standing still: the ball comes to rest in front of you, yours", {worst: r.worst, end: r.end, v: r.v});
+  // (FC27, plan/notes/fc27-spec.md 6.3 and CC-13: at rest it is at the strong foot's toe, within 0.3 m, as the clip's, not 0.6)
+  check(r.worst <= KEEP_MAX && r.lost === 0 && r.end <= .3 && r.v < .3, "F held, standing still: the ball comes to rest in front of you, within 0.3 m, yours", {worst: r.worst, end: r.end, v: r.v});
 }
 {
   const {ms, me} = go();

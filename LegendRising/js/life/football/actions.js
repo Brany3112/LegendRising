@@ -919,7 +919,9 @@ function flickStep(ms, a, act, h){
    onto and take again with F */
 // (WIN: an F pressed while you chase a ball still a couple of strides off holds until you get there)
 export const TAKE = Object.freeze({REACH: 1.2, WIN: 2, MAX_Y: .5});
-export const CTL = Object.freeze({LEAD: .3, LV: .05, LMAX: .5, SIDE: .35, LAT: .1, REACH: 1.25, TOL: .12, DT: .18, T: .3, TURN: 25*Math.PI/180, SPIN: 3});
+export const CTL = Object.freeze({LEAD: .3, LV: .05, LMAX: .5, SIDE: .35, LAT: .1, REACH: 1.25, TOL: .12, DT: .18, T: .3, TURN: 25*Math.PI/180, SPIN: 3,
+  // ((FC27) standing with it, no key held: the ball rests STAND ahead, at the strong foot's toe: the clip's 0 to 0.2 m, between the feet)
+  STAND: .22});
 export const KNOCK = Object.freeze({D: 9, MIN_V: 4, OVER: 2.5, REACH: 1.8, LET: .8});
 const BALL_R = 0.11;
 // the end of close control (and why: the test reads a.ctlEnd)
@@ -983,8 +985,8 @@ export function keepStep(ms, a, h){
    A strike whose ball would still be CARRY.AHEAD or more past where its touch wants it plays nothing: the foot comes
    down just behind the ball (the clip's #15). Standing, slowing to a stand and turning on the spot (under V_FOOT) the
    position controller keeps it (ctlTouch). Numbers in metres times the body's scale. */
-export const CARRY = Object.freeze({V_FOOT: 2.0, FWD: .5, CUT: 100*Math.PI/180, LEAD: .56, LAT: .1, AHEAD: .1, RUN_N: 2, RUN_TOL: .08,
-  OVERRUN: .3, STOP_V: 2.0, STAND: .32, MAX_V: 14});
+export const CARRY = Object.freeze({V_FOOT: 2.0, FWD: .5, CUT: 100*Math.PI/180, LEAD: .56, LAT: .1, AHEAD: .1, RUN_N: 2, RUN_TOL: .03,
+  OVERRUN: .3, STOP_V: 2.0, MAX_V: 14});
 // is close control's carry on (the footfalls' touches): running on with it at V_FOOT or more, the keys' way within
 // FWD (a cosine) of his facing (backwards and sideways the spot's touches keep it in front of him) and not a cut back
 // past CUT from the last touch's way (the ball is turned at once, as the spot's touches turn it); or stopping from
@@ -1070,10 +1072,10 @@ function carryPlan(ms, a){
     if (aheadS < CARRY.OVERRUN*sc) return planSet(a, weak, true, carryPart(a, weak, u), 'overrun');
   }
   // the strong foot: a turn is played at once; straight on, every strike plays it unless it will still be AHEAD past
-  // where the touch wants it (it comes down behind it), and pushed to run on to (a sprint) only once it has fallen
-  // RUN_TOL short of there
+  // where the touch wants it (it comes down behind it), and pushed to run on to (a sprint) only once it is back within
+  // RUN_TOL of there (RUN_N strides on from the last push: every 2 or 3 strides, the clip's push and run)
   const over = aheadS - CARRY.LEAD*sc, run = a.intent.gait === 'sprint';
-  const touch = part !== 'toe' || (run ? over < -CARRY.RUN_TOL*sc : over < CARRY.AHEAD*sc);
+  const touch = part !== 'toe' || (run ? over < CARRY.RUN_TOL*sc : over < CARRY.AHEAD*sc);
   planSet(a, strong, touch, part, part !== 'toe' ? 'turn' : run ? 'run' : 'carry');
 }
 function planSet(a, side, touch, part, why){
@@ -1092,7 +1094,7 @@ function carryFoot(ms, a, side){
 }
 /* the touch: the ball sent to where the next touch will meet it (the spot CARRY.LEAD ahead of the pelvis and CARRY.LAT
    to the strong side when this foot is next down, a stride on, RUN_N at a sprint), rolling with the spin of the roll and
-   a turn's side spin; a stop rolls it to rest CARRY.STAND in front of where the body will stand */
+   a turn's side spin; a stop rolls it to rest CTL.STAND in front of where the body will stand */
 function carryKick(ms, a, side, why){
   const b = ms.ball, m = a.m, sc = a.scale || 1, dec = b.rollDecel || 1.1;
   const reach = hypot(b.p.x - m.x, b.p.z - m.z);
@@ -1103,7 +1105,7 @@ function carryKick(ms, a, side, why){
   if (why === 'stop'){
     // (the body's own stop: its speed over the mover's brake)
     const ds = m.speed*m.speed/(2*Math.max(1, a.prm.brake || 7.5)), f = dirOf(m.yaw), hv = m.speed > 1e-3 ? 1/m.speed : 0;
-    tx = m.x + (m.vx || 0)*hv*ds + f.x*CARRY.STAND*sc - f.z*sg*CTL.LAT*sc; tz = m.z + (m.vz || 0)*hv*ds + f.z*CARRY.STAND*sc + f.x*sg*CTL.LAT*sc;
+    tx = m.x + (m.vx || 0)*hv*ds + f.x*CTL.STAND*sc - f.z*sg*CTL.LAT*sc; tz = m.z + (m.vz || 0)*hv*ds + f.z*CTL.STAND*sc + f.x*sg*CTL.LAT*sc;
     const ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), sp = D > 1e-3 ? Math.min(Math.sqrt(2*dec*D), CARRY.MAX_V) : 0;
     const kx = D > 1e-3 ? ex/D*sp : 0, kz = D > 1e-3 ? ez/D*sp : 0;
     ballKick(b, {x: kx, y: 0, z: kz}, {x: kz/BALL_R, y: 0, z: -kx/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
@@ -1145,7 +1147,8 @@ function ctlTouch(ms, a, ux, uz, force){
   // foot's side of your facing (its right, (-fz, fx), for a right foot). Put ahead along the way alone, a sideways run
   // carried it a metre out to your side, away from both feet
   const F = dirOf(a.m.yaw), fwd = Math.max(0, ux*F.x + uz*F.z), sx0 = F.x + ux*fwd + ux*CTL.SIDE*(1 - fwd), sz0 = F.z + uz*fwd + uz*CTL.SIDE*(1 - fwd), sl = hypot(sx0, sz0) || 1, sx = sx0/sl, sz = sz0/sl;
-  const strong = touchSideOf(a), lat = (strong === 'R' ? 1 : -1)*CTL.LAT*sc, lead = Math.min(CTL.LEAD + CTL.LV*v*fwd, CTL.LMAX)*sc;
+  const still = hypot(a.intent.dx || 0, a.intent.dz || 0) <= .1 && v < 1;
+  const strong = touchSideOf(a), lat = (strong === 'R' ? 1 : -1)*CTL.LAT*sc, lead = (still ? CTL.STAND : Math.min(CTL.LEAD + CTL.LV*v*fwd, CTL.LMAX))*sc;
   const tx = a.m.x + vx*T + sx*lead - F.z*lat, tz = a.m.z + vz*T + sz*lead + F.x*lat;
   const bs = hypot(b.v.x, b.v.z), tr = bs > 1e-4 ? Math.min(T, bs/dec) : 0, go = bs > 1e-4 ? (bs*tr - .5*dec*tr*tr)/bs : 0;
   const px = b.p.x + b.v.x*go, pz = b.p.z + b.v.z*go;
