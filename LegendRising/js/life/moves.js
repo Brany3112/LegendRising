@@ -609,16 +609,20 @@ export function runupStep(h, plan){
   // (a settle, a stop's close) puts the plant two footfalls on, the support foot's next landing
   plan.k = plan.n - (Gt.n - plan.g0);
   while (plan.k <= 0){ plan.n += 2; plan.k += 2; }
-  // (the count's own parity: the k-th footfall the gait counts from now is the other of the last one counted (Gt.side)
-  // when k is odd, that one's when even; two counted on the same foot in a row (a stop's close, then the start's first
-  // step on that foot) put the support foot's turn one footfall on, else the plant falls on the kicking foot and the
-  // body, come to its place, never steps onto it)
-  if (Gt.side === "L" || Gt.side === "R"){
-    const kth = plan.k % 2 ? (Gt.side === "L" ? "R" : "L") : Gt.side;
-    if (kth !== plan.sup){ plan.n += 1; plan.k += 1; }
-  }
   // the next footfall's side: the foot in the air, else the other of the last one down
   const Fe = Gt.feet, next = !Fe[0].down && Fe[1].down ? "L" : !Fe[1].down && Fe[0].down ? "R" : Gt.side === "L" ? "R" : "L";
+  // ((FC27) the k-th footfall from now must be the support foot's, by the feet (the one in the air lands next) and by the
+  // count (the other of the last one counted, Gt.side) alike; when both say it is the kicking foot's, the count has
+  // lost a footfall (a stop's closing steps at a walk's pace) and the support foot's turn is one footfall on: counted
+  // as planned, the plant fell on the kicking foot and the body, come to its place, stood there stepping that foot and
+  // never onto the plant. (The two disagree for a frame when the clock counts a foot still in the air: left alone)
+  {
+    // (by the feet: the one in the air, of two in the air (a run's flight) the one nearer its landing)
+    const oth = x => x === "L" ? "R" : "L";
+    const nf = !Fe[0].down && !Fe[1].down && Fe[0].sw && Fe[1].sw ? (Fe[0].sw.u >= Fe[1].sw.u ? "L" : "R") : next, byFeet = plan.k % 2 ? nf : oth(nf);
+    const byCount = Gt.side === "L" || Gt.side === "R" ? (plan.k % 2 ? oth(Gt.side) : Gt.side) : byFeet;
+    if (byFeet !== plan.sup && byCount !== plan.sup){ plan.n += 1; plan.k += 1; }
+  }
   // the centre line from the root (plus a footprint's lead) to the root's place at the plant
   const a = plan.approach, ss = plan.side === "L" ? -1 : 1;
   const rx = h.g.position.x, rz = h.g.position.z, px = plan.root.x, pz = plan.root.z;
@@ -693,6 +697,9 @@ function strikeBegin(h, C, st){
   toB(p.x, 0, p.z, _b4);
   const dist = Math.hypot(_b3.x - _b4.x, _b3.z - _b4.z);
   if (K.shot){
+    // ((FC27) C.step: a shot whose plant step is its own (not a run-up's last step handed over, st.pre), which the hips
+    // lead into, strike()'s reachLevel)
+    C.step = true;
     // (FC27) the shot: the plant comes down at clip time 0 and the swing from it is the clip's own (SHOT), so the plant
     // step takes what the simulation's contact leaves before it (st.tc less the kind's contact: a step-in's 0.13 s),
     // never less than SHOT.PRE[0]; a strike asked sooner than that begins late (newClip), as any does
@@ -974,7 +981,10 @@ function strike(h, T, st, dt){
     // (FC27) the shot's own swing (shotPath), but for one begun late past its toe-off, which swings from where the foot
     // is (strikePath's curve)
     // (and one let go from a held wind-up given SHOT.FULL or more to its contact: the cocked leg's own full swing)
-    d.shot = !!K.shot && !(C.late > SHOT.OFF) && !(C.fromHold && C.contact - C.tau < SHOT.FULL - 1e-6);
+    // (the toe-off at SHOT.OFF and the early one, PEEL, for a shot's own plant step; a run-up's last step handed over
+    // (st.pre) keeps its toe-off at 0.02 as its own stride had it)
+    d.off = C.step ? SHOT.OFF : .02; d.peel = !!C.step;
+    d.shot = !!K.shot && !(C.late > d.off) && !(C.fromHold && C.contact - C.tau < SHOT.FULL - 1e-6);
   }
   const tau = C.tau, ct = K.contact, dur = K.dur;
   // (the turn of the body since the clip began, back: a foot's turn in the body's frame plus this stays put in the world)
@@ -1079,12 +1089,12 @@ function strike(h, T, st, dt){
   }
   rateHips(h, T, dt);
   // (after the contact the shift it last needed eases away, rather than chasing the follow-through)
-  // ((FC27) the shot's never raises the hips: reaching for the top of the backswing, high behind him, lifted them and
-  // the planted foot with them)
+  // ((FC27) the shot's only as its foot comes down from the top of the backswing to the ball, and for its own plant
+  // step never raising the hips: reaching for the top, high behind him, lifted them and the planted foot with them)
   if (tau <= ct){
     const y0 = T[61], rh = d.rh || (d.rh = {x:0, y:0, z:0});
-    reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2)), rh);
-    if (K.shot && T[61] > y0){ T[61] = y0; rh.y = 0; }
+    reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2))*(K.shot ? sstep(SHOT.TOP, SHOT.TOP + .06, tau) : 1), rh);
+    if (K.shot && C.step && T[61] > y0){ T[61] = y0; rh.y = 0; }
   }
   else if (d.rh){ const w = Math.exp(-Math.pow((tau - ct)/.2, 2)); T[60] += d.rh.x*w; T[61] += d.rh.y*w; T[62] += d.rh.z*w; }
   // the support foot's landing on its plant: a fast run-up carries the body on past it, so where the leg would not reach
@@ -1095,9 +1105,9 @@ function strike(h, T, st, dt){
     // ((FC27) the shot's step-in: the body is still coming on to its plant as it lands, the hips reaching for it as long
     // as the leg would not reach it, up to the contact: let go half way there, a root still short of it had the hips
     // spring on at twice its speed)
-    const wEnd = K.acro ? sUp : K.shot ? ct : tP + .1;
+    const wEnd = K.acro ? sUp : K.shot && C.step ? ct : K.shot ? ct*.5 : tP + .1;
     const wl = sstep(tP - .1, tP, tau)*(1 - sstep(wEnd - .08, wEnd, tau));
-    if (wl > .01){ _land.x = d.px; _land.y = groundY; _land.z = d.pz; if (K.shot) reachLevel(h, T, supS, _land, wl, SHOT.DROP); else reachHips(h, T, supS, _land, wl, null, true); }
+    if (wl > .01){ _land.x = d.px; _land.y = groundY; _land.z = d.pz; if (K.shot && C.step) reachLevel(h, T, supS, _land, wl, SHOT.DROP); else reachHips(h, T, supS, _land, wl, null, true); }
   }
   // a held support leg that the body is leaving behind rolls up onto the ball of its foot (the heel rises), so its knee
   // keeps a bend instead of snapping straight
@@ -1108,13 +1118,13 @@ function strike(h, T, st, dt){
   // ((FC27) on the move a trailing foot the body has left too far behind to stand on, rolled right up onto its toes
   // (SHOT.PEEL), leaves then (d.kOffT): held down to SHOT.OFF the leg could not reach it, and the drawn foot was dragged
   // up and down off its point)
-  const tKoff = d.shot ? (d.kOffT != null ? d.kOffT : SHOT.OFF) : .02;
+  const tKoff = d.shot ? (d.kOffT != null ? d.kOffT : d.off) : .02;
   if ((!K.acro || tau < .2) && Fk.down && tau < tKoff){
     // (a walk's trailing foot already rolled onto its toes counts its roll toward it, rolled on from there)
     const p0 = Math.max(0, d.kp0 || 0);
-    d.hrK = heelRise(h, T, kickS, Fk, 1, d.hrK || 0, dt, d.shot && d.kDown ? Math.max(0, .8*sstep(SHOT.OFF - .16, SHOT.OFF, tau) - p0) : 0, p0);
+    d.hrK = heelRise(h, T, kickS, Fk, 1, d.hrK || 0, dt, d.shot && d.kDown ? Math.max(0, .8*sstep(d.off - .16, d.off, tau) - p0) : 0, p0);
     if (d.shot){ const o = d.kOff || (d.kOff = {}); o.x = Fk.x; o.y = Fk.y; o.z = Fk.z; o.pitch = Fk.pitch; }
-    if (d.shot && d.kDown && d.kOffT == null && d.hrK + p0 >= SHOT.PEEL) d.kOffT = tau;
+    if (d.shot && d.peel && d.kDown && d.kOffT == null && d.hrK + p0 >= SHOT.PEEL) d.kOffT = tau;
   }
   else if (d.hrK && !Fk.down && !d.shot){ heelApply(Fk, d.hrK*(1 - sstep(tK0Of(C), tK0Of(C) + .1, tau))); }
   if (!K.acro && tau > ct - .06){
@@ -1325,7 +1335,7 @@ function shotPath(C, d, tau, ct, tT, tL, o, ax, ay, az, cyaw, cpitch, croll, bx,
   const sc = BT.sc, fx = d.fx, fz = d.fz, gy = d.gy, vT = SHOT.V_TOP*sc, vE = Math.min(SHOT.V_END, .5*d.vFoot)*sc;
   if (d.t0 == null) d.t0 = tau;
   if (tau <= ct){
-    const tOff = d.kOffT != null ? Math.min(d.kOffT, SHOT.OFF) : SHOT.OFF;
+    const tOff = d.kOffT != null ? Math.min(d.kOffT, d.off) : d.off;
     if (d.kDown && tau < tOff){
       o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0 + d.dry; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
       return o;
