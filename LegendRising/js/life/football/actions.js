@@ -177,7 +177,8 @@ export function canStrike(a, ball, style, out){
    strike's plant error is how far the root is from its place at the contact (less TOL: the drawn hips reach on to the
    ball, moves.js reachHips, so a root that much short draws as well; the reach window's own was 0.3 m of ball ahead
    too). FOLLOW: the act's time after the contact (the kicking foot down 0.37 s after it, moves.js SHOT.LAND;
-   ACT.FOLLOW's 0.28 ended it in the air) */
+   ACT.FOLLOW's 0.28 ended it in the air). A shot asked with rq.quick is struck in the reach window as he stands, never
+   stepped into (a test's range that measures the keeper against the strike it was written for, qa/unit/gk.mjs) */
 export const STEP_IN = Object.freeze({T: [0.30, 0.35], PER: 0.07, PLANT: [0.33, -0.08], V_BALL: 2.0, V_ROLL: 3.2, V_BODY: 4.4,
   REACH: 0.9, AHEAD: 0.1, BACK: 0.184, SIDE: 0.28, TOL: 0.3, VMAX: 2.3, ON: 0.3, KEEP: 0.9, VON: 2.0, FOLLOW: 0.37, TURN: 1.75,
   TURN_BY: 0.15, LAT_BY: 0.12, LAT_V: 0.8, PLANT_T: 0.2, V_PLANT: 1.4});
@@ -186,7 +187,7 @@ export const STEP_IN = Object.freeze({T: [0.30, 0.35], PER: 0.07, PLANT: [0.33, 
 const SI_B = {x: 0, y: 0, z: 0};
 function stepInOf(ms, a, action, cs){
   const b = ms.ball, rq = action, sc = a.scale || 1;
-  if (rq.kind !== 'shot' || rq.chip || (rq.style && rq.style !== 'ground') || (rq.contact > 0 && rq.finesse)) return null;
+  if (rq.kind !== 'shot' || rq.quick || rq.chip || (rq.style && rq.style !== 'ground') || (rq.contact > 0 && rq.finesse)) return null;
   if (b.state !== 'free' || ms.restart && ms.restart.taker === a.id || b.p.y > 0.3 || Math.abs(b.v.y) > 1) return null;
   const vx = a.m.vx || 0, vz = a.m.vz || 0;
   if (hypot(b.v.x, b.v.z) > STEP_IN.V_ROLL || hypot(b.v.x - vx, b.v.z - vz) > STEP_IN.V_BALL || a.m.speed > STEP_IN.V_BODY) return null;
@@ -221,7 +222,8 @@ function stepInSpot(a, rq, bp, si){
 }
 
 // Begin a kick (shot, pass, through ball, cross, lob, clear, goal kick, punt). action = {kind, target: {x, y, z}, recv,
-// power (0..1 for shots, the speed in m/s for passes when speed is given), speed, contact, finesse, firstTime}.
+// power (0..1 for shots, the speed in m/s for passes when speed is given), speed, contact, finesse, firstTime, quick
+// (a shot struck in the reach window as he stands, no step-in: STEP_IN)}.
 // Contact comes at the scheduled step: within 0.18 s with the ball in reach, else after a stride adjust of up to
 // 0.35 s, then a scuff if it is still not there.
 /* (P9-A, MV-14) the root's speed through a strike as a share of the approach speed: the same curve as moves.js

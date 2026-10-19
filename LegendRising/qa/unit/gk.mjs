@@ -65,12 +65,14 @@ function reset(rg, x, z, settle = 1.2){
   setCtl(ms, me);
   for (let i = 0; i < Math.round(settle/H); i++) simStep(ms);
 }
-// one shot: kick, then play until it is decided (goal, save, wide) or 3 s
+// one shot: kick, then play until it is decided (goal, save, wide) or 3 s. (BCS) Struck in the reach window from where
+// he stands, 0.65 m behind the still ball (quick: no step-in, actions.js STEP_IN), the strike these keeper checks were
+// written for: stepped into, the same shots came 0.21 s later and only the random draws after them moved
 function shoot(rg, x, z, target, power = 0.8, contact = 0){
   const {ms, me, gk} = rg;
   reset(rg, x, z);
   const n0 = ms.events.length, s0 = ms.score[0];
-  startKick(ms, me, {kind: 'shot', target, power, contact});
+  startKick(ms, me, {kind: 'shot', target, power, contact, quick: true});
   let kick = null, out = null, n = 0;
   while (n++ < 60*3.5 && !out){
     simStep(ms);
