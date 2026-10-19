@@ -19,15 +19,16 @@
 //   run (5.9 m/s), and for comparison the same runs with no ball:
 //     DR-1 every carry touch has a drawn foot coming down on it, the foot the touch names;
 //     DR-2 the drawn toe's nearest to the drawn ball's surface comes within 2 frames (33 ms) of the frame the drawn ball
-//          leaves on its new velocity, and is 0.04 m or less;
+//          leaves on its new velocity (the corner of its path), and is 0.04 m or less;
 //     DR-3 the toe is the face: the ball's surface nearest it 0.03 to 0.08 m up (the lower third), the foot pitched 0.3 rad
 //          or less from flat, within 0.03 m of the ball for 2 frames or more before the footfall;
 //     CC-4 (the feet's part) the ball's middle 0.10 to 0.20 m beyond the touching toe's tip, within 0.10 m across;
 //     DR-4 the touching foot comes down within 0.1 s of the contact, its toe 0 to 0.3 m behind where the ball was and
 //          within 0.12 m across;
-//     CC-5 (the feet's part) between touches the ball 0.25 to 0.7 m from the leading toe in 85% of the frames;
-//     DR-5 no snapping: no foot bone turns more than 0.35 rad in a frame, no swinging foot jumps 0.08 m in one toward the
-//          ball;
+//     CC-5 (the feet's part) between touches (frames more than 50 ms from one) the ball 0.25 to 0.7 m from the leading toe
+//          in 85% of the frames;
+//     DR-5 no snapping: no foot bone turns more than 0.35 rad in a frame (in the world), no swinging foot jumps 0.08 m in
+//          one toward the ball beyond the way it was going (its step less the step before);
 //     DR-6 at 4 to 6 m/s: the trunk leaning 0.17 to 0.45 rad, the upper arms out 0.5 rad or more, the head down 0.3 rad or
 //          more within 0.1 s of each touch, the hips 0.05 m or more lower than the same run with no ball.
 //
@@ -236,7 +237,8 @@ if (!SIM_ONLY){
         C.CTRL.held.w = true;
         L.stepN(6);
         if (ball) me.takeT = ms.t;
-        const out = [], prevQ = h.bones.map(b => new Q().copy(b.quaternion));
+        // (the foot bones' turn a frame: their world orientations, what is seen)
+        const FB = [B.ftL, B.ftR, B.toL, B.toR], prevQ = FB.map(bi => h.bones[bi].getWorldQuaternion(new Q())), qw = new Q(), out = [];
         let ev0 = ms.events.length;
         for (let f = 0; f < 240; f++){
           L.stepN(1);
@@ -251,8 +253,7 @@ if (!SIM_ONLY){
           const tdx = np[0] - hp[0], tdy = np[1] - hp[1], tdz = np[2] - hp[2], lean = Math.atan2(tdx*fx + tdz*fz, tdy);
           const abd = [[B.uaL, B.faL], [B.uaR, B.faR]].map(([u, fa]) => { const a = wp(u, 0, 0, 0), b = wp(fa, 0, 0, 0), dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2]; return Math.atan2(Math.abs(dx*lx + dz*lz), -dy); });
           const hd0 = wp(B.head, 0, 0, 0), hd1 = wp(B.head, 0, 0, .1), headPitch = Math.atan2(-(hd1[1] - hd0[1]), Math.hypot(hd1[0] - hd0[0], hd1[2] - hd0[2]));
-          let jb = 0; for (const bi of [B.ftL, B.ftR, B.toL, B.toR]){ const ang = prevQ[bi].angleTo(h.bones[bi].quaternion); if (ang > jb) jb = ang; }
-          for (let i = 0; i < h.bones.length; i++) prevQ[i].copy(h.bones[i].quaternion);
+          let jb = 0; FB.forEach((bi, j) => { h.bones[bi].getWorldQuaternion(qw); const ang = prevQ[j].angleTo(qw); if (ang > jb) jb = ang; prevQ[j].copy(qw); });
           out.push({f, t: ms.t, v: me.m.speed, x: h.g.position.x, z: h.g.position.z, yaw: me.m.yaw, ev: evs, ball: [bp.x, bp.y, bp.z], hipY: hp[1], lean, abd, headPitch, footTurn: jb,
             feet: [0, 1].map(i => ({down: G.feet[i].down, u: G.feet[i].sw ? G.feet[i].sw.u : -1, tip: wp(i ? B.toR : B.toL, 0, -.02, .07), toe: wp(i ? B.toR : B.toL, 0, 0, 0), ank: wp(i ? B.ftR : B.ftL, 0, 0, 0)}))});
         }
@@ -269,14 +270,15 @@ if (!SIM_ONLY){
       const Rr = runs[name];
       for (let i = 3; i < Rr.length - 6; i++){
         const r = Rr[i];
-        for (let k = 1; k < 4; k++) D.snap = Math.max(D.snap, Rr[i].footTurn);
+        D.snap = Math.max(D.snap, r.footTurn);
         for (const e of r.ev){
           if (!e.carry || e.part !== "toe" || r.v < 3.5) continue;
           D.touches++;
           const s = e.foot === "L" ? 0 : 1;
-          // the drawn ball's new velocity: the frame after which its step changes most
+          // the frame the drawn ball starts its new velocity: the corner of its path, the frame its step changes most at
+          // (the one it leaves on the new velocity)
           let dvF = i, dvB = 0;
-          for (let k = i - 2; k <= i + 3; k++){ const a = Rr[k - 1].ball, b = Rr[k].ball, c = Rr[k + 1].ball, dv = Math.hypot((c[0] - b[0]) - (b[0] - a[0]), (c[2] - b[2]) - (b[2] - a[2])); if (dv > dvB){ dvB = dv; dvF = k + 1; } }
+          for (let k = i - 2; k <= i + 3; k++){ const a = Rr[k - 1].ball, b = Rr[k].ball, c = Rr[k + 1].ball, dv = Math.hypot((c[0] - b[0]) - (b[0] - a[0]), (c[2] - b[2]) - (b[2] - a[2])); if (dv > dvB){ dvB = dv; dvF = k; } }
           // the toe's nearest to the ball's surface around it, and the frames within 0.03 m before the footfall
           let best = 9, bestF = -1, near = 0, land = -1;
           for (let k = i - 6; k <= i + 4; k++){ const g = d3(Rr[k].feet[s].tip, Rr[k].ball) - .11; if (g < best){ best = g; bestF = k; } if (g <= .03 && !Rr[k].feet[s].down) near++; }
@@ -294,15 +296,21 @@ if (!SIM_ONLY){
           // the head within 0.1 s of it
           let hd = -9; for (let k = i - 6; k <= i + 6; k++) hd = Math.max(hd, Rr[k].headPitch); D.head.push(r3(hd));
         }
-        // between touches: the ball from the leading toe
-        if (r.v > 3.5 && i > 30){
+        // between touches (more than 3 frames, 50 ms, from a carry touch: its contact is the clip's 2 to 3 frames): the
+        // ball from the leading toe
+        if (r.v > 3.5 && i > 30 && !Rr.slice(i - 3, i + 4).some(q => q.ev.some(e => e.carry))){
           const f = fwdOf(r.yaw), lead = Math.max(...[0, 1].map(s => (r.feet[s].tip[0] - r.x)*f.x + (r.feet[s].tip[2] - r.z)*f.z)), ball = (r.ball[0] - r.x)*f.x + (r.ball[2] - r.z)*f.z, g = ball - lead;
           D.between[1]++; if (g >= .25 && g <= .7) D.between[0]++;
           D.lean.push(r.lean); D.abd.push(Math.min(r.abd[0], r.abd[1]));
         }
-        // a swinging foot's frame-to-frame jump toward the ball
-        for (const s of [0, 1]) if (!r.feet[s].down && !Rr[i - 1].feet[s].down){ const a = Rr[i - 1].feet[s].ank, b = r.feet[s].ank, f = fwdOf(r.yaw); D.jump = Math.max(D.jump, (b[0] - a[0])*f.x + (b[2] - a[2])*f.z - r.v/60); }
+        // a swinging foot's jump toward the ball: how far it goes in a frame beyond the way it was going (its step less the
+        // step before: a swing's own speed is 10 to 15 m/s, 0.2 m a frame, which is no jump), toward the ball
+        for (const s of [0, 1]) if (!r.feet[s].down && !Rr[i - 1].feet[s].down && !Rr[i - 2].feet[s].down){
+          const a = Rr[i - 2].feet[s].ank, b = Rr[i - 1].feet[s].ank, c = r.feet[s].ank, bx = r.ball[0] - b[0], bz = r.ball[2] - b[2], bl = Math.hypot(bx, bz) || 1;
+          D.jump = Math.max(D.jump, ((c[0] - 2*b[0] + a[0])*bx + (c[2] - 2*b[2] + a[2])*bz)/bl);
+        }
       }
+      D.snapNo = Math.max(D.snapNo || 0, ...runs[name + "No"].slice(3).map(q => q.footTurn));
       const no = runs[name + "No"], hipC = mean(Rr.filter(r => r.v > 3.5 && r.f > 60).map(r => r.hipY)), hipN = mean(no.filter(r => r.v > 3.5 && r.f > 60).map(r => r.hipY));
       D.hips.push({name, carry: r3(hipC), noBall: r3(hipN), lower: r3(hipN - hipC)});
     }
@@ -314,7 +322,7 @@ if (!SIM_ONLY){
     check(rows.every(r => r.along >= .1 && r.along <= .2 && Math.abs(r.side) <= .1), "CC-4: at each touch the ball's middle is 0.10 to 0.20 m beyond the touching toe, within 0.10 m across", rows.map(r => [r.along, r.side]));
     check(rows.every(r => r.land != null && r.land <= .1 && r.lAlong >= 0 && r.lAlong <= .3 && Math.abs(r.lSide) <= .12), "DR-4: the touching foot comes down within 0.1 s, its toe 0 to 0.3 m behind where the ball was and within 0.12 m across", rows.map(r => [r.land, r.lAlong, r.lSide]));
     check(D.between[0]/Math.max(1, D.between[1]) >= .85, "CC-5: between touches the ball is 0.25 to 0.7 m from the leading toe in 85% of the frames", {share: r2(D.between[0]/Math.max(1, D.between[1]))});
-    check(D.snap <= .35 && D.jump <= .08, "DR-5: no foot bone turns more than 0.35 rad in a frame, no swinging foot jumps 0.08 m in one toward the ball", {turn: r3(D.snap), jump: r3(D.jump)});
+    check(D.snap <= .35 && D.jump <= .08, "DR-5: no foot bone turns more than 0.35 rad in a frame, no swinging foot jumps 0.08 m in one toward the ball", {turn: r3(D.snap), jump: r3(D.jump), turnNoBall: r3(D.snapNo)});
     const lean = mean(D.lean), abd = mean(D.abd);
     check(lean >= .17 && lean <= .45 && abd >= .5 && D.head.every(hd => hd >= .3) && D.hips.every(x => x.lower >= .05),
       "DR-6: carrying at 4 to 6 m/s the trunk leans 0.17 to 0.45 rad, the upper arms are out 0.5 rad or more, the head is down 0.3 rad or more at each touch, the hips 0.05 m lower than with no ball",

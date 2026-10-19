@@ -61,8 +61,11 @@ const CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_BURST 
    the ball against its back, low. The toe of a nearly flat foot (TOUCH_ROLL) TOE_BACK behind the ball's middle along the
    way it is played (its tip then 0.03 to 0.05 m from the ball's surface, which it meets in its lower third); its inside
    or its outside (FACE_BACK) with the foot turned (at most TOUCH_YAW off the way) so that face looks along it. Over the
-   last of the swing (TRACK_U) the foot comes on with the ball, so the face is at it for the frames before the footfall */
-const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62];
+   last of the swing (TRACK_U) the foot comes on with the ball, so the face is at it for the frames before the footfall,
+   eased in over TRACK_IN seconds from when the touch is known (a touch planned late in a swing, the first as he sets
+   off, does not pull the foot over in a frame), the toe held TOUCH_UP over the ground on it (the clip's toe meets the
+   ball 0.03 to 0.08 m up for 2 to 3 frames as the foot comes down, f47-48, f92-93: it is not yet flat on the grass) */
+const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62], TRACK_IN = .1, TOUCH_UP = .025;
 // the running foot lands on the heel jogging, flat at a run and on the ball of the foot sprinting
 const runLand = v => lerp(-.12, .25, sstep(4.5, 7.5, v));
 // posture blend: 0.45 s from walk to run and back (3.5.2)
@@ -455,7 +458,7 @@ function liftOff(h, f, i, duty, T, kind){
     // ((FC27) a carrier's touch on this swing: the ball's velocity it comes on with, the time left to the footfall as
     // last asked and when, and its weight: kept on the swing, so the frames after the simulation has played the ball and
     // planned the next touch still bring the foot down the way it was coming)
-    tbx:0, tbz:0, ttau:0, tcT:0, tk:0};
+    tbx:0, tbz:0, ttau:0, tcT:0, tk:0, tkT:0};
   // (P2-B, MV-1: the foot leaves the ground moving as it was: rolling up over its toes, the ankle swinging up and on
   // about them. The swing starts with that speed and that roll rate (a Hermite start tangent, swingAt), so the foot
   // peels off the grass rather than being stopped dead and then pulled off it by the leg)
@@ -540,10 +543,10 @@ function swingAt(h, f, out){
   // it would be is the landing less the ball's travel in the time left; it is the landing itself at the footfall)
   const tq = G.tch[f.s > 0 ? 0 : 1];
   if (sw.kind === "phase"){
-    if (tq.on && G.cw > .3 && tq.t < Math.max(0, sw.T - sw.t) + .06){ sw.tbx = tq.bvx; sw.tbz = tq.bvz; sw.ttau = tq.t; sw.tcT = sw.t; sw.tk = G.cw; }
+    if (tq.on && G.cw > .3 && tq.t < Math.max(0, sw.T - sw.t) + .06){ if (!(sw.tk > 0)) sw.tkT = sw.t; sw.tbx = tq.bvx; sw.tbz = tq.bvz; sw.ttau = tq.t; sw.tcT = sw.t; sw.tk = G.cw; }
     if (sw.tk > 0){
-      const w = sstep(TRACK_U[0], TRACK_U[1], u)*sw.tk, tau = Math.min(clamp(sw.ttau - (sw.t - sw.tcT), 0, .25), (1 - u)*sw.T);
-      if (w > 0){ x += (ex - sw.tbx*tau - x)*w; z += (ez - sw.tbz*tau - z)*w; }
+      const w = sstep(TRACK_U[0], TRACK_U[1], u)*sw.tk*sstep(0, TRACK_IN, sw.t - sw.tkT), tau = Math.min(clamp(sw.ttau - (sw.t - sw.tcT), 0, .25), (1 - u)*sw.T);
+      if (w > 0){ x += (ex - sw.tbx*tau - x)*w; z += (ez - sw.tbz*tau - z)*w; y += TOUCH_UP*sc*w*(1 - sstep(.92, 1, u)); }
     }
   }
   // a dribble touch: through the ball at u = .7, still landing where it was going (a bump that is zero at both ends)
