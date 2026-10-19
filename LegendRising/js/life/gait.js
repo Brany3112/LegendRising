@@ -515,6 +515,14 @@ function swingAt(h, f, out){
     }
   }
   out.yaw = sw.yaw0 + wrap(sw.yaw1 - sw.yaw0)*sstep(.1, .8, u);
+  // ((BCS) a swinging leg turned in (its toes towards the other leg, the knee with them: the knee's pole is the foot's
+  // way) by at most TOE_IN off the pelvis while it passes: after a big turn the feet come round a step at a time
+  // (0.35 rad a step running, LAND_LT at landing) and a foot left turned in 20 to 26 degrees brought its shin within
+  // 4 to 5 cm of the other one as they passed. Eased in off the ground and out onto the landing, which keeps its yaw)
+  if (G.pel === G.pel && G.style !== "shuffle"){
+    const wy = sstep(0, .2, u)*(1 - sstep(.7, .9, u)), rel = wrap(out.yaw - G.pel);
+    if (wy > 0 && f.s*rel < -TOE_IN) out.yaw += (-f.s*TOE_IN - rel)*wy;
+  }
   // the foot leaves pointed (toe-off), comes through with the toes up a little and reaches for its landing angle;
   // stepping backwards (P2-B, MV-13) the toes come up through the swing (the foot trails its toe behind it otherwise)
   // and point down only as it reaches back for the ball of the foot to land on
@@ -689,7 +697,7 @@ function feetYaw(G){ const a = footFwd(G.feet[0]), b = footFwd(G.feet[1]); retur
    landing is kept SIDE_AIR out on its own side of the body's own line where it comes down (the root at touchdown,
    across the pelvis as it will be by then: pelvisYawAt); and the swing keeps SIDE_SWING from the other swinging foot
    while the two pass each other, SIDE_AIR once they are a stride apart along the pelvis (SIDE_ALONG) */
-const SIDE_LAND = .15, SIDE_SWING = .14, SIDE_FADE = [.8, .97], SIDE_AIR = .06, SIDE_ALONG = [.25, .6];
+const SIDE_LAND = .15, SIDE_SWING = .14, SIDE_FADE = [.8, .97], SIDE_AIR = .06, SIDE_ALONG = [.25, .6], TOE_IN = .12;
 // the pelvis's yaw tl seconds on, as near as can be told: turning from where it is towards the body's facing (turned on
 // by the body's turn, at most 0.7 rad) and the hips' twist into the way of travel, at most PEL_RATE
 function pelvisYawAt(h, tl){
