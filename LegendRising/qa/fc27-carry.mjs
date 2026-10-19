@@ -12,11 +12,15 @@
 //     CC-6 the ball after a carry touch at 1.0 to 1.3 times his speed;
 //     CC-7 a scripted drill (4 s straight, two 60 degree turns left, one right, two stops, an S drag, a shot): the strong
 //          foot makes 65% of the touches or more; every turn's touch is the strong foot's, its inside turning to the weak
-//          side, its outside to the strong side; every stop is a sole touch by the foot down next;
+//          side, its outside to the strong side, unless the ball is on his weak side (more than 0.05 m), where the strong
+//          foot would come down across the support foot (the user's report of the legs crossing in a turn; the clip's
+//          first push after a turn with the ball on the left is the left foot's, spec 2.4); every stop is a sole touch by
+//          the foot down next;
 //     CC-9 (the touch's part) a 60 degree turn at 4.5 m/s is played at the next strong-foot strike, within 0.37 s;
 //     CC-13 standing, the ball comes to rest within 0.3 m of him.
 //   In the page (Training, stepped frozen, every body posed every step; third person), a carry at a jog (4.4 m/s) and a
-//   run (5.9 m/s), and for comparison the same runs with no ball:
+//   run (5.9 m/s), and for comparison the same runs with no ball; measured from 0.75 s on (the ball gathered from
+//   standing, the receive's own step, and the drawn clock caught up with the simulation's):
 //     DR-1 every carry touch has a drawn foot coming down on it, the foot the touch names;
 //     DR-2 the drawn toe's nearest to the drawn ball's surface comes within 2 frames (33 ms) of the frame the drawn ball
 //          leaves on its new velocity (the corner of its path), and is 0.04 m or less;
@@ -30,7 +34,11 @@
 //     DR-5 no snapping: no foot bone turns more than 0.35 rad in a frame (in the world), no swinging foot jumps 0.08 m in
 //          one toward the ball beyond the way it was going (its step less the step before);
 //     DR-6 at 4 to 6 m/s: the trunk leaning 0.17 to 0.45 rad, the upper arms out 0.5 rad or more, the head down 0.3 rad or
-//          more within 0.1 s of each touch, the hips 0.05 m or more lower than the same run with no ball.
+//          more within 0.1 s of each touch, the hips 0.05 m or more lower than the same run with no ball;
+//     DR-7 (the user's report of a turn: "legs overlapping ... the legs cross and go through each other") turning in close
+//          control at 4.4 m/s, 60 degrees left, 60 right (the view turned with W held, the body turning to the keys) and
+//          back round 135 degrees (the view turned round, W+D): every carry touch's foot comes down on its own side of
+//          the other, 0.05 m or more apart across the hip joints; the shins (knee to ankle) never within 0.06 m.
 //
 //   node qa/fc27-carry.mjs [--sim]    exits 1 on any failed check; writes qa/out/fc27-carry.json (--sim: the simulation's
 //                                     checks only)
@@ -94,7 +102,7 @@ function run(o){
       if (e.agent !== me.id) continue;
       if (e.kind === "touch"){
         const f = fwdOf(me.m.yaw), bx = ms.ball.p.x - me.m.x, bz = ms.ball.p.z - me.m.z;
-        const t = {k, t: ms.t, foot: e.foot, part: e.part, carry: e.carry || null, keep: !!e.keep, ahead: bx*f.x + bz*f.z, v: me.m.speed, how: e.how};
+        const t = {k, t: ms.t, foot: e.foot, part: e.part, carry: e.carry || null, keep: !!e.keep, ahead: bx*f.x + bz*f.z, v: me.m.speed, how: e.how, latBefore: rows.length ? rows[rows.length - 1].lat : 0};
         touches.push(t); pend = t;
       } else if (e.kind === "kick") touches.push({k, t: ms.t, foot: me.act && me.act.foot ? me.act.foot : null, part: "laces", kick: true});
     }
@@ -178,16 +186,20 @@ for (const [name, gait, cap] of [["jog", "run", 4.4], ["run", "run", null], ["sp
   const all = R.touches.filter(t => t.t > .3 && (t.keep || t.kick || t.part === "sole"));
   const strong = all.filter(t => t.foot === "R").length;
   const turns = all.filter(t => t.part === "inside" || t.part === "outside");
-  const turnOk = turns.every(t => t.foot === "R" && (t.part === "inside" ? true : true));
+  // (the strong foot's, unless the ball was on his weak side (more than 0.05 m), where it would have come down across
+  // the support foot: then the weak foot's, the clip's first push after a turn with the ball on the left, spec 2.4)
+  const turnOk = turns.every(t => t.foot === "R" || t.latBefore < -.05);
   // (turning left, to the weak side of a right foot, the ball's right side: its inside; right: its outside)
   const leftT = R.touches.filter(t => t.t > 4 && t.t < 4.8 && (t.part === "inside" || t.part === "outside")), rightT = R.touches.filter(t => t.t > 8.8 && t.t < 9.6 && (t.part === "inside" || t.part === "outside"));
   const stops = R.touches.filter(t => t.carry === "stop");
   const stopOk = stops.every(s => { const f = R.falls.find(x => x.k === s.k); return s.part === "sole" && !!f && f.side === s.foot; });
-  S.cc7 = {touches: all.length, strong, share: r2(strong/Math.max(1, all.length)), turns: turns.map(t => t.foot + ":" + t.part), left: leftT.map(t => t.part), right: rightT.map(t => t.part),
+  S.cc7 = {touches: all.length, strong, share: r2(strong/Math.max(1, all.length)), turns: turns.map(t => t.foot + ":" + t.part + ":" + r2(t.latBefore)), left: leftT.map(t => t.part), right: rightT.map(t => t.part),
     stops: stops.map(s => s.foot + ":" + s.part), kicks: all.filter(t => t.kick).map(t => t.foot)};
+  S.cc7.left = leftT.map(t => t.foot + ":" + t.part); S.cc7.right = rightT.map(t => t.foot + ":" + t.part);
   check(strong/Math.max(1, all.length) >= .65, "CC-7: in the scripted drill the strong foot makes 65% of the touches or more", S.cc7);
-  check(turnOk && leftT.length > 0 && rightT.length > 0 && leftT.every(t => t.part === "inside") && rightT.every(t => t.part === "outside"),
-    "CC-7: every turn's touch is the strong foot's: its inside turning to the weak side, its outside to the strong side", {turns: S.cc7.turns, left: S.cc7.left, right: S.cc7.right});
+  // (turning left the ball's right side: a right foot's inside, a left foot's outside; turning right its left side)
+  check(turnOk && leftT.length > 0 && rightT.length > 0 && leftT.every(t => t.part === (t.foot === "R" ? "inside" : "outside")) && rightT.every(t => t.part === (t.foot === "R" ? "outside" : "inside")),
+    "CC-7: every turn's touch is the strong foot's (its inside turning to the weak side, its outside to the strong side) unless the ball is on his weak side, where that foot would land across the other", {turns: S.cc7.turns, left: S.cc7.left, right: S.cc7.right});
   check(stops.length >= 2 && stopOk, "CC-7: every stop is a sole touch by the foot that comes down next", S.cc7.stops);
   // CC-9: the 60 degree turn at 4.5 m/s: the touch on the next strong-foot strike, within 0.37 s
   const asked = 5.6, tt = R.touches.find(t => t.t >= asked && (t.part === "inside" || t.part === "outside"));
@@ -262,17 +274,53 @@ if (!SIM_ONLY){
       }, [cap, ball]);
     };
     const runs = {jog: await one(4.4, true), run: await one(null, true), jogNo: await one(4.4, false), runNo: await one(null, false)};
+    // (DR-7) turns in close control: running on with it for 40 steps, then the view turned 60 degrees left or right
+    // with W held (the body turns to run where the keys say), and the user's turn back: the view turned round and W+D
+    // (135 degrees) for 18 steps, then W. Per step the hip joints, the knees and the ankles
+    const turn = async (kind) => {
+      await page.evaluate(() => window.__fc.start());
+      await page.waitForFunction(() => !!(window.__trainRun.RUN.cur && window.__trainRun.RUN.cur.T && window.__trainRun.RUN.cur.T.V), null, {timeout: 120000});
+      await freeze(page);
+      return page.evaluate(async (kind) => {
+        const L = window.__life, T = window.__trainRun.RUN.cur.T, ms = T.ms, me = T.me, V = T.V, C = window.__fc.C, K = C.CTRL.held;
+        const HM = await import("/js/life/human.js"), B = HM.BONE;
+        const P = L.P, Y = -Math.PI/2, D = Math.PI/180; P.yaw = Y; P.pitch = -.25;
+        const h = V.rec[me.id].h, v1 = new (L.cam.position.constructor)();
+        const wp = bone => { v1.set(0, 0, 0).applyMatrix4(h.bones[bone].matrixWorld); return [v1.x, v1.y, v1.z]; };
+        const plan = {left60: [[Y + 60*D, {w: 1}], [Y + 60*D, {w: 1}]], right60: [[Y - 60*D, {w: 1}], [Y - 60*D, {w: 1}]], back135: [[Y + Math.PI, {w: 1, d: 1}], [Y + Math.PI, {w: 1}]]}[kind];
+        const keys = k => { K.w = !!k.w; K.a = !!k.a; K.d = !!k.d; };
+        me.prm.run = 4.4;
+        K.w = true; L.stepN(2); me.takeT = ms.t;
+        const out = []; let ev0 = ms.events.length;
+        for (let f = 0; f < 150; f++){
+          if (f === 40){ P.yaw = plan[0][0]; keys(plan[0][1]); }
+          if (f === 58){ P.yaw = plan[1][0]; keys(plan[1][1]); }
+          L.stepN(1);
+          L.scene().updateMatrixWorld(true);
+          const evs = [];
+          for (let i = ev0; i < ms.events.length; i++){ const e = ms.events[i]; if (e.kind === "touch" && e.agent === me.id) evs.push({foot: e.foot, part: e.part, carry: e.carry || null}); }
+          ev0 = ms.events.length;
+          const G = h.gait;
+          out.push({f, v: me.m.speed, ev: evs, hip: [wp(B.thL), wp(B.thR)], knee: [wp(B.shL), wp(B.shR)], ank: [wp(B.ftL), wp(B.ftR)], down: [G.feet[0].down, G.feet[1].down]});
+        }
+        keys({});
+        return out;
+      }, kind);
+    };
+    for (const kind of ["left60", "right60", "back135"]) runs["turn-" + kind] = await turn(kind);
     fs.writeFileSync(path.join(OUT, "fc27-carry-frames.json"), JSON.stringify(runs));
-    // the measures, per carry touch
+    // the measures, per carry touch, from T0 frames on (0.75 s: the gather, the receive's own step as the ball is taken
+    // from standing (view.js recvFor, not the carry's) and the drawn clock caught up with the simulation's)
+    const T0 = 45;
     const d3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
     const D = {touches: 0, drawn: 0, rows: [], snap: 0, jump: 0, between: [0, 0], lean: [], abd: [], head: [], hips: []};
     for (const name of ["jog", "run"]){
       const Rr = runs[name];
       for (let i = 3; i < Rr.length - 6; i++){
-        const r = Rr[i];
-        D.snap = Math.max(D.snap, r.footTurn);
+        const r = Rr[i], on = i >= T0;
+        if (on) D.snap = Math.max(D.snap, r.footTurn); else D.snap0 = Math.max(D.snap0 || 0, r.footTurn);
         for (const e of r.ev){
-          if (!e.carry || e.part !== "toe" || r.v < 3.5) continue;
+          if (!e.carry || e.part !== "toe" || r.v < 3.5 || !on) continue;
           D.touches++;
           const s = e.foot === "L" ? 0 : 1;
           // the frame the drawn ball starts its new velocity: the corner of its path, the frame its step changes most at
@@ -307,12 +355,36 @@ if (!SIM_ONLY){
         // step before: a swing's own speed is 10 to 15 m/s, 0.2 m a frame, which is no jump), toward the ball
         for (const s of [0, 1]) if (!r.feet[s].down && !Rr[i - 1].feet[s].down && !Rr[i - 2].feet[s].down){
           const a = Rr[i - 2].feet[s].ank, b = Rr[i - 1].feet[s].ank, c = r.feet[s].ank, bx = r.ball[0] - b[0], bz = r.ball[2] - b[2], bl = Math.hypot(bx, bz) || 1;
-          D.jump = Math.max(D.jump, ((c[0] - 2*b[0] + a[0])*bx + (c[2] - 2*b[2] + a[2])*bz)/bl);
+          const j = ((c[0] - 2*b[0] + a[0])*bx + (c[2] - 2*b[2] + a[2])*bz)/bl;
+          if (on) D.jump = Math.max(D.jump, j); else D.jump0 = Math.max(D.jump0 || 0, j);
         }
       }
       D.snapNo = Math.max(D.snapNo || 0, ...runs[name + "No"].slice(3).map(q => q.footTurn));
       const no = runs[name + "No"], hipC = mean(Rr.filter(r => r.v > 3.5 && r.f > 60).map(r => r.hipY)), hipN = mean(no.filter(r => r.v > 3.5 && r.f > 60).map(r => r.hipY));
       D.hips.push({name, carry: r3(hipC), noBall: r3(hipN), lower: r3(hipN - hipC)});
+    }
+    // (DR-7) the legs in the turns: per step the ankles' order across the hip joints (+: each on its own side), the
+    // shins' nearest approach (knee to ankle, segment to segment), from the turn to 1.5 s after it; and where each carry
+    // touch's foot comes down
+    const segD = (p1, q1, p2, q2) => {
+      const d1 = [0, 1, 2].map(i => q1[i] - p1[i]), d2 = [0, 1, 2].map(i => q2[i] - p2[i]), r = [0, 1, 2].map(i => p1[i] - p2[i]);
+      const dot = (x, y) => x[0]*y[0] + x[1]*y[1] + x[2]*y[2];
+      const a = dot(d1, d1), e = dot(d2, d2), f = dot(d2, r), c = dot(d1, r), b = dot(d1, d2), den = a*e - b*b;
+      let sv = den > 1e-9 ? Math.min(1, Math.max(0, (b*f - c*e)/den)) : 0, tv = (b*sv + f)/e;
+      if (tv < 0){ tv = 0; sv = Math.min(1, Math.max(0, -c/a)); } else if (tv > 1){ tv = 1; sv = Math.min(1, Math.max(0, (b - c)/a)); }
+      return Math.hypot(...[0, 1, 2].map(i => p1[i] + d1[i]*sv - p2[i] - d2[i]*tv));
+    };
+    D.turns = {};
+    for (const kind of ["left60", "right60", "back135"]){
+      const Rr = runs["turn-" + kind], sep = Rr.map(r => { const lx = r.hip[0][0] - r.hip[1][0], lz = r.hip[0][2] - r.hip[1][2], ll = Math.hypot(lx, lz) || 1; return ((r.ank[0][0] - r.ank[1][0])*lx + (r.ank[0][2] - r.ank[1][2])*lz)/ll; });
+      const W = Rr.filter(r => r.f >= 40 && r.f < 130), shin = Math.min(...W.map(r => segD(r.knee[0], r.ank[0], r.knee[1], r.ank[1])));
+      const lands = [];
+      for (let i = 40; i < 130; i++) for (const e of Rr[i].ev){
+        if (!e.carry) continue;
+        const s = e.foot === "L" ? 0 : 1;
+        for (let k = i - 3; k <= i + 6 && k < Rr.length; k++) if (Rr[k].down[s] && !Rr[k - 1].down[s]){ lands.push([e.foot, e.part, r3(sep[k])]); break; }
+      }
+      D.turns[kind] = {touches: lands, minAnkleOrder: r3(Math.min(...sep.slice(40, 130))), minShin: r3(shin)};
     }
     res.drawn = D;
     const rows = D.rows;
@@ -322,7 +394,10 @@ if (!SIM_ONLY){
     check(rows.every(r => r.along >= .1 && r.along <= .2 && Math.abs(r.side) <= .1), "CC-4: at each touch the ball's middle is 0.10 to 0.20 m beyond the touching toe, within 0.10 m across", rows.map(r => [r.along, r.side]));
     check(rows.every(r => r.land != null && r.land <= .1 && r.lAlong >= 0 && r.lAlong <= .3 && Math.abs(r.lSide) <= .12), "DR-4: the touching foot comes down within 0.1 s, its toe 0 to 0.3 m behind where the ball was and within 0.12 m across", rows.map(r => [r.land, r.lAlong, r.lSide]));
     check(D.between[0]/Math.max(1, D.between[1]) >= .85, "CC-5: between touches the ball is 0.25 to 0.7 m from the leading toe in 85% of the frames", {share: r2(D.between[0]/Math.max(1, D.between[1]))});
-    check(D.snap <= .35 && D.jump <= .08, "DR-5: no foot bone turns more than 0.35 rad in a frame, no swinging foot jumps 0.08 m in one toward the ball", {turn: r3(D.snap), jump: r3(D.jump), turnNoBall: r3(D.snapNo)});
+    check(D.snap <= .35 && D.jump <= .08, "DR-5: no foot bone turns more than 0.35 rad in a frame, no swinging foot jumps 0.08 m in one toward the ball", {turn: r3(D.snap), jump: r3(D.jump), turnNoBall: r3(D.snapNo), gatherTurn: r3(D.snap0 || 0), gatherJump: r3(D.jump0 || 0)});
+    check(Object.values(D.turns).every(x => x.touches.length > 0 && x.touches.every(l => l[2] >= .05) && x.minShin >= .06),
+      "DR-7: in close-control turns (60 degrees left and right, and turning back 135) every carry touch's foot comes down on its own side of the other (0.05 m or more across the hips), the shins never within 0.06 m of each other",
+      D.turns);
     const lean = mean(D.lean), abd = mean(D.abd);
     check(lean >= .17 && lean <= .45 && abd >= .5 && D.head.every(hd => hd >= .3) && D.hips.every(x => x.lower >= .05),
       "DR-6: carrying at 4 to 6 m/s the trunk leans 0.17 to 0.45 rad, the upper arms are out 0.5 rad or more, the head is down 0.3 rad or more at each touch, the hips 0.05 m lower than with no ball",

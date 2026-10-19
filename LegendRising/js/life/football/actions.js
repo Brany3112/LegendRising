@@ -961,12 +961,14 @@ export function keepStep(ms, a, h){
     }
   }
   if (!a.ctlOn || (a.act && a.act.kind === 'fake')){ if (!a.ctlOn && ms.poss.ctl !== a.id) a.cplan.on = false; return false; }
-  // (FC27) on the move the touches are the footfalls' (carryFoot); standing and turning on the spot, the spot's
+  // (FC27) on the move the touches are the footfalls' (carryFoot); standing and turning on the spot, the spot's, and a
+  // ball neither foot's next strike can play (behind him or out to his side: taken in from a pass, a loose ball or a
+  // knock-on, carryPlan) the spot's too until it is in front of him
   if (carryOn(a)){
     // (the plan's foot, part and whether it plays at all, kept up with the keys between footfalls: a turn asked for
     // after the plan was made is the plan's foot's to play, its inside or outside, and a stop its sole)
     if (!a.cplan.on || ms.step % 6 === 0) carryPlan(ms, a);
-    return false;
+    if (a.cplan.on) return false;
   }
   a.cplan.on = false;
   return ctlTouch(ms, a, ux, uz, false);
@@ -988,10 +990,15 @@ export function keepStep(ms, a, h){
        first push after a turn that left the ball more than TOUCH.WEAK_SIDE to its side, and a push the strong foot would
        come too late for (the ball would be under him at its strike: CARRY.OVERRUN; the clip's L-R pushes at speed).
    A strike whose ball would still be CARRY.AHEAD or more past where its touch wants it plays nothing: the foot comes
-   down just behind the ball (the clip's #15). Standing, slowing to a stand and turning on the spot (under V_FOOT) the
-   position controller keeps it (ctlTouch). Numbers in metres times the body's scale. */
+   down just behind the ball (the clip's #15). No foot plays it across the other: a touch whose foot would come down
+   more than CARRY.XLAT past his middle (across his facing: the ball's place at its strike, less the touch's way back
+   CARRY.BACK and the face's CARRY.FACE beside the foot's middle) would land across the support foot, its shin through
+   the other's, so the other foot plays it (or, at its strike, nothing). A ball neither strike can play, less than
+   CARRY.BEHIND in front of him there or a foot's landing more than CARRY.WIDE out to its own side (just taken from a
+   pass, a loose ball, a knock-on), the position controller brings in front of him first. Standing, slowing to a stand and turning on the
+   spot (under V_FOOT) it keeps it (ctlTouch). Numbers in metres times the body's scale. */
 export const CARRY = Object.freeze({V_FOOT: 2.0, FWD: .5, CUT: 100*Math.PI/180, LEAD: .56, LAT: .1, AHEAD: .1, RUN_N: 2, RUN_TOL: .03,
-  OVERRUN: .3, STOP_V: 2.0, MAX_V: 14});
+  OVERRUN: .3, STOP_V: 2.0, MAX_V: 14, XLAT: .05, BACK: .1, FACE: .045, BEHIND: .15, WIDE: .85});
 // is close control's carry on (the footfalls' touches): running on with it at V_FOOT or more, the keys' way within
 // FWD (a cosine) of his facing (backwards and sideways the spot's touches keep it in front of him) and not a cut back
 // past CUT from the last touch's way (the ball is turned at once, as the spot's touches turn it); or stopping from
@@ -1015,7 +1022,7 @@ function sideT(a, side, v){
   return d*strideOf(a, v);
 }
 // the ball rolling on for t s (the closed form of the roll, ball.js; a ball in the air where it is), into out
-const BP1 = {x: 0, z: 0, vx: 0, vz: 0}, BB1 = {x: 0, z: 0}, BB2 = {x: 0, z: 0};
+const BP1 = {x: 0, z: 0, vx: 0, vz: 0}, BB1 = {x: 0, z: 0}, BB2 = {x: 0, z: 0}, BB3 = {x: 0, z: 0};
 function ballAt(b, t, out){
   const v = hypot(b.v.x, b.v.z);
   if (v < 1e-3 || b.p.y > .3 || !(t > 0)){ out.x = b.p.x; out.z = b.p.z; out.vx = b.v.x; out.vz = b.v.z; return out; }
@@ -1054,6 +1061,14 @@ function carryPart(a, side, u){
   const ballSide = turn < 0 ? 'right' : 'left';
   return (ballSide === 'right') === (side === 'R') ? 'inside' : 'outside';
 }
+// can a strike reach the ball at P, the body at B facing f: CARRY.BEHIND or more in front of him
+const inFront = (P, B, f, sc) => (P.x - B.x)*f.x + (P.z - B.z)*f.z >= CARRY.BEHIND*sc;
+// where foot `side`, playing the ball at P (the body at B, facing f) along u with `part`, comes down across his facing:
+// + on its own side of his middle (the toe in line with the ball's middle; the inside or the outside CARRY.FACE beside it)
+function footLat(side, part, P, B, u, f){
+  const rx = -f.z, rz = f.x, ss = side === 'R' ? 1 : -1;
+  return ((P.x - B.x)*rx + (P.z - B.z)*rz - CARRY.BACK*(u.x*rx + u.z*rz) + (part === 'inside' ? 1 : part === 'outside' ? -1 : 0)*ss*CARRY.FACE)*ss;
+}
 /* the next touch, planned after a footfall (and kept up with the keys between them): which foot, which part of it, and
    whether it plays the ball or only comes down behind it */
 function carryPlan(ms, a){
@@ -1067,15 +1082,26 @@ function carryPlan(ms, a){
   if (!mv && m.speed >= CARRY.STOP_V) return planSet(a, tS < tW ? strong : weak, true, 'sole', 'stop');
   // where the ball is against the body at each foot's next strike (ahead along the way, across: + the strong side)
   ballAt(b, tS, BP1); bodyAt(a, tS, mv ? u : null, BB1);
-  const aheadS = (BP1.x - BB1.x)*u.x + (BP1.z - BB1.z)*u.z, part = carryPart(a, strong, u);
-  // (a turn is the strong foot's to play, its inside or outside: the weak foot's only a straight push)
-  if (tW < tS && part === 'toe'){
-    ballAt(b, tW, BP1); bodyAt(a, tW, mv ? u : null, BB2);
-    const latW = ((BP1.x - BB2.x)*(-u.z) + (BP1.z - BB2.z)*u.x)*sg;
-    // the first push after a turn that left it on the weak side; a ball the strong foot would come down on top of
-    if (latW < -TOUCH.WEAK_SIDE*sc) return planSet(a, weak, true, carryPart(a, weak, u), 'weak side');
-    if (aheadS < CARRY.OVERRUN*sc) return planSet(a, weak, true, carryPart(a, weak, u), 'overrun');
-  }
+  const aheadS = (BP1.x - BB1.x)*u.x + (BP1.z - BB1.z)*u.z, part = carryPart(a, strong, u), fy = dirOf(m.yaw);
+  // (can the strong foot's strike play it at all: in front of him, not too far out to its side, as he faces and goes
+  // now (a turn the keys ask for has hardly begun by the next strike: the body put on the keys' way at once left a ball
+  // still rolling on behind him or out to his side); and would it come down across the other to play it, across the
+  // keys' way: where his hips will face as it lands, and where the last touch sent it)
+  bodyAt(a, tS, null, BB3);
+  const badS = !inFront(BP1, BB3, fy, sc) || footLat(strong, part, BP1, BB3, u, fy) > CARRY.WIDE*sc, xS = footLat(strong, part, BP1, BB1, u, u) < -CARRY.XLAT*sc;
+  // the weak foot's strike: the first push after a turn that left it on the weak side, a ball the strong foot could
+  // only play across the other or not at all, and a ball the strong foot would come down on top of (a turn is the
+  // strong foot's to play, its inside or outside, unless it would cross: the weak foot's is a straight push)
+  ballAt(b, tW, BP1); bodyAt(a, tW, mv ? u : null, BB2); bodyAt(a, tW, null, BB3);
+  const pW = carryPart(a, weak, u), latW = ((BP1.x - BB2.x)*(-u.z) + (BP1.z - BB2.z)*u.x)*sg;
+  const okW = inFront(BP1, BB3, fy, sc) && footLat(weak, pW, BP1, BB3, u, fy) <= CARRY.WIDE*sc && footLat(weak, pW, BP1, BB2, u, u) >= -CARRY.XLAT*sc;
+  const wantW = okW && (badS || xS || (part === 'toe' && (latW < -TOUCH.WEAK_SIDE*sc || aheadS < CARRY.OVERRUN*sc)));
+  if (wantW && tW < tS) return planSet(a, weak, true, pW, badS || xS || latW < -TOUCH.WEAK_SIDE*sc ? 'weak side' : 'overrun');
+  // the strong foot's strike first: it comes down on its own side without it, the weak foot's next
+  if (wantW && (badS || xS)) return planSet(a, strong, false, part, 'across');
+  // neither strike can play it (behind him, out to his side: just taken from a pass, a loose ball, a knock-on): the
+  // position controller brings it in front of him (keepStep)
+  if (badS || xS) return;
   // the strong foot: a turn is played at once; straight on, every strike plays it unless it will still be AHEAD past
   // where the touch wants it (it comes down behind it), and pushed to run on to (a sprint) only once it is back within
   // RUN_TOL of there (RUN_N strides on from the last push: every 2 or 3 strides, the clip's push and run)

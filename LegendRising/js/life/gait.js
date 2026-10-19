@@ -66,6 +66,16 @@ const CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_BURST 
    off, does not pull the foot over in a frame), the toe held TOUCH_UP over the ground on it (the clip's toe meets the
    ball 0.03 to 0.08 m up for 2 to 3 frames as the foot comes down, f47-48, f92-93: it is not yet flat on the grass) */
 const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62], TRACK_IN = .1, TOUCH_UP = .025;
+/* (FC27) a carrier's feet never cross (the user's turn: "legs overlapping ... the legs cross and go through each other"):
+   a touch's foot comes down at least TOUCH_SEP to its own side of the other foot, across the hips (the pelvis's own yaw,
+   turned into the way of travel) as they will face at the footfall, pushed out to there (the simulation plays such a
+   ball with the other foot, actions.js footLat, so it is a few centimetres at most), and a foot only coming down beside
+   the ball (no touch) puts its foot down where it would without one. Any carrier's step is kept on its own side too
+   (ownSide, by the simulation's carry weight: whether he has the ball at his feet, the carrier's gait or not), and a
+   swing passing the other foot (within PASS_W along it) keeps PASS_SEP out from it, let go of by the footfall: in a
+   turn the hips came round faster than the feet and a swing went through the other leg, the ankles 5 cm apart and the
+   knees crossed. A touch's foot is turned in towards the other by TOUCH_IN at most (touchLanding) */
+const TOUCH_SEP = .08, PASS_SEP = .12, PASS_W = [.15, .3], TOUCH_IN = .25, TOUCH_OUT = 1;
 // the running foot lands on the heel jogging, flat at a run and on the ball of the foot sprinting
 const runLand = v => lerp(-.12, .25, sstep(4.5, 7.5, v));
 // posture blend: 0.45 s from walk to run and back (3.5.2)
@@ -146,7 +156,7 @@ export function gaitInit(h){
     // (the pelvis's own yaw in the world, UF-A U1: it follows the feet, see pelvisStep)
     pel:NaN,
     // ((FC27) the carrier: his carry weight and its share for the posture, each foot's planned touch, the head's nod)
-    ck:0, cw:0, tch:[newTch(), newTch()], nod:0};
+    ck:0, cw:0, cg:0, tch:[newTch(), newTch()], nod:0};
   return h.gait;
 }
 
@@ -296,7 +306,12 @@ function planLanding(h, f, i, rem, out){
   if (ov){ out.x = ov.x; out.z = ov.z; out.yaw = ov.yaw; out.roll = G.R > .5 ? -.05 : -.22; return out; }
   // ((FC27) a carrier's touch: the foot comes down with its face just behind the ball)
   const tq = G.tch[i];
-  if (tq.on && f.sw && f.sw.kind === "phase" && G.cw > .3 && tq.t < Math.max(0, f.sw.T - f.sw.t) + .06) return touchLanding(h, f, tq, out);
+  if (tq.on && f.sw && f.sw.kind === "phase" && G.cw > .3 && tq.t < Math.max(0, f.sw.T - f.sw.t) + .06){
+    // (across the other foot: a touch's is pushed out to its own side, updateTarget's ownSide; one that only comes down
+    // beside the ball is put down where it would be without one)
+    touchLanding(h, f, tq, out);
+    if (tq.touch || sideShort(h, f, i, out) <= 0) return out;
+  }
   // stopping: beside the rest point, square to the way the body faces
   if (G.final === i && G.rest){
     const lx = Math.cos(ry), lz = -Math.sin(ry), w = halfW(D, 0)*sc;
@@ -406,6 +421,10 @@ function touchLanding(h, f, T, out){
     yaw = dy + clamp(wrap(want - dy), -TOUCH_YAW, TOUCH_YAW);
     fwd = .09; lat = n*.045; back = FACE_BACK;
   }
+  // (turned in towards the other foot by TOUCH_IN at most, out by TOUCH_OUT, against the hips: a toe touch along a way
+  // well off his hips (a turn, a weak foot's push across) turned the foot, and with it the knee, in across the other)
+  const G = h.gait, py = G.pel === G.pel ? G.pel : h.g.rotation.y;
+  yaw = py + s*clamp(s*wrap(yaw - py), -TOUCH_IN, TOUCH_OUT);
   const Fx = Math.sin(yaw), Fz = Math.cos(yaw), Lx = Math.cos(yaw), Lz = -Math.sin(yaw);
   out.x = T.x - dx*back - (Fx*fwd + Lx*lat)*sc; out.z = T.z - dz*back - (Fz*fwd + Lz*lat)*sc;
   out.yaw = yaw; out.roll = TOUCH_ROLL;
@@ -484,6 +503,20 @@ function liftOff(h, f, i, duty, T, kind){
   f.down = false; f.sw = sw;
   G.ev.mask |= EV.TAKEOFF;
 }
+// ((FC27) a carrier's step on its own side of the other foot, by w: see TOUCH_SEP)
+// (how far foot f's footprint p is short of TOUCH_SEP to its own side of the other foot's, there or where that one will
+// land, across the hips as they will face at the footfall; the way out in SS_L)
+const SS_L = {x:0, z:0};
+function sideShort(h, f, i, p){
+  const G = h.gait, o = G.feet[1 - i], at = o.down || !o.sw || !o.sw.ok, ox = at ? o.x : o.sw.x1, oz = at ? o.z : o.sw.z1;
+  const py = (G.pel === G.pel ? G.pel : h.g.rotation.y) + G.yawRate*Math.min(.15, Math.max(0, f.sw.T - f.sw.t));
+  SS_L.x = Math.cos(py)*f.s; SS_L.z = -Math.sin(py)*f.s;
+  return TOUCH_SEP*h.scale - ((p.x - ox)*SS_L.x + (p.z - oz)*SS_L.z);
+}
+function ownSide(h, f, i, p, w){
+  const short = sideShort(h, f, i, p)*w;
+  if (short > 0){ p.x += SS_L.x*short; p.z += SS_L.z*short; }
+}
 // the swing's footprint target this frame (eased after the plan, frozen from u = .85)
 const _pl = {x:0, z:0, yaw:0, roll:0};
 function updateTarget(h, f, i, rem, dt, force = false){
@@ -493,6 +526,7 @@ function updateTarget(h, f, i, rem, dt, force = false){
   if (sw.ok && !force && G.lod >= 2 && (G.tick & 1)) return;
   if (sw.kind === "phase" || sw.kind === "stop") planLanding(h, f, i, rem, _pl);
   else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; }
+  if (sw.kind === "phase" && G.cg > 0) ownSide(h, f, i, _pl, G.cg);
   if (!sw.ok || force){ sw.x1 = _pl.x; sw.z1 = _pl.z; sw.yaw1 = _pl.yaw; sw.roll1 = _pl.roll; sw.ok = true; }
   else {
     const k = 1 - Math.exp(-20*dt);
@@ -547,6 +581,16 @@ function swingAt(h, f, out){
     if (sw.tk > 0){
       const w = sstep(TRACK_U[0], TRACK_U[1], u)*sw.tk*sstep(0, TRACK_IN, sw.t - sw.tkT), tau = Math.min(clamp(sw.ttau - (sw.t - sw.tcT), 0, .25), (1 - u)*sw.T);
       if (w > 0){ x += (ex - sw.tbx*tau - x)*w; z += (ez - sw.tbz*tau - z)*w; y += TOUCH_UP*sc*w*(1 - sstep(.92, 1, u)); }
+    }
+  }
+  // ((FC27) a carrier's swing passing the other foot keeps PASS_SEP out from it across the hips, let go of over the
+  // last of the swing: its landing is on its own side already, ownSide)
+  if (sw.kind === "phase" && G.cg > 0){
+    const o = G.feet[f.s > 0 ? 1 : 0];
+    if (o.down){
+      const py = G.pel === G.pel ? G.pel : h.g.rotation.y, lx = Math.cos(py), lz = -Math.sin(py), dx = x - o.x, dz = z - o.z;
+      const along = dx*Math.sin(py) + dz*Math.cos(py), short = PASS_SEP*sc*G.cg*(1 - sstep(PASS_W[0]*sc, PASS_W[1]*sc, Math.abs(along)))*(1 - sstep(.85, 1, u)) - (dx*lx + dz*lz)*s;
+      if (short > 0){ x += lx*s*short; z += lz*s*short; }
     }
   }
   // a dribble touch: through the ball at u = .7, still landing where it was going (a bump that is zero at both ends)
@@ -661,6 +705,8 @@ export function gaitStep(h, dt, st){
   // (FC27) the carrier: the owner's carry weight (the simulation's, eased as he takes the ball and lets it go) for the
   // clock's tables, its share by speed for the posture; each foot's planned touch (st.touch: one foot's at a time)
   G.ck = +st.carry > 0 ? Math.min(1, +st.carry) : 0;
+  // (and whether he has it at his feet at all, the simulation's own eased weight: his feet kept from crossing, ownSide)
+  G.cg = +st.keep > 0 ? Math.min(1, +st.keep) : G.ck;
   G.cw = G.ck*sstep(.4, 2, v/sc);
   const tq = st.touch;
   for (let i = 0; i < 2; i++){
