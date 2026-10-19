@@ -55,8 +55,9 @@ const RUN_HIPS = v => -.03 - .003*v;
    the clip's 35 to 45 degrees), his arms out from his sides (CARRY_ARMS:
    the swing's amplitude, the elbows' bend, the upper arms' abduction, rad) and his head down over the ball
    (CARRY_HEAD: down by [0] on the move, by [1] more through each touch, by [2] between touches above CARRY_HEAD_V[0] to
-   [1] m/s, where he looks up a little) */
-const CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_BURST = .45, CARRY_ARMS = [.36, 1.35, .85], CARRY_HEAD = [.42, .25, .12], CARRY_HEAD_V = [5, 6.5];
+   [1] m/s, where he looks up a little). His hips' rise and fall on the stride CARRY_BOB of the run's (the clip's low
+   centre of mass; on steps twice as quick, the run's own made the hips' speed change 5 mm a frame) */
+const CARRY_BOB = .7, CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_BURST = .45, CARRY_ARMS = [.36, 1.35, .85], CARRY_HEAD = [.42, .25, .12], CARRY_HEAD_V = [5, 6.5];
 /* (FC27) a touch's landing (G.tch, the carrier's planned touch: st.touch): the foot comes down with the face that plays
    the ball against its back, low. The toe of a nearly flat foot (TOUCH_ROLL) TOE_BACK behind the ball's middle along the
    way it is played (its tip then 0.03 to 0.05 m from the ball's surface, which it meets in its lower third); its inside
@@ -76,8 +77,11 @@ const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK
    turn the hips came round faster than the feet and a swing went through the other leg, the ankles 5 cm apart and the
    knees crossed. A touch's foot is turned in towards the other by TOUCH_IN at most (touchLanding) */
 const TOUCH_SEP = .08, PASS_SEP = .12, PASS_W = [.15, .3], TOUCH_IN = .25, TOUCH_OUT = 1;
-// the running foot lands on the heel jogging, flat at a run and on the ball of the foot sprinting
+// the running foot lands on the heel jogging, flat at a run and on the ball of the foot sprinting; a carrier's flat
+// (FC27: the clip's foot comes down nearly flat at every pace, TOUCH_ROLL; heel first, his short quick swing brought
+// the heel to 14 mm over the grass before the footfall)
 const runLand = v => lerp(-.12, .25, sstep(4.5, 7.5, v));
+const landRoll = (G, v) => lerp(runLand(v), TOUCH_ROLL, G.cw);
 // posture blend: 0.45 s from walk to run and back (3.5.2)
 const R_EASE = .45;
 /* swing time limits (3.5.3), seconds for a body of scale 1 (a taller body's longer legs swing a little longer: the
@@ -365,7 +369,7 @@ function planLanding(h, f, i, rem, out){
     // leaves the ankle once the body has come on to the last 5% of the swing (the foot comes down, it is not reached for)
     let aR = aW;
     if (G.R > 0){
-      ankleRel(runLand(v/sc), D.ankY, _ar);
+      ankleRel(landRoll(G, v/sc), D.ankY, _ar);
       const dy = D.hipY + postureY(G, D, v/sc) - _ar[1], lr = RUN_HOLD_L*(D.hipY - D.ankY);
       aR = Math.max(.05*sc, (Math.sqrt(Math.max(0, lr*lr - dy*dy)) - _ar[0])*sc - (1 - UH)*VT - (.035 + .03*clamp(Math.abs(G.headRate) - .3, 0, 1))*sc);
     }
@@ -403,7 +407,7 @@ function planLanding(h, f, i, rem, out){
     const lx = Math.cos(p.h), lz = -Math.sin(p.h);
     if (back){ const bx = Math.sin(tYaw), bz = Math.cos(tYaw), blx = Math.cos(tYaw), blz = -Math.sin(tYaw); ax = p.x + fx*along + blx*lat; az = p.z + fz*along + blz*lat; void bx; void bz; }
     else { ax = p.x + fx*along + lx*lat; az = p.z + fz*along + lz*lat; }
-    roll = back ? .3 : lerp(-.26, runLand(v/sc), G.R);
+    roll = back ? .3 : lerp(-.26, landRoll(G, v/sc), G.R);
   }
   out.x = ax; out.z = az; out.yaw = yaw; out.roll = roll;
   return out;
@@ -563,7 +567,10 @@ function swingAt(h, f, out){
   // than cutting under them; going down it keeps its height and comes down at the end)
   const up = Math.max(0, ey - sw.y0);
   // (a step up lifts the foot early, the toes clear of the riser in front of them before they come forward)
-  let y = sw.y0 + (ey - sw.y0)*(up > .02 ? Math.max(sV(u), sH(u)) : sV(u)) + sw.lift*(G.style === "shuffle" && sw.kind === "phase" ? bumpS(u) : bump(u, G.R)) + up*.6*sstep(0, .3, u)*(1 - sstep(.7, 1, u));
+  // ((FC27) a carrier's quick low step lifts evenly, as a shuffle's: its 0.13 to 0.19 s swing on the run's heel whip
+  // bent the knee 0.27 rad in the frame after the toe-off)
+  const bmp = G.style === "shuffle" && sw.kind === "phase" ? bumpS(u) : sw.kind === "phase" && G.cw > 0 ? lerp(bump(u, G.R), bumpS(u), G.cw) : bump(u, G.R);
+  let y = sw.y0 + (ey - sw.y0)*(up > .02 ? Math.max(sV(u), sH(u)) : sV(u)) + sw.lift*bmp + up*.6*sstep(0, .3, u)*(1 - sstep(.7, 1, u));
   if (sw.v0y) y += sw.v0y*pk;
   const dx = ex - sw.x0, dz = ez - sw.z0, dl = hypot(dx, dz);
   if (dl > .05 && sw.kind !== "close"){
@@ -1197,7 +1204,7 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
   if (G.state !== "STAND" && mv > 0){
     const vm = Math.max(G.vs, .3), dW = dutyOf(vm, "W"), dR = dutyOf(vm, "R", G.ck);
     const cW = .5 + .5*Math.cos(4*Math.PI*(G.phi - (dW - .5)/4)), cR = .5 + .5*Math.cos(4*Math.PI*(G.phi - dR/2));
-    curve = lerp(.85*walkDrop(v)*cW, (.012 + .001*v)*cR, G.R)*mv;
+    curve = lerp(.85*walkDrop(v)*cW, (.012 + .001*v)*cR, G.R)*mv*(1 - (1 - CARRY_BOB)*G.cw);
   }
   // how low the hips may come for the legs: walking the walk's budget (3.5.2); running only a little under their curve
   // (a running foot the body has left behind lifts, as it does; the hips do not dip after it)
@@ -1364,7 +1371,11 @@ export function gaitLegs(h, Q, F, dt, lite = false, pass = false){
       // (running, over the last tenth of the swing the knee bends at up to KNEE_LAND: the foot comes down onto its
       // print as the hips come on over it, and the knee bends with them; held to KNEE_RATE there, the leg ran a little
       // long and the ankle came back a few millimetres onto the print as it met the grass)
-      if (!pass && f.kf === f.kf && dt > 0 && dt < .05) kd = clamp(kd, f.kf - KNEE_RATE*dt, f.kf + (G.R > .5 && sw.u >= .95 ? KNEE_LAND : KNEE_RATE)*dt);
+      // ((FC27) a carrier's swing is a third of a run's: its knee bends from the push-off at up to KNEE_RISE, coming up
+      // to KNEE_RATE over its first KNEE_RISE_T s; held only to KNEE_RATE, it reversed from straightening to bending 0.2
+      // rad a frame in the frame after the toe-off)
+      const kr = G.cw > 0 && sw.kind === "phase" ? lerp(KNEE_RATE, lerp(KNEE_RISE, KNEE_RATE, sstep(0, KNEE_RISE_T, tt)), G.cw) : KNEE_RATE;
+      if (!pass && f.kf === f.kf && dt > 0 && dt < .05) kd = clamp(kd, f.kf - KNEE_RATE*dt, f.kf + (G.R > .5 && sw.u >= .95 ? KNEE_LAND : kr)*dt);
       kd = clamp(kd, 0, 2.6);
       if (dt > 0 && f.kf === f.kf) f.kv = clamp((kd - f.kf)/dt, -30, 30);
       if (kd !== kf) de = Math.sqrt(l1*l1 + l2*l2 + 2*l1*l2*Math.cos(kd));
@@ -1405,7 +1416,7 @@ function reseat(h, f, t, gx, gz, cy, sy){
   sw.x1 = wx - Math.sin(sw.yaw1)*_ar[0]*sc; sw.z1 = wz - Math.cos(sw.yaw1)*_ar[0]*sc;
 }
 // a swinging knee's most bend or straightening a second (rad/s); running, over the last 5% of the swing, its most bend
-const KNEE_RATE = 18, KNEE_LAND = 30;
+const KNEE_RATE = 18, KNEE_LAND = 30, KNEE_RISE = 4, KNEE_RISE_T = .15;
 // the larger of the hips' curve and a leg's need, with no corner where one takes over (it is never below either; where
 // they meet it is HIP_K/2 lower than both: a little more bend in the knee)
 const HIP_K = .006, NEED_AHEAD = .06, BUDGET_K = .008;
