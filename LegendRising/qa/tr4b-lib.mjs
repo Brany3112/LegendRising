@@ -61,3 +61,21 @@ export const cardUp = page => page.waitForFunction(() => { const o = document.ge
 export const cardState = page => page.evaluate(() => { const o = document.getElementById("fpOverlay"); return {on: !!o && o.classList.contains("on"), items: o ? [...o.querySelectorAll("[data-q]")].map(b => b.dataset.q) : [], quick: !!(window.__trainQuick && window.__trainQuick.quickIsOpen()), lock: document.pointerLockElement ? document.pointerLockElement.id || "?" : null}; });
 // n real frames
 export const frames = (page, n) => page.evaluate(n => new Promise(r => { let k = 0; const f = () => { if (++k >= n) r(); else window.__qa.realRAF(f); }; window.__qa.realRAF(f); }), n);
+// (BCS) a key tapped twice, a double tap (control.js KNOCK_TAP: the two presses within 0.3 s of real time), by real
+// presses, back to back: tapped twice again, up to `tries` times, until the page has seen two of them that close
+// together. On a loaded machine the page drew a frame in 1 to 4 s and the second press waited behind it, seconds after
+// the first as the page saw it. Resolves {tries (0: never close enough), gaps (s, between the presses the page saw)}
+export async function doubleTap(page, key, {within = .29, tries = 8} = {}){
+  await page.evaluate(key => {
+    const K = window.__qaTap || (window.__qaTap = {key, ts: [], on: false});
+    K.key = key; K.ts.length = 0;
+    if (!K.on){ K.on = true; addEventListener("keydown", e => { if (e.key === K.key && !e.repeat) K.ts.push(performance.now()); }, true); }
+  }, key);
+  let gaps = [];
+  for (let i = 1; i <= tries; i++){
+    await page.keyboard.press(key); await page.keyboard.press(key);
+    gaps = await page.evaluate(() => { const t = window.__qaTap.ts, g = []; for (let j = 1; j < t.length; j++) g.push(+((t[j] - t[j - 1])/1000).toFixed(3)); return g; });
+    if (gaps.some(g => g < within)) return {tries: i, gaps};
+  }
+  return {tries: 0, gaps};
+}

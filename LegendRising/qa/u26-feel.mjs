@@ -10,8 +10,8 @@
 //   node qa/u26-feel.mjs          exits 1 on any failed check; writes qa/out/u26-feel.json and qa/out/u26/*.png
 import fs from "node:fs";
 import path from "node:path";
-import {OUT, freeze, unfreeze} from "./lib.mjs";
-import {trainLaunch, enterByButton, closeHubReal, lockPointer, frames} from "./tr4b-lib.mjs";
+import {OUT} from "./lib.mjs";
+import {trainLaunch, enterByButton, closeHubReal, lockPointer, frames, doubleTap} from "./tr4b-lib.mjs";
 
 const DIR = path.join(OUT, "u26");
 fs.mkdirSync(DIR, {recursive: true});
@@ -61,16 +61,15 @@ try {
   // the knock-on: W held, Shift tapped twice
   await begin();
   await page.keyboard.down("w"); await frames(page, 30);
-  // (the two real presses back to back with the game's loop held between them, unfrozen at once: a double tap must
-  // come within control.js KNOCK_TAP, 0.3 s of real time, and on a loaded machine the page drew a frame in 1 to 4 s,
-  // the second press waiting behind it, 3 to 14 s after the first as the page saw them)
-  await freeze(page);
-  await page.keyboard.press("Shift"); await page.keyboard.press("Shift");
-  await unfreeze(page);
+  // ((BCS) the two real presses back to back, tapped twice again until the page has seen two within control.js
+  // KNOCK_TAP, 0.3 s of real time (doubleTap): on a loaded machine the page drew a frame in 1 to 4 s and the second
+  // press waited behind it, 3 to 14 s after the first as the page saw them)
+  const tap = await doubleTap(page, "Shift");
   await page.keyboard.down("Shift");
   // (the most it gets ahead of you over the next 45 frames, along the way you face)
   const kn = await page.evaluate(n => new Promise(done => { const raf = window.__qa.realRAF; let k = 0, best = -99; const f = () => { const T = window.__u26.T(), ms = T.ms, me = T.me, d = {x: -Math.sin(me.m.yaw), z: -Math.cos(me.m.yaw)}; best = Math.max(best, (ms.ball.p.x - me.m.x)*d.x + (ms.ball.p.z - me.m.z)*d.z); if (++k >= n) done({ahead: Math.round(best*100)/100, knocks: ms.events.filter(e => e.kind === "touch" && e.knock).length}); else raf(f); }; raf(f); }), 45);
   await page.keyboard.up("Shift"); await page.keyboard.up("w");
+  kn.tap = tap;
   res.knock = kn;
   check(kn.knocks === 1 && kn.ahead >= 3, "Shift tapped twice with W held: the ball knocked on, at least 3 m ahead of you", kn);
   // contact sheets: a run across the facing, a jump, a strike at nothing

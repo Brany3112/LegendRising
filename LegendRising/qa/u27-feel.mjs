@@ -10,8 +10,8 @@
 //   node qa/u27-feel.mjs          exits 1 on any failed check; writes qa/out/u27-feel.json and qa/out/u27/*.png
 import fs from "node:fs";
 import path from "node:path";
-import {OUT, freeze, unfreeze} from "./lib.mjs";
-import {trainLaunch, enterByButton, closeHubReal, lockPointer, frames} from "./tr4b-lib.mjs";
+import {OUT} from "./lib.mjs";
+import {trainLaunch, enterByButton, closeHubReal, lockPointer, frames, doubleTap} from "./tr4b-lib.mjs";
 
 const DIR = path.join(OUT, "u27");
 fs.mkdirSync(DIR, {recursive: true});
@@ -62,14 +62,13 @@ try {
   // length of the pitch)
   await page.keyboard.up("w"); await begin();
   await page.keyboard.down("w"); await frames(page, 6); await page.keyboard.press("f"); await frames(page, 20);
-  // (the two presses back to back: a headless frame can be slower than the 0.3 s a double tap has. (BCS) And the game's
-  // loop held between them, unfrozen at once: on a loaded machine the page drew a frame in 1 to 4 s and the second press
-  // waited behind it, 3 to 9 s after the first as the page saw them)
-  await freeze(page);
-  await page.keyboard.press("Shift"); await page.keyboard.press("Shift");
-  await unfreeze(page);
+  // (the two presses back to back: a headless frame can be slower than the 0.3 s a double tap has. (BCS) Tapped twice
+  // again until the page has seen two presses within it (doubleTap): on a loaded machine the page drew a frame in 1 to
+  // 4 s and the second press waited behind it, 3 to 9 s after the first as the page saw them)
+  const tap = await doubleTap(page, "Shift");
   await page.keyboard.down("Shift"); await frames(page, 12);
   const kn = await page.evaluate(() => { const T = window.__u27.T(), me = T.me; return {on: !!me.ctlOn, end: me.ctlEnd || null, knocks: T.ms.events.filter(e => e.kind === "touch" && e.knock).length}; });
+  kn.tap = tap;
   // (run on, F pressed every half second until it is taken)
   let again = false;
   // (as a player does: F once you are a few strides off it, again if it was not taken)
