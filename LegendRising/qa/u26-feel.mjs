@@ -61,9 +61,9 @@ try {
   // the knock-on: W held, Shift tapped twice
   await begin();
   await page.keyboard.down("w"); await frames(page, 30);
-  // ((BCS) the two real presses back to back, tapped twice again until the page has seen two within control.js
-  // KNOCK_TAP, 0.3 s of real time (doubleTap): on a loaded machine the page drew a frame in 1 to 4 s and the second
-  // press waited behind it, 3 to 14 s after the first as the page saw them)
+  // ((BCS) real presses back to back, pressed again until the page has seen two within control.js KNOCK_TAP, 0.3 s of
+  // real time (doubleTap): on a loaded machine the page drew a frame in 1 to 4 s and the second press waited behind
+  // it, 3 to 14 s after the first as the page saw them)
   const tap = await doubleTap(page, "Shift");
   await page.keyboard.down("Shift");
   // (the most it gets ahead of you over the next 45 frames, along the way you face)

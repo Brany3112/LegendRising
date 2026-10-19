@@ -62,9 +62,9 @@ try {
   // length of the pitch)
   await page.keyboard.up("w"); await begin();
   await page.keyboard.down("w"); await frames(page, 6); await page.keyboard.press("f"); await frames(page, 20);
-  // (the two presses back to back: a headless frame can be slower than the 0.3 s a double tap has. (BCS) Tapped twice
-  // again until the page has seen two presses within it (doubleTap): on a loaded machine the page drew a frame in 1 to
-  // 4 s and the second press waited behind it, 3 to 9 s after the first as the page saw them)
+  // (the two presses back to back: a headless frame can be slower than the 0.3 s a double tap has. (BCS) Pressed again
+  // until the page has seen two presses within it (doubleTap): on a loaded machine the page drew a frame in 1 to 4 s
+  // and the second press waited behind it, 3 to 9 s after the first as the page saw them)
   const tap = await doubleTap(page, "Shift");
   await page.keyboard.down("Shift"); await frames(page, 12);
   const kn = await page.evaluate(() => { const T = window.__u27.T(), me = T.me; return {on: !!me.ctlOn, end: me.ctlEnd || null, knocks: T.ms.events.filter(e => e.kind === "touch" && e.knock).length}; });
