@@ -75,7 +75,9 @@ try {
   await begin({strength: 99, ctrl: 99});
   await page.evaluate(() => { const raf = window.__qa && window.__qa.realRAF ? window.__qa.realRAF : requestAnimationFrame; window.__u29top = 0; let n = 0;
     const f = () => { const T = window.__u29.T(); if (T && T.ms){ window.__u29top = Math.max(window.__u29top, T.ms.ball.p.y); } if (++n < 400) raf(f); }; raf(f); });
-  await page.keyboard.down("w"); await page.mouse.down({button: "middle"}); await frames(page, 20); await page.mouse.up({button: "middle"}); await frames(page, 2); await page.keyboard.up("w");
+  // (W pressed just before the release: the keys at the release say the way, and W held through a slow browser's long
+  // frames would walk you off the ball while the bar fills)
+  await page.mouse.down({button: "middle"}); await frames(page, 20); await page.keyboard.down("w"); await frames(page, 1); await page.mouse.up({button: "middle"}); await frames(page, 2); await page.keyboard.up("w");
   await frames(page, 150);
   const top = await page.evaluate(() => Math.round(window.__u29top*100)/100);
   const ev = await page.evaluate(() => { const T = window.__u29.T(), e = T.ms.events.filter(x => x.kind === "touch" && x.how === "flick").pop(); return e ? {flick: e.flick, top: e.top, land: e.land} : null; });
