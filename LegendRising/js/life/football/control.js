@@ -256,7 +256,7 @@ export function setKick(id){
 // the strike's Technique (A1.7: it widens the rhythm window): the Clean strike skill (aero), Curve and Ball Control
 export const techniqueOf = at => clamp(.4*(at.aero || 0) + .3*(at.curve || 50) + .3*(at.ctrl || at.dribbling || 50), 0, 99);
 // the keys this mode answers (1.6); every one has its default stopped in a match
-export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", " ", "space", "r", "e", "tab", "escape", "h", "1", "2", "3", "q", "v", "g", "b"]);
+export const KEYS = Object.freeze(["w", "a", "s", "d", "shift", "x", "c", "f", " ", "space", "r", "e", "tab", "escape", "h", "1", "2", "3", "q", "v", "g", "b", "z"]);
 
 /* ---------- the state (1.4.17) ----------
    ctx: what your buttons mean now; walk: the X toggle; scan: a shoulder check (V held: the look turns, the body keeps
@@ -338,6 +338,8 @@ export function controlInput(ev){
       // (U26) Shift tapped twice within KNOCK_TAP s: the knock-on (actions.js knockOn)
       else if (k === "shift"){ const now = nowS(); if (now - CTRL.shiftAt < KNOCK_TAP){ CTRL.knockReq = true; CTRL.shiftAt = -1e9; } else CTRL.shiftAt = now; }
       else if (k === "space") CTRL.queue.push({k:"space"});
+      // ((BCS) Z: the double sole roll with the ball at your feet, actions.js startSoleRoll)
+      else if (k === "z") CTRL.queue.push({k:"soleroll"});
       // R: the call registers on the press itself (U10): "Here!" at once, every time; held on to 0.4 s it becomes "In
       // behind!" to the point under the crosshair. (It used to wait for the release, so a press whose key-up was
       // lost to a cut or a reset, or a second press within 4 s, did nothing at all)
@@ -810,6 +812,11 @@ export function controlStep(ms, me, h, opts = {}){
         CTRL.meter.on = false;
         if (ctx !== "defend" && ctx !== "restart" && ms.poss.ctl === me.id && !(me.act && !me.act.done)){ me.intent.action = {kind:"fake"}; CTRL.fakeAt = ms.t; CTRL.last = "fake"; use("fake"); }
         break;
+      // ((BCS) the double sole roll: the strong sole across, the weak sole back, half a turn, pushed out the way you came)
+      case "soleroll":
+        if (ctx !== "defend" && ctx !== "restart" && ms.poss.ctl === me.id && !(me.act && !me.act.done) && !CTRL.charge){ me.intent.action = {kind:"soleroll"}; CTRL.last = "soleroll"; use("soleroll"); }
+        else if (ctx !== "defend" && ctx !== "restart") noteWhy(ms, "sole");
+        break;
       case "fakedir":
         if (me.act && me.act.kind === "fake" && !me.act.dir && CTRL.fakeAt != null && ms.t - CTRL.fakeAt <= SHOT_KEYS.FAKE_WAIT){ me.act.dir = q.d; me.act.dirT = me.act.t; CTRL.fakeAt = null; }
         break;
@@ -1255,7 +1262,8 @@ export function offsideHud(ms, me, show, out){
 }
 // the hints for this moment (1.5.10): up to three [key, verb], shortened to the key after 5 uses
 // a press that came to nothing a moment ago (a tackle out of reach, a slide from a jog): why, on its key, first
-const NOTES = {far:["LMB", "too far away to tackle"], slow:["F", "get up to speed to slide"], busy:["LMB", "not yet, you're still recovering"]};
+const NOTES = {far:["LMB", "too far away to tackle"], slow:["F", "get up to speed to slide"], busy:["LMB", "not yet, you're still recovering"],
+  sole:["Z", "the ball has to be at your feet to roll it"]};
 const NOTES_SLIDE = {far:["F", "too far away to slide"], busy:["F", "not yet, you're still getting up"]};
 export function hintsFor(ms, me){
   const out = [], ctx = CTRL.ctx, short = k => (CTRL.uses[k] || 0) >= 5;
@@ -1282,7 +1290,7 @@ export function hintsFor(ms, me){
       if (CTRL.charge && CTRL.charge.kind === "shot"){ add("LMB", "let go on the gold for a perfect shot", "release"); add("A or D", "as you let go: curl it", "curl"); add("S", "before you let go: fake it, then A, D, S or W to drag it", "fake"); }
       else if (CTRL.charge && CTRL.charge.kind === "pass"){ add("RMB", "let go in the green for the weight", "pass"); }
       else if (CTRL.shield){ add("C", "hold to keep him off the ball", "shield"); add("RMB", "pass", "pass"); add("A D", "turn with it", "turn"); }
-      else if (pressed){ add("C", "hold to shield", "shield"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
+      else if (pressed){ add("C", "hold to shield", "shield"); if (me.ctlOn) add("Z", "roll it with your soles and turn away", "soleroll"); add("RMB", "pass", "pass"); add("LMB", "hold to wind up, let go to shoot", "shoot"); }
       // (U27) in close control: Shift twice knocks it on; not in it, F takes it
       else if (me.ctlOn){ add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("Shift Shift", "knock it on and run", "knock"); }
       else { add("LMB", "hold to wind up, let go to shoot", "shoot"); add("RMB", "pass", "pass"); add("F", "take control", "take"); }

@@ -776,6 +776,8 @@ function inOwnBox(ms, a){
 export function dribbleFoot(ms, a, side){
   const b = ms.ball;
   if (ms.poss.ctl !== a.id || b.state !== 'free'){ a.cplan.on = false; return false; }
+  // ((BCS) a sole move's touches are its own: a sole stop's lands on its footfall)
+  if (a.act && a.act.kind === 'sole' && !a.act.done){ soleFoot(ms, a, side); a.cplan.on = false; return false; }
   // ((FC27) no touch, the carry's or the strides', while he steps in to strike it: the ball is the strike's. Nor the
   // carry's from the step a kick or a flick begins in close control (keepStep's ends of it): close control is still on
   // until keepStep ends it, after the footfalls, and a touch planned for that footfall played the ball out from under
@@ -871,10 +873,11 @@ function touchSideOf(a){ return a.foot === 'L' ? 'L' : 'R'; }
    the ball, which stays at your feet. A key pressed within control.js SHOT_KEYS.FAKE_WAIT s after it (act.dir, set by
    control.js) plays the ball with the sole that way: A back and to your left, D back and to your right, S straight back
    behind you, W pushed on a little. None, and the fake is all there is. From the skills: the swing takes FAKE.DUR less
-   FAKE.AGI of Agility; the touch comes FAKE.REACT after the key, sooner with Agility; a drag goes FAKE.DRAG plus FAKE.CTRL
-   of Ball Control across, and every touch lands within FAKE.ERR (1 - Ball Control/110) of where it was meant to. The
-   touches are real (ballKick); a fake keeps close control */
-export const FAKE = Object.freeze({DUR: .62, AGI: .18, STOP: .22, WAIT: .6, REACT: .1, AFTER: .26, BACK: .3, BACK_S: .65, PUSH: .9, DRAG: .42, CTRL: .25, ERR: .22, T: .32, REACH: 1.3});
+   FAKE.AGI of Agility; the touch comes FAKE.REACT after the key, sooner with Agility. W's push lands within FAKE.ERR
+   (1 - Ball Control/110) of where it was meant to. (BCS) A, D and S are the clip's sole drags (SOLE, below): the sole on
+   top of the ball, drawn back and out, let go rolling the new way, and he turns and goes after it. The touches are real
+   (ballKick); a fake keeps close control */
+export const FAKE = Object.freeze({DUR: .62, AGI: .18, STOP: .22, WAIT: .6, REACT: .1, AFTER: .26, PUSH: .9, ERR: .22, T: .32, REACH: 1.3, KEEP: .9});
 function startFake(ms, a, rq){
   const q = clamp((a.at.agility || 50)/99, 0, 1.1), f = dirOf(a.m.yaw);
   // (it lasts at least the time a key may still come in, FAKE.WAIT)
@@ -883,6 +886,14 @@ function startFake(ms, a, rq){
   a.act = act; a.state = 'kick';
   logEv(ms, 'fake', a.team, a.id, a.m.x, a.m.z, {dir: act.dir});
   return act;
+}
+// the speed the fake's swing holds him to: 1.2 m/s, or (BCS) on the move with the ball at his feet, FAKE.KEEP of the
+// ball's own speed along his way, so a drag played from a run finds it within a stride of him
+function fakeCap(ms, a){
+  const b = ms.ball, m = a.m, v = m.speed;
+  if (ms.poss.ctl !== a.id || b.state !== 'free' || v < 1.2) return 1.2;
+  const fv = (b.v.x*(m.vx || 0) + b.v.z*(m.vz || 0))/v;
+  return Math.max(1.2, FAKE.KEEP*fv);
 }
 // a real touch rolling the ball to a stop at (tx, tz): the sole's soft roll (the speed the grass takes off over D)
 function rollTo(ms, a, tx, tz, T, how){
@@ -893,21 +904,302 @@ function rollTo(ms, a, tx, tz, T, how){
   chainKeep(ms, a); onTouch(ms, a, 'dribble', ev); refreshPred(ms);
 }
 function fakeStep(ms, a, act, h){
-  a.intent.speedCap = Math.min(a.intent.speedCap, 1.2);
+  // ((BCS) a drag under way: its sole on the ball, then the run after it)
+  if (act.segs){ soleStep(ms, a, act, h); return; }
+  a.intent.speedCap = Math.min(a.intent.speedCap, fakeCap(ms, a));
   if (!act.dir || act.dragged) return;
   const at = act.dirT + FAKE.REACT*(1.3 - .6*act.q);
   // (the move goes on long enough for the touch and the step after it)
   act.dur = Math.max(act.dur, at + FAKE.AFTER);
+  // ((BCS) A, D and S: the sole drag, planned as the key comes (its sole lands at least SOLE.DRAG_MIN s on, the time the
+  // foot takes to get up onto the ball)
+  if (act.dir !== 'w'){ dragPlan(ms, a, act, Math.max(at, act.dirT + SOLE.DRAG_MIN)); return; }
   if (act.t < at) return;
   act.dragged = true;
   const b = ms.ball, mine = ms.poss.ctl === a.id && b.state === 'free' && b.p.y < .4 && hypot(b.p.x - a.m.x, b.p.z - a.m.z) <= FAKE.REACH*(a.scale || 1);
   if (!mine) return;
-  const sc = a.scale || 1, c = clamp((a.at.ctrl || 50)/110, 0, 1), fx = act.fx, fz = act.fz, rx = -fz, rz = fx;
+  const sc = a.scale || 1, c = clamp((a.at.ctrl || 50)/110, 0, 1), fx = act.fx, fz = act.fz;
   const e = FAKE.ERR*(1 - c)*sc, ex = truncNormal(ms.r, e, 2), ez = truncNormal(ms.r, e, 2);
-  if (act.dir === 'w') return rollTo(ms, a, a.m.x + fx*FAKE.PUSH*sc + ex, a.m.z + fz*FAKE.PUSH*sc + ez, FAKE.T, 'push');
-  if (act.dir === 's') return rollTo(ms, a, a.m.x - fx*FAKE.BACK_S*sc + ex, a.m.z - fz*FAKE.BACK_S*sc + ez, FAKE.T, 'drag back');
-  const side = act.dir === 'a' ? -1 : 1, across = side*(FAKE.DRAG + FAKE.CTRL*c)*sc, back = FAKE.BACK*sc;
-  rollTo(ms, a, a.m.x - fx*back + rx*across + ex, a.m.z - fz*back + rz*across + ez, FAKE.T, side < 0 ? 'drag left' : 'drag right');
+  rollTo(ms, a, a.m.x + fx*FAKE.PUSH*sc + ex, a.m.z + fz*FAKE.PUSH*sc + ez, FAKE.T, 'push');
+}
+
+/* ---------- (BCS) the sole moves: the sole stop, the drags and the double sole roll ----------
+   The FC 27 clip (plan/notes/fc27-spec.md 1, 3.4 to 3.6 and 5.6; plan/notes/bcs-sole.md). Each is a run of sole contacts
+   (act.segs): the sole on top of the ball from t0 to t1 (act seconds), the ball carried under it from where it is as the
+   sole lands, (x0, z0), still, to (x1, z1), and let go there rolling at (vx1, vz1) (a cubic in time, solePath), so the
+   ball the drawn sole stands on (view.js, moves.js 'sole') is the simulation's own, step for step. A contact's touch is
+   logged as the sole lands on it (part 'sole', the foot, sole: the move). The other foot is the pivot. Close control
+   is kept through all of them.
+   - The sole stop (keepStep): the keys let go at STOP_V m/s or more in close control on the move: the next foot down
+     (either side; not one already landing within NEXT_MIN s, nor one whose sole would land across the other, STOP_X past
+     his middle: then the one after) comes down on top of the ball instead of the grass, on its footfall (STOP_LATE s
+     after the ask at most). He runs on at his speed into that stride; from the contact the ball is still under the sole
+     (dragged back STOP_DRAG m) for STOP_HOLD s and left there at rest, and the body brakes at a steady rate to STOP_V_END
+     m/s by STOP_BRAKE s on (the clip's 4 to 0.5 m/s in 8 frames), then stops. A key pressed again once the sole is off ends it there.
+   - The drags (the fake's A, D and S, fakeStep): the sole on the ball DRAG_HOLD s (the clip's 0.17 to 0.23); A or D with
+     the foot on that side, the ball drawn back and out to that side (DRAG_DIR: across, back) and let go rolling DRAG_V
+     m/s that way (3.5 to 4.5); S with the strong foot, the ball pulled S_BACK m back under him (S_BACK_RUN from a run,
+     against his body, at 3 to 3.5 m/s) and let go rolling S_V m/s on that way. Ball Control: the way it goes, within
+     DRAG_ERR rad (1 - Ball Control/110). Then he turns and goes after it at a run (act.follow) until it is within CATCH m
+     of him (FOLLOW s at most), and the keys have him again.
+   - The double sole roll (the Z key: startSoleRoll): the strong sole rolls the ball across to the weak side (ROLL.ACROSS m
+     in ROLL.T1 s, let go at ROLL.V1 m/s), the weak sole catches it ROLL.GAP s later and rolls it back under him (ROLL.T2
+     s: to ROLL.BACK m back and ROLL.IN to the strong side, let go at ROLL.V2 m/s), he spins half a turn to his strong side
+     on the strong foot (ROLL.SPIN s) and the strong foot pushes the ball out the way he now faces at ROLL.PUSH m/s, and he
+     runs on after it.
+   Numbers in metres (times the body's scale) and seconds. */
+export const SOLE = Object.freeze({STOP_V: 2.0, NEXT_MIN: .034, STOP_LATE: .4, STOP_HOLD: .15, STOP_DRAG: .03, STOP_BRAKE: .29, STOP_AHEAD: [.25, 1.0],
+  STOP_LAT: .45, STOP_X: .15, STOP_V_END: .4, BRAKE_MAX: 20, REACH: 1.3,
+  DRAG_MIN: .1, DRAG_HOLD: .2, DRAG_BRAKE: 10, DRAG_DIR: Object.freeze([.45, .6]), DRAG_V: 4.0, DRAG_ERR: .2, S_BACK: .3, S_BACK_RUN: .7, S_RUN: Object.freeze([1, 3]),
+  S_V: 3.5, CATCH: .75, CATCH_V: .5, FOLLOW: 1.4,
+  ROLL: Object.freeze({V_MAX: 3.2, T0: .12, AHEAD: Object.freeze([.15, .9]), LAT: .45, T1: .13, ACROSS: .3, V1: 1.5, GAP: .05, T2: .13, BACK: .38, IN: .09, V2: 1.0,
+    SPIN: .2, PUSH_T: .08, PUSH: 4.5})});
+// where a sole contact has the ball (its middle, on the grass) at act time t, and its velocity, into out: from (x0, z0)
+// still as the sole lands at t0 to (x1, z1) at (vx1, vz1) as it lets go at t1 (Hermite, the start's tangent none)
+export function solePath(g, t, out){
+  const T = Math.max(1e-3, g.t1 - g.t0), u = clamp((t - g.t0)/T, 0, 1), u2 = u*u, u3 = u2*u;
+  const h01 = 3*u2 - 2*u3, h11 = u3 - u2, d01 = 6*u - 6*u2, d11 = 3*u2 - 2*u;
+  const dx = g.x1 - g.x0, dz = g.z1 - g.z0, mx = g.vx1*T, mz = g.vz1*T;
+  out.x = g.x0 + dx*h01 + mx*h11; out.z = g.z0 + dz*h01 + mz*h11;
+  out.vx = (dx*d01 + mx*d11)/T; out.vz = (dz*d01 + mz*d11)/T;
+  return out;
+}
+const SP = {x: 0, z: 0, vx: 0, vz: 0};
+// a sole contact: side, t0 and t1, the ball's path, and what to log ({sole, carry, fake})
+const soleSeg = (side, t0, t1, x0, z0, x1, z1, vx1, vz1, log) => ({side, t0, t1, x0, z0, x1, z1, vx1, vz1, on: false, off: false, log});
+function startSoleAct(ms, a, move, segs, o = {}){
+  const f = dirOf(a.m.yaw);
+  const act = Object.assign({kind: 'sole', move, t: 0, dur: 9, done: false, segs, fx: f.x, fz: f.z, yaw0: a.m.yaw, v0: a.m.speed, follow: null, brakeT: null}, o);
+  a.act = act; a.state = 'kick';
+  return act;
+}
+// the sole lands on the ball (act.t): the ball where it is then (the path moved onto it), trapped under it, the touch
+// logged; a ball no longer his, or out of his reach, ends the move
+function soleLand(ms, a, act, g){
+  const b = ms.ball, sc = a.scale || 1;
+  if (!(ms.poss.ctl === a.id && b.state === 'free' && b.p.y < .4 && hypot(b.p.x - a.m.x, b.p.z - a.m.z) <= SOLE.REACH*sc)){ act.lost = true; act.dur = act.t; return false; }
+  const ex = b.p.x - g.x0, ez = b.p.z - g.z0;
+  g.t1 += act.t - g.t0; g.t0 = act.t;
+  g.x0 += ex; g.z0 += ez; g.x1 += ex; g.z1 += ez;
+  g.on = true;
+  ballKick(b, {x: 0, y: 0, z: 0}, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  const L = g.log || {};
+  const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, keep: true, foot: g.side, part: 'sole', sole: L.sole || act.move,
+    carry: L.carry || null, fake: L.fake || null, hold: Math.round((g.t1 - g.t0)*1000)/1000});
+  a.keepT = ms.t;
+  chainKeep(ms, a); onTouch(ms, a, 'dribble', ev); refreshPred(ms);
+  return true;
+}
+// the contacts this step: a sole that lands now (its own time; a stop's on its footfall, soleFoot), the ball carried
+// under it to where its path has it at the step's end, and let go at the end of it
+function soleSegs(ms, a, act, h){
+  const b = ms.ball;
+  for (const g of act.segs){
+    if (g.off) continue;
+    if (!g.on){
+      if (g.foot || act.t < g.t0 - 1e-9) return;
+      if (!soleLand(ms, a, act, g)) return;
+    }
+    if (act.t < g.t1 - 1e-9){
+      solePath(g, act.t, SP);
+      b.v.x = (SP.x - b.p.x)/h; b.v.y = 0; b.v.z = (SP.z - b.p.z)/h;
+      b.w.x = b.v.z/BALL_R; b.w.y = 0; b.w.z = -b.v.x/BALL_R;
+      b.sleep = false; b.still = 0;
+      return;
+    }
+    // let go: rolling the way its path leaves it
+    g.off = true;
+    ballKick(b, {x: g.vx1, y: 0, z: g.vz1}, {x: g.vz1/BALL_R, y: 0, z: -g.vx1/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+    a.keepT = ms.t;
+    refreshPred(ms);
+  }
+}
+// (the first contact still to land, or null)
+const nextSeg = act => { for (const g of act.segs) if (!g.off) return g; return null; };
+// a footfall of a body in a sole move: a stop's sole lands on its own footfall
+export function soleFoot(ms, a, side){
+  const act = a.act, g = act && act.kind === 'sole' ? nextSeg(act) : null;
+  if (g && g.foot && !g.on && g.side === side){ g.foot = false; soleLand(ms, a, act, g); }
+}
+// the body's brake beyond the mover's own (prm.brake, keys let go): rate m/s² in all
+function soleBrake(a, rate, h){
+  const m = a.m, extra = Math.max(0, rate - (a.prm.brake || 7.5))*h;
+  if (!(m.speed > 0) || !(extra > 0)) return;
+  const v = Math.max(0, m.speed - extra), k = v/m.speed;
+  m.speed = v; m.vx = (m.vx || 0)*k; m.vz = (m.vz || 0)*k;
+}
+// one step of a sole move (the 'sole' act's, and a fake's drag): its contacts, the body as the move has it, the run after
+// the ball once it is let go
+function soleStep(ms, a, act, h){
+  const I = a.intent, m = a.m;
+  // (a move let go of this step, a knock-on: nothing more of it)
+  if (act.t > act.dur + 1e-9) return;
+  if (act.lost){ act.dur = Math.min(act.dur, act.t); return; }
+  const g = nextSeg(act);
+  // (a stop's next foot down: when it will land, and the ball then, for the drawn sole, until it does)
+  if (g && g.foot && !g.on){
+    const v = Math.max(m.speed, .5);
+    // (its footfall late, the body slowed: it lands on it now)
+    g.t0 = act.t >= act.late ? act.t : act.t + Math.min(sideT(a, g.side, v), act.late - act.t); g.t1 = g.t0 + SOLE.STOP_HOLD;
+    if (act.t >= act.late) g.foot = false;
+    else { ballAt(ms.ball, g.t0 - act.t, BP1); const dx = g.x1 - g.x0, dz = g.z1 - g.z0; g.x0 = BP1.x; g.z0 = BP1.z; g.x1 = g.x0 + dx; g.z1 = g.z0 + dz; }
+  }
+  soleSegs(ms, a, act, h);
+  if (act.lost){ act.dur = Math.min(act.dur, act.t); return; }
+  if (act.kind === 'sole' && act.move === 'stop') return stopBody(ms, a, act, h);
+  if (act.kind === 'sole' && act.move === 'roll') return rollBody(ms, a, act, h);
+  dragBody(ms, a, act, h);
+}
+
+/* the sole stop */
+function startSoleStop(ms, a){
+  const b = ms.ball, m = a.m, sc = a.scale || 1, v = m.speed;
+  if (b.state !== 'free' || b.p.y > .3 || ms.poss.ctl !== a.id || v < SOLE.STOP_V) return false;
+  const hx = (m.vx || 0)/v, hz = (m.vz || 0)/v;
+  const tR = sideT(a, 'R', v), tL = sideT(a, 'L', v);
+  const first = tR <= tL ? 'R' : 'L', T0 = Math.min(tR, tL), T1 = Math.max(tR, tL);
+  for (let k = 0; k < 2; k++){
+    const side = k ? (first === 'R' ? 'L' : 'R') : first, t = k ? T1 : T0;
+    if (!k && t < SOLE.NEXT_MIN) continue;
+    if (t > SOLE.STOP_LATE) break;
+    // (he runs on into that stride: the ball and the body then)
+    ballAt(b, t, BP1);
+    const bx = m.x + hx*v*t, bz = m.z + hz*v*t, dx = BP1.x - bx, dz = BP1.z - bz, ahead = dx*hx + dz*hz, lat = dx*(-hz) + dz*hx;
+    if (ahead < SOLE.STOP_AHEAD[0]*sc || ahead > SOLE.STOP_AHEAD[1]*sc || Math.abs(lat) > SOLE.STOP_LAT*sc) continue;
+    // (the sole lands no further across his middle than STOP_X: never across the other foot)
+    if (lat*(side === 'R' ? 1 : -1) < -SOLE.STOP_X*sc) continue;
+    const g = soleSeg(side, t, t + SOLE.STOP_HOLD, BP1.x, BP1.z, BP1.x - hx*SOLE.STOP_DRAG*sc, BP1.z - hz*SOLE.STOP_DRAG*sc, 0, 0, {sole: 'stop', carry: 'stop'});
+    g.foot = true;
+    startSoleAct(ms, a, 'stop', [g], {late: SOLE.STOP_LATE, hx, hz, vRun: v});
+    a.cplan.on = false;
+    return true;
+  }
+  return false;
+}
+function stopBody(ms, a, act, h){
+  const I = a.intent, m = a.m, g = act.segs[0];
+  // (the keys as the player holds them this step, before the move has its say)
+  const keys = hypot(I.dx || 0, I.dz || 0) > .1;
+  if (!g.on){
+    // into the stride that comes down on it: on at his speed, the way he runs
+    I.dx = act.hx; I.dz = act.hz; I.speedCap = act.vRun;
+    return;
+  }
+  // (the brake: to STOP_V_END by STOP_BRAKE s after the contact, at a steady rate; the mover's own brake and, past it,
+  // soleBrake's: the speed it should have at the step's end is the mover's cap, along the way he goes)
+  if (act.brakeT == null){ act.brakeT = act.t; act.vB = m.speed; act.rate = Math.min((m.speed - SOLE.STOP_V_END)/SOLE.STOP_BRAKE, SOLE.BRAKE_MAX); }
+  const want = Math.max(0, m.speed - act.rate*h);
+  soleBrake(a, act.rate, h);
+  I.dx = act.hx; I.dz = act.hz; I.speedCap = want;
+  // (over once he has stopped and the sole is off the ball; a key pressed again once the sole is off ends it then)
+  if (g.off && (m.speed < .3 || keys)) act.dur = Math.min(act.dur, act.t);
+  if (act.t - act.brakeT > SOLE.STOP_BRAKE + .2) act.dur = Math.min(act.dur, act.t);
+}
+
+/* the drags (the fake's A, D and S keys) */
+function dragPlan(ms, a, act, t0){
+  const b = ms.ball, m = a.m, sc = a.scale || 1, c = clamp((a.at.ctrl || 50)/110, 0, 1);
+  const mine = ms.poss.ctl === a.id && b.state === 'free' && b.p.y < .4 && hypot(b.p.x - m.x, b.p.z - m.z) <= FAKE.REACH*sc;
+  act.dragged = true;
+  if (!mine) return;
+  const fx = act.fx, fz = act.fz, rx = -fz, rz = fx, strong = touchSideOf(a);
+  ballAt(b, t0 - act.t, BP1);
+  // the way it goes, off by Ball Control
+  const err = truncNormal(ms.r, SOLE.DRAG_ERR*(1 - c), 2);
+  let side, ux, uz, D, V, how;
+  if (act.dir === 's'){
+    // (straight back under him; from a run, further against his body: S_BACK_RUN at S_RUN[1] m/s)
+    side = strong; ux = -fx; uz = -fz; how = 'drag back';
+    // (the body's own way on over the contact, held as the fake's swing has him to the sole (fakeCap), then braking at
+    // DRAG_BRAKE under it: what of the drag against him it makes up)
+    const cap = fakeCap(ms, a), v0 = Math.max(Math.min(m.speed, cap), m.speed - (a.prm.brake || 7.5)*Math.max(0, t0 - act.t)), T = SOLE.DRAG_HOLD, br = SOLE.DRAG_BRAKE;
+    const on = v0 > br*T ? v0*T - .5*br*T*T : v0*v0/(2*br);
+    const k = clamp((v0 - SOLE.S_RUN[0])/(SOLE.S_RUN[1] - SOLE.S_RUN[0]), 0, 1), rel = (SOLE.S_BACK + (SOLE.S_BACK_RUN - SOLE.S_BACK)*k)*sc;
+    D = Math.max(.05*sc, rel - on); V = SOLE.S_V;
+  } else {
+    const s = act.dir === 'a' ? -1 : 1, [ac, bk] = SOLE.DRAG_DIR, l = hypot(ac, bk);
+    side = s < 0 ? 'L' : 'R'; ux = (-fx*bk + s*rx*ac)/l; uz = (-fz*bk + s*rz*ac)/l; how = s < 0 ? 'drag left' : 'drag right';
+    D = .5*SOLE.DRAG_V*SOLE.DRAG_HOLD*sc; V = SOLE.DRAG_V;
+  }
+  const ce = cos(err), se = sin(err), vx = ux*ce - uz*se, vz = ux*se + uz*ce;
+  const g = soleSeg(side, t0, t0 + SOLE.DRAG_HOLD, BP1.x, BP1.z, BP1.x + vx*D, BP1.z + vz*D, vx*V, vz*V, {sole: act.dir === 's' ? 'drag back' : 'drag', fake: how});
+  act.segs = [g]; act.dur = 9; act.ux = vx; act.uz = vz;
+}
+function dragBody(ms, a, act, h){
+  const I = a.intent, m = a.m, g = act.segs[0], b = ms.ball;
+  if (!g.off){
+    // (on the spot under the sole: a stand)
+    // (on to it as the fake's swing had him, then on the spot under the sole)
+    if (g.on){ I.dx = 0; I.dz = 0; I.speedCap = 0; soleBrake(a, SOLE.DRAG_BRAKE, h); }
+    else { const v = m.speed; I.dx = v > .3 ? (m.vx || 0)/v : 0; I.dz = v > .3 ? (m.vz || 0)/v : 0; I.speedCap = Math.min(I.speedCap, fakeCap(ms, a)); }
+    return;
+  }
+  followBall(ms, a, act);
+}
+// after the ball he let go: turned to it and running on to it, until it is within CATCH m (FOLLOW s at most), then the
+// keys have him again
+function followBall(ms, a, act){
+  const I = a.intent, m = a.m, b = ms.ball;
+  if (!act.follow) act.follow = {t0: act.t};
+  const dx = b.p.x + b.v.x*.25 - m.x, dz = b.p.z + b.v.z*.25 - m.z, dl = hypot(dx, dz) || 1, d = hypot(b.p.x - m.x, b.p.z - m.z);
+  I.dx = dx/dl; I.dz = dz/dl; I.gait = 'sprint'; I.speedCap = Infinity; I.strafe = false;
+  const f = a.faceV; f.x = dx/dl; f.z = dz/dl; I.face = f;
+  // (caught up: within CATCH, in front of him, he turned the way it rolls and it no longer running away from him)
+  const ux = (b.p.x - m.x)/(d || 1), uz = (b.p.z - m.z)/(d || 1), F = dirOf(m.yaw), away = (b.v.x - (m.vx || 0))*ux + (b.v.z - (m.vz || 0))*uz;
+  const bv = hypot(b.v.x, b.v.z), with_ = bv < .5 || (b.v.x*F.x + b.v.z*F.z)/bv > .5;
+  const caught = d <= SOLE.CATCH*(a.scale || 1) && ux*F.x + uz*F.z > .3 && with_ && away < SOLE.CATCH_V;
+  if (caught || act.t - act.follow.t0 >= SOLE.FOLLOW || ms.poss.ctl !== a.id || b.state !== 'free') act.dur = Math.min(act.dur, act.t);
+}
+
+/* the double sole roll (startAction 'soleroll': the Z key) */
+function startSoleRoll(ms, a){
+  const b = ms.ball, m = a.m, sc = a.scale || 1, R0 = SOLE.ROLL;
+  if (a.act && !a.act.done) return null;
+  if (b.state !== 'free' || b.p.y > .3 || ms.poss.ctl !== a.id || m.speed > R0.V_MAX) return null;
+  const f = dirOf(m.yaw), rx = -f.z, rz = f.x, strong = touchSideOf(a), weak = strong === 'R' ? 'L' : 'R', sg = strong === 'R' ? 1 : -1;
+  // (the strong sole lands T0 s on: the ball there, against where he will have stopped)
+  const t0 = R0.T0, v = m.speed, stop = v*v/(2*SOLE.BRAKE_MAX*.6);
+  ballAt(b, t0, BP1);
+  const hv = v > .05 ? 1/v : 0, px = m.x + (m.vx || 0)*hv*stop, pz = m.z + (m.vz || 0)*hv*stop;
+  const ax = BP1.x - px, az = BP1.z - pz, ahead = ax*f.x + az*f.z, lat = ax*rx + az*rz;
+  if (ahead < R0.AHEAD[0]*sc || ahead > R0.AHEAD[1]*sc || Math.abs(lat) > R0.LAT*sc) return null;
+  // 1. the strong sole across to the weak side (-sg of his right), let go at V1
+  const t1 = t0 + R0.T1, cx = -sg*rx, cz = -sg*rz;
+  const g1 = soleSeg(strong, t0, t1, BP1.x, BP1.z, BP1.x + cx*R0.ACROSS*sc - f.x*.04*sc, BP1.z + cz*R0.ACROSS*sc - f.z*.04*sc, cx*R0.V1, cz*R0.V1, {sole: 'roll'});
+  // 2. the weak sole: where that roll has it GAP s on, rolled back under him and in to the strong side, let go at V2
+  // straight back (the way he will face after the spin)
+  const t2 = t1 + R0.GAP, gx = g1.x1 + cx*R0.V1*R0.GAP, gz = g1.z1 + cz*R0.V1*R0.GAP;
+  const g2 = soleSeg(weak, t2, t2 + R0.T2, gx, gz, gx - f.x*R0.BACK*sc + sg*rx*R0.IN*sc, gz - f.z*R0.BACK*sc + sg*rz*R0.IN*sc, -f.x*R0.V2, -f.z*R0.V2, {sole: 'roll'});
+  const tS = g2.t1, tP = tS + R0.SPIN + R0.PUSH_T;
+  const act = startSoleAct(ms, a, 'roll', [g1, g2], {spin: {t0: tS, t1: tS + R0.SPIN, sg}, push: {t: tP, side: strong, done: false}});
+  logEv(ms, 'fake', a.team, a.id, m.x, m.z, {dir: null, sole: 'roll'});
+  return act;
+}
+function rollBody(ms, a, act, h){
+  const I = a.intent, m = a.m, SN = act.spin, P = act.push, b = ms.ball;
+  if (act.t < SN.t0){ I.dx = 0; I.dz = 0; I.speedCap = 0; soleBrake(a, SOLE.BRAKE_MAX*.6, h); const f = a.faceV; f.x = act.fx; f.z = act.fz; I.face = f; return; }
+  if (act.t < SN.t1 + 1e-9){
+    // the spin: half a turn to his strong side (sg: a right foot's, to his right), eased, on the strong foot
+    const u = clamp((act.t - SN.t0)/(SN.t1 - SN.t0), 0, 1), e = u*u*(3 - 2*u);
+    m.yaw = wrapA(act.yaw0 - SN.sg*Math.PI*e);
+    const f = a.faceV, d = dirOf(m.yaw); f.x = d.x; f.z = d.z; I.face = f; I.dx = 0; I.dz = 0; I.speedCap = 0;
+    return;
+  }
+  // facing the way he came; the strong foot pushes it out that way at PUSH and he runs on after it
+  const f = a.faceV; f.x = -act.fx; f.z = -act.fz; I.face = f;
+  if (!P.done && act.t >= P.t - 1e-9){
+    P.done = true;
+    const sc = a.scale || 1;
+    if (ms.poss.ctl === a.id && b.state === 'free' && b.p.y < .4 && hypot(b.p.x - m.x, b.p.z - m.z) <= SOLE.REACH*sc){
+      const vx = -act.fx*SOLE.ROLL.PUSH, vz = -act.fz*SOLE.ROLL.PUSH;
+      ballKick(b, {x: vx, y: 0, z: vz}, {x: vz/BALL_R, y: 0, z: -vx/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+      a.keepT = ms.t; a.ctlDir = {x: -act.fx, z: -act.fz};
+      const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: 1, keep: true, foot: P.side, part: 'toe', sole: 'roll', push: true, dx: -act.fx, dz: -act.fz});
+      chainKeep(ms, a); onTouch(ms, a, 'dribble', ev); refreshPred(ms);
+    }
+  }
+  if (P.done) followBall(ms, a, act);
+  else { I.dx = 0; I.dz = 0; I.speedCap = 0; }
 }
 
 /* ---------- the flick (U28 part G, U29) ----------
@@ -1022,6 +1314,8 @@ export const KNOCK = Object.freeze({D: 9, MIN_V: 4, OVER: 2.5, REACH: 1.8, LET: 
 const BALL_R = 0.11;
 // the end of close control (and why: the test reads a.ctlEnd)
 function ctlOff(a, why){ if (a.ctlOn){ a.ctlOn = false; a.ctlEnd = why; } }
+// ((BCS) a sole move under way: the sole stop, the double roll, a fake's drag)
+const soleMove = a => !!a.act && !a.act.done && (a.act.kind === 'sole' || (a.act.kind === 'fake' && !!a.act.segs));
 export function keepStep(ms, a, h){
   const b = ms.ball, I = a.intent, sc = a.scale || 1;
   const dist = hypot(b.p.x - a.m.x, b.p.z - a.m.z);
@@ -1031,14 +1325,19 @@ export function keepStep(ms, a, h){
   // the ends of close control
   if (a.ctlOn){
     if (ms.phase !== 'live') ctlOff(a, 'stop');
-    else if (a.act && !a.act.done && a.act.kind !== 'header' && a.act.kind !== 'fake') ctlOff(a, a.act.kind);
+    else if (a.act && !a.act.done && a.act.kind !== 'header' && a.act.kind !== 'fake' && a.act.kind !== 'sole') ctlOff(a, a.act.kind);
     else if (ms.poss.ctl !== a.id) ctlOff(a, 'lost');
-    else if (b.state !== 'free' || b.p.y > TAKE.MAX_Y + .3 || dist > CTL.REACH*sc) ctlOff(a, 'reach');
+    // ((BCS) a sole move's ball, let go rolling the new way and run after, is still his: the move ends when he has it)
+    else if (b.state !== 'free' || b.p.y > TAKE.MAX_Y + .3 || (dist > CTL.REACH*sc && !soleMove(a))) ctlOff(a, 'reach');
   }
   // the knock-on (on a ball a stride's touch may just have played on: KNOCK.REACH)
   if (I.knock){
     I.knock = false;
-    if ((a.ctlOn || ms.poss.ctl === a.id) && ms.phase === 'live' && dist <= KNOCK.REACH*sc){ ctlOff(a, 'knock'); return knockOn(ms, a, ux, uz); }
+    if ((a.ctlOn || ms.poss.ctl === a.id) && ms.phase === 'live' && dist <= KNOCK.REACH*sc){
+      // ((BCS) a sole move under way lets go of the ball to it)
+      if (soleMove(a)) a.act.dur = a.act.t;
+      ctlOff(a, 'knock'); return knockOn(ms, a, ux, uz);
+    }
   }
   // F: taking it, within TAKE.WIN s of the press
   if (!a.ctlOn && a.takeT != null){
@@ -1051,6 +1350,9 @@ export function keepStep(ms, a, h){
       return r;
     }
   }
+  // ((BCS) a sole move's touches are its own; a stop asked for on the move with it is the sole stop's)
+  if (a.ctlOn && soleMove(a)){ a.cplan.on = false; return false; }
+  if (a.ctlOn && !(a.act && !a.act.done) && !mv && a.m.speed >= SOLE.STOP_V && startSoleStop(ms, a)) return false;
   if (!a.ctlOn || (a.act && a.act.kind === 'fake')){ if (!a.ctlOn && ms.poss.ctl !== a.id) a.cplan.on = false; return false; }
   // (FC27) on the move the touches are the footfalls' (carryFoot); standing and turning on the spot, the spot's, and a
   // ball neither foot's next strike can play (behind him or out to his side: taken in from a pass, a loose ball or a
@@ -1796,6 +2098,12 @@ export function actionStep(ms, a, h){
       if (act.t >= act.dur){ a.act = null; a.state = 'idle'; }
       break;
     }
+    case 'sole': {
+      // ((BCS) the sole stop and the double sole roll)
+      soleStep(ms, a, act, h);
+      if (act.t >= act.dur){ a.act = null; a.state = 'idle'; }
+      break;
+    }
     case 'flick': {
       flickStep(ms, a, act, h);
       if (act.t >= act.dur){ a.act = null; a.state = 'idle'; }
@@ -1831,6 +2139,8 @@ export function startAction(ms, a, rq){
     }
     case 'header': return startHeader(ms, a, rq.tc != null ? rq.tc : 0.3, rq.intent || 'clear', rq.target, rq.power != null ? rq.power : 1, !!rq.dive, rq.ballY != null ? rq.ballY : null);
     case 'fake': return startFake(ms, a, rq);
+    // ((BCS) the double sole roll: the Z key)
+    case 'soleroll': return startSoleRoll(ms, a);
     case 'flick': return startFlick(ms, a, rq);
     case 'throw': return startThrow(ms, a, rq.target, rq.recv != null ? rq.recv : -1);
     case 'call':

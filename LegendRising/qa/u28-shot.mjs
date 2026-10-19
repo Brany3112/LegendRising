@@ -7,11 +7,13 @@
 //   - by the Curve skill: 55 about half of 99's, 33 about half of 55's (how far out from the line to the target it goes)
 //   - the fake (S pressed while the shot is held): no kick, the ball still at your feet and yours; a key just after it
 //     plays it: A back to your left, D back to your right, S straight back, W on a little
-//   - a quicker player (Agility) plays it sooner; a better Ball Control drags it nearer where it was meant to go
+//   - a quicker player (Agility) plays it sooner; a better Ball Control drags it nearer the way it was meant to go ((BCS)
+//     the drags are the sole's now, let go rolling the new way (actions.js SOLE): measured on the way the ball is let go,
+//     changed on purpose from where a rolled-to-rest drag stopped)
 //
 //   node qa/u28-shot.mjs          exits 1 on any failed check
 import {simStep} from "../js/life/football/sim.js";
-import {startAction, FAKE} from "../js/life/football/actions.js";
+import {startAction, SOLE} from "../js/life/football/actions.js";
 import {curlSpin, SHOT_KEYS} from "../js/life/football/control.js";
 import {setupOf, matchOf, H} from "./tr6-teamlib.mjs";
 import {drill} from "../js/life/train/scen-team.js";
@@ -83,16 +85,17 @@ function fake(dir, at = {}, seed){
   const {ms, me, f} = go({at, seed});
   const b0 = {x: ms.ball.p.x, z: ms.ball.p.z}, m0 = {x: me.m.x, z: me.m.z};
   me.intent.action = {kind: "fake"};
-  let touchT = null, t0 = null;
+  let touchT = null, t0 = null, seg = null;
   for (let k = 0; k < 90; k++){
     still(me); simStep(ms, H);
     if (me.act && me.act.kind === "fake" && t0 == null){ t0 = ms.t; if (dir){ me.act.dir = dir; me.act.dirT = me.act.t; } }
     if (touchT == null && ms.events.some(e => e.kind === "touch" && e.fake)) touchT = ms.t - t0;
+    if (!seg && me.act && me.act.segs) seg = me.act.segs[0];
   }
   const kicks = ms.events.filter(e => e.kind === "kick" && e.agent === me.id).length;
   const rx = -f.z, rz = f.x, dx = ms.ball.p.x - m0.x, dz = ms.ball.p.z - m0.z;
   return {side: r2(dx*rx + dz*rz), fwd: r2(dx*f.x + dz*f.z), back0: r2((b0.x - m0.x)*f.x + (b0.z - m0.z)*f.z), dist: r2(Math.hypot(ms.ball.p.x - me.m.x, ms.ball.p.z - me.m.z)), mine: ms.poss.ctl === me.id, kicks,
-    touchT: touchT != null ? r2(touchT) : null, touches: ms.events.filter(e => e.kind === "touch" && e.fake).map(e => e.fake), me, f, ms};
+    touchT: touchT != null ? r2(touchT) : null, touches: ms.events.filter(e => e.kind === "touch" && e.fake).map(e => e.fake), me, f, ms, seg};
 }
 {
   const S = fake(null), A = fake("a"), D = fake("d"), Sb = fake("s"), W = fake("w");
@@ -103,10 +106,12 @@ function fake(dir, at = {}, seed){
   check(W.fwd > W.back0 + .3 && W.mine && W.kicks === 0, "then W pushes it on a little", pick(W));
   const slow = fake("d", {agility: 30}), quick = fake("d", {agility: 95});
   check(quick.touchT < slow.touchT, "a quicker player (Agility) plays the drag sooner after the key", {slow: slow.touchT, quick: quick.touchT});
-  // (Ball Control: the drag's miss over several seeds from where it was meant to go)
-  const miss = ctrl => { let s = 0; for (let seed = 1; seed <= 12; seed++){ const r = fake("d", {ctrl}, seed), c = Math.min(1, ctrl/110), me = r.me, f = r.f;
-    const want = {x: me.m.x - f.x*FAKE.BACK - f.z*(FAKE.DRAG + FAKE.CTRL*c), z: me.m.z - f.z*FAKE.BACK + f.x*(FAKE.DRAG + FAKE.CTRL*c)}; s += Math.hypot(r.ms.ball.p.x - want.x, r.ms.ball.p.z - want.z); } return s/12; };
+  // (Ball Control: the drag's miss over several seeds, the angle between the way it is let go and the way D asks: back
+  // and out to the right, SOLE.DRAG_DIR)
+  const miss = ctrl => { let s = 0; for (let seed = 1; seed <= 12; seed++){ const r = fake("d", {ctrl}, seed), f = r.f, g = r.seg, [ac, bk] = SOLE.DRAG_DIR;
+    const wx = -f.x*bk - f.z*ac, wz = -f.z*bk + f.x*ac, gl = Math.hypot(g.vx1, g.vz1)*Math.hypot(wx, wz);
+    s += Math.acos(Math.max(-1, Math.min(1, (g.vx1*wx + g.vz1*wz)/gl))); } return s/12; };
   const mLo = miss(30), mHi = miss(95);
-  check(mHi < mLo, "a better Ball Control drags it nearer where it was meant to go", {ctrl30: r2(mLo), ctrl95: r2(mHi)});
+  check(mHi < mLo, "a better Ball Control drags it nearer the way it was meant to go (the angle it is let go off it, rad)", {ctrl30: r2(mLo), ctrl95: r2(mHi)});
 }
 done();
