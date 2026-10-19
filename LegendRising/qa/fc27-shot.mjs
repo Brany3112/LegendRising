@@ -182,7 +182,8 @@ try {
         CT.lmb = true; CT.lmbT = 0; CT.queue.push({k: "ldown"});
         for (let i = 0; i < (o.charge || 36); i++){ L.stepN(1); place(); }
         CT.lmb = false; CT.queue.push({k: "lup", t: CT.lmbT});
-        rel = {v: +me.m.speed.toFixed(3), held: !!R.h.heldAt || R.h.mode === "strike"};
+        // ((BCS) cw: the drawn carrier's weight as it is let go, gait.js G.cw: his hips CARRY_HIPS lower while he carries)
+        rel = {v: +me.m.speed.toFixed(3), held: !!R.h.heldAt || R.h.mode === "strike", cw: R.h.gait ? +(+R.h.gait.cw || 0).toFixed(3) : 0};
       } else AC.startAction(ms, me, {kind: "shot", target: tgt, recv: -1, power: .85, contact: 0, finesse: false, atGoal: true, shape: "test"});
       const aimYaw = Math.atan2(-ad.x, -ad.z);
       const cam = new L.cam.constructor(50, 16/9, .1, 400);
@@ -336,7 +337,7 @@ function measure(name, c, foot){
   let yawRate = 0;
   for (let j = Math.max(1, jA); j <= jc; j++) yawRate = Math.max(yawRate, Math.abs(wr(F[j].ry - F[j - 1].ry)));
   const clip = fc.clip || {};
-  return {name, gap: jA >= 0 && jC >= 0 ? jC - jA : null, actAt: jA, relC: r3(relC), yawErr: r3(yawErr), yawRate: r3(yawRate), hipDip: r3(hipDip), vRel: c.rel ? c.rel.v : null, plant: r3(tOf(jp)), toeOff: r3(toeOff), top: r3(tOf(jtop)), heel: r3(ytop), knee: jtop >= 0 ? Math.round(knee(jtop)) : null, stepLen: r3(stepLen),
+  return {name, gap: jA >= 0 && jC >= 0 ? jC - jA : null, actAt: jA, relC: r3(relC), yawErr: r3(yawErr), yawRate: r3(yawRate), hipDip: r3(hipDip), vRel: c.rel ? c.rel.v : null, cwRel: c.rel ? c.rel.cw : 0, plant: r3(tOf(jp)), toeOff: r3(toeOff), top: r3(tOf(jtop)), heel: r3(ytop), knee: jtop >= 0 ? Math.round(knee(jtop)) : null, stepLen: r3(stepLen),
     lat: r3(lat), behind: r3(behind), laces: r3(laces), pitch: r3(pitch), nearest: r3(nearest), ftTop: r3(yft), ftAt: r3(tOf(jft)), sweep: r3(sweep),
     land: jl >= 0 ? r3(tOf(jl)) : null, plantDownTo: r3(downTo), flight: r3(flight), arm: r3(arm), leanTop: r3(leanTop), leanC: r3(leanC),
     pitchLand: jl >= 0 ? r3(pitchLand) : null, turn: r3(turn), turnAt, slide: r3(slide),
@@ -353,8 +354,12 @@ const pick = (...ks) => SH.map(m => Object.fromEntries([["case", m.name], ...ks.
 check(ok, "the shots (a stand, a walk-up at a rolling ball, a left-footer's, one charged running with the ball at his feet and let go, one aimed 75 degrees off his facing) are struck and drawn", Object.values(M).map(m => m.err || m.name));
 check(ok && [...SH, M.hold].filter(Boolean).every(m => m.gap != null && m.gap <= 1 && inR(m.relC, .30, .36)), "the clip begins with the shot's act (within a frame of it: nothing else drawn between the release and the step-in) and the contact comes 0.30 to 0.36 s after the shot is asked or let go",
   [...SH, M.hold].filter(Boolean).map(m => ({case: m.name, gap: m.gap, actAt: m.actAt, relC: m.relC, vRel: m.vRel})));
-check(ok && [...SH, M.hold].filter(Boolean).every(m => m.hipDip <= .25), "the plant's lunge, not a duck: the hips at most 0.25 m under their height in the case from the release to the contact (a metre's plant step and the clip's dip of about 0.07 on a lowered stance)",
-  [...SH, M.hold].filter(Boolean).map(m => ({case: m.name, hipDip: m.hipDip})));
+// ((BCS) a shot let go from the carrier's stance, its hips CARRY_HIPS lower by design (gait.js, fc27/carry: the knees
+// bent all the time), dips that much further under the case's highest, a run on after it with no ball: so much more is
+// allowed, by the carrier's weight as it is let go; the lunge from the stance is the same)
+const CARRY_HIPS = .075;
+check(ok && [...SH, M.hold].filter(Boolean).every(m => m.hipDip <= .25 + CARRY_HIPS*(m.cwRel || 0)), "the plant's lunge, not a duck: the hips at most 0.25 m under their height in the case from the release to the contact (a metre's plant step and the clip's dip of about 0.07 on a lowered stance; and the carrier's own 0.075 lower stance as it is let go)",
+  [...SH, M.hold].filter(Boolean).map(m => ({case: m.name, hipDip: m.hipDip, cw: m.cwRel})));
 check(ok && SH.every(m => m.yawErr <= .2 && m.yawRate <= .2), "turned to the aim by the contact (within 0.2 rad), never faster than 0.2 rad a frame (12 rad/s, the clip's spin) on the way",
   pick("yawErr", "yawRate"));
 check(ok && SH.every(m => m.stepIn && m.late == null), "SH-7 each is a step-in and its clip is not begun late", pick("stepIn", "tc", "late", "pre"));
