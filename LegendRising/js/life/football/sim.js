@@ -470,6 +470,8 @@ export function simStep(ms, h = H){
     const rec = bodyRec(a);
     // the controller's own body does not knock his ball on (his touches are explicit); a diving keeper is one capsule
     if (a.id === ms.poss.ctl && ms.ball.state === 'free') rec.ghost = true;
+    // ((FC27) nor a body stepping in to strike it: its legs are drawn stepping beside the ball, actions.js STEP_IN)
+    if (a.act && a.act.stepIn && !a.act.done) rec.ghost = true;
     // nobody knocks a dead ball about while a restart is set up
     if (ms.phase !== 'live') rec.ghost = true;
     if (a.isGK && a.gk && a.gk.plan && (a.gk.state === 'dive' || a.gk.state === 'ground')) rec.seg = diveSeg(a, rec.seg || {});

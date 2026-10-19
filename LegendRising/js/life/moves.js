@@ -61,7 +61,9 @@ const G = 9.81, BR = .11;             // gravity, the ball's radius (m)
    the foot at the top of the follow-through (m). lift: how far up the strike goes through the ball (0 drives it flat).
    app: the approach's angle off the aim line (radians). */
 export const KINDS = {
-  instep:     {dur:.80, contact:.22, plant:[.26, -.08], part:"laces",  ft:.90, lift:.08, app:30, pass:false},
+  // (FC27, the shot: contact 0.20 s after the plant, the support foot 0.33 m beside the ball; the step-in's timing is
+  // SHOT's, below)
+  instep:     {dur:.80, contact:.20, plant:[.33, -.08], part:"laces",  ft:.90, lift:.08, app:30, pass:false, shot:true},
   side:       {dur:.62, contact:.19, plant:[.22, 0],    part:"inside", ft:.40, lift:.02, app:10, pass:true},
   chip:       {dur:.70, contact:.20, plant:[.28, -.22], part:"toe",    ft:.30, lift:.9,  app:20, pass:false},
   lofted:     {dur:.85, contact:.23, plant:[.30, -.15], part:"laces",  ft:1.2, lift:.45, app:35, pass:false},
@@ -75,6 +77,34 @@ export const KINDS = {
 };
 const ALIAS = {shot:"instep", driven:"instep", pass:"side", through:"side", short:"side", cross:"lofted", long:"lofted", clear:"lofted", lob:"chip"};
 export const kindOf = k => KINDS[k] ? k : ALIAS[k] || "instep";
+/* (FC27, plan/notes/fc27-spec.md section 4) the shot as the clip has it: a step-in, the support foot planted 0.20 s
+   before the contact, the kicking leg off the grass as it lands (the clip's 0.16 s before the contact: from the grass
+   behind him to the top in the clip's 0.06 s the knee would turn faster than any joint may, 20 rad/s, and the leg
+   lagged, dipped and rose again), at the top of its backswing 0.10 s before (the
+   ankle about half a metre up, the knee bent 100 to 120 degrees), the laces through the back of the ball low with the
+   ankle locked, the follow-through at its top 0.115 s after (about hip height) sweeping a little across to the support
+   side, the kicking foot down 0.36 s after; on the move the support foot pushes off 0.27 s after (its heel up from 0.20)
+   for a short flight and steps through. Clip seconds from the plant (clip time 0; the contact is the kind's, 0.20):
+   OFF the kicking foot's toe-off; TOP the top of the backswing; FT the follow-through's top and LAND the kicking foot's
+   landing, after the contact; S_HEEL, S_OFF, S_LAND the support foot's heel peeling up, its toe leaving and its step
+   through landing, after the contact, when the body runs on (over MOVE m/s); PRE the plant step's time, at least and
+   at most (the step fills what the simulation's contact leaves before the plant, so the swing plays at its own pace:
+   a step-in, actions.js STEP_IN); HOP the distance from a held wind-up's support foot to the plant over which it hops
+   there first (the leg held cocked), given at least HOP_T s for it; TOP_B, TOP_Y the backswing's top behind the root
+   and its height (m, plus the power's share); V_TOP, V_END the foot's speed at the top (on along the aim) and into the
+   ball (m/s); FT_IN, LAND_IN the follow-through's top across from the kicking hip toward the support side and the
+   landing's across from the root's line; DIP the hips' drop into the plant's lunge; LEAN the hips' lean to the support
+   side at the top (the chest, over the spine's counter-roll, about 0.2 rad: the clip's); ARM the support arm out from
+   the top to the contact (radians); PITCH the trunk's pitch forward after the landing, on the move; FULL the least
+   time to the contact (s) for which a shot let go from a held wind-up swings the full swing from its cocked leg; DROP
+   the most the hips come down to reach a long plant step (the rest of the way they lead on into it, reachLevel); PEEL
+   the kicking foot's roll onto its toes (rad) at which a trailing foot left behind leaves before OFF; STEP the least
+   time the simulation's contact leaves for the plant step (s) for it to be a step-in's own (strikeBegin's C.step: a
+   step-in leaves 0.10 to 0.15 s less a frame or two of the drawing's lag, a strike in the reach window none); LEAD how
+   much sooner than its clock says (s) a shot begun late plans to meet the ball (newClip) */
+export const SHOT = Object.freeze({OFF: 0, TOP: .10, FT: .115, LAND: .36, S_HEEL: .20, S_OFF: .27, S_LAND: .58, MOVE: 1.0,
+  PRE: [.12, .30], HOP: .12, HOP_T: .08, TOP_B: [.14, .06], TOP_Y: [.47, .12], V_TOP: 1.6, V_END: 7.5, FT_IN: .03, LAND_IN: .02,
+  DIP: .07, LEAN: .36, ARM: 1.45, PITCH: .32, FULL: .15, DROP: .06, PEEL: 1.0, STEP: .05, LEAD: 1/60});
 
 /* the faces of the foot in the foot bone's own frame (body units: the ankle at the origin, +z along the foot, the sole at
    -0.085): the laces 0.06 above the sole, the inside face, the tip of the toes (under the ball for a chip), the sole */
@@ -160,6 +190,8 @@ const CLIP_RATE_MIN = .4, CLIP_RATE_MAX = 2;
 function newClip(h, key, st, spec){
   const C = h.mv || (h.mv = {});
   C.key = key; C.id = st.id; C.base = h.at; C.lastAt = h.at; C.lastT = 0; C.tau = spec.pre ? -spec.pre : 0; C.pre = spec.pre || 0; C.back = 0;
+  // ((FC27) the shot's: a step-in's own plant step, and how much sooner a shot begun late plans its contact: strikeBegin)
+  C.step = false; C.win = false; C.lead = 0;
   C.dur = spec.dur; C.contact = spec.contact; C.fired = 0; C.contactDone = false; C.reachErr = 0; C.tcAt = NaN; C.rate = 1;
   C.post = st.rate > 0 ? st.rate : 1;
   C.events = spec.events || null;             // [[bit, tau], ...] the clip's own moments (contact excluded)
@@ -173,8 +205,12 @@ function newClip(h, key, st, spec){
   // strikes it. Begun at the top, a strike struck within 0.18 s of being asked had its leg still swinging as the ball left
   // (C.late: the clip time it began at when it began late so, else -Infinity; the strike's swing and its plant step go
   // from where the feet are at that moment, strike(): begun part way along their paths, they were drawn there at once)
+  // ((FC27) a shot begun late plans to meet the ball C.lead sooner: the simulation's contact, in the step that reaches
+  // it, can come a frame before the drawing's, and a clip begun late plays at its fastest all the way, with no time to
+  // make up; a shot's foot comes into the ball at 7.5 m/s, and a frame short it was 0.2 m off it at the kick)
   C.late = -Infinity;
-  if (!C.legacy && st.tc != null && isFinite(st.tc) && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*st.tc){ C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*st.tc); C.late = C.tau; }
+  const tcL = st.tc != null && isFinite(st.tc) ? Math.max(0, st.tc - C.lead) : null;
+  if (!C.legacy && tcL != null && st.tc >= 0 && C.contact - C.tau > CLIP_RATE_MAX*tcL){ C.tau = Math.min(C.contact, C.contact - CLIP_RATE_MAX*tcL); C.late = C.tau; }
   if (!C.legacy){ C.tcAt = st.tc != null && isFinite(st.tc) ? Math.max(0, h.at - C.base + st.tc) : (C.contact - C.tau)/C.post; }
   return C;
 }
@@ -465,8 +501,10 @@ export function planStrike(h, ball, kind, side = "R", dir = null, power = .7){
     // standing: the plant is a step inside the clip
     const sd = side === "L" ? 1 : 0, ft = Gt ? Gt.feet[sd] : null;
     const d = ft ? Math.hypot(ft.x - plant.x, ft.z - plant.z) : 0;
-    res.pre = d > .03*sc ? preStep(d/sc) + PLANT_BACK : 0; res.tContact = res.pre + K.contact;
-    res.tPlant = res.pre ? res.pre - PLANT_BACK : 0;
+    // (the shot: its plant step comes down at clip time 0, the swing back after it being its own, SHOT)
+    const back = K.shot ? 0 : PLANT_BACK;
+    res.pre = d > .03*sc ? (K.shot ? shotStep(d/sc) : preStep(d/sc) + back) : 0; res.tContact = res.pre + K.contact;
+    res.tPlant = res.pre ? res.pre - back : 0;
     res.feasible = d < .9*sc; res.err = Math.max(0, d - .9*sc);
     res.root = rootAtPlant(h, k, side, plant, f, sc);
     return res;
@@ -529,6 +567,8 @@ export function planStrike(h, ball, kind, side = "R", dir = null, power = .7){
   return res;
 }
 const preStep = d => clamp(.14 + .3*d, .16, .3);
+// (FC27) the shot's plant step: a long quick one, a metre in about 0.13 s (the clip's f243 to f247)
+const shotStep = d => clamp(.08 + .05*d, SHOT.PRE[0], SHOT.PRE[1]);
 /* where the root stands when the support foot comes down on its plant: half a stance across from it and a little
    behind (a standing strike's owner carries the root there over the plant step, plan.pre seconds) */
 function rootAtPlant(h, k, side, plant, f, sc){
@@ -580,6 +620,18 @@ export function runupStep(h, plan){
   while (plan.k <= 0){ plan.n += 2; plan.k += 2; }
   // the next footfall's side: the foot in the air, else the other of the last one down
   const Fe = Gt.feet, next = !Fe[0].down && Fe[1].down ? "L" : !Fe[1].down && Fe[0].down ? "R" : Gt.side === "L" ? "R" : "L";
+  // ((FC27) the k-th footfall from now must be the support foot's, by the feet (the one in the air lands next) and by the
+  // count (the other of the last one counted, Gt.side) alike; when both say it is the kicking foot's, the count has
+  // lost a footfall (a stop's closing steps at a walk's pace) and the support foot's turn is one footfall on: counted
+  // as planned, the plant fell on the kicking foot and the body, come to its place, stood there stepping that foot and
+  // never onto the plant. (The two disagree for a frame when the clock counts a foot still in the air: left alone)
+  {
+    // (by the feet: the one in the air, of two in the air (a run's flight) the one nearer its landing)
+    const oth = x => x === "L" ? "R" : "L";
+    const nf = !Fe[0].down && !Fe[1].down && Fe[0].sw && Fe[1].sw ? (Fe[0].sw.u >= Fe[1].sw.u ? "L" : "R") : next, byFeet = plan.k % 2 ? nf : oth(nf);
+    const byCount = Gt.side === "L" || Gt.side === "R" ? (plan.k % 2 ? oth(Gt.side) : Gt.side) : byFeet;
+    if (byFeet !== plan.sup && byCount !== plan.sup){ plan.n += 1; plan.k += 1; }
+  }
   // the centre line from the root (plus a footprint's lead) to the root's place at the plant
   const a = plan.approach, ss = plan.side === "L" ? -1 : 1;
   const rx = h.g.position.x, rz = h.g.position.z, px = plan.root.x, pz = plan.root.z;
@@ -643,14 +695,46 @@ function strikeBegin(h, C, st){
   // swing goes on from where the hold has it)
   // (only with the leg that was held: a release that kicks with the other foot steps onto its plant as any strike)
   C.fromHold = h.heldAt != null && h.t - h.heldAt < .1 && h.heldSide === (st.side === "L" || st.side === 1 ? 1 : -1);
-  if (C.fromHold){ C.pre = 0; C.back = 0; C.tau0 = Math.max(0, KINDS[kindOf(st.kind)].contact - WIND.SWING); return; }
-  const k = kindOf(st.kind), sc = BT.sc, kickS = st.side === "L" || st.side === 1 ? 1 : -1, iS = kickS > 0 ? 1 : 0;
+  const k = kindOf(st.kind), K = KINDS[k];
+  C.hop = false;
+  if (C.fromHold && !K.shot){ C.pre = 0; C.back = 0; C.tau0 = Math.max(0, K.contact - WIND.SWING); return; }
+  const sc = BT.sc, kickS = st.side === "L" || st.side === 1 ? 1 : -1, iS = kickS > 0 ? 1 : 0;
   const f = aimOf(st, h, {x:0, z:0}), ball = st.ball || defaultBall(h, kickS, f);
   const p = st.plant || plantSpot(k, kickS > 0 ? "L" : "R", {x:ball.x, y:ball.y != null ? ball.y : BR, z:ball.z}, f, sc, {x:0, z:0, yaw:0});
   const L = h.posed && h.locks[iS];
   if (L) toB(L.x, L.y, L.z, _b3); else { _b3.x = -kickS*(h.D.hipX + .02); _b3.z = 0; }
   toB(p.x, 0, p.z, _b4);
   const dist = Math.hypot(_b3.x - _b4.x, _b3.z - _b4.z);
+  if (K.shot){
+    // (FC27) the shot: the plant comes down at clip time 0 and the swing from it is the clip's own (SHOT), so the plant
+    // step takes what the simulation's contact leaves before it (st.tc less the kind's contact: a step-in's 0.13 s),
+    // never less than SHOT.PRE[0]; a strike asked sooner than that begins late (newClip), as any does
+    C.back = 0;
+    const tcs = st.tc != null && isFinite(st.tc) && st.tc >= 0 ? +st.tc : null, room = tcs != null ? tcs - K.contact : shotStep(dist);
+    // ((FC27) C.step: a step-in's plant step, its own and given its time (not a run-up's last step handed over, st.pre,
+    // nor a strike in the reach window's 0.10 to 0.18 s, its clip played up to twice as fast from late in its step):
+    // the hips lead into it (reachLevel) and hold there to the contact, the kicking foot leaves at the plant's moment.
+    // Held to the contact in a clip played twice as fast, the hips could not come back in time and the foot missed the
+    // ball by 0.2 m. (A step-in's room is 0.10 to 0.15 s less the drawing's lag: SHOT.STEP, not SHOT.PRE[0], which a
+    // walk-up's step-in fell under by a frame and was drawn as a strike in the reach window)
+    // (C.win: a shot in the reach window, not let go from a held wind-up: strikePath's curve to the ball, strike())
+    C.step = room >= SHOT.STEP; C.win = !C.step && !C.fromHold;
+    C.lead = SHOT.LEAD;
+    if (C.fromHold){
+      // let go from a held wind-up: with the time for it and the plant more than HOP from the foot he stands on, that
+      // foot hops onto it first; else he strikes off the foot he stands on. Either way the cocked leg swings the shot's
+      // own full swing from where the hold has it (back and up to the top of the backswing SHOT.TOP after the plant's
+      // moment, then through: shotPath), given the time for it (a release whose contact is under SHOT.FULL away: the
+      // whip in the joints, WIND.SWING, strike()); before, it was held cocked to the whip whatever the time, and the
+      // body stood over the ball with nothing moving for up to 0.2 s
+      if (dist > SHOT.HOP && room >= SHOT.HOP_T - 1e-6){ C.pre = Math.min(room, SHOT.PRE[1]); C.hop = true; C.events = STRIKE_EV; return; }
+      C.pre = 0; C.tau0 = K.contact - clamp(tcs != null ? tcs : WIND.SWING, WIND.SWING, K.contact + SHOT.PRE[1]);
+      return;
+    }
+    C.pre = clamp(room, SHOT.PRE[0], SHOT.PRE[1]);
+    C.events = STRIKE_EV;
+    return;
+  }
   // (a strike from a stand swings the leg back after the plant, which a run-up has done on the way: PLANT_BACK more)
   C.pre = dist > .03 ? preStep(dist) + PLANT_BACK : 0;
   C.back = C.pre ? PLANT_BACK : 0;
@@ -870,7 +954,8 @@ function strike(h, T, st, dt){
     // ((USER-ISSUES U24) begun late, at or past the plant's moment: struck off the foot he stands on, where it is; a
     // plant spot elsewhere had that foot drawn there in one frame)
     const late = !C.fromHold && C.late > -(C.back || 0) - 1e-6;
-    const p = C.fromHold || late ? {x:Fp.x, z:Fp.z, yaw:BT.ry + Fp.yaw} : st.plant || plantSpot(k, kickS > 0 ? "L" : "R", {x:d.bx, y:d.by, z:d.bz}, f, sc, {x:0, z:0, yaw:0});
+    // ((FC27) a shot let go from a held wind-up that hops onto its plant first, C.hop, goes to the plant like any)
+    const p = (C.fromHold && !C.hop) || late ? {x:Fp.x, z:Fp.z, yaw:BT.ry + Fp.yaw} : st.plant || plantSpot(k, kickS > 0 ? "L" : "R", {x:d.bx, y:d.by, z:d.bz}, f, sc, {x:0, z:0, yaw:0});
     // (from a held wind-up the support foot stays planted where the hold had it; every joint goes on from the held pose
     // under the same speed limit, so the hand-over needs no blend)
     if (C.fromHold) h.heldAt = null;
@@ -878,10 +963,15 @@ function strike(h, T, st, dt){
     // (the overhead kick's plant: turned at most 1.2 rad from the body's way on its step; the rest of the turn back to
     // the goal is made in the air, where no foot holds the leg)
     if (K.over) d.pyaw = clamp(d.pyaw, -1.2, 1.2);
+    // ((FC27) the body's facing as the clip began: the feet's turns are kept in the world from it, so a body turning to
+    // its aim through the strike does not swivel a planted foot on its heel)
+    d.ry0 = BT.ry;
     const F = C.feet[iS];
     d.sx0 = F.x; d.sy0 = F.y; d.sz0 = F.z; d.syaw0 = F.yaw; d.sp0 = F.pitch;
     // (a run-up's last step handed over in flight: the gait's swing as it was, read only)
-    const gs = C.pre > 0 && !C.back && h.gait && h.gait.feet[iS] && h.gait.feet[iS].sw;
+    // ((FC27) a shot's plant step from the view has no run-up's footstep: the gait's swing only while that foot is in the
+    // air, and none from a held wind-up)
+    const gs = C.pre > 0 && !C.back && h.gait && h.gait.feet[iS] && (!K.shot || (!C.fromHold && !h.gait.feet[iS].down)) && h.gait.feet[iS].sw;
     if (gs){
       // the swing began at the ankle (x0, z0) of the footprint it left; the gait's footprint (heel point) runs along the foot
       d.sw = {u0:clamp(gs.u, 0, .95), x0:gs.x0, z0:gs.z0, y0:F.y, lift:gs.lift || .1*sc};
@@ -903,8 +993,21 @@ function strike(h, T, st, dt){
     // the swing's speed at contact (3.5.7) and the time from the top of the backswing, kept to what the rig's joints
     // can turn (no bone faster than about 0.3 rad a frame at 60 Hz)
     d.vFoot = K.pass ? 4 + 10*d.power : 6 + 14*d.power;
+    // (FC27) the shot's own swing (shotPath), but for one begun late past its toe-off, which swings from where the foot
+    // is (strikePath's curve)
+    // (and one let go from a held wind-up given SHOT.FULL or more to its contact: the cocked leg's own full swing)
+    // (the toe-off at SHOT.OFF and the early one, PEEL, for a shot's own plant step; a run-up's last step handed over
+    // (st.pre) keeps its toe-off at 0.02 as its own stride had it)
+    d.off = C.step ? SHOT.OFF : .02; d.peel = !!C.step;
+    // ((FC27) and not a shot in the reach window (C.win: 0.10 to 0.18 s to its contact, its clip played up to twice as
+    // fast): strikePath's one smooth curve to the ball, as before the shot's own swing. The shot's, its foot coming in
+    // from the top at 7.5 m/s in the clip's last tenth of a second, played that fast was more than the joints can turn
+    // in the frames left, and the foot came short of a ball rolling on ahead of a running body by 0.2 m)
+    d.shot = !!K.shot && !C.win && !(C.late > d.off) && !(C.fromHold && C.contact - C.tau < SHOT.FULL - 1e-6);
   }
   const tau = C.tau, ct = K.contact, dur = K.dur;
+  // (the turn of the body since the clip began, back: a foot's turn in the body's frame plus this stays put in the world)
+  const dry = d.dry = wrap(d.ry0 - BT.ry), pyaw = d.pyaw + dry;
   // (USER-ISSUES U24) up to contact the swing goes where the ball will be as the view says now (st.ball, the
   // simulation's own prediction at its contact), not where it was thought to be when the strike began: a ball still
   // moving, or a contact moved by a stride, left the foot short of it or wide. The planted foot stays where it went down
@@ -927,13 +1030,14 @@ function strike(h, T, st, dt){
     const v = clamp((tau - t0)/sT, 0, 1), w = d.sw, u = w.u0 + (1 - w.u0)*v, k = ease(Math.min(1, u/.95));
     Fs.x = w.x0 + (d.px - w.x0)*k; Fs.z = w.z0 + (d.pz - w.z0)*k;
     Fs.y = lerp(w.y0, groundY, ease(u)) + w.lift*Math.sin(Math.PI*u)*(1 - sstep(.85, 1, u));
-    Fs.yaw = lerp(d.syaw0, d.pyaw, ease(v)); Fs.pitch = lerp(d.sp0, 0, ease(v)); Fs.roll = 0; Fs.down = v >= 1;
-  } else if (tau < tP){
-    const u = clamp((tau - t0)/sT, 0, 1), e = ease(u);
-    Fs.x = lerp(d.sx0, d.px, e); Fs.z = lerp(d.sz0, d.pz, e); Fs.y = lerp(d.sy0, groundY, e) + .07*sc*bump(u);
-    Fs.yaw = lerp(d.syaw0, d.pyaw, e); Fs.pitch = -.15*bump(u); Fs.roll = 0; Fs.down = u >= 1;
+    Fs.yaw = lerp(d.syaw0 + dry, pyaw, ease(v)); Fs.pitch = lerp(d.sp0, 0, ease(v)); Fs.roll = 0; Fs.down = v >= 1;
+  } else if (tau < tP && !(C.fromHold && !C.hop)){
+    // ((FC27) a shot's step is a long one, the foot carried a little higher; from a held wind-up a low hop)
+    const u = clamp((tau - t0)/sT, 0, 1), e = ease(u), lift = K.shot ? (C.hop ? .05 : .09) : .07;
+    Fs.x = lerp(d.sx0, d.px, e); Fs.z = lerp(d.sz0, d.pz, e); Fs.y = lerp(d.sy0, groundY, e) + lift*sc*bump(u);
+    Fs.yaw = lerp(d.syaw0 + dry, pyaw, e); Fs.pitch = -.15*bump(u); Fs.roll = 0; Fs.down = u >= 1;
   } else {
-    Fs.x = d.px; Fs.z = d.pz; Fs.y = groundY; Fs.yaw = d.pyaw; Fs.pitch = 0; Fs.roll = 0; Fs.down = true;
+    Fs.x = d.px; Fs.z = d.pz; Fs.y = groundY; Fs.yaw = pyaw; Fs.pitch = 0; Fs.roll = 0; Fs.down = true;
   }
   // --- the striking foot: from where it was, back to the top of the backswing, through the ball, up to the top of the
   // follow-through, then down onto its landing ahead
@@ -941,22 +1045,27 @@ function strike(h, T, st, dt){
   Fk.x = P.x; Fk.y = P.y; Fk.z = P.z; Fk.yaw = P.yaw; Fk.pitch = P.pitch; Fk.roll = P.roll; Fk.down = P.down;
   // after contact: the body comes down onto the kicking foot; when the run carries on (the root still moving), the support
   // foot then comes off and steps through; a strike from a stand stays on it. The acrobatics take off from it.
-  const moving = Math.hypot(C.vx, C.vz) > 1.2*sc;
-  const sUp = K.acro ? .2 : moving || d.sMove ? P.tLand + .02 : 1e9;
-  if (moving) d.sMove = true;
+  // ((FC27) the shot: on the move (over SHOT.MOVE m/s as it is struck) the support foot pushes off SHOT.S_OFF after the
+  // contact, before the kicking foot is down (a short flight), flicks up behind and steps through to land SHOT.S_LAND
+  // after it; the step-in's own speed before the contact does not count)
+  const moving = Math.hypot(C.vx, C.vz) > (K.shot ? SHOT.MOVE : 1.2)*sc;
+  const sUp = K.acro ? .2 : moving || d.sMove ? (K.shot ? ct + SHOT.S_OFF : P.tLand + .02) : 1e9;
+  if (moving && (!K.shot || tau > ct - .05)) d.sMove = true;
   if (tau > sUp){
-    const tl = K.acro ? (k === "bicycle" ? .86 : .78) : Math.max(sUp + .2, Math.min(dur, sUp + .28));
+    const tl = K.acro ? (k === "bicycle" ? .86 : .78) : K.shot ? ct + SHOT.S_LAND : Math.max(sUp + .2, Math.min(dur, sUp + .28));
     d.sLandT = tl;
     const u = clamp((tau - sUp)/Math.max(.05, tl - sUp), 0, 1);
     if (!d.sLand){
       // where it will land: ahead of where the root will be
-      const dtl = Math.max(0, (tl - tau)/Math.max(.3, C.post));
-      d.sLand = {x:C.rx + C.vx*dtl + (fx*.25 + lx*supS*.12)*sc, z:C.rz + C.vz*dtl + (fz*.25 + lz*supS*.12)*sc};
+      const dtl = Math.max(0, (tl - tau)/Math.max(.3, C.post)), ah = K.shot ? .3 : .25;
+      d.sLand = {x:C.rx + C.vx*dtl + (fx*ah + lx*supS*.12)*sc, z:C.rz + C.vz*dtl + (fz*ah + lz*supS*.12)*sc};
       if (K.acro){ d.sLand.x = d.px + fx*.1*sc*(K.over ? -1 : 1) + lx*supS*.05*sc; d.sLand.z = d.pz + fz*.1*sc*(K.over ? -1 : 1) + lz*supS*.05*sc; }
     }
-    const e = ease(u);
+    // (the shot's: up behind first, the toes pointed, then through and down)
+    const e = K.shot ? Math.pow(ease(u), 1.4) : ease(u);
     Fs.x = lerp(d.px, d.sLand.x, e); Fs.z = lerp(d.pz, d.sLand.z, e);
-    Fs.y = groundY + (K.acro ? acroLeg(k, tau, sc) : .1*sc*bump(u)); Fs.yaw = lerp(d.pyaw, 0, e); Fs.pitch = K.acro ? .3*bump(u) : -.15*bump(u); Fs.down = u >= 1;
+    Fs.y = groundY + (K.acro ? acroLeg(k, tau, sc) : K.shot ? .24*sc*bump(Math.min(1, u*1.15)) : .1*sc*bump(u)); Fs.yaw = lerp(pyaw, 0, e);
+    Fs.pitch = K.acro ? .3*bump(u) : K.shot ? .7*bump(Math.min(1, u*1.3)) - .1*bump(u) : -.15*bump(u); Fs.down = u >= 1;
   }
   // the body: hips over the support foot, the turn of the hips through the swing, the lean
   strikeBody(h, T, C, d, k, K, kickS, tau, ball);
@@ -997,27 +1106,56 @@ function strike(h, T, st, dt){
     }
     T[61] -= drop;
   }
-  rateHips(h, T, dt);
   // (after the contact the shift it last needed eases away, rather than chasing the follow-through)
-  if (tau <= ct){ reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2)), d.rh || (d.rh = {x:0, y:0, z:0})); }
-  else if (d.rh){ const w = Math.exp(-Math.pow((tau - ct)/.2, 2)); T[60] += d.rh.x*w; T[61] += d.rh.y*w; T[62] += d.rh.z*w; }
+  // ((FC27) put in before the hips' speed limit, as part of the pose it limits: added after it, onto a pose the limit
+  // had held back toward the last frame's (which had it in already), it was counted again every frame while the limit
+  // held, and a cross's follow-through sank the hips half a metre)
+  if (tau > ct && d.rh){ const w = Math.exp(-Math.pow((tau - ct)/.2, 2)); T[60] += d.rh.x*w; T[61] += d.rh.y*w; T[62] += d.rh.z*w; }
+  rateHips(h, T, dt);
+  // the striking leg's reach for its foot up to the contact
+  // ((FC27) the shot's only as its foot comes down from the top of the backswing to the ball, and for its own plant
+  // step never raising the hips: reaching for the top, high behind him, lifted them and the planted foot with them)
+  if (tau <= ct){
+    const y0 = T[61], rh = d.rh || (d.rh = {x:0, y:0, z:0});
+    reachHips(h, T, kickS, Fk, Math.exp(-Math.pow((tau - ct)/(K.acro ? .2 : .12), 2))*(K.shot && !C.step ? sstep(SHOT.TOP, SHOT.TOP + .06, tau) : 1), rh);
+    if (K.shot && C.step && T[61] > y0){ T[61] = y0; rh.y = 0; }
+  }
   // the support foot's landing on its plant: a fast run-up carries the body on past it, so where the leg would not reach
   // the point it lands on, the hips come back toward it, easing in over the last tenth of a second of the step and out
   // over the first fifth of a second down (the leg then lands on its point instead of short of it)
   {
     // (an acrobatic strike stays on it until he takes off from it: the hips keep back over it to the take-off)
-    const wEnd = K.acro ? sUp : tP + .1;
+    // ((FC27) the shot's step-in: the body is still coming on to its plant as it lands, the hips reaching for it as long
+    // as the leg would not reach it, up to the contact: let go half way there, a root still short of it had the hips
+    // spring on at twice its speed)
+    const wEnd = K.acro ? sUp : K.shot && C.step ? ct : K.shot ? ct*.5 : tP + .1;
     const wl = sstep(tP - .1, tP, tau)*(1 - sstep(wEnd - .08, wEnd, tau));
-    if (wl > .01){ _land.x = d.px; _land.y = groundY; _land.z = d.pz; reachHips(h, T, supS, _land, wl, null, true); }
+    if (wl > .01){ _land.x = d.px; _land.y = groundY; _land.z = d.pz; if (K.shot && C.step) reachLevel(h, T, supS, _land, wl, SHOT.DROP); else reachHips(h, T, supS, _land, wl, null, true); }
   }
   // a held support leg that the body is leaving behind rolls up onto the ball of its foot (the heel rises), so its knee
   // keeps a bend instead of snapping straight
   // the striking foot, while it is still the one standing (a run-up's last step), rolls up onto its toes as the body
   // runs past it (the toe-off it would have had), and the knee keeps a bend
-  if ((!K.acro || tau < .2) && Fk.down && tau < .02) d.hrK = heelRise(h, T, kickS, Fk, 1, d.hrK || 0, dt);
-  else if (d.hrK && !Fk.down){ heelApply(Fk, d.hrK*(1 - sstep(tK0Of(C), tK0Of(C) + .1, tau))); }
+  // ((FC27) the shot's: its heel peels up before its toe-off at SHOT.OFF however far the body has gone (the clip's
+  // f243 to f247), and the swing starts from the foot as it is then: shotPath's d.kOff)
+  // ((FC27) on the move a trailing foot the body has left too far behind to stand on, rolled right up onto its toes
+  // (SHOT.PEEL), leaves then (d.kOffT): held down to SHOT.OFF the leg could not reach it, and the drawn foot was dragged
+  // up and down off its point)
+  const tKoff = d.shot ? (d.kOffT != null ? d.kOffT : d.off) : .02;
+  if ((!K.acro || tau < .2) && Fk.down && tau < tKoff){
+    // (a walk's trailing foot already rolled onto its toes counts its roll toward it, rolled on from there)
+    const p0 = Math.max(0, d.kp0 || 0);
+    d.hrK = heelRise(h, T, kickS, Fk, 1, d.hrK || 0, dt, d.shot && d.kDown ? Math.max(0, .8*sstep(d.off - .16, d.off, tau) - p0) : 0, p0);
+    if (d.shot){ const o = d.kOff || (d.kOff = {}); o.x = Fk.x; o.y = Fk.y; o.z = Fk.z; o.pitch = Fk.pitch; }
+    if (d.shot && d.peel && d.kDown && d.kOffT == null && d.hrK + p0 >= SHOT.PEEL) d.kOffT = tau;
+  }
+  else if (d.hrK && !Fk.down && !d.shot){ heelApply(Fk, d.hrK*(1 - sstep(tK0Of(C), tK0Of(C) + .1, tau))); }
   if (!K.acro && tau > ct - .06){
-    if (tau <= sUp){ d.hr = heelRise(h, T, supS, Fs, sstep(ct - .06, ct + .06, tau), d.hr || 0, dt); d.hrLift = d.hr; }
+    // ((FC27) the shot's support foot stays flat through the contact: on the move its heel peels from SHOT.S_HEEL, up
+    // to its push-off at SHOT.S_OFF; standing, only as far as the body leaves it)
+    const wH = K.shot ? sstep(ct + SHOT.S_HEEL - .04, ct + SHOT.S_HEEL + .02, tau) : sstep(ct - .06, ct + .06, tau);
+    const mH = K.shot && d.sMove ? .7*sstep(ct + SHOT.S_HEEL, ct + SHOT.S_OFF, tau) : 0;
+    if (tau <= sUp){ d.hr = heelRise(h, T, supS, Fs, wH, d.hr || 0, dt, mH); d.hrLift = d.hr; }
     else if (d.hrLift){
       // the step through starts from the heel as it had risen, which lowers away over the first half of the step
       const u = clamp((tau - sUp)/Math.max(.05, (d.sLandT || sUp + .2) - sUp), 0, 1);
@@ -1048,11 +1186,12 @@ function strike(h, T, st, dt){
   // let go from a held wind-up, the kicking leg swings in its joints: from the cocked pose straight to the one that
   // meets the ball (the leg solved onto the contact), arriving at the contact. (The foot's own path from up and back
   // there would ask its joints to turn faster at the end than any joint may in a frame, and arrive short)
-  if (C.fromHold && tau <= ct){
+  if (C.fromHold && !d.shot && tau <= ct){
     const lb = LEG(kickS);
     if (!d.hq){ d.hq = lb.map(b => [h.pose[b*4], h.pose[b*4 + 1], h.pose[b*4 + 2], h.pose[b*4 + 3]]); }
     legW(h, T, kickS, P.cx, P.cy, P.cz, P.cyaw, P.cpitch, P.croll, 0, Fk.kb);
-    const u = Math.pow(clamp((tau - C.tau0)/Math.max(.05, ct - C.tau0), 0, 1), 1.25);
+    // ((FC27) the whip takes WIND.SWING: a shot given longer, its hop or its wait first, holds the leg cocked till then)
+    const ws = Math.max(C.tau0, ct - WIND.SWING), u = Math.pow(clamp((tau - ws)/Math.max(.05, ct - ws), 0, 1), 1.25);
     for (let j = 0; j < lb.length; j++){
       const b = lb[j], q = d.hq[j];
       _Qa.set(q[0], q[1], q[2], q[3]); _Er.set(T[b*3], T[b*3 + 1], T[b*3 + 2], "XYZ"); _Qb.setFromEuler(_Er);
@@ -1104,8 +1243,11 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   if (K.side){ cyaw = aimYaw - out*.35; cpitch = .55; croll = out*1.15; }
   if (K.over){ cyaw = aimYaw + Math.PI; cpitch = 1.0; croll = 0; }
   if (K.rabona){ cyaw = aimYaw - out*.5; cpitch = .55; croll = -out*.3; }
+  // ((FC27) the shot: the ankle locked with the toe down and a little out, the laces low on the back of the ball, as low
+  // as the toe clears the grass)
+  if (K.shot && part === "laces"){ cyaw = aimYaw + out*.12; cpitch = .7; }
   const into = .025;
-  let cx = ball.x - nx*(BR - into), cy = ball.y - ny*(BR - into) + d.lowHigh*.05, cz = ball.z - nz*(BR - into);
+  let cx = ball.x - nx*(BR - into), cy = ball.y - ny*(BR - into) + d.lowHigh*.05 - (K.shot ? .02 : 0), cz = ball.z - nz*(BR - into);
   if (part === "toe"){ cy = ball.y - BR*.7; }
   if (K.over){ cx = ball.x - fx*(BR - into); cz = ball.z - fz*(BR - into); cy = ball.y + .02; }
   // keep the toes out of the grass: the part rises until the lowest point of the foot clears it by 1 cm
@@ -1134,6 +1276,16 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   let tx = _a2.x, tz = _a2.z, ty = gy + ftH*sc;
   if (K.side){ at(.45*sc, -out*.25*sc, _a2); tx = _a2.x; tz = _a2.z; ty = Math.max(ty, ball.y + .1*sc); }
   if (K.over){ tx = ball.x - fx*.4*sc; tz = ball.z - fz*.4*sc; ty = ball.y + .2*sc; }
+  if (K.shot){
+    // ((FC27) the shot: the top of the backswing behind the root on the kicking hip's line, the heel well up (the knee
+    // bent 100 to 120 degrees); the follow-through's top just inside that line, so the foot sweeps on across to the
+    // support side after it as it comes down, SHOT.FT_IN, LAND_IN)
+    // (a strike in the reach window, its clip played up to twice as fast, has a shorter, lower backswing, as far as
+    // the joints can take it at that pace: the full one, under their speed limit, left the foot 0.2 m off the ball)
+    if (d.topK == null) d.topK = C.step ? 1 : clamp(1.15/Math.max(1, C.rate || 1), .55, 1);
+    if (part === "laces"){ at(-(SHOT.TOP_B[0] + SHOT.TOP_B[1]*d.power)*sc*d.topK, hx + out*.02*sc, _a2); bx = _a2.x; bz = _a2.z; by = gy + (SHOT.TOP_Y[0] + SHOT.TOP_Y[1]*d.power)*d.topK*sc; bpitch = 1.25; }
+    at(.75*sc, hx - out*SHOT.FT_IN*sc, _a2); tx = _a2.x; tz = _a2.z;
+  }
   // timing: one smooth curve from when the foot leaves (at the plant for a run-up, the swing already on its way back;
   // a strike from a stand lifts it as the plant comes down) through the backswing to the ball, arriving along the aim at
   // the foot's speed; then up into the follow-through and down onto its landing. (One cubic each side of the contact,
@@ -1145,14 +1297,15 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   const tK0 = lateK ? C.late : tKs, W = lateK ? Math.max(1e-3, ct - tK0) : Math.max(.12, ct - tK0);
   const vend = clamp(.55*d.vFoot, 3.5, 8.5)*sc;
   // (the follow-through takes at most 45% of what is left after the contact; the landing has the rest)
-  const dft = Math.hypot(tx - ax, ty - ay, tz - az), Tft = Math.min(clamp(dft/(.4*d.vFoot), .28, .4), (dur - ct)*.45);
+  // ((FC27) the shot's on SHOT's clock: its top SHOT.FT after the contact, its landing SHOT.LAND after it)
+  const dft = Math.hypot(tx - ax, ty - ay, tz - az), Tft = K.shot ? SHOT.FT : Math.min(clamp(dft/(.4*d.vFoot), .28, .4), (dur - ct)*.45);
   const tT = ct + Tft;
   // the landing of the striking foot: ahead of where the root will be, or (acrobatics) where he comes down
-  const tL = K.acro ? (K.over ? 1.05 : .95) : dur - .02;
+  const tL = K.acro ? (K.over ? 1.05 : .95) : K.shot ? ct + SHOT.LAND : dur - .02;
   // (worked out from the contact on: where the root is then and how it moves)
   if (!C.data.kLand && tau >= ct){
-    const dtl = Math.max(0, tL - tau);
-    C.data.kLand = {x:C.rx + C.vx*dtl + (fx*.2 + lx*out*.12)*sc, z:C.rz + C.vz*dtl + (fz*.2 + lz*out*.12)*sc};
+    const dtl = Math.max(0, tL - tau), la = K.shot ? -SHOT.LAND_IN : .12;
+    C.data.kLand = {x:C.rx + C.vx*dtl + (fx*.2 + lx*out*la)*sc, z:C.rz + C.vz*dtl + (fz*.2 + lz*out*la)*sc};
     if (K.acro){ C.data.kLand.x = d.px + (lx*out*.3 - fx*.1)*sc; C.data.kLand.z = d.pz + (lz*out*.3 - fz*.1)*sc; }
   }
   const L = C.data.kLand || _w3;
@@ -1161,9 +1314,10 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   o.tLand = tL;
   // (the contact itself: where the foot meets the ball and how it is turned, for a swing made in the joints)
   o.cx = ax; o.cy = ay; o.cz = az; o.cyaw = cyaw; o.cpitch = cpitch; o.croll = croll;
-  if (tau <= tK0 && C.pre > 0){
+  if (K.shot && (d.shot || tau > ct)) return shotPath(C, d, tau, ct, tT, tL, o, ax, ay, az, cyaw, cpitch, croll, bx, by, bz, byaw, bpitch, broll, tx, ty, tz, L, ry, nx, ny, nz, aimYaw, out, lx, lz);
+  if (tau <= tK0 && C.pre > 0 && !C.fromHold){
     // the plant step (a stand's, or the last of a run-up's): this foot is the one standing
-    o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
+    o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0 + d.dry; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
   } else if (tau <= ct){
     // the controls: past the backswing's top (the curve turns short of it), and back from the ball along the way it is
     // struck by a third of the curve's time at the foot's speed
@@ -1177,7 +1331,7 @@ function strikePath(h, C, d, k, K, s, tau, ball){
     o.x = bez(d.kx0, p1x, p2x, ax, u); o.y = Math.max(gy + .02*sc, bez(d.ky0, p1y, p2y, ay, u)); o.z = bez(d.kz0, p1z, p2z, az, u);
     // the foot turns to the backswing's angle by 45% of the way, then to the contact's
     const e1 = ease(u/.45), e2 = ease((u - .45)/.55);
-    o.yaw = u < .45 ? lerp(d.kyaw0, byaw, e1) : lerp(byaw, cyaw, e2);
+    o.yaw = u < .45 ? lerp(d.kyaw0 + d.dry, byaw, e1) : lerp(byaw, cyaw, e2);
     o.pitch = u < .45 ? lerp(d.kp0, bpitch, e1) : lerp(bpitch, cpitch, e2);
     o.roll = u < .45 ? lerp(d.kr0, broll, e1) : lerp(broll, croll, e2);
     o.down = u <= 0 && !C.fromHold;
@@ -1196,11 +1350,73 @@ function strikePath(h, C, d, k, K, s, tau, ball){
   }
   return o;
 }
+/* (FC27) the shot's kicking foot on SHOT's clock, in four Hermite pieces so its speed is continuous through each:
+   standing until its toe-off (the heel peeled up, strike()'s d.kOff), up to the top of the backswing arriving on along
+   the aim at V_TOP, down through the ball arriving along the strike at V_END, up into the follow-through's top (still
+   rising off the ball, level at the top, drifting across to the support side), down onto its landing (arriving with
+   the root's way on it). Before the contact only for a shot begun in time (d.shot: a held wind-up's let go with less
+   than SHOT.FULL to go swings in its joints, strike()); after it for every shot. A foot already in the air when the
+   clip began (the cocked leg of a held wind-up) goes to the top from there */
+function shotPath(C, d, tau, ct, tT, tL, o, ax, ay, az, cyaw, cpitch, croll, bx, by, bz, byaw, bpitch, broll, tx, ty, tz, L, ry, nx, ny, nz, aimYaw, out, lx, lz){
+  const sc = BT.sc, fx = d.fx, fz = d.fz, gy = d.gy, vT = SHOT.V_TOP*sc, vE = Math.min(SHOT.V_END, .5*d.vFoot)*sc;
+  if (d.t0 == null) d.t0 = tau;
+  if (tau <= ct){
+    const tOff = d.kOffT != null ? Math.min(d.kOffT, d.off) : d.off;
+    if (d.kDown && tau < tOff){
+      o.x = d.kx0; o.y = d.ky0; o.z = d.kz0; o.yaw = d.kyaw0 + d.dry; o.pitch = d.kp0; o.roll = d.kr0; o.down = true;
+      return o;
+    }
+    if (tau < SHOT.TOP){
+      // off the grass, up and back: from the toe-off (its heel up) or from where a foot in the air was
+      const k0 = d.kDown && d.kOff ? d.kOff : null, t0 = d.kDown ? tOff : Math.min(d.t0, SHOT.TOP - .05), Ta = SHOT.TOP - t0, u = clamp((tau - t0)/Ta, 0, 1);
+      const x0 = k0 ? k0.x : d.kx0, y0 = k0 ? k0.y : d.ky0, z0 = k0 ? k0.z : d.kz0, p0 = k0 ? k0.pitch : d.kp0;
+      // (leaving the grass up at 2 m/s and back at 1; in the air already, from rest)
+      const ux = d.kDown ? -fx*1*sc*Ta : 0, uy = d.kDown ? 2*sc*Ta : 0, uz = d.kDown ? -fz*1*sc*Ta : 0;
+      o.x = herm(x0, ux, bx, fx*vT*Ta, u); o.y = herm(y0, uy, by, 0, u); o.z = herm(z0, uz, bz, fz*vT*Ta, u);
+      const e = ease(u);
+      o.yaw = lerp(d.kyaw0 + d.dry, byaw, e); o.pitch = lerp(p0, bpitch, e); o.roll = lerp(d.kr0, broll, e); o.down = false;
+      return o;
+    }
+    // down through the ball
+    const Tb = ct - SHOT.TOP, u = clamp((tau - SHOT.TOP)/Tb, 0, 1);
+    o.x = herm(bx, fx*vT*Tb, ax, nx*vE*Tb, u); o.y = Math.max(gy + .02*sc, herm(by, 0, ay, ny*vE*Tb, u)); o.z = herm(bz, fz*vT*Tb, az, nz*vE*Tb, u);
+    const e = sstep(0, 1, u);
+    o.yaw = lerp(byaw, cyaw, e); o.pitch = lerp(bpitch, cpitch, e); o.roll = lerp(broll, croll, e); o.down = false;
+    if (u >= 1){ o.x = ax; o.y = ay; o.z = az; o.yaw = cyaw; o.pitch = cpitch; o.roll = croll; }
+    return o;
+  }
+  // the follow-through: off the ball along the strike and rising, level at its top, drifting across (toward the
+  // support side, -out) at 1 m/s
+  const ia = -out*1*sc, ix = lx*ia, iz = lz*ia;
+  if (tau <= tT){
+    const Tc = tT - ct, u = clamp((tau - ct)/Tc, 0, 1);
+    o.x = herm(ax, nx*vE*Tc, tx, (fx*1.2*sc + ix)*Tc, u); o.y = herm(ay, (ny*vE + 3*sc)*Tc, ty, 0, u); o.z = herm(az, nz*vE*Tc, tz, (fz*1.2*sc + iz)*Tc, u);
+    const e = ease(u);
+    o.yaw = lerp(cyaw, aimYaw - out*.15, e); o.pitch = lerp(cpitch, .55, e); o.roll = lerp(croll, 0, e); o.down = false;
+    return o;
+  }
+  // down onto the landing, the root's way on it as it arrives: the landing is placed from where the root is now and how
+  // it moves (worked out once at the contact it was out of the leg's reach when the body slowed or stopped after it),
+  // and kept where the foot came down
+  const Td = Math.max(.05, tL - tT), u = clamp((tau - tT)/Td, 0, 1);
+  if (!d.kL){
+    const tl = Math.max(0, tL - tau);
+    _w3.x = C.rx + C.vx*tl + (fx*.2 + lx*out*-SHOT.LAND_IN)*sc; _w3.z = C.rz + C.vz*tl + (fz*.2 + lz*out*-SHOT.LAND_IN)*sc;
+    if (u >= 1) d.kL = {x:_w3.x, z:_w3.z, ry:BT.ry};
+  }
+  const Lx = d.kL ? d.kL.x : _w3.x, Lz = d.kL ? d.kL.z : _w3.z;
+  o.x = herm(tx, (fx*1.2*sc + ix)*Td, Lx, C.vx*.6*Td, u); o.y = Math.max(ry, herm(ty, 0, ry, -1*sc*Td, u)); o.z = herm(tz, (fz*1.2*sc + iz)*Td, Lz, C.vz*.6*Td, u);
+  const e = ease(u);
+  o.yaw = lerp(aimYaw - out*.15, 0, e); o.pitch = lerp(.55, 0, e) - .12*bump(u); o.roll = 0; o.down = u >= 1;
+  if (u >= 1){ o.x = Lx; o.y = ry; o.z = Lz; o.pitch = 0; o.yaw = d.kL ? wrap(d.kL.ry - BT.ry) : 0; }
+  return o;
+}
 /* the body through a strike: the hips over the support foot and lowered at contact, the hips turning from open to
    through, the lean over the ball (back for a lofted ball or a volley), the arms out for balance, the head on the ball */
 function strikeBody(h, T, C, d, k, K, s, tau, ball){
   const D = h.D, sc = BT.sc, ct = K.contact, dur = K.dur;
   if (K.acro) return acroBody(h, T, C, d, k, K, s, tau, ball);
+  if (K.shot) return shotBody(h, T, C, d, k, K, s, tau, ball);
   const sup = C.feet[s > 0 ? 1 : 0];
   toB(sup.x, sup.y, sup.z, _b3);
   const w = sstep(-.1, .08, tau)*(1 - sstep(ct + .2, dur, tau));
@@ -1227,28 +1443,62 @@ function strikeBody(h, T, C, d, k, K, s, tau, ball){
   armPose(T, -sa, kf(tau, [[-.1, .2], [ct, .55], [dur, .2]]), kf(tau, [[-.1, 0], [ct*.5, -.45], [ct, .35], [ct + .3, .6], [dur, .1]]), .5);
   lookAt(h, T, ball.x, ball.y, ball.z, 1 - sstep(ct + .15, ct + .45, tau)*.6);
 }
+/* (FC27) the body through the shot (plan/notes/fc27-spec.md section 4): low into the plant's lunge, the hips open at
+   the top of the backswing and through at the contact, the trunk leaning to the support side most at the top (SHOT.LEAN)
+   and back over the plant foot by the contact; the support arm straight out at shoulder height from the top to the
+   contact (SHOT.ARM) and pulled in just after it, the other low by the hip; the head on the ball until just after the
+   contact, then up; on the move the trunk pitches forward over the landing (SHOT.PITCH) and the arms spread */
+function shotBody(h, T, C, d, k, K, s, tau, ball){
+  const ct = K.contact, dur = K.dur, top = SHOT.TOP, land = ct + SHOT.LAND, mv = d.sMove ? 1 : 0;
+  const sup = C.feet[s > 0 ? 1 : 0];
+  toB(sup.x, sup.y, sup.z, _b3);
+  const w = sstep(-.1, .08, tau)*(1 - sstep(ct + .2, dur, tau));
+  T[60] = clamp(_b3.x*.45, -.13, .13)*w;
+  const dip = SHOT.DIP*Math.exp(-Math.pow((tau - top)/.12, 2)) + .03*Math.exp(-Math.pow((tau - ct)/.1, 2));
+  T[61] = -.02*w - dip;
+  T[62] = clamp(_b3.z*.25, -.12, .12)*w;
+  const turn = kf(tau, [[-.1, 0], [top, -s*.38], [ct, s*.05], [ct + .18, s*.3], [dur, 0]]);
+  const roll = kf(tau, [[-.1, 0], [top, s*SHOT.LEAN], [ct, s*.1], [ct + .25, s*.04], [dur, 0]]);
+  // (the trunk pitched forward a touch over the ball at the contact, well forward over the landing on the move)
+  const lowH = d.lowHigh*-.06, fwd = SHOT.PITCH*mv;
+  const sp = kf(tau, [[-.1, .05], [top, -.04], [ct, .16 + lowH], [ct + .2, .12 + .3*fwd], [land + .06, .1 + fwd], [dur, .06 + .6*fwd]]);
+  R3(T, B.hips, (.05 + .15*fwd*sstep(ct + .2, land, tau))*w, turn, roll);
+  R3(T, B.spine, sp, -turn*.35, -roll*.2); R3(T, B.chest, .04 + sp*.3, -turn*.25, -roll*.15);
+  R3(T, B.neck, .12, 0, 0); R3(T, B.head, .15, 0, 0);
+  // arms: the support side's straight out from the top to the contact, in a little just after, spread on the landing
+  const sa = s > 0 ? -1 : 1;
+  const wide = kf(tau, [[-.1, .3], [top - .05, 1.25], [top, SHOT.ARM], [ct, SHOT.ARM], [ct + .06, 1.0], [land, .9 + .2*mv], [dur, .35]]);
+  armPose(T, sa, wide, kf(tau, [[-.1, .1], [top, .15], [ct, .2], [ct + .3, .35], [dur, .1]]), kf(tau, [[-.1, .45], [top, .25], [ct, .3], [dur, .45]]));
+  armPose(T, -sa, kf(tau, [[-.1, .2], [top, .3], [ct, .35], [land, .45 + .35*mv], [dur, .25]]), kf(tau, [[-.1, 0], [top, -.4], [ct, .3], [ct + .3, .5], [dur, .1]]), .5);
+  lookAt(h, T, ball.x, ball.y, ball.z, 1 - sstep(ct + .1, ct + .3, tau)*.7);
+}
 
-// (prev, dt: the heel rises at most 7 rad/s from where it was)
-function heelRise(h, T, s, f, w = 1, prev = 0, dt = 0){
-  if (!f.down || !(w > 0)) return 0;
+// (prev, dt: the heel rises at most 7 rad/s from where it was; least: at least this far, FC27's heel peeled up before a
+// toe-off whatever the leg's stretch; p0: how far the foot was already rolled onto its toes, a walk's trailing foot)
+function heelRise(h, T, s, f, w = 1, prev = 0, dt = 0, least = 0, p0 = 0){
+  if (!f.down || !(w > 0 || least > 0)) return 0;
   const D = h.D, L = D.hipY - D.ankY;
   frameOf(h, T, LEG(s)[0], _M); _V.setFromMatrixPosition(_M);
   toB(f.x, f.y, f.z, _b3);
   const dl = Math.hypot(_b3.x - _V.x, _b3.y - _V.y, _b3.z - _V.z), ex = dl - .9*L;
   // the heel comes up about the ball of the foot (0.11 ahead of the ankle): the ankle rises and the foot pitches toes down
-  let r = ex > 0 ? w*clamp(Math.asin(clamp(ex/.13, 0, .95)), 0, 1.1) : 0;
+  let r = Math.max(least, ex > 0 ? w*clamp(Math.asin(clamp(ex/.13, 0, .95)), 0, 1.1) : 0);
   if (dt > 0) r = clamp(r, prev - 7*dt, prev + 7*dt);
   if (!(r > 0)) return 0;
-  heelApply(f, r);
+  heelApply(f, r, p0);
   return r;
 }
 const tK0Of = C => C.back ? -C.back - .03 : 0;
-function heelApply(f, r){
+// ((FC27) about the toe joint itself, 0.11 ahead of the ankle and 0.06 under it: the ankle goes up and on so the ball of
+// the foot stays where it stood; the forward share was left out, and the toe slid back 3 cm as a planted heel came up.
+// p0: the foot already rolled that far, its ankle where that roll had it)
+const ankZ = p => -.11*Math.cos(p) + .06*Math.sin(p), ankY = p => .11*Math.sin(p) + .06*Math.cos(p);
+function heelApply(f, r, p0 = 0){
   if (!(r > 0)) return;
   const sc = BT.sc;
-  f.y += (.11*Math.sin(r) + .085*(Math.cos(r) - 1))*sc;
-  const fx = Math.sin(BT.ry + f.yaw), fz = Math.cos(BT.ry + f.yaw);
-  f.x += fx*.11*(1 - Math.cos(r))*sc; f.z += fz*.11*(1 - Math.cos(r))*sc;
+  f.y += (ankY(p0 + r) - ankY(p0))*sc;
+  const fx = Math.sin(BT.ry + f.yaw), fz = Math.cos(BT.ry + f.yaw), dz = ankZ(p0 + r) - ankZ(p0);
+  f.x += fx*dz*sc; f.z += fz*dz*sc;
   f.pitch += r;
 }
 // bring the hips toward a foot's world target when the leg would not reach it (weight w of the shortfall)
@@ -1266,6 +1516,19 @@ function reachHips(h, T, s, f, w, keep = null, farOnly = false){
   const k = clamp(ex, -.3, .35)*w/dl;
   T[60] += dx*k; T[61] += dy*k; T[62] += dz*k;
   if (keep){ keep.x = dx*k/w; keep.y = dy*k/w; keep.z = dz*k/w; }
+}
+// ((FC27) reachHips for a long plant step: the hips come down at most drop and the rest of the way on toward the foot
+// level (at most 0.35), so the body leads into its plant upright rather than ducking down along the leg (along it, a
+// metre's plant step had the hips 0.25 m down in a twentieth of a second))
+function reachLevel(h, T, s, f, w, drop){
+  if (!(w > .01)) return;
+  const D = h.D, L = (D.hipY - D.ankY)*.975;
+  frameOf(h, T, LEG(s)[0], _M); _V.setFromMatrixPosition(_M);
+  toB(f.x, f.y, f.z, _b3);
+  const dx = _b3.x - _V.x, dy = _b3.y - _V.y, dz = _b3.z - _V.z, dl = Math.hypot(dx, dy, dz), hd = Math.hypot(dx, dz);
+  if (dl <= L || hd < 1e-4) return;
+  const dd = Math.min(drop, dl - L), ay = Math.max(0, Math.abs(dy) - dd), sh = clamp(hd - Math.sqrt(Math.max(0, L*L - ay*ay)), 0, .35);
+  T[61] -= dd*w; T[60] += dx/hd*sh*w; T[62] += dz/hd*sh*w;
 }
 /* ---------- the acrobatics (A1.5 hooks): scissor (side bicycle) and the overhead bicycle ----------
    Take-off from the plant at 0.2 s on a real jump (jumpRoot, the simulation's own curve), the body tips back (over the

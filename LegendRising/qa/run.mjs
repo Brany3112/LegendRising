@@ -75,8 +75,9 @@ const NAMED = {
   tr9b: ["tr9-ai"],
   // USER-ISSUES U21: the camera by activity (third person for football, first person for life)
   u21: ["u21-camera", "u21-smooth", "u21-warmup"],
-  // FC27: the FC 27 clip reverse-engineered (plan/notes/fc27-spec.md): close control and the carrier's gait
-  fc27: ["fc27-carry"]
+  // FC27: the FC 27 clip reverse-engineered (plan/notes/fc27-spec.md): close control and the carrier's gait, and the
+  // shot from the clip (section 4, 6.2 SH-1 to SH-8)
+  fc27: ["fc27-carry", "fc27-shot"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){

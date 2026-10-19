@@ -134,7 +134,9 @@ function bodyFor(V, a){
   R.actor = SCHED.actor({id:"match-" + a.id, kind:"match", r:1.1,
     pos:() => { const p = R.pos || (R.pos = {x:0, y:0, z:0}), w = R.wpos; w.x = p.x + V.ox; w.y = p.y; w.z = p.z + V.oz; return w; },
     active:() => !!(R.clip || (a.act && !a.act.done) || a.isMe || (a.gk && a.gk.plan) || throwHeld(ms, a)),
-    anim:(dt, tier) => animAgent(V, R, dt, tier)});
+    // ((FC27) on the world's own time-scale, V.timeScale: a clean contact's hit-stop or a slow motion slows the bodies
+    // with the ball, so a follow-through does not swing on past a ball still held at its contact)
+    anim:(dt, tier) => animAgent(V, R, dt*(V.timeScale > 0 ? V.timeScale : 1), tier)});
   R.pos = {x:a.m.x, y:0, z:a.m.z};
   if (a.isMe) makeFP(V);
   return R;
@@ -569,7 +571,8 @@ function liveSt(V, R, a, ms, dt){
           // (USER-ISSUES U26) a kick at a ball out of reach (a swing at nothing, the ball metres away): the clip's own
           // swing in front of the body, decided once for the clip. Aimed at the ball where it was, the leg reached out
           // sideways for it and the body twisted after it
-          if (c.noBall == null) c.noBall = Math.hypot(PB.x - a.m.x, PB.z - a.m.z) > STRIKE_REACH*(a.scale || 1);
+          // ((FC27) a step-in's ball is measured from where its root steps to, actions.js STEP_IN)
+          if (c.noBall == null){ const o = act.stepIn || a.m; c.noBall = Math.hypot(PB.x - o.x, PB.z - o.z) > STRIKE_REACH*(a.scale || 1); }
           if (c.noBall){ c.ball = null; c.dir = yawDir(c, a.m.yaw); }
           else {
             c.ball = c._sb || (c._sb = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
