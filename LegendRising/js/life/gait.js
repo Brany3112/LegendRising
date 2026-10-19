@@ -64,10 +64,10 @@ const CARRY_BOB = .7, CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .
    or its outside (FACE_BACK) with the foot turned (at most TOUCH_YAW off the way) so that face looks along it. Over the
    last of the swing (TRACK_U) the foot comes on with the ball, so the face is at it for the frames before the footfall,
    eased in over TRACK_IN seconds from when the touch is known (a touch planned late in a swing, the first as he sets
-   off, does not pull the foot over in a frame), the toe held TOUCH_UP more over the ground on it than the carrier's
-   even lift leaves it (the clip's toe meets the ball 0.03 to 0.08 m up for 2 to 3 frames as the foot comes down,
-   f47-48, f92-93: it is not yet flat on the grass) */
-const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62], TRACK_IN = .1, TOUCH_UP = .01;
+   off, does not pull the foot over in a frame); the carrier's even lift holds the toe up as it comes on (the clip's toe
+   meets the ball 0.03 to 0.08 m up for 2 to 3 frames as the foot comes down, f47-48, f92-93: it is not yet flat on the
+   grass) */
+const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62], TRACK_IN = .1;
 /* (FC27) a carrier's feet never cross (the user's turn: "legs overlapping ... the legs cross and go through each other"):
    a touch's foot comes down at least TOUCH_SEP to its own side of the other foot, across the hips (the pelvis's own yaw,
    turned into the way of travel) as they will face at the footfall, pushed out to there (the simulation plays such a
@@ -588,7 +588,7 @@ function swingAt(h, f, out){
     if (tq.on && G.cw > .3 && tq.t < Math.max(0, sw.T - sw.t) + .06){ if (!(sw.tk > 0)) sw.tkT = sw.t; sw.tbx = tq.bvx; sw.tbz = tq.bvz; sw.ttau = tq.t; sw.tcT = sw.t; sw.tk = G.cw; }
     if (sw.tk > 0){
       const w = sstep(TRACK_U[0], TRACK_U[1], u)*sw.tk*sstep(0, TRACK_IN, sw.t - sw.tkT), tau = Math.min(clamp(sw.ttau - (sw.t - sw.tcT), 0, .25), (1 - u)*sw.T);
-      if (w > 0){ x += (ex - sw.tbx*tau - x)*w; z += (ez - sw.tbz*tau - z)*w; y += TOUCH_UP*sc*w*(1 - sstep(.92, 1, u)); }
+      if (w > 0){ x += (ex - sw.tbx*tau - x)*w; z += (ez - sw.tbz*tau - z)*w; }
     }
   }
   // ((FC27) a carrier's swing passing the other foot keeps PASS_SEP out from it across the hips, let go of over the
