@@ -18,6 +18,7 @@
 //   node qa/run.mjs tr6                every TR-6 acceptance suite (BUILD-PLAN Phase 6; tr6a and tr6b per package)
 //   node qa/run.mjs uf                 every user-fix suite merged with TR-3 (UF-A and UF-B)
 //   node qa/run.mjs fc27               the FC 27 clip's acceptance (plan/notes/fc27-spec.md 6)
+//   node qa/run.mjs bcs                BCS, the packages together (qa/bcs-*.mjs)
 //   node qa/run.mjs parity wp0a-cam    any qa/<name>.mjs (arguments after "--" go to every script)
 //
 // A script passes when it exits 0 (lib.mjs expect() throws, which exits 1). The summary goes to qa/out/run.json.
@@ -77,7 +78,9 @@ const NAMED = {
   u21: ["u21-camera", "u21-smooth", "u21-warmup"],
   // FC27: the FC 27 clip reverse-engineered (plan/notes/fc27-spec.md): close control and the carrier's gait, and the
   // shot from the clip (section 4, 6.2 SH-1 to SH-8)
-  fc27: ["fc27-carry", "fc27-shot"]
+  fc27: ["fc27-carry", "fc27-shot"],
+  // BCS (the better control system): the packages together (bcs/integ: the carry and the shot)
+  bcs: ["bcs-integ"]
 };
 // a suite name to the scripts it runs: [{file, args}]
 function scripts(name){
