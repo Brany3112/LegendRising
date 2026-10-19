@@ -148,6 +148,48 @@ export function canStrike(a, ball, style, out){
   return o;
 }
 
+/* (FC27, plan/notes/fc27-spec.md sections 4 and 5.7) the step-in shot. A shot along the ground at a ball that is slow
+   (STEP_IN.V_BALL m/s or less) by a body no faster than STEP_IN.V_BODY, with the ball's place at the contact a step
+   away (the root's place for it within STEP_IN.REACH, plus what his speed carries him, of where he is, and the ball in
+   front of him), is struck STEP_IN.T after it is asked: the clip's plant step (0.13 s) and its swing from the plant
+   (0.20 s, moves.js SHOT). Inside the reach window's 0.10 to 0.18 s every such strike began late, with no plant step
+   drawn and the swing squeezed. Through it the body steps in, steered to where its root is at the contact: STEP_IN.BACK
+   behind the ball along the aim and STEP_IN.SIDE to the support foot's side (a copy of the clip's own geometry, moves.js
+   KINDS.instep's plant and rootAtPlant, kept here because the simulation is pure, as strikeRoot is); after the contact
+   it runs on along the aim, STEP_IN.KEEP of its speed for STEP_IN.ON s (so the plant foot pushes off and he lands on
+   the kicking foot, as in the clip), then the caller's way again with that speed easing to STRIKE_ROOT.MIN. The
+   strike's plant error is how far the root is from its place at the contact (less STEP_IN.TOL), not the ball's place
+   ahead of a body standing off it. VMAX: the step's speed at most (m/s); FOLLOW: the act's time after the contact (the
+   kicking foot down 0.37 s after it, moves.js SHOT.LAND; ACT.FOLLOW's 0.28 ended it in the air) */
+export const STEP_IN = Object.freeze({T: 0.33, V_BALL: 2.0, V_BODY: 2.5, REACH: 0.6, AHEAD: 0.1, BACK: 0.184, SIDE: 0.28, TOL: 0.15,
+  VMAX: 3.5, ON: 0.3, KEEP: 0.9, FOLLOW: 0.37});
+// the step-in for this shot now, or null: {x, z} the root's place at the contact, {fx, fz} the aim, side the kicking foot
+const SI_B = {x: 0, y: 0, z: 0};
+function stepInOf(ms, a, action, cs){
+  const b = ms.ball, rq = action, sc = a.scale || 1;
+  if (rq.kind !== 'shot' || rq.chip || (rq.style && rq.style !== 'ground') || (rq.contact > 0 && rq.finesse)) return null;
+  if (b.state !== 'free' || ms.restart && ms.restart.taker === a.id || b.p.y > 0.3 || Math.abs(b.v.y) > 1) return null;
+  if (hypot(b.v.x, b.v.z) > STEP_IN.V_BALL || a.m.speed > STEP_IN.V_BODY) return null;
+  predAt(ms, STEP_IN.T, SI_B);
+  const f = dirOf(a.m.yaw);
+  if ((SI_B.x - a.m.x)*f.x + (SI_B.z - a.m.z)*f.z < STEP_IN.AHEAD*sc) return null;
+  const si = {x: 0, z: 0, fx: 0, fz: 0, foot: cs.foot, err: 0, vC: 0};
+  stepInSpot(a, rq, SI_B, si);
+  const d = hypot(si.x - a.m.x, si.z - a.m.z);
+  return d <= (STEP_IN.REACH + a.m.speed*STEP_IN.T)*sc ? si : null;
+}
+// the root's place at the contact for a step-in strike of the ball at bp: behind it along the aim, to the support side
+function stepInSpot(a, rq, bp, si){
+  const sc = a.scale || 1, tg = rq.target;
+  let fx = tg ? tg.x - bp.x : dirOf(a.m.yaw).x, fz = tg ? tg.z - bp.z : dirOf(a.m.yaw).z;
+  const fl = hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+  // (the support side: the left (fz, -fx) of the aim for a right foot, its right for a left one)
+  const ss = si.foot === 'L' ? -1 : 1;
+  si.fx = fx; si.fz = fz;
+  si.x = bp.x - fx*STEP_IN.BACK*sc + fz*ss*STEP_IN.SIDE*sc; si.z = bp.z - fz*STEP_IN.BACK*sc - fx*ss*STEP_IN.SIDE*sc;
+  return si;
+}
+
 // Begin a kick (shot, pass, through ball, cross, lob, clear, goal kick, punt). action = {kind, target: {x, y, z}, recv,
 // power (0..1 for shots, the speed in m/s for passes when speed is given), speed, contact, finesse, firstTime}.
 // Contact comes at the scheduled step: within 0.18 s with the ball in reach, else after a stride adjust of up to
@@ -171,6 +213,15 @@ export function startKick(ms, a, action){
   const wait = air ? clamp((+action.tc || 0) + 0.2, ACT.ADJUST, VOLLEY.WAIT) : ACT.ADJUST;
   // (the player's strike lands on his support foot's plant when that comes inside the window: action.tcWant, A1.7)
   const tc0 = cs.ok && action.tcWant != null && !air ? clamp(+action.tcWant, 0.10, ACT.TC_MAX) : cs.tc;
+  // ((FC27) a slow ball a step away: the step-in, STEP_IN.T to the contact wherever the ball is in the window)
+  const si = !dead && !air ? stepInOf(ms, a, action, cs) : null;
+  if (si){
+    a.act = {kind: 'kick', action, t: 0, tc: STEP_IN.T, adjust: false, dur: STEP_IN.T + STEP_IN.FOLLOW, foot: cs.foot, side: cs.side, done: false, plan: null,
+      startStep: ms.step, contactStep: -1, adjustMax: wait, pre: null, devZ: null, air, stepIn: si};
+    a.state = 'strike'; a.stateT = 0;
+    if (a.drib) a.drib = null;
+    return a.act;
+  }
   a.act = {kind: 'kick', action, t: 0, tc: cs.ok ? tc0 : ACT.ADJUST + ACT.TC_MAX, adjust: !cs.ok, dur: (cs.ok ? tc0 : ACT.ADJUST) + ACT.FOLLOW,
     foot: cs.foot, side: cs.side, done: false, plan: null, startStep: ms.step, contactStep: -1, adjustMax: dead ? 3.0 : wait, pre: null, devZ: null, air};
   a.state = 'strike'; a.stateT = 0;
@@ -231,7 +282,7 @@ function kickCtx(ms, a, act, K, bp, ahead, weak, scuff){
   // (a volley's timing from the ring, A1.5: 0 on the moment, 1 at the ring's edge or beyond, widens it as a bad plant)
   // (UF2-A, U18: the player's release in the meter's sweet spot is a clean strike, rq.clean: his plant is forgiven, at
   // most CLEAN_PLANT of it left; a scuff is still a scuff. Only the player's controls ever ask for it)
-  const plant0 = clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1) +
+  const plant0 = (act.stepIn ? clamp(act.stepIn.err, 0, 0.4) : clamp(Math.abs(ahead - 0.65) - 0.15, 0, 0.4)) + (scuff ? 0.2 : 0) + 0.3*clamp(+rq.timing || 0, 0, 1) +
     ACT.RHYTHM[K.isShot ? 0 : 1]*clamp(+rq.rhythm || 0, 0, 1);
   const plantErr = rq.clean && !scuff ? Math.min(plant0, ACT.CLEAN_PLANT) : plant0;
   const sp = hypot(b.v.x, b.v.y, b.v.z);
@@ -281,7 +332,10 @@ function strikeContact(ms, a, act, scuff){
     act.done = true; act.ev = ev;
     return ev;
   }
-  const foot = footFor(a, r.lat), weak = a.foot === 'B' ? 'both' : foot !== (a.foot || 'R');
+  // ((FC27) a step-in strikes with the foot it stepped in for, its plant error how far the root is off its place)
+  const si = act.stepIn;
+  if (si){ si.vC = a.m.speed; stepInSpot(a, rq, b.p, si); si.err = Math.max(0, hypot(si.x - a.m.x, si.z - a.m.z) - STEP_IN.TOL*(a.scale || 1)); }
+  const foot = si ? si.foot : footFor(a, r.lat), weak = a.foot === 'B' ? 'both' : foot !== (a.foot || 'R');
   const kind = rq.kind;
   const K = kickRequest(ms, a, act, scuff, b.p, foot), req = K.req;
   const tx = K.tx, ty = K.ty, tz = K.tz, dist = K.dist, isShot = K.isShot, ctxKind = K.ctxKind, acc = K.acc, contact = K.contact;
@@ -485,7 +539,8 @@ function playIt(ms, a, how, dist){
       const first = a.plan.first;
       a.plan = null;
       startKick(ms, a, first);
-      a.act.tc = Math.min(a.act.tc, 0.05); a.act.adjust = false;
+      // ((FC27) but a slow ball met with a step-in, which keeps its own time)
+      if (!a.act.stepIn){ a.act.tc = Math.min(a.act.tc, 0.05); a.act.adjust = false; }
       return true;
     }
     // (the player's own first-time action, control.js, not yet where he can strike it but still coming in to him: he
@@ -687,7 +742,8 @@ export function dribbleFoot(ms, a, side){
   if (ms.poss.ctl !== a.id || b.state !== 'free' || !a.drib) return false;
   // (U27: a ball in close control is touched by keepStep, not on the strides; a knocked-on ball is left to run for
   // KNOCK.LET s: a stride's touch straight after it played it again along the dribble's line, off the knock's way)
-  if (a.ctlOn || (a.knockT != null && ms.t - a.knockT < KNOCK.LET) || (a.act && a.act.kind === 'fake')) return false;
+  // ((FC27) nor while he steps in to strike it: the ball is the strike's)
+  if (a.ctlOn || (a.knockT != null && ms.t - a.knockT < KNOCK.LET) || (a.act && (a.act.kind === 'fake' || a.act.stepIn && !a.act.done))) return false;
   const v = a.m.speed;
   if (side === touchSideOf(a)) a.strides++;
   const every = dribbleCadence(v);
@@ -1360,14 +1416,30 @@ export function actionStep(ms, a, h){
         if (!act.adjust && !act.done){
           const tg = act.action.target;
           if (tg){ const f = faceTo(a, tg.x, tg.z, a.faceV); I.face = f; }
-          // ((P9-A, MV-14) the root's speed through the strike is the clip's: strikeRoot of the approach speed, so the
-          // planted foot does not skate under a body still moving at the run-up's pace)
-          if (act.vIn == null) act.vIn = a.m.speed;
-          I.speedCap = Math.min(I.speedCap, Math.max(1.5, a.m.speed*0.97), Math.max(STRIKE_ROOT.MIN, act.vIn*strikeRoot(act.t, act.tc)));
+          if (act.stepIn){
+            // ((FC27) the step-in: to the root's place at the contact, kept on the ball where it will be then, at the
+            // speed that gets him there on it)
+            const si = act.stepIn, left = Math.max(0, act.tc - act.t);
+            predAt(ms, left, SI_B); stepInSpot(a, act.action, SI_B, si);
+            const dx = si.x - a.m.x, dz = si.z - a.m.z, dl = hypot(dx, dz);
+            I.dx = dl > 1e-3 ? dx/dl : 0; I.dz = dl > 1e-3 ? dz/dl : 0; I.gait = 'jog'; I.strafe = false;
+            I.speedCap = Math.min(STEP_IN.VMAX, dl/Math.max(left, h));
+          } else {
+            // ((P9-A, MV-14) the root's speed through the strike is the clip's: strikeRoot of the approach speed, so the
+            // planted foot does not skate under a body still moving at the run-up's pace)
+            if (act.vIn == null) act.vIn = a.m.speed;
+            I.speedCap = Math.min(I.speedCap, Math.max(1.5, a.m.speed*0.97), Math.max(STRIKE_ROOT.MIN, act.vIn*strikeRoot(act.t, act.tc)));
+          }
           if (act.t >= act.tc - 1e-9) strikeContact(ms, a, act, false);
         }
         // the solve, a flight a step through the swing (a stride adjust included)
         if (!act.done) kickPresolve(ms, a, act);
+      } else if (act.stepIn){
+        // ((FC27) after a step-in's contact: on along the aim at STEP_IN.KEEP of the speed he struck it at for
+        // STEP_IN.ON, then his own way again, that speed easing away)
+        const si = act.stepIn, k = act.t - act.tc;
+        if (k < STEP_IN.ON){ I.dx = si.fx; I.dz = si.fz; I.gait = 'jog'; I.strafe = false; I.face = null; }
+        I.speedCap = Math.min(I.speedCap, Math.max(STRIKE_ROOT.MIN, si.vC*STEP_IN.KEEP*(1 - 0.6*sstep01(STEP_IN.ON, STEP_IN.ON + 0.3, k))));
       } else I.speedCap = Math.min(I.speedCap, 2.5, act.vIn != null ? Math.max(STRIKE_ROOT.MIN, act.vIn*strikeRoot(act.t, act.tc)) : 2.5);
       if (act.done && act.t >= act.dur){ a.act = null; a.state = 'idle'; }
       break;

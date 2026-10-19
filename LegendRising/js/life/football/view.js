@@ -559,7 +559,8 @@ function liveSt(V, R, a, ms, dt){
           // (USER-ISSUES U26) a kick at a ball out of reach (a swing at nothing, the ball metres away): the clip's own
           // swing in front of the body, decided once for the clip. Aimed at the ball where it was, the leg reached out
           // sideways for it and the body twisted after it
-          if (c.noBall == null) c.noBall = Math.hypot(PB.x - a.m.x, PB.z - a.m.z) > STRIKE_REACH*(a.scale || 1);
+          // ((FC27) a step-in's ball is measured from where its root steps to, actions.js STEP_IN)
+          if (c.noBall == null){ const o = act.stepIn || a.m; c.noBall = Math.hypot(PB.x - o.x, PB.z - o.z) > STRIKE_REACH*(a.scale || 1); }
           if (c.noBall){ c.ball = null; c.dir = yawDir(c, a.m.yaw); }
           else {
             c.ball = c._sb || (c._sb = {x:0, y:0, z:0}); c.ball.x = PB.x; c.ball.y = PB.y; c.ball.z = PB.z;
