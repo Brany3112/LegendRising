@@ -1,0 +1,329 @@
+/* css/fp.css: the first-person match HUD (#fpHud), every class prefixed fp-.
+   Owner: WP-0B creates it with the shared tokens (DESIGN 1.2, 2.2 WP-0B); WP-F builds the HUD on them in fphud.js
+   (DESIGN 1.5.10, 2.4 WP-F; addendum A1.2 to A1.5); WP-F2 adds the reticle, its power arc and the strike line
+   (addendum A1.7) and the clearer fatigue vignette (A1.6). Linked once, after style.css. Broadcast style: thin lines,
+   the teams' colours, condensed numerals, springy motion, out of the way. No backdrop blur on Low. */
+:root{
+  --fp-ink:#fff;                          /* text over the pitch */
+  --fp-muted:#b9c8d8;                     /* secondary text: the clock's added time, hint verbs */
+  --fp-panel:rgba(9,15,24,.66);           /* scorebug, hints and the Tab overview */
+  --fp-line:rgba(255,255,255,.12);        /* panel borders, the stamina arc track */
+  --fp-radius:10px;
+  --fp-blur:8px;                          /* backdrop blur of the panels; none on Low (1.5.10) */
+  --fp-pad:clamp(10px,1.4vw,18px);        /* distance from the screen edges */
+  --fp-font:var(--display);               /* scorebug, clock and notices */
+  --fp-text:var(--body);                  /* hints and the scenario line */
+  --fp-good:#5fd47a;                      /* onside pip, the pass sweet zone */
+  --fp-warn:#ffb648;                      /* amber: within 0.5 m of the line, stamina under 25 */
+  --fp-bad:#ff5a5f;                       /* offside pip, a booking */
+  --fp-charge:var(--lime);                /* the charge ring's fill */
+  --fp-cross:4px;                         /* the crosshair dot */
+  --fp-ring:24px;                         /* the charge ring */
+  --fp-arc:64px;                          /* the stamina arc's width */
+  --fp-arc-fade:.25s;                     /* the stamina arc fading in */
+  --fp-call:1.5s;                         /* a teammate's call stays this long */
+  --fp-spring:cubic-bezier(.2,1.4,.4,1);  /* the springy entrance of cards and the scorebug */
+}
+body.gfx-low{--fp-blur:0px}
+
+/* the life HUD steps aside in a match (mode flags hud 'none'): only the prompt (dressing room, bench), the notes,
+   the busy card and the centre notices stay */
+body.mode-match #lifeRoot > .hud-tl, body.mode-match #lifeRoot > .hud-tr, body.mode-match #lifeRoot > .lf-cross,
+body.mode-match #lifeRoot > .lf-keys, body.mode-match #lifeRoot > .lf-hand, body.mode-match #lifeRoot > .lf-inv,
+body.mode-match #lifeRoot > .lf-feed, body.mode-match #lifeRoot > .lf-compass, body.mode-match #lifeRoot > .lf-match,
+body.mode-match #lifeRoot > .lf-drill{display:none !important}
+/* first-person training (the drills, the session, the lessons) keeps the life HUD, but not its walking keys: the
+   football hints in the corner are the keys there */
+body.mode-train #lifeRoot > .lf-keys{display:none !important}
+
+.fp-hud{position:absolute;inset:0;pointer-events:none;z-index:6;color:var(--fp-ink);font-family:var(--fp-text);
+  opacity:var(--fp-op,1);--s:var(--fp-scale,1)}
+.fp-hud.fp-off > :not(.fp-overlay):not(.fp-fx){opacity:0 !important}
+.fp-hud.fp-cb{--fp-good:#4ea8ff;--fp-bad:#ffb000;--fp-warn:#f0e442}
+
+/* the speed lines (A1.2) and the fatigue vignette (A1.3): screen edges only */
+.fp-fx{position:absolute;inset:0;overflow:hidden}
+.fp-vig{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 38%,rgba(10,3,6,.5) 62%,rgba(6,0,3,.86) 84%,rgba(2,0,1,.97) 100%)}
+.fp-lines{position:absolute;inset:-10%;opacity:0;
+  background:repeating-conic-gradient(from 0deg at 50% 50%,rgba(255,255,255,0) 0deg 3.1deg,rgba(255,255,255,.22) 3.2deg 3.4deg,rgba(255,255,255,0) 3.5deg 7deg);
+  -webkit-mask-image:radial-gradient(ellipse at center,transparent 52%,#000 82%);mask-image:radial-gradient(ellipse at center,transparent 52%,#000 82%)}
+.fp-no-fx .fp-fx{display:none}
+
+/* the scorebug, top left */
+.fp-bug{position:absolute;left:var(--fp-pad);top:var(--fp-pad);display:flex;align-items:stretch;height:calc(30px*var(--s));
+  font-family:var(--fp-font);font-weight:700;letter-spacing:.02em;transform-origin:0 0;
+  background:var(--fp-panel);border:1px solid var(--fp-line);border-radius:6px;overflow:hidden;
+  -webkit-backdrop-filter:blur(var(--fp-blur));backdrop-filter:blur(var(--fp-blur));animation:fpIn .5s var(--fp-spring) both}
+body.gfx-low .fp-bug,body.gfx-low .fp-hints,body.gfx-low .fp-card{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(9,15,24,.82)}
+.fp-side{display:flex;align-items:center;gap:6px;padding:0 9px;font-size:calc(17px*var(--s))}
+.fp-side i{display:block;width:4px;align-self:stretch}
+.fp-sc{display:flex;align-items:center;gap:6px;padding:0 10px;background:rgba(255,255,255,.95);color:#0b1119;font-size:calc(20px*var(--s));font-variant-numeric:tabular-nums}
+.fp-sc em{font-style:normal;opacity:.45}
+.fp-clock{display:flex;align-items:center;gap:4px;padding:0 10px;border-left:1px solid var(--fp-line);font-size:calc(17px*var(--s));font-variant-numeric:tabular-nums;min-width:3.2em}
+.fp-add{color:var(--fp-warn);font-size:.85em}
+.fp-pips{display:flex;align-items:center;gap:5px;padding:0 8px 0 0}
+.fp-off{width:7px;height:7px;border-radius:50%;opacity:0;transition:background .2s,opacity .2s}
+.fp-off.on{opacity:1}
+.fp-pip-onside{background:var(--fp-good)}.fp-pip-near{background:var(--fp-warn)}.fp-pip-off{background:var(--fp-bad)}
+.fp-bk{color:var(--gold,#ffd75a);font-size:calc(13px*var(--s));letter-spacing:-.1em}
+.fp-bk.red{color:var(--fp-bad)}
+.fp-no-score .fp-bug{display:none}
+
+/* the scenario line and the event cards, top centre */
+.fp-scen{position:absolute;left:50%;top:calc(var(--fp-pad) + 4px);transform:translate(-50%,-8px);opacity:0;max-width:62vw;text-align:center;
+  font-size:calc(15px*var(--s));text-shadow:0 1px 3px rgba(0,0,0,.8);transition:opacity .5s,transform .5s var(--fp-spring)}
+.fp-scen.in{opacity:.95;transform:translate(-50%,0)}
+.fp-no-scenario .fp-scen{display:none}
+.fp-cards{position:absolute;left:50%;top:calc(var(--fp-pad) + 38px);transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px}
+.fp-card{display:flex;flex-direction:column;align-items:center;padding:7px 18px 8px;min-width:200px;background:var(--fp-panel);border:1px solid var(--fp-line);
+  border-left:4px solid var(--fp-charge);border-radius:4px;-webkit-backdrop-filter:blur(var(--fp-blur));backdrop-filter:blur(var(--fp-blur));
+  opacity:0;transform:translateY(-10px) scale(.92);transition:opacity .25s,transform .45s var(--fp-spring)}
+.fp-card.in{opacity:1;transform:none}.fp-card.out{opacity:0;transform:translateY(-6px)}
+.fp-card b{font-family:var(--fp-font);font-size:calc(20px*var(--s));letter-spacing:.03em;text-transform:uppercase}
+.fp-card span{font-size:calc(13px*var(--s));color:var(--fp-muted);text-align:center;max-width:46vw}
+.fp-k-goal{border-left-color:var(--gold,#ffd75a)}.fp-k-goal b{font-size:calc(28px*var(--s))}
+.fp-k-offside{border-left-color:var(--fp-warn)}.fp-k-card{border-left-color:#ffd400}.fp-k-red{border-left-color:var(--fp-bad)}
+.fp-no-cards .fp-cards{display:none}
+/* (UF2 integration) while a drill's card is up at the top (the first day's lessons, the session's blocks, a small-sided
+   game) a goal's card comes down under it instead of covering the lesson's title and line
+   (--dr-card-b: where the drill card ends, kept by drills.js as the card grows with a longer title or line; the fixed
+   places are the least it comes down) */
+#lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:max(calc(var(--fp-pad) + 104px), calc(var(--dr-card-b, 0px) + 8px))}
+@media (max-width:640px){ #lifeRoot:has(> #lifeDrill.on) > #fpHud .fp-cards{top:max(calc(var(--fp-pad) + 262px), calc(var(--dr-card-b, 0px) + 8px))} }
+
+/* the crosshair: a dot where you look; round it the timing ring of a volley and the bench's hold-E ring */
+.fp-cross{position:absolute;left:50%;top:50%;width:0;height:0}
+.fp-dot{position:absolute;left:calc(var(--fp-cross)/-2);top:calc(var(--fp-cross)/-2);width:var(--fp-cross);height:var(--fp-cross);border-radius:50%;
+  background:rgba(255,255,255,.92);box-shadow:0 0 2px rgba(0,0,0,.8)}
+.fp-hold{position:absolute;left:calc(-40px*var(--s));top:calc(-40px*var(--s));width:calc(80px*var(--s));height:calc(80px*var(--s));overflow:visible;opacity:0}
+.fp-hold.on{opacity:1}
+.fp-ring,.fp-ring-win{fill:none;stroke-width:1.6;opacity:0;transform:rotate(-90deg)}
+.fp-ring{stroke:rgba(255,255,255,.9);filter:drop-shadow(0 0 1.5px rgba(0,0,0,.9))}.fp-ring.now{stroke:var(--fp-good);stroke-width:2.4}
+.fp-ring-win{stroke:var(--fp-good);stroke-opacity:.5;stroke-width:3}
+.fp-glyph{position:absolute;left:12px;top:10px;font-family:var(--fp-font);font-size:calc(12px*var(--s));letter-spacing:.05em;color:var(--fp-ink);
+  opacity:.8;text-shadow:0 1px 2px rgba(0,0,0,.9);white-space:nowrap}
+.fp-glyph:empty{display:none}
+.fp-no-glyph .fp-glyph{display:none}
+
+/* the reticle (A1.7): where a strike goes now (your look and its sway); red held past full (the power and the sweet
+   spot are the meter's, UF2-A, under the crosshair). Moved by a transform each frame */
+/* the line on how you struck it, under the middle of the view */
+.fp-sline{position:absolute;left:50%;top:calc(50% + 46px*var(--s));transform:translate(-50%,4px);opacity:0;white-space:nowrap;
+  font-family:var(--fp-font);font-size:calc(14px*var(--s));letter-spacing:.03em;text-shadow:0 1px 3px rgba(0,0,0,.9);transition:opacity .35s,transform .35s var(--fp-spring)}
+.fp-sline.in{opacity:.92;transform:translate(-50%,0)}
+
+/* the stamina, lower left: the bright breath over the darker cap, the energy line under it */
+.fp-stam{position:absolute;left:var(--fp-pad);bottom:var(--fp-pad);width:calc(150px*var(--s));opacity:.2;transition:filter .3s}
+.fp-stam-bar{position:relative;height:calc(6px*var(--s));border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.fp-stam-bar i{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%;border-radius:3px}
+.fp-cap{background:rgba(160,180,200,.38)}
+.fp-breath{background:linear-gradient(90deg,#9be7ff,#e9fbff)}
+.fp-stam.low .fp-breath{background:linear-gradient(90deg,#ff9a3c,var(--fp-warn))}
+.fp-stam.beat .fp-stam-bar{animation:fpBeat .9s ease-in-out infinite}
+.fp-energy{margin-top:4px;height:2px;background:rgba(255,255,255,.1)}
+.fp-energy i{display:block;height:100%;background:rgba(255,215,90,.75);transform-origin:0 50%}
+.fp-no-stamina .fp-stam{display:none}
+
+/* the hints, bottom right */
+.fp-hints{position:absolute;right:var(--fp-pad);bottom:var(--fp-pad);display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:calc(13px*var(--s))}
+.fp-hints div{display:flex;align-items:center;gap:7px;padding:3px 8px 3px 4px;background:var(--fp-panel);border-radius:5px;
+  -webkit-backdrop-filter:blur(var(--fp-blur));backdrop-filter:blur(var(--fp-blur))}
+.fp-hints kbd{font-family:var(--fp-font);font-weight:700;font-size:.95em;min-width:1.6em;text-align:center;padding:1px 6px;border-radius:3px;background:rgba(255,255,255,.92);color:#0b1119}
+.fp-hints span{color:var(--fp-muted)}
+.fp-nohints .fp-hints,.fp-no-hints .fp-hints{display:none}
+
+/* team-mates' calls and the ball off screen */
+.fp-calls{position:absolute;inset:0}
+.fp-call{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;margin:-22px 0 0 -40px;width:80px;
+  font-family:var(--fp-font);font-size:calc(14px*var(--s));text-shadow:0 1px 3px #000}
+.fp-call i{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid var(--fp-charge)}
+.fp-call.edge b{display:none}
+.fp-call.edge i{border-top-color:var(--fp-charge)}
+.fp-no-calls .fp-calls{display:none}
+.fp-ballmark{position:absolute;left:0;top:0;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;opacity:0;
+  background:radial-gradient(circle at 35% 35%,#fff,#cfd6de 60%,#7b858f);box-shadow:0 0 0 1.5px rgba(0,0,0,.45)}
+.fp-ballmark::after{content:"";position:absolute;left:3px;top:-9px;border-left:3px solid transparent;border-right:3px solid transparent;border-bottom:5px solid rgba(255,255,255,.85)}
+
+/* the overview (Tab) and the small radar */
+.fp-radar{position:absolute;left:var(--fp-pad);bottom:calc(var(--fp-pad) + 26px);width:210px;height:140px;border-radius:6px;display:none;opacity:.85}
+.fp-tab .fp-radar,.fp-radar-on .fp-radar{display:block}
+.fp-radar.big{left:50%;top:50%;bottom:auto;width:auto;height:40vh;aspect-ratio:105/68;transform:translate(-50%,-50%)}
+
+/* the cards over everything: pause, half time, full time, the bench skip, the interrupted match. The overlay is a
+   page-level layer of its own (fphud.js #fpOverlay), above the black cover (#lifeFade, z-index 90) that half time,
+   full time and the skip are shown over, and under the boot's black (.onb-black, 95), so a card is always seen and
+   clicked (P2-A, MF-1) */
+.fp-overlay{position:fixed;inset:0;z-index:92;display:none;align-items:center;justify-content:center;pointer-events:none;
+  color:var(--fp-ink);font-family:var(--fp-text)}
+.fp-overlay.on{display:flex}
+.fp-overlay.dim{background:rgba(4,8,14,.55)}
+.fp-overlay.card,.fp-overlay.ht,.fp-overlay.ft{pointer-events:auto;background:rgba(4,8,14,.7)}
+.fp-overlay.pause .fp-pausebox{display:flex;flex-direction:column;align-items:center;gap:14px}
+.fp-overlay.pause .fp-box{pointer-events:auto;min-width:min(520px,92vw);text-align:left}
+.fp-overlay .fp-box{min-width:min(560px,90vw);max-width:min(720px,94vw);max-height:88vh;overflow:auto;padding:18px 22px;border-radius:12px;
+  background:rgba(12,19,30,.94);border:1px solid var(--fp-line);box-shadow:0 18px 50px rgba(0,0,0,.5);animation:fpIn .45s var(--fp-spring) both;text-align:center}
+.fp-overlay .fp-pause{font-family:var(--fp-font);font-size:28px;letter-spacing:.03em;padding:16px 28px;border-radius:10px;background:rgba(9,15,24,.8)}
+.fp-overlay .fp-skip{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 26px;border-radius:10px;background:rgba(9,15,24,.85);font-family:var(--fp-font)}
+.fp-skip b{font-size:30px;font-variant-numeric:tabular-nums}.fp-skip span{color:var(--fp-muted);font-family:var(--fp-text);font-size:13px}
+.fp-skip .fp-skip-bar{width:220px;height:3px;background:rgba(255,255,255,.15);margin-top:4px}.fp-skip .fp-skip-bar i{display:block;height:100%;background:var(--fp-charge)}
+.fp-box .row{margin-top:12px}
+/* a card with buttons (half time, full time, the interview): the buttons in a footer that never scrolls away, the rest
+   in a body that scrolls on its own (the wheel and a drag both reach it). The footer comes first in the markup, so Tab
+   reaches the card's own action first, and is shown under the body; its buttons are written main action first and laid
+   out right to left (MF-4) */
+.fp-overlay .fp-box.fp-cardbox{display:flex;flex-direction:column;overflow:hidden;max-height:min(88vh,calc(100vh - 24px));outline:none}
+.fp-cardbox .fp-box-body{order:1;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding-right:4px}
+.fp-cardbox .fp-box-foot{order:2;flex:none;flex-direction:row-reverse;flex-wrap:wrap;margin-top:10px;padding-top:12px;border-top:1px solid var(--fp-line)}
+.fp-cardbox .fp-box-foot .btn:focus-visible{outline:2px solid var(--fp-ink);outline-offset:2px}
+.fp-set{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;align-items:center;text-align:left;font-size:13px;margin-top:10px}
+.fp-set-c{display:flex;align-items:center;gap:8px}.fp-set-v{min-width:5.5em;color:var(--fp-muted);font-variant-numeric:tabular-nums}
+.fp-set .seg.wrap{flex-wrap:wrap}
+.fp-set label{color:var(--fp-muted)}.fp-set input[type=range]{width:100%}
+.fp-set .seg{display:flex;gap:4px}.fp-set .seg button{padding:2px 8px}
+/* (U28) the shooting guide under the settings, opened from its summary line */
+.fp-guide{margin-top:14px;text-align:left;font-size:13px}.fp-guide summary{cursor:pointer;color:var(--fp-muted);padding:4px 0}
+.fp-guide summary:hover{color:inherit}.fp-guide img{display:block;width:100%;max-width:560px;height:auto;margin:8px auto 0;border-radius:10px}
+
+@keyframes fpIn{from{opacity:0;transform:translateY(-8px) scale(.94)}to{opacity:1;transform:none}}
+@keyframes fpBeat{0%,100%{transform:scaleY(1)}12%{transform:scaleY(1.7)}24%{transform:scaleY(1)}36%{transform:scaleY(1.45)}}
+/* the full-time card's scorers: the home side's on the left, the away side's on the right (match.js ftCardHTML) */
+.fp-overlay .ft-scorers{display:flex;justify-content:space-between;gap:16px}
+.fp-overlay .ft-scorers span:last-child{text-align:right}
+@media (prefers-reduced-motion:reduce){.fp-bug,.fp-card,.fp-box{animation:none !important;transition:none !important}}
+
+/* the warm-up on the touchline (WP-W1, addendum A1.8): the set's panel top right, the exercise's guide round the
+   crosshair, the pops, the coaches' lines as subtitles, the rating card; the Warm mark at the scorebug's foot */
+.fp-warm{position:absolute;left:var(--fp-pad);top:calc(var(--fp-pad) + 36px*var(--s));display:none;align-items:center;gap:6px;padding:3px 9px 3px 7px;
+  font-family:var(--fp-font);font-size:calc(13px*var(--s));letter-spacing:.03em;background:var(--fp-panel);border:1px solid var(--fp-line);border-radius:5px;
+  transition:opacity .6s}
+.fp-warm.on{display:flex;animation:fpIn .5s var(--fp-spring) both}
+.fp-warm i{width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#ffe08a,#ff9a3c 70%)}
+.fp-warm b{font-weight:700;color:#ffd9a0}.fp-warm span{color:var(--fp-muted);font-variant-numeric:tabular-nums}
+.fp-warm.fire{border-color:rgba(255,120,60,.7)}.fp-warm.fire b{color:#ff8a4c}
+.fp-warm.fire i{width:10px;height:13px;border-radius:50% 50% 45% 45%/60% 60% 40% 40%;background:radial-gradient(circle at 50% 70%,#fff3b0,#ff9a3c 45%,#e8442a 80%);animation:fpFlame .5s ease-in-out infinite alternate}
+@keyframes fpFlame{from{transform:scale(1) rotate(-4deg)}to{transform:scale(1.12) rotate(4deg)}}
+
+.fp-wu{position:absolute;right:var(--fp-pad);top:var(--fp-pad);width:calc(250px*var(--s));padding:9px 12px 10px;border-radius:8px;opacity:0;transform:translateY(-8px);
+  background:var(--fp-panel);border:1px solid var(--fp-line);border-left:3px solid var(--fp-charge);transition:opacity .3s,transform .45s var(--fp-spring)}
+.fp-wu.on{opacity:1;transform:none}
+body.gfx-low .fp-wu{background:rgba(9,15,24,.85)}
+.fp-wu-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.fp-wu-name{font-family:var(--fp-font);font-size:calc(16px*var(--s));letter-spacing:.03em;text-transform:uppercase}
+.fp-wu-n{font-size:calc(12px*var(--s));color:var(--fp-muted);white-space:nowrap}
+.fp-wu-how{margin-top:3px;font-size:calc(12.5px*var(--s));color:#dfe8f2;line-height:1.3}
+.fp-wu-bar{margin-top:7px;height:3px;background:rgba(255,255,255,.14);border-radius:2px;overflow:hidden}
+.fp-wu-bar i{display:block;height:100%;background:var(--fp-charge);transform-origin:0 50%}
+.fp-wu-dots{display:flex;gap:5px;margin-top:7px}
+.fp-wu-dots i{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.18)}
+.fp-wu-dots i.now{background:#fff;box-shadow:0 0 0 2px rgba(200,240,96,.45)}
+.fp-wu-dots i.hi{background:var(--fp-good)}.fp-wu-dots i.mid{background:#d8e070}.fp-wu-dots i.lo{background:var(--fp-warn)}
+
+/* the guides: centred on the crosshair unless they say otherwise */
+.fp-wu-w{position:absolute;inset:0}
+.fp-wu-w > *{position:absolute;left:50%;top:50%}
+.w-beat{width:calc(120px*var(--s));height:calc(120px*var(--s));margin:calc(-60px*var(--s)) 0 0 calc(-60px*var(--s));overflow:visible}
+.w-beat circle{fill:none}.w-beat .tg{stroke:var(--fp-charge)}.w-beat .ap{stroke:#fff;stroke-width:1.5}
+.w-strip{width:340px;height:30px;margin:calc(110px*var(--s)) 0 0 -170px;background:rgba(9,15,24,.55);border-radius:15px;overflow:hidden}
+.w-hit{position:absolute;left:30px;top:3px;bottom:3px;width:3px;border-radius:2px;background:var(--fp-charge);box-shadow:0 0 6px var(--fp-charge)}
+.w-beats{position:absolute;inset:0}
+.w-beats i{position:absolute;left:0;top:4px;width:22px;height:22px;margin-left:-9px;border-radius:50%;font:700 12px/22px var(--fp-font);font-style:normal;text-align:center;color:#0b1119;background:#fff}
+.w-beats i.r{background:#9be7ff}.w-beats i.kick{box-shadow:0 0 0 2px var(--fp-warn)}
+.w-strip{overflow:visible}.w-beats{overflow:hidden;border-radius:15px}
+.w-lab{position:absolute;left:0;right:0;top:-20px;text-align:center;font:12px var(--fp-font);letter-spacing:.08em;color:#fff;text-transform:uppercase;text-shadow:0 1px 3px #000}
+.w-gauge{width:10px;height:170px;margin:-85px 0 0 calc(90px*var(--s));border-radius:5px;background:rgba(255,255,255,.14);box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.w-gauge i{position:absolute;left:-6px;right:-6px;top:0}
+.w-gauge .band{background:rgba(95,212,122,.35);border-radius:3px}
+.w-gauge .ghost{height:0;border-top:2px dashed #fff;opacity:.9}
+.w-gauge .knob{height:10px;margin-top:-5px;border-radius:5px;background:var(--fp-charge);box-shadow:0 0 6px rgba(0,0,0,.6)}
+.w-pend{width:200px;height:110px;margin:calc(60px*var(--s)) 0 0 -100px}
+.w-pend .arc{position:absolute;left:10px;top:-90px;width:180px;height:180px;border-radius:50%;border:2px solid rgba(255,255,255,.2);clip-path:inset(55% 0 0 0)}
+.w-pend i{position:absolute;left:99px;top:0;width:2px;height:90px;transform-origin:1px 0}
+.w-pend i b{position:absolute;left:-7px;bottom:-7px;width:16px;height:16px;border-radius:50%}
+.w-pend .guide b{border:2px dashed rgba(255,255,255,.85)}.w-pend .me b{background:var(--fp-charge);box-shadow:0 0 6px rgba(0,0,0,.6)}
+.w-circle{width:calc(230px*var(--s));height:calc(230px*var(--s));margin:calc(-115px*var(--s)) 0 0 calc(-115px*var(--s));overflow:visible}
+.w-circle .ring{fill:none;stroke:#fff;stroke-width:12;stroke-opacity:.16}
+.w-circle .trail{fill:none;stroke:var(--fp-charge);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;opacity:.8}
+.w-circle .dot{fill:#fff;filter:drop-shadow(0 0 2px #000)}
+.w-bal{width:150px;height:150px;margin:-75px 0 0 -75px}
+.w-bal i{position:absolute;border-radius:50%}
+.w-bal .zone2{inset:0;border:2px solid rgba(255,255,255,.25)}
+.w-bal .zone{left:52px;top:52px;width:46px;height:46px;background:rgba(95,212,122,.25);border:2px solid rgba(95,212,122,.7)}
+.w-bal .dot{left:69px;top:69px;width:12px;height:12px;background:#fff;box-shadow:0 0 4px #000}
+.w-bal .dot.near{background:#d8e070}.w-bal .dot.out{background:var(--fp-bad)}
+.w-go{width:240px;margin:-60px 0 0 -120px;text-align:center}
+.w-go b{display:block;font:700 64px/1 var(--fp-font);color:var(--fp-charge);text-shadow:0 2px 10px rgba(0,0,0,.7);opacity:0}
+.w-go span{display:block;margin-top:58px;font-size:13px;color:var(--fp-muted);text-shadow:0 1px 3px #000}
+.w-jug{width:200px;margin:calc(120px*var(--s)) 0 0 -100px;text-align:center;font:14px var(--fp-font);letter-spacing:.05em;text-shadow:0 1px 3px #000}
+.fp-wu-w > .w-pass{left:0;top:0;width:0;height:0;opacity:0}
+.w-pass i{position:absolute;left:-26px;top:-12px;width:52px;height:6px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden}
+.w-pass i b{display:block;height:100%;background:var(--fp-good);transform-origin:0 50%;transform:scaleX(0)}
+.w-pass span{position:absolute;left:-30px;top:-34px;width:60px;text-align:center;font:700 14px var(--fp-font);color:var(--fp-good);opacity:0;text-shadow:0 1px 3px #000}
+.w-pass.open span{opacity:1}
+
+/* the pops: Good, Perfect, Streak x5, a set's result, the rating */
+.fp-pops{position:absolute;left:50%;top:calc(50% - 140px*var(--s));width:0;display:flex;flex-direction:column-reverse;align-items:center;gap:2px}
+.fp-pop{display:flex;flex-direction:column;align-items:center;opacity:0;transform:translateY(8px) scale(.85);transition:opacity .2s,transform .35s var(--fp-spring)}
+.fp-pop.in{opacity:1;transform:none}.fp-pop.out{opacity:0;transform:translateY(-16px)}
+.fp-pop b{font-family:var(--fp-font);font-size:calc(19px*var(--s));letter-spacing:.04em;text-shadow:0 1px 4px rgba(0,0,0,.85);white-space:nowrap}
+.fp-pop span{font-size:calc(13px*var(--s));color:#e6eef6;text-shadow:0 1px 3px #000;text-align:center;width:max-content;max-width:60vw}
+.fp-pop-perfect b{color:#ffd75a}.fp-pop-good b{color:var(--fp-good)}.fp-pop-ok b{color:#d8e0e8}.fp-pop-miss b{color:#ff8a8d;font-size:calc(16px*var(--s))}
+.fp-pop-streak b{font-size:calc(24px*var(--s));color:#ffb648}
+.fp-pop-info b{color:var(--fp-muted);font-size:calc(15px*var(--s))}.fp-pop-go b{color:var(--fp-charge);font-size:calc(28px*var(--s))}
+.fp-pop-set b,.fp-pop-great b{font-size:calc(22px*var(--s))}.fp-pop-great b{color:#ffd75a}
+.fp-pop-rating{padding:10px 22px 12px;border-radius:10px;background:rgba(9,15,24,.82);border:1px solid var(--fp-line);border-top:3px solid var(--fp-charge)}
+.fp-pop-rating b{font-size:calc(34px*var(--s));text-transform:uppercase;color:var(--fp-charge)}
+
+/* the coaches' and team-mates' lines */
+.fp-say{position:absolute;left:50%;bottom:calc(var(--fp-pad) + 150px);transform:translate(-50%,6px);max-width:min(640px,80vw);padding:6px 14px;border-radius:6px;opacity:0;
+  background:rgba(9,15,24,.72);font-size:calc(15px*var(--s));text-align:center;transition:opacity .3s,transform .35s var(--fp-spring)}
+.fp-say.in{opacity:1;transform:translate(-50%,0)}
+.fp-say b{margin-right:6px;font-family:var(--fp-font);letter-spacing:.03em;color:var(--fp-charge)}
+/* (a team-mate's shout goes under the coaches' line, below the guides round the crosshair and the juggling ring) */
+.fp-say.mate{bottom:calc(var(--fp-pad) + 84px);max-width:min(560px,70vw);font-size:calc(13px*var(--s));background:rgba(9,15,24,.55)}.fp-say.mate b{color:#9be7ff}
+@media (prefers-reduced-motion:reduce){.fp-pop,.fp-say,.fp-wu{transition:none !important}}
+/* a narrow screen (a phone held upright, 390 wide): the scorebug takes the top row, so the set's panel goes under it
+   across the width (the Warm mark, under the scorebug too, only shows once the set is over), and the event cards come
+   down below both rather than over the score. The hints keep to the right edge, their verbs wrapping, so they never
+   reach the middle of the bottom of the screen, where the ball at your feet is */
+@media (max-width:560px){
+  .fp-wu{left:var(--fp-pad);right:var(--fp-pad);top:calc(var(--fp-pad) + 38px*var(--s));width:auto}
+  .fp-cards{top:calc(var(--fp-pad) + 132px*var(--s))}
+  .fp-hints{max-width:36vw}
+  .fp-hints div{align-items:flex-start;text-align:right}
+  .fp-hints span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+}
+
+/* UF2-A (USER-ISSUES U18 to U20). The meter sits just under the crosshair while a shot or a pass is held. It fills
+   as you hold, and the sweet spot for the distance is marked green. It moves above the crosshair when the ball would
+   be under it, and holds a moment on where you let go. The kick type lives in the right edge above the hints. It is
+   always there, with the type you will strike with lit, and the mouse wheel changes it */
+.fp-meter{position:absolute;left:50%;top:calc(50% + 40px*var(--s));width:calc(132px*var(--s));margin-left:calc(-66px*var(--s));opacity:0;
+  display:flex;align-items:center;gap:6px;pointer-events:none;transition:top .12s ease-out}
+.fp-meter.up{top:calc(50% - 40px*var(--s) - 12px)}
+.fp-meter-lab{position:absolute;right:calc(100% + 6px);top:50%;transform:translateY(-50%);font-family:var(--fp-font);font-size:calc(11px*var(--s));
+  letter-spacing:.08em;text-transform:uppercase;color:var(--fp-muted);text-shadow:0 1px 2px rgba(0,0,0,.9);white-space:nowrap}
+.fp-meter-bar{position:relative;flex:1 1 auto;height:calc(8px*var(--s));border-radius:4px;background:rgba(9,15,24,.6);
+  box-shadow:0 0 0 1px rgba(255,255,255,.35),0 1px 3px rgba(0,0,0,.6);overflow:hidden}
+.fp-meter-sweet{position:absolute;top:0;bottom:0;left:0;width:0;z-index:2;background:rgba(95,212,122,.3);box-shadow:inset 0 0 0 2px var(--fp-good)}
+.fp-meter-gold{position:absolute;top:0;bottom:0;left:0;width:0;z-index:3;background:rgba(255,206,74,.55);box-shadow:inset 0 0 0 2px #ffce4a,0 0 6px rgba(255,206,74,.8)}
+.fp-meter.gold .fp-meter-bar .fp-meter-fill{background:#ffce4a}
+.fp-meter.gold .fp-meter-say{color:#ffce4a}
+.fp-meter.scuff .fp-meter-say{color:var(--fp-bad)}
+.fp-meter-fill{z-index:1;position:absolute;left:0;top:0;bottom:0;width:100%;transform:scaleX(0);transform-origin:0 50%;background:rgba(255,255,255,.88)}
+.fp-meter.sweet .fp-meter-fill{background:var(--fp-good)}
+.fp-meter.over .fp-meter-fill{background:var(--fp-bad)}
+.fp-meter-rel{position:absolute;top:-2px;bottom:-2px;width:2px;margin-left:-1px;background:#fff;opacity:0;box-shadow:0 0 2px #000}
+.fp-meter-say{position:absolute;left:calc(100% + 6px);top:50%;transform:translateY(-50%);font-family:var(--fp-font);font-size:calc(13px*var(--s));
+  letter-spacing:.04em;color:var(--fp-good);text-shadow:0 1px 3px rgba(0,0,0,.9);white-space:nowrap}
+.fp-kick{position:absolute;right:var(--fp-pad);bottom:calc(var(--fp-pad) + 112px*var(--s));display:flex;flex-direction:column;align-items:flex-end;gap:2px;
+  padding:5px 8px 6px;border-radius:6px;background:var(--fp-panel);font-size:calc(12px*var(--s));line-height:1.15;transition:box-shadow .2s}
+.fp-kick-h{font-family:var(--fp-font);font-weight:700;font-size:.85em;letter-spacing:.1em;text-transform:uppercase;color:var(--fp-muted)}
+.fp-kick ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.fp-kick li{display:flex;align-items:center;gap:5px;color:rgba(255,255,255,.42);font-family:var(--fp-font);letter-spacing:.03em}
+.fp-kick li i{display:inline-block;width:5px;height:5px;border-radius:50%;background:transparent}
+.fp-kick li.on{color:#fff;font-weight:700}
+.fp-kick li.on i{background:var(--fp-charge)}
+.fp-kick.flash{box-shadow:0 0 0 1px var(--fp-charge)}
+.fp-kick-tip{font-size:.82em;color:var(--fp-muted)}
+.fp-no-kick .fp-kick{display:none}
+@media (max-width:560px){.fp-kick{bottom:calc(var(--fp-pad) + 150px*var(--s))}}

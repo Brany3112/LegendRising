@@ -4,7 +4,7 @@ APPVIEWS.scout = t => {
   const me = meP();
   if (t.view === "main"){
     const inbox = S.msgs.map((m, i) => ({m, i})).filter(x => x.m.offer && !x.m.done);
-    return {title:"Scout Pro", html:`<div class="card-in"><div class="muted small">You</div><b>REP ${pad5(me.rep)} · WORLD ${pad5(me.wrep)}</b><div class="muted small">Form ${recentAvg().toFixed(2)} · ${S.staff.agent ? "Agent working for you" : "No agent — clubs judge you on your own"}</div>
+    return {title:"Scout Pro", html:`<div class="card-in"><div class="muted small">You</div><b>REP ${pad5(me.rep)} · WORLD ${pad5(me.wrep)}</b><div class="muted small">Form ${recentAvg().toFixed(2)} · ${S.staff.agent ? "Agent working for you" : "No agent, so clubs judge you on your own"}</div>
       <div class="muted small">${windowAt(S.week).open ? `Window open: moves happen now.` : `Window shut: agreed deals complete when the ${windowAt(S.week).next.toLowerCase()} opens.`}</div></div>
       ${inbox.length ? `<h4>Offers waiting</h4>` + inbox.map(x => { const c = W.clubs[x.m.offer.club]; return `<button class="list-row" onclick="startNeg(${c.id},${x.i})">${crest(c.nm, 26)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">${eur(x.m.offer.wage)}/wk · ${x.m.offer.years}y</div></div><span class="pill gold">Negotiate</span></button>`; }).join("") : ""}
       ${S.contract && S.contract.years <= 1 ? `<button class="list-row" onclick="startNeg(${me.club})">${crest(myClub().nm, 26)}<div class="grow"><b>Renew with ${esc(myClub().nm)}</b><div class="muted small">Last year of your deal</div></div></button>` : ""}
@@ -14,7 +14,7 @@ APPVIEWS.scout = t => {
   if (t.view === "clubs"){
     const lg = W.leagues[t.p.lg];
     return {title:lg.nm, html:lg.clubs.map(id => W.clubs[id]).sort((a,b) => b.rep - a.rep).map(c => { const i = clubInterest(c), lock = S.locks[c.id] && S.locks[c.id] > gw();
-      return `<button class="list-row" onclick="startNeg(${c.id})">${crest(c.nm, 26)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)}${lock ? " · talks locked" : ""}</div></div><div class="interest"><i style="width:${Math.round(i*100)}%"></i></div></button>`; }).join("")};
+      return `<button class="list-row" onclick="startNeg(${c.id})">${crest(c.nm, 26)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)} · ${esc(coachStyleName(c))} coach${lock ? " · talks locked" : ""}</div></div><div class="interest"><i style="width:${Math.round(i*100)}%"></i></div></button>`; }).join("")};
   }
   if (t.view === "neg") return negView();
   return {title:"Scout Pro", html:""};
@@ -54,13 +54,13 @@ function negView(){
   const left = NEGF.map(([k, l, f]) => `<div class="neg-row"><span>${l}</span><div class="stepper"><button onclick="negAdj('${k}',-1)">−</button><b>${f(n.ask[k])}</b><button onclick="negAdj('${k}',1)">+</button></div></div>`).join("")
     + `<div class="neg-row"><span>Playing time</span><div class="stepper"><button onclick="negRole()">⇄</button><b>${ROLE[n.ask.role]}</b></div></div>`;
   const pat = clamp(n.patience, 0, 100);
-  const right = r ? `<div class="neg-reply ${r.status}">${esc(r.msg)}${r.stale ? `<div class="muted small">You changed your requests — send again.</div>` : ""}</div>
+  const right = r ? `<div class="neg-reply ${r.status}">${esc(r.msg)}${r.stale ? `<div class="muted small">You changed your requests. Send them again.</div>` : ""}</div>
       ${reqs && !r.stale ? `<div class="muted small">Required over the contract${n.ask.years > 1 ? ` (${n.ask.years} years)` : ""}:</div>${Object.entries(reqs).map(([k,v]) => `<div class="req"><span>${REQ_LABEL[k]}</span><b>${v}</b></div>`).join("")}
         <p class="muted small">Promise = hit these in half the time (${Math.max(1, Math.round(n.ask.years*CAL.W/2))} weeks). Deliver: 20% raise. Fail: wage halved, bonuses gone, less playing time.</p>` : ""}`
     : `<div class="neg-reply">Set your requests on the left, then send them. Ask for too much and their patience runs out.</div>`;
   const canSign = r && !r.stale && ["ok","loan"].includes(r.status) && !n.done;
   return {title:`Talks: ${c.nm}`, land:true, html:`<div class="neg">
-    <div class="neg-top">${crest(c.nm, 28)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)} · their first offer ${eur(n.base.wage)}/wk</div></div>
+    <div class="neg-top">${crest(c.nm, 28)}<div class="grow"><b>${esc(c.nm)}</b><div class="muted small">rep ${pad5(c.rep)} · budget ${eur(c.fin)} · their first offer ${eur(n.base.wage)}/wk</div><div class="muted small neg-coach">${esc(coachStyleName(c))} coach. ${esc(COACH_STYLES[coachStyleOf(c)].line)}</div></div>
       <div class="patience"><span>Patience</span><div class="meter"><i style="width:${pat}%;background:${pat > 50 ? "#5fd47a" : pat > 25 ? "#ffd75a" : "#ef5a60"}"></i></div></div></div>
     <div class="neg-cols"><div class="neg-left"><div class="neg-h">Your requests</div>${left}<button class="btn sm" ${n.done ? "disabled" : ""} onclick="negSend()">Send offer</button></div>
       <div class="neg-right"><div class="neg-h">Their answer</div>${right}

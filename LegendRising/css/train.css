@@ -1,0 +1,205 @@
+/* ============ Training Mode ============
+   Owner: P3-B (TR-3, Training Mode Phase 3); P4-A from Phase 4. Contract: BUILD-PLAN P3-B work items 2 and 7, P4-A work
+   items 2 and 3; TRAINING-SPEC 4 (a simple hub, a small Training HUD that never covers the ball, the configuration
+   sheet and the attribute editor). */
+
+/* ---------- the hub (a sheet: js/life/train/hub.js) ---------- */
+.th h2{margin-bottom:.15em}
+.th-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:14px 0}
+.th-cat{display:grid;gap:4px;text-align:left;justify-items:start}
+.th-cat .pill{margin-top:4px}
+.th-run{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 12px;margin:10px 0;border-radius:12px;
+  background:rgba(63,191,106,.12);border:1px solid rgba(63,191,106,.35)}
+.th-list{display:grid;gap:8px;margin:14px 0}
+.th-sc{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:12px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.th-sc > div:first-child{display:grid;gap:2px}
+.th-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.th-none{margin:14px 0}
+/* the foot (Exit to title, Back to hub) stays at the bottom of the sheet while the list scrolls, so the way out is always on screen */
+.th-foot{display:flex;align-items:center;gap:10px;margin-top:8px;position:sticky;bottom:-30px;z-index:1;margin-bottom:-30px;padding:10px 0 42px;
+  background:linear-gradient(180deg,rgba(12,21,34,.82),rgba(12,21,34,.97) 30%)}
+.th-foot .grow{flex:1}
+@media (max-width:600px){.th-sc{flex-direction:column;align-items:stretch}.th-btns{justify-content:flex-start}}
+
+/* ---------- the Training HUD (js/life/train/thud.js): a small card at the top edge, on the side away from the ball ---------- */
+#trainHud{position:fixed;top:calc(10px + env(safe-area-inset-top));z-index:30;max-width:250px;display:grid;gap:2px;
+  padding:7px 10px;border-radius:10px;background:rgba(8,13,22,.55);border:1px solid rgba(255,255,255,.12);color:#e7eef7;
+  font:500 .72rem/1.3 var(--body);pointer-events:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#trainHud.left{left:calc(10px + env(safe-area-inset-left))}
+#trainHud.right{right:calc(10px + env(safe-area-inset-right))}
+#trainHud .thud-name{font:700 .82rem/1.2 var(--display);letter-spacing:.04em;text-transform:uppercase}
+#trainHud .thud-row{color:#c9d6e3}
+#trainHud .thud-preset{color:rgba(201,214,227,.7)}
+#trainHud .thud-keys{color:rgba(231,238,247,.75);font-size:.66rem}
+#trainHud .thud-pends:empty{display:none}
+#trainHud kbd{font:600 .62rem/1 var(--body);padding:1px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08)}
+#trainHud .thud-note{font-weight:700;margin-top:2px}
+#trainHud .thud-note.good{color:#9be8b3}
+#trainHud .thud-note.bad{color:#ffd27a}
+
+/* between scenarios in the cage (thud.js thudIdle): one line at the bottom edge on how to get the hub back */
+#trainIdle{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));z-index:30;
+  max-width:calc(100vw - 32px);padding:6px 12px;border-radius:10px;background:rgba(8,13,22,.55);border:1px solid rgba(255,255,255,.12);
+  color:rgba(231,238,247,.85);font:500 .72rem/1.35 var(--body);text-align:center;pointer-events:none;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#trainIdle kbd{font:600 .62rem/1 var(--body);padding:1px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08)}
+
+/* ---------- the configuration sheet and the attribute editor (P4-A: js/life/train/configui.js, attredit.js) ----------
+   A layer of its own above the world and the black cover, laid out like the title's sheets */
+#trainCfg{position:fixed;inset:0;z-index:95;pointer-events:auto}
+#trainCfg .sheet-back{opacity:1}
+#trainCfg .sheet{transform:translate(-50%,0);max-height:90vh}
+.tcfg h2{margin-bottom:.15em}
+.tcfg-preview{margin:10px 0 4px;padding:8px 12px;border-radius:12px;background:rgba(63,191,106,.12);border:1px solid rgba(63,191,106,.35)}
+.tcfg-notes p{margin:4px 0;color:#ffd27a}
+.tcfg-rows{display:grid;gap:10px;margin:12px 0}
+.tcfg-row{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:12px;align-items:start;padding:10px 12px;border-radius:12px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.tcfg-label{display:grid;gap:2px}
+.tcfg-ctl{display:grid;gap:8px;min-width:0}
+.tcfg-ctl .seg button{font-size:.88rem}
+.tcfg-nums{display:flex;flex-wrap:wrap;gap:8px}
+.tcfg-num{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:500}
+.tcfg-num input{width:5.2em;padding:.4em .55em;border-radius:9px;text-align:right}
+.tcfg-poslist{display:grid;gap:6px}
+.tcfg-pos{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.tcfg-pos > b{min-width:7.5em}
+.tcfg-pos select{width:auto;min-width:6.5em;padding:.4em .55em;border-radius:9px}
+.ae-sec{margin:14px 0;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.ae-sec h4{margin:0 0 8px}
+.ae-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.ae-rows{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:4px 16px}
+.ae-row{display:grid;grid-template-columns:minmax(8em,1fr) 3.6em 60px auto auto;gap:8px;align-items:center;padding:3px 0}
+.ae-name{margin:0;font-weight:600;color:#c9d6e3}
+.ae-in{width:3.6em;padding:.35em .45em;border-radius:8px;text-align:right}
+.ae-meter{display:block;height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.ae-meter i{display:block;height:100%;background:var(--lime)}
+.ae-reset.btn.sm{font-size:.78rem;padding:.3em .6em}
+.ae-derived{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;align-items:baseline}
+.ae-d b{font-variant-numeric:tabular-nums}
+.ae-var{margin:6px 0 0}
+.tcfg-foot .btn{min-width:8em}
+/* on a phone the three buttons share the width (Start, the main one, never runs off the edge) */
+@media (max-width:600px){.tcfg-foot{flex-wrap:wrap;gap:8px}.tcfg-foot .btn{min-width:0;flex:1 1 auto;padding-left:.7em;padding-right:.7em}.tcfg-foot .grow{display:none}}
+@media (max-width:600px){.tcfg-row{grid-template-columns:1fr}.ae-row{grid-template-columns:1fr 3.6em auto auto}.ae-meter{display:none}.ae-rows{grid-template-columns:1fr}}
+/* the presets sheet (presetui.js) and the pause card's match group (quick.js), P4-B */
+.tp .th-btns input.tp-in{width:auto;flex:1 1 12em;min-width:10em;padding:.45em .7em}
+.tp .tp-msg{min-height:1.2em;margin:4px 0}
+.tp .tp-meta{display:block}
+.fp-qgroup{margin-top:14px}
+.fp-qgroup .eyebrow{font-size:.72rem;margin-bottom:0}
+
+/* ---------- the admin panel (P5-B: js/life/train/admin.js), on the sheet layer like the hub ----------
+   A narrower sheet on the right, so the pitch stays in view on the left while it is up */
+#sheetRoot[data-kind="trainadmin"] .sheet.tad-sheet{left:auto;right:0;width:min(560px,100%);max-height:none;top:0;bottom:0;border-radius:24px 0 0 24px;
+  transform:translate(0,0)}
+#sheetRoot[data-kind="trainadmin"]:not(.open) .sheet.tad-sheet{transform:translate(100%,0)}
+#sheetRoot[data-kind="trainadmin"] .sheet-back{background:rgba(5,9,15,.25)}
+.tad h2{margin-bottom:.1em}
+.tad-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 6px}
+.tad-tabs .btn{min-width:0}
+.tad-pending{margin:6px 0;padding:6px 10px;border-radius:10px;background:rgba(255,210,122,.12);border:1px solid rgba(255,210,122,.35);color:#ffd27a;font-size:.86rem}
+.tad-msg{min-height:1.2em;margin:4px 0}
+.tad-body{display:grid;gap:8px;margin:6px 0 10px}
+.tad-row{display:grid;grid-template-columns:minmax(130px,190px) 1fr;gap:10px;align-items:center;padding:8px 10px;border-radius:12px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.tad-label{display:grid;gap:2px}
+.tad-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.tad-seg{flex-wrap:wrap;max-width:100%;min-width:0}
+.tad-seg button{font-size:.84rem;white-space:nowrap;padding:.4em .65em}
+.tad-in{width:5.4em;padding:.35em .5em;border-radius:8px;text-align:right}
+.tad-big{font:700 1.2rem/1 var(--display);font-variant-numeric:tabular-nums}
+.tad-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tad-range{width:160px}
+.tad-hv{min-width:4.2em;font-variant-numeric:tabular-nums}
+.tad-btns{margin:4px 0}
+.tad-none{margin:10px 0}
+.tad-match{margin-top:12px}
+.tad-ed .ae-sec{margin:4px 0}
+.tad .ae-rows{grid-template-columns:1fr}
+.tad-tg{margin:8px 0;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.tad-tg h4{margin:0 0 6px}
+.tad-tr{display:grid;grid-template-columns:1fr 5.4em auto auto;gap:8px;align-items:center;padding:2px 0}
+.tad-tr.changed .tad-tl{color:#ffd27a}
+.tad-tl{margin:0;font-weight:500;color:#c9d6e3;font-size:.86rem}
+.tad-tl .muted{font-size:.7rem}
+.tad-rg{white-space:nowrap}
+@media (max-width:600px){.tad-row{grid-template-columns:1fr}.tad-tr{grid-template-columns:1fr 5em auto}.tad-rg{display:none}}
+
+/* the Training HUD's key hints (P5-A's Free Play Q hint and the admin hint, thud.js): one quiet line */
+#trainHud .thud-hint{color:rgba(231,238,247,.75);font-size:.66rem}
+
+/* the small-sided game scoreboard (UF2-B, USER-ISSUES U13 and U15; js/life/football/ssghud.js): your side first in its
+   colour, the score, the other side in its bibs, the time left. It sits in the life HUD's top-left column under the
+   clock, so it never covers the drill card in the middle, the needs on the right or the ball (narrower than 460 px it
+   stacks into two rows, see the end of this section) */
+.ssg-board{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:var(--hud-r,12px);background:rgba(9,15,24,.78);
+  border:1px solid var(--hud-line,rgba(255,255,255,.14));color:#fff;font:800 .95rem/1 var(--display);letter-spacing:.04em;text-transform:uppercase;
+  white-space:nowrap;pointer-events:none;transition:box-shadow .3s,border-color .3s}
+.ssg-board.ssg-float{position:fixed;top:calc(96px + env(safe-area-inset-top,0px));left:calc(10px + env(safe-area-inset-left,0px));z-index:3}
+.ssg-side{display:flex;align-items:center;gap:6px}
+.ssg-side i{display:block;width:14px;height:14px;border-radius:4px;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+.ssg-mine b{color:#fff}
+.ssg-mine b::after{content:"";display:inline-block;width:5px;height:5px;margin-left:5px;border-radius:50%;background:var(--lime,#c8f060);vertical-align:middle}
+.ssg-theirs b{color:#cfd9e4}
+.ssg-score{display:flex;align-items:baseline;gap:5px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.08);font-size:1.15rem;font-variant-numeric:tabular-nums}
+.ssg-score em{font-style:normal;color:#9fb2c6}
+.ssg-time{min-width:2.6em;text-align:right;color:var(--gold,#ffd75a);font-variant-numeric:tabular-nums}
+.ssg-time:empty{display:none}
+.ssg-time.low{color:#ff8a7a}
+.ssg-board.ssg-for{border-color:rgba(200,240,96,.8);box-shadow:0 0 0 2px rgba(200,240,96,.35)}
+.ssg-board.ssg-against{border-color:rgba(255,138,122,.7);box-shadow:0 0 0 2px rgba(255,138,122,.25)}
+@media (max-width:640px){ .ssg-board{font-size:.82rem;gap:6px;padding:4px 8px} .ssg-score{font-size:1rem} }
+
+/* ---------- the free kick's placement (P7-A: js/life/train/fkplace.js): a card over the pitch, the 3D view left showing ---------- */
+#fkPlace{position:fixed;left:16px;bottom:16px;z-index:94;pointer-events:none;max-width:min(420px,calc(100vw - 32px))}
+#fkPlace .fkp{pointer-events:auto;padding:12px 14px;border-radius:16px;font-size:.84rem;max-height:calc(100vh - 32px);display:flex;flex-direction:column;gap:8px}
+.fkp-body{display:grid;gap:8px;overflow:auto;min-height:0}
+#fkPlace h3{margin:0;font:700 1rem/1.2 var(--display);letter-spacing:.04em;text-transform:uppercase}
+#fkPlace h4{margin:0 0 4px;font:700 .86rem/1.2 var(--display);letter-spacing:.03em;text-transform:uppercase}
+.fkp-steps{display:flex;gap:6px;margin:0;padding:0;list-style:none;counter-reset:fkp}
+.fkp-steps li{counter-increment:fkp;flex:1;padding:4px 8px;border-radius:9px;font:600 .74rem/1.2 var(--body);text-align:center;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(231,238,247,.7)}
+.fkp-steps li::before{content:counter(fkp) ". "}
+.fkp-steps li.on{background:rgba(200,240,96,.16);border-color:rgba(200,240,96,.6);color:#fff}
+.fkp-steps li.done{color:#c8f060}
+.fkp-sec{display:grid;gap:6px;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)}
+.fkp-sec.on{border-color:rgba(255,215,90,.55)}
+.fkp-sec.off{opacity:.55}
+.fkp-ok{margin-left:6px;padding:1px 6px;border-radius:6px;font:600 .66rem/1.3 var(--body);text-transform:none;letter-spacing:0;background:rgba(63,191,106,.2);color:#8fe0a8}
+.fkp-range{display:grid;grid-template-columns:8em 1fr 4.4em;align-items:center;gap:8px;margin:0;font-weight:500;line-height:1.2}
+.fkp-range input{width:100%;min-width:0}
+.fkp-range output{text-align:right;font-variant-numeric:tabular-nums}
+.fkp-row{display:grid;gap:4px}
+.fkp-sec .seg button{font-size:.82rem}
+.fkp-read{margin:0;font-variant-numeric:tabular-nums}
+.fkp-read b{font-size:.98rem}
+#fkPlace .btn{padding:.5em .95em;font-size:.84rem}
+#fkPlace .fkp-sec > .btn{justify-self:start}
+#fkPlace p{margin:0}
+/* (the card says what the Training HUD would: the HUD stands aside while it is up) */
+body:has(#fkPlace) #trainHud{visibility:hidden}
+.fkp-note{margin:0;min-height:1.2em;color:#ffd27a}
+.fkp-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.fkp-foot .grow{flex:1}
+.fkp-foot [data-blocked]{opacity:.5;cursor:not-allowed}
+@media (max-width:520px){#fkPlace{left:8px;right:8px;bottom:8px;max-width:none}.fkp-range{grid-template-columns:6.5em 1fr 4.2em}}
+
+/* a phone held upright: the need bars come down the right side as far as the board's row, so the one line would run
+   under them. The board stacks into a scorebug: your side and its score over theirs, the time left beside both */
+@media (max-width:460px){
+  .ssg-board{display:grid;grid-template-columns:auto auto auto auto;align-items:center;column-gap:6px;row-gap:3px;padding:4px 8px;font-size:.8rem}
+  .ssg-board .ssg-side,.ssg-board .ssg-score{display:contents}
+  .ssg-score em{display:none}
+  .ssg-mine i{grid-area:1/1} .ssg-mine b{grid-area:1/2} .ssg-a{grid-area:1/3}
+  .ssg-theirs i{grid-area:2/1} .ssg-theirs b{grid-area:2/2} .ssg-b{grid-area:2/3}
+  .ssg-a,.ssg-b{min-width:1.5em;padding:1px 4px;border-radius:4px;background:rgba(255,255,255,.08);text-align:center;font-size:.95rem;font-variant-numeric:tabular-nums}
+  .ssg-time{grid-area:1/4/3/5;min-width:2.4em;padding-left:6px;border-left:1px solid var(--hud-line,rgba(255,255,255,.14));align-self:stretch;display:flex;align-items:center;justify-content:flex-end}
+  .ssg-time:empty{display:none}
+}
+/* the pause card's camera settings (live, kept for every match and the career) */
+.fp-qcam .seg{justify-content:center;margin:6px 0 4px}
+.fp-qcam-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,2fr) 92px;align-items:center;gap:10px;margin:4px 0;font-size:.85rem;text-align:left}
+.fp-qcam-row input[type=range]{width:100%}
+.fp-qcam-row .fp-set-v{text-align:right;opacity:.85;font-variant-numeric:tabular-nums}

@@ -1,0 +1,404 @@
+# Player-facing strings that contain U+2014 (em dash) in the tree before the rework.
+# Recorded by I0 (DESIGN 2.1) as the baseline for qa/nodash.mjs (WP-0B): `node qa/nodash.mjs --report` reproduces these counts.
+# Scope (DESIGN 1.8): JS string and template literals in js/**/*.js (comments ignored), HTML text, inline scripts and the
+# title, placeholder, aria-label and alt attributes in index.html, and CSS content: values in css/*.css.
+# Each line: file:line, then the number of U+2014 in that string, its class, and the string with every U+2014 written as \u2014.
+# Classes: sentence (a dash inside a sentence or a label, or joining two), placeholder (the string is the dash alone: an empty cell),
+# sentinel (the placeholder that js/online.js:228 sets and js/ui/main.js:123 compares; allowed once marked nodash-ok).
+# Totals: 416 U+2014 in 395 strings. sentence 390 in 369 strings, placeholder 24, sentinel 2.
+# Player-facing sentence and label dashes (the sweep target): 390. Every other U+2014 in these files (303) is in a comment.
+css/style.css:1126	1	sentence	Paused \u2014 click to carry on · Esc to stop
+index.html:26	1	sentence	Energy \u2014 food keeps it up
+index.html:27	1	sentence	Hydration \u2014 drinks keep it up
+index.html:28	1	sentence	Fatigue \u2014 sleep and rest bring it down
+index.html:29	1	sentence	Hygiene \u2014 a shower or a bath keeps you fresh
+js/awards.js:59	1	sentence	Player of the Week \u2014
+js/awards.js:120	1	sentence	Player of the Season \u2014
+js/awards.js:122	1	sentence	Golden Boot \u2014
+js/awards.js:124	1	sentence	Playmaker \u2014
+js/awards.js:126	1	sentence	Golden Glove \u2014
+js/awards.js:127	1	sentence	Young Player of the Season \u2014
+js/awards.js:129	1	sentence	Team of the Season \u2014
+js/awards.js:150	1	sentence	league goals \u2014 more than anyone in the world.
+js/awards.js:297	1	sentence	Goal of the Month \u2014
+js/awards.js:301	1	sentence	Goal of the Month \u2014
+js/awards.js:317	1	sentence	Goal of the Season \u2014
+js/awards.js:333	1	sentence	<h2>Man of the match</h2> <p class="muted">The cameras want you. What you say here is worth more than a normal week \u2014 you are the story.</p> <blockquote class="mq">You were the best player on the pitch against
+js/awards.js:340	1	sentence	</div> <p class="muted small">No energy, no action \u2014 this one is on the way off the pitch.</p>
+js/awards.js:355	1	sentence	reputation \u2014 but that one stung
+js/career.js:453	1	sentence	Deal agreed \u2014 you move when the window opens.
+js/career.js:492	1	sentence	That's a big ask. If you want it, earn it \u2014 these are our conditions.
+js/career.js:636	1	placeholder	\u2014
+js/career.js:652	1	placeholder	\u2014
+js/daily.js:376	1	placeholder	\u2014
+js/daily.js:452	1	sentence	You're full \u2014 save it for later.
+js/data/clothes.js:347	1	sentence	Proper tailoring \u2014 shirts, suits and good shoes.
+js/data/game.js:5	1	sentence	Less drag \u2014 long shots keep their pace
+js/data/game.js:6	1	sentence	How hard the ball bends when you hit its side \u2014 strike the edge for a big bend
+js/data/game.js:12	1	sentence	How slowly your energy drains in matches \u2014 low stamina burns out fast
+js/data/game.js:61	1	sentence	Your stats, your week, your career \u2014 at home. Put it on a table.
+js/data/game.js:90	2	sentence	in Dumbrava \u2014 the bus, 1 hour 20 minutes \u2014 on Strada Mare
+js/data/game.js:91	2	sentence	in Dumbrava \u2014 the bus, 1 hour 20 minutes \u2014 on Strada Mare
+js/data/game.js:92	2	sentence	in Dumbrava \u2014 the bus, 1 hour 20 minutes \u2014 on Strada Mare
+js/data/game.js:93	2	sentence	in Dumbrava \u2014 the bus, 1 hour 20 minutes \u2014 on Strada Mare
+js/data/game.js:143	1	sentence	Legs already fit \u2014 might as well get paid.
+js/data/game.js:216	1	sentence	Order food and drinks \u2014 delivered to your flat or the training ground.
+js/data/game.js:228	1	sentence	Come on you reds and whites \u2014 {l}!
+js/data/game.js:231	1	sentence	He shoots, he scores \u2014 it's {l}!
+js/data/game.js:233	1	sentence	To the last drop of blood \u2014 {l}!
+js/data/game.js:235	1	sentence	All together now \u2014 {l}!
+js/data/game.js:240	1	sentence	{n} \u2014 take a bow!
+js/data/game.js:242	1	sentence	We still believe \u2014 {l}!
+js/data/game.js:249	1	sentence	Every job has a place of its own: the Corner Café next door, the Neighbourhood Store up Strada Morii, City Courier down Bulevardul Gării past the park, and the better jobs out in Arini, a new part of Dumbrava \u2014 an h
+js/data/game.js:250	1	sentence	Shifts are played now: coffees made to the ticket, a basket through the till and the right change, the courier's shortest run, the sports centre's front desk, the free player for the academy's kids, the photo shoot, cuts
+js/data/game.js:252	2	sentence	The bus asks where you're going \u2014 the training centre, Dumbrava or home \u2014 and the clock runs while you ride. Dumbrava has its square, its town hall, Casa Nova's showroom and Arini's streets of houses.
+js/data/game.js:254	1	sentence	Foodies leaves your bag on the table in the lobby (or the shelf inside the gym door): carry it to a fridge. Beds and fridges come in six tiers, and you start at the bottom \u2014 a mattress on the floor and a fridge that
+js/data/game.js:255	1	sentence	Your first flat is grim: no bulb, no table, bare walls. Mobila Bună, next door, sells furniture (it comes boxed \u2014 carry it home and press B to place it), bulbs, locks and wallpaper over a real till. Casa Nova, in Du
+js/data/game.js:256	1	sentence	Hygiene and hydration join energy and fatigue on a bigger HUD. Smell bad enough and the barber and the customer-facing jobs turn you away \u2014 shower at home or in the dressing room.
+js/data/game.js:257	1	sentence	Things happen: thieves (fit a lock and use it \u2014 F), power cuts, a car parked across your front door (climb out through the lobby window). The notice board in the lobby warns you.
+js/data/game.js:258	2	sentence	The training centre looks like the club that owns it \u2014 a worn pitch and a damp clubhouse at the bottom, striped grass and a banner at the top \u2014 and its gym kit comes in six tiers that change what a set is worth
+js/data/game.js:263	1	sentence	Gym sets are played out in front of you: squats with the bar on your back, curls, box jumps, quick feet down the ladder, the treadmill and the bike \u2014 and every rep looks like how well you timed it.
+js/data/game.js:268	1	sentence	A new character screen: your player large and turning in the light beside four steps \u2014 who you are, where you play, how you look, what you're good at. Everything you change shows at once.
+js/data/game.js:271	1	sentence	A new career starts with your uncle showing you the city, a football through your window (taped up with plastic the next day), a slammed door, a room number that will not stay on its door, a tour of the flat and of the t
+js/data/game.js:276	1	sentence	Sleeping now takes you to the next morning \u2014 never further. A week is seven days you live through, and it turns over in the night from Sunday to Monday, when your wage goes in.
+js/data/game.js:278	1	sentence	Team training runs 10:00 AM to 5:00 PM on weekdays without a match. Turn up on time and stay, and the manager notices \u2014 be late or absent and his trust drops. Manager trust decides how often you start, but form, fit
+js/data/game.js:279	1	sentence	Team Chemistry: being at training with the squad builds it quietly, and you see what the day did once you're home or on the club computer. High chemistry means more of the game comes your way \u2014 never the ball every 
+js/data/game.js:280	1	sentence	Chances now come with team-mates around you \u2014 open, marked, held, making a run. Reach the box and the game slows for a moment: shoot, pass left, pass right or back. You can shoot instead of passing while building an
+js/data/game.js:283	1	sentence	New skills: Pass accuracy, Interception, Jumping and Heading \u2014 each with its own drill. Careers already under way get starting values that match the player they are.
+js/data/game.js:289	2	sentence	The training ground has been rebuilt \u2014 a proper pitch with nets, dugouts and floodlights, a dressing room with lockers and an ice bath, a staff office, a car park \u2014 and the squad is out there training while you
+js/data/game.js:291	1	sentence	Fixed milestones being handed out for nought of something \u2014 a man-of-the-match award when a team-mate won it, a career goal before you had scored one. Zero counted as a round number and tripped the ladder.
+js/data/game.js:294	1	sentence	Goals are now judged. Distance counts most, then how it was struck \u2014 curled, dipped, lifted over the keeper, off a one-two, from a free kick. A penalty is never in the running.
+js/data/game.js:298	1	sentence	Be the best man on the pitch and the cameras want you. A post-match interview with three ways to answer \u2014 credit the team, take it yourself, or call your shot. It is worth more than an ordinary week because you are 
+js/data/game.js:300	1	sentence	The tackle comes in two parts. First you jockey him \u2014 move to stay in front, read the feints, and the tighter you hold him the heavier his touch gets. When the ball leaves his feet, swipe through it. Clean through t
+js/data/game.js:301	1	sentence	Squeeze him properly and a tackle is almost free. Let him run at you and it is a coin toss \u2014 barely pressured, an average defender fouls him three times out of five.
+js/data/game.js:317	1	sentence	Milestones mark the numbers that matter \u2014 50, 100, 200 and 300 goals, 50 and 100 assists, 100, 250 and 500 appearances, your first hat-trick, your first cap, your first European goal.
+js/data/game.js:323	1	sentence	Careers now carry an identity of their own. The automatic sync will not write over a career on your account that is not the one you are playing \u2014 it stops and leaves the account alone.
+js/data/game.js:327	1	sentence	The security rules were refusing every read of your own career. Uploading worked, which is why your name was on the leaderboard, but nothing could ever be downloaded again \u2014 the rule checked the data being sent, and
+js/data/game.js:331	1	sentence	When your account looks empty it now says why \u2014 whether you are on the leaderboard with no career file behind the row, whether nothing was ever synced, or whether your account could not be read at all. It also shows
+js/data/game.js:334	1	sentence	The account box redraws itself properly now \u2014 it could get stuck on \"Looking at your account…\" and never finish.
+js/data/game.js:336	1	sentence	Fixed the account saying it had nothing on it when your career was plainly on the leaderboard. The game used to hold three careers, so anything synced back then was filed under save two or three \u2014 and after the chan
+js/data/game.js:340	2	sentence	Signing in on another computer now brings your career down by itself \u2014 club, age, skills, stats, money, the lot \u2014 and the old save on that computer makes way for it. No buttons to press.
+js/data/game.js:343	1	sentence	If the copy on the computer you are sitting at is further along than the one on your account, it is left alone and you are told \u2014 so a newer career is never lost to an older backup.
+js/data/game.js:345	1	sentence	The week is now run in separate pieces \u2014 the matches, the world, your wages, your body, your contract, the dressing room, the transfer window. If one of them fails it is skipped and noted, and the week still turns. 
+js/data/game.js:347	2	sentence	New in Menu: Report a problem. It copies exactly what the game was doing when something went wrong \u2014 your week, your club, your contract and the failures it recorded \u2014 so it can be fixed properly rather than gu
+js/data/game.js:351	2	sentence	Everything the week does \u2014 the news, the dressing room, your manager, a pay rise you agreed, the promise in your contract, the end-of-season write-up \u2014 now copes with you being between clubs rather than falling
+js/data/game.js:355	2	sentence	Once you are signed in it shows the career saved to your account \u2014 name, club, season, matches, goals, assists and leaderboard points \u2014 and one button to bring it onto the computer you are sitting at.
+js/data/game.js:359	1	sentence	Once you have put your career on the leaderboard yourself, it goes up again on its own every five minutes \u2014 you never have to press sync after a good run.
+js/data/game.js:366	1	sentence	The power bar means something now \u2014 a full pull is the longest throw you can make, instead of filling up and then being quietly cut in half.
+js/data/game.js:368	1	sentence	Everyone calling for the throw is now inside the range a throw can reach \u2014 no more team-mate standing forty metres away.
+js/data/game.js:371	1	sentence	Media duty is a new action. A reporter asks about the week you have had and you choose how to answer \u2014 the safe line keeps the manager happy, the loud line is worth far more reputation and can blow up in your face.
+js/data/game.js:372	1	sentence	Talk to the manager: walk into his office, see what he makes of your numbers, and ask for a rise. Ask for what he can do and he sets you targets \u2014 goals, assists, appearances and an average rating, on a clock. Ask f
+js/data/game.js:373	1	sentence	Hit every target before the clock runs out and the new wage is yours. Miss it and the offer comes off the table for a while \u2014 nothing else changes.
+js/data/game.js:375	2	sentence	Nothing floats over the score any more. The replay strip and every card that appears during a match \u2014 goal, assist, the distance you struck it from \u2014 now start underneath the scoreboard instead of covering it.
+js/data/game.js:385	1	sentence	Coaches pick a shape rather than simply the eleven best names \u2014 a keeper, a back four, three in midfield, one behind the front two. Every club in the world lines up 4-3-1-2, and you come into the side in your own po
+js/data/game.js:389	1	sentence	A squad panel under Play match shows the eleven the coach picks and who is on the bench \u2014 position, age, value and rating, with you highlighted and injuries marked.
+js/data/game.js:392	1	sentence	The numbers land where they should \u2014 a 25-year-old world star is worth about €190M, a solid 29-year-old pro €19M, a 21-year-old prospect €14M, a 32-year-old veteran €4.7M.
+js/data/game.js:393	1	sentence	Important fix: with twenty-two countries in the world a save had grown to 2.3 MB, and a browser only gives the game about 5 MB, so the third career slot had stopped saving. Three quarters of a save is players' empty stat
+js/data/game.js:401	1	sentence	Curl is fixed. Striking half a ball's width out now bends it properly \u2014 a free kick aimed six metres wide of the wall used to fly wide 107 times out of 120, and now it bends back on target and goes in.
+js/data/game.js:405	1	sentence	New set piece \u2014 throw-ins. From the touchline, four team-mates making runs, one of them in space. No boot on the ball so there is no bend and not much power on it.
+js/data/game.js:406	1	sentence	New set piece \u2014 corners. Swing it into the box for the man who is calling, float it to the back post, or curl it straight in yourself. The keeper will come and claim it if you drop it on his head.
+js/data/game.js:414	1	sentence	Every club, town and player name is invented \u2014 nothing here is a real club.
+js/data/game.js:416	1	sentence	Pre-season friendlies. Week 0 is now a warm-up game \u2014 half-empty ground, nothing goes on your record, but the legs get the work.
+js/data/game.js:420	1	sentence	Reputation now depends on where you played. Friendly, league, cup, Euro League, international, Champs League, World Championship \u2014 each pays its own band, with a random swing so two identical games never pay the sam
+js/data/game.js:425	1	sentence	A panel under the headlines with three tabs: Leaderboard (your league's table), Top Scorer and Top Assists \u2014 players in your league, their matches played and their goals or assists. It follows you when you transfer.
+js/data/game.js:429	1	sentence	Your reputation rolls up on the full-time card like a car odometer \u2014 green climbing, red falling, easing to a stop on the exact number. European and international games roll your world reputation beside it.
+js/data/game.js:435	1	sentence	Sync to leaderboard uploads all three of your careers. Your strongest one is the one that shows on the board \u2014 the other two are yours to play whenever you like.
+js/data/game.js:439	1	sentence	Hitting a post or the bar no longer ends the move. The ball rebounds back into play and it is a race \u2014 you, the keeper and the defenders all go for it.
+js/data/game.js:444	1	sentence	A team-mate hitting the frame still ends the move \u2014 that one is his.
+js/data/game.js:446	1	sentence	These notes. The flag button in the top bar opens them whenever you want \u2014 nothing pops up at you after an update any more.
+js/data/game.js:449	1	sentence	A work-experience bar sits under your level bar. It fills as you take shifts and shows how many are left until your next promotion \u2014 and turns gold with your pay per shift once you're at the top.
+js/data/game.js:453	1	sentence	At the top rank you can still take shifts for the money \u2014 the job button stays live. If it is greyed out it now tells you why: no actions left, too tired, or injured.
+js/data/game.js:471	1	sentence	Defenders no longer re-read the ball every frame and home in on it \u2014 they commit to where they think it's going and can be wrong.
+js/engine/decide.js:170	1	sentence	Cross it \u2014 or go yourself
+js/engine/decide.js:265	1	sentence	Great save \u2014 nothing wrong with that strike.
+js/engine/decide.js:285	1	sentence	Audacious \u2014 and it went in. They'll let it go this time.
+js/engine/decide.js:290	1	sentence	Right call \u2014 the keeper just did his job.
+js/engine/decide.js:300	1	sentence	It came off \u2014 but
+js/engine/decide.js:301	1	sentence	\u2014
+js/engine/decide.js:304	1	sentence	Unselfish \u2014 the lads love that.
+js/engine/defend.js:26	1	sentence	Last man \u2014 he cannot get past you
+js/engine/defend.js:47	1	sentence	Read it \u2014 get across the lane
+js/engine/defend.js:129	1	sentence	Now \u2014 take it off him
+js/engine/defend.js:141	1	sentence	He got it back \u2014 stay with him
+js/engine/defend.js:168	1	sentence	Missed it \u2014 stay on your feet
+js/engine/defend.js:202	1	sentence	You won it \u2014 go
+js/engine/defend.js:254	1	sentence	You read it \u2014 go
+js/engine/moment.js:234	1	sentence	Held it too long \u2014 the defence closed you down.
+js/engine/moment.js:255	1	sentence	Heavy touch \u2014 he nicked it off you.
+js/engine/moment.js:255	1	sentence	Clean tackle \u2014 ball's gone.
+js/engine/moment.js:341	1	sentence	Took too long over it \u2014 closed down.
+js/engine/moment.js:455	1	sentence	m \u2014 it moved everywhere.
+js/engine/moment.js:456	1	sentence	m \u2014 it counts!
+js/engine/moment.js:467	1	sentence	Not enough on it \u2014 the keeper gathers.
+js/engine/moment.js:481	1	sentence	Off the wall and behind \u2014 corner.
+js/engine/moment.js:492	1	sentence	Deflected behind \u2014 corner.
+js/engine/moment.js:496	1	sentence	Blocked \u2014 it's loose!
+js/engine/moment.js:509	1	sentence	Blocked \u2014 and cleared.
+js/engine/moment.js:518	1	sentence	Tipped over the bar \u2014 corner.
+js/engine/moment.js:518	1	sentence	Pushed round the post \u2014 corner.
+js/engine/moment.js:525	1	sentence	Parried \u2014 follow it in!
+js/engine/moment.js:528	1	sentence	Full stretch \u2014 he gets there.
+js/engine/moment.js:538	1	sentence	Inches away \u2014 it rattled the post.
+js/engine/moment.js:573	1	sentence	Off the post \u2014 still live!
+js/engine/moment.js:573	1	sentence	Off the bar \u2014 still live!
+js/engine/moment.js:574	1	sentence	\u2014 and it's still live!
+js/engine/moment.js:744	1	sentence	Straight in from the corner \u2014 nobody got a touch!
+js/engine/moment.js:802	1	sentence	Read it \u2014 intercepted.
+js/engine/moment.js:804	1	sentence	Overhit \u2014 it runs out of play.
+js/engine/moment.js:805	1	sentence	Nobody read that pass \u2014 it runs away to nothing.
+js/engine/render.js:840	1	sentence	moving ball \u2014 be quick
+js/engine/render.js:971	1	sentence	Move to stay in front of him \u2014 wait for the heavy touch
+js/engine/render.js:977	1	sentence	It's loose \u2014 get there first!
+js/events.js:12	2	sentence	Several flats in the street have been broken into. Lock your door \u2014 a proper lock \u2014 and don't leave it open.
+js/events.js:16	1	sentence	The owner has been called. Until it's moved (by 7 PM), climb in and out through the lobby window \u2014 hold E at it.
+js/life/buildmode.js:94	1	sentence	Against the wall \u2014 not in it
+js/life/buildmode.js:150	1	sentence	\u2014 set up.
+js/life/buildmode.js:208	1	sentence	Pick a box below \u2014 or click a piece in the room to move it
+js/life/buildmode.js:216	1	placeholder	\u2014
+js/life/fridge.js:72	1	sentence	Nothing in here. The Mini Market on your street sells food \u2014 or order on Foodies and carry the bag up to a fridge.
+js/life/ground.js:92	1	sentence	Out of order \u2014 has been for months
+js/life/gymclub.js:160	1	sentence	Members only \u2014 join at reception
+js/life/home.js:187	1	sentence	Locked \u2014 you don't live here
+js/life/home.js:517	1	sentence	Not yours \u2014 locked
+js/life/home.js:834	1	sentence	New lock fitted. Shut the door and press F to lock it \u2014 and again to unlock it.
+js/life/home.js:845	1	sentence	The lock's broken \u2014 the door shuts but it won't lock. Mobila Bună sells new ones, by the till.
+js/life/home.js:864	1	sentence	Not yours \u2014 locked
+js/life/home.js:961	1	sentence	Click. Nothing. There's no bulb in the light \u2014 the furniture store next to your block sells them for €3.
+js/life/home.js:975	1	sentence	Let there be light. Don't leave it on when you go out \u2014 it's on the electricity bill.
+js/life/home.js:1083	1	sentence	Done \u2014
+js/life/home.js:1152	1	placeholder	\u2014
+js/life/home.js:1238	1	sentence	The car's blocking the door \u2014 hold E to climb out
+js/life/home.js:1241	1	sentence	Your way in today \u2014 hold E to climb in
+js/life/intro.js:352	1	sentence	So \u2014 here it is. Small, but it's yours. Let me show you around,
+js/life/intro.js:357	1	sentence	A two-hour nap \u2014 or, at night, sleep until 7:00 AM
+js/life/intro.js:358	1	sentence	A real bed sleeps better \u2014 the furniture store next door sells them
+js/life/intro.js:359	1	sentence	Your bed. Well \u2014 a mattress. Hold E for 2 seconds on it to sleep through the entire day. A proper bed would do your legs more good.
+js/life/intro.js:360	1	sentence	Energy \u2014 some food takes fatigue away too
+js/life/intro.js:360	1	sentence	% of what food is worth \u2014 a better fridge keeps more
+js/life/intro.js:361	1	sentence	The fridge. It wheezes and it's half rust \u2014 food out of it does you half the good. Save up for a better one.
+js/life/intro.js:361	1	sentence	Your fridge. Eat to keep your energy up \u2014 and the fridge in the training centre's gym has the same food in it.
+js/life/intro.js:364	1	sentence	Food delivered to the table in your lobby \u2014 or to the shelf inside the gym door, if you order from the training centre
+js/life/intro.js:365	1	sentence	No time to shop? Order on your phone. The courier leaves the bag on the table downstairs \u2014 carry it up to the fridge.
+js/life/intro.js:368	1	sentence	The furniture store next to your block sells a laptop \u2014 and a table to put it on
+js/life/intro.js:371	1	sentence	And there's no bulb in the light. The furniture store next door sells them \u2014 three euros. Get one before it gets dark.
+js/life/intro.js:372	1	sentence	The bath eases fatigue (30 min); the bathroom mirror changes your look \u2014 the barber across the road does new cuts
+js/life/intro.js:373	1	sentence	Switch the light off when you go out. Electricity isn't free \u2014 that part's on you.
+js/life/intro.js:402	1	sentence	Your job \u2014
+js/life/intro.js:402	1	sentence	\u2014 is
+js/life/intro.js:402	1	sentence	. Clock in between 7:00 AM and 11:00 PM for a 2- or 4-hour shift: money and job XP, and better jobs as you go \u2014 further along the road, then out in
+js/life/intro.js:403	2	sentence	Eat from your fridge \u2014 at home or in the training centre's gym, it's the same food, and a better fridge keeps more of its goodness. Buy more at the Mini Market, or order Foodies on your phone: the bag is left on the
+js/life/intro.js:404	2	sentence	Left click picks things up. 1 and 2 put what's in your hand in a pocket (and take it out again); G drops it. Bigger things \u2014 a furniture box \u2014 you carry in both arms.
+js/life/intro.js:406	5	sentence	</summary> <ul><li><b>Playing time</b> \u2014 ask why you're on the bench, or for more minutes.</li><li><b>Trust</b> \u2014 how much he believes in you, and what moves it: training, attendance, results.</li> <li><b>Team 
+js/life/intro.js:410	1	sentence	Training and games give XP to your skills and raise your overall. Good games grow your reputation \u2014 it opens bigger clubs, better deals, and the barber's own cuts.
+js/life/intro.js:476	1	sentence	Team training's out here with the coach. Don't be late \u2014 the manager notices.
+js/life/intro.js:478	1	sentence	The drills \u2014 one skill at a time, as often as your legs allow.
+js/life/intro.js:480	1	sentence	The gym. Power, jumping, pace, stamina \u2014 pick your machine.
+js/life/intro.js:481	1	sentence	The same food as your fridge at home \u2014 eat here, it comes off the same stock
+js/life/intro.js:483	1	sentence	Lets the time pass \u2014 wait for training or for a game
+js/life/intro.js:488	1	sentence	Club computer, ice bath \u2014 look after yourself.
+js/life/intro.js:490	1	sentence	And the bus home is out by the gate. That's it \u2014 the rest is up to you.
+js/life/jobs.js:82	1	sentence	min early \u2014 quick work
+js/life/jobs.js:84	1	placeholder	\u2014
+js/life/jobs.js:90	1	sentence	Esc \u2014 clock out early (you're paid for what you've done)
+js/life/jobs.js:113	1	sentence	Make what's on the ticket \u2014 you know the recipes by heart now
+js/life/jobs.js:159	1	sentence	\u2014 it wanted
+js/life/jobs.js:187	1	sentence	Scan everything, then count out the change \u2014 the till won't do the sum for you
+js/life/jobs.js:217	1	sentence	\u2014 it was
+js/life/jobs.js:225	1	sentence	Click the drops in the order you'll ride them \u2014 the shortest round trip back to the depot is the best run
+js/life/jobs.js:271	1	sentence	blocks \u2014 the shortest way round
+js/life/jobs.js:271	1	sentence	blocks \u2014
+js/life/jobs.js:288	1	sentence	Check each card: out of date \u2014 renew first; Basic is the gym floor only, classes and the pool are Gold
+js/life/jobs.js:297	1	sentence	“Hi \u2014 here for
+js/life/jobs.js:310	1	sentence	The kid with the ball needs a pass: click the teammate who's free \u2014 nobody near them, nobody in the way
+js/life/jobs.js:357	1	sentence	The team photo \u2014 one at a time
+js/life/mini.js:58	1	sentence	Move the mouse round in clockwise circles \u2014 or tap Space
+js/life/parcels.js:37	1	sentence	Take it to a fridge \u2014 the food goes in when you get close.
+js/life/rent.js:26	2	sentence	I've paid the first three months \u2014 after that you're on your own. Make me proud. \u2014 Nelu
+js/life/rent.js:71	1	sentence	\u2014 a 10% late fee has been added.
+js/life/rent.js:87	1	sentence	\u2014 a 10% late fee is added to anything still unpaid when the next bill goes out.
+js/life/store.js:126	1	sentence	. Hold E to buy it \u2014 it comes boxed, for you to carry home and set up (B, in your flat).
+js/life/store.js:210	1	sentence	On the belt. The cashier scans it through \u2014 then pay at the card reader.
+js/life/store.js:230	1	sentence	Card declined \u2014 you need
+js/life/store.js:250	1	sentence	BEEP BEEP BEEP \u2014 the alarm goes off. The cashier hurries over and takes back the
+js/life/store.js:264	1	sentence	Your hands are full. Pocket what you're holding (1 or 2) or drop it (G) \u2014 a box needs both arms.
+js/life/store.js:320	1	sentence	Beds along the back wall, fridges down the left. Tiers 3 to 6 \u2014 the box rides home with you on the bus.
+js/life/store.js:336	1	sentence	. Hold E to buy it \u2014 it comes boxed, for you to carry home on the bus and set up (B, in your flat).
+js/life/town.js:121	1	sentence	The town hall. Nothing for you in there today \u2014 unless you fancy queueing for a form.
+js/life/units.js:204	1	sentence	A better job than yours \u2014 keep working up the ladder and it can be yours.
+js/life/world.js:137	1	sentence	you wake up hungry \u2014 eat breakfast.
+js/life/world.js:171	1	sentence	. Match day \u2014 kick-off
+js/life/world.js:172	1	sentence	. No team training today \u2014 the gym and the drills are yours.
+js/life/world.js:173	1	sentence	\u2014 the gym is open, or sit on the bench.
+js/life/world.js:174	1	sentence	. Training's on \u2014 the squad is out on the pitch.
+js/life/world.js:180	1	sentence	. Strada Mare \u2014
+js/life/world.js:183	1	sentence	. Your block is across the road \u2014 the Mini Market is on the corner.
+js/life/world.js:265	1	sentence	Exhausted \u2014 this will count for little
+js/life/world.js:272	1	sentence	You're too hungry to keep up. Eat first \u2014 there's food in the gym fridge.
+js/life/world.js:305	1	sentence	Full time. You walk back out of the tunnel \u2014 it's
+js/life/world.js:351	1	sentence	Somebody's been in your flat. Half your money's gone \u2014
+js/life/world.js:376	1	sentence	Everyone out \u2014 the bus home is at the gate
+js/life/world.js:377	1	sentence	\u2014 they're locking up. The bus is waiting for you at the gate.
+js/life/world.js:676	1	sentence	Your hands are full \u2014 press 1 or 2 to pocket the
+js/life/world.js:1378	1	sentence	You're injured \u2014 you'll watch this one from the stand.
+js/life/world.js:1379	1	sentence	Suspended \u2014
+js/life/world.js:1381	1	sentence	Too late \u2014 the game has kicked off without you.
+js/life/world.js:1701	1	sentence	. Your uncle paid the first three months \u2014 check your mailbox in the lobby.
+js/life/world.js:1702	1	sentence	. Match day \u2014 kick-off at
+js/life/world.js:1702	1	sentence	\u2014 the bus takes
+js/match.js:166	1	sentence	tries his luck from distance \u2014 just over.
+js/match.js:166	1	sentence	off a corner \u2014 wide.
+js/match.js:167	1	sentence	corner \u2014 cleared at the near post.
+js/match.js:168	1	sentence	calls for it on the edge \u2014 the pass goes astray.
+js/match.js:173	1	sentence	shoots \u2014
+js/match.js:182	1	sentence	plays a perfect through ball \u2014
+js/match.js:183	1	sentence	is tripped in the box \u2014 PENALTY!
+js/match.js:185	1	sentence	wins it on the edge of our box \u2014
+js/match.js:220	1	sentence	pulls up holding his hamstring \u2014 he's been running himself into the ground. He has to come off.
+js/match.js:221	1	sentence	Injured \u2014 out for about
+js/match.js:225	1	sentence	is everywhere \u2014 pressing, running, demanding the ball.
+js/match.js:234	1	sentence	free but goes on his own \u2014 and loses it.
+js/match.js:261	1	sentence	. The world is watching \u2014 big games build your world reputation.
+js/match.js:262	1	sentence	Pre-season. Nothing goes on your record today \u2014 but the legs need the work, and the coach is watching.
+js/match.js:269	1	sentence	You start \u2014 the manager will look at his bench around the hour.
+js/match.js:270	1	sentence	You're on the bench. If you get on, it'll be late \u2014 the manager needs more from you in training.
+js/match.js:274	1	sentence	Take them on \u2014 they're slow at the back.
+js/match.js:275	1	sentence	). You should have eaten \u2014 an Energy-UP at half-time will help.
+js/match.js:278	1	sentence	fans \u2014 but you're calm. Nerves won't be a problem.
+js/match.js:304	1	sentence	Drag the ball past them and get into the box. Team-mates are around you \u2014 get to the box and you choose: shoot, or find one of them.
+js/match.js:305	1	sentence	Defender chasing, keeper rushing out. Finish it \u2014 or square it if a team-mate has the easier tap-in.
+js/match.js:306	1	sentence	It's moving \u2014 hit it quick, or lay it off to a team-mate in a better spot.
+js/match.js:308	1	sentence	Near post, far post, or the cut-back \u2014 pick the man in space and whip it in. You can go for goal from the angle too.
+js/match.js:309	1	sentence	Find the team-mate who's calling for it. Drag back to aim, release, then strike the ball. Bottom of the ball lifts it over defenders. You can press D to shoot instead \u2014 but you are building an attack, and the lads w
+js/match.js:310	1	sentence	Swing it into the box. Strike the side of the ball to bend it in, the bottom to float it to the back post \u2014 or curl it straight in yourself.
+js/match.js:311	1	sentence	Move to stay in front of him and wait for the heavy touch. When the ball leaves his feet, swipe through it \u2014 across the ball takes it cleanly, straight through pokes it loose. Catch his legs and it is a foul.
+js/match.js:316	1	sentence	Drag back from yourself, not the ball \u2014 it is in your hands. No boot on it, so no bend and only so far you can throw it. Pick the man in space and get the weight right.
+js/match.js:331	1	sentence	\u2014
+js/match.js:379	1	sentence	\u2014 he scores
+js/match.js:390	1	sentence	scores \u2014 assisted by
+js/match.js:410	1	sentence	\u2014 one-two with
+js/match.js:410	1	sentence	\u2014 free kick from
+js/match.js:425	1	sentence	You're hurt and have to come off \u2014 out for about
+js/online.js:94	1	placeholder	\u2014
+js/online.js:134	1	sentence	That email already has an account \u2014 sign in instead.
+js/online.js:228	1	sentinel	\u2014
+js/social.js:77	1	sentence	followed you back \u2014 you're friends now.
+js/social.js:110	1	sentence	followed you back \u2014 you're friends now.
+js/social_quick.js:15	1	sentence	Good result. Not my best day though \u2014 my fault, I'll bounce back.
+js/social_quick.js:22	1	sentence	Disappointed. That chance is on me \u2014 I'll bounce back.
+js/social_quick.js:29	1	sentence	I let you down today. On me. Sorry \u2014 we'll bounce back.
+js/social_quick.js:32	1	sentence	Hard work paid off \u2014 got my {item}. Thank you to everyone who supports me!
+js/social_quick.js:32	1	sentence	My family and the fans made this possible. Thank you \u2014 my {item} 🙏
+js/social_quick.js:36	1	sentence	Got a {item}. Sorry if it looks flashy \u2014 my fault, feet stay on the ground.
+js/social_quick.js:36	1	sentence	Treated myself to a {item}. Sorry, my fault if it's too much \u2014 I'll be better at staying grounded.
+js/social_quick.js:44	1	sentence	All the clowns who doubted me \u2014 {award}. Pathetic losers.
+js/social_quick.js:45	1	sentence	We did it together. Grateful for this group \u2014 {award}!
+js/social_quick.js:50	1	sentence	{award}. All the clowns who wrote us off \u2014 pathetic 🤡
+js/social_quick.js:55	1	sentence	Sorry to my old club's fans if this hurts. I'm disappointed it ended like this \u2014 I'll bounce back.
+js/ui/admin.js:49	1	sentence	Showoff \u2014 how people see you
+js/ui/admin.js:107	1	placeholder	\u2014
+js/ui/admin.js:110	1	sentence	No club \u2014 pick one below
+js/ui/admin.js:172	1	sentence	<div class="ad-row-btns"> <button class="btn sm ghost" onclick="adminSet('smartphone', 1)">Give smartphone + all apps</button> <button class="btn sm ghost" onclick="adminSet('allItems', 1)">Give all gear &amp; staff</but
+js/ui/admin.js:266	1	sentence	You've been released \u2014 pick a new club.
+js/ui/apps_rank.js:31	1	placeholder	\u2014
+js/ui/apps_rank.js:32	1	placeholder	\u2014
+js/ui/apps_rank.js:44	1	placeholder	\u2014
+js/ui/apps_rank.js:67	1	sentence	<div class="rk-you muted">Your career isn't on the board yet \u2014 sync it from the menu.</div>
+js/ui/apps_rank.js:73	1	placeholder	\u2014
+js/ui/apps_scout.js:7	1	sentence	No agent \u2014 clubs judge you on your own
+js/ui/apps_scout.js:57	1	sentence	<div class="muted small">You changed your requests \u2014 send again.</div>
+js/ui/apps_social.js:39	1	sentence	Someone mentioned you \u2014 reply
+js/ui/apps_stats.js:70	1	placeholder	\u2014
+js/ui/barber.js:51	1	sentence	<span class="muted">Pick a cut, a beard or a colour \u2014 the mirror shows it before you pay.</span>
+js/ui/feed.js:100	1	sentence	\u2014
+js/ui/foodies.js:17	1	sentence	Ordered \u2014 arriving about
+js/ui/main.js:80	1	sentence	\u2014
+js/ui/main.js:123	1	sentinel	\u2014
+js/ui/main.js:148	1	placeholder	\u2014
+js/ui/main.js:148	1	placeholder	\u2014
+js/ui/main.js:299	1	sentence	</div> <p class="muted small">You can change all of this later \u2014 the mirror at home, or the barber in town for a new cut.</p>
+js/ui/main.js:305	1	sentence	Three Liga 4 clubs made you an offer. Your keypad phone only lets you take a basic deal \u2014 you'll negotiate once you own a smartphone.
+js/ui/main.js:354	1	sentence	Match today \u2014 you're injured and will watch from the stand.
+js/ui/main.js:354	1	sentence	Match today \u2014 you're suspended.
+js/ui/main.js:356	1	sentence	<button class="btn lg" onclick="A.endWeek()">Injured \u2014 watch from the stands, next week →</button>
+js/ui/main.js:357	1	sentence	<button class="btn lg" onclick="A.endWeek()">Suspended \u2014
+js/ui/main.js:383	1	sentence	Top of the ladder \u2014 keep working for the money
+js/ui/main.js:383	1	sentence	Work experience \u2014 fill the bar to get promoted
+js/ui/main.js:394	1	sentence	Too tired \u2014 needs
+js/ui/main.js:397	1	sentence	Too tired \u2014 needs
+js/ui/main.js:398	1	sentence	Too tired \u2014 needs
+js/ui/main.js:532	1	sentence	Too tired \u2014 needs 8 energy
+js/ui/main.js:574	1	sentence	skill points. Upgrades cost 1 point below 50, 2 below 75, then 3.</p> <p class="muted small">Each skill also fills its own bar as you play \u2014 shooting builds power and accuracy, beating a man builds dribbling, and so
+js/ui/main.js:590	1	sentence	\u2014 you have
+js/ui/main.js:619	1	sentence	</div> <button class="btn ghost" onclick="saveNow();toast('Saved','good')">Save now</button> <button class="btn ghost" onclick="A.faultReport()">🩺 Report a problem \u2014 copy the details
+js/ui/main.js:621	1	sentence	</button> <textarea id="faultOut" class="codebox" style="display:none"></textarea> <div class="transfer"> <label>Move this career to another device</label> <button class="btn" id="saveCodeBtn" onclick="A.saveGame()">💾 S
+js/ui/main.js:638	1	sentence	<button class="btn ghost" onclick="A.quit()">Quit to title</button></div> <p class="muted small">Your career saves automatically in this browser \u2014 the code is only needed to move it somewhere else.</p>
+js/ui/main.js:737	1	sentence	<section class="page center"><div class="loader"><div class="spinner"></div><p>Building the football world \u2014 clubs, squads, fixtures…</p></div></section>
+js/ui/main.js:811	1	placeholder	\u2014
+js/ui/main.js:815	1	sentence	) \u2014 Menu → Report a problem has the details.
+js/ui/main.js:830	1	sentence	Problem report copied \u2014 paste it to whoever is fixing this
+js/ui/main.js:854	1	sentence	reputation \u2014 but that one stung
+js/ui/main.js:883	1	sentence	). It has been left alone \u2014 sync it up to make it the account's copy.
+js/ui/main.js:889	1	sentence	</b> \u2014
+js/ui/main.js:889	1	sentence	played \u2014 is saved here and
+js/ui/main.js:929	1	sentence	</b> \u2014
+js/ui/main.js:929	1	sentence	played \u2014 will be deleted from this device and replaced with <b>
+js/ui/main.js:962	1	sentence	</b> \u2014
+js/ui/main.js:962	1	sentence	\u2014 will be deleted from this device and replaced with <b>
+js/ui/main.js:1027	1	sentence	Smartphone unlocked \u2014 pull up your phone!
+js/ui/main.js:1052	1	sentence	\u2014 looking sharp. +
+js/ui/main.js:1064	1	sentence	Save code copied \u2014
+js/ui/main.js:1064	1	sentence	Code ready below \u2014 select it all and copy.
+js/ui/main.js:1066	1	sentence	💾 Save game \u2014 copy code
+js/ui/main.js:1090	1	sentence	Your browser blocked full screen \u2014 press F11.
+js/ui/office.js:63	1	sentence	<h2>Media duty</h2> <p class="muted">A reporter is waiting after training. What you say moves your reputation \u2014 and what the manager thinks of you.</p> <blockquote class="mq">
+js/ui/office.js:148	1	sentence	/week \u2014 you hit every number the manager asked for.
+js/ui/office.js:155	1	sentence	You did not get there. The offer is off the table for now \u2014 keep playing and we will look again.
+js/ui/office.js:174	1	sentence	<h2>Manager</h2><p class="muted">You are not at a club \u2014 there is nobody to talk to yet.</p>
+js/ui/office.js:211	1	sentence	a week \u2014 but I want it earned.
+js/ui/office.js:213	1	sentence	% \u2014
+js/ui/office.js:295	1	sentence	\u2014
+js/ui/panels.js:58	1	sentence	You're injured \u2014 you'll watch this one.
+js/ui/panels.js:58	1	sentence	Suspended \u2014
+js/ui/panels.js:67	1	sentence	Tired legs cost you on the pitch. Rest before kick-off \u2014 sit, nap, or an ice bath.
+js/ui/panels.js:84	1	placeholder	\u2014
+js/ui/panels.js:102	1	placeholder	\u2014
+js/ui/panels.js:125	1	sentence	hair</p></div> <button class="btn sm" onclick="openLookEditor('pc')">Change your look</button></div> <div class="pc-card"><div class="pc-h">Personality</div> <p class="pc-tip">Built slowly from what you do on the pitch \
+js/ui/panels.js:132	1	sentence	</p> <p class="pc-tip muted">Chemistry grows by being at training with the squad and by playing for the team. The higher it is, the more the ball tends to find you \u2014 but nobody gets it every minute.</p></div>
+js/ui/panels.js:146	1	sentence	on weekdays without a match. Turn up on time and stay for the session \u2014 the manager notices, and so do your team-mates.</p> <p class="pc-tip">Sleeping takes you to the next morning. The week turns over in the night 
+js/ui/panels.js:166	1	sentence	What you buy goes in your fridge \u2014 the one at home and the one in the gym hold the same food. Energy drinks give a quick lift, then wear off. Proper food lasts.</p>
+js/ui/panels.js:193	1	sentence	\u2014 you'll get a little hungrier while you wait.</p>
+js/ui/panels.js:212	1	sentence	\u2014 the clock runs on while you ride.</p> <div class="wait-list bus-list">
+js/ui/panels.js:214	1	sentence	</div> <p class="lpn-foot">Hungry or tired? Sort it before you go \u2014 there's nothing to eat on the bus.</p>
+js/ui/panels.js:229	1	sentence	<p class="lpn-p">You're at the top of the ladder \u2014 shifts are just pay now.</p>
+js/ui/panels.js:235	1	sentence	We close at 11:00 PM \u2014 come back tomorrow from 7:00 AM.
+js/ui/panels.js:251	1	placeholder	\u2014
+js/ui/panels.js:252	1	placeholder	\u2014
+js/ui/panels.js:253	1	placeholder	\u2014
+js/ui/panels.js:254	1	placeholder	\u2014
+js/ui/panels.js:269	1	sentence	Tomorrow is Monday \u2014 a new week, and your wage goes in.
+js/ui/panels.js:273	1	sentence	\u2014 no team training.
+js/ui/phone.js:83	1	placeholder	\u2014
+js/ui/phone.js:85	1	placeholder	\u2014
+js/ui/smart.js:59	1	sentence	</div><button class="sm-homebar" aria-label="Home \u2014 swipe up"></button></div>
+js/ui/smart.js:94	1	sentence	<p class="muted small">The window is shut \u2014 if you accept you move when the
+js/ui/smart.js:121	1	sentence	<div class="empty">No cup this season \u2014 it starts again next season.</div>
+js/ui/smart.js:129	1	sentence	<div class="empty">No World Championship this season \u2014 the next one starts with the new season.</div>
+js/ui/smart.js:160	1	sentence	<p class="bad">Promise broken \u2014 wage halved, bonuses removed.</p>
+js/ui/smart.js:168	1	sentence	</div></div> <label>Move this career to another device</label> <button class="btn sm" id="phSaveBtn" onclick="phoneSaveCode()">💾 Save game \u2014 copy code</button> <textarea id="phCode" rows="3" readonly placeholder="Y
+js/ui/smart.js:173	1	sentence	</button><button class="btn sm ghost" onclick="saveNow();toast('Saved','good')">Save now</button><button class="btn sm danger" onclick="phoneDeleteCareer()">Delete career</button></div> <p class="muted small">The code ho
+js/ui/smart.js:182	1	sentence	Save code copied \u2014
+js/ui/smart.js:182	1	sentence	Code ready \u2014 select it all and copy.
+js/ui/smart.js:184	1	sentence	💾 Save game \u2014 copy code
+js/ui/tutorial.js:70	1	sentence	Every skill is <b>maxed at 99</b>. Pace, power, curl, dribbling, composure \u2014 everything. Enjoy it. Learn the game.
+js/ui/tutorial.js:77	1	sentence	The clock runs and the commentary tells you what's happening. When the ball comes to you, the game stops \u2014 that's <b>your moment</b>.
+js/ui/tutorial.js:78	1	sentence	This button sets how hard you work. <b>⚡</b> saves energy but you get fewer chances. <b>⚡⚡⚡⚡</b> gets you on the ball far more \u2014 but you tire fast and the injury risk climbs. Tap it to change.
+js/ui/tutorial.js:79	1	sentence	Your energy drains every minute you're on the pitch, faster with a high work rate. Tired legs run slower and shoot weaker. Drink Energy-UP at half-time \u2014 that is the only time you can.
+js/ui/tutorial.js:80	1	sentence	<b>Hold and drag</b> where you want the ball to go, or use the <b>arrow keys</b>. Drag a little for close control; drag far to <b>sprint</b> \u2014 faster, but heavy touches get nicked. Reach the box and your shot starts
+js/ui/tutorial.js:81	1	sentence	<b>Drag back from the ball</b>, the opposite way you want to shoot \u2014 like a slingshot. The further you pull, the more power. Watch the bar go white → green → red. <b>Release</b> to lock it in.
+js/ui/tutorial.js:82	1	sentence	Strike the ball \u2014 and curl it
+js/ui/tutorial.js:83	2	sentence	Sometimes a team-mate calls for it \u2014 <b>LW, RW, CAM or ST</b>. Same controls, less power. Find the one who's calling for the best chance of an assist.<br>While you're on the ball you can choose for yourself: <b>S</b
+js/ui/tutorial.js:88	1	sentence	Try pulling back for ~70% power, then click the RIGHT side of the ball \u2014 watch it curl left round the wall.
+js/ui/tutorial.js:98	1	sentence	Train, play, level up, buy better gear, hire coaches, stay humble online \u2014 or don't. Every game gets you closer to the dream.
+js/ui/tutorial.js:108	1	sentence	Pre-season friendly first \u2014 good luck!
+js/world.js:364	1	sentence	group phase \u2014 their European run carries on in the
+js/world.js:427	1	sentence	) \u2014
