@@ -198,12 +198,19 @@ still on screen.
     first frame (it began through your eyes and eased back while loading).
   - Training's cage: the `trainsb` mode has `flags.footTP`. `me.js viewStep` then follows the football camera setting
     from the first frame, the hub up or not, with no glide on entering.
+  - This applies only while the cage's own view (`life-fp` or `life-tp`) is the camera's. With a drill's camera on top,
+    keeping the hidden cage body "in third person" added a geometry at every drill restart (`tr4-reset`: 23, 24, 25).
 - **Tests:**
   - `u28-flick` rewritten 7/7: heights 4.5, 3 and 1.5 m and half a bar half of them, landings, the Strength-33 cap,
     no stat error, the sombrero over a man, close control ended.
   - New `u29-flickcam` (real input): no first-person frame from the Training button, the bar's fill times read off the
     bar, a Strength-99 flick to 4.5 m.
-  - `u21-camera`: the start is now behind you from the first drawn frame, with the whole body.
+  - `u21-camera`: the start is now behind you from the first drawn frame, with the whole body. Its cage checks follow
+    the setting (behind you, the ball or not; through your eyes with First person).
+  - `tr3-cage`: the open-end check is only for cages with one goal (the pitch types' cages have two), and the cage
+    costs 13 draw calls (your own body seen from behind).
+  - The groups: unit, lint, nodash, smoke, oldsave, tr2, tr3, tr4, tr7, uf2 and u21 pass, but for `uf2-feel`'s
+    throw-in meter (fails on origin too).
 - The guide picture gained the flick rows.
 
 ## Shot Accuracy, Shot Power and the flick's speed (the user's last asks)

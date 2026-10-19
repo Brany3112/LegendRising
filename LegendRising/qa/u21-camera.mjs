@@ -10,7 +10,8 @@
 //     team-mate, real) all work in third person, and the shot goes where you aim
 //   - never through the fence: standing with your back to it the camera is pulled in, inside it
 //   - the setting: Football camera = First person turns it back to your eyes (eased), and Third person back again
-//   - life: first person; behind you while you have the ball (hand.js ME.footBall), first person again after
+//   - Training's cage follows the Football camera setting (U29): behind you, the ball at your feet or not; first person
+//     when the setting is First person
 //   - no console or page error
 //
 //   node qa/u21-camera.mjs          exits 1 on any failed check; writes qa/out/u21-camera.json and qa/out/u21/*.png
@@ -181,7 +182,7 @@ try {
   check(S3.tpK === 0 && S3.fp && !S3.whole && W3.maxSpeed < 10, "Football camera = First person: your eyes again, eased (no cut), your first-person body under them", res.setting);
   check(S4.tpK === 1 && W4.maxSpeed < 10, "Third person again: eased back behind you", {tpK: S4.tpK, W4});
 
-  /* ---------- life: first person; behind you while you have the ball ---------- */
+  /* ---------- Training's cage (U29): it follows the Football camera setting, the ball at your feet or not ---------- */
   await page.evaluate(() => window.__trainRun.stopScenario("hub"));
   await page.evaluate(() => { if (window.__trainHub.hubOpen()) window.__trainHub.closeHub(); });
   await frames(page, 60);
@@ -198,10 +199,16 @@ try {
   await page.evaluate(() => { const ME = window.__u21.ST.ME; delete ME.footBall; ME.footBall = false; ME.footBallT = 0; });
   await frames(page, 60);
   const L2 = await page.evaluate(() => ({camT: window.__u21.ST.ME.camT, tp: window.__u21.ST.ME.tpShown}));
-  res.life = {L0, L1, L2, placed};
-  check(L0.camT === 0 && !L0.tp, "life is first person", L0);
-  check(L1.camT === 1 && L1.tp, "with the ball (hand.js ME.footBall) life goes behind you", L1);
-  check(L2.camT === 0 && !L2.tp, "and back to first person once you no longer have it", L2);
+  await page.evaluate(() => window.__u21.C.saveSet({footCam: "first"}));
+  await frames(page, 60);
+  const L3 = await page.evaluate(() => ({camT: window.__u21.ST.ME.camT, tp: window.__u21.ST.ME.tpShown}));
+  await page.evaluate(() => window.__u21.C.saveSet({footCam: "third"}));
+  await frames(page, 30);
+  res.life = {L0, L1, L2, L3, placed};
+  check(L0.camT === 1 && L0.tp, "Training's cage is behind you (Football camera Third person), the ball or not", L0);
+  check(L1.camT === 1 && L1.tp, "with the ball (hand.js ME.footBall) still behind you", L1);
+  check(L2.camT === 1 && L2.tp, "and still behind you once you no longer have it", L2);
+  check(L3.camT === 0 && !L3.tp, "Football camera First person: the cage through your eyes", L3);
 } catch(e){ check(false, "ran", String(e && e.stack || e)); }
 res.pageErrors = page.errors.slice(0, 5);
 check(!page.errors.length, "zero console and page errors", page.errors.slice(0, 5));

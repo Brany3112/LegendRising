@@ -34,7 +34,7 @@ import {G, LIFE, P, B, ME, RT, FLAGS, FADE, spring} from "./state.js";
 import {camCast, camClear, camClearance, surfaceUnder, CG, SG} from "./collide.js";
 import {GR, LOCO} from "./move.js";
 import {modeFlags, tutOn, persist} from "./modes.js";
-import {camPush, camPop, camKick} from "./camera.js";
+import {camPush, camPop, camKick, camTop} from "./camera.js";
 import {TUN} from "./tunnel.js";
 import {note} from "./hud.js";
 
@@ -362,7 +362,9 @@ export function viewStep(dt){
   // ((U21) and behind you whenever you have the ball, hand.js ME.footBall, unless the football camera is first person)
   // ((U29) a mode with flags.footTP, Training's cage: the view follows the football camera setting from the first frame,
   // a panel up (the hub) or not, and is there at once on entering, with no glide while the cage is still loading)
-  const footTP = !!modeFlags().footTP && ME.footCam !== "first" && !TUN.go && !tutOn();
+  // (only while the cage's own view is the one shown, first or third person: a drill's camera on top of it, the cage's
+  // body is not drawn)
+  const top = camTop(), footTP = !!modeFlags().footTP && ME.footCam !== "first" && !TUN.go && !tutOn() && (!top || top === TP_OWNER.id || top === "life-fp");
   const want = footTP || ((viewPref() === "tp" || (ME.footBall && ME.footCam !== "first")) && !forcedFP()) ? 1 : 0;
   if (footTP && !ME.footTPOn) ME.camT = 1;
   ME.footTPOn = footTP;
