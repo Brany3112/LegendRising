@@ -149,40 +149,37 @@ export function canStrike(a, ball, style, out){
 }
 
 /* (FC27, plan/notes/fc27-spec.md sections 4 and 5.7) the step-in shot. A shot along the ground at a ball that is slow
-   (STEP_IN.V_BALL m/s or less) by a body no faster than STEP_IN.V_BODY, with the ball's place at the contact a step
-   away (the root's place for it within STEP_IN.REACH, plus what his speed carries him, of where he is, and the ball in
-   front of him), is struck 0.30 to 0.35 s after it is asked (STEP_IN.T): the clip's plant step, 0.09 s and STEP_IN.PER
-   s a metre of it (the clip's metre in 0.13 s), and its swing from the plant (0.20 s, moves.js SHOT). Inside the reach
-   window's 0.10 to 0.18 s every such strike began late, with no plant step drawn and the swing squeezed. Through it the body steps in, steered to where its root is at the contact: STEP_IN.BACK
-   behind the ball along the aim and STEP_IN.SIDE to the support foot's side (a copy of the clip's own geometry, moves.js
-   KINDS.instep's plant and rootAtPlant, kept here because the simulation is pure, as strikeRoot is); after the contact
-   it runs on along the aim, STEP_IN.KEEP of its speed (at most VON m/s) for STEP_IN.ON s (so the plant foot pushes off
-   and he lands on the kicking foot, as in the clip: the clip's body goes 1 to 2.5 m/s, and faster the planted foot is
-   left behind before it can push off), then the caller's way again with that speed easing to STRIKE_ROOT.MIN. A
-   stride adjust (a ball not yet in reach) that comes within a step-in's reach becomes one. The
-   strike's plant error is how far the root is from its place at the contact (less STEP_IN.TOL), not the ball's place
-   ahead of a body standing off it (TOL: the drawn hips reach on to the ball, moves.js reachHips, so a root that
-   much short draws as well; the reach window's own was 0.3 m of ball ahead too). VMAX: the step's speed at most (m/s,
-   the clip's body 1 to 2.5: faster, a standing foot left behind cannot stay down to its toe-off); FOLLOW: the act's time after the contact (the
-   kicking foot down 0.37 s after it, moves.js SHOT.LAND; ACT.FOLLOW's 0.28 ended it in the air).
-   A ball carried at his feet is a step-in too: what counts is how fast it goes against him (V_BALL, the
-   ball's velocity less his), the ball itself at most V_ROLL m/s (a faster one runs away from a body braking into its
-   plant: the window as before; the clip slows such a ball with a set touch first, not built), he at most V_BODY (the
-   jog with the ball, W's own
-   pace: the speed he came with is let down to VMAX by the plant's moment, PLANT_T before the contact, the plant step
-   braking him, so the planted foot is not left behind him); and it is struck where he aims, not where he faces (the
-   keys move him one way while he aims another): the ball's place at the contact ahead of him along his way or along
-   the aim, the aim at most TURN rad off
-   his facing, and through the step he turns to the aim, the turn spread over the time to TURN_BY s before the contact
-   (never in one snap: a facing held by the mover turns at up to 12 rad/s), facing it until the act is over. LAT_BY: he
-   is at his place across the aim this long before the contact (a little after the plant's moment, 0.20 s), so he
-   does not go on sideways over the planted foot, as far as LAT_V of VMAX allows (a step near VMAX goes straight);
-   along it he is V_PLANT m/s short of his place at the plant's moment (PLANT_T), coming on over the planted foot at
-   that pace (the clip's body 1 to 2.5 m/s): any faster, the foot planted a stride ahead of the hips, the drawn body
-   ducked a quarter of a metre to reach it */
-export const STEP_IN = Object.freeze({T: [0.30, 0.35], PER: 0.07, PLANT: [0.33, -0.08], V_BALL: 2.0, V_ROLL: 3.2, V_BODY: 4.4, REACH: 0.9,
-  AHEAD: 0.1, BACK: 0.184, SIDE: 0.28, TOL: 0.3, VMAX: 2.3, ON: 0.3, KEEP: 0.9, VON: 2.0, FOLLOW: 0.37, TURN: 1.75, TURN_BY: 0.15, LAT_BY: 0.12, LAT_V: 0.8,
-  PLANT_T: 0.2, V_PLANT: 1.4});
+   against him (its velocity less his at most STEP_IN.V_BALL m/s, the ball itself at most V_ROLL: a ball carried at his
+   feet counts; a faster one runs away from a body braking into its plant, the window as before, the clip slowing such
+   a ball with a set touch first, not built), by a body no faster than V_BODY (W's jog with the ball), with the ball's
+   place at the contact a step away (the root's place for it within REACH, plus what his speed carries him, of where
+   he is) and ahead of him along his way or along the aim, the aim at most TURN rad off his facing (the keys may move
+   him one way while he aims another), is struck 0.30 to 0.35 s after it is asked (T): the clip's plant step, 0.09 s
+   and PER s a metre of it (the clip's metre in 0.13 s), and its swing from the plant (0.20 s, moves.js SHOT). Inside
+   the reach window's 0.10 to 0.18 s every such strike began late, with no plant step drawn and the swing squeezed.
+   Through it the body steps in, steered to where its root is at the contact: BACK behind the ball along the aim and
+   SIDE to the support foot's side (a copy of the clip's own geometry, moves.js KINDS.instep's plant and rootAtPlant,
+   kept here because the simulation is pure, as strikeRoot is):
+   - across the aim it is at its place LAT_BY s before the contact (a little after the plant's moment), so it does not
+     go on sideways over the planted foot, as far as LAT_V of VMAX allows (a step near VMAX goes straight to its place:
+     the body cannot take a faster one up from a stand in time);
+   - along the aim it is V_PLANT m/s short of its place at the plant's moment (PLANT_T s before the contact), coming on
+     over the planted foot at that pace (the clip's body goes 1 to 2.5 m/s): any faster, the foot was planted a stride
+     ahead of the hips and the drawn body ducked a quarter of a metre to reach it;
+   - at most VMAX m/s (faster, a standing foot is left behind before its toe-off); a body that came faster is let down
+     to it by the plant's moment, the plant step braking him;
+   - turned to the aim, the turn spread over the time to TURN_BY s before the contact (never in one snap: a facing held
+     by the mover turns at up to 12 rad/s), and facing it until the act is over.
+   After the contact it runs on along the aim, KEEP of its speed (at most VON m/s) for ON s (so the plant foot pushes
+   off and he lands on the kicking foot, as in the clip), then the caller's way again with that speed easing to
+   STRIKE_ROOT.MIN. A stride adjust (a ball not yet in reach) that comes within a step-in's reach becomes one. The
+   strike's plant error is how far the root is from its place at the contact (less TOL: the drawn hips reach on to the
+   ball, moves.js reachHips, so a root that much short draws as well; the reach window's own was 0.3 m of ball ahead
+   too). FOLLOW: the act's time after the contact (the kicking foot down 0.37 s after it, moves.js SHOT.LAND;
+   ACT.FOLLOW's 0.28 ended it in the air) */
+export const STEP_IN = Object.freeze({T: [0.30, 0.35], PER: 0.07, PLANT: [0.33, -0.08], V_BALL: 2.0, V_ROLL: 3.2, V_BODY: 4.4,
+  REACH: 0.9, AHEAD: 0.1, BACK: 0.184, SIDE: 0.28, TOL: 0.3, VMAX: 2.3, ON: 0.3, KEEP: 0.9, VON: 2.0, FOLLOW: 0.37, TURN: 1.75,
+  TURN_BY: 0.15, LAT_BY: 0.12, LAT_V: 0.8, PLANT_T: 0.2, V_PLANT: 1.4});
 // the step-in for this shot now, or null: {x, z} the root's place at the contact, {fx, fz} the aim, foot the kicking
 // foot, t its time to the contact
 const SI_B = {x: 0, y: 0, z: 0};
@@ -1464,7 +1461,7 @@ export function actionStep(ms, a, h){
             const ap = left > STEP_IN.PLANT_T + h ? (al - STEP_IN.V_PLANT*STEP_IN.PLANT_T)/(left - STEP_IN.PLANT_T) : al/Math.max(left, h);
             // (sooner across only with speed to spare, LAT_V of VMAX all told: a long step already near VMAX goes
             // straight to its place, as the body cannot take a faster one up from a stand in time)
-            const va = Math.max(ap, Math.min(al/Math.max(left, h), STEP_IN.V_PLANT)), vl0 = la/Math.max(left, h), vm = Math.sqrt(Math.max(0, Math.pow(STEP_IN.LAT_V*STEP_IN.VMAX, 2) - va*va));
+            const va = Math.max(ap, Math.min(al/Math.max(left, h), STEP_IN.V_PLANT)), vl0 = la/Math.max(left, h), vlm = STEP_IN.LAT_V*STEP_IN.VMAX, vm = Math.sqrt(Math.max(0, vlm*vlm - va*va));
             const vw = la/Math.max(left - STEP_IN.LAT_BY, h), vl = Math.abs(vw) > Math.abs(vl0) ? Math.sign(vw)*Math.max(Math.abs(vl0), Math.min(Math.abs(vw), vm)) : vl0;
             const vx = va*si.fx - vl*si.fz, vz = va*si.fz + vl*si.fx;
             const vv = hypot(vx, vz);
@@ -1472,7 +1469,7 @@ export function actionStep(ms, a, h){
             const v0 = Math.max(0, (si.v0 || 0) - STEP_IN.VMAX)*clamp((left - STEP_IN.PLANT_T)/Math.max(h, si.t - STEP_IN.PLANT_T), 0, 1);
             I.speedCap = Math.min(STEP_IN.VMAX + v0, vv);
             // (turned to the aim through the step: this step's share of what is left of the turn, so it is done
-            // TURN_BY before the contact at an even rate
+            // TURN_BY before the contact at an even rate)
             const e = wrapA(yawOf(si.fx, si.fz) - a.m.yaw), fy = a.m.yaw + e*Math.min(1, h/Math.max(h, left - STEP_IN.TURN_BY));
             const fv = a.faceV; fv.x = -sin(fy); fv.z = -cos(fy); I.face = fv;
           } else {
