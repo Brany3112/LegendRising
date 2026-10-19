@@ -158,6 +158,10 @@ export function makeFP(V){
    view test of the cones' balls). The bodies themselves are posed by their SCHED actors (animAgent), at their tier. */
 export function viewFrame(V, ms, alpha, dt, cam){
   V.alpha = alpha; V.t += dt;
+  // ((FC27) how many steps the simulation took between the bodies' posing (their SCHED actors, earlier in the frame)
+  // and this: the match steps after them, so its bodies are posed on the steps before the ball drawn here; Training's
+  // own steps come first, none. A carrier's drawn clock is carried on by as many (carrySt), so his feet keep the ball's)
+  V.lag = V.actStep != null ? Math.max(0, Math.min(4, ms.step - V.actStep)) : 0;
   if (!V.src) dribbleTouches(V, ms);
   for (const a of ms.agents){
     if (!drawn(V, a)) continue;
@@ -368,9 +372,8 @@ function dribbleTouches(V, ms){
     const e = E[i];
     if (e.kind !== "touch" || e.how !== "dribble" || e.agent < 0) continue;
     const R = V.rec[e.agent]; if (!R || !R.h || R.hidden) continue;
-    // ((FC27) a carrier's touch was planned a footfall ahead and its foot is already coming down on it, carrySt)
-    const ca = ms.agents[e.agent];
-    if (ca && ca.g && ca.g.ck > .3 && (e.keep || e.part === "toe") && e.foot){ if (V.touchSpy) V.touchSpy.push({t:ms.t, agent:e.agent, ok:true, tContact:0, carry:true}); continue; }
+    // ((FC27) a carrier's touch planned a footfall ahead: its foot is already coming down on the ball, carrySt)
+    if (e.carry){ if (V.touchSpy) V.touchSpy.push({t:ms.t, agent:e.agent, ok:true, tContact:0, carry:true}); continue; }
     const b = ms.ball, v = Math.hypot(b.v.x, b.v.z);
     _tb.x = b.p.x; _tb.z = b.p.z;
     // (U27) a close-control touch names its foot and the way it plays the ball: that foot's swing goes through it
@@ -396,6 +399,7 @@ function animAgent(V, R, dt, tier){
   const a = R.a, h = R.h, ms = V.ms;
   if (R.hidden && !(a.isMe && V.fp)){ if (dt > 0) animateHuman(h, dt, R.st, {tier:4}); return; }
   const S = V.src ? V.src.agents[a.id] : null, Q = R.pre;
+  V.actStep = ms.step;
   h.g.position.set(R.pos.x, 0, R.pos.z);
   h.g.rotation.y = (S ? S.yaw : Q ? Q.yaw : a.m.yaw) + Math.PI;
   const st = S ? replaySt(R, S) : Q ? preSt(R, Q) : liveSt(V, R, a, ms, dt);
@@ -743,16 +747,17 @@ function carrySt(V, a, ms, st){
   st.carry = undefined; st.phase = undefined; st.touch = null;
   if (!g || !(g.ck > 0) || a.isGK) return st;
   st.carry = g.ck;
-  const p0 = a.gPhi0 != null ? a.gPhi0 : g.phi;
+  // (between the last two steps as the ball is drawn: V.lag steps on from the ones these bodies are posed on)
+  const p0 = a.gPhi0 != null ? a.gPhi0 : g.phi, lag = V.lag || 0;
   let d = g.phi - p0; d -= Math.floor(d);
   if (d > .5) d = 0;
-  let ph = p0 + d*V.alpha; ph -= Math.floor(ph);
+  let ph = p0 + d*(V.alpha + lag); ph -= Math.floor(ph);
   st.phase = ph;
   const P = a.cplan;
   if (!P || !P.on || ms.ball.state !== "free") return st;
   const v = Math.max(a.m.speed, .5), stride = 2*stepLen(v, g.mode, a.scale || 1, null, g.ck)/v;
   let k = (P.side === "R" ? .5 : 1) - ph; k -= Math.floor(k);
-  const t = k*stride, tp = Math.max(0, t - (1 - V.alpha)*H);
+  const t = k*stride, tp = Math.max(0, t - (1 - V.alpha - lag)*H);
   predAt(ms, tp, _ct); predAt(ms, tp + .034, _ct2);
   const T = st._tq || (st._tq = {side:"R", x:0, z:0, dx:0, dz:1, bvx:0, bvz:0, t:0, part:"toe", touch:false});
   T.side = P.side; T.x = _ct.x; T.z = _ct.z; T.bvx = (_ct2.x - _ct.x)/.034; T.bvz = (_ct2.z - _ct.z)/.034; T.t = t; T.part = P.part; T.touch = !!P.touch;

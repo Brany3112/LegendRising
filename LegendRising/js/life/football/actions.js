@@ -696,9 +696,9 @@ export function dribbleFoot(ms, a, side){
   // the dribble's line, off the knock's way)
   if ((a.knockT != null && ms.t - a.knockT < KNOCK.LET) || (a.act && a.act.kind === 'fake')){ a.cplan.on = false; return false; }
   if (side === touchSideOf(a)) a.strides++;
-  const tf = dribTouchSide(a, b), r = dribbleWants(ms, a, side === tf ? 0 : 1);
+  const tf = dribTouchSide(a, b), r = dribbleWants(ms, a, side === tf ? 0 : 1), planned = a.cplan.on && a.cplan.side === side;
   let did = false;
-  if (r){ a.strides = 0; did = dribbleKick(ms, a, side); }
+  if (r){ a.strides = 0; did = dribbleKick(ms, a, side, planned); }
   dribblePlan(ms, a);
   return did;
 }
@@ -740,7 +740,7 @@ function dribblePlan(ms, a){
 }
 // a dribble touch now: the ball played on along a.drib's way (a footfall's, or the first stride's from standing), with
 // foot `side` (FC27: logged with the touch)
-function dribbleKick(ms, a, side = null){
+function dribbleKick(ms, a, side = null, planned = false){
   const b = ms.ball, v = a.m.speed;
   const d = a.drib, fac = a.fac || {}, vv = Math.max(v, d.speed || v);
   // played back onto the line he runs along (a point on it about where the next touch comes), so a touch that went a little
@@ -760,8 +760,9 @@ function dribbleKick(ms, a, side = null){
   const dt = dribbleTouch(a, b, {x: kx, z: kz}, vv, {drib: a.at.dribbling, bF: fac.bF != null ? fac.bF : 1,
     walk: vv < 2.0, rollDecel: b.rollDecel, ctrl: a.at.ctrl, small: !!d.small, close: +d.close || 0}, ms.r);
   ballKick(b, dt.v, null, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});
+  // ((FC27) carry: a touch planned a footfall ahead, its foot already coming down on the ball in the drawing)
   const ev = logEv(ms, 'touch', a.team, a.id, b.p.x, b.p.z, {how: 'dribble', quality: dt.heavy ? 0.5 : 1, heavy: !!dt.heavy,
-    foot: side || dt.foot, part: 'toe'});
+    foot: side || dt.foot, part: 'toe', carry: planned ? 'stride' : null});
   chainKeep(ms, a);
   onTouch(ms, a, 'dribble', ev);
   refreshPred(ms);
@@ -982,10 +983,21 @@ export function keepStep(ms, a, h){
    A strike whose ball would still be CARRY.AHEAD or more past where its touch wants it plays nothing: the foot comes
    down just behind the ball (the clip's #15). Standing, slowing to a stand and turning on the spot (under V_FOOT) the
    position controller keeps it (ctlTouch). Numbers in metres times the body's scale. */
-export const CARRY = Object.freeze({V_FOOT: 1.2, LEAD: .56, LAT: .1, AHEAD: .1, RUN_N: 2, RUN_TOL: .08, OVERRUN: .3, STOP_V: 2.0,
-  STAND: .32, MAX_V: 14});
-// is close control's carry on (the footfalls' touches): on the move, not a fake's drag
-const carryOn = a => a.ctlOn && a.m.speed >= CARRY.V_FOOT && !(a.act && a.act.kind === 'fake');
+export const CARRY = Object.freeze({V_FOOT: 2.0, FWD: .5, CUT: 100*Math.PI/180, LEAD: .56, LAT: .1, AHEAD: .1, RUN_N: 2, RUN_TOL: .08,
+  OVERRUN: .3, STOP_V: 2.0, STAND: .32, MAX_V: 14});
+// is close control's carry on (the footfalls' touches): running on with it at V_FOOT or more, the keys' way within
+// FWD (a cosine) of his facing (backwards and sideways the spot's touches keep it in front of him) and not a cut back
+// past CUT from the last touch's way (the ball is turned at once, as the spot's touches turn it); or stopping from
+// STOP_V (the next foot down puts its sole on it). Not a fake's drag
+function carryOn(a){
+  if (!a.ctlOn || (a.act && a.act.kind === 'fake')) return false;
+  const m = a.m, I = a.intent, l = hypot(I.dx || 0, I.dz || 0);
+  if (l <= .1) return m.speed >= CARRY.STOP_V;
+  if (m.speed < CARRY.V_FOOT) return false;
+  const ux = I.dx/l, uz = I.dz/l, f = dirOf(m.yaw), d0 = a.ctlDir;
+  if (ux*f.x + uz*f.z < CARRY.FWD) return false;
+  return !(d0 && d0.x*ux + d0.z*uz < cos(CARRY.CUT));
+}
 // seconds for one stride of a's gait at v, and to the next footfall of foot `side` (the clock: the left down at phi 0,
 // the right at 0.5, phi run on by distance)
 const strideOf = (a, v) => 2*stepLen(v, a.g.mode, a.scale || 1, null, a.g.ck)/Math.max(v, .3);
@@ -1004,13 +1016,19 @@ function ballAt(b, t, out){
   out.x = b.p.x + b.v.x/v*s; out.z = b.p.z + b.v.z/v*s; out.vx = b.v.x/v*v1; out.vz = b.v.z/v*v1;
   return out;
 }
-// the body t s on: its velocity now easing into the one the keys ask for (u: the way, at the mover's target speed),
-// the mean of the two over a stride or two
+// the body t s on: going the way the keys ask (u, else as it goes), its speed coming up to the mover's target at the
+// mover's push (a0, falling off towards top speed, mover.js) or down to it at its brake, in four steps
 function bodyAt(a, t, u, out){
-  const m = a.m, vx = m.vx || 0, vz = m.vz || 0;
-  let wx = vx, wz = vz;
-  if (u){ const s = m.target > 0 ? m.target : m.speed; wx = u.x*s; wz = u.z*s; }
-  out.x = m.x + (vx + wx)*.5*t; out.z = m.z + (vz + wz)*.5*t;
+  const m = a.m, prm = a.prm, v0 = m.speed;
+  let dx = u ? u.x : 0, dz = u ? u.z : 0;
+  if (!u){ if (v0 > 1e-3){ dx = (m.vx || 0)/v0; dz = (m.vz || 0)/v0; } }
+  const tg = m.target > 0 ? m.target : v0, h = t/4, vmax = prm && prm.vmax > 0 ? prm.vmax : 9, a0 = prm && prm.a0 > 0 ? prm.a0 : 7, br = prm && prm.brake > 0 ? prm.brake : 7.5;
+  let v = v0, s = 0;
+  for (let i = 0; i < 4; i++){
+    const v1 = v < tg ? Math.min(tg, v + a0*Math.max(0, 1 - v/vmax)*h) : Math.max(tg, v - br*h);
+    s += (v + v1)*.5*h; v = v1;
+  }
+  out.x = m.x + dx*s; out.z = m.z + dz*s;
   return out;
 }
 // the way the keys take him (or his facing), into out
@@ -1042,8 +1060,9 @@ function carryPlan(ms, a){
   if (!mv && m.speed >= CARRY.STOP_V) return planSet(a, tS < tW ? strong : weak, true, 'sole', 'stop');
   // where the ball is against the body at each foot's next strike (ahead along the way, across: + the strong side)
   ballAt(b, tS, BP1); bodyAt(a, tS, mv ? u : null, BB1);
-  const aheadS = (BP1.x - BB1.x)*u.x + (BP1.z - BB1.z)*u.z;
-  if (tW < tS){
+  const aheadS = (BP1.x - BB1.x)*u.x + (BP1.z - BB1.z)*u.z, part = carryPart(a, strong, u);
+  // (a turn is the strong foot's to play, its inside or outside: the weak foot's only a straight push)
+  if (tW < tS && part === 'toe'){
     ballAt(b, tW, BP1); bodyAt(a, tW, mv ? u : null, BB2);
     const latW = ((BP1.x - BB2.x)*(-u.z) + (BP1.z - BB2.z)*u.x)*sg;
     // the first push after a turn that left it on the weak side; a ball the strong foot would come down on top of
@@ -1053,7 +1072,7 @@ function carryPlan(ms, a){
   // the strong foot: a turn is played at once; straight on, every strike plays it unless it will still be AHEAD past
   // where the touch wants it (it comes down behind it), and pushed to run on to (a sprint) only once it has fallen
   // RUN_TOL short of there
-  const part = carryPart(a, strong, u), over = aheadS - CARRY.LEAD*sc, run = a.intent.gait === 'sprint';
+  const over = aheadS - CARRY.LEAD*sc, run = a.intent.gait === 'sprint';
   const touch = part !== 'toe' || (run ? over < -CARRY.RUN_TOL*sc : over < CARRY.AHEAD*sc);
   planSet(a, strong, touch, part, part !== 'toe' ? 'turn' : run ? 'run' : 'carry');
 }
@@ -1091,13 +1110,14 @@ function carryKick(ms, a, side, why){
     a.keepT = ms.t;
     return carryLog(ms, a, side, 'sole', 'back', u, why);
   }
-  T = strideOf(a, v)*(a.intent.gait === 'sprint' ? CARRY.RUN_N : 1);
+  const part = carryPart(a, side, u), d0 = a.ctlDir || u, turn = atan2(d0.x*u.z - d0.z*u.x, d0.x*u.x + d0.z*u.z);
+  // (pushed on to run onto at a sprint, RUN_N strides; a turn's touch for the next stride, the body coming round after it)
+  T = strideOf(a, v)*(a.intent.gait === 'sprint' && part === 'toe' ? CARRY.RUN_N : 1);
   bodyAt(a, T, u, BB1);
   tx = BB1.x + u.x*CARRY.LEAD*sc - u.z*sg*CARRY.LAT*sc; tz = BB1.z + u.z*CARRY.LEAD*sc + u.x*sg*CARRY.LAT*sc;
   // the speed that rolls it there in T (the grass's roll and the air's drag on the way, the mean speed's)
   const ex = tx - b.p.x, ez = tz - b.p.z, D = hypot(ex, ez), vm = D/T, sp = D > 1e-3 ? Math.min(vm + .5*(dec + BALL.KD*vm*vm)*T, CARRY.MAX_V) : 0;
   const kx = D > 1e-3 ? ex/D*sp : 0, kz = D > 1e-3 ? ez/D*sp : 0;
-  const part = carryPart(a, side, u), d0 = a.ctlDir || u, turn = atan2(d0.x*u.z - d0.z*u.x, d0.x*u.x + d0.z*u.z);
   const turning = part !== 'toe', ballSide = !turning ? 'back' : turn < 0 ? 'right' : 'left';
   const wy = turning ? (ballSide === 'right' ? 1 : -1)*CTL.SPIN : 0;
   ballKick(b, {x: kx, y: 0, z: kz}, {x: kz/BALL_R, y: wy, z: -kx/BALL_R}, {agent: a.id, team: a.team, kind: 'dribble', t: ms.t});

@@ -122,7 +122,8 @@ function restAfter(ballPos, v, roll = 1.1){
 
 /* ---------- dribbling ---------- */
 {
-  check(dribbleCadence(2) === 1 && dribbleCadence(4.5) === 2 && dribbleCadence(7) === 3, "dribble cadence: every stride under 3 m/s, every 2nd to 6, every 3rd above");
+  // (FC27: retuned for the carrier's short strides, spec 5.2: the clip touches once a stride at 4 to 6 m/s)
+  check(dribbleCadence(2) === 1 && dribbleCadence(4.5) === 1 && dribbleCadence(7) === 2, "dribble cadence: every stride to 6 m/s, every 2nd above (on the carrier's strides)");
   // the lead is the farthest the ball gets ahead of a dribbler running on at his speed
   for (const [v, walk] of [[2, false], [6, false], [8, false], [1.5, true]]){
     const ag = {x: 0, z: 0, yaw: FACE_MX, at: {dribbling: 100}};

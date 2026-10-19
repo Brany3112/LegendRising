@@ -61,7 +61,7 @@ const CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_ARMS =
    way it is played (its tip then 0.03 to 0.05 m from the ball's surface, which it meets in its lower third); its inside
    or its outside (FACE_BACK) with the foot turned (at most TOUCH_YAW off the way) so that face looks along it. Over the
    last of the swing (TRACK_U) the foot comes on with the ball, so the face is at it for the frames before the footfall */
-const TOE_BACK = .12, FACE_BACK = .09, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.5, .8];
+const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK_U = [.38, .62];
 // the running foot lands on the heel jogging, flat at a run and on the ball of the foot sprinting
 const runLand = v => lerp(-.12, .25, sstep(4.5, 7.5, v));
 // posture blend: 0.45 s from walk to run and back (3.5.2)
