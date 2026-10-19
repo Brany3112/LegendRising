@@ -725,18 +725,23 @@ function dribbleWants(ms, a, other, P = null){
   if (r.dist > TOUCH.DRIB_REACH || r.ahead < r.dist*cos(TOUCH.DRIB_CONE)) return false;
   return true;
 }
-// (FC27) the strides' dribble's next touch for the drawn body: the touching foot's next footfall, if the ball and the
-// body as they will be then say it plays the ball (dribbleWants on them); else none
+// (FC27) the strides' dribble's next touch for the drawn body: of the next two footfalls, the first at which the ball
+// and the body as they will be then say it is played (dribbleWants on them: the touching foot's, or the other's on a
+// ball he would run onto); else none
 function dribblePlan(ms, a){
   const P = a.cplan, b = ms.ball, m = a.m, v = Math.max(m.speed, .5);
   P.on = false; P.touch = false;
   if (!a.drib || ms.poss.ctl !== a.id || b.state !== 'free' || b.p.y > .3 || m.speed < .6) return;
-  const tf = dribTouchSide(a, b), t = sideT(a, tf, v);
-  ballAt(b, t, BP1); bodyAt(a, t, null, BB1);
-  const f = dirOf(m.yaw), dx = BP1.x - BB1.x, dz = BP1.z - BB1.z;
-  DW.ahead = dx*f.x + dz*f.z; DW.lat = dx*(-f.z) + dz*f.x; DW.dist = hypot(dx, dz); DW.strong = tf === touchSideOf(a);
-  if (!dribbleWants(ms, a, 0, DW)) return;
-  P.on = true; P.touch = true; P.side = tf; P.part = 'toe'; P.n = a.g.n + (tf === a.g.side ? 2 : 1); P.why = 'stride';
+  const tf = dribTouchSide(a, b), f = dirOf(m.yaw), next = a.g.side === 'R' ? 'L' : 'R';
+  for (let k = 0; k < 2; k++){
+    const side = k ? a.g.side : next, t = sideT(a, side, v);
+    ballAt(b, t, BP1); bodyAt(a, t, null, BB1);
+    const dx = BP1.x - BB1.x, dz = BP1.z - BB1.z;
+    DW.ahead = dx*f.x + dz*f.z; DW.lat = dx*(-f.z) + dz*f.x; DW.dist = hypot(dx, dz); DW.strong = side === touchSideOf(a);
+    if (!dribbleWants(ms, a, side === tf ? 0 : 1, DW)) continue;
+    P.on = true; P.touch = true; P.side = side; P.part = 'toe'; P.n = a.g.n + k + 1; P.why = 'stride';
+    return;
+  }
 }
 // a dribble touch now: the ball played on along a.drib's way (a footfall's, or the first stride's from standing), with
 // foot `side` (FC27: logged with the touch)

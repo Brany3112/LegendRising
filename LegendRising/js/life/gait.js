@@ -51,11 +51,12 @@ const RUN_HIPS = v => -.03 - .003*v;
 /* (FC27) the ball carrier (st.carry: the simulation's own carry weight, gaitcore CARRY; G.ck, and G.cw its share by
    speed, for the posture): the FC 27 clip's man with the ball at his feet (plan/notes/fc27-spec.md 3.2, 3.3, 5.4). His
    hips CARRY_HIPS lower (body units: the knees bent all the time), his swing's lift CARRY_LIFT[0] plus [1] a m/s over
-   2.4 (0.11 to 0.15 m: low, quick steps), leaning CARRY_LEAN further forward, his arms out from his sides (CARRY_ARMS:
+   2.4 (0.11 to 0.15 m: low, quick steps), leaning CARRY_LEAN further forward (and into a burst away up to CARRY_BURST,
+   the clip's 35 to 45 degrees), his arms out from his sides (CARRY_ARMS:
    the swing's amplitude, the elbows' bend, the upper arms' abduction, rad) and his head down over the ball
    (CARRY_HEAD: down by [0] on the move, by [1] more through each touch, by [2] between touches above CARRY_HEAD_V[0] to
    [1] m/s, where he looks up a little) */
-const CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_ARMS = [.36, 1.5, .85], CARRY_HEAD = [.42, .25, .12], CARRY_HEAD_V = [5, 6.5];
+const CARRY_HIPS = .075, CARRY_LIFT = [.11, .01], CARRY_LEAN = .15, CARRY_BURST = .45, CARRY_ARMS = [.36, 1.35, .85], CARRY_HEAD = [.42, .25, .12], CARRY_HEAD_V = [5, 6.5];
 /* (FC27) a touch's landing (G.tch, the carrier's planned touch: st.touch): the foot comes down with the face that plays
    the ball against its back, low. The toe of a nearly flat foot (TOUCH_ROLL) TOE_BACK behind the ball's middle along the
    way it is played (its tip then 0.03 to 0.05 m from the ball's surface, which it meets in its lower third); its inside
@@ -1070,7 +1071,8 @@ export function gaitPose(h, T, st, fac = null, dt = 0){
   T[60] = .012*(1 - R)*mid*mv; T[62] = 0;
   // turn lean (into the bend) and acceleration lean (into a start, back into a stop)
   const om = G.headRate, turn = clamp(Math.atan(v*om/9.81)*.8, -.35, .35)*sstep(1, 3, v);
-  const acc = clamp(.045*G.acc, -.15, .25)*sstep(.3, 1.5, v), brake = -.18*G.brakeW;
+  // ((FC27) a carrier bursting away after a stop or a cut leans further into it: up to CARRY_BURST, the clip's 35 to 45 degrees)
+  const acc = clamp(.045*G.acc, -.15, lerp(.25, CARRY_BURST, G.cw || 0))*sstep(.3, 1.5, v), brake = -.18*G.brakeW;
   // ((FC27) a carrier leans further over the ball, G.cw, and nods his head down to it: through each planned touch more)
   const cw = G.cw || 0;
   const lean = (.03 + .09*R + .05*sstep(4.5, 8, v))*lk*mv + acc + brake + .08*tired*mv + CARRY_LEAN*cw*mv;
