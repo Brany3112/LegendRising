@@ -43,9 +43,13 @@ const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
 // the legs' bounds: a planted foot's yaw off the pelvis's (rad); the two shins' closest centre lines (m); the left ankle
 // left of the right across the pelvis (m); a bent knee's way off its own foot's (rad)
 const TWIST = 1.05, SHIN = .06, SIDE = .02, KNEE = .6, SKATE = 12;
+// BCS_PART=legs (or move, v, fp, ctl) runs only that part of the browser checks, and no Node part (all of it by default)
+const PART = process.env.BCS_PART || "all", part = name => PART === "all" || PART === name;
+// the legs' frames, row by row, for each turn measured (qa/out/bcs-controls-legs.json)
+const legRows = {};
 
 /* ---------- Node: the automatic close control, by the rules ---------- */
-{
+if (PART === "all"){
   const fwdOf = me => ({x: -Math.sin(me.m.yaw), z: -Math.cos(me.m.yaw)});
   const go = (o = {}) => {
     const {setup, spec} = setupOf(drill("att-carrier"), o.seed || 3);
@@ -165,10 +169,12 @@ try {
         const fy = fwd(h, s ? B.ftR : B.ftL), hp = J.hip[s], kn = J.knee[s], an = J.ank[s];
         const ax = an[0] - hp[0], ay = an[1] - hp[1], az = an[2] - hp[2], al2 = ax*ax + ay*ay + az*az || 1, kx = kn[0] - hp[0], ky = kn[1] - hp[1], kz = kn[2] - hp[2], u = (kx*ax + ky*ay + kz*az)/al2;
         const ox = kx - ax*u, oz = kz - az*u, ol = Math.hypot(ox, oz);
-        out.feet.push({d: G.feet[s].down ? 1 : 0, tw: wrap(fy - py), lat: (an[0] - J.pel[0])*lx + (an[2] - J.pel[2])*lz, kn: ol > .04 ? wrap(Math.atan2(ox, oz) - fy) : null,
+        out.feet.push({d: G.feet[s].down ? 1 : 0, fp: [G.feet[s].x, G.feet[s].z], fk: G.feet[s].sw ? G.feet[s].sw.kind : null, via: G.via[s] ? 1 : 0, tw: wrap(fy - py), lat: (an[0] - J.pel[0])*lx + (an[2] - J.pel[2])*lz, kn: ol > .04 ? wrap(Math.atan2(ox, oz) - fy) : null,
           heel: pt(h, s ? B.ftR : B.ftL, 0, -.085, -.078), ball: pt(h, s ? B.toR : B.toL, 0, -.025, 0), tip: pt(h, s ? B.toR : B.toL, 0, -.02, .07)});
       }
       out.shin = segD(J.knee[0], J.ank[0], J.knee[1], J.ank[1]);
+      // (the gait's own: its pelvis yaw, the root, the body's yaw, each swing's landing; and the ankles drawn)
+      out.g = {pel: G.pel, rx: G.rx, rz: G.rz, ry: h.g.rotation.y, st: G.state, sty: G.style, tg: G.feet.map(f => f.down || !f.sw ? null : [f.sw.x1, f.sw.z1, f.sw.u]), ank: J.ank.map(a => [a[0], a[2]]), hip: [J.pel[0], J.pel[2]]};
       out.side = out.feet[0].lat - out.feet[1].lat;
       return out;
     };
@@ -190,22 +196,25 @@ try {
   const LOOK = -Math.PI/2;                       // the look down the pitch at +x: W +x, S -x, A -z, D +z
   const YAW = {w: LOOK, s: LOOK + Math.PI, a: LOOK + Math.PI/2, d: LOOK - Math.PI/2, wd: LOOK - Math.PI/4};
   // the legs over rows: worst twist of a planted foot, closest shins, least side, worst knee, worst skate (mm) per stance
-  const legStats = rows => {
-    let tw = 0, shin = 9, side = 9, kn = 0, skate = 0;
+  // (key: the rows kept under it in legRows; skateAt: the foot and the rows of the stance that slid most)
+  const legStats = (rows, key) => {
+    let tw = 0, shin = 9, side = 9, kn = 0, knVia = 0, skate = 0, at = null;
     const S = [null, null];
     const h2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-    for (const r of rows){
-      const L = r.legs; if (!L) continue;
+    const end = (s, i) => { if (S[s].sum > skate){ skate = S[s].sum; at = {foot: s ? "right" : "left", rows: [S[s].i0, i]}; } S[s] = null; };
+    rows.forEach((r, i) => {
+      const L = r.legs; if (!L) return;
       shin = Math.min(shin, L.shin); side = Math.min(side, L.side);
       L.feet.forEach((f, s) => {
         if (f.d) tw = Math.max(tw, Math.abs(f.tw));
-        if (f.kn != null) kn = Math.max(kn, Math.abs(f.kn));
-        if (f.d){ if (!S[s]) S[s] = {heel: f.heel, ball: f.ball, tip: f.tip, sum: 0}; else { S[s].sum += Math.min(h2(S[s].heel, f.heel), h2(S[s].ball, f.ball), h2(S[s].tip, f.tip)); S[s].heel = f.heel; S[s].ball = f.ball; S[s].tip = f.tip; } }
-        else if (S[s]){ skate = Math.max(skate, S[s].sum); S[s] = null; }
+        if (f.kn != null) { if (f.via) knVia = Math.max(knVia, Math.abs(f.kn)); else kn = Math.max(kn, Math.abs(f.kn)); }
+        if (f.d){ if (!S[s]) S[s] = {heel: f.heel, ball: f.ball, tip: f.tip, sum: 0, i0: i}; else { S[s].sum += Math.min(h2(S[s].heel, f.heel), h2(S[s].ball, f.ball), h2(S[s].tip, f.tip)); S[s].heel = f.heel; S[s].ball = f.ball; S[s].tip = f.tip; } }
+        else if (S[s]) end(s, i - 1);
       });
-    }
-    for (const s of S) if (s) skate = Math.max(skate, s.sum);
-    return {twist: r3(tw), shin: r3(shin), side: r3(side), knee: r3(kn), skateMm: r2(skate*1000)};
+    });
+    for (let s = 0; s < 2; s++) if (S[s]) end(s, rows.length - 1);
+    if (key) legRows[key] = rows.map(x => ({t: r3(x.t), v: r2(x.v), yaw: r3(x.yaw), legs: x.legs}));
+    return {twist: r3(tw), shin: r3(shin), side: r3(side), knee: r3(kn), kneeTouch: r3(knVia), skateMm: r2(skate*1000), skateAt: at};
   };
   const legsOk = (name, m) => check(m.twist <= TWIST && m.shin >= SHIN && m.side >= SIDE && m.knee <= KNEE && m.skateMm <= SKATE,
     `${name}: the legs never cross (planted feet within ${TWIST} rad of the pelvis, shins ${SHIN} m apart or more, the left ankle left of the right by ${SIDE} m or more, knees within ${KNEE} rad of their feet, planted feet slide ${SKATE} mm at most)`, m);
@@ -214,7 +223,7 @@ try {
   const id = await lockPointer(page); if (!id) throw new Error("the pointer could not be locked");
   await freeze(page);
   /* ---------- the ways, the ladder, the look untouched ---------- */
-  {
+  if (part("move")){
     await keys(["a"]); const r = await run(150); await keys([], ["a"]);
     const faced = r.find(x => Math.abs(wrap(x.yaw - YAW.a)) < .15), s = r[r.length - 1];
     const jogAt = r.find(x => x.v >= .95*x.jog), runAt = r.find(x => x.v >= .95*x.run);
@@ -223,58 +232,65 @@ try {
     check(jogAt && runAt && runAt.t > jogAt.t && Math.abs(wrap(s.yaw - YAW.a)) < .05 && s.gait === "run", "A held: the jog, then the run, going left (the ladder in every way)", res.browser.a);
     check(Math.abs(s.look - LOOK) < 1e-9 && !s.face, "A held: the look never moved by it, and the facing is free (no held face)", res.browser.a);
   }
-  await begin({x: "-hx + 30", z: "hz - 4", yaw: LOOK, ball: "far"}, LOOK);
-  {
+  if (part("move")){
+    await begin({x: "-hx + 30", z: "hz - 4", yaw: LOOK, ball: "far"}, LOOK);
     await keys(["a", "Shift"]); const r = await run(270); await keys([], ["Shift", "a"]);
     const vmax = Math.max(...r.map(x => x.v)), s = r[r.length - 1];
     res.browser.aShift = {vmax: r2(vmax), sprint: r2(s.sprint), yaw: r2(s.yaw), look: r3(s.look)};
     check(vmax >= .95*s.sprint && Math.abs(wrap(s.yaw - YAW.a)) < .05 && Math.abs(s.look - LOOK) < 1e-9, "A with Shift: at least 95% of the sprint going left, the look unchanged", res.browser.aShift);
   }
-  await begin({x: "-hx + 40", z: "0", yaw: LOOK, ball: "far"}, LOOK);
-  {
+  if (part("move")){
+    await begin({x: "-hx + 40", z: "0", yaw: LOOK, ball: "far"}, LOOK);
     await keys(["s"]); const r = await run(180); await keys([], ["s"]);
     const s = r[r.length - 1];
     res.browser.s = {v: r2(s.v), run: r2(s.run), yaw: r2(s.yaw), gait: s.gait};
     check(s.v >= .97*s.run && Math.abs(wrap(s.yaw - YAW.s)) < .05, "S held: the full run towards the camera, the body facing it", res.browser.s);
   }
-  await begin({x: "-hx + 30", z: "-hz + 12", yaw: LOOK, ball: "far"}, LOOK);
-  {
+  if (part("move")){
+    await begin({x: "-hx + 30", z: "-hz + 12", yaw: LOOK, ball: "far"}, LOOK);
     await keys(["w", "d"]); const r = await run(120); await keys([], ["d", "w"]);
     const s = r[r.length - 1];
     res.browser.wd = {v: r2(s.v), yaw: r2(s.yaw), want: r2(YAW.wd)};
     check(s.v >= .95*s.run && Math.abs(wrap(s.yaw - YAW.wd)) < .05, "W+D: the diagonal, forward and right of the camera, at the run", res.browser.wd);
   }
+  /* ---------- the legs on a straight run (the bounds' own baseline: no turn, the gait as it runs) ---------- */
+  if (part("legs")){
+    await begin({x: "-hx + 20", z: "0", yaw: LOOK, ball: "far"}, LOOK);
+    await keys(["w"]); await run(90); const r = await run(90, true); await keys([], ["w"]);
+    const m = legStats(r, "straight"); res.browser.straight = Object.assign(m, {v: r2(r[r.length - 1].v)});
+    legsOk("a straight run (W held)", m);
+  }
   /* ---------- A to D at a run: the reversal, and its legs ---------- */
-  await begin({x: "-hx + 30", z: "hz - 4", yaw: LOOK, ball: "far"}, LOOK);
-  {
+  if (part("legs")){
+    await begin({x: "-hx + 30", z: "hz - 4", yaw: LOOK, ball: "far"}, LOOK);
     await keys(["a"]); const r1 = await run(120, true); await keys(["d"], ["a"]); const r2_ = await run(150, true); await keys([], ["d"]);
     let rate = 0; for (let i = 1; i < r2_.length; i++) rate = Math.max(rate, Math.abs(wrap(r2_[i].yaw - r2_[i - 1].yaw))*60);
     const s = r2_[r2_.length - 1], vmin = Math.min(...r2_.map(x => x.v));
     res.browser.ad = {v0: r2(r1[r1.length - 1].v), vmin: r2(vmin), v: r2(s.v), yaw: r2(s.yaw), maxTurn: r2(rate), faceRate: s.faceRate, turnRate: s.turnRate};
     check(r1[r1.length - 1].v >= .95*s.run && vmin < .5*s.run && s.v >= .9*s.run && Math.abs(wrap(s.yaw - YAW.d)) < .05, "A then D at a run: it plants (slows below half the run) and goes the other way at the run", res.browser.ad);
     check(rate <= Math.max(s.faceRate, s.turnRate) + .05, "A then D: no frame turns the body faster than the face rate allows", res.browser.ad);
-    const m = legStats(r2_); res.browser.adLegs = m;
+    const m = legStats(r2_, "ad"); res.browser.adLegs = m;
     legsOk("A then D at a run", m);
   }
   /* ---------- the user's turn: running at the camera, then back to goal and right (150 to 180 degrees) ---------- */
-  for (const ball of ["feet", "far"]){
+  if (part("legs")) for (const ball of ["feet", "far"]){
     await begin({x: "hx - 14", z: "-1", yaw: LOOK + Math.PI, ball}, LOOK);
     await keys(["s"]); await run(40, true); await keys(["w", "d"], ["s"]); const r = await run(90, true); await keys([], ["d", "w"]);
-    const m = legStats(r); res.browser["turn-" + ball] = Object.assign(m, {v: r2(r[r.length - 1].v), yaw: r2(r[r.length - 1].yaw)});
+    const m = legStats(r, "turn-" + ball); res.browser["turn-" + ball] = Object.assign(m, {v: r2(r[r.length - 1].v), yaw: r2(r[r.length - 1].yaw)});
     legsOk(`running at the camera then W+D (a 135 to 180 degree turn), ${ball === "feet" ? "with the ball" : "without it"}`, m);
   }
   // from a stand facing the camera: W+D
-  await begin({x: "hx - 14", z: "-1", yaw: LOOK + Math.PI, ball: "feet"}, LOOK);
-  {
+  if (part("legs")){
+    await begin({x: "hx - 14", z: "-1", yaw: LOOK + Math.PI, ball: "feet"}, LOOK);
     await run(10, true);
     await keys(["w", "d"]); const r = await run(90, true); await keys([], ["d", "w"]);
-    const m = legStats(r); res.browser.standTurn = Object.assign(m, {yaw: r2(r[r.length - 1].yaw)});
+    const m = legStats(r, "standTurn"); res.browser.standTurn = Object.assign(m, {yaw: r2(r[r.length - 1].yaw)});
     legsOk("a turn from a stand (facing the camera, then W+D)", m);
     check(Math.abs(wrap(r[r.length - 1].yaw - YAW.wd)) < .1, "a turn from a stand: the body turns round to run the keys' way", res.browser.standTurn);
   }
   /* ---------- V: nothing; the hints ---------- */
-  await begin({x: "-hx + 30", z: "0", yaw: LOOK, ball: "feet"}, LOOK);
-  {
+  if (part("v")){
+    await begin({x: "-hx + 30", z: "0", yaw: LOOK, ball: "feet"}, LOOK);
     const y0 = await page.evaluate(() => window.__life.P.yaw);
     await page.keyboard.down("v"); await run(20); await page.keyboard.up("v"); await run(20);
     const v = await page.evaluate(() => ({look: window.__life.P.yaw, scan: window.__bcs.C.CTRL.scan, life: document.body.className, hints: window.__bcs.hints()}));
@@ -286,16 +302,16 @@ try {
     check(hints.flat().every(h => !/^V /.test(h) && !/take control/.test(h) && !/shoulder/.test(h)), "no hint lists V or says F takes control", hints);
   }
   /* ---------- first person: the body faces the view ---------- */
-  await begin({x: "-hx + 30", z: "hz - 5", yaw: LOOK, ball: "far", cam: "first"}, LOOK);
-  {
+  if (part("fp")){
+    await begin({x: "-hx + 30", z: "hz - 5", yaw: LOOK, ball: "far", cam: "first"}, LOOK);
     await keys(["a"]); const r = await run(90); await keys([], ["a"]);
     const s = r[r.length - 1], off = Math.max(...r.map(x => Math.abs(wrap(x.yaw - LOOK))));
     res.browser.fp = {off: r3(off), v: r2(s.v), face: s.face, vmax: r2(Math.max(...r.map(x => x.v)))};
     check(off < .02 && s.face && res.browser.fp.vmax <= 4.05, "first person: A held is a strafe, the body facing the view (strafe cap 4.0 m/s)", res.browser.fp);
   }
   /* ---------- close control, automatic ---------- */
-  await begin({x: "-hx + 25", z: "0", yaw: LOOK, ball: "ahead", along: 3}, LOOK);
-  {
+  if (part("ctl")){
+    await begin({x: "-hx + 25", z: "0", yaw: LOOK, ball: "ahead", along: 3}, LOOK);
     await keys(["w"]); const r = await run(120); await keys([], ["w"]);
     const on = r.find(x => x.on);
     res.browser.walkOn = {onAt: on ? r2(on.t - r[0].t) : null, d: on ? r2(on.d) : null};
@@ -303,8 +319,8 @@ try {
     res.browser.walkOn.keeps = keeps;
     check(on && keeps >= 1, "walking onto a loose ball: in close control with no key, its touches on", res.browser.walkOn);
   }
-  await begin({x: "-hx + 20", z: "0", yaw: LOOK, ball: "feet"}, LOOK);
-  {
+  if (part("ctl")){
+    await begin({x: "-hx + 20", z: "0", yaw: LOOK, ball: "feet"}, LOOK);
     await keys(["w"]); await run(40);
     const on0 = (await run(1))[0].on;
     // (Shift twice back to back, then held: the knock-on and the chase at a sprint. A double tap is measured on the wall
@@ -319,8 +335,8 @@ try {
     check(on0 && kn && !back, "Shift twice: close control ends ('knock'), and while you chase with Shift held you stay out of it", res.browser.knock);
     check(near > 0 && again && again.t - r2_[0].t <= 1, "on the ball with Shift held, then letting go of Shift: in close control again", res.browser.knock);
   }
-  await begin({x: "-hx + 20", z: "0", yaw: LOOK, ball: "feet"}, LOOK);
-  {
+  if (part("ctl")){
+    await begin({x: "-hx + 20", z: "0", yaw: LOOK, ball: "feet"}, LOOK);
     await run(40);
     const on0 = (await run(1))[0].on;
     await page.mouse.down({button: "middle"}); await run(8); await page.mouse.up({button: "middle"}); const r = await run(30);
@@ -331,5 +347,6 @@ try {
 } finally { await t.close(); }
 fs.mkdirSync(OUT, {recursive: true});
 fs.writeFileSync(path.join(OUT, "bcs-controls.json"), JSON.stringify(res, null, 1));
+fs.writeFileSync(path.join(OUT, "bcs-controls-legs.json"), JSON.stringify(legRows));
 console.log(res.errors.length ? `bcs-controls: ${res.errors.length} failed` : "bcs-controls: all checks pass");
 process.exit(res.errors.length ? 1 : 0);

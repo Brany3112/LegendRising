@@ -438,9 +438,9 @@ function updateTarget(h, f, i, rem, dt, force = false){
   if (sw.u >= .85 && sw.ok && !force) return;
   // (a far body, T2 and beyond, re-plans every other frame: its target eases toward the plan either way)
   if (sw.ok && !force && G.lod >= 2 && (G.tick & 1)) return;
-  if (sw.kind === "phase" || sw.kind === "stop"){ planLanding(h, f, i, rem, _pl); if (!G.over[i]) sideLand(h, f, i, _pl); }
+  if (sw.kind === "phase" || sw.kind === "stop"){ planLanding(h, f, i, rem, _pl); if (!G.over[i]) sideLand(h, f, i, _pl, rem); }
   // ((BCS) a step in place too: a quick turn on the spot put a foot down across the other)
-  else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; sideLand(h, f, i, _pl); }
+  else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; sideLand(h, f, i, _pl, 0); }
   if (!sw.ok || force){ sw.x1 = _pl.x; sw.z1 = _pl.z; sw.yaw1 = _pl.yaw; sw.roll1 = _pl.roll; sw.ok = true; }
   else {
     const k = 1 - Math.exp(-20*dt);
@@ -496,15 +496,21 @@ function swingAt(h, f, out){
     }
   }
   // ((BCS) round the other leg, never through it: SIDE_SWING out on its own side across the pelvis now, see sideLand;
-  // the other foot planted, from its footprint; in the air too (a run's flight), from where it is on its way)
+  // the other foot planted, from its footprint; in the air too (a run's flight), from where it is on its way (from
+  // its footprint as it leaves the ground: no jump as the other foot lifts), SIDE_SWING while the two pass each other
+  // and SIDE_AIR, its own side, once they are a stride apart along the way, SIDE_ALONG)
   const o = G.feet[f.s > 0 ? 1 : 0];
   if (G.pel === G.pel && G.style !== "shuffle"){
     // (eased in over the first of the swing too: a foot that left the ground on the wrong side is not snapped across)
     const w = sstep(0, .15, u)*(1 - sstep(SIDE_FADE[0], SIDE_FADE[1], u));
     if (w > 0){
-      let ox = o.x, oz = o.z;
-      if (!o.down && o.sw){ const ko = sH(o.sw.u); ox = o.sw.x0 + (o.sw.x1 - o.sw.x0)*ko; oz = o.sw.z0 + (o.sw.z1 - o.sw.z0)*ko; }
-      const lx = Math.cos(G.pel), lz = -Math.sin(G.pel), d = (x - ox)*lx + (z - oz)*lz, need = SIDE_SWING*sc;
+      let ox = o.x, oz = o.z, need = SIDE_SWING*sc;
+      const lx = Math.cos(G.pel), lz = -Math.sin(G.pel);
+      if (!o.down && o.sw){
+        const ko = sH(o.sw.u); ox = o.sw.x0 + (o.sw.x1 - o.sw.x0)*ko; oz = o.sw.z0 + (o.sw.z1 - o.sw.z0)*ko;
+        need = lerp(SIDE_SWING, SIDE_AIR, sstep(SIDE_ALONG[0]*sc, SIDE_ALONG[1]*sc, Math.abs((z - oz)*lx - (x - ox)*lz)))*sc;
+      }
+      const d = (x - ox)*lx + (z - oz)*lz;
       if (f.s*d < need){ const k = (f.s*need - d)*w; x += lx*k; z += lz*k; }
     }
   }
@@ -676,25 +682,62 @@ function feetYaw(G){ const a = footFwd(G.feet[0]), b = footFwd(G.feet[1]); retur
    on towards the body's facing by as much as the hips turn over a planted foot, PEL_LT1); the swing on its way keeps
    SIDE_SWING out on its side of the planted foot across the pelvis now, eased out over SIDE_FADE of the swing, where it
    comes straight down onto its landing (which is on its side already). The planted foot is not moved: only where the
-   free one goes */
-const SIDE_LAND = .15, SIDE_SWING = .14, SIDE_FADE = [.8, .97];
+   free one goes.
+   With the other foot in the air too (a run's flight, both feet up) the other foot's landing is no guide: it comes down
+   a stride later and a stride further on, and measured across a turning body from that far ahead a few degrees put the
+   landing half a metre out, beyond the leg's reach, and the foot slid in once down (43 mm in the user's turn). There the
+   landing is kept SIDE_AIR out on its own side of the body's own line where it comes down (the root at touchdown,
+   across the pelvis as it will be by then: pelvisYawAt); and the swing keeps SIDE_SWING from the other swinging foot
+   while the two pass each other, SIDE_AIR once they are a stride apart along the pelvis (SIDE_ALONG) */
+const SIDE_LAND = .15, SIDE_SWING = .14, SIDE_FADE = [.8, .97], SIDE_AIR = .06, SIDE_ALONG = [.25, .6];
+// the pelvis's yaw tl seconds on, as near as can be told: turning from where it is towards the body's facing (turned on
+// by the body's turn, at most 0.7 rad) and the hips' twist into the way of travel, at most PEL_RATE
+function pelvisYawAt(h, tl){
+  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7), p = G.pel === G.pel ? G.pel : ry;
+  return p + clamp(wrap(ry + G.twist - p), -PEL_RATE*tl, PEL_RATE*tl);
+}
 // the way the hips will face over planted foot o, tl seconds on (the body's turn carried on, at most 0.7 rad)
 function sideYaw(h, o, tl){
-  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7);
-  // (the other foot in the air too, a run's flight: the hips go where the body faces)
-  if (!o.down) return ry + G.twist;
-  const a = footFwd(o);
+  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7), a = footFwd(o);
   return a + clamp(wrap(ry + G.twist - a), -PEL_LT1, PEL_LT1);
 }
-// where the other foot is on the ground or will be (x, z into _so): planted, its footprint; in the air, its landing
-const _so = {x:0, z:0};
-function otherSpot(o){ if (o.down || !o.sw){ _so.x = o.x; _so.z = o.z; } else { _so.x = o.sw.x1; _so.z = o.sw.z1; } return _so; }
-// a landing out (x, z) for foot f (index i) moved out to its own side of the other foot, if it is not there
-function sideLand(h, f, i, out){
+/* ((BCS) and the hips never turn across a leg. Turning towards a foot that is planted ahead (the inside foot of a turn,
+   or of the plant of a reversal when it is that foot's turn to come down) a pelvis that turns with the body swings the
+   hips round past it: the foot, ahead and to its own side as it landed, ends up across the other side of the hips, the
+   legs crossed (A then D at a run: the right foot planted 0.15 m left of the hips' line). A real body's hips stay
+   square over the leg it stands on until that foot is off the ground, the chest and the head turning on ahead of
+   them. A swinging foot keeps its side by the swing's guard (swingAt); where neither foot can be moved, both planted,
+   or one planted and the other just off the ground or coming down onto its landing (the guard eased out, SIDE_FADE),
+   the pelvis's goal is kept to the yaws that leave the left foot at least SIDE_PEL left of the right across it (the
+   feet closer together than that allow any: standing square). Measured foot to foot, not each foot to the hips'
+   centre: a foot passing under the hips would have the pelvis flung round to put it on a side. Moving, not standing (a
+   turn on the spot steps the feet round, standStep) */
+const SIDE_PEL = .06;
+const _sh = [[0, 0], [0, 0]];
+function sideHips(h, goal){
+  const G = h.gait, m = SIDE_PEL*h.scale;
+  for (let i = 0; i < 2; i++){
+    const f = G.feet[i], p = _sh[i];
+    if (f.down){ p[0] = f.x; p[1] = f.z; continue; }
+    if (!f.sw || (f.sw.u > .15 && f.sw.u < SIDE_FADE[0])) return goal;
+    const k = sH(f.sw.u); p[0] = f.sw.x0 + (f.sw.x1 - f.sw.x0)*k; p[1] = f.sw.z0 + (f.sw.z1 - f.sw.z0)*k;
+  }
+  const vx = _sh[0][0] - _sh[1][0], vz = _sh[0][1] - _sh[1][1], r = Math.hypot(vx, vz);
+  if (r <= 1.5*m) return goal;
+  // (the left foot at way phi from the right one: on its left across a pelvis facing P while sin(phi - P) >= m/r, the
+  // yaws phi - 90 degrees, give or take 90 less asin(m/r))
+  const half = Math.PI/2 - Math.asin(m/r), e = wrap(Math.atan2(vx, vz) - Math.PI/2 - goal);
+  return goal + clamp(0, e - half, e + half);
+}
+// a landing out (x, z) for foot f (index i) moved out to its own side of the other foot, if it is not there (the other
+// foot in the air: of the body's line where it lands; rem: the root's way to go by then, as planLanding)
+function sideLand(h, f, i, out, rem){
   const G = h.gait, o = G.feet[1 - i];
   if (G.style === "shuffle") return out;
-  const sw = f.sw, Y = sideYaw(h, o, sw ? Math.max(0, sw.T - sw.t) : 0), lx = Math.cos(Y), lz = -Math.sin(Y), p = otherSpot(o);
-  const d = (out.x - p.x)*lx + (out.z - p.z)*lz, need = SIDE_LAND*h.scale;
+  const sw = f.sw, tl = sw ? Math.max(0, sw.T - sw.t) : 0, Y = o.down ? sideYaw(h, o, tl) : pelvisYawAt(h, tl), lx = Math.cos(Y), lz = -Math.sin(Y);
+  let px = o.x, pz = o.z, need = SIDE_LAND*h.scale;
+  if (!o.down){ const p = predict(G, rem); px = p.x; pz = p.z; need = SIDE_AIR*h.scale; }
+  const d = (out.x - px)*lx + (out.z - pz)*lz;
   if (f.s*d < need){ const k = f.s*need - d; out.x += lx*k; out.z += lz*k; }
   return out;
 }
@@ -725,6 +768,7 @@ function pelvisStep(h, dt){
   }
   let goal = want;
   if (sup === sup){ const e = wrap(want - sup); goal = sup + clamp(e, -lt, lt); }
+  if (G.state !== "STAND" && G.style !== "shuffle") goal = sideHips(h, goal);
   const d = wrap(goal - G.pel);
   G.pel = wrap(G.pel + clamp(d*(1 - Math.exp(-16*dt)), -PEL_RATE*dt, PEL_RATE*dt));
 }
