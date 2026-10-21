@@ -634,7 +634,7 @@ double LRBall::FRng::Gauss()
 	if (bHasSpare) { bHasSpare = false; return Spare; }
 	double U = Next();
 	while (U <= 1e-300) U = Next();
-	const double V = Next(), M = std::sqrt(-2 * LRDetMath::Log(U)), A = 2 * LRDetMath::PI * V;
+	const double V = Next(), M = std::sqrt(-2 * LRDetMath::Log(U)), A = 2 * LRDetMath::Pi * V;
 	Spare = M * LRDetMath::Sin(A);
 	bHasSpare = true;
 	return M * LRDetMath::Cos(A);

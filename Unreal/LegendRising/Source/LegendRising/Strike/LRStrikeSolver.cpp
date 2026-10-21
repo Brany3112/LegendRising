@@ -74,8 +74,8 @@ double LRStrike::YawOf(double Dx, double Dz) { return LRDetMath::Atan2(-Dx, -Dz)
 double LRStrike::WrapA(double A)
 {
 	// a = (a + PI) % (2*PI); return a < 0 ? a + PI : a - PI
-	A = std::fmod(A + LRDetMath::PI, 2 * LRDetMath::PI);
-	return A < 0 ? A + LRDetMath::PI : A - LRDetMath::PI;
+	A = std::fmod(A + LRDetMath::Pi, 2 * LRDetMath::Pi);
+	return A < 0 ? A + LRDetMath::Pi : A - LRDetMath::Pi;
 }
 
 bool LRStrike::IsShotKind(EKind K) { return K == EKind::Shot || K == EKind::Chip; }

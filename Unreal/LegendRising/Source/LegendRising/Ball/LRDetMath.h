@@ -18,8 +18,8 @@
 namespace LRDetMath
 {
 	// detmath.js line 30
-	constexpr double PI = 3.141592653589793;
-	constexpr double HALF_PI = 1.5707963267948966;
+	constexpr double Pi = 3.141592653589793;
+	constexpr double HalfPi = 1.5707963267948966;
 
 	// e^x (detmath.js expQ, lines 47-60)
 	LEGENDRISING_API double Exp(double X);

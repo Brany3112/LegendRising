@@ -236,8 +236,8 @@ double LRDetMath::Atan(double X)
 {
 	// atanQ, lines 196-214
 	if (X != X) return DM_NAN;
-	if (X == DM_INF) return HALF_PI;
-	if (X == -DM_INF) return -HALF_PI;
+	if (X == DM_INF) return HalfPi;
+	if (X == -DM_INF) return -HalfPi;
 	double A = std::fabs(X);
 	if (A < 7.450580596923828e-9) return X;
 	const bool bInv = A > 1;
@@ -250,7 +250,7 @@ double LRDetMath::Atan(double X)
 	double P = T[12];
 	for (int K = 11; K >= 1; K--) P = P * Z + T[K];
 	double Th = 4 * (A + A * Z * P);
-	if (bInv) Th = HALF_PI - Th;
+	if (bInv) Th = HalfPi - Th;
 	return X < 0 ? -Th : Th;
 }
 
@@ -261,16 +261,16 @@ double LRDetMath::Atan2(double Y, double X)
 	if (Y == 0)
 	{
 		if (X > 0 || (X == 0 && !std::signbit(X))) return Y;
-		return std::signbit(Y) ? -PI : PI;
+		return std::signbit(Y) ? -Pi : Pi;
 	}
-	if (X == 0) return Y > 0 ? HALF_PI : -HALF_PI;
-	if (X == DM_INF) return Y == DM_INF ? PI / 4 : Y == -DM_INF ? -PI / 4 : Y > 0 ? 0.0 : -0.0;
-	if (X == -DM_INF) return Y == DM_INF ? 3 * PI / 4 : Y == -DM_INF ? -3 * PI / 4 : Y > 0 ? PI : -PI;
-	if (Y == DM_INF) return HALF_PI;
-	if (Y == -DM_INF) return -HALF_PI;
+	if (X == 0) return Y > 0 ? HalfPi : -HalfPi;
+	if (X == DM_INF) return Y == DM_INF ? Pi / 4 : Y == -DM_INF ? -Pi / 4 : Y > 0 ? 0.0 : -0.0;
+	if (X == -DM_INF) return Y == DM_INF ? 3 * Pi / 4 : Y == -DM_INF ? -3 * Pi / 4 : Y > 0 ? Pi : -Pi;
+	if (Y == DM_INF) return HalfPi;
+	if (Y == -DM_INF) return -HalfPi;
 	const double T = Atan(std::fabs(Y / X));
 	if (X > 0) return Y > 0 ? T : -T;
-	return Y > 0 ? PI - T : T - PI;
+	return Y > 0 ? Pi - T : T - Pi;
 }
 
 double LRDetMath::Hypot(double A, double B) { return std::sqrt(A * A + B * B); }
