@@ -1,0 +1,14 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "",
+	"Description": "Legend Rising: the BCS football mechanics (movement, close control, ball, shot, flick) ported from the browser game",
+	"Modules": [
+		{ "Name": "LegendRising", "Type": "Runtime", "LoadingPhase": "Default" }
+	],
+	"Plugins": [
+		{ "Name": "EnhancedInput", "Enabled": true },
+		{ "Name": "PoseSearch", "Enabled": true },
+		{ "Name": "ControlRig", "Enabled": true }
+	]
+}
