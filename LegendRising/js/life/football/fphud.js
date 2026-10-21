@@ -13,7 +13,7 @@
      lower left    the stamina: a bright breath fill over the darker cap (the late match), faint while full, brighter
                    while it drains, a heartbeat when low; the energy line under it
      bottom right  the hints (a key and a verb, three at most; a key alone after five uses; H hides them): the shield
-                   (C) when a man is on you, the shoulder check (V), and why a press came to nothing (P2b-B)
+                   (C) when a man is on you, and why a press came to nothing (P2b-B)
      top centre    the scenario line; event cards (a goal, offside, a card) just under it
      edges         team-mates' calls (a chevron, or a tick at the edge when he is off screen), the ball when it is
                    off screen and near, the speed lines and the fatigue vignette

@@ -54,7 +54,7 @@ import {createMover, moverParams, moverStep, sprintSpeed} from "../mover.js";
 import {createStam, stamStep, stamFactors, effortOf} from "../stamina.js";
 import {viewInit, viewFrame, viewDispose, viewEvent, viewPreStep, fpPose, looksOf, viewPre, viewRing, viewRecv, makeFP} from "./view.js";
 import {ctrlShields} from "../core/keylock.js";
-import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, scanStep, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
+import {CTRL, SET, onSet, saveSet, controlInput, controlStep, controlReset, hintsFor, offsideHud, MOD, modKey, modded, KEYS, look, CN, RING_T, rhythmOf, FEEL, hitStopOf, windingShot} from "./control.js";
 import {camInit, camDispose, benchCam, benchClamp, camAction, camTrauma, cineShot, MC, FX, CAM} from "./matchcam.js";
 import {hudInit, hudFrame, hudNotice, hudClearCards, hudScenario, hudCall, hudOverlay, hudDispose, hudToggleHints, hudTab, hudShow, applySettings, settingsHTML, fmtVal, hudPop, hudSay, hudSayOff, hudCallMe} from "./fphud.js";
 import {WU, WARM, warmPlan, warmFrame, warmInput, warmPose, warmEye, warmIntent, warmView, warmHud, warmHints, warmDispose, warmDriving, warmDrilling, warmTP, warmMe,
@@ -658,7 +658,6 @@ function live(dt, real){
   }
   // your eye rides your agent between its last two steps
   mirror();
-  scanStep(dt);
   // the warm-up's boost comes off when its minutes are up (A1.8)
   warmBoostStep();
   // the phase of the match

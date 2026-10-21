@@ -73,10 +73,12 @@ const TOE_BACK = .105, FACE_BACK = .085, TOUCH_ROLL = .03, TOUCH_YAW = .6, TRACK
    turned into the way of travel) as they will face at the footfall, pushed out to there (the simulation plays such a
    ball with the other foot, actions.js footLat, so it is a few centimetres at most), and a foot only coming down beside
    the ball (no touch) puts its foot down where it would without one. Any carrier's step is kept on its own side too
-   (ownSide, by the simulation's carry weight: whether he has the ball at his feet, the carrier's gait or not), and a
+   (by the simulation's carry weight: whether he has the ball at his feet, the carrier's gait or not), and a
    swing passing the other foot (within PASS_W along it) keeps PASS_SEP out from it, let go of by the footfall: in a
    turn the hips came round faster than the feet and a swing went through the other leg, the ankles 5 cm apart and the
-   knees crossed. A touch's foot is turned in towards the other by TOUCH_IN at most (touchLanding) */
+   knees crossed. A touch's foot is turned in towards the other by TOUCH_IN at most (touchLanding). (Merged with BCS:
+   these margins live inside BCS's own guards, sideLand for the landing and swingAt's side guard for the swing, so one
+   guard decides each foot: the larger margin of the two, a touch's TOUCH_SEP where the foot meets its ball) */
 const TOUCH_SEP = .08, PASS_SEP = .12, PASS_W = [.15, .3], TOUCH_IN = .25, TOUCH_OUT = 1;
 // the running foot lands on the heel jogging, flat at a run and on the ball of the foot sprinting; a carrier's flat
 // (FC27: the clip's foot comes down nearly flat at every pace, TOUCH_ROLL; heel first, his short quick swing brought
@@ -159,7 +161,7 @@ export function gaitInit(h){
     accR:0, brakeW:NaN, closed:false, jockey:false, lastDx:0, lastDz:0, lastPivot:-1, mvA:NaN, phRate:NaN, rootX:NaN, rootZ:NaN,
     start:0, tick:0, turnN:0, shLead:0, vRaw0:NaN, want:"", lod:0, still:NaN, postIn:1, dt:0, iv:0, stopW:0,
     // (the pelvis's own yaw in the world, UF-A U1: it follows the feet, see pelvisStep)
-    pel:NaN,
+    pel:NaN, sideK:0,
     // ((FC27) the carrier: his carry weight and its share for the posture, each foot's planned touch, the head's nod)
     ck:0, cw:0, cg:0, tch:[newTch(), newTch()], nod:0};
   return h.gait;
@@ -308,14 +310,15 @@ function planLanding(h, f, i, rem, out){
   // body was up to a walk that it slid or the next step came off the ground before the other had landed)
   const v = G.start > 0 && f.sw && G.acc > 0 ? Math.min(G.vs + G.acc*Math.max(0, f.sw.T - f.sw.t), Math.max(G.vs, G.iv)) : G.vs;
   const ov = G.over[i];
+  out.tch = false;
   if (ov){ out.x = ov.x; out.z = ov.z; out.yaw = ov.yaw; out.roll = G.R > .5 ? -.05 : -.22; return out; }
   // ((FC27) a carrier's touch: the foot comes down with its face just behind the ball)
   const tq = G.tch[i];
   if (tq.on && f.sw && f.sw.kind === "phase" && G.cw > .3 && tq.t < Math.max(0, f.sw.T - f.sw.t) + .06){
-    // (across the other foot: a touch's is pushed out to its own side, updateTarget's ownSide; one that only comes down
-    // beside the ball is put down where it would be without one)
+    // (across the other foot: a touch's is pushed out to its own side, by TOUCH_SEP (updateTarget's sideLand, out.tch);
+    // one that only comes down beside the ball is put down where it would be without one)
     touchLanding(h, f, tq, out);
-    if (tq.touch || sideShort(h, f, i, out) <= 0) return out;
+    if (tq.touch || sideShort(h, f, i, out) <= 0){ out.tch = true; return out; }
   }
   // stopping: beside the rest point, square to the way the body faces
   if (G.final === i && G.rest){
@@ -517,21 +520,17 @@ function sideShort(h, f, i, p){
   SS_L.x = Math.cos(py)*f.s; SS_L.z = -Math.sin(py)*f.s;
   return TOUCH_SEP*h.scale - ((p.x - ox)*SS_L.x + (p.z - oz)*SS_L.z);
 }
-// ((FC27) a carrier's step put on its own side of the other foot, by w: see TOUCH_SEP)
-function ownSide(h, f, i, p, w){
-  const short = sideShort(h, f, i, p)*w;
-  if (short > 0){ p.x += SS_L.x*short; p.z += SS_L.z*short; }
-}
 // the swing's footprint target this frame (eased after the plan, frozen from u = .85)
-const _pl = {x:0, z:0, yaw:0, roll:0};
+const _pl = {x:0, z:0, yaw:0, roll:0, tch:false};
 function updateTarget(h, f, i, rem, dt, force = false){
   const sw = f.sw, G = h.gait;
   if (sw.u >= .85 && sw.ok && !force) return;
   // (a far body, T2 and beyond, re-plans every other frame: its target eases toward the plan either way)
   if (sw.ok && !force && G.lod >= 2 && (G.tick & 1)) return;
-  if (sw.kind === "phase" || sw.kind === "stop") planLanding(h, f, i, rem, _pl);
-  else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; }
-  if (sw.kind === "phase" && G.cg > 0) ownSide(h, f, i, _pl, G.cg);
+  // ((BCS, FC27) one guard for every landing: sideLand, the carrier's TOUCH_SEP inside it)
+  if (sw.kind === "phase" || sw.kind === "stop"){ planLanding(h, f, i, rem, _pl); if (!G.over[i]) sideLand(h, f, i, _pl, rem); }
+  // ((BCS) a step in place too: sidePivot)
+  else { _pl.x = sw.tx; _pl.z = sw.tz; _pl.yaw = sw.tyaw; _pl.roll = -.05; _pl.tch = false; sidePivot(h, f, i, _pl); }
   if (!sw.ok || force){ sw.x1 = _pl.x; sw.z1 = _pl.z; sw.yaw1 = _pl.yaw; sw.roll1 = _pl.roll; sw.ok = true; }
   else {
     const k = 1 - Math.exp(-20*dt);
@@ -591,16 +590,6 @@ function swingAt(h, f, out){
       if (w > 0){ x += (ex - sw.tbx*tau - x)*w; z += (ez - sw.tbz*tau - z)*w; }
     }
   }
-  // ((FC27) a carrier's swing passing the other foot keeps PASS_SEP out from it across the hips, let go of over the
-  // last of the swing: its landing is on its own side already, ownSide)
-  if (sw.kind === "phase" && G.cg > 0){
-    const o = G.feet[f.s > 0 ? 1 : 0];
-    if (o.down){
-      const py = G.pel === G.pel ? G.pel : h.g.rotation.y, lx = Math.cos(py), lz = -Math.sin(py), dx = x - o.x, dz = z - o.z;
-      const along = dx*Math.sin(py) + dz*Math.cos(py), short = PASS_SEP*sc*G.cg*(1 - sstep(PASS_W[0]*sc, PASS_W[1]*sc, Math.abs(along)))*(1 - sstep(.85, 1, u)) - (dx*lx + dz*lz)*s;
-      if (short > 0){ x += lx*s*short; z += lz*s*short; }
-    }
-  }
   // a dribble touch: through the ball at u = .7, still landing where it was going (a bump that is zero at both ends)
   const via = G.via[f.s > 0 ? 0 : 1];
   if (via && sw.kind === "phase"){
@@ -610,7 +599,44 @@ function swingAt(h, f, out){
       if (sw.vx === sw.vx){ x += sw.vx*m; z += sw.vz*m; y += (sw.vy || 0)*m; }
     }
   }
+  // ((BCS) round the other leg, never through it: SIDE_SWING out on its own side across the pelvis now, see sideLand;
+  // the other foot planted, from its footprint; in the air too (a run's flight), from where it is on its way (from
+  // its footprint as it leaves the ground: no jump as the other foot lifts), SIDE_SWING while the two pass each other
+  // and SIDE_AIR, its own side, once they are a stride apart along the way, SIDE_ALONG)
+  const o = G.feet[f.s > 0 ? 1 : 0];
+  if (G.pel === G.pel && G.style !== "shuffle"){
+    // (eased in over the first of the swing too: a foot that left the ground on the wrong side is not snapped across)
+    const w = sstep(0, .15, u)*(1 - sstep(SIDE_FADE[0], SIDE_FADE[1], u));
+    if (w > 0){
+      let ox = o.x, oz = o.z, need = SIDE_SWING*sc*sideK(G);
+      const lx = Math.cos(G.pel), lz = -Math.sin(G.pel);
+      if (!o.down && o.sw){
+        const ko = sH(o.sw.u); ox = o.sw.x0 + (o.sw.x1 - o.sw.x0)*ko; oz = o.sw.z0 + (o.sw.z1 - o.sw.z0)*ko;
+        need = lerp(SIDE_SWING, SIDE_AIR, sstep(SIDE_ALONG[0]*sc, SIDE_ALONG[1]*sc, Math.abs((z - oz)*lx - (x - ox)*lz)))*sc*sideK(G);
+      }
+      // ((FC27) a carrier's swing (G.cg) passing his planted foot, within PASS_W along it, PASS_SEP out on a straight
+      // too; a touch's swing coming on to its ball (TRACK_U) eased to TOUCH_SEP, its landing's own margin (sideLand))
+      else if (o.down && G.cg > 0 && sw.kind === "phase"){
+        const along = (x - ox)*Math.sin(G.pel) + (z - oz)*Math.cos(G.pel);
+        need = Math.max(need, PASS_SEP*sc*G.cg*(1 - sstep(PASS_W[0]*sc, PASS_W[1]*sc, Math.abs(along))));
+      }
+      if (sw.tk > 0) need = lerp(need, Math.min(need, TOUCH_SEP*sc), sstep(TRACK_U[0], TRACK_U[1], u)*sw.tk);
+      const d = (x - ox)*lx + (z - oz)*lz;
+      if (f.s*d < need){ const k = (f.s*need - d)*w; x += lx*k; z += lz*k; }
+    }
+  }
   out.yaw = sw.yaw0 + wrap(sw.yaw1 - sw.yaw0)*sstep(.1, .8, u);
+  // ((BCS) a swinging leg turned in (its toes towards the other leg, the knee with them: the knee's pole is the foot's
+  // way) by at most TOE_IN off the pelvis while it passes: after a big turn the feet come round a step at a time
+  // (0.35 rad a step running, LAND_LT at landing) and a foot left turned in 20 to 26 degrees brought its shin within
+  // 4 to 5 cm of the other one as they passed. Eased in off the ground and out onto the landing, which keeps its yaw.
+  // A step of the gait's own cycle or its stop only, turned in by less than a quarter turn, by at most TOE_MAX: a step in place
+  // turning the body round on the spot has its feet well off the pelvis on purpose, and turning one of those through
+  // most of a half turn wrung the thigh round 0.3 rad in a frame, tr2-startstop)
+  if (G.pel === G.pel && G.style !== "shuffle" && (sw.kind === "phase" || sw.kind === "stop")){
+    const wy = sstep(0, .2, u)*(1 - sstep(.7, .9, u)), tin = -f.s*wrap(out.yaw - G.pel);
+    if (wy > 0 && tin > TOE_IN && tin < Math.PI/2) out.yaw += f.s*Math.min(tin - TOE_IN, TOE_MAX)*wy;
+  }
   // the foot leaves pointed (toe-off), comes through with the toes up a little and reaches for its landing angle;
   // stepping backwards (P2-B, MV-13) the toes come up through the swing (the foot trails its toe behind it otherwise)
   // and point down only as it reaches back for the ball of the foot to land on
@@ -713,7 +739,7 @@ export function gaitStep(h, dt, st){
   // (FC27) the carrier: the owner's carry weight (the simulation's, eased as he takes the ball and lets it go) for the
   // clock's tables, its share by speed for the posture; each foot's planned touch (st.touch: one foot's at a time)
   G.ck = +st.carry > 0 ? Math.min(1, +st.carry) : 0;
-  // (and whether he has it at his feet at all, the simulation's own eased weight: his feet kept from crossing, ownSide)
+  // (and whether he has it at his feet at all, the simulation's own eased weight: his feet kept from crossing, sideLand and swingAt)
   G.cg = +st.keep > 0 ? Math.min(1, +st.keep) : G.ck;
   G.cw = G.ck*sstep(.4, 2, v/sc);
   const tq = st.touch;
@@ -782,6 +808,105 @@ const PEL_LT2 = .5, PEL_LT1 = .62, PEL_RATE = 9, PIV_RATE = 8, PIV_MAX = .6, PIV
 const footFwd = f => f.yaw - f.s*.06;
 // the mean way of the feet (both of them, down or not), for a pelvis put on them afresh
 function feetYaw(G){ const a = footFwd(G.feet[0]), b = footFwd(G.feet[1]); return a + wrap(b - a)/2; }
+/* (BCS) each foot on its own side (the user's turn of 2026-10-19: running at the camera and turning back to goal, the
+   outside foot came down across in front of the planted one and its swing went through that leg, the legs crossed like
+   scissors with the knees pointing different ways). A real player's free leg steps round to the new way beside the
+   planted one, never across it. Every landing is kept at least SIDE_LAND (body units, times the scale) out on its own
+   side of the planted foot, measured across the way the hips will face as it comes down (the planted foot's way turned
+   on towards the body's facing by as much as the hips turn over a planted foot, PEL_LT1); the swing on its way keeps
+   SIDE_SWING out on its side of the planted foot across the pelvis now, eased out over SIDE_FADE of the swing, where it
+   comes straight down onto its landing (which is on its side already). The planted foot is not moved: only where the
+   free one goes.
+   With the other foot in the air too (a run's flight, both feet up) the other foot's landing is no guide: it comes down
+   a stride later and a stride further on, and measured across a turning body from that far ahead a few degrees put the
+   landing half a metre out, beyond the leg's reach, and the foot slid in once down (43 mm in the user's turn). There the
+   landing is kept SIDE_AIR out on its own side of the body's own line where it comes down (the root at touchdown,
+   across the pelvis as it will be by then: pelvisYawAt); and the swing keeps SIDE_SWING from the other swinging foot
+   while the two pass each other, SIDE_AIR once they are a stride apart along the pelvis (SIDE_ALONG) */
+const SIDE_LAND = .15, SIDE_SWING = .14, SIDE_FADE = [.8, .97], SIDE_AIR = .06, SIDE_ALONG = [.25, .6], TOE_IN = .12, TOE_MAX = .5;
+// the margins in full while the body turns (SIDE_TURN rad/s of its own turn or its heading's, eased in) and for
+// SIDE_HOLD s after (the feet come round a step at a time behind it), SIDE_FLOOR of them on a straight: there the
+// gait's own footprints are on their sides already (a run's step 0.096 wide, a walk's 0.156, the swing's own bow out on
+// top) and are left as they were: a walk or a run in a line, the player's, the AI's or a passer-by's in the town, is
+// drawn as before. G.sideK, kept by pelvisStep
+const SIDE_TURN = [.5, 1.5], SIDE_FLOOR = .5, SIDE_HOLD = .5, SIDE_RISE = .15;
+const sideK = G => lerp(SIDE_FLOOR, 1, G.sideK || 0);
+// the pelvis's yaw tl seconds on, as near as can be told: turning from where it is towards the body's facing (turned on
+// by the body's turn, at most 0.7 rad) and the hips' twist into the way of travel, at most PEL_RATE
+function pelvisYawAt(h, tl){
+  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7), p = G.pel === G.pel ? G.pel : ry;
+  return p + clamp(wrap(ry + G.twist - p), -PEL_RATE*tl, PEL_RATE*tl);
+}
+// the way the hips will face over planted foot o, tl seconds on (the body's turn carried on, at most 0.7 rad)
+function sideYaw(h, o, tl){
+  const G = h.gait, ry = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7), a = footFwd(o);
+  return a + clamp(wrap(ry + G.twist - a), -PEL_LT1, PEL_LT1);
+}
+/* ((BCS) and the hips never turn across a leg. Turning towards a foot that is planted ahead (the inside foot of a turn,
+   or of the plant of a reversal when it is that foot's turn to come down) a pelvis that turns with the body swings the
+   hips round past it: the foot, ahead and to its own side as it landed, ends up across the other side of the hips, the
+   legs crossed (A then D at a run: the right foot planted 0.15 m left of the hips' line). A real body's hips stay
+   square over the leg it stands on until that foot is off the ground, the chest and the head turning on ahead of
+   them. A swinging foot keeps its side by the swing's guard (swingAt); where neither foot can be moved, both planted,
+   or one planted and the other just off the ground or coming down onto its landing (the guard eased out, SIDE_FADE),
+   the pelvis's goal is kept to the yaws that leave the left foot at least SIDE_PEL left of the right across it (the
+   feet closer together than that allow any: standing square). Measured foot to foot, not each foot to the hips'
+   centre: a foot passing under the hips would have the pelvis flung round to put it on a side. Moving, and on the spot
+   while the body turns (G.sideK: there the root stays put and a planted foot ends up in front of the hips once the
+   body has turned a third of a turn past it); not standing still */
+const SIDE_PEL = .06;
+const _sh = [[0, 0], [0, 0]];
+function sideHips(h, goal){
+  const G = h.gait, m = SIDE_PEL*h.scale;
+  for (let i = 0; i < 2; i++){
+    const f = G.feet[i], p = _sh[i];
+    if (f.down){ p[0] = f.x; p[1] = f.z; continue; }
+    if (!f.sw || (f.sw.u > .15 && f.sw.u < SIDE_FADE[0])) return goal;
+    const k = sH(f.sw.u); p[0] = f.sw.x0 + (f.sw.x1 - f.sw.x0)*k; p[1] = f.sw.z0 + (f.sw.z1 - f.sw.z0)*k;
+  }
+  const vx = _sh[0][0] - _sh[1][0], vz = _sh[0][1] - _sh[1][1], r = Math.hypot(vx, vz);
+  if (r <= 1.5*m) return goal;
+  // (the left foot at way phi from the right one: on its left across a pelvis facing P while sin(phi - P) >= m/r, the
+  // yaws phi - 90 degrees, give or take 90 less asin(m/r))
+  const half = Math.PI/2 - Math.asin(m/r), e = wrap(Math.atan2(vx, vz) - Math.PI/2 - goal);
+  return goal + clamp(0, e - half, e + half);
+}
+// a landing out (x, z) for foot f (index i) moved out to its own side of the other foot, if it is not there (the other
+// foot in the air: of the body's line where it lands; rem: the root's way to go by then, as planLanding).
+// ((BCS, FC27) the one landing guard for every body: a carrier's step (G.cg, the ball at his feet) at least TOUCH_SEP
+// out on a straight too, and a carrier's touch (out.tch: planLanding's touchLanding, its face behind the ball) TOUCH_SEP
+// out and no more, so the guard never takes the foot off the ball it plays: the simulation plays a ball across the
+// other foot with the other one, actions.js footLat)
+function sideLand(h, f, i, out, rem){
+  const G = h.gait, o = G.feet[1 - i];
+  if (G.style === "shuffle") return out;
+  const sw = f.sw, tl = sw ? Math.max(0, sw.T - sw.t) : 0, Y = o.down ? sideYaw(h, o, tl) : pelvisYawAt(h, tl), lx = Math.cos(Y), lz = -Math.sin(Y);
+  let px = o.x, pz = o.z, need = out.tch ? TOUCH_SEP*h.scale : Math.max(SIDE_LAND*sideK(G), TOUCH_SEP*(G.cg || 0))*h.scale;
+  if (!o.down){ const p = predict(G, rem); px = p.x; pz = p.z; need = SIDE_AIR*h.scale*sideK(G); }
+  const d = (out.x - px)*lx + (out.z - pz)*lz;
+  if (f.s*d < need){ const k = f.s*need - d; out.x += lx*k; out.z += lz*k; }
+  return out;
+}
+/* ((BCS) a step in place (pivotStep, a turn on the spot): the root stays put while the body turns, and a foot planted
+   to one side ends up in front of the hips, across them, once the body has turned a third of a turn past it (the
+   facing-the-camera stand turn: the right foot came down with the left one 0.06 m right of it, across the pelvis;
+   with this guard and sideHips they come down level at worst, never across: bcs-controls). The step is
+   kept SIDE_PIV out on its own side of the planted foot across the pelvis as it will be as it lands; only ever out to
+   its side or on round the way the body will face, never back against it (a step back on the way round is what
+   tr2-startstop's 180 degree start checks against) */
+const SIDE_PIV = .06;
+function sidePivot(h, f, i, out){
+  const G = h.gait, o = G.feet[1 - i];
+  if (G.style === "shuffle" || !o.down) return out;
+  const sw = f.sw, tl = sw ? Math.max(0, sw.T - sw.t) : 0, Y = pelvisYawAt(h, tl), lx = Math.cos(Y), lz = -Math.sin(Y);
+  const d = (out.x - o.x)*lx + (out.z - o.z)*lz, need = SIDE_PIV*h.scale;
+  if (f.s*d >= need) return out;
+  let kx = lx*(f.s*need - d), kz = lz*(f.s*need - d);
+  const fy = h.g.rotation.y + clamp(G.yawRate*tl, -.7, .7), fx = Math.sin(fy), fz = Math.cos(fy), back = kx*fx + kz*fz;
+  if (back < 0){ kx -= fx*back; kz -= fz*back; }
+  out.x += kx; out.z += kz;
+  return out;
+}
 // turn a planted foot by k (rad) about the point it stands on: the heel while it is rolled back onto it, else the ball
 function pivotFoot(h, f, k){
   // (the point it stands on: the heel rolled back onto it, the tips of the toes rolled on over them, else the ball)
@@ -794,6 +919,8 @@ function pelvisStep(h, dt){
   const G = h.gait, ry = h.g.rotation.y;
   if (G.pel !== G.pel) G.pel = ry;
   if (!(dt > 0)) return;
+  // ((BCS) how much the body is turning, for the side guards: sideK)
+  { const k = sstep(SIDE_TURN[0], SIDE_TURN[1], Math.max(Math.abs(G.yawRate), Math.abs(G.headRate))); G.sideK += clamp(k - G.sideK, -dt/SIDE_HOLD, dt/SIDE_RISE); }
   const want = ry + G.twist, f0 = G.feet[0], f1 = G.feet[1];
   let sup = NaN, lt = 0;
   if (f0.down && f1.down){ const a = footFwd(f0); sup = a + wrap(footFwd(f1) - a)/2; lt = PEL_LT2; }
@@ -809,6 +936,7 @@ function pelvisStep(h, dt){
   }
   let goal = want;
   if (sup === sup){ const e = wrap(want - sup); goal = sup + clamp(e, -lt, lt); }
+  if (G.style !== "shuffle" && (G.state !== "STAND" || G.sideK > .01)) goal = sideHips(h, goal);
   const d = wrap(goal - G.pel);
   G.pel = wrap(G.pel + clamp(d*(1 - Math.exp(-16*dt)), -PEL_RATE*dt, PEL_RATE*dt));
 }
@@ -841,7 +969,11 @@ function standStep(h, dt, v, intent){
   // dragged
   for (let i = 0; i < 2; i++){ const f = G.feet[i]; if (f.down && (f.miss || 0) > .004 && f.tDown > .05) return pivotStep(h, i, .28, 1, "settle"); }
   // the turn: the feet's mean yaw against the body's
-  const fy = G.feet[0].yaw + wrap(G.feet[1].yaw - G.feet[0].yaw)/2 - (G.feet[0].s*.06 + G.feet[1].s*.06)/2, dy = wrap(ry - fy), ady = Math.abs(dy);
+  const fy = G.feet[0].yaw + wrap(G.feet[1].yaw - G.feet[0].yaw)/2 - (G.feet[0].s*.06 + G.feet[1].s*.06)/2;
+  // ((BCS) about half a turn: the way the body is turning, as pivotTarget)
+  let dy = wrap(ry - fy);
+  if (Math.abs(G.yawRate) > 1 && Math.abs(dy) > 2 && Math.sign(dy) !== Math.sign(G.yawRate)) dy += Math.sign(G.yawRate)*TAU;
+  const ady = Math.abs(dy);
   // (and either foot on its own left turned well away from the body: the mean of two wrong feet can look right)
   const f0 = G.feet[0], f1 = G.feet[1], off = Math.max(Math.abs(wrap(ry + f0.s*.06 - f0.yaw)), Math.abs(wrap(ry + f1.s*.06 - f1.yaw)));
   G.pivotT = ady > .25 || off > .5 ? G.pivotT + dt : 0;
@@ -892,7 +1024,11 @@ function pivotStep(h, i, T, frac, kind = "pivot"){
 function pivotTarget(h, f){
   const G = h.gait, D = h.D, sc = h.scale, sw = f.sw;
   const ry = h.g.rotation.y + clamp(G.yawRate*(sw.T - sw.t)*.5, -.6, .6);
-  let yaw = sw.yawS + wrap(ry - sw.yawS + f.s*.06)*sw.frac;
+  // ((BCS) a turn of about half a turn goes on round the way the body is turning, never back the shorter way: past
+  // 180 degrees the shorter way flips, and the foot was sent round the wrong side, across the other one)
+  let dt0 = wrap(ry - sw.yawS + f.s*.06);
+  if (Math.abs(G.yawRate) > 1 && Math.abs(dt0) > 2 && Math.sign(dt0) !== Math.sign(G.yawRate)) dt0 += Math.sign(G.yawRate)*TAU;
+  let yaw = sw.yawS + dt0*sw.frac;
   // (UF-A, U1: a foot opens at most SPLAY from the one it turns over, as a hip turns out: a big turn on the spot is
   // several steps, the feet taking turns, rather than one foot swung right round in a single step)
   const o = G.feet[f.s > 0 ? 1 : 0];

@@ -27,7 +27,7 @@ import {onKick, onTouch, setCtl, clearCtl, foul, restartTaken} from "./rules.js"
 import {xgAt, decisionRecord} from "./judge.js";
 import {jumpHeight, raiseHand} from "./agent.js";
 import {jumpRoot} from "./gkplan.js";
-import {sprintSpeed} from "../mover.js";
+import {sprintSpeed, gaitSpeed} from "../mover.js";
 import {stepLen} from "../gaitcore.js";
 import {dirOf, yawOf, wrapA, inBox} from "./pitchspec.js";
 import {sin, cos, hypot, atan2, acos} from "./detmath.js";
@@ -920,7 +920,7 @@ function fakeStep(ms, a, act, h){
    your feet). No stat moves it off what was asked: Ball Control sets how fast the bar fills (control.js), Strength how
    high it goes. Its flight is the game's own ball (gravity, air, the spin of the touch): the launch is fitted on a copy
    of the ball flown through ball.js until it tops out and comes down where it should (flickLaunch). It ends close
-   control (run to it, F) */
+   control ((BCS) run to it: you are in it again once it is at your feet, unless you chase it on at a sprint) */
 export const FLICK = Object.freeze({TC: .2, WAIT: 1.8, REACH: .85, DUR: .7, SPIN: 12,
   H_PTS: Object.freeze([[0, .5], [33, 1.5], [55, 3], [99, 4.5]]), H_MAX: 5, D_K: .75, D_0: .5, KEEPY_D: .3});
 // the most a player's Strength can flick it up (the ball's middle at its top, m)
@@ -962,7 +962,9 @@ function flickLaunch(p, ux, uz, top, d, w, rd){
   return {vy, vh};
 }
 function startFlick(ms, a, rq){
-  ctlOff(a, 'flick');
+  // ((BCS) and the chase after it: out of close control until the ball has left your feet and you let go of Shift or
+  // slow below a run, keepStep AUTO; the first-time sombrero too)
+  ctlOff(a, 'flick'); a.ctlChase = true; a.ctlOut = false;
   const act = {kind: 'flick', t: 0, dur: FLICK.DUR + (rq.first ? FLICK.WAIT : 0), tc: rq.first ? -1 : FLICK.TC, p: clamp(+rq.p || .5, 0, 1), fwd: rq.fwd || 0, side: rq.side || 0,
     first: !!rq.first, done: false, f: dirOf(a.m.yaw)};
   a.act = act; a.state = 'kick';
@@ -1002,19 +1004,30 @@ function flickStep(ms, a, act, h){
   chainKeep(ms, a); onTouch(ms, a, 'dribble', ev); refreshPred(ms);
 }
 
-/* ---------- close control (USER-ISSUES U27), and the knock-on (U26) ----------
-   F (control.js) asks to take the ball into close control for TAKE.WIN s (a.takeT): as soon as it is within TAKE.REACH,
-   low and nobody else's, it is gathered with a touch and a.ctlOn is set. In close control the ball is kept on a spot
+/* ---------- close control (USER-ISSUES U27, BCS), and the knock-on (U26) ----------
+   (BCS) Close control is automatic for the player: no key takes it. Each step his controls run (control.js sets
+   a.intent.ctlAuto; the AI never does, and keepStep lets go of it each step) the ball is taken into it when it is his by
+   the race (ms.poss.ctl: a pass received, a loose ball he got to first, a 50/50 won, a ball he regained; never before
+   that, so a ball a team-mate or an opponent has is never taken and no duel is passed over), free, under TAKE.MAX_Y,
+   within AUTO.REACH, with nothing of his under way: it is gathered with a touch and a.ctlOn is set. Never a ball he has
+   just struck himself (a shot, a pass, a cross, a clearance, a header, a throw: AUTO.OWN_T s, and any other body's
+   touch since makes it fair), and not in the first AUTO.FIRST_T s after his own first touch (its push and its quality
+   play out first). After a knock-on or a flick (a.ctlChase) he stays out of it while he chases at a sprint (Shift held:
+   the strides' dribble plays it on at speed), and is in it again once the ball has left his feet and he lets go of
+   Shift or drops below AUTO.RUN_K of his run with the ball at his feet. In close control the ball is kept on a spot
    at your strong foot's side, CTL.LEAD (plus CTL.LV a m/s of your speed, CTL.LMAX at most) ahead along the way the keys take you, or in
    front of that foot standing still, at every pace: a sprint keeps it too. Whenever it would be more than CTL.TOL off
    that spot in CTL.T s, a real touch (at most every CTL.DT s, sooner on a turn) sends it there, rolling with the spin
    the contact gives; a turn is played with the side of the strong foot the turn needs (turning left, the ball's right
    side: the inside of a right foot, the outside of a left one; turning right, the other way round). It ends when anyone
    else has the ball (a tackle won, a poke, a foul, a deflection), when you start a kick or a tackle, when the ball is
-   out of reach, and with the knock-on: Shift tapped twice (a.intent.knock) knocks it KNOCK.D on along your way, to run
-   onto and take again with F */
-// (WIN: an F pressed while you chase a ball still a couple of strides off holds until you get there)
-export const TAKE = Object.freeze({REACH: 1.2, WIN: 2, MAX_Y: .5});
+   out of reach, with the knock-on: Shift tapped twice (a.intent.knock) knocks it KNOCK.D on along your way, to run
+   onto, and with the flick (the middle button) */
+// (TAKE: the reach and the height of a ball taken into close control; (BCS) AUTO: its automatic rules, above)
+export const TAKE = Object.freeze({REACH: 1.2, MAX_Y: .5});
+export const AUTO = Object.freeze({REACH: 1.2, OWN_T: 1, FIRST_T: .2, RUN_K: .9});
+// (BCS) the kinds of a ball he struck himself (ball.last.kind), never taken back into close control within AUTO.OWN_T s
+const STRUCK = new Set(['shot', 'pass', 'through', 'cross', 'lob', 'clear', 'roll', 'punt', 'header', 'throw', 'kick']);
 export const CTL = Object.freeze({LEAD: .3, LV: .05, LMAX: .5, SIDE: .35, LAT: .1, REACH: 1.25, TOL: .12, DT: .18, T: .3, TURN: 25*Math.PI/180, SPIN: 3,
   // ((FC27) standing with it, no key held: the ball rests STAND ahead, at the strong foot's toe: the clip's 0 to 0.2 m, between the feet)
   STAND: .22});
@@ -1028,7 +1041,10 @@ export function keepStep(ms, a, h){
   const mv = hypot(I.dx || 0, I.dz || 0) > 0.1;
   let ux, uz;
   if (mv){ const l = hypot(I.dx, I.dz); ux = I.dx/l; uz = I.dz/l; } else { const f = dirOf(a.m.yaw); ux = f.x; uz = f.z; }
-  // the ends of close control
+  // the ends of close control ((BCS) and it is the player's own: with the AI standing in for him (ms.meAI: a match
+  // played out headless, the harness) it ends at once, and so does the chase after a knock-on, the AI's own dribble
+  // carrying the ball. Taken by itself now, it was on whenever the AI took over from a player on the ball)
+  if (ms.meAI){ ctlOff(a, 'ai'); a.ctlChase = false; }
   if (a.ctlOn){
     if (ms.phase !== 'live') ctlOff(a, 'stop');
     else if (a.act && !a.act.done && a.act.kind !== 'header' && a.act.kind !== 'fake') ctlOff(a, a.act.kind);
@@ -1038,20 +1054,38 @@ export function keepStep(ms, a, h){
   // the knock-on (on a ball a stride's touch may just have played on: KNOCK.REACH)
   if (I.knock){
     I.knock = false;
-    if ((a.ctlOn || ms.poss.ctl === a.id) && ms.phase === 'live' && dist <= KNOCK.REACH*sc){ ctlOff(a, 'knock'); return knockOn(ms, a, ux, uz); }
+    // ((BCS) and the chase after it, out of close control: AUTO)
+    if ((a.ctlOn || ms.poss.ctl === a.id) && ms.phase === 'live' && dist <= KNOCK.REACH*sc){ ctlOff(a, 'knock'); a.ctlChase = true; a.ctlOut = false; return knockOn(ms, a, ux, uz); }
   }
-  // F: taking it, within TAKE.WIN s of the press
-  if (!a.ctlOn && a.takeT != null){
-    if (ms.t - a.takeT > TAKE.WIN) a.takeT = null;
-    else if (ms.phase === 'live' && b.state === 'free' && b.p.y < TAKE.MAX_Y && dist <= TAKE.REACH*sc && (ms.poss.ctl < 0 || ms.poss.ctl === a.id) && !(a.act && !a.act.done)){
-      a.takeT = null; a.ctlOn = true; a.ctlEnd = null; a.ctlDir = {x: ux, z: uz};
-      if (ms.poss.ctl !== a.id) setCtl(ms, a);
+  // (BCS) close control taken automatically (AUTO, above): the player's controls on this step, and nothing of his under way
+  const auto = !!I.ctlAuto && !ms.meAI;
+  I.ctlAuto = false;
+  if (!a.ctlOn && auto){
+    // the chase after a knock-on or a flick: over once the ball has left his feet and he lets go of Shift or drops
+    // below a run; at once when play stops or another body plays the ball
+    if (a.ctlChase){
+      if (dist > AUTO.REACH*sc || b.p.y > TAKE.MAX_Y) a.ctlOut = true;
+      if (ms.phase !== 'live' || (b.last.agent >= 0 && b.last.agent !== a.id) || (ms.poss.ctl >= 0 && ms.poss.ctl !== a.id)) a.ctlChase = false;
+      else if (a.ctlOut && (I.gait !== 'sprint' || a.m.speed < AUTO.RUN_K*gaitSpeed(a.prm, a.fac, 'run'))) a.ctlChase = false;
+    }
+    // (his own strike remembered when it was struck (a.ownT): a touch of his own on it since, the race giving it back
+    // to him once the kick's ghost is over, is still his own ball; another body's touch, or a deflection, frees it)
+    const L = b.last, own = L.agent === a.id && L.kind !== 'deflect';
+    if (own && STRUCK.has(L.kind)) a.ownT = L.t;
+    else if (!own) a.ownT = null;
+    const struck = own && a.ownT != null && ms.t - a.ownT < AUTO.OWN_T;
+    if (!a.ctlChase && ms.phase === 'live' && ms.poss.ctl === a.id && b.state === 'free' && b.p.y < TAKE.MAX_Y && dist <= AUTO.REACH*sc && !(a.act && !a.act.done) &&
+      !struck && !(own && L.kind === 'control' && ms.t - L.t < AUTO.FIRST_T)){
+      a.ctlOn = true; a.ctlEnd = null; a.ctlDir = {x: ux, z: uz};
+      // ((FC27) and the carry's first plan: the footfalls' touches from here, carryPlan)
       const r = ctlTouch(ms, a, ux, uz, true);
       carryPlan(ms, a);
       return r;
     }
   }
-  if (!a.ctlOn || (a.act && a.act.kind === 'fake')){ if (!a.ctlOn && ms.poss.ctl !== a.id) a.cplan.on = false; return false; }
+  // ((BCS) a shield's touches are its own, shieldStep: close control holds on but leaves the ball to it, and no
+  // footfall's touch is planned through it)
+  if (!a.ctlOn || (a.act && a.act.kind === 'fake') || (a.shield && a.shield.on)){ if ((!a.ctlOn && ms.poss.ctl !== a.id) || (a.shield && a.shield.on)) a.cplan.on = false; return false; }
   // (FC27) on the move the touches are the footfalls' (carryFoot); standing and turning on the spot, the spot's, and a
   // ball neither foot's next strike can play (behind him or out to his side: taken in from a pass, a loose ball or a
   // knock-on, carryPlan) the spot's too until it is in front of him
@@ -1095,7 +1129,7 @@ export const CARRY = Object.freeze({V_FOOT: 2.0, FWD: .5, CUT: 100*Math.PI/180, 
 // past CUT from the last touch's way (the ball is turned at once, as the spot's touches turn it); or stopping from
 // STOP_V (the next foot down puts its sole on it). Not a fake's drag
 function carryOn(a){
-  if (!a.ctlOn || (a.act && a.act.kind === 'fake')) return false;
+  if (!a.ctlOn || (a.act && a.act.kind === 'fake') || (a.shield && a.shield.on)) return false;
   const m = a.m, I = a.intent, l = hypot(I.dx || 0, I.dz || 0);
   if (l <= .1) return m.speed >= CARRY.STOP_V;
   if (m.speed < CARRY.V_FOOT) return false;

@@ -666,7 +666,6 @@ function frameItem(T, dt, real, hid = false){
   // your life bodies stay out of it (the view's first-person body is you here); they come back with your eyes
   if (ME.fp) ME.fp.g.visible = false;
   if (ME.tp) ME.tp.g.visible = false;
-  if (CT.scanStep) CT.scanStep(dt);
   if (!hid){
     try { hudOf(T, dt); } catch(e){ console.error(e); }
     // the small-sided game's scoreboard (the score, the time left) and the aura on the team-mate you look at

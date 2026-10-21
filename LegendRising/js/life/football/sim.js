@@ -550,8 +550,10 @@ function agentStep(ms, a, h){
     GQ[0] = dist; GQ[1] = m.speed; GQ[2] = a.scale || 1;
     const evs = phaseAdvanceQ(a.g, a.g.mode);
     if (evs.length && ms.poss.ctl === a.id && ms.phase === 'live') for (const e of evs) dribbleFoot(ms, a, e.side);
-    // (U27) close control (F toggles it on) and the knock-on (Shift twice): the player's only
-    if (a.ctlOn || a.takeT != null || a.intent.knock) keepStep(ms, a, h);
+    // (U27, BCS) close control (automatic for the player: his controls set intent.ctlAuto each step they run) and the
+    // knock-on (Shift twice): the player's only. (touchCheck, the race, runs after the bodies: a ball he receives this
+    // step is taken into close control from the next)
+    if (a.ctlOn || a.intent.ctlAuto || a.intent.knock) keepStep(ms, a, h);
   }
 }
 // (FC27) the carrier: the man the ball is with while it is free and at his feet (close control, or the strides'

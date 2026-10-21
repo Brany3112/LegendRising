@@ -1,7 +1,7 @@
 // qa/bcs-integ.mjs: BCS (the better control system), the carry and the shot together (fc27/carry and fc27/shot merged on
 // bcs/integ): a shot or a pass let go while carrying the ball in close control, and a fake while carrying.
 //
-//   The simulation (node, the att-carrier drill on a full pitch, the player's intents as control.js sets them, F taken
+//   The simulation (node, the att-carrier drill on a full pitch, the player's intents as control.js sets them, close control taken by itself
 //   and the ball carried on along +x at a capped run of 2.4, 3.2 and 4.4 m/s):
 //     BI-1 a shot or a pass let go on any step of a stride (24 releases a frame apart) is struck with no touch of his in
 //          between: neither the carry's footfall touch (planned for that footfall: keepStep ends close control only
@@ -53,13 +53,15 @@ function go(){
 function intent(me, on){
   const I = me.intent;
   I.dx = on ? 1 : 0; I.dz = 0; I.gait = "run"; I.speedCap = Infinity; I.strafe = false; I.knock = false;
+  // ((BCS) close control is automatic: your controls ran this step, keepStep takes a ball you are first to)
+  I.ctlAuto = true;
   I.face = I.face || {x: 0, z: 0}; const f = on ? {x: 1, z: 0} : fwdOf(me.m.yaw); I.face.x = f.x; I.face.z = f.z;
 }
-// F at the start, carried on at cap m/s (W held; o.stopAt: no key from then on); at tRel the action let go. Returns
+// close control taken by itself ((BCS) automatic), carried on at cap m/s (W held; o.stopAt: no key from then on); at tRel the action let go. Returns
 // his touches after it (before the kick, and after the act's end), the kick, the act as it began, how close control ended
 function carryAndAct(o){
   const {ms, me} = go();
-  me.takeT = ms.t; me.prm.run = o.cap;
+  me.prm.run = o.cap;
   let rel = -1, actEnd = null;
   const out = {before: [], after: [], kick: null, act: null, ctlEnd: null};
   for (let k = 0; k < Math.round((o.tRel + (o.kind === "fake" ? 3.5 : 1.2))/H); k++){
@@ -151,7 +153,7 @@ if (!SIM_ONLY){
         P.yaw = me.m.yaw; P.pitch = -.1;
         if (o.cap) me.prm.run = o.cap;
         CT.walk = !!o.walk; CT.held.w = true;
-        L.stepN(4); me.takeT = ms.t;
+        L.stepN(4);
         for (let i = 0; i < (o.carry || 90); i++) L.stepN(1);
         const frames = [], ctl0 = !!me.ctlOn, v0 = +me.m.speed.toFixed(3);
         let prevQ = null, ev0 = ms.events.length, rel = -1;

@@ -682,7 +682,7 @@ const C = v => canon(v, new Set(), 0);
    history per step and the aim points. Not in it: what the controls work out afresh every step from the play (ctx,
    resolve), the times of the last presses (lmbT, rmbT: wall clock), the last strike's shape (ret.kind, wind.side), and
    what the device has learnt (uses, tipAsked, tipFS: the hints' counts, kept on purpose) */
-const CTRL_RESET = ["lmb", "rmb", "queue", "charge", "scan", "rHeld", "jockey", "shield", "note", "ring", "eHeld", "acro", "lastShotT", "gx", "gy", "gi", "hy", "hp", "aim", "ground"];
+const CTRL_RESET = ["lmb", "rmb", "queue", "charge", "wish", "rHeld", "jockey", "shield", "note", "ring", "eHeld", "acro", "lastShotT", "gx", "gy", "gi", "hy", "hp", "aim", "ground"];
 const pick = (o, keys) => { const r = {}; for (const k of keys) r[k] = o ? o[k] : undefined; return r; };
 export function digestState(){
   const run = RUN.cur; if (!run || !run.T) return null;

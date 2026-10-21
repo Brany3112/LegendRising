@@ -79,14 +79,15 @@ function go(o = {}){
 function intent(me, dx, dz, gait){
   const I = me.intent, l = Math.hypot(dx, dz);
   I.dx = l ? dx/l : 0; I.dz = l ? dz/l : 0; I.gait = gait; I.speedCap = Infinity; I.strafe = false; I.knock = false;
+  // ((BCS) close control is automatic: your controls ran this step, keepStep takes a ball you are first to)
+  I.ctlAuto = true;
   if (me.ctlOn && gait === "sprint"){ const k = Math.min(.97, Math.max(.8, .85 + .1*((me.at.dribbling || 50) - 50)/40)); I.speedCap = k*me.prm.sprint; }
   I.face = I.face || {x: 0, z: 0}; const f = l ? {x: dx/l, z: dz/l} : fwdOf(me.m.yaw); I.face.x = f.x; I.face.z = f.z;
 }
 /* a run: way(t) the keys' way (null: none), gait; per step the footfalls, the touches (with the ball's speed the step
-   after), the ball against the body. F pressed at the start */
+   after), the ball against the body. Close control taken by itself ((BCS) automatic, intent.ctlAuto) */
 function run(o){
   const {ms, me} = go(o);
-  me.takeT = ms.t;
   const rows = [], touches = [], falls = [];
   const n = Math.round(o.T/H);
   let ev0 = ms.events.length, pend = null;
@@ -150,8 +151,8 @@ for (const [name, gait, cap] of [["jog", "run", 4.4], ["run", "run", null], ["sp
   S.gait = G;
   check(G.every(g => g.spm >= 300 && g.spm <= 450 && g.step >= .6 && g.step <= .9 && g.duty >= .38 && g.duty <= .5 && g.swing >= .13 && g.swing <= .2),
     "CC-3: carrying at 4 to 6 m/s, 300 to 450 steps a minute, 0.6 to 0.9 m a step, duty 0.38 to 0.50, swings of 0.13 to 0.20 s", G);
-  // no ball: the run's own table (the ball taken off before F is pressed)
-  const R = run({T: 4, way: fwd, gait: "run", before: (ms, me, k) => { if (k === 0){ ms.ball.p.x = 40; ms.ball.p.z = 30; me.takeT = null; } }});
+  // no ball: the run's own table (the ball taken off before close control could take it)
+  const R = run({T: 4, way: fwd, gait: "run", before: (ms, me, k) => { if (k === 0){ ms.ball.p.x = 40; ms.ball.p.z = 30; } }});
   const F = R.falls.filter(f => f.t > 1.5), iv = []; for (let i = 1; i < F.length; i++) iv.push(F[i].t - F[i - 1].t);
   const v = mean(R.rows.filter(r => r.t > 1.5).map(r => r.v)), want = 60*v/stepLen(v, "R"), got = 60/mean(iv);
   S.noBall = {v: r2(v), spm: Math.round(got), table: Math.round(want), ck: R.me.g.ck};
@@ -249,7 +250,6 @@ if (!SIM_ONLY){
         if (!ball){ ms.ball.p.x = me.m.x - 30; ms.ball.p.z = 10; ms.poss.ctl = -1; }
         C.CTRL.held.w = true;
         L.stepN(6);
-        if (ball) me.takeT = ms.t;
         // (the foot bones' turn a frame: their world orientations, what is seen)
         const FB = [B.ftL, B.ftR, B.toL, B.toR], prevQ = FB.map(bi => h.bones[bi].getWorldQuaternion(new Q())), qw = new Q(), out = [];
         let ev0 = ms.events.length;
@@ -291,7 +291,7 @@ if (!SIM_ONLY){
         const plan = {left60: [[Y + 60*D, {w: 1}], [Y + 60*D, {w: 1}]], right60: [[Y - 60*D, {w: 1}], [Y - 60*D, {w: 1}]], back135: [[Y + Math.PI, {w: 1, d: 1}], [Y + Math.PI, {w: 1}]]}[kind];
         const keys = k => { K.w = !!k.w; K.a = !!k.a; K.d = !!k.d; };
         me.prm.run = 4.4;
-        K.w = true; L.stepN(2); me.takeT = ms.t;
+        K.w = true; L.stepN(2);
         const out = []; let ev0 = ms.events.length;
         for (let f = 0; f < 150; f++){
           if (f === 40){ P.yaw = plan[0][0]; keys(plan[0][1]); }
